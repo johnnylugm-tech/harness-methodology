@@ -33,11 +33,11 @@ _HC_REF_CEILING = {
     "check_cmds.py": 0,    # S4e — fully de-borrowed (was 95)
     "_shared.py": 0,
     "cr_cmds.py": 0,
-    "fr_cmds.py": 2,       # S4f (was 73 → … → S4e 16)
-    "gate_cmds.py": 5,     # S4b (was 53 → S1 8)
+    "fr_cmds.py": 0,       # S4h — fully de-borrowed (was 73)
+    "gate_cmds.py": 0,     # S4h — fully de-borrowed (was 53)
     "phase_cmds.py": 0,    # S4g — fully de-borrowed (was 81)
     "project_cmds.py": 0,  # S4e — fully de-borrowed (was 68)
-    "push_cmds.py": 5,     # S4g (was 39 → S1 7 → S4b 6)
+    "push_cmds.py": 0,     # S4h — fully de-borrowed (was 39)
 }
 
 _HC_REF = re.compile(r"\b_hc\.")

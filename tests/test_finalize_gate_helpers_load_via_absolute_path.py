@@ -149,7 +149,7 @@ class TestRegressionAnchor:
     the diff."""
 
     def test_design_intent_bug_a_inline_docstring_present(self):
-        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        cli_src = (HARNESS_REPO / "cli" / "gate_cmds.py").read_text(encoding="utf-8")
         assert "Bug fix P6-2026-07-07" in cli_src
         assert "cwd-relative" in cli_src, \
             "must name the failure mode so a future reader recognises it"
@@ -165,7 +165,7 @@ class TestRegressionAnchor:
         a revert that drops the docstring makes the path-bug regression
         silently come back. The literal substring anchors the design contract.
         """
-        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        cli_src = (HARNESS_REPO / "cli" / "gate_cmds.py").read_text(encoding="utf-8")
         assert "A1-2026-07-07" in cli_src, \
             "A1 docstring MUST persist in harness_cli.py at module scope"
         project_src = (
@@ -282,7 +282,7 @@ class TestA1_ThreeSitesInvokeSameHelper:
             1 for line in loader_src.splitlines()
             if line.startswith("def load_harness_script(")
         ) == 1, "script_loader.py must hold the single definition"
-        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        cli_src = (HARNESS_REPO / "cli" / "gate_cmds.py").read_text(encoding="utf-8")
         assert "def load_harness_script(" not in cli_src, (
             "harness_cli.py must only re-export load_harness_script, not define it"
         )

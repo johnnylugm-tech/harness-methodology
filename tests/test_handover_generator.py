@@ -809,7 +809,7 @@ class TestCmdPushMilestone:
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         monkeypatch.setattr("sys.exit", lambda code: code)
-        monkeypatch.setattr("harness_cli._make_git", lambda args, project: GitStrategy(project, enabled=False))
+        monkeypatch.setattr("cli._shared._make_git", lambda args, project: GitStrategy(project, enabled=False))
         try:
             exit_code = cmd_push_milestone(a)  # type: ignore[reportArgumentType]
         except SystemExit as e:
@@ -1928,7 +1928,7 @@ class TestFinalizeGate1:
         (_sentinel_dir / f"g{gate}_p{phase}_{_sentinel_key}.flag").write_text("test")
 
         # Disable git ops
-        monkeypatch.setattr("harness_cli._make_git",
+        monkeypatch.setattr("cli._shared._make_git",
                             lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(project, enabled=False))
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1969,7 +1969,7 @@ class TestFinalizeGate1:
             {"state": "ACTIVE", "current_phase": 3}
         ))
 
-        monkeypatch.setattr("harness_cli._make_git",
+        monkeypatch.setattr("cli._shared._make_git",
                             lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(project, enabled=False))
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -2047,7 +2047,7 @@ class TestFinalizeGate1:
         import io
         from harness_cli import cmd_finalize_gate
         monkeypatch.setattr(
-            "harness_cli._make_git",
+            "cli._shared._make_git",
             lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(
                 project, enabled=False),
         )
@@ -2126,13 +2126,13 @@ class TestGate4Prerequisites:
 
     def test_all_prerequisites_met_not_blocked(self, tmp_path):
         """When all prerequisites are satisfied, returns False (not blocked)."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         assert _check_gate4_prerequisites(project)[0] is False
 
     def test_missing_hermes_receipt_not_blocked(self, tmp_path):
         """Hermes receipt is no longer required (A1 removed) — Gate 4 proceeds without it."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         # Receipt file is never created — A1 check removed, missing receipt must NOT block
         assert not (project / ".methodology" / "hermes_g4_receipt.json").exists()
@@ -2142,7 +2142,7 @@ class TestGate4Prerequisites:
         """A2 accepts Claude for all dims — model name is no longer restricted."""
         import copy as _copy
         import json as _json
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
@@ -2155,7 +2155,7 @@ class TestGate4Prerequisites:
         """Tier 3 dim without devil_advocate=True blocks (A3)."""
         import copy as _copy
         import json as _json
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
@@ -2167,7 +2167,7 @@ class TestGate4Prerequisites:
         """A4 removed: a project with NO high_score_confirmations is not blocked."""
         import copy as _copy
         import json as _json
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
@@ -2179,7 +2179,7 @@ class TestGate4Prerequisites:
         """A3 hardened: devil_advocate=true without devil_advocate_evidence → blocked."""
         import copy as _copy
         import json as _json
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
@@ -2191,7 +2191,7 @@ class TestGate4Prerequisites:
         """A3: placeholder/too-short challenge text is rejected."""
         import copy as _copy
         import json as _json
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
@@ -2203,7 +2203,7 @@ class TestGate4Prerequisites:
         """da_waiver only takes effect when artifact-backed; missing evidence → blocked."""
         import copy as _copy
         import json as _json
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         result_file = project / ".sessi-work" / "gate4_result.json"
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
@@ -2216,14 +2216,14 @@ class TestGate4Prerequisites:
 
     def test_missing_issue_registry_no_longer_blocks(self, tmp_path):
         """A5 is advisory now — a missing issue_registry file does NOT block Gate 4."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         (project / ".methodology" / "issue_registry.json").unlink()
         assert _check_gate4_prerequisites(project)[0] is False
 
     def test_empty_scores_dir_blocked(self, tmp_path):
         """Empty per-dim scores directory blocks (B2)."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         for f in (project / ".sessi-work" / "round_1" / "scores").glob("*.json"):
             f.unlink()
@@ -2232,7 +2232,7 @@ class TestGate4Prerequisites:
     def test_missing_scores_dir_blocked(self, tmp_path):
         """Missing scores directory blocks (B2)."""
         import shutil as _shutil
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         _shutil.rmtree(project / ".sessi-work" / "round_1" / "scores")
         assert _check_gate4_prerequisites(project)[0] is True

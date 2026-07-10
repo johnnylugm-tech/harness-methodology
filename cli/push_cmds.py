@@ -1,10 +1,9 @@
 """Checkpoint/milestone push commands (push-checkpoint, push-milestone).
 
-Extracted verbatim from harness_cli.py (方案六). Free names that live
-in harness_cli resolve through `_hc.` at call time, so existing
-monkeypatches on harness_cli attributes keep working. harness_cli
-re-exports these cmd_* names, so `from harness_cli import cmd_x`
-imports are unaffected.
+Extracted verbatim from harness_cli.py (方案六); helpers moved home in
+絞殺者續章 S4 — this module no longer imports harness_cli (all
+dependencies are direct stdlib/core/harness imports). harness_cli still
+re-exports the cmd_* names, so `from harness_cli import cmd_x` works.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from pathlib import Path
 from cli import _shared
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path
 from core.phase_topology import ENTRY_GATE_MAP
-import harness_cli as _hc
 
 
 def cmd_push_checkpoint(args: argparse.Namespace) -> int:
@@ -38,7 +36,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     # Note: if fr_ids is empty here, GitStrategy.commit_and_push_p1/p2 will
     # auto-detect from SRS.md — no need to block here.
 
-    git = _hc._make_git(args, project)
+    git = _shared._make_git(args, project)
     git.ensure_gitignore()
     phase = args.phase
     if phase not in (1, 2):
@@ -142,7 +140,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     if ok:
         # Post-push self-check: warn loudly on dirty residue. Push itself
         # succeeded — the dirt is post-commit residue. Don't fail-fast.
-        _dirty = _hc._post_push_self_check(project)
+        _dirty = _shared._post_push_self_check(project)
         if _dirty:
             print(
                 f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"
@@ -185,7 +183,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
       python harness_cli.py push-milestone --type p5-baseline --project .
     """
     project = Path(args.project).resolve()
-    git = _hc._make_git(args, project)
+    git = _shared._make_git(args, project)
     git.ensure_gitignore()
     if getattr(args, "dry_run", False):
         print(f"[dry-run] push-milestone --type {args.type} would: write HANDOVER.md + "
@@ -364,7 +362,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     if ok:
         # Post-push self-check: warn loudly on dirty residue. The push itself
         # succeeded — the dirt is post-commit residue. Don't fail-fast.
-        _dirty = _hc._post_push_self_check(project)
+        _dirty = _shared._post_push_self_check(project)
         if _dirty:
             print(
                 f"  [WARN] post-push dirty tree ({len(_dirty)} path(s)):\n"

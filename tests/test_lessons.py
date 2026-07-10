@@ -133,7 +133,7 @@ _REPO = Path(__file__).resolve().parent.parent
 
 
 def test_gate_block_capture_is_wired_into_finalize_gate() -> None:
-    src = (_REPO / "harness_cli.py").read_text(encoding="utf-8")
+    src = (_REPO / "cli" / "gate_cmds.py").read_text(encoding="utf-8")
     assert "record_gate_block" in src, (
         "gate-block lesson capture unwired from finalize-gate — the closed loop "
         "no longer learns from blocks"

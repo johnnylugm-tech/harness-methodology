@@ -7,6 +7,7 @@ single family module. This module must never import harness_cli.
 
 from __future__ import annotations
 
+import argparse
 import json
 import warnings
 from pathlib import Path
@@ -315,3 +316,47 @@ def _validate_p3_post_gate2_precondition(
         )
 
     return errors
+
+
+# --- git strategy + post-push probe (moved from harness_cli, S4h) ---
+
+def _post_push_self_check(project: Path) -> list[str]:
+    """List dirty/untracked paths after a push (read-only, no modification).
+
+    Bug class (post-28864f7): any post-push dirtiness (state.json mid-write
+    residue, attestation.latest.json drift, HANDOVER.md half-flushed, etc.)
+    leaves the working tree dirty. The caller should WARN loudly but NOT
+    fail-fast — the push itself succeeded; the dirt is residue from the same
+    atomic_write_json fsync that landed in the commit.
+
+    Best-effort: if the probe fails (no git, non-zero rc, exception), return
+    []. The probe is a diagnostic aid, never a gate.
+    """
+    import subprocess as _sp
+    try:
+        _r = _sp.run(
+            ["git", "-C", str(project), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        return []
+    if _r.returncode != 0:
+        return []
+    # porcelain lines: " XY path" or "?? path" — split off the 2-char status
+    # prefix and the optional space.
+    out: list[str] = []
+    for _line in _r.stdout.splitlines():
+        if len(_line) > 3:
+            out.append(_line[3:].strip())
+    return out
+
+def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
+    """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast.
+
+    Git is disabled if either --no-git or --dry-run is set. --dry-run is the
+    preferred safety flag for push-milestone (Bug #112) — it prevents accidental
+    origin pollution when exercising the command during bug hunts.
+    """
+    from harness.git_strategy import GitStrategy
+    no_git = getattr(args, "no_git", False) or getattr(args, "dry_run", False)
+    return GitStrategy(project=project, enabled=not no_git)

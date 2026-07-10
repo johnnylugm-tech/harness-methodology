@@ -15,6 +15,8 @@ import io
 from core.quality_gate import gate1_evidence
 
 import harness_cli as _hc_entry  # noqa: F401  entry-first before cli imports
+from cli.gate_cmds import _cmd_finalize_gate_impl, _fr_source_files_from_imports  # noqa: E402
+from cli._shared import _post_push_self_check  # noqa: E402
 from cli.fr_cmds import (  # noqa: E402
     _build_fr_step_prompt,
     _compute_fr_spec_data,
@@ -1678,7 +1680,6 @@ class TestPushCheckpointAgentBGate:
     def test_commit_message_no_longer_says_human_review(self, tmp_path, monkeypatch):
         """Commit notes must NOT say 'human review' (gates moved to advance-phase)."""
         from harness_cli import cmd_push_checkpoint
-        import harness_cli
 
         commit_calls: list[dict] = []
         class _FakeGit:
@@ -1687,7 +1688,7 @@ class TestPushCheckpointAgentBGate:
                 commit_calls.append(kw)
                 return True
 
-        monkeypatch.setattr(harness_cli, "_make_git", lambda *_, **__: _FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_, **__: _FakeGit())
 
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="FR-01",
@@ -2176,7 +2177,7 @@ class TestAdvancePreChecksAgentB:
         )
         monkeypatch.setattr("shutil.which", lambda cmd: True)
         monkeypatch.setattr(
-            "harness_cli.subprocess.run",
+            "subprocess.run",
             lambda cmd, **kw: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
         )
         # Gate-1 FR coverage and mutmut not exercised by these tests
@@ -2333,7 +2334,6 @@ class TestFrSourceFilesFromImports:
 
     def test_from_import_matches_module_file(self, tmp_path):
         """from foo.bar import Baz → matches foo/bar.py."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.joinpath("foo").mkdir(parents=True)
@@ -2343,14 +2343,13 @@ class TestFrSourceFilesFromImports:
         test_file = test / "test_fr01.py"
         test_file.write_text("from foo.bar import Baz\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         assert result == ["src/foo/bar.py"]
 
     def test_direct_import_matches_module_file(self, tmp_path):
         """import foo.bar → matches foo/bar.py."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.joinpath("foo").mkdir(parents=True)
@@ -2360,14 +2359,13 @@ class TestFrSourceFilesFromImports:
         test_file = test / "test_fr01.py"
         test_file.write_text("import foo.bar\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         assert result == ["src/foo/bar.py"]
 
     def test_stdlib_only_returns_empty(self, tmp_path):
         """Test file with only stdlib imports → returns [] (fallback)."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.mkdir()
@@ -2377,27 +2375,25 @@ class TestFrSourceFilesFromImports:
         test_file = test / "test_fr01.py"
         test_file.write_text("import os\nimport sys\nfrom pathlib import Path\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         assert result == []
 
     def test_missing_test_file_returns_empty(self, tmp_path):
         """Test file doesn't exist → returns []."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.mkdir()
         src.joinpath("dummy.py").write_text("x = 1", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/nonexistent.py", "src"
         )
         assert result == []
 
     def test_syntax_error_returns_empty(self, tmp_path):
         """Unparseable test file → returns []."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.mkdir()
@@ -2407,14 +2403,13 @@ class TestFrSourceFilesFromImports:
         test_file = test / "test_fr01.py"
         test_file.write_text("this is not valid python {{{{{\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         assert result == []
 
     def test_mixed_imports_match_multiple_files(self, tmp_path):
         """from foo.bar import Baz + import foo.baz → matches both source files."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.joinpath("foo").mkdir(parents=True)
@@ -2427,14 +2422,13 @@ class TestFrSourceFilesFromImports:
             "from foo.bar import Baz\nimport foo.baz\n", encoding="utf-8"
         )
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         assert sorted(result) == ["src/foo/bar.py", "src/foo/baz.py"]
 
     def test_init_py_excluded(self, tmp_path):
         """__init__.py files are excluded even when the package is imported."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.joinpath("foo").mkdir(parents=True)
@@ -2445,7 +2439,7 @@ class TestFrSourceFilesFromImports:
         test_file = test / "test_fr01.py"
         test_file.write_text("import foo\nfrom foo.bar import Baz\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         # foo/__init__.py should be excluded; only foo/bar.py should match
@@ -2453,14 +2447,13 @@ class TestFrSourceFilesFromImports:
 
     def test_missing_src_dir_returns_empty(self, tmp_path):
         """src_dir doesn't exist → returns []."""
-        import harness_cli
 
         test = tmp_path / "tests"
         test.mkdir()
         test_file = test / "test_fr01.py"
         test_file.write_text("from foo.bar import Baz\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "nonexistent_src"
         )
         assert result == []
@@ -2468,7 +2461,6 @@ class TestFrSourceFilesFromImports:
     def test_from_import_with_alias_subpath_match(self, tmp_path):
         """from foo.bar import BazClass adds foo.bar.BazClass, which startswith-match
         module foo.bar → correctly finds foo/bar.py."""
-        import harness_cli
 
         src = tmp_path / "src"
         src.joinpath("foo").mkdir(parents=True)
@@ -2478,7 +2470,7 @@ class TestFrSourceFilesFromImports:
         test_file = test / "test_fr01.py"
         test_file.write_text("from foo.bar import BazClass\n", encoding="utf-8")
 
-        result = harness_cli._fr_source_files_from_imports(
+        result = _fr_source_files_from_imports(
             tmp_path, "tests/test_fr01.py", "src"
         )
         assert result == ["src/foo/bar.py"]
@@ -3660,7 +3652,6 @@ class TestInitProjectRootWrapper:
         monkeypatch.setattr(_projc, "_harness_workflow_template", lambda: "# ci\n")
         # S1: cmd_init_project (cli/project_cmds) binds atomic_write_json
         # directly from core.atomic_io — patch its namespace, not just hc's.
-        monkeypatch.setattr(hc, "atomic_write_json", lambda _p, _d: None)
         monkeypatch.setattr(_projc, "atomic_write_json", lambda _p, _d: None)
 
         args = argparse.Namespace(
@@ -3772,7 +3763,7 @@ class TestGate4DaWaiverThresholdCheck:
 
     def _make_g4(self, dim: str, tool_score: float, threshold: float | None) -> dict:
         """Minimal gate4_result.json satisfying all A3 checks for one waived dim."""
-        from harness_cli import _TIER3_DIMS
+        from cli.gate_cmds import _TIER3_DIMS
 
         devil_advocate = {d: True for d in _TIER3_DIMS}
         evidence = {
@@ -3790,7 +3781,7 @@ class TestGate4DaWaiverThresholdCheck:
         }
 
     def _run(self, tmp_path: Path, g4: dict) -> tuple[bool, set]:
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
 
         sessi = tmp_path / ".sessi-work"
         sessi.mkdir(parents=True, exist_ok=True)
@@ -3877,7 +3868,7 @@ class TestGate3DaWaiverCollection:
         return g3
 
     def _run(self, tmp_path: Path, g3: "dict | None") -> tuple[bool, set]:
-        from harness_cli import _collect_da_waivers
+        from cli.gate_cmds import _collect_da_waivers
 
         if g3 is not None:
             sessi = tmp_path / ".sessi-work"
@@ -3933,7 +3924,7 @@ class TestGate3DaWaiverCollection:
 
     def test_gate4_reader_ignores_gate3_file(self, tmp_path):
         """_collect_da_waivers(project, 4) must not pick up gate3_result.json."""
-        from harness_cli import _collect_da_waivers
+        from cli.gate_cmds import _collect_da_waivers
         sessi = tmp_path / ".sessi-work"
         sessi.mkdir(parents=True, exist_ok=True)
         (sessi / "gate3_result.json").write_text(
@@ -3966,7 +3957,6 @@ class TestFinalizeGatePersistCompositeScore:
         harness_score: float = 97.1288,
         src_json_text: str | None = None,
     ) -> int:
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         # Write the source gate result (agent-assessed) to .sessi-work/
@@ -3984,10 +3974,10 @@ class TestFinalizeGatePersistCompositeScore:
         (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
 
         # Stub out all heavyweight helpers
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
@@ -4000,7 +3990,7 @@ class TestFinalizeGatePersistCompositeScore:
             def commit_fr_gate1(self, *_a): return True
             def commit_and_push_gate(self, *_a): return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
         class FakeBridge:
             def prepare_gate(self, **_):
@@ -4026,7 +4016,7 @@ class TestFinalizeGatePersistCompositeScore:
             phase=phase,
             fr_id=None,
         )
-        return hc._cmd_finalize_gate_impl(args)
+        return _cmd_finalize_gate_impl(args)
 
     def test_composite_score_patched_with_harness_score(self, tmp_path, monkeypatch):
         """Persisted gate result must carry the harness-computed score, not agent's."""
@@ -4078,7 +4068,6 @@ class TestFinalizeGateManifestPatch:
         initial_manifest: dict,
         harness_score: float = 88.5,
     ) -> tuple[int, dict]:
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -4091,10 +4080,10 @@ class TestFinalizeGateManifestPatch:
         manifest_path = meth / "quality_manifest.json"
         manifest_path.write_text(json.dumps(initial_manifest), encoding="utf-8")
 
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
@@ -4105,7 +4094,7 @@ class TestFinalizeGateManifestPatch:
             def commit_fr_gate1(self, *_a): return True
             def commit_and_push_gate(self, *_a): return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
         # Stub PhaseHooks so gate≥2 post-flight structural checks pass
         import core.phase_hooks as ph_mod
@@ -4139,7 +4128,7 @@ class TestFinalizeGateManifestPatch:
         args = argparse.Namespace(
             project=str(tmp_path), gate=gate, phase=phase, fr_id=fr_id,
         )
-        rc = hc._cmd_finalize_gate_impl(args)
+        rc = _cmd_finalize_gate_impl(args)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         return rc, manifest
 
@@ -4194,8 +4183,7 @@ class TestFinalizeGateManifestPatch:
             return original(path, data, **kw)
 
         monkeypatch.setattr(aio, "atomic_write_json", spy)
-        import harness_cli as hc
-        monkeypatch.setattr(hc, "atomic_write_json", spy)
+        monkeypatch.setattr("cli.gate_cmds.atomic_write_json", spy)
 
         initial = {"fr_ids": ["FR-01"], "gate_results": {"gate2": None}}
         self._run(
@@ -4232,7 +4220,6 @@ class TestFinalizeGateCommitFailureRollback:
         post_push_calls: list | None = None,
         harness_score: float = 96.6,
     ) -> tuple[int, dict]:
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -4245,16 +4232,15 @@ class TestFinalizeGateCommitFailureRollback:
         manifest_path = meth / "quality_manifest.json"
         manifest_path.write_text(json.dumps(initial_manifest), encoding="utf-8")
 
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
-        monkeypatch.setattr(
-            hc, "_post_push_self_check",
+        monkeypatch.setattr("cli._shared._post_push_self_check",
             lambda _p: (post_push_calls.append(1) if post_push_calls is not None else None) or [],
         )
 
@@ -4263,7 +4249,7 @@ class TestFinalizeGateCommitFailureRollback:
             def commit_fr_gate1(self, *_a): return commit_ok
             def commit_and_push_gate(self, *_a): return commit_ok
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
         # Stub PhaseHooks so gate≥2 post-flight structural checks pass
         import core.phase_hooks as ph_mod
@@ -4297,7 +4283,7 @@ class TestFinalizeGateCommitFailureRollback:
         args = argparse.Namespace(
             project=str(tmp_path), gate=gate, phase=phase, fr_id=fr_id,
         )
-        rc = hc._cmd_finalize_gate_impl(args)
+        rc = _cmd_finalize_gate_impl(args)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         return rc, manifest
 
@@ -4361,7 +4347,6 @@ class TestFinalizeGateNoneDimVariance:
     """
 
     def _run_with_dims(self, tmp_path, monkeypatch, dims):
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -4376,10 +4361,10 @@ class TestFinalizeGateNoneDimVariance:
             encoding="utf-8",
         )
 
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda _a, _p: None)
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
@@ -4389,7 +4374,7 @@ class TestFinalizeGateNoneDimVariance:
             def ensure_gitignore(self): pass
             def commit_fr_gate1(self, *_a): return True
             def commit_and_push_gate(self, *_a): return True
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
         class FakeBridge:
             def prepare_gate(self, **_): return object()
@@ -4405,7 +4390,7 @@ class TestFinalizeGateNoneDimVariance:
         args = argparse.Namespace(
             project=str(tmp_path), gate=1, phase=3, fr_id="FR-01",
         )
-        return hc._cmd_finalize_gate_impl(args)
+        return _cmd_finalize_gate_impl(args)
 
     def test_none_scored_dim_does_not_crash_finalize(self, tmp_path, monkeypatch):
         """A None-scored dim must be skipped, not crash pstdev/sum (split-write)."""
@@ -6179,7 +6164,7 @@ class TestPushMilestoneDryRun:
 
     def test_dry_run_disables_git(self, tmp_path, monkeypatch):
         """When --dry-run is set, GitStrategy must be constructed with enabled=False."""
-        from harness_cli import _make_git
+        from cli._shared import _make_git
         captured = {"enabled": None}
         class FakeGit:
             def __init__(self, project, enabled):
@@ -6193,7 +6178,7 @@ class TestPushMilestoneDryRun:
         assert captured["enabled"] is False
 
     def test_dry_run_false_keeps_git_enabled(self, tmp_path, monkeypatch):
-        from harness_cli import _make_git
+        from cli._shared import _make_git
         captured = {"enabled": None}
         class FakeGit:
             def __init__(self, project, enabled):
@@ -6354,7 +6339,7 @@ class TestSabModuleAlignmentCheck:
         )
 
     def test_skips_when_gate_not_1(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, [])
         src = tmp_path / "src"
         src.mkdir()
@@ -6362,19 +6347,19 @@ class TestSabModuleAlignmentCheck:
         assert _check_sab_module_alignment(str(tmp_path), gate=2) is None
 
     def test_skips_when_no_sab_json(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         src = tmp_path / "src"
         src.mkdir()
         (src / "app.py").write_text("x = 1")
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
 
     def test_skips_when_no_src_dir(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, [])
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
 
     def test_blocks_on_unregistered_module(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, [])  # no modules registered
         src = tmp_path / "src"
         src.mkdir()
@@ -6382,7 +6367,7 @@ class TestSabModuleAlignmentCheck:
         assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
 
     def test_passes_when_all_modules_registered(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["app"])
         src = tmp_path / "src"
         src.mkdir()
@@ -6390,7 +6375,7 @@ class TestSabModuleAlignmentCheck:
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
 
     def test_skips_init_files(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, [])  # no modules registered
         src = tmp_path / "src"
         src.mkdir()
@@ -6398,7 +6383,7 @@ class TestSabModuleAlignmentCheck:
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
 
     def test_prefers_03_development_src(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, [])
         dev_src = tmp_path / "03-development" / "src"
         dev_src.mkdir(parents=True)
@@ -6409,7 +6394,7 @@ class TestSabModuleAlignmentCheck:
         assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
 
     def test_nested_module_path(self, tmp_path):
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["core.utils"])
         src = tmp_path / "src"
         (src / "core").mkdir(parents=True)
@@ -6423,7 +6408,7 @@ class TestSabModuleAlignmentCheck:
         notation. Regression: prior to the fix, every module was reported as
         unregistered because path-format SAB entries never intersected with
         dotted-format actual module names."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(
             tmp_path,
             [
@@ -6443,7 +6428,7 @@ class TestSabModuleAlignmentCheck:
     def test_sab_path_notation_detects_unregistered(self, tmp_path):
         """Path-notation SAB listing must still detect unregistered modules —
         mixing SAB paths with new actual files should block Gate 1."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["03-development/src/taskq/cli.py"])
         src = tmp_path / "03-development" / "src" / "taskq"
         src.mkdir(parents=True)
@@ -6454,7 +6439,7 @@ class TestSabModuleAlignmentCheck:
     def test_sab_mixed_dotted_and_path(self, tmp_path):
         """SAB entries may mix dotted and path notations in different layers;
         both must normalise to the same set."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         (tmp_path / ".methodology").mkdir(exist_ok=True)
         sab_data = {
             "layers": [
@@ -6513,7 +6498,7 @@ class TestSabPhantomPerFrScoping:
 
     def test_phantom_blocks_without_fr_id(self, tmp_path):
         """fr_id=None preserves original unscoped (global) behavior."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
         self._make_src(tmp_path, "taskq.cli")  # taskq.cache missing
         assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
@@ -6521,7 +6506,7 @@ class TestSabPhantomPerFrScoping:
     def test_phantom_not_owned_by_current_fr_is_skipped(self, tmp_path):
         """Reproduces the P3 FR-01 false positive: FR-01 gated first, FR-04's
         module legitimately doesn't exist yet — must NOT block FR-01."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
         self._make_src(tmp_path, "taskq.cli")  # taskq.cache (FR-04) not built yet
         self._make_manifest(
@@ -6533,7 +6518,7 @@ class TestSabPhantomPerFrScoping:
 
     def test_phantom_owned_by_current_fr_still_blocks(self, tmp_path):
         """A module the FR BEING GATED owns is still its own responsibility."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli"])
         self._make_src(tmp_path)  # taskq.cli itself missing
         self._make_manifest(
@@ -6546,7 +6531,7 @@ class TestSabPhantomPerFrScoping:
     def test_phantom_owned_by_already_passed_fr_still_blocks(self, tmp_path):
         """A module owned by an FR that already passed Gate 1 going missing
         is a real regression, not a sequencing artifact — must still block."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
         self._make_src(tmp_path, "taskq.cli")  # taskq.cache (FR-04, already PASS) missing
         self._make_manifest(
@@ -6564,7 +6549,7 @@ class TestSabPhantomPerFrScoping:
         missing SAB module is preflight_sab_check (phase_hooks.py:341), which
         is unconditional and phase-gated at P4 entry, independent of
         fr_module_traceability."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.config"])
         self._make_src(tmp_path, "taskq.cli")  # taskq.config never traced to any FR
         self._make_manifest(
@@ -6577,7 +6562,7 @@ class TestSabPhantomPerFrScoping:
     def test_phantom_manifest_unreadable_falls_back_to_unscoped(self, tmp_path):
         """No quality_manifest.json at all — can't determine ownership, stay
         conservative and block (same as fr_id=None)."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
         self._make_src(tmp_path, "taskq.cli")
         # no manifest written at all
@@ -6586,7 +6571,7 @@ class TestSabPhantomPerFrScoping:
     def test_phantom_list_traceability_entry(self, tmp_path):
         """fr_module_traceability entries may be list[str] (an FR owning
         multiple modules), not just str — ownership lookup must handle both."""
-        from harness_cli import _check_sab_module_alignment
+        from cli.gate_cmds import _check_sab_module_alignment
         self._make_sab(tmp_path, ["taskq.cli", "taskq.store"])
         self._make_src(tmp_path)  # both missing
         self._make_manifest(
@@ -6625,7 +6610,7 @@ class TestPrintFrScopedOverridesPy:
         return tmp_path
 
     def test_uses_fr_module_traceability_when_present(self, tmp_path, capsys):
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": "taskq.cache"},
@@ -6646,7 +6631,7 @@ class TestPrintFrScopedOverridesPy:
         """No ``fr_module_traceability`` → fall back to import-based detection
         (preserves backward compatibility for projects that never declared
         the trace)."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {"quality_targets": {"min_coverage": 80}}
         _print_fr_scoped_overrides_py(
@@ -6664,7 +6649,7 @@ class TestPrintFrScopedOverridesPy:
         """If fr_module_traceability points to a file that does not exist
         (e.g. stale trace after refactor), fall back to imports rather than
         reporting an empty scope."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": "taskq.deleted_module"},
@@ -6684,7 +6669,7 @@ class TestPrintFrScopedOverridesPy:
         """fr_trace='.' (or '..') previously raised ValueError from
         Path.with_suffix() and aborted the entire Gate 1 run. A malformed
         trace must now warn and fall back to import-based detection."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": "."},
@@ -6707,7 +6692,7 @@ class TestPrintFrScopedOverridesPy:
 
     def test_does_not_crash_on_double_dot_trace(self, tmp_path, capsys, recwarn):
         """Same protection for '..' trace."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": ".."},
@@ -6726,7 +6711,7 @@ class TestPrintFrScopedOverridesPy:
     def test_does_not_crash_on_traversal_segment_trace(self, tmp_path, capsys, recwarn):
         """A trace containing '..' as a path segment (e.g. 'taskq/../sub')
         must be rejected before any path is constructed."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": "taskq/../outside"},
@@ -6745,7 +6730,7 @@ class TestPrintFrScopedOverridesPy:
     def test_warns_on_non_string_trace(self, tmp_path, capsys, recwarn):
         """Non-string fr_trace (int, dict, etc.) must warn and fall back
         to imports rather than silently ignoring the schema violation."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": 42},
@@ -6765,7 +6750,7 @@ class TestPrintFrScopedOverridesPy:
 
     def test_accepts_list_of_traces(self, tmp_path, capsys, recwarn):
         """fr_trace may also be list[str] (multiple owned modules)."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": ["taskq.cache", "taskq.cli"]},
@@ -6786,7 +6771,7 @@ class TestPrintFrScopedOverridesPy:
     def test_list_with_non_string_emits_warning(self, tmp_path, capsys, recwarn):
         """A list containing non-string entries warns and processes only
         the valid strings."""
-        from harness_cli import _print_fr_scoped_overrides_py
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
             "fr_module_traceability": {"FR-04": ["taskq.cache", 42, None]},
@@ -7175,11 +7160,11 @@ class TestPushMilestoneStateJsonWriteBeforePush:
                 call_order.append("commit_and_push_p8")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a, **_k: FakeGit())
         # bypass p8 preflight (we don't have real artifacts)
         monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: [])
 
-        _orig_atomic = hc.atomic_write_json
+        from core.atomic_io import atomic_write_json as _orig_atomic
 
         def _spy(path, data, **_kw):
             if Path(path).name == "state.json":
@@ -7189,7 +7174,6 @@ class TestPushMilestoneStateJsonWriteBeforePush:
         # S1: push commands (cli/push_cmds) bind atomic_write_json directly
         # from core.atomic_io — patch both namespaces with the same spy.
         from cli import push_cmds as _pushc
-        monkeypatch.setattr(hc, "atomic_write_json", _spy)
         monkeypatch.setattr(_pushc, "atomic_write_json", _spy)
         return call_order, state_path, hc
 
@@ -7248,7 +7232,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
             def commit_and_push_p8(self):
                 raise AssertionError("commit_and_push_p8 must not be called on preflight failure")
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a, **_k: FakeGit())
         monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: ["missing artifact"])
 
         args = argparse.Namespace(
@@ -7286,7 +7270,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
             def commit_and_push_p8(self):
                 return False
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a, **_k: FakeGit())
         monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: [])
 
         args = argparse.Namespace(
@@ -7342,9 +7326,9 @@ class TestPushCheckpointStateJsonWriteBeforePush:
                 call_order.append("commit_and_push_p1")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a, **_k: FakeGit())
 
-        _orig_atomic = hc.atomic_write_json
+        from core.atomic_io import atomic_write_json as _orig_atomic
 
         def _spy(path, data, **_kw):
             if Path(path).name == "state.json":
@@ -7353,7 +7337,6 @@ class TestPushCheckpointStateJsonWriteBeforePush:
 
         # S1: cli/push_cmds binds atomic_write_json directly — patch both.
         from cli import push_cmds as _pushc
-        monkeypatch.setattr(hc, "atomic_write_json", _spy)
         monkeypatch.setattr(_pushc, "atomic_write_json", _spy)
 
         args = argparse.Namespace(
@@ -7396,7 +7379,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
                 call_order.append("commit_and_push_p1")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a, **_k: FakeGit())
 
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="",
@@ -7441,7 +7424,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
             def commit_and_push_p1(self, **_kw):
                 return False
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a, **_k: FakeGit())
 
         args = argparse.Namespace(
             project=str(tmp_path), phase=1, fr_ids="FR-01",
@@ -7463,7 +7446,6 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
     """
 
     def _run_with_spy(self, tmp_path, monkeypatch, gate=4, phase=6):
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -7479,11 +7461,11 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
             json.dumps({"gate_results": {}}), encoding="utf-8"
         )
 
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda *_a: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda *_a: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
-        monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites", lambda *_a: (False, set()))
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
@@ -7516,7 +7498,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
                 call_order.append("commit_and_push_gate")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
         class FakeBridge:
             def prepare_gate(self, **_): return object()
@@ -7530,14 +7512,14 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         import harness.harness_bridge as hb
         monkeypatch.setattr(hb, "HarnessBridge", FakeBridge)
 
-        _orig_atomic = hc.atomic_write_json
+        from core.atomic_io import atomic_write_json as _orig_atomic
 
         def _spy(path, data, **_kw):
             if Path(path).name == "state.json":
                 call_order.append("atomic_write_json(state.json)")
             _orig_atomic(path, data)
 
-        monkeypatch.setattr(hc, "atomic_write_json", _spy)
+        monkeypatch.setattr("cli.gate_cmds.atomic_write_json", _spy)
 
         # capture raw write_text calls on state.json
         raw_writes: list[str] = []
@@ -7553,7 +7535,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         args = argparse.Namespace(
             project=str(tmp_path), gate=gate, phase=phase, fr_id=None,
         )
-        rc = hc._cmd_finalize_gate_impl(args)
+        rc = _cmd_finalize_gate_impl(args)
         return rc, call_order, raw_writes, state_path
 
     def test_gate4_state_json_written_before_commit_and_push_gate(self, tmp_path, monkeypatch):
@@ -7581,7 +7563,6 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         )
 
     def test_skip_when_state_json_missing(self, tmp_path, monkeypatch):
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -7595,11 +7576,11 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         )
         # NOTE: state.json intentionally NOT created
 
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda *_a: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda *_a: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
-        monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites", lambda *_a: (False, set()))
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
@@ -7631,7 +7612,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
                 call_order.append("commit_and_push_gate")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
         class FakeBridge:
             def prepare_gate(self, **_): return object()
@@ -7648,7 +7629,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         args = argparse.Namespace(
             project=str(tmp_path), gate=4, phase=6, fr_id=None,
         )
-        rc = hc._cmd_finalize_gate_impl(args)
+        rc = _cmd_finalize_gate_impl(args)
         assert rc == 0
         # push still happened; audit write was skipped (no state.json to write)
         assert "commit_and_push_gate" in call_order
@@ -7669,46 +7650,41 @@ class TestPostPushSelfCheck:
     """Unit tests for the `_post_push_self_check(project)` helper."""
 
     def test_clean_when_status_empty(self, tmp_path, monkeypatch):
-        import harness_cli as hc
         fake_result = mock.Mock(returncode=0, stdout="")
         monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
-        assert hc._post_push_self_check(tmp_path) == []
+        assert _post_push_self_check(tmp_path) == []
 
     def test_returns_modified_paths(self, tmp_path, monkeypatch):
-        import harness_cli as hc
         fake_result = mock.Mock(
             returncode=0,
             stdout=" M .methodology/state.json\n M .methodology/HANDOVER.md\n",
         )
         monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
-        out = hc._post_push_self_check(tmp_path)
+        out = _post_push_self_check(tmp_path)
         assert out == [
             ".methodology/state.json",
             ".methodology/HANDOVER.md",
         ]
 
     def test_returns_untracked_paths(self, tmp_path, monkeypatch):
-        import harness_cli as hc
         fake_result = mock.Mock(
             returncode=0, stdout="?? new_file.py\n?? docs/scratch.md\n",
         )
         monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
-        out = hc._post_push_self_check(tmp_path)
+        out = _post_push_self_check(tmp_path)
         assert out == ["new_file.py", "docs/scratch.md"]
 
     def test_handles_subprocess_failure(self, tmp_path, monkeypatch):
-        import harness_cli as hc
 
         def _raise(*_a, **_kw):
             raise OSError("git not found")
         monkeypatch.setattr(subprocess, "run", _raise)
-        assert hc._post_push_self_check(tmp_path) == []  # best-effort
+        assert _post_push_self_check(tmp_path) == []  # best-effort
 
     def test_handles_nonzero_returncode(self, tmp_path, monkeypatch):
-        import harness_cli as hc
         fake_result = mock.Mock(returncode=128, stdout="fatal: not a git repo")
         monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
-        assert hc._post_push_self_check(tmp_path) == []
+        assert _post_push_self_check(tmp_path) == []
 
 
 class TestAdvanceFsmPreservesExistingStateFields:
@@ -7805,12 +7781,11 @@ class TestPushMilestonePostPushDirtyWarn:
                 call_order.append("commit_and_push_p8")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
         # Bypass P8 pre-flight validation — needs real .methodology-archive.
         monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: [])
         # Stub the new helper so the test does NOT need a real git repo.
-        monkeypatch.setattr(
-            hc, "_post_push_self_check",
+        monkeypatch.setattr("cli._shared._post_push_self_check",
             lambda _p: list(dirty_paths),
         )
         return call_order
@@ -7864,9 +7839,8 @@ class TestPushCheckpointPostPushDirtyWarn:
                 call_order.append("commit_and_push_p1")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
-        monkeypatch.setattr(
-            hc, "_post_push_self_check",
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._post_push_self_check",
             lambda _p: list(dirty_paths),
         )
 
@@ -7919,7 +7893,6 @@ class TestFinalizeGate4PostPushDirtyWarn:
     post-push tree is dirty."""
 
     def _setup(self, tmp_path, monkeypatch, dirty_paths):
-        import harness_cli as hc
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -7936,12 +7909,12 @@ class TestFinalizeGate4PostPushDirtyWarn:
             json.dumps({"gate_results": {}}), encoding="utf-8",
         )
 
-        monkeypatch.setattr(hc, "_finalize_gate_preflight", lambda *_a: None)
-        monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda *_a: None)
-        monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
-        monkeypatch.setattr(hc, "_check_gate4_prerequisites",
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda *_a: None)
+        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites",
                             lambda *_a: (False, set()))
-        monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
+        monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
@@ -7968,9 +7941,8 @@ class TestFinalizeGate4PostPushDirtyWarn:
                 call_order.append("commit_and_push_gate")
                 return True
 
-        monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
-        monkeypatch.setattr(
-            hc, "_post_push_self_check",
+        monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
+        monkeypatch.setattr("cli._shared._post_push_self_check",
             lambda _p: list(dirty_paths),
         )
 
@@ -7988,7 +7960,6 @@ class TestFinalizeGate4PostPushDirtyWarn:
         return call_order
 
     def test_warns_on_post_push_dirty(self, tmp_path, monkeypatch, capsys):
-        import harness_cli as hc
         call_order = self._setup(
             tmp_path, monkeypatch,
             dirty_paths=[".methodology/quality_manifest.json"],
@@ -7996,7 +7967,7 @@ class TestFinalizeGate4PostPushDirtyWarn:
         args = argparse.Namespace(
             project=str(tmp_path), gate=4, phase=6, fr_id=None,
         )
-        rc = hc._cmd_finalize_gate_impl(args)
+        rc = _cmd_finalize_gate_impl(args)
         out = capsys.readouterr().out
         assert rc == 0
         assert "[WARN] post-push dirty tree" in out
@@ -8004,12 +7975,11 @@ class TestFinalizeGate4PostPushDirtyWarn:
         assert "commit_and_push_gate" in call_order
 
     def test_silent_on_clean(self, tmp_path, monkeypatch, capsys):
-        import harness_cli as hc
         call_order = self._setup(tmp_path, monkeypatch, dirty_paths=[])
         args = argparse.Namespace(
             project=str(tmp_path), gate=4, phase=6, fr_id=None,
         )
-        rc = hc._cmd_finalize_gate_impl(args)
+        rc = _cmd_finalize_gate_impl(args)
         out = capsys.readouterr().out
         assert rc == 0
         assert "[WARN] post-push dirty tree" not in out

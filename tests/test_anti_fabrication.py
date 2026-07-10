@@ -1044,7 +1044,7 @@ class TestHermesReceiptIntegrity:
 
     def test_receipt_not_required_null_composite(self, tmp_path):
         """Receipt with composite_score: null does NOT block — receipt is no longer required."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
@@ -1057,7 +1057,7 @@ class TestHermesReceiptIntegrity:
 
     def test_receipt_not_required_zero_composite(self, tmp_path):
         """Receipt with composite_score: 0 does NOT block — receipt is no longer required."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
@@ -1070,7 +1070,7 @@ class TestHermesReceiptIntegrity:
 
     def test_valid_composite_score_passes(self, tmp_path):
         """All Gate 4 prerequisites (A2–B3) satisfied → not blocked."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
@@ -1083,7 +1083,7 @@ class TestHermesReceiptIntegrity:
 
     def test_receipt_not_required_bool_composite(self, tmp_path):
         """Receipt with composite_score: true does NOT block — receipt is no longer required."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
@@ -1096,7 +1096,7 @@ class TestHermesReceiptIntegrity:
 
     def test_receipt_not_required_invalid_json(self, tmp_path):
         """Invalid JSON receipt does NOT block — receipt is no longer required."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text("not valid json {{{")
@@ -1105,7 +1105,7 @@ class TestHermesReceiptIntegrity:
 
     def test_missing_receipt_not_blocked(self, tmp_path):
         """Missing receipt does NOT block — receipt is no longer required."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path)
         # No receipt file at all
         blocked, _ = _check_gate4_prerequisites(tmp_path)
@@ -1163,14 +1163,14 @@ class TestCRGReconCheck:
 
     def test_missing_recon_file_blocked(self, tmp_path):
         """B3: reconnaissance: true with no crg_reconnaissance.json → blocked."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True)
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert blocked, "Missing crg_reconnaissance.json should block Gate 4 (B3)"
 
     def test_empty_recon_file_blocked(self, tmp_path):
         """B3: reconnaissance: true with empty crg_reconnaissance.json → blocked."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True)
         (tmp_path / ".sessi-work" / "crg_reconnaissance.json").write_text("")
         blocked, _ = _check_gate4_prerequisites(tmp_path)
@@ -1178,7 +1178,7 @@ class TestCRGReconCheck:
 
     def test_populated_recon_file_passes(self, tmp_path):
         """B3: non-empty crg_reconnaissance.json passes the check."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True)
         recon_file = tmp_path / ".sessi-work" / "crg_reconnaissance.json"
         recon_file.write_text(json.dumps({"nodes": 42}))
@@ -1187,7 +1187,7 @@ class TestCRGReconCheck:
 
     def test_no_recon_config_skips_check(self, tmp_path):
         """B3: crg.reconnaissance: false → no B3 enforcement."""
-        from harness_cli import _check_gate4_prerequisites
+        from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=False)
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"reconnaissance: false should not block Gate 4, got blocked={blocked}"

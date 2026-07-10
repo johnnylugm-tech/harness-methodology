@@ -1,10 +1,9 @@
 """FR-level TDD orchestration commands (dispatch, run-fr-step, resume-fr-phase, run-tool, reload-policy).
 
-Extracted verbatim from harness_cli.py (方案六). Free names that live
-in harness_cli resolve through `_hc.` at call time, so existing
-monkeypatches on harness_cli attributes keep working. harness_cli
-re-exports these cmd_* names, so `from harness_cli import cmd_x`
-imports are unaffected.
+Extracted verbatim from harness_cli.py (方案六); helpers moved home in
+絞殺者續章 S4 — this module no longer imports harness_cli (all
+dependencies are direct stdlib/core/harness imports). harness_cli still
+re-exports the cmd_* names, so `from harness_cli import cmd_x` works.
 """
 
 from __future__ import annotations
@@ -17,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cli import gate_cmds
 from core.canonical_form import fr_num_str
 from core.harness_config import get_timeout
 from core.pre_flight import check_cli_tools
@@ -24,7 +24,6 @@ from core.quality_gate import gate1_evidence
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.utils.project_layout import ProjectLayout
 from harness import tool_checks
-import harness_cli as _hc
 
 
 def cmd_dispatch(args: argparse.Namespace) -> int:
@@ -344,7 +343,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     _fix_args.phase = args.phase
                     _fix_args.project = str(project)
                     _fix_args.delta = False
-                    _fix_rc = _hc._cmd_finalize_gate_impl(_fix_args)
+                    _fix_rc = gate_cmds._cmd_finalize_gate_impl(_fix_args)
                     if _fix_rc == 0:
                         print(
                             f"[run-fr-step] {fr_id} finalize-gate "

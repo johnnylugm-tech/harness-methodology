@@ -18,11 +18,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from harness_cli import (  # pyright: ignore[reportMissingImports]
+import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+from cli.gate_cmds import (  # pyright: ignore[reportMissingImports]
     _check_fr_test_file_exists,
     _check_red_phase_ordering,
-    _scan_test_functions,
+)
+from core.quality_gate.spec_coverage import (  # pyright: ignore[reportMissingImports]
     _flatten_test_names,
+    _scan_test_functions,
 )
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "harness" / "ssi" / "scripts"))
@@ -408,7 +411,7 @@ class TestFinalizeGateCompliance:
         import io
         from harness_cli import cmd_finalize_gate
         monkeypatch.setattr(
-            "harness_cli._make_git",
+            "cli._shared._make_git",
             lambda args, project: __import__(
                 "harness.git_strategy"
             ).git_strategy.GitStrategy(project, enabled=False),
