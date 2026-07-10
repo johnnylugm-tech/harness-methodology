@@ -122,6 +122,10 @@
   bug: "Mock-hell P2: tests patching private attributes of project modules bind to implementation, not behavior — refactors break hundreds of tests with behavior unchanged (S0-S5 re-targeted ~30 files by hand). 400 existing patches frozen 2026-07-10; per-file counts only decrease, new files = 0"
   fixed_in: "弱點強化 Station C2 (private-patch ratchet)"
 
+- test: tests/test_prompt_rules.py::test_rule_prose_not_forked_into_python
+  bug: "P3 prompt-coupling regression vector: rule prose extracted to harness/prompts/rules/ (byte-identical) could be pasted back inline, forking the text so the .md and the Python copy silently drift — the SSOT must stay single"
+  fixed_in: "弱點強化 Station D (@rule prose extraction, no-fork lint)"
+
 - test: tests/test_cli_layering.py::test_hc_ref_ratchet
   bug: "cli/ modules borrowing names via `_hc.` late-binding (409 refs at S0) — the debt that forces harness_cli's mid-file E402 imports and sys.modules hack; per-file counts must only decrease"
   fixed_in: "harness_cli 絞殺者續章 S0 (ratchet 安全網)"
