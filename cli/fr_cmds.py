@@ -647,9 +647,6 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
 
-    import subprocess
-    import sys
-    import os
 
     # 6. Dirty-tree guard: verify commit actually landed.
     # If git commit was blocked by prepare-commit-msg hook, implementation
