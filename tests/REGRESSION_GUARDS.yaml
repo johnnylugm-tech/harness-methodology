@@ -105,3 +105,11 @@
 - test: tests/test_cli_layering.py::test_core_never_imports_cli
   bug: "layering inversion: core/ or harness/ importing the CLI layer would recreate the circular-import class the sys.modules hack papers over (rule was docstring-only in cli/__init__.py)"
   fixed_in: "harness_cli 絞殺者續章 S0 (分層 gate)"
+
+- test: tests/test_cli_layering.py::test_cli_never_imports_harness_cli
+  bug: "a cli/ module importing harness_cli again would resurrect the `_hc` borrow's delivery vehicle and the entrypoint-first load-order trap S5 removed"
+  fixed_in: "harness_cli 絞殺者續章 S5 (終態 gate)"
+
+- test: tests/test_cli_layering.py::test_harness_cli_no_midfile_imports
+  bug: "a module-level import below harness_cli's first def is the mid-file circular-import dance returning — 16 noqa:E402 imports and the sys.modules.setdefault hack grew from exactly this"
+  fixed_in: "harness_cli 絞殺者續章 S5 (終態 gate)"
