@@ -24,7 +24,8 @@ import json
 from pathlib import Path
 
 
-from harness_cli import _validate_handoff, build_parser
+from cli.phase_cmds import _validate_handoff
+from harness_cli import build_parser
 
 
 # ---------------------------------------------------------------------------

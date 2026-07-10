@@ -238,7 +238,7 @@ class TestI1LifecycleIntegration:
 
     def test_advance_phase_p1_checksum(self, tmp_path: Path):
         """P1 advance-phase writes test_inventory_checksum to state.json."""
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
         from unittest.mock import patch
         (tmp_path / "TEST_INVENTORY.yaml").write_text(
             "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n      - test_a\n"
@@ -252,7 +252,7 @@ class TestI1LifecycleIntegration:
         _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
         _fake_profile = type("_P", (), {"composite_threshold": lambda s, p: 75.0})()
         # Mock auditor + agent-B + constitution: test focuses on checksum logic only
-        with patch("harness_cli._run_phase_auditor", return_value=0), \
+        with patch("cli._shared._run_phase_auditor", return_value=0), \
              patch("core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core", return_value=(True, "mocked")), \
              patch("core.quality_gate.constitution.run_constitution_check", return_value=_vacuous), \
              patch("core.quality_gate.constitution.profile.get_profile", return_value=_fake_profile):
@@ -265,7 +265,7 @@ class TestI1LifecycleIntegration:
 
     def test_advance_phase_p1_no_inventory_skips(self, tmp_path: Path):
         """P1 advance without TEST_INVENTORY.yaml does not write checksum."""
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
         from unittest.mock import patch
         state_dir = tmp_path / ".methodology"
         state_dir.mkdir(parents=True)
@@ -276,7 +276,7 @@ class TestI1LifecycleIntegration:
         _vacuous = ConstitutionResult(score=100.0, passed=True, violations=[])
         _fake_profile = type("_P", (), {"composite_threshold": lambda s, p: 75.0})()
         # Mock auditor + agent-B + constitution: test focuses on checksum skip logic only
-        with patch("harness_cli._run_phase_auditor", return_value=0), \
+        with patch("cli._shared._run_phase_auditor", return_value=0), \
              patch("core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core", return_value=(True, "mocked")), \
              patch("core.quality_gate.constitution.run_constitution_check", return_value=_vacuous), \
              patch("core.quality_gate.constitution.profile.get_profile", return_value=_fake_profile):

@@ -91,7 +91,7 @@ def test_write_is_noop_when_file_absent(tmp_path: Path) -> None:
 
 
 def test_spec_tracking_wired_into_view_regen() -> None:
-    src = (_REPO / "harness_cli.py").read_text(encoding="utf-8")
+    src = (_REPO / "cli" / "phase_cmds.py").read_text(encoding="utf-8")
     assert "write_spec_tracking" in src, (
         "SPEC_TRACKING Status refresh unwired from advance-phase view regen"
     )

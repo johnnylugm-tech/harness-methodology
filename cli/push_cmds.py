@@ -14,6 +14,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cli import _shared
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path
 from core.phase_topology import ENTRY_GATE_MAP
 import harness_cli as _hc
@@ -300,7 +301,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         ok = git.commit_and_push_p3_pre_gate2(fr_ids)
     elif milestone_type == "p3-post-gate2":
         # v2.9.1 B.2: validate Gate 2 PASS + all FRs Gate 1 PASS as precondition
-        _pre = _hc._validate_p3_post_gate2_precondition(project, fr_ids)
+        _pre = _shared._validate_p3_post_gate2_precondition(project, fr_ids)
         if _pre:
             print("[ERROR] p3-post-gate2 blocked — pre-flight checks failed:")
             for _e in _pre:

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+
 import argparse
 import json
 import pytest
@@ -17,6 +21,8 @@ from cli.fr_cmds import (  # noqa: E402
     _extract_srs_fr_section,
     _fr_step_already_done,
 )
+from cli.phase_cmds import _check_gate1_live_coverage, _validate_handoff_p4_to_p5  # noqa: E402
+from cli._shared import _write_finalize_sentinels_for_tests  # noqa: E402
 
 
 # =============================================================================
@@ -1020,7 +1026,6 @@ class TestVerifyEnvCheckClaims:
         """Bug #128: semantic venv-python passes if inactive venv exists (Unix)."""
         from cli.gate_cmds import _verify_env_check_claims
         import sys
-        import os
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "python-venv", "present": True}]}})
         monkeypatch.setattr(sys, "prefix", "/mock/base")
         monkeypatch.setattr(sys, "base_prefix", "/mock/base")
@@ -1033,7 +1038,6 @@ class TestVerifyEnvCheckClaims:
         """Bug #128: semantic venv-python passes if inactive venv exists (Windows)."""
         from cli.gate_cmds import _verify_env_check_claims
         import sys
-        import os
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python3", "present": True}]}})
         monkeypatch.setattr(sys, "prefix", "/mock/base")
         monkeypatch.setattr(sys, "base_prefix", "/mock/base")
@@ -1047,7 +1051,6 @@ class TestVerifyEnvCheckClaims:
         """Bug #128: semantic venv-python fails if no venv detected."""
         from cli.gate_cmds import _verify_env_check_claims
         import sys
-        import os
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python", "present": True}]}})
         monkeypatch.setattr(sys, "prefix", "/mock/base")
         monkeypatch.setattr(sys, "base_prefix", "/mock/base")
@@ -1095,9 +1098,8 @@ class TestVerifyEnvCheckClaims:
         `python3.11` binary — honest when that binary actually exists.
         """
         from cli.gate_cmds import _verify_env_check_claims
-        import harness_cli as hc
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
-        monkeypatch.setattr(hc.shutil, "which", lambda *_a, **_k: None)
+        monkeypatch.setattr(shutil, "which", lambda *_a, **_k: None)
         (tmp_path / ".venv" / "bin").mkdir(parents=True)
         (tmp_path / ".venv" / "bin" / "python3.11").touch()
         self._write(tmp_path, {"cli_tools": {"required": [
@@ -1124,9 +1126,8 @@ class TestVerifyEnvCheckClaims:
         still be flagged — version-semantic normalization is not a blank pass.
         """
         from cli.gate_cmds import _verify_env_check_claims
-        import harness_cli as hc
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
-        monkeypatch.setattr(hc.shutil, "which", lambda *_a, **_k: None)
+        monkeypatch.setattr(shutil, "which", lambda *_a, **_k: None)
         (tmp_path / ".venv" / "bin").mkdir(parents=True)
         (tmp_path / ".venv" / "bin" / "python3.11").touch()
         self._write(tmp_path, {"cli_tools": {"required": [
@@ -1205,7 +1206,6 @@ class TestCmdRunEnvCheck:
         (with a future mtime, definitely >= sentinel) before 'timing out' —
         simulating a sub-agent killed during post-artifact wrap-up.
         """
-        import os
         import shutil
         import subprocess
         import time as _time
@@ -1254,7 +1254,6 @@ class TestCmdRunEnvCheck:
         """A leftover artifact from a PREVIOUS run (mtime older than this
         run's sentinel) must not be accepted as this spawn's output.
         """
-        import os
         import time as _time
         from harness_cli import cmd_run_env_check
         self._setup_timeout(tmp_path, monkeypatch, write_result=None)
@@ -1481,14 +1480,14 @@ class TestVerifyEntryGate:
             }))
 
     def test_p1_passes_without_gate(self, tmp_path):
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
         result = _verify_entry_gate(tmp_path, 1)
         assert result["passed"] is True
 
     def test_p2_no_state_json_falls_to_grep(self, tmp_path, monkeypatch):
         """No state.json → falls through to grep path → fails (no commits)."""
         import subprocess as sp
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
         monkeypatch.setattr(
             sp, "run",
             lambda cmd, **_: type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})(),
@@ -1499,7 +1498,7 @@ class TestVerifyEntryGate:
     def test_p2_shallow_clone_fallback_passes_with_approvals(self, tmp_path, monkeypatch):
         """Shallow clone: merge-base fails → fallback to agent_b_approvals → pass."""
         import subprocess as sp
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
 
         self._make_state(tmp_path, phase=2, sha="abc1234def5678")
         self._make_approvals(tmp_path, phase=1)
@@ -1523,7 +1522,7 @@ class TestVerifyEntryGate:
     def test_p2_shallow_clone_fallback_fails_without_approvals(self, tmp_path, monkeypatch):
         """Shallow clone: merge-base fails, no approvals → fail."""
         import subprocess as sp
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
 
         self._make_state(tmp_path, phase=2, sha="abc1234def5678")
         # No approval files created
@@ -1543,7 +1542,7 @@ class TestVerifyEntryGate:
     def test_p2_non_shallow_sha_mismatch_fails_hard(self, tmp_path, monkeypatch):
         """Non-shallow clone: SHA not ancestor → hard fail (branch reset scenario)."""
         import subprocess as sp
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
 
         self._make_state(tmp_path, phase=2, sha="abc1234def5678")
 
@@ -1814,7 +1813,7 @@ class TestRunPhaseNoPostflight:
         from core.phase_hooks import PhaseHooks
 
         # Stub entry gate to pass immediately.
-        monkeypatch.setattr(harness_cli, "_verify_entry_gate",
+        monkeypatch.setattr("cli.phase_cmds._verify_entry_gate",
                             lambda *_, **__: {"passed": True, "gate": "G", "reason": "ok"})
         # Stub preflight_all to pass.
         monkeypatch.setattr(PhaseHooks, "preflight_all",
@@ -1838,7 +1837,7 @@ class TestRunPhaseNoPostflight:
         import harness_cli
         from core.phase_hooks import PhaseHooks
 
-        monkeypatch.setattr(harness_cli, "_verify_entry_gate",
+        monkeypatch.setattr("cli.phase_cmds._verify_entry_gate",
                             lambda *_, **__: {"passed": True, "gate": "G", "reason": "ok"})
         monkeypatch.setattr(PhaseHooks, "preflight_all",
                             lambda _: {"all_passed": False, "details": {"error": "missing SRS"}})
@@ -1859,7 +1858,7 @@ class TestRunPhaseNoPostflight:
         import harness_cli
         from core.phase_hooks import PhaseHooks
 
-        monkeypatch.setattr(harness_cli, "_verify_entry_gate",
+        monkeypatch.setattr("cli.phase_cmds._verify_entry_gate",
                             lambda *_, **__: {"passed": False, "gate": "G", "reason": "Phase 0 not complete"})
         monkeypatch.setattr(PhaseHooks, "postflight_all",
                             lambda _: postflight_called.append(1) or {"success": True})
@@ -1900,15 +1899,15 @@ class TestAdvancePrechecksTDD:
         # Next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
         # Finalize-gate sentinels — _advance_prechecks verifies these exist
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
 
     def test_pytest_failure_returns_9(self, tmp_path, monkeypatch):
         """pytest non-zero exit → _advance_prechecks returns 9."""
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         self._make_p3_project(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1928,21 +1927,19 @@ class TestAdvancePrechecksTDD:
                 res.returncode = 0  # type: ignore[reportAttributeAccessIssue]
             return res
 
-        import harness_cli
-        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_run)
+        monkeypatch.setattr(subprocess, "run", _fake_run)
 
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 9
 
     def test_pytest_skipped_when_no_src_dir(self, tmp_path, monkeypatch):
         """No 03-development/src → pytest step skipped, continues to spec-coverage."""
-        from harness_cli import _advance_prechecks
-        import harness_cli
+        from cli.phase_cmds import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()  # no src dir
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1951,7 +1948,7 @@ class TestAdvancePrechecksTDD:
             }),
         )
         # spec-coverage returns pass (unified D4, v2.6)
-        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+        monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check",
                             lambda *_, **__: (0, 100.0))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
@@ -1961,13 +1958,12 @@ class TestAdvancePrechecksTDD:
 
     def test_spec_coverage_below_threshold_returns_10(self, tmp_path, monkeypatch):
         """spec-coverage below threshold → _advance_prechecks returns 10."""
-        from harness_cli import _advance_prechecks
-        import harness_cli
+        from cli.phase_cmds import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -1975,7 +1971,7 @@ class TestAdvancePrechecksTDD:
                 "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
-        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+        monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check",
                             lambda *_, **__: (1, 30.0))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
@@ -1985,11 +1981,11 @@ class TestAdvancePrechecksTDD:
 
     def test_tdd_block_not_run_for_p2(self, tmp_path, monkeypatch):
         """P2 does not execute TDD block — returns 0 after PhaseAuditor + agent-B."""
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr("core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core",
                             lambda _, __, ___: (True, "mocked"))
 
@@ -1998,13 +1994,12 @@ class TestAdvancePrechecksTDD:
 
     def test_threshold_escalation_p4_uses_70_80(self, tmp_path, monkeypatch):
         """P4: spec-coverage threshold=70%, D4 threshold=80%."""
-        from harness_cli import _advance_prechecks
-        import harness_cli
+        from cli.phase_cmds import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -2018,7 +2013,7 @@ class TestAdvancePrechecksTDD:
             captured_sc["threshold"] = t
             return (0, 100.0)
 
-        monkeypatch.setattr("harness_cli._run_spec_coverage_check", _fake_sc)
+        monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", _fake_sc)
         (tmp_path / ".methodology" / "phase5_plan.md").touch()
 
         _advance_prechecks(tmp_path, completed_phase=4)
@@ -2026,13 +2021,12 @@ class TestAdvancePrechecksTDD:
 
     def test_threshold_escalation_p6_uses_90(self, tmp_path, monkeypatch):
         """P6: spec-coverage threshold escalates to 90%."""
-        from harness_cli import _advance_prechecks
-        import harness_cli
+        from cli.phase_cmds import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         # Phase 6 fires Agent B approval check before spec-coverage; stub it so
         # only the threshold value is exercised here (agent B tested elsewhere).
         monkeypatch.setattr(
@@ -2052,7 +2046,7 @@ class TestAdvancePrechecksTDD:
             captured["sc"] = t
             return (0, 100.0)
 
-        monkeypatch.setattr("harness_cli._run_spec_coverage_check", _fake_sc)
+        monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", _fake_sc)
         (tmp_path / ".methodology" / "phase7_plan.md").touch()
 
         _advance_prechecks(tmp_path, completed_phase=6)
@@ -2068,12 +2062,12 @@ class TestAdvancePreChecksAgentB:
 
     def _mock_p1_prechecks(self, monkeypatch):
         """Patch non-AB checks so only AB check is exercised."""
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         _mock_constitution_pass(monkeypatch)
 
     def test_p1_missing_approvals_returns_13(self, tmp_path, monkeypatch):
         """P1 with no agent_b_approvals/ → returns 13."""
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
         (tmp_path / ".methodology").mkdir()
         self._mock_p1_prechecks(monkeypatch)
         rc = _advance_prechecks(tmp_path, completed_phase=1)
@@ -2081,7 +2075,8 @@ class TestAdvancePreChecksAgentB:
 
     def test_p1_approved_returns_0(self, tmp_path, monkeypatch):
         """P1 with all approvals APPROVE → proceeds (returns 0)."""
-        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES
+        from cli.phase_cmds import _advance_prechecks
+        from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES as _PHASE_DELIVERABLES
         import json
 
         method_dir = tmp_path / ".methodology"
@@ -2101,7 +2096,8 @@ class TestAdvancePreChecksAgentB:
 
     def test_p2_rejected_approval_returns_13(self, tmp_path, monkeypatch):
         """P2 with one REJECT approval → returns 13."""
-        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES
+        from cli.phase_cmds import _advance_prechecks
+        from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES as _PHASE_DELIVERABLES
         import json
 
         method_dir = tmp_path / ".methodology"
@@ -2122,13 +2118,12 @@ class TestAdvancePreChecksAgentB:
 
     def test_p3_skips_agent_b_check(self, tmp_path, monkeypatch):
         """P3+ does not run Agent B check (A/B removed from P3+)."""
-        from harness_cli import _advance_prechecks
-        import harness_cli
+        from cli.phase_cmds import _advance_prechecks
 
         (tmp_path / ".methodology").mkdir()
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
             type("FV", (), {
@@ -2136,7 +2131,7 @@ class TestAdvancePreChecksAgentB:
                 "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
-        monkeypatch.setattr("harness_cli._run_spec_coverage_check",
+        monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check",
                             lambda *_, **__: (0, 100.0))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
@@ -2155,7 +2150,6 @@ class TestAdvancePreChecksAgentB:
         This helper passes everything before Agent B so the test can control
         whether approvals exist without fighting unrelated failures.
         """
-        import harness_cli
 
         method = tmp_path / ".methodology"
         method.mkdir(exist_ok=True)
@@ -2166,9 +2160,9 @@ class TestAdvancePreChecksAgentB:
         (tmp_path / "00-summary" / "Phase6_STAGE_PASS.md").write_text(
             "# Phase 6 Stage Pass\n## Summary\n", encoding="utf-8"
         )
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+        _write_finalize_sentinels_for_tests(tmp_path)
 
-        monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
         _mock_constitution_pass(monkeypatch)
         monkeypatch.setattr(
             "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
@@ -2178,15 +2172,15 @@ class TestAdvancePreChecksAgentB:
             }),
         )
         monkeypatch.setattr(
-            "harness_cli._run_spec_coverage_check", lambda *_, **__: (0, 100.0)
+            "core.quality_gate.spec_coverage._run_spec_coverage_check", lambda *_, **__: (0, 100.0)
         )
-        monkeypatch.setattr("harness_cli.shutil.which", lambda cmd: True)
+        monkeypatch.setattr("shutil.which", lambda cmd: True)
         monkeypatch.setattr(
             "harness_cli.subprocess.run",
             lambda cmd, **kw: type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
         )
         # Gate-1 FR coverage and mutmut not exercised by these tests
-        monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda _, __: 0)
+        monkeypatch.setattr("cli.phase_cmds._check_gate1_live_coverage", lambda _, __: 0)
         monkeypatch.setattr(
             "core.quality_gate.mutation_enforcer.run_mutation_precheck",
             lambda _: (True, "ok"),
@@ -2204,7 +2198,7 @@ class TestAdvancePreChecksAgentB:
 
     def test_p6_missing_approvals_returns_13(self, tmp_path, monkeypatch):
         """P6 with no agent_b_approvals/ → advance blocked with rc=13."""
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
         # No approvals dir at all
@@ -2219,7 +2213,8 @@ class TestAdvancePreChecksAgentB:
         creates quality_manifest.json.json — the first approval-file assertion fails
         and rc would be 13 (not 0).
         """
-        from harness_cli import _advance_prechecks, _PHASE_DELIVERABLES
+        from cli.phase_cmds import _advance_prechecks
+        from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES as _PHASE_DELIVERABLES
         from core.quality_gate.agent_b_approvals import REQUIRED_EMBEDDED_DOCS as _REQUIRED_EMBEDDED_DOCS
 
         self._mock_p6_non_ab_prechecks(tmp_path, monkeypatch)
@@ -3054,8 +3049,7 @@ class TestGate1LiveCoverageCheck:
         m.write_text(json.dumps({"fr_ids": fr_ids}), encoding="utf-8")
 
     def _run_check(self, tmp_path: Path, completed_phase: int) -> int:
-        import harness_cli
-        return harness_cli._check_gate1_live_coverage(tmp_path, completed_phase)
+        return _check_gate1_live_coverage(tmp_path, completed_phase)
 
     def test_all_frs_covered_returns_0(self, tmp_path):
         """All FRs have real pytest coverage ≥ min → return 0."""
@@ -3532,7 +3526,7 @@ class TestGitTestPatterns:
 
 def test_l1_finalize_sentinel_path_legacy_fallback(tmp_path):
     """Test L1: Legacy sentinel fallback in _finalize_sentinel_path."""
-    from harness_cli import _finalize_sentinel_path
+    from cli._shared import _finalize_sentinel_path
     
     fr_id = "FR-99"
     key = fr_id.replace("-", "").lower()
@@ -3556,16 +3550,15 @@ def test_l1_finalize_sentinel_path_legacy_fallback(tmp_path):
 
 def _setup_advance_prechecks_env(tmp_path, monkeypatch):
     """Shared fixture setup for _advance_prechecks blocking-path tests."""
-    import harness_cli
 
     (tmp_path / ".methodology").mkdir(exist_ok=True)
     (tmp_path / "03-development" / "src").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
     # Create finalize-gate sentinels — _advance_prechecks verifies these exist
-    harness_cli._write_finalize_sentinels_for_tests(tmp_path)
+    _write_finalize_sentinels_for_tests(tmp_path)
 
-    monkeypatch.setattr("harness_cli._run_phase_auditor", lambda _, __: 0)
+    monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
     monkeypatch.setattr("core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core", lambda _, __, ___: (True, "mocked"))
 
     class FakeVerifier:
@@ -3577,13 +3570,12 @@ def _setup_advance_prechecks_env(tmp_path, monkeypatch):
     _mock_constitution_pass(monkeypatch)
 
     # Scope to harness_cli's reference — not global shutil
-    monkeypatch.setattr("harness_cli.shutil.which", lambda cmd: True)
+    monkeypatch.setattr("shutil.which", lambda cmd: True)
 
 
 def test_l1_advance_prechecks_gitleaks_blocks(tmp_path, monkeypatch):
     """rc=20: gitleaks detects secrets → advance blocked."""
-    import harness_cli
-    from harness_cli import _advance_prechecks
+    from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -3592,15 +3584,14 @@ def test_l1_advance_prechecks_gitleaks_blocks(tmp_path, monkeypatch):
             returncode = 1 if cmd[0] == "gitleaks" else 0
             stdout = ""
         return R()
-    monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     assert _advance_prechecks(tmp_path, 3) == 20
 
 
 def test_l1_advance_prechecks_ruff_blocks(tmp_path, monkeypatch):
     """rc=18: ruff finds lint errors → advance blocked."""
-    import harness_cli
-    from harness_cli import _advance_prechecks
+    from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -3609,15 +3600,14 @@ def test_l1_advance_prechecks_ruff_blocks(tmp_path, monkeypatch):
             returncode = 1 if cmd[0] == "ruff" else 0
             stdout = ""
         return R()
-    monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     assert _advance_prechecks(tmp_path, 3) == 18
 
 
 def test_l1_advance_prechecks_mypy_blocks(tmp_path, monkeypatch):
     """rc=19: mypy finds type errors → advance blocked."""
-    import harness_cli
-    from harness_cli import _advance_prechecks
+    from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -3627,7 +3617,7 @@ def test_l1_advance_prechecks_mypy_blocks(tmp_path, monkeypatch):
             returncode = 1 if is_mypy else 0
             stdout = ""
         return R()
-    monkeypatch.setattr(harness_cli.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     assert _advance_prechecks(tmp_path, 3) == 19
 
@@ -4001,7 +3991,7 @@ class TestFinalizeGatePersistCompositeScore:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
 
         _harness_score = harness_score
 
@@ -4108,7 +4098,7 @@ class TestFinalizeGateManifestPatch:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
 
         class FakeGit:
             def ensure_gitignore(self): pass
@@ -4262,7 +4252,7 @@ class TestFinalizeGateCommitFailureRollback:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
         monkeypatch.setattr(
             hc, "_post_push_self_check",
             lambda _p: (post_push_calls.append(1) if post_push_calls is not None else None) or [],
@@ -4393,7 +4383,7 @@ class TestFinalizeGateNoneDimVariance:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
 
         class FakeGit:
             def ensure_gitignore(self): pass
@@ -4467,7 +4457,6 @@ class TestTraceDirtyState:
 
     def test_newer_test_file_reason_includes_fix_hint(self, tmp_path):
         """Test file newer than attestation → reason must contain the fix command."""
-        import os
         from cli.phase_cmds import _trace_dirty_state
 
         # attestation written first (older)
@@ -4489,7 +4478,6 @@ class TestTraceDirtyState:
 
     def test_current_attestation_passes(self, tmp_path):
         """Attestation newer than all files → passed=True."""
-        import os
         from cli.phase_cmds import _trace_dirty_state
 
         # Write a test file first (older)
@@ -4516,8 +4504,7 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
     call 'git add' on it before running PhaseAuditor C1 (git ls-files check).
     Without git-add, C1 immediately blocks the file that advance-phase just created.
     """
-    import harness_cli
-    from harness_cli import _advance_prechecks
+    from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -4529,7 +4516,7 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
         sp.parent.mkdir(exist_ok=True)
         sp.write_text(f"# Phase {phase} STAGE_PASS\n## Summary\n", encoding="utf-8")
 
-    monkeypatch.setattr("harness_cli._generate_stage_pass", _write_stage_pass)
+    monkeypatch.setattr("cli._shared._generate_stage_pass", _write_stage_pass)
 
     # Capture subprocess.run calls to verify git add is invoked.
     git_add_calls: list[list] = []
@@ -4544,13 +4531,13 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
             git_add_calls.append(cmd_list)
         return R()
 
-    monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
     monkeypatch.setattr(
         "core.quality_gate.mutation_enforcer.run_mutation_precheck",
         lambda _: (True, "ok"),
     )
-    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
-    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda _, __: 0)
+    monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
+    monkeypatch.setattr("cli.phase_cmds._check_gate1_live_coverage", lambda _, __: 0)
 
     _advance_prechecks(tmp_path, completed_phase=3)
 
@@ -4610,7 +4597,7 @@ class TestGenerateStagePassEmptyGateData:
 
     def test_phase1_pass_when_phase_truth_passed_true(self, tmp_path):
         """Phase 1 with phase_truth_passed=True → STAGE_PASS.md must say PASS."""
-        from harness_cli import _generate_stage_pass
+        from cli._shared import _generate_stage_pass
 
         self._setup(tmp_path, phase_truth_passed=True)
 
@@ -4626,7 +4613,7 @@ class TestGenerateStagePassEmptyGateData:
 
     def test_phase1_fail_when_phase_truth_passed_false(self, tmp_path):
         """Phase 1 with phase_truth_passed=False → STAGE_PASS.md must say FAIL."""
-        from harness_cli import _generate_stage_pass
+        from cli._shared import _generate_stage_pass
 
         self._setup(tmp_path, phase_truth_passed=False)
 
@@ -4641,7 +4628,7 @@ class TestGenerateStagePassEmptyGateData:
 
     def test_phase1_passes_when_state_json_missing(self, tmp_path):
         """No state.json + empty quality_manifest → fall back to FAIL (safe default)."""
-        from harness_cli import _generate_stage_pass
+        from cli._shared import _generate_stage_pass
 
         # No state.json — function should not crash; default to FAIL.
         methodology = tmp_path / ".methodology"
@@ -4662,7 +4649,7 @@ class TestGenerateStagePassEmptyGateData:
         """Phase 3 Gate 1 per-FR with any FR quality_complete=False → FAIL,
         even if phase_truth_passed=True. Gate data takes precedence.
         """
-        from harness_cli import _generate_stage_pass
+        from cli._shared import _generate_stage_pass
 
         methodology = tmp_path / ".methodology"
         methodology.mkdir(parents=True)
@@ -4695,7 +4682,7 @@ class TestGenerateStagePassEmptyGateData:
 
     def test_phase3_gate1_per_fr_all_pass(self, tmp_path):
         """Phase 3 Gate 1 per-FR all quality_complete=True → PASS."""
-        from harness_cli import _generate_stage_pass
+        from cli._shared import _generate_stage_pass
 
         methodology = tmp_path / ".methodology"
         methodology.mkdir(parents=True)
@@ -4728,7 +4715,7 @@ class TestGenerateStagePassEmptyGateData:
 
     def test_phase3_gate2_flat_structure_unchanged(self, tmp_path):
         """Phase 3 Gate 2 (flat) with quality_complete=True → PASS."""
-        from harness_cli import _generate_stage_pass
+        from cli._shared import _generate_stage_pass
 
         methodology = tmp_path / ".methodology"
         methodology.mkdir(parents=True)
@@ -4866,8 +4853,7 @@ class TestAdvancePhaseRegeneratesStagePass:
         """Pre-create stale Phase3_STAGE_PASS.md (the pre-d8fccea FAIL content),
         run _advance_prechecks, assert the file content was overwritten by the
         current _generate_stage_pass logic (not just appended/touched)."""
-        import harness_cli
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -4901,8 +4887,8 @@ class TestAdvancePhaseRegeneratesStagePass:
             sp.parent.mkdir(exist_ok=True)
             sp.write_text(new_content, encoding="utf-8")
 
-        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_new_stage_pass)
-        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_subprocess_capture_git_add)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", _write_new_stage_pass)
+        monkeypatch.setattr(subprocess, "run", _fake_subprocess_capture_git_add)
 
         _advance_prechecks(tmp_path, completed_phase=3)
 
@@ -4920,8 +4906,7 @@ class TestAdvancePhaseRegeneratesStagePass:
     def test_git_add_called_when_content_changed(self, tmp_path, monkeypatch):
         """When _generate_stage_pass produces content different from existing
         file, advance-phase must call `git add` so the refresh lands in commit."""
-        import harness_cli
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -4935,7 +4920,7 @@ class TestAdvancePhaseRegeneratesStagePass:
             sp.parent.mkdir(exist_ok=True)
             sp.write_text("# NEW CONTENT AFTER REGENERATE\n", encoding="utf-8")
 
-        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_different)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", _write_different)
 
         git_add_calls: list[list] = []
 
@@ -4949,7 +4934,7 @@ class TestAdvancePhaseRegeneratesStagePass:
                 git_add_calls.append(cmd_list)
             return R()
 
-        monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
+        monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
 
         _advance_prechecks(tmp_path, completed_phase=3)
 
@@ -4962,8 +4947,7 @@ class TestAdvancePhaseRegeneratesStagePass:
     def test_git_add_skipped_when_content_unchanged(self, tmp_path, monkeypatch):
         """When _generate_stage_pass produces content identical to existing
         file, advance-phase must NOT call `git add` (avoid empty no-op commits)."""
-        import harness_cli
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -4978,7 +4962,7 @@ class TestAdvancePhaseRegeneratesStagePass:
             sp.parent.mkdir(exist_ok=True)
             sp.write_text(same_content, encoding="utf-8")
 
-        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_same)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", _write_same)
 
         git_add_calls: list[list] = []
 
@@ -4992,7 +4976,7 @@ class TestAdvancePhaseRegeneratesStagePass:
                 git_add_calls.append(cmd_list)
             return R()
 
-        monkeypatch.setattr(harness_cli.subprocess, "run", fake_subprocess_run)
+        monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
 
         _advance_prechecks(tmp_path, completed_phase=3)
 
@@ -5010,8 +4994,7 @@ class TestAdvancePhaseRegeneratesStagePass:
         """Regression: if STAGE_PASS.md does not exist, advance-phase still
         calls _generate_stage_pass and stages the new file (original behavior
         must be preserved)."""
-        import harness_cli
-        from harness_cli import _advance_prechecks
+        from cli.phase_cmds import _advance_prechecks
 
         _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
@@ -5026,8 +5009,8 @@ class TestAdvancePhaseRegeneratesStagePass:
             sp.parent.mkdir(exist_ok=True)
             sp.write_text("# GENERATED\n", encoding="utf-8")
 
-        monkeypatch.setattr("harness_cli._generate_stage_pass", _write_when_missing)
-        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_subprocess_capture_git_add)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", _write_when_missing)
+        monkeypatch.setattr(subprocess, "run", _fake_subprocess_capture_git_add)
 
         _advance_prechecks(tmp_path, completed_phase=3)
 
@@ -5112,22 +5095,21 @@ def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch
     Before the fix, `if completed_phase >= 3:` triggered for P8 and blocked
     with exit code 15 because phase9_plan.md does not exist.
     """
-    import harness_cli
-    from harness_cli import _advance_prechecks
+    from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
 
     # Explicitly do NOT create phase9_plan.md — verify P8 is not blocked on it.
     assert not (tmp_path / ".methodology" / "phase9_plan.md").exists()
 
-    monkeypatch.setattr("harness_cli._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
-    monkeypatch.setattr("harness_cli._check_gate1_live_coverage", lambda _, __: 0)
-    monkeypatch.setattr("harness_cli._generate_stage_pass", lambda p, g, ph: None)
+    monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
+    monkeypatch.setattr("cli.phase_cmds._check_gate1_live_coverage", lambda _, __: 0)
+    monkeypatch.setattr("cli._shared._generate_stage_pass", lambda p, g, ph: None)
     monkeypatch.setattr(
         "core.quality_gate.mutation_enforcer.run_mutation_precheck",
         lambda _: (True, "ok"),
     )
-    monkeypatch.setattr(harness_cli.subprocess, "run", lambda cmd, **kw: type("R", (), {
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: type("R", (), {
         "returncode": 0, "stdout": "", "stderr": "",
     })())
 
@@ -5422,11 +5404,11 @@ class TestP2AdvanceRegeneratesManifest:
         )
 
         # Mock prechecks so cmd_advance_phase doesn't trip on missing CI artifacts
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
+        _write_finalize_sentinels_for_tests(tmp_path)
+        monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
         monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
-        monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)  # no CRG
+        monkeypatch.setattr("shutil.which", lambda c: None)  # no CRG
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
@@ -5448,7 +5430,7 @@ class TestP2AdvanceRegeneratesManifest:
                     self._git_add_calls.append(list(cmd))
             return R()
 
-        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_run)
+        monkeypatch.setattr(subprocess, "run", _fake_run)
 
     def _build_args(self, project: Path, completed_phase: int):
         import argparse
@@ -5648,11 +5630,11 @@ class TestP7AdvanceGeneratesP8Baseline:
         _sp.run(["git", "add", "-A"], cwd=tmp_path, check=True)
         _sp.run(["git", "commit", "-m", "init", "-q"], cwd=tmp_path, check=True)
 
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
+        _write_finalize_sentinels_for_tests(tmp_path)
+        monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
         monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
-        monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)
+        monkeypatch.setattr("shutil.which", lambda c: None)
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
@@ -5672,7 +5654,7 @@ class TestP7AdvanceGeneratesP8Baseline:
                     self._git_add_calls.append(list(cmd))
             return R()
 
-        monkeypatch.setattr(harness_cli.subprocess, "run", _fake_run)
+        monkeypatch.setattr(subprocess, "run", _fake_run)
 
     def _build_args(self, project: Path, completed_phase: int):
         import argparse
@@ -5837,7 +5819,6 @@ class TestGenerateVerificationReport:
 
     def test_handoff_validator_passes_when_test_results_present(self, tmp_path):
         """P4→P5 validator passes when TEST_RESULTS.md exists at 04-testing/."""
-        import harness_cli
         import json
 
         self._setup_project(tmp_path)
@@ -5849,18 +5830,17 @@ class TestGenerateVerificationReport:
         manifest.parent.mkdir(parents=True, exist_ok=True)
         manifest.write_text(json.dumps({"gate_results": {"gate3": {"quality_complete": True}}}))
 
-        errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
+        errors = _validate_handoff_p4_to_p5(tmp_path)
         assert not errors, (
             f"Validator should pass when TEST_RESULTS.md exists; got: {errors}"
         )
 
     def test_handoff_validator_gives_actionable_error(self, tmp_path):
         """P4→P5 validator gives actionable remediation when TEST_RESULTS.md missing."""
-        import harness_cli
 
         self._setup_project(tmp_path)
         # Do NOT create TEST_RESULTS.md
-        errors = harness_cli._validate_handoff_p4_to_p5(tmp_path)
+        errors = _validate_handoff_p4_to_p5(tmp_path)
         assert errors, "Validator should error when report missing"
         assert "TEST_RESULTS.md" in errors[0]
         assert "Phase 4 orchestrator" in errors[0], (
@@ -6112,7 +6092,7 @@ class TestSubmoduleDriftAdvisory:
 
     def test_no_warning_when_in_sync(self, tmp_path, capsys):
         """HEAD == origin/main → no drift warning printed."""
-        from harness_cli import _check_submodule_drift
+        from cli.phase_cmds import _check_submodule_drift
         proj, sub = self._setup_submodule(tmp_path)
         _check_submodule_drift(proj)
         captured = capsys.readouterr()
@@ -6127,7 +6107,7 @@ class TestSubmoduleDriftAdvisory:
         ``git update-ref`` — no push transport required.
         """
         import subprocess as sp
-        from harness_cli import _check_submodule_drift
+        from cli.phase_cmds import _check_submodule_drift
         proj, sub = self._setup_submodule(tmp_path)
         bare = tmp_path.parent / (tmp_path.name + "_origin.git")
 
@@ -6166,7 +6146,7 @@ class TestSubmoduleDriftAdvisory:
 
     def test_silent_when_fetch_fails(self, tmp_path, capsys):
         """No origin access (offline) → silently skip, no error."""
-        from harness_cli import _check_submodule_drift
+        from cli.phase_cmds import _check_submodule_drift
         proj = tmp_path
         sub = proj / "harness"
         sub.mkdir()
@@ -6965,21 +6945,19 @@ class TestGate1DeltaBatchAutoSkip:
     def test_all_unchanged_returns_0_skips_pytest(self, tmp_path):
         """When every FR is unchanged since last Gate1 PASS, batch returns 0
         WITHOUT invoking the live pytest validator."""
-        import harness_cli
         self._manifest(tmp_path, ["FR-01", "FR-02"])
         with mock.patch.object(
             gate1_evidence, "fr_code_changed_since_last_gate1", return_value=False
         ), mock.patch.object(
             gate1_evidence, "validate_fr_coverage_immediate"
         ) as mock_pytest:
-            rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
+            rc = _check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
         mock_pytest.assert_not_called()
         _ = "must skip pytest when all unchanged"  # assertion message — pylint-only
 
     def test_any_changed_runs_pytest(self, tmp_path):
         """If even one FR changed, fall through to live pytest path."""
-        import harness_cli
         self._manifest(tmp_path, ["FR-01", "FR-02"])
         # FR-01 changed, FR-02 unchanged → not "all unchanged"
         with mock.patch.object(
@@ -6988,19 +6966,18 @@ class TestGate1DeltaBatchAutoSkip:
         ), mock.patch.object(
             gate1_evidence, "validate_fr_coverage_immediate", return_value=95.0,
         ) as mock_pytest:
-            rc = harness_cli._check_gate1_live_coverage(tmp_path, 7)
+            rc = _check_gate1_live_coverage(tmp_path, 7)
         assert rc == 0
         # Pytest MUST be invoked when any FR changed.
         assert mock_pytest.called
 
     def test_empty_fr_list_returns_0_without_pytest(self, tmp_path):
         """Non-FR project (no fr_ids in manifest) — bypass entirely."""
-        import harness_cli
         self._manifest(tmp_path, [])
         with mock.patch.object(
             gate1_evidence, "validate_fr_coverage_immediate"
         ) as mock_pytest:
-            rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
+            rc = _check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
         mock_pytest.assert_not_called()
 
@@ -7008,7 +6985,6 @@ class TestGate1DeltaBatchAutoSkip:
         self, tmp_path
     ):
         """If the changed-check raises, default to running pytest (safe)."""
-        import harness_cli
         self._manifest(tmp_path, ["FR-01"])
         with mock.patch.object(
             gate1_evidence, "fr_code_changed_since_last_gate1",
@@ -7016,7 +6992,7 @@ class TestGate1DeltaBatchAutoSkip:
         ), mock.patch.object(
             gate1_evidence, "validate_fr_coverage_immediate", return_value=85.0,
         ) as mock_pytest:
-            rc = harness_cli._check_gate1_live_coverage(tmp_path, 4)
+            rc = _check_gate1_live_coverage(tmp_path, 4)
         assert rc == 0
         assert mock_pytest.called
 
@@ -7110,11 +7086,11 @@ class TestBackupTempDirCleanup:
         sentinels.mkdir(parents=True)
         (sentinels / "g1_fr01.flag").write_text("ok", encoding="utf-8")
 
-        harness_cli._write_finalize_sentinels_for_tests(tmp_path)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
+        _write_finalize_sentinels_for_tests(tmp_path)
+        monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
         monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
-        monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)
+        monkeypatch.setattr("shutil.which", lambda c: None)
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
@@ -7126,7 +7102,7 @@ class TestBackupTempDirCleanup:
             returncode = 0
             stdout = ""
             stderr = ""
-        monkeypatch.setattr(harness_cli.subprocess, "run", lambda *a, **kw: _R())
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _R())
 
     def test_backup_tempdir_cleaned_when_rmtree_sessi_work_raises(
         self, tmp_path, monkeypatch
@@ -7143,7 +7119,7 @@ class TestBackupTempDirCleanup:
             if ".sessi-work" in str(path):
                 raise RuntimeError("simulated non-OSError")
             return _real_rmtree(path, *args, **kwargs)
-        monkeypatch.setattr("harness_cli.shutil.rmtree", fake_rmtree)
+        monkeypatch.setattr("shutil.rmtree", fake_rmtree)
 
         from harness_cli import cmd_advance_phase
         import argparse
@@ -7356,7 +7332,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
                 stderr = ""
             return _R()
 
-        monkeypatch.setattr(hc.subprocess, "run", _fake_run)
+        monkeypatch.setattr(subprocess, "run", _fake_run)
 
         call_order: list[str] = []
 
@@ -7458,7 +7434,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
                 stderr = ""
             return _R()
 
-        monkeypatch.setattr(hc.subprocess, "run", _fake_run)
+        monkeypatch.setattr(subprocess, "run", _fake_run)
 
         class FakeGit:
             def ensure_gitignore(self): pass
@@ -7511,7 +7487,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
 
         # Bypass structural postflight (artifact links + drift) — irrelevant to
         # the write-before-push assertion and would otherwise need a fully
@@ -7627,7 +7603,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
 
         # Bypass structural postflight (artifact links + drift) — irrelevant to
         # the write-before-push assertion and would otherwise need a fully
@@ -7695,7 +7671,7 @@ class TestPostPushSelfCheck:
     def test_clean_when_status_empty(self, tmp_path, monkeypatch):
         import harness_cli as hc
         fake_result = mock.Mock(returncode=0, stdout="")
-        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
         assert hc._post_push_self_check(tmp_path) == []
 
     def test_returns_modified_paths(self, tmp_path, monkeypatch):
@@ -7704,7 +7680,7 @@ class TestPostPushSelfCheck:
             returncode=0,
             stdout=" M .methodology/state.json\n M .methodology/HANDOVER.md\n",
         )
-        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
         out = hc._post_push_self_check(tmp_path)
         assert out == [
             ".methodology/state.json",
@@ -7716,7 +7692,7 @@ class TestPostPushSelfCheck:
         fake_result = mock.Mock(
             returncode=0, stdout="?? new_file.py\n?? docs/scratch.md\n",
         )
-        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
         out = hc._post_push_self_check(tmp_path)
         assert out == ["new_file.py", "docs/scratch.md"]
 
@@ -7725,13 +7701,13 @@ class TestPostPushSelfCheck:
 
         def _raise(*_a, **_kw):
             raise OSError("git not found")
-        monkeypatch.setattr(hc.subprocess, "run", _raise)
+        monkeypatch.setattr(subprocess, "run", _raise)
         assert hc._post_push_self_check(tmp_path) == []  # best-effort
 
     def test_handles_nonzero_returncode(self, tmp_path, monkeypatch):
         import harness_cli as hc
         fake_result = mock.Mock(returncode=128, stdout="fatal: not a git repo")
-        monkeypatch.setattr(hc.subprocess, "run", lambda *_a, **_kw: fake_result)
+        monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: fake_result)
         assert hc._post_push_self_check(tmp_path) == []
 
 
@@ -7969,7 +7945,7 @@ class TestFinalizeGate4PostPushDirtyWarn:
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
-        monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
+        monkeypatch.setattr("cli._shared._generate_stage_pass", lambda *_a: None)
 
         class _FakePhaseHooks:
             def __init__(self, *_a, **_kw): pass

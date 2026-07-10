@@ -31,12 +31,13 @@ REPO = Path(__file__).resolve().parent.parent
 _HC_REF_CEILING = {
     "__init__.py": 0,
     "check_cmds.py": 0,    # S4e — fully de-borrowed (was 95)
+    "_shared.py": 0,
     "cr_cmds.py": 0,
     "fr_cmds.py": 2,       # S4f (was 73 → … → S4e 16)
     "gate_cmds.py": 5,     # S4b (was 53 → S1 8)
-    "phase_cmds.py": 7,    # S4d (was 81 → S1 12)
+    "phase_cmds.py": 0,    # S4g — fully de-borrowed (was 81)
     "project_cmds.py": 0,  # S4e — fully de-borrowed (was 68)
-    "push_cmds.py": 6,     # S4b (was 39 → S1 7)
+    "push_cmds.py": 5,     # S4g (was 39 → S1 7 → S4b 6)
 }
 
 _HC_REF = re.compile(r"\b_hc\.")

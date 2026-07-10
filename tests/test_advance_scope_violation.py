@@ -8,7 +8,7 @@ BLOCK on an untracked, root-level script whose name signals a diagnostic.
 """
 import subprocess
 
-from harness_cli import _scope_violation_scripts
+from cli.phase_cmds import _scope_violation_scripts
 
 
 def _git_init(path):

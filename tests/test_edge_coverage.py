@@ -691,7 +691,7 @@ class TestVerifyEntryGate:
 
     @staticmethod
     def _import():
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
         return _verify_entry_gate
 
     def test_p1_no_entry_gate(self, tmp_path):

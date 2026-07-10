@@ -40,7 +40,7 @@ class TestPhaseMaps:
 
 class TestEntryGate:
     def test_phase9_accepted_with_gate4_pass(self, tmp_path: Path):
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
         mdir = tmp_path / ".methodology"
         mdir.mkdir()
         (mdir / "quality_manifest.json").write_text(json.dumps({
@@ -53,7 +53,7 @@ class TestEntryGate:
         assert result["passed"] is True
 
     def test_phase9_blocked_without_gate4(self, tmp_path: Path):
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
         mdir = tmp_path / ".methodology"
         mdir.mkdir()
         (mdir / "quality_manifest.json").write_text(json.dumps({
@@ -66,7 +66,7 @@ class TestEntryGate:
         assert result["passed"] is False
 
     def test_phase10_out_of_range(self, tmp_path: Path):
-        from harness_cli import _verify_entry_gate
+        from cli.phase_cmds import _verify_entry_gate
         result = _verify_entry_gate(tmp_path, 10)
         assert result["passed"] is False
         assert "out of range" in result["reason"]

@@ -296,7 +296,7 @@ class TestA1_ThreeSitesInvokeSameHelper:
         `from scripts.phase_auditor import …` (an explanation in a docstring
         that mentions the old import name is allowed)."""
         import re
-        cli_src = (HARNESS_REPO / "harness_cli.py").read_text(encoding="utf-8")
+        cli_src = (HARNESS_REPO / "cli" / "_shared.py").read_text(encoding="utf-8")
         # Locate the function source region (simple text scan works because
         # the function body is contiguous).
         fn_start = cli_src.find("def _run_phase_auditor(")

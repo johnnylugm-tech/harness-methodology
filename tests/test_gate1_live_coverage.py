@@ -115,7 +115,7 @@ def test_validate_fr_coverage_immediate_timeout_returns_none(project_with_fr):
 
 def test_check_gate1_live_coverage_passes_at_threshold(project_with_fr):
     """Coverage ≥ min_coverage → return 0."""
-    from harness_cli import _check_gate1_live_coverage
+    from cli.phase_cmds import _check_gate1_live_coverage
     with mock.patch(
         "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate", return_value=100.0
     ):
@@ -125,7 +125,7 @@ def test_check_gate1_live_coverage_passes_at_threshold(project_with_fr):
 
 def test_check_gate1_live_coverage_blocks_below_threshold(project_with_fr):
     """Coverage < min_coverage → BLOCKED 14."""
-    from harness_cli import _check_gate1_live_coverage
+    from cli.phase_cmds import _check_gate1_live_coverage
     with mock.patch(
         "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate", return_value=50.0
     ):
@@ -135,7 +135,7 @@ def test_check_gate1_live_coverage_blocks_below_threshold(project_with_fr):
 
 def test_check_gate1_live_coverage_blocks_pytest_failure(project_with_fr):
     """pytest errored (None) → BLOCKED 14."""
-    from harness_cli import _check_gate1_live_coverage
+    from cli.phase_cmds import _check_gate1_live_coverage
     with mock.patch(
         "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate", return_value=None
     ):
@@ -145,7 +145,7 @@ def test_check_gate1_live_coverage_blocks_pytest_failure(project_with_fr):
 
 def test_check_gate1_live_coverage_delta_auto_skip(tmp_path):
     """P5 + no code changed since last Gate 1 → skip live pytest, return 0."""
-    from harness_cli import _check_gate1_live_coverage
+    from cli.phase_cmds import _check_gate1_live_coverage
     methodology = tmp_path / ".methodology"
     methodology.mkdir()
     (methodology / "quality_manifest.json").write_text(
@@ -163,14 +163,14 @@ def test_check_gate1_live_coverage_delta_auto_skip(tmp_path):
 
 def test_check_gate1_live_coverage_no_manifest_returns_zero(tmp_path):
     """Project without quality_manifest → skip (non-FR project)."""
-    from harness_cli import _check_gate1_live_coverage
+    from cli.phase_cmds import _check_gate1_live_coverage
     rc = _check_gate1_live_coverage(tmp_path, completed_phase=3)
     assert rc == 0
 
 
 def test_check_gate1_live_coverage_reads_min_coverage_from_manifest(tmp_path):
     """A min_coverage=100 in manifest is respected (not hardcoded 80)."""
-    from harness_cli import _check_gate1_live_coverage
+    from cli.phase_cmds import _check_gate1_live_coverage
     methodology = tmp_path / ".methodology"
     methodology.mkdir()
     (methodology / "quality_manifest.json").write_text(

@@ -293,7 +293,7 @@ def test_4c_excludes_nfr99_placeholder(tmp_path):
         },
     )
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     # 2 covered / 6 real = 33.33% (not 2/7 = 28.57%)
     assert result["4c_nfr_to_test_pct"] == 33.33
@@ -310,7 +310,7 @@ def test_4c_only_nfr99_present_is_vacuous_pass(tmp_path):
         __import__("sys").path.insert(0, sys_path)
     _make_nfr_repo(tmp_path, ["NFR-99"], {})
     from core.quality_gate.spec_tracking_checker import compute_trace_dimension
-    with patch("harness_cli._run_spec_coverage_check", return_value=(0, 100.0)):
+    with patch("core.quality_gate.spec_coverage._run_spec_coverage_check", return_value=(0, 100.0)):
         result = compute_trace_dimension(tmp_path, gate=2)
     assert result["4c_nfr_to_test_pct"] == 100.0
     assert result["nfr_untested"] == []

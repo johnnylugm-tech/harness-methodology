@@ -1,5 +1,6 @@
 # tests/test_handover_generator.py
 # Tests for HandoverGenerator and GitStrategy handover integration.
+import subprocess
 import json
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -931,7 +932,7 @@ class TestCmdAdvancePhase:
 
         if skip_prechecks:
             monkeypatch.setattr(
-                "harness_cli._advance_prechecks", lambda project, phase: 0,
+                "cli.phase_cmds._advance_prechecks", lambda project, phase: 0,
             )
         else:
             # Create finalize-gate sentinels so the sentinel check passes
@@ -952,7 +953,7 @@ class TestCmdAdvancePhase:
             # Set mock_auditor=False for tests that specifically test C1/C11/agent-B.
             if mock_auditor:
                 monkeypatch.setattr(
-                    "harness_cli._run_phase_auditor", lambda project, phase: 0,
+                    "cli._shared._run_phase_auditor", lambda project, phase: 0,
                 )
                 monkeypatch.setattr(
                     "core.quality_gate.agent_b_approvals.verify_agent_b_approvals_core",
@@ -983,7 +984,7 @@ class TestCmdAdvancePhase:
 
         # Allow per-test subprocess.run override
         if "subprocess_run" in kwargs:
-            monkeypatch.setattr("harness_cli.subprocess.run", kwargs["subprocess_run"])
+            monkeypatch.setattr("subprocess.run", kwargs["subprocess_run"])
 
         # Allow per-test HARNESS_NO_GIT override
         if "harness_no_git" in kwargs:
@@ -1182,9 +1183,9 @@ class TestCmdAdvancePhase:
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
-        monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
+        monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
+        monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda project, phase: 0)
 
         exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
@@ -1232,9 +1233,9 @@ class TestCmdAdvancePhase:
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
-        monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
+        monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
-        monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
+        monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda project, phase: 0)
 
         exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
@@ -1588,7 +1589,6 @@ class TestAdvanceFsm:
 
     def test_last_gate_fr_preserved_in_state_json(self, tmp_path, monkeypatch):
         """last_gate and last_fr are written to state.json (not reset to null)."""
-        import subprocess
 
         def fake_run(cmd, **kw):
             class R:
@@ -1610,7 +1610,6 @@ class TestAdvanceFsm:
 
     def test_last_gate_fr_none_when_not_passed(self, tmp_path, monkeypatch):
         """When last_gate/last_fr are not provided, they stay None."""
-        import subprocess
 
         def fake_run(cmd, **kw):
             class R:
@@ -1632,7 +1631,6 @@ class TestAdvanceFsm:
 
     def test_advance_fsm_updates_fr_progress_phase(self, tmp_path, monkeypatch):
         """fr_progress.json phase advances together with state.json."""
-        import subprocess
 
         def fake_run(cmd, **kw):
             class R:

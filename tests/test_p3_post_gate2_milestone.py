@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 
-from harness_cli import _validate_p3_post_gate2_precondition
+from cli._shared import _validate_p3_post_gate2_precondition
 from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
 
 
@@ -148,7 +148,7 @@ class TestP3ErrorMessageTwoStepGuidance:
     def test_docstring_documents_run_gate_writer(self):
         """Docstring must reference `run-gate` (the actual `.flag` writer), not
         `finalize-gate` (which writes `.finalized`, a different marker)."""
-        from harness_cli import _validate_p3_post_gate2_precondition
+        from cli._shared import _validate_p3_post_gate2_precondition
 
         doc = _validate_p3_post_gate2_precondition.__doc__ or ""
         assert "run-gate" in doc, "docstring must reference run-gate (the .flag writer)"
