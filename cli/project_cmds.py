@@ -1171,7 +1171,9 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
     if project:
         # Local mode
         print(f"\n{'='*60}\naudit-phase [LOCAL]: Phase {args.phase} | project={project}\n{'='*60}")
-        fetcher: "GitHubFetcher | LocalFetcher" = LocalFetcher(  # X|Y requires Python 3.10+
+        # No static annotation: GitHubFetcher/LocalFetcher are runtime-loaded via
+        # load_harness_script, not real type objects pyright can resolve.
+        fetcher = LocalFetcher(
             project_root=project, branch=args.branch
         )
     else:
