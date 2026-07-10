@@ -1100,6 +1100,19 @@ class GitStrategy:
             cmd.insert(1, "--no-verify")
         r2 = self._run_git(*cmd)
         if r2.returncode != 0:
+            # Capture full hook stderr for diagnostics (prepare-commit-msg
+            # hook output can exceed 200 chars and gets truncated by the
+            # WARN line below). _mark_gate_commit_failed reads this file
+            # to surface the exact rejection reason.
+            try:
+                _diag = self.project / ".sessi-work" / "last_commit_blocked.txt"
+                _diag.parent.mkdir(parents=True, exist_ok=True)
+                _diag.write_text(
+                    f"commit_message: {message[:200]}\n"
+                    f"stderr:\n{r2.stderr}\n"
+                )
+            except OSError:
+                pass
             print(f"  [git WARN] git commit failed: {r2.stderr[:200]}")
             return False
         sha = self._run_git("rev-parse", "--short", "HEAD").stdout.strip()

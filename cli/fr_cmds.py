@@ -647,6 +647,36 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
 
+    import subprocess
+    import sys
+    import os
+
+    # 6. Dirty-tree guard: verify commit actually landed.
+    # If git commit was blocked by prepare-commit-msg hook, implementation
+    # files remain uncommitted and the next FR's step will sweep them up
+    # (cascade bug — e.g. FR-02 GREEN blocked → orphan executor.py/store.py
+    # staged into FR-03 RED commit). Only check steps that are expected to
+    # produce a commit (skip CODE-FIX/COVERAGE-FIX which fix code for the
+    # next GATE1 round to commit).
+    if step in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA"):
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, cwd=str(project),
+        ).stdout.strip()
+        if dirty:
+            print(
+                f"\n[BLOCKED] {fr_id} {step}: commit did not land — "
+                f"working tree still dirty after step.\n"
+                f"  Likely cause: prepare-commit-msg hook rejection "
+                f"(stale trace attestation, FSM check, etc.).\n"
+                f"  Fix the hook-reported error, then re-run:\n"
+                f"    python harness_cli.py resume-fr-step --phase {phase} "
+                f"--fr-id {fr_id} --project .\n"
+                f"  Dirty files:\n{dirty[:2000]}",
+                file=sys.stderr,
+            )
+            return 6  # Same exit code as finalize-gate commit-failed
+
     no_push = getattr(args, "no_push", False) or os.environ.get("HARNESS_NO_GIT")
     if no_push:
         print("[run-fr-step] --no-push or HARNESS_NO_GIT specified — skipping git push")

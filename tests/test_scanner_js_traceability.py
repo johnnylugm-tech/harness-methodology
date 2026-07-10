@@ -155,9 +155,14 @@ class TestTraceDirtyStateJs:
     def test_js_test_mtime_triggers_staleness(self, tmp_path):
         import os
         import time
+        import json
         project = _ts_project(tmp_path)
+        # Mock Phase 2 so that staleness is treated as a hard block, as expected by the test
+        (project / ".methodology" / "state.json").write_text(json.dumps({
+            "current_phase": 2, "language": "typescript", "test_runner": "vitest"
+        }), encoding="utf-8")
         trace_dir = project / ".methodology" / "trace"
-        trace_dir.mkdir(parents=True)
+        trace_dir.mkdir(parents=True, exist_ok=True)
         att = trace_dir / "attestation.json"
         att.write_text("{}", encoding="utf-8")
         old = time.time() - 3600

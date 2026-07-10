@@ -1888,6 +1888,14 @@ def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -
             atomic_write_json(_mfst, _mfst_json)
             print(f"  [WARN] git commit did not land — rolled back quality_complete "
                   f"to False for gate{gate}" + (f"/{fr_id}" if fr_id else ""))
+            # Surface hook rejection details captured by git_strategy._commit
+            _diag = project_path / ".sessi-work" / "last_commit_blocked.txt"
+            if _diag.exists():
+                try:
+                    _diag_text = _diag.read_text(encoding="utf-8")
+                    print(f"  [DIAG] Hook rejection details:\n{_diag_text[:2000]}")
+                except OSError:
+                    pass
     except (OSError, json.JSONDecodeError) as _mf_err:
         print(f"  [WARN] Could not roll back quality_manifest.json after commit failure: {_mf_err}")
 
