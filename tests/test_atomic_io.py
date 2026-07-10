@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from core.atomic_io import (
+    FileSnapshot,
     atomic_write_json,
     atomic_write_text,
     file_lock,
@@ -209,5 +210,70 @@ class TestStateLockPath:
         proj_a = tmp_path / "proj_a"
         proj_b = tmp_path / "proj_b"
         assert state_lock_path(proj_a) != state_lock_path(proj_b)
+
+
+# ---------------------------------------------------------------------------
+# FileSnapshot
+# ---------------------------------------------------------------------------
+
+class TestFileSnapshot:
+    def test_restores_content_byte_for_byte(self, tmp_path):
+        f = tmp_path / "state.json"
+        f.write_bytes(b'{"current_phase": 3}\n')
+        snap = FileSnapshot([f])
+        f.write_bytes(b'{"current_phase": 4}\n')
+        snap.restore()
+        assert f.read_bytes() == b'{"current_phase": 3}\n'
+
+    def test_deletes_files_absent_at_capture(self, tmp_path):
+        f = tmp_path / "HANDOVER.md"
+        snap = FileSnapshot([f])
+        f.write_text("generated after capture")
+        snap.restore()
+        assert not f.exists()
+
+    def test_restore_recreates_deleted_file(self, tmp_path):
+        f = tmp_path / "fr_progress.json"
+        f.write_text("original")
+        snap = FileSnapshot([f])
+        f.unlink()
+        snap.restore()
+        assert f.read_text() == "original"
+
+    def test_restore_is_idempotent(self, tmp_path):
+        present = tmp_path / "a.txt"
+        present.write_text("keep")
+        absent = tmp_path / "b.txt"
+        snap = FileSnapshot([present, absent])
+        present.write_text("mutated")
+        absent.write_text("born")
+        snap.restore()
+        snap.restore()
+        assert present.read_text() == "keep"
+        assert not absent.exists()
+
+    def test_restore_recreates_missing_parent_dirs(self, tmp_path):
+        f = tmp_path / "00-summary" / "Phase3_STAGE_PASS.md"
+        f.parent.mkdir()
+        f.write_text("pass")
+        snap = FileSnapshot([f])
+        f.unlink()
+        f.parent.rmdir()
+        snap.restore()
+        assert f.read_text() == "pass"
+
+    def test_mixed_write_set(self, tmp_path):
+        """The advance-phase shape: some targets exist, some don't yet."""
+        state = tmp_path / ".methodology" / "state.json"
+        state.parent.mkdir()
+        state.write_text('{"current_phase": 2}')
+        handover = tmp_path / "HANDOVER.md"  # not yet generated
+        snap = FileSnapshot([state, handover])
+        state.write_text('{"current_phase": 3}')
+        handover.write_text("Phase 3 handover")
+        snap.restore()
+        assert state.read_text() == '{"current_phase": 2}'
+        assert not handover.exists()
+
 
 pytestmark = pytest.mark.gate

@@ -30,7 +30,7 @@ import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 try:
     import fcntl  # POSIX only
@@ -233,3 +233,42 @@ class StateTransaction:
             # Pre-commit failure: nothing published, clean the tmps.
             # Mid-commit failure (journal on disk) keeps its evidence.
             self.abort()
+
+
+class FileSnapshot:
+    """Capture file states up front; restore() puts every file back exactly
+    as captured (content restored byte-for-byte, files absent at capture are
+    deleted). Idempotent.
+
+    The reusable primitive for write→git-op→revert-on-failure flows: state
+    files are written BEFORE a git commit/push so the committed bytes carry
+    them, and must be reverted when the git operation fails so local state
+    never claims more progress than git history records (the split-brain
+    class). push-milestone (dd9129b), push-checkpoint (dd9129b) and
+    finalize-gate 4 (28864f7) each hand-rolled this pattern before this
+    class existed; advance-phase didn't revert at all (ghost state).
+
+    Deliberately NOT a context manager: every call site decides failure from
+    a boolean result (commit_and_push_* returning False), not an exception —
+    an explicit .restore() in the failure branch matches that shape.
+    """
+
+    def __init__(self, paths: Iterable[Path]):
+        self._snapshot: list[tuple[Path, Optional[bytes]]] = []
+        for p in paths:
+            p = Path(p)
+            try:
+                content: Optional[bytes] = p.read_bytes()
+            except FileNotFoundError:
+                content = None
+            self._snapshot.append((p, content))
+
+    def restore(self) -> None:
+        for path, content in self._snapshot:
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(f".{path.name}.snap.tmp")
+                tmp.write_bytes(content)
+                os.replace(tmp, path)
