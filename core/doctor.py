@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +24,10 @@ from core.phase_topology import VALID_PHASES
 from core.utils.project_layout import ProjectLayout
 
 _CLAUDE_BLOCK_PHASE = re.compile(r"Phase:\s*\*\*(\d+)")
+# Durable phase-advance record: every successful advance-phase lands a commit
+# with this exact subject (cli/phase_cmds.py cmd_advance_phase). Message-level
+# anchor — survives the rebases that make SHAs unreliable in this workflow.
+_ADVANCE_SUBJECT = re.compile(r"^handover: advance to Phase (\d+)$")
 
 
 @dataclass(frozen=True)
@@ -121,4 +126,62 @@ def run_doctor(project_root: Path) -> list[Finding]:
                                     f"phase {current_phase} (P5+) requires "
                                     ".methodology/trace/attestation.json — not found"))
 
+    # 6. git-sync (弱點強化 B2): state.json vs the durable advance record in
+    # git history. Every successful advance lands "handover: advance to
+    # Phase N"; state.json claiming a phase git never recorded is the
+    # split-brain ghost state (advance commit failed after the state write,
+    # pre-B1 runs, or a hand-edited state.json). Read-only and fail-soft:
+    # non-git projects are silently skipped, git errors degrade to INFO.
+    if current_phase is not None:
+        findings.extend(_check_git_sync(project, current_phase))
+
     return findings
+
+
+def _check_git_sync(project: Path, current_phase: int) -> list[Finding]:
+    def _git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", str(project), *args],
+            capture_output=True, text=True, timeout=5,
+        )
+
+    try:
+        if _git("rev-parse", "--is-inside-work-tree").returncode != 0:
+            return []  # not a git repo — nothing to cross-check
+        log = _git("log", "-n", "200",
+                   "--grep=^handover: advance to Phase ", "--format=%s")
+        if log.returncode != 0:
+            # e.g. unborn HEAD (repo initialised, nothing committed yet)
+            return []
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return [Finding("git-sync", "INFO",
+                        f"git cross-check skipped: {exc}")]
+
+    git_phase: int | None = None
+    for line in log.stdout.splitlines():
+        m = _ADVANCE_SUBJECT.match(line.strip())
+        if m:
+            git_phase = int(m.group(1))  # log is reverse-chron: first = latest
+            break
+
+    if git_phase is None:
+        if current_phase <= 1:
+            return []  # fresh project — no advance has happened yet
+        return [Finding("git-sync", "WARN",
+                        f"state.json says Phase {current_phase} but git history has "
+                        f"no 'handover: advance to Phase N' commit — pre-convention "
+                        f"project or rewritten history; verify the phase manually")]
+    if git_phase < current_phase:
+        return [Finding("git-sync", "ERROR",
+                        f"ghost state: state.json says Phase {current_phase} but the "
+                        f"latest committed advance is Phase {git_phase} — an advance "
+                        f"commit likely failed after state.json was written. Re-run "
+                        f"advance-phase (it now rolls back on commit failure), or "
+                        f"repair state.json to match git history")]
+    if git_phase > current_phase:
+        return [Finding("git-sync", "ERROR",
+                        f"state.json says Phase {current_phase} but git history "
+                        f"already records 'advance to Phase {git_phase}' — state "
+                        f"regressed behind its own durable record (hand-edit or "
+                        f"restored backup?)")]
+    return []

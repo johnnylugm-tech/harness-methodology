@@ -110,6 +110,10 @@
   bug: "advance-phase ghost state: a rejected handover commit only WARNed while state.json had already advanced — hooks/CI immediately targeted a phase git history never recorded (split-brain P0); the failed run even printed 'Done' and exited 0"
   fixed_in: "弱點強化 Station B1 (FileSnapshot rollback + exit 6)"
 
+- test: tests/test_doctor.py::TestGitSync::test_state_ahead_of_git_is_ghost_state_error
+  bug: "split-brain detection gap: doctor validated state.json against manifest/CLAUDE.md/attestation but never against git history — a state.json claiming a phase with no 'handover: advance to Phase N' commit (the P0 ghost state) went completely undetected"
+  fixed_in: "弱點強化 Station B2 (doctor git-sync check)"
+
 - test: tests/test_cli_layering.py::test_hc_ref_ratchet
   bug: "cli/ modules borrowing names via `_hc.` late-binding (409 refs at S0) — the debt that forces harness_cli's mid-file E402 imports and sys.modules hack; per-file counts must only decrease"
   fixed_in: "harness_cli 絞殺者續章 S0 (ratchet 安全網)"
