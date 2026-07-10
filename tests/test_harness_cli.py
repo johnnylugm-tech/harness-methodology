@@ -7445,7 +7445,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
     BEFORE git.commit_and_push_gate() and use atomic_write_json (not raw write_text).
     """
 
-    def _run_with_spy(self, tmp_path, monkeypatch, gate=4, phase=6):
+    def _run_with_spy(self, tmp_path, monkeypatch, gate=4, phase=6, push_ok=True):
         from harness.harness_bridge import GateResult
 
         sessi = tmp_path / ".sessi-work"
@@ -7496,7 +7496,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
             def commit_fr_gate1(self, *_a): pass
             def commit_and_push_gate(self, *_a):
                 call_order.append("commit_and_push_gate")
-                return True
+                return push_ok
 
         monkeypatch.setattr("cli._shared._make_git", lambda *_a: FakeGit())
 
@@ -7561,6 +7561,24 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
             f"gate-4 audit write must use atomic_write_json, not raw write_text; "
             f"raw write_text calls: {raw_writes}"
         )
+
+    def test_reverted_on_push_failure(self, tmp_path, monkeypatch):
+        """B3 (弱點強化): commit_and_push_gate failing must revert the
+        optimistic last_milestone_command write — same class as the
+        push-milestone/push-checkpoint reverts (dd9129b): downstream
+        ci_state_helper trusts last_milestone_command alone, so a failed
+        gate-4 push must not read as a completed finalize."""
+        rc, _call_order, _raw_writes, state_path = self._run_with_spy(
+            tmp_path, monkeypatch, gate=4, phase=6, push_ok=False
+        )
+        assert rc == 6
+        sd = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "last_milestone_command" not in sd, (
+            "failed gate-4 push left last_milestone_command="
+            f"{sd.get('last_milestone_command')!r} in state.json — a failed "
+            "finalize reads as pushed"
+        )
+        assert sd["existing"] is True
 
     def test_skip_when_state_json_missing(self, tmp_path, monkeypatch):
         from harness.harness_bridge import GateResult

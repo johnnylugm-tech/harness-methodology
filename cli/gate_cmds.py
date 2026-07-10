@@ -2249,16 +2249,20 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         # original raw `write_text` also lacked the file_lock used elsewhere
         # (file_lock + atomic_write_json pattern from _update_state_checkpoint).
         # See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+        _prev_g4_milestone_command = None
+        _wrote_g4_milestone_state = False
         if args.gate == 4:
             _state_path = Path(args.project).resolve() / ".methodology" / "state.json"
             if _state_path.exists():
                 try:
                     with file_lock(state_lock_path(Path(args.project).resolve())):
                         _sd = json.loads(_state_path.read_text(encoding="utf-8"))
+                        _prev_g4_milestone_command = _sd.get("last_milestone_command")
                         _sd["last_milestone_command"] = (
                             f"finalize-gate --gate 4 --phase {args.phase}"
                         )
                         atomic_write_json(_state_path, _sd)
+                        _wrote_g4_milestone_state = True
                 except Exception as _sme:
                     print(f"  [WARN] Could not write last_milestone_command to state.json: {_sme}")
         if args.gate == 1:
@@ -2278,6 +2282,26 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         if not _commit_ok:
             _mark_gate_commit_failed(project_path, args.gate, fr_id)
+            # B3 (弱點強化): revert the optimistic gate-4 audit write — same
+            # field-level pattern as push-milestone/push-checkpoint (dd9129b).
+            # ci_state_helper trusts last_milestone_command alone, so a failed
+            # gate-4 push must not read as a completed finalize.
+            if _wrote_g4_milestone_state:
+                try:
+                    with file_lock(state_lock_path(project_path)):
+                        _sd = json.loads(
+                            (project_path / ".methodology" / "state.json")
+                            .read_text(encoding="utf-8")
+                        )
+                        if _prev_g4_milestone_command is None:
+                            _sd.pop("last_milestone_command", None)
+                        else:
+                            _sd["last_milestone_command"] = _prev_g4_milestone_command
+                        atomic_write_json(
+                            project_path / ".methodology" / "state.json", _sd
+                        )
+                except Exception as _revert_err:  # pylint: disable=broad-exception-caught
+                    print(f"  [WARN] Could not revert gate-4 milestone field: {_revert_err}")
             print(
                 f"\n[BLOCKED] Gate {args.gate} evaluation passed but the git commit "
                 "did not land (see '[git WARN] git commit failed' above — often a "

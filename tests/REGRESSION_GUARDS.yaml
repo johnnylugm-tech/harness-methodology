@@ -62,6 +62,10 @@
   bug: "push-checkpoint: same class — audit-field write not reverted when the push fails"
   fixed_in: "dd9129b"
 
+- test: tests/test_harness_cli.py::TestFinalizeGate4StateJsonWriteBeforePush::test_reverted_on_push_failure
+  bug: "finalize-gate 4: last_milestone_command written before commit_and_push_gate had NO revert on push failure — a failed gate-4 push read as a completed finalize downstream (ci_state_helper trusts the field alone); same class as the push-milestone/checkpoint reverts (dd9129b) that DID exist"
+  fixed_in: "弱點強化 Station B3 (gate-4 field-level revert)"
+
 - test: tests/test_manifest_integrity.py::TestManifestIntegrityPatternB::test_empty_gate1_with_fsm_evidence_blocks
   bug: "Pattern B: empty manifest gate1 with FSM execution evidence must block (truncation/fabrication defense)"
   fixed_in: "621f2a9"
