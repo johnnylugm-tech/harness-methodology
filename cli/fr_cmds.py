@@ -385,6 +385,38 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         if not gate_pass:
             gate_pass = _fr_step_already_done(step, fr_id, project, phase=phase)
 
+        # ── Pragma no-cover audit (GATE1/DELTA) ──────────────────────────
+        # Run during GATE1 evaluation — not just at pre-push — so agents
+        # are forced to fix pragma issues as part of the TDD loop.
+        # Semgrep cannot match Python comments, so this runs independently.
+        _pragma_targets = [str(project / d) for d in ("03-development/src", "src")
+                           if (project / d).is_dir()]
+        if _pragma_targets:
+            from core.phase_hooks import _audit_pragma_no_cover
+            _pf = _audit_pragma_no_cover(_pragma_targets)
+            if _pf:
+                _pf_files = {f["file"] for f in _pf}
+                print(
+                    f"\n[PRAGMA AUDIT] {fr_id} GATE1: "
+                    f"{len(_pf)} # pragma: no cover workaround(s) in "
+                    f"{len(_pf_files)} file(s):"
+                )
+                for f in _pf[:8]:
+                    print(f"    {f['file']}:{f['line']} — {f['message'][:100]}")
+                if len(_pf) > 8:
+                    print(f"    ... and {len(_pf) - 8} more")
+                if gate_pass:
+                    print(
+                        f"  Sub-agent reported GATE1 PASS but pragma audit "
+                        f"found untested code — overriding to FAIL."
+                    )
+                gate_pass = False
+                failing_dims = (failing_dims or []) + ["pragma-no-cover"]
+                block_reason = (
+                    f"pragma-no-cover: {len(_pf)} workaround(s) — "
+                    f"write unit tests and remove # pragma: no cover"
+                )
+
         max_fix_rounds = _fr_max_fix_rounds
         # B: progress tracking — detect lateral variation (same error, no progress)
         prev_snapshot_sig: str = ""
