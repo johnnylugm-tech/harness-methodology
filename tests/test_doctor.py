@@ -243,3 +243,57 @@ class TestInterruptedTransaction:
         (project / "HANDOVER.md.txn.tmp").write_text("x", encoding="utf-8")
         findings = run_doctor(project)
         assert any(".txn.tmp" in f.message for f in findings)
+
+
+class TestGate1Evidence:
+    """check 7 (弱點強化 Round 3 J): a manifest quality_complete claim must
+    have a record in at least one of the three co-equal O2 evidence channels
+    (sentinel .flag / .finalized / gate_timestamps.jsonl). Deliberately
+    any-phase: at-rest reconciliation optimizes for zero false positives;
+    phase strictness stays at the enforcement sites (push-milestone
+    p3-post-gate2, advance-phase).
+    """
+
+    MANIFEST = {"gate_results": {"gate1": {
+        "FR-01": {"score": 95.0, "quality_complete": True},
+    }}}
+
+    def _findings(self, project):
+        return [f for f in run_doctor(project) if f.check == "gate1-evidence"]
+
+    def test_complete_claim_with_zero_evidence_is_error(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        found = self._findings(project)
+        assert len(found) == 1
+        assert found[0].severity == "ERROR"
+        assert "FR-01" in found[0].message
+
+    def test_sentinel_flag_satisfies_the_claim(self, tmp_path):
+        from core.quality_gate.gate1_evidence import SENTINEL_FLAG_TEMPLATE
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        sentinels = project / ".sessi-work" / "sentinels"
+        sentinels.mkdir(parents=True)
+        (sentinels / SENTINEL_FLAG_TEMPLATE.format(gate=1, phase=3, key="fr01")).touch()
+        assert self._findings(project) == []
+
+    def test_timestamps_row_satisfies_the_claim(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        (project / ".methodology" / "gate_timestamps.jsonl").write_text(
+            json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0}) + "\n",
+            encoding="utf-8",
+        )
+        assert self._findings(project) == []
+
+    def test_incomplete_claim_needs_no_evidence(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest={"gate_results": {"gate1": {
+                               "FR-01": {"score": 40.0, "quality_complete": False},
+                           }}})
+        assert self._findings(project) == []
+
+    def test_no_manifest_yields_no_findings(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        assert self._findings(project) == []

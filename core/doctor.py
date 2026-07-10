@@ -21,6 +21,7 @@ from pathlib import Path
 
 from core.fsm.fsm import VALID_FSM_STATES
 from core.phase_topology import VALID_PHASES
+from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
 from core.utils.project_layout import ProjectLayout
 
 _CLAUDE_BLOCK_PHASE = re.compile(r"Phase:\s*\*\*(\d+)")
@@ -135,6 +136,70 @@ def run_doctor(project_root: Path) -> list[Finding]:
     if current_phase is not None:
         findings.extend(_check_git_sync(project, current_phase))
 
+    # 7. gate1-evidence (弱點強化 Round 3 J): quality_manifest claiming an
+    # FR's Gate 1 quality_complete with ZERO records in any of the three
+    # co-equal evidence channels (O2: sentinel .flag / .finalized /
+    # gate_timestamps.jsonl) is a fabricated or hand-edited result.
+    # Deliberately any-phase — at-rest reconciliation optimizes for zero
+    # false positives; phase strictness stays at the enforcement sites
+    # (push-milestone p3-post-gate2, advance-phase).
+    findings.extend(_check_gate1_evidence(project, layout))
+
+    return findings
+
+
+def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]:
+    manifest_path = layout.quality_manifest_path
+    if not manifest_path.is_file():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []  # check 3 already reports the parse failure
+    if not isinstance(manifest, dict):
+        return []
+    gate_results = manifest.get("gate_results")
+    gate1 = gate_results.get("gate1") if isinstance(gate_results, dict) else None
+    if not isinstance(gate1, dict):
+        return []
+
+    ts_frs: set[str] = set()
+    ts_file = layout.methodology_dir / GATE_TIMESTAMPS_FILE
+    if ts_file.is_file():
+        try:
+            for line in ts_file.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict) and entry.get("gate") == 1:
+                    ts_frs.add(str(entry.get("fr_id", "")).replace("-", "").lower())
+        except OSError:
+            pass
+
+    sentinels_dir = project / ".sessi-work" / "sentinels"
+    findings: list[Finding] = []
+    for fr_id, rec in gate1.items():
+        if not (isinstance(rec, dict) and rec.get("quality_complete")):
+            continue
+        fr_key = str(fr_id).replace("-", "").lower()
+        try:
+            has_sentinel = (
+                any(sentinels_dir.glob(f"g1_p*_{fr_key}.flag"))
+                or any(sentinels_dir.glob(f"g1_p*_{fr_key}.finalized"))
+            )
+        except OSError:
+            has_sentinel = False
+        if has_sentinel or fr_key in ts_frs:
+            continue
+        findings.append(Finding(
+            "gate1-evidence", "ERROR",
+            f"quality_manifest.json marks {fr_id} Gate 1 quality_complete but "
+            f"no evidence exists in any channel (sentinel .flag/.finalized, "
+            f"{GATE_TIMESTAMPS_FILE}) — fabricated or hand-edited result; "
+            f"re-run run-gate/finalize-gate for this FR or correct the manifest"))
     return findings
 
 
