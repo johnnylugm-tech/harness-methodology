@@ -220,7 +220,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     _fr_code_fix_max_turns: int | None = _fr_conf.get("code_fix_max_turns")
 
     # 1. Idempotency — skip if already committed
-    if _fr_step_already_done(step, fr_id, project):
+    if _fr_step_already_done(step, fr_id, project, phase=phase):
         print(f"[run-fr-step] {fr_id} {step}: already done → skip")
         #   gate1_evidence.record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
         #     from _check_gate1_live_coverage when ALL FRs skip (no code changes)
@@ -369,7 +369,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         else:
             gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
         if not gate_pass:
-            gate_pass = _fr_step_already_done(step, fr_id, project)
+            gate_pass = _fr_step_already_done(step, fr_id, project, phase=phase)
 
         max_fix_rounds = _fr_max_fix_rounds
         # B: progress tracking — detect lateral variation (same error, no progress)
@@ -377,7 +377,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         no_progress_count: int = 0
 
         for fix_round in range(1, max_fix_rounds + 1):
-            if gate_pass or _fr_step_already_done(step, fr_id, project):
+            if gate_pass or _fr_step_already_done(step, fr_id, project, phase=phase):
                 break
 
             # ── S3 short-circuit: evaluation JSON was malformed, not code error ──
@@ -630,7 +630,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             )
             gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
-                gate_pass = _fr_step_already_done(step, fr_id, project)
+                gate_pass = _fr_step_already_done(step, fr_id, project, phase=phase)
         else:
             print(f"[run-fr-step] {fr_id} GATE1 BLOCKED after {max_fix_rounds} CODE-FIX rounds"
                   " — human intervention required")
@@ -652,11 +652,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # needs to see genuinely repeated finalizations); the redundancy is
     # avoided here, at the call site that has the git-log context to know
     # whether a new record is actually needed.
-    if step in ("GATE1", "GATE1-DELTA") and not _fr_step_already_done(step, fr_id, project):
+    if step in ("GATE1", "GATE1-DELTA") and not _fr_step_already_done(step, fr_id, project, phase=phase):
         gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
 
     # 5. Verify commit exists (non-fatal warning for TDD-IMPROVE / CODE-FIX)
-    if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project):
+    if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project, phase=phase):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
 
 
@@ -736,14 +736,14 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
     carryforward = phase in (5, 7, 8)
     for fr_id in fr_ids:
         if carryforward:
-            if gate1_evidence.fr_code_changed_since_last_gate1(fr_id, project):
+            if gate1_evidence.fr_code_changed_since_last_gate1(fr_id, project, phase=phase):
                 steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
             else:
                 steps = ["GATE1-DELTA"]
         else:
             steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
         for step in steps:
-            if not _fr_step_already_done(step, fr_id, project):
+            if not _fr_step_already_done(step, fr_id, project, phase=phase):
                 srs_flag = " --srs .methodology/SRS.md" if step in ("TDD-RED", "TDD-GREEN") else ""
                 print(
                     f"Next step: python3 harness_cli.py run-fr-step "
@@ -1218,8 +1218,19 @@ _FR_STEP_COMMIT_PATTERNS: dict[str, str] = {
 }
 
 
-def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
-    """Idempotency check: scan git log for step's expected commit pattern.
+def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | None = None) -> bool:
+    """Idempotency check: is this step already done for THIS phase?
+
+    For GATE1 / GATE1-DELTA (when phase is given): the authoritative signal
+    is the phase-scoped finalize-gate sentinel (gate1_evidence._finalize_sentinel_path),
+    not a commit-text grep. The sentinel is only ever written right after a
+    genuine bridge.finalize_gate() PASS for this exact phase (gate_cmds.py
+    cmd_finalize_gate) — it can't be produced by the COVERAGE-FIX manifest
+    fallback or by a commit from a different phase/lineage. A plain
+    `git log --grep "feat({fr_id}): Gate1 PASS"` has no phase boundary at
+    all and can match a stale commit reachable from HEAD (e.g. after a
+    `git reset --hard` back to a phase boundary followed by a re-run),
+    causing this FR's real GATE1 deliverable to be silently skipped.
 
     For GATE1-DELTA: additionally checks whether FR code has changed since
     the last Gate 1 PASS commit. If code changed, returns False so the
@@ -1232,11 +1243,17 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
     if not tmpl:
         return False
     pattern = tmpl.format(fr_id=fr_id)
-    r = _sp.run(
-        ["git", "log", "--oneline", "--grep", pattern],
-        capture_output=True, text=True, cwd=str(project),
-    )
-    committed = bool(r.stdout.strip())
+
+    if step.upper() in ("GATE1", "GATE1-DELTA") and phase is not None:
+        sentinel = gate1_evidence._finalize_sentinel_path(project, 1, fr_id, phase=phase)
+        committed = sentinel.exists()
+    else:
+        # Legacy callers without phase info: unscoped grep (unchanged behavior).
+        r = _sp.run(
+            ["git", "log", "--oneline", "--grep", pattern],
+            capture_output=True, text=True, cwd=str(project),
+        )
+        committed = bool(r.stdout.strip())
     if not committed:
         return False
 
@@ -1267,7 +1284,7 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path) -> bool:
 
     # GATE1-DELTA: code-change detection (not just commit-pattern check)
     if step.upper() == "GATE1-DELTA":
-        return not gate1_evidence.fr_code_changed_since_last_gate1(fr_id, project)
+        return not gate1_evidence.fr_code_changed_since_last_gate1(fr_id, project, phase=phase)
 
     # Dual verification for TDD
     if step.upper() == "TDD-RED":

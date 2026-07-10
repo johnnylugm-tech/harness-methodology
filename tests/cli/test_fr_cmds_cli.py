@@ -274,7 +274,7 @@ class TestRunFrStep:
     def test_skip_if_already_done(self, tmp_path, monkeypatch):
         """Idempotency: returns 0 immediately if step commit already exists."""
         import harness_cli
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: True)
         args = argparse.Namespace(
             phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
             srs=None, timeout=600, max_turns=30, max_fix_rounds=3,
@@ -290,7 +290,7 @@ class TestRunFrStep:
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
         # _fr_step_already_done always returns False (step not done)
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: False)
 
         dispatched: dict = {}
 
@@ -472,7 +472,7 @@ class TestRunFrStep:
         )
         # TDD-RED done, TDD-GREEN not yet done
         monkeypatch.setattr("cli.fr_cmds._fr_step_already_done",
-            lambda step, fr_id, project: step == "TDD-RED",
+            lambda step, fr_id, project, phase=None: step == "TDD-RED",
         )
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
@@ -493,7 +493,7 @@ class TestRunFrStep:
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: True)
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
@@ -512,7 +512,7 @@ class TestRunFrStep:
             json.dumps({"phase": 3, "frs": {"FR-02": {"status": "gate1_pass"}}}),
             encoding="utf-8",
         )
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: False)
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
@@ -529,7 +529,7 @@ class TestRunFrStep:
 
         _setup_preflight_fixtures(tmp_path, step="GATE1")
 
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: False)
 
         # Sub-agent always returns gate_pass=false
         _fail_output = '{"status": "DONE", "pass": false, "failing_dims": ["D1"], "gate_score": 0.2}'
@@ -560,8 +560,8 @@ class TestRunFrStep:
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: False)
-        monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a: False,
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: False)
+        monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a, **k: False,
         )
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
@@ -587,8 +587,8 @@ class TestRunFrStep:
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: False)
-        monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a: True,
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: False)
+        monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a, **k: True,
         )
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
@@ -677,6 +677,65 @@ class TestRunFrStep:
         }))
         assert _fr_step_already_done("GATE1", "FR-01", tmp_path)
 
+    def test_gate1_phase_scoped_ignores_stale_commit_when_sentinel_missing(self, tmp_path, monkeypatch):
+        """Bug A+B repro: after a `git reset --hard` back to a phase boundary and
+        re-running the same phase, a stale 'feat(FR-05): Gate1 PASS' commit can
+        still be reachable from HEAD, and quality_manifest.json can still carry
+        a stale quality_complete=True flag from the previous lineage. Without
+        phase-scoping, _fr_step_already_done("GATE1", ...) would report the step
+        already done and silently skip producing this phase's real GATE1
+        deliverable. The phase-scoped finalize-gate sentinel is the fix: it is
+        only ever written right after a genuine bridge.finalize_gate() PASS for
+        THIS phase, so its absence overrides both the stale commit and the
+        stale manifest flag.
+        """
+        import subprocess as _sp
+
+        class _FakeResult:
+            returncode = 0
+            stdout = "feat(FR-05): Gate1 PASS"  # stale commit still matches an unscoped grep
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _FakeResult())
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({
+            "gate_results": {"gate1": {"FR-05": {"score": 80.0, "quality_complete": True}}},
+        }))
+        # No sentinel written for phase=3 → finalize-gate never actually ran this phase.
+        assert not _fr_step_already_done("GATE1", "FR-05", tmp_path, phase=3), (
+            "phase-scoped sentinel absence must force re-evaluation even when a "
+            "stale commit + stale manifest flag both say 'done'"
+        )
+
+    def test_gate1_phase_scoped_true_when_sentinel_and_manifest_agree(self, tmp_path):
+        from core.quality_gate.gate1_evidence import _finalize_sentinel_path
+        sentinel = _finalize_sentinel_path(tmp_path, 1, "FR-05", phase=3)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("2026-07-10T00:00:00+00:00\n", encoding="utf-8")
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({
+            "gate_results": {"gate1": {"FR-05": {"score": 92.0, "quality_complete": True}}},
+        }))
+        assert _fr_step_already_done("GATE1", "FR-05", tmp_path, phase=3)
+
+    def test_gate1_phase_scoped_false_when_sentinel_present_but_manifest_disagrees(self, tmp_path):
+        """Defense-in-depth: sentinel existing alone isn't sufficient if the
+        manifest disagrees — quality_complete check still applies on top."""
+        from core.quality_gate.gate1_evidence import _finalize_sentinel_path
+        sentinel = _finalize_sentinel_path(tmp_path, 1, "FR-05", phase=3)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("2026-07-10T00:00:00+00:00\n", encoding="utf-8")
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({
+            "gate_results": {"gate1": {"FR-05": {"score": 40.0, "quality_complete": False}}},
+        }))
+        assert not _fr_step_already_done("GATE1", "FR-05", tmp_path, phase=3)
+
     def test_run_fr_step_handles_git_push_failure_as_fatal(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step prints an error and returns 1 when git push fails (fatal check-recovery)."""
         import sys
@@ -686,7 +745,7 @@ class TestRunFrStep:
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: False)
 
         class _FakeSpawner:
             def __init__(self, project_path=None): pass
@@ -725,7 +784,7 @@ class TestRunFrStep:
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: False)
 
         class _FakeSpawner:
             def __init__(self, project_path=None): pass
@@ -1155,7 +1214,7 @@ class TestFrStepPreflightSrsPath:
             return True, []
 
         monkeypatch.setattr("cli.fr_cmds._fr_step_preflight", _spy)
-        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: True)
 
         args = argparse.Namespace(
             phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),

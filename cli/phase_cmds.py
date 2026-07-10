@@ -1462,6 +1462,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 # the per-FR finalize step was never called (correctly). Skip check
                 # for FRs where code hasn't changed — same logic as _check_gate1_live_coverage.
                 try:
+                    # No phase= here on purpose: this exemption checks whether code
+                    # changed since the LAST Gate 1 PASS from ANY earlier phase (DELTA
+                    # carry-forward semantics) — completed_phase's own sentinel was
+                    # just proven absent above, so scoping to completed_phase would
+                    # always find nothing and defeat the exemption.
                     if not gate1_evidence.fr_code_changed_since_last_gate1(_frid, project):
                         continue
                 except Exception:

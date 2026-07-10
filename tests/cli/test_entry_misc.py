@@ -79,6 +79,66 @@ class TestFrGate1CommitShaFallback:
 
 
 # =============================================================================
+# Bug A+B fix: phase-scoped fr_gate1_commit_sha lookup
+# =============================================================================
+
+class TestFrGate1CommitShaPhaseScoped:
+    """When phase= is given, the lookup must be bounded by the phase-scoped
+    finalize-gate sentinel and must NOT fall back to the unscoped batch-commit
+    grep (which can bind to a different FR's 'Gate1 PASS' commit)."""
+
+    def test_no_sentinel_returns_none_even_with_matching_commit(self, tmp_path, monkeypatch):
+        """No finalize-gate sentinel for this phase → provably no Gate 1 PASS
+        yet, even if a stale/other commit still matches the grep pattern."""
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout="deadbeef\n", stderr=""),
+        )
+        from core.quality_gate.gate1_evidence import fr_gate1_commit_sha
+        sha = fr_gate1_commit_sha("FR-05", tmp_path, phase=3)
+        assert sha is None
+
+    def test_sentinel_present_scopes_lookup_with_since(self, tmp_path, monkeypatch):
+        """Sentinel's own write-timestamp bounds the git-log query via --since."""
+        from core.quality_gate.gate1_evidence import fr_gate1_commit_sha, _finalize_sentinel_path
+        sentinel = _finalize_sentinel_path(tmp_path, 1, "FR-05", phase=3)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("2026-07-10T12:00:00+00:00\n", encoding="utf-8")
+
+        seen_cmds = []
+
+        def fake_run(cmd, **kw):
+            seen_cmds.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="cafef00d\n", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        sha = fr_gate1_commit_sha("FR-05", tmp_path, phase=3)
+        assert sha == "cafef00d"
+        assert len(seen_cmds) == 1
+        assert "--since" in seen_cmds[0]
+        assert "2026-07-10T12:00:00+00:00" in seen_cmds[0]
+
+    def test_sentinel_present_no_match_does_not_fall_back_to_other_fr(self, tmp_path, monkeypatch):
+        """Phase-scoped miss must return None directly — never degrade to the
+        unscoped 'Gate1 PASS' batch-commit fallback used by legacy callers."""
+        from core.quality_gate.gate1_evidence import fr_gate1_commit_sha, _finalize_sentinel_path
+        sentinel = _finalize_sentinel_path(tmp_path, 1, "FR-05", phase=3)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("2026-07-10T12:00:00+00:00\n", encoding="utf-8")
+
+        seen_cmds = []
+
+        def fake_run(cmd, **kw):
+            seen_cmds.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        sha = fr_gate1_commit_sha("FR-05", tmp_path, phase=3)
+        assert sha is None
+        assert len(seen_cmds) == 1, "must not attempt a second (fallback) git-log call"
+
+
+# =============================================================================
 # _git_test_patterns: symlink-aware test path resolution for git operations
 # =============================================================================
 

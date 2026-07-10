@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import warnings
 from typing import Optional
 
 from core.atomic_io import atomic_write_json
@@ -31,7 +32,62 @@ __all__ = [
     "gate1_evidence_exists",
     "check_commit_intervals",
     "record_gate1_score",
+    "_sentinel_path",
+    "_finalize_sentinel_path",
 ]
+
+
+def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
+    """Return the sentinel file path that run-gate writes and finalize-gate verifies.
+
+    v2.13 sentinel scope fix: include phase in the path so that Gate 1 written
+    by Phase 1 (spec coverage) does NOT satisfy Gate 1 required by Phase 3
+    (code coverage). Without phase, the same `g1_fr01.flag` path is reused
+    across phases and stale Phase 1 sentinels leak into Phase 3 pre-checks.
+
+    Path format:
+      FR-specific:  g{gate}_p{phase}_{fr}.flag    e.g. g1_p3_fr01.flag
+      Phase-level:  g{gate}_p{phase}_phase.flag  e.g. g2_p3_phase.flag (fr_id=None)
+
+    Moved from cli/_shared.py (harness bug: GATE1 idempotency phase-scoping
+    fix) so core/quality_gate/gate1_evidence.py can reuse it without a
+    core -> cli circular import.
+    """
+    key = (fr_id or "phase").replace("-", "").lower()
+    d = project / ".sessi-work" / "sentinels"
+    if phase is None:
+        warnings.warn(
+            f"_sentinel_path(gate={gate}, fr_id={fr_id!r}) called without phase= "
+            "(Bug #121 regression risk): cross-phase sentinel collision possible. "
+            "Pass phase= explicitly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return d / f"g{gate}_{key}.flag"
+    return d / f"g{gate}_p{phase}_{key}.flag"
+
+
+def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
+    """Return the sentinel that finalize-gate writes. advance-phase verifies it.
+
+    See _sentinel_path for the v2.13 phase-scoping rationale. Moved from
+    cli/_shared.py alongside _sentinel_path (see its docstring).
+    """
+    key = (fr_id or "phase").replace("-", "").lower()
+    d = project / ".sessi-work" / "sentinels"
+
+    if phase is not None:
+        return d / f"g{gate}_p{phase}_{key}.finalized"
+
+    # Legacy fallback (no phase provided): prefer the new-style .finalized;
+    # fall back to legacy .flag with hyphen-stripped fr id (Bug #120 compat).
+    std_path = d / f"g{gate}_{key}.finalized"
+    if fr_id:
+        legacy_path = d / f"g{gate}_{fr_id}.flag"
+        if not std_path.exists() and legacy_path.exists():
+            return legacy_path
+
+    return std_path
 
 # Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
 # Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
@@ -215,10 +271,34 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
 
 # --- Gate-1 change detection + live coverage (moved from harness_cli, S4e) ---
 
-def fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
-    """Return the SHA of the most recent Gate 1 PASS commit for the given FR."""
+def fr_gate1_commit_sha(fr_id: str, project: Path, phase: int | None = None) -> str | None:
+    """Return the SHA of the most recent Gate 1 PASS commit for the given FR.
+
+    phase-scoped lookup (when phase is given): bounds the git-log search to
+    commits at/after the phase-scoped finalize-gate sentinel's own timestamp
+    (_finalize_sentinel_path is only ever written right after a genuine
+    bridge.finalize_gate() PASS for that exact phase — see gate_cmds.py
+    cmd_finalize_gate). This closes a real gap: without --since, --grep
+    matches ANY commit reachable from HEAD regardless of phase, and the
+    unscoped "Gate1 PASS" fallback below can bind to a DIFFERENT FR's batch
+    commit. If the sentinel doesn't exist, there is provably no Gate 1 PASS
+    for this FR in this phase yet, so no SHA lookup / fallback is attempted.
+    """
     import subprocess as _sp
     pattern = f"feat({fr_id}): Gate1 PASS"
+
+    if phase is not None:
+        sentinel = _finalize_sentinel_path(project, 1, fr_id, phase=phase)
+        if not sentinel.exists():
+            return None
+        since = sentinel.read_text(encoding="utf-8").strip()
+        r = _sp.run(
+            ["git", "log", "--oneline", "--grep", pattern, "--since", since, "-1", "--format=%H"],
+            capture_output=True, text=True, cwd=str(project),
+        )
+        sha = r.stdout.strip()
+        return sha if sha else None
+
     r = _sp.run(
         ["git", "log", "--oneline", "--grep", pattern, "-1", "--format=%H"],
         capture_output=True, text=True, cwd=str(project),
@@ -227,6 +307,8 @@ def fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
     if sha:
         return sha
     # Fallback: P3 batch commit e.g. "feat(P3-mid): 8/8 FR(s) Gate1 PASS"
+    # Only reached for legacy (no phase) callers — phase-scoped callers above
+    # return None instead of falling back to a possibly-different FR's commit.
     r2 = _sp.run(
         ["git", "log", "--oneline", "--grep", "Gate1 PASS", "-1", "--format=%H"],
         capture_output=True, text=True, cwd=str(project),
@@ -234,7 +316,8 @@ def fr_gate1_commit_sha(fr_id: str, project: Path) -> str | None:
     sha2 = r2.stdout.strip()
     return sha2 if sha2 else None
 
-def fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
+
+def fr_code_changed_since_last_gate1(fr_id: str, project: Path, phase: int | None = None) -> bool:
     """Check whether FR source/test files have changed since last Gate 1 PASS.
 
     Returns True if code has changed (re-evaluation needed), False otherwise.
@@ -242,9 +325,9 @@ def fr_code_changed_since_last_gate1(fr_id: str, project: Path) -> bool:
     """
     import subprocess as _sp
     import ast
-    sha = fr_gate1_commit_sha(fr_id, project)
+    sha = fr_gate1_commit_sha(fr_id, project, phase=phase)
     if sha is None:
-        return True  # No prior Gate 1 PASS → treat as changed
+        return True  # No prior Gate 1 PASS (this phase) → treat as changed
 
     # 1. Check test files directly
     fr_files: list[str] = []

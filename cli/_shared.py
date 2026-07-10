@@ -9,58 +9,22 @@ from __future__ import annotations
 
 import argparse
 import json
-import warnings
 from pathlib import Path
 
 from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate import gate1_evidence
+from core.quality_gate.gate1_evidence import (  # noqa: F401  (re-export, see below)
+    _finalize_sentinel_path,
+    _sentinel_path,
+)
 from core.utils.script_loader import load_harness_script
 
-def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
-    """Return the sentinel file path that run-gate writes and finalize-gate verifies.
-
-    v2.13 sentinel scope fix: include phase in the path so that Gate 1 written
-    by Phase 1 (spec coverage) does NOT satisfy Gate 1 required by Phase 3
-    (code coverage). Without phase, the same `g1_fr01.flag` path is reused
-    across phases and stale Phase 1 sentinels leak into Phase 3 pre-checks.
-
-    Path format:
-      FR-specific:  g{gate}_p{phase}_{fr}.flag    e.g. g1_p3_fr01.flag
-      Phase-level:  g{gate}_p{phase}_phase.flag  e.g. g2_p3_phase.flag (fr_id=None)
-    """
-    key = (fr_id or "phase").replace("-", "").lower()
-    d = project / ".sessi-work" / "sentinels"
-    if phase is None:
-        warnings.warn(
-            f"_sentinel_path(gate={gate}, fr_id={fr_id!r}) called without phase= "
-            "(Bug #121 regression risk): cross-phase sentinel collision possible. "
-            "Pass phase= explicitly.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return d / f"g{gate}_{key}.flag"
-    return d / f"g{gate}_p{phase}_{key}.flag"
-
-def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
-    """Return the sentinel that finalize-gate writes. advance-phase verifies it.
-
-    See _sentinel_path for the v2.13 phase-scoping rationale.
-    """
-    key = (fr_id or "phase").replace("-", "").lower()
-    d = project / ".sessi-work" / "sentinels"
-
-    if phase is not None:
-        return d / f"g{gate}_p{phase}_{key}.finalized"
-
-    # Legacy fallback (no phase provided): prefer the new-style .finalized;
-    # fall back to legacy .flag with hyphen-stripped fr id (Bug #120 compat).
-    std_path = d / f"g{gate}_{key}.finalized"
-    if fr_id:
-        legacy_path = d / f"g{gate}_{fr_id}.flag"
-        if not std_path.exists() and legacy_path.exists():
-            return legacy_path
-
-    return std_path
+# _sentinel_path / _finalize_sentinel_path now live in
+# core/quality_gate/gate1_evidence.py (moved out of this module so that
+# gate1_evidence.py — a core/ module — can call them too without a
+# core -> cli circular import; this module still imports gate1_evidence
+# directly above). Re-exported here unchanged so existing callers using
+# `cli._shared._sentinel_path` / `_finalize_sentinel_path` are unaffected.
 
 def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
     project: Path,
