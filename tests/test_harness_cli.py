@@ -38,7 +38,7 @@ class TestFrNumStr:
 
 class TestInitPhaseDirs:
     def test_creates_all_directories(self, tmp_path):
-        from harness_cli import _init_phase_dirs
+        from cli.project_cmds import _init_phase_dirs
 
         _init_phase_dirs(tmp_path)
 
@@ -57,7 +57,7 @@ class TestInitPhaseDirs:
             assert (tmp_path / d).is_dir(), f"missing: {d}"
 
     def test_idempotent_when_dirs_exist(self, tmp_path, capsys):
-        from harness_cli import _init_phase_dirs
+        from cli.project_cmds import _init_phase_dirs
 
         _init_phase_dirs(tmp_path)
         _init_phase_dirs(tmp_path)
@@ -72,7 +72,7 @@ class TestInitPhaseDirs:
 
 class TestInitCopyTemplates:
     def test_copies_templates_to_correct_locations(self, tmp_path):
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
         import harness_cli as hc
 
         harness_root = Path(hc.__file__).parent
@@ -90,7 +90,7 @@ class TestInitCopyTemplates:
         assert (tmp_path / "CLAUDE.md").is_file()
 
     def test_skips_existing_files_by_default(self, tmp_path, capsys):
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
         import harness_cli as hc
 
         harness_root = Path(hc.__file__).parent
@@ -111,7 +111,7 @@ class TestInitCopyTemplates:
         template content (integration-test E2E, 2026-07-02). A deliverable whose
         content differs from its template is authored in-flight state — protected
         even with overwrite=True, mirroring the state.json never-reset rule."""
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
         import harness_cli as hc
 
         harness_root = Path(hc.__file__).parent
@@ -131,7 +131,7 @@ class TestInitCopyTemplates:
     def test_overwrite_refreshes_pristine_template_copies(self, tmp_path, capsys):
         """A deliverable byte-identical to its template is unauthored — overwrite=True
         may refresh it (no-op content-wise) and must NOT report PROTECTED."""
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
         import harness_cli as hc
 
         harness_root = Path(hc.__file__).parent
@@ -154,7 +154,7 @@ class TestInitCopyTemplates:
         """Existing CLAUDE.md is never re-copied wholesale (even with overwrite=True):
         _update_claude_md refreshes the auto block in place; a full re-copy only
         destroys user custom sections below the block."""
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
         import harness_cli as hc
 
         harness_root = Path(hc.__file__).parent
@@ -170,7 +170,7 @@ class TestInitCopyTemplates:
 
     def test_handles_missing_template_source(self, tmp_path, capsys):
         """When a template file is removed, reports WARNING and continues."""
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
 
         (tmp_path / "01-requirements").mkdir()
         (tmp_path / "02-architecture").mkdir()
@@ -189,7 +189,7 @@ class TestInitCopyTemplates:
     def test_init_copies_adr_template_with_sentinel(self, tmp_path):
         """init-project must place the harness:template-stub sentinel in the
         ADR template it copies to 02-architecture/adr/ADR.md."""
-        from harness_cli import _init_copy_templates
+        from cli.project_cmds import _init_copy_templates
         import harness_cli as hc
 
         harness_root = Path(hc.__file__).parent
@@ -207,7 +207,8 @@ class TestInitCopyTemplates:
         """E2E: _init_copy_templates → cmd_check_constitution --file
         02-architecture/adr/ADR.md → returns 0 with [PASS] (sentinel vacuous
         pass)."""
-        from harness_cli import _init_copy_templates, cmd_check_constitution
+        from cli.project_cmds import _init_copy_templates
+        from harness_cli import cmd_check_constitution
         import harness_cli as hc
         import argparse
 
@@ -772,7 +773,7 @@ class TestInitThenAudit:
         import argparse
         import sys
 
-        from harness_cli import _init_phase_dirs, cmd_audit_structure
+        from cli.project_cmds import _init_phase_dirs, cmd_audit_structure
 
         # Minimal init
         _init_phase_dirs(tmp_path)
@@ -3665,22 +3666,23 @@ class TestInitProjectRootWrapper:
         """Invoke cmd_init_project with heavy mocking to isolate the wrapper step."""
         import harness_cli as hc
         import argparse
+        # S4: init helpers live in cli/project_cmds — patch that namespace.
+        from cli import project_cmds as _projc
 
         # Stub out all the heavyweight steps
-        monkeypatch.setattr(hc, "_init_phase_dirs", lambda _p: None)
-        monkeypatch.setattr(hc, "_init_copy_templates", lambda _p, _h, **_: None)
+        monkeypatch.setattr(_projc, "_init_phase_dirs", lambda _p: None)
+        monkeypatch.setattr(_projc, "_init_copy_templates", lambda _p, _h, **_: None)
         monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
-        monkeypatch.setattr(hc, "_check_and_offer_ecc_hooks", lambda _h: None)
-        monkeypatch.setattr(hc, "_auto_offer_branch_protection", lambda _p: None)
+        monkeypatch.setattr(_projc, "_check_and_offer_ecc_hooks", lambda _h: None)
+        monkeypatch.setattr(_projc, "_auto_offer_branch_protection", lambda _p: None)
         # S2: verify_gate_tools moved to harness/tool_checks.py; all callers
         # (incl. cli/project_cmds) resolve it via that module's namespace.
         from harness import tool_checks as _tc
         monkeypatch.setattr(_tc, "verify_gate_tools", lambda _g, _h, **_: ({}, []))
-        monkeypatch.setattr(hc, "_check_crg_available", lambda: True)
-        monkeypatch.setattr(hc, "_harness_workflow_template", lambda: "# ci\n")
+        monkeypatch.setattr(_projc, "_check_crg_available", lambda: True)
+        monkeypatch.setattr(_projc, "_harness_workflow_template", lambda: "# ci\n")
         # S1: cmd_init_project (cli/project_cmds) binds atomic_write_json
         # directly from core.atomic_io — patch its namespace, not just hc's.
-        from cli import project_cmds as _projc
         monkeypatch.setattr(hc, "atomic_write_json", lambda _p, _d: None)
         monkeypatch.setattr(_projc, "atomic_write_json", lambda _p, _d: None)
 

@@ -21,7 +21,6 @@ from core.phase_topology import (
     EXIT_GATE_MAP,
     MAX_PHASE,
     PER_FR_GATE1_PHASES,
-    PHASE_DIRS,
     PHASE_PREREQUISITES,
     PHASES,
     VALID_PHASES,
@@ -67,7 +66,8 @@ class TestPythonMirrors:
         assert harness_cli._PER_FR_GATE1_PHASES == PER_FR_GATE1_PHASES
         assert harness_cli._PHASES_WITH_GATE1_FR_CHECK == ADVANCE_GATE1_CHECK_PHASES
         assert harness_cli._PHASE_EXIT_GATES == EXIT_GATE_MAP
-        assert harness_cli._PHASE_DIRS == PHASE_DIRS
+        # S4: the _PHASE_DIRS mirror is gone — cli/project_cmds imports
+        # PHASE_DIRS straight from the topology SSOT (no mirror to drift).
         assert set(harness_cli._PHASE_NAMES) == ALL_PHASES
 
     def test_generate_full_plan_gate1_set(self):

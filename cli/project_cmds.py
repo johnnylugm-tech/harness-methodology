@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -144,7 +145,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(f"   SKIP: {workflow_path} already exists (use --overwrite to overwrite)")
     else:
         try:
-            workflow_path.write_text(_hc._harness_workflow_template())
+            workflow_path.write_text(_harness_workflow_template())
         except FileNotFoundError as e:
             print(f"   ERROR: Cannot write CI workflow — {e}")
             print("   The template file is missing from the harness installation.")
@@ -184,11 +185,11 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 5. Create canonical phase directory structure
     print("\n[5/11] Creating phase directory structure...")
-    _hc._init_phase_dirs(project)
+    _init_phase_dirs(project)
 
     # 6. Copy template artifacts into phase directories
     print("\n[6/11] Copying artifact templates...")
-    _hc._init_copy_templates(project, harness_root, overwrite=args.overwrite)
+    _init_copy_templates(project, harness_root, overwrite=args.overwrite)
 
     # 6a. Initialize .gitignore with harness runtime + dev artifact entries
     # (prevents pipeline-mode `git add -A` from committing .venv/ — semgrep-core
@@ -202,7 +203,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # 6b. JS/TS quality toolchain (pinned devDeps + lint/type/test/bench configs)
     if language in ("javascript", "typescript"):
         print("\n[6b/11] Setting up JS/TS quality toolchain...")
-        _hc._init_js_toolchain(
+        _init_js_toolchain(
             project, harness_root, language, test_runner, overwrite=args.overwrite
         )
 
@@ -269,17 +270,17 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 9. ECC hooks (Claude Code session layer — blocks git --no-verify)
     print("\n[9/11] ECC hooks (git --no-verify blocker)...")
-    _hc._check_and_offer_ecc_hooks(harness_root)
+    _check_and_offer_ecc_hooks(harness_root)
 
     # 10. Branch protection (GitHub server-side — bypass-proof)
     print("\n[10/11] GitHub branch protection...")
     if args.setup_branch_protection:
-        rc = _hc._setup_branch_protection(project)
+        rc = _setup_branch_protection(project)
         if rc != 0:
-            _hc._print_manual_branch_protection_guide()
+            _print_manual_branch_protection_guide()
     else:
         # Auto-detect gh availability and offer setup
-        _hc._auto_offer_branch_protection(project)
+        _auto_offer_branch_protection(project)
 
     # 11. Gate tool availability (blocking — all Tier 1 tools required before project start).
     # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
@@ -313,7 +314,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # CRG (Code Review Graph) — mandatory for Gate 3/4 structural dimensions.
     # Core tools (build, detect_changes, minimal_context) are imported at module
     # level in crg_bridge.py — import failure means CRG MCP is not configured.
-    _crg_ok = _hc._check_crg_available()
+    _crg_ok = _check_crg_available()
     if _crg_ok:
         print("  OK — CRG (Code Review Graph) MCP server reachable (Gate 3/4 ready)")
     else:
@@ -1147,7 +1148,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     if args.json:
         print(_json.dumps(results, indent=2, ensure_ascii=False))
     else:
-        _hc._print_audit_report(results)
+        _print_audit_report(results)
 
     return 0 if all_passed else 1
 
@@ -1213,6 +1214,504 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
     if getattr(args, "fail_on_critical", False) and result.criticals():
         return 1
     return 0 if result.verdict != "FAIL" else 1
+
+
+# ---------------------------------------------------------------------------
+# init-project helpers (moved verbatim from harness_cli.py, 絞殺者續章 S4)
+# ---------------------------------------------------------------------------
+
+def _harness_workflow_template() -> str:
+    """Return the content of .github/workflows/harness_quality_gate.yml for a target project.
+
+    Reads directly from templates/harness_quality_gate.yml — the single source of truth.
+    init-project and harness-init.sh both deploy the same file, so there is no drift.
+    """
+    template_path = Path(__file__).parent / "templates" / "harness_quality_gate.yml"
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Workflow template not found: {template_path}\n"
+            "Ensure templates/harness_quality_gate.yml exists in the harness-methodology repo."
+        )
+    return template_path.read_text(encoding="utf-8")
+
+# Canonical phase directory names come from the topology SSOT — PHASE_DIRS is
+# imported from core.phase_topology at the top of this module.
+
+# Sub-directories created inside phase dirs on init (not tracked for naming checks).
+_PHASE_INIT_SUBDIRS: list[str] = [
+    "02-architecture/adr",
+    "03-development/src",
+    "03-development/tests",
+]
+
+def _init_phase_dirs(project: Path) -> None:
+    """Create canonical 0X-name/ phase directory structure in target project."""
+    dirs = [*PHASE_DIRS.values(), *_PHASE_INIT_SUBDIRS]
+    created = 0
+    skipped = 0
+    for d in dirs:
+        target = project / d
+        if target.exists():
+            skipped += 1
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+            created += 1
+    if created:
+        print(f"   OK — created {created} director{'y' if created == 1 else 'ies'} ({skipped} already existed)")
+    else:
+        print(f"   SKIP: all {skipped} directories already exist")
+
+def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool = False) -> None:
+    """Copy artifact templates from harness templates/ into the target project."""
+    templates_dir = harness_root / "templates"
+    artifact_map = [
+        ("01-requirements", "SRS.md"),
+        ("01-requirements", "SPEC_TRACKING.md"),
+        ("01-requirements", "TRACEABILITY_MATRIX.md"),
+        ("", "TEST_INVENTORY.yaml"),       # project root — D4 reads from here
+        ("02-architecture", "SAD.md"),
+        ("02-architecture/adr", "ADR.md"),
+        ("02-architecture", "TEST_SPEC.md"),
+        ("09-maintenance", "MAINTENANCE_LOG.md"),  # P9 CR index (cr-close appends)
+    ]
+    copied = 0
+    skipped = 0
+    missing = 0
+    protected = 0
+    for subdir, filename in artifact_map:
+        src = templates_dir / filename
+        dst = project / subdir / filename
+        if dst.exists() and not overwrite:
+            skipped += 1
+        elif not src.exists():
+            print(f"   WARNING: template not found: {src}")
+            missing += 1
+        elif dst.exists() and dst.read_bytes() != src.read_bytes():
+            # Deliverable differs from its template → authored in-flight state.
+            # Never overwritten, even with --overwrite — mirrors the state.json
+            # never-reset rule (integration-test E2E clobber, 2026-07-02).
+            print(
+                f"   PROTECTED: {dst} differs from template (authored content); "
+                "not overwritten — delete the file manually to re-template it."
+            )
+            protected += 1
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied += 1
+
+    # CLAUDE.md.template → project/CLAUDE.md (only if no CLAUDE.md exists).
+    # An existing CLAUDE.md is never re-copied, even with --overwrite: the
+    # harness auto block is refreshed in place by _update_claude_md, and a
+    # wholesale re-copy only destroys user custom sections below the block.
+    claude_tmpl = harness_root / "CLAUDE.md.template"
+    claude_dst = project / "CLAUDE.md"
+    if claude_dst.exists():
+        skipped += 1
+    elif claude_tmpl.exists():
+        shutil.copy2(claude_tmpl, claude_dst)
+        # Substitute {PROJECT_NAME} so the header is immediately readable
+        try:
+            raw = claude_dst.read_text(encoding="utf-8").replace(
+                "{PROJECT_NAME}", project.name
+            )
+            claude_dst.write_text(raw, encoding="utf-8")
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+        copied += 1
+    else:
+        missing += 1
+
+    parts = []
+    if copied:
+        parts.append(f"copied {copied} template{'s' if copied != 1 else ''}")
+    if skipped:
+        parts.append(f"{skipped} already existed")
+    if protected:
+        parts.append(f"{protected} authored (protected)")
+    if missing:
+        parts.append(f"{missing} template(s) not found")
+    if parts:
+        print(f"   OK — {', '.join(parts)}")
+    else:
+        print("   SKIP: nothing to copy")
+
+
+def _init_js_toolchain(
+    project: Path,
+    harness_root: Path,
+    language: str,
+    test_runner: str | None,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """Copy the pinned JS/TS quality-toolchain templates into the project.
+
+    package.json is MERGED (existing devDependencies/scripts win — the project
+    owns its versions; the template only fills gaps). Config files are copied
+    only when absent (or --overwrite). Gate commands use `npx --no-install`,
+    so `npm ci` must run after this step.
+    """
+    src_dir = harness_root / "templates" / "js_toolchain"
+    if not src_dir.is_dir():
+        print(f"   WARNING: {src_dir} not found — skipping JS toolchain setup")
+        return
+
+    # 1. Merge devDependencies/scripts into package.json
+    pkg_path = project / "package.json"
+    tmpl = json.loads((src_dir / "package.json").read_text(encoding="utf-8"))
+    try:
+        pkg = json.loads(pkg_path.read_text(encoding="utf-8")) if pkg_path.exists() else {}
+    except json.JSONDecodeError:
+        print(f"   WARNING: {pkg_path} is not valid JSON — skipping merge")
+        pkg = None
+    if pkg is not None:
+        added: list[str] = []
+        for section in ("devDependencies", "scripts"):
+            merged = dict(tmpl.get(section, {}))
+            merged.update(pkg.get(section, {}))  # existing entries win
+            added += [k for k in merged if k not in pkg.get(section, {})]
+            pkg[section] = merged
+        pkg_path.write_text(
+            json.dumps(pkg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"   OK — package.json merged ({len(added)} entries added)")
+
+    # 2. Config files — copy when absent
+    files = ["eslint.config.mjs", "stryker.conf.json", "benchmarks/run.mjs"]
+    if test_runner != "jest":
+        files.append("vitest.config.ts")
+    files.append("tsconfig.json" if language == "typescript" else "tsconfig.checkjs.json")
+    copied = 0
+    for rel in files:
+        src, dst = src_dir / rel, project / rel
+        if dst.exists() and not overwrite:
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+    print(f"   OK — {copied} toolchain config(s) copied")
+    print("   NEXT: run `npm ci` in the project — gate commands use "
+          "`npx --no-install` and fail without installed devDependencies.")
+
+
+def _setup_branch_protection(project: Path) -> int:
+    """Configure GitHub branch protection for main with required status checks.
+
+    Requires:
+      - gh CLI installed and authenticated
+      - Remote 'origin' pointing to a GitHub repository
+
+    Returns 0 on success, 1 on failure.
+    """
+    import subprocess
+
+    # Detect GitHub remote URL
+    try:
+        remote = subprocess.run(
+            ["git", "-C", str(project), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if remote.returncode != 0 or not remote.stdout.strip():
+            print("   ERROR: No git remote 'origin' found.")
+            return 1
+        remote_url = remote.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        print("   ERROR: Failed to read git remote.")
+        return 1
+
+    # Parse owner/repo from common URL formats
+    owner = repo = None
+    if remote_url.startswith("https://github.com/"):
+        parts = remote_url.rstrip(".git").split("/")
+        if len(parts) >= 2:
+            owner, repo = parts[-2], parts[-1]
+    elif remote_url.startswith("git@github.com:"):
+        parts = remote_url.rstrip(".git").split(":")
+        if len(parts) == 2:
+            parts2 = parts[1].split("/")
+            if len(parts2) == 2:
+                owner, repo = parts2[0], parts2[1]
+    elif "github.com" in remote_url:
+        # Fallback: use gh repo view to parse
+        try:
+            rv = subprocess.run(
+                ["gh", "repo", "view", "--json", "name,owner"],
+                capture_output=True, text=True, timeout=10, cwd=str(project),
+            )
+            if rv.returncode == 0:
+                import json as _json
+                data = _json.loads(rv.stdout)
+                owner, repo = data["owner"]["login"], data["name"]
+        except Exception:
+            pass
+
+    if not owner or not repo:
+        print("   ERROR: Could not parse GitHub owner/repo from remote URL.")
+        print(f"   Remote: {remote_url}")
+        print("   Use --repo OWNER/REPO to specify explicitly.")
+        return 1
+
+    print(f"   Remote: {owner}/{repo}")
+
+    # Verify gh is authenticated
+    try:
+        auth_check = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True, text=True, timeout=10,
+        )
+        if auth_check.returncode != 0:
+            print("   ERROR: gh CLI not authenticated. Run: gh auth login")
+            return 1
+    except FileNotFoundError:
+        print("   ERROR: gh CLI not installed. Install GitHub CLI:")
+        print("     brew install gh  (macOS)")
+        print("     sudo apt install gh  (Linux)")
+        return 1
+
+    api_url = f"repos/{owner}/{repo}/branches/main/protection"
+    # Direct-push model: only force-push and deletion protection are enabled.
+    # PR-only fields must be present (GitHub PUT requires them) but set to disabled.
+    payload = {
+        "required_status_checks": None,
+        "enforce_admins": False,
+        "required_pull_request_reviews": None,
+        "required_linear_history": False,
+        "allow_force_pushes": False,
+        "allow_deletions": False,
+        "restrictions": None,
+    }
+
+    try:
+        result = subprocess.run(
+            ["gh", "api", api_url, "--method", "PUT",
+             "--input", "-"],
+            input=json.dumps(payload),
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            print(f"   OK — Branch protection configured for {owner}/{repo}/main")
+            print("   Direct-push model: force pushes + deletions blocked.")
+            _verify_no_pr_requirement(owner, repo)
+            return 0
+        else:
+            err = result.stderr.strip() or result.stdout.strip()
+            # 404 often means branch protection already exists; try PATCH
+            if "404" in err or "Not Found" in err:
+                # Update existing protection
+                result2 = subprocess.run(
+                    ["gh", "api", api_url, "--method", "PATCH",
+                     "--input", "-"],
+                    input=json.dumps(payload),
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result2.returncode == 0:
+                    print(f"   OK — Branch protection updated for {owner}/{repo}/main (direct-push model)")
+                    _verify_no_pr_requirement(owner, repo)
+                    return 0
+                err = result2.stderr.strip() or result2.stdout.strip()
+            print(f"   ERROR: Failed to set branch protection:\n   {err[:500]}")
+            return 1
+    except subprocess.TimeoutExpired:
+        print("   ERROR: API call timed out.")
+        return 1
+
+def _verify_no_pr_requirement(owner: str, repo: str) -> None:
+    """Warn if branch protection has PR requirement — incompatible with direct-push.
+
+    Best-effort: prints a [WARN] to stderr (not silent) when gh CLI is unavailable
+    or the protection endpoint fails, so operators can see why verification was
+    skipped.
+    """
+    import subprocess as _sp
+    try:
+        r = _sp.run(
+            ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode != 0:
+            print(
+                f"   [WARN] PR-requirement verification skipped — gh api returned "
+                f"non-zero exit ({r.returncode}). Verify manually: GitHub repo → "
+                f"Settings → Branches → 'Require a pull request' must be OFF.",
+                file=sys.stderr,
+            )
+            return
+        cfg = json.loads(r.stdout)
+        pr_reviews = cfg.get("required_pull_request_reviews")
+        if pr_reviews:
+            print(f"   WARNING: 'Require a pull request' is still enabled on {owner}/{repo}/main.")
+            print("   This will block push-checkpoint. Disable it manually:")
+            print("     GitHub repo → Settings → Branches → Edit (main)")
+            print("     → Uncheck 'Require a pull request before merging'")
+    except (FileNotFoundError, _sp.TimeoutExpired, json.JSONDecodeError) as exc:
+        print(
+            f"   [WARN] PR-requirement verification skipped: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+
+def _check_crg_available() -> bool:
+    """Check whether CRG MCP server is reachable.
+
+    CRG (Code Review Graph) is mandatory for Gate 3/4 structural dimensions
+    (architecture, error_handling). The core tools (build, detect_changes,
+    minimal_context) are imported at module level in harness/crg_bridge.py via
+    ``from mcp_tools import ...`` — if the CRG MCP server is not configured,
+    the import fails and the bridge is unavailable.
+    """
+    try:
+        __import__("harness.crg_bridge")
+        return True
+    except (ImportError, ModuleNotFoundError):
+        return False
+
+
+def _check_and_offer_ecc_hooks(harness_root: Path) -> None:
+    """Check for ECC hooks presence and offer to install if missing.
+
+    ECC hooks intercept tool calls at the Claude Code session layer,
+    providing a bypass-proof safety net against ``git --no-verify``.
+    """
+    hooks_file = Path.home() / ".claude" / "hooks" / "hooks.json"
+    if hooks_file.exists():
+        try:
+            data = json.loads(hooks_file.read_text(encoding="utf-8"))
+            if "pre:bash:dispatcher" in data:
+                print("   OK — ECC hooks present (git --no-verify blocked at session layer)")
+                return
+            print("   WARNING: ECC hooks file exists but pre:bash:dispatcher hook is missing.")
+        except Exception:
+            print("   WARNING: ECC hooks file exists but is unreadable.")
+    else:
+        print("   WARNING: ECC hooks not installed — git --no-verify is NOT blocked.")
+
+    # Offer installation
+    setup_script = harness_root / "scripts" / "setup-ecc-hooks.sh"
+    if setup_script.exists():
+        print(f"   Install: bash {setup_script}")
+        print(f"   Verify:  bash {setup_script} --verify")
+    else:
+        print("   Setup script not found in harness installation.")
+
+
+def _auto_offer_branch_protection(project: Path) -> None:
+    """Auto-detect gh CLI and offer to set up branch protection.
+
+    When gh is available and authenticated, offers interactive setup.
+    Otherwise prints the manual setup guide so the operator can configure
+    protection via GitHub's web UI.
+    """
+    import subprocess
+    # Check gh availability
+    try:
+        gh_check = subprocess.run(
+            ["gh", "auth", "status"], capture_output=True, text=True, timeout=10,
+        )
+        if gh_check.returncode != 0:
+            _print_manual_branch_protection_guide()
+            return
+    except FileNotFoundError:
+        _print_manual_branch_protection_guide()
+        return
+    except subprocess.TimeoutExpired:
+        print("   WARNING: gh CLI check timed out — skipping auto-setup.")
+        _print_manual_branch_protection_guide()
+        return
+
+    # gh is available — offer setup
+    print("   gh CLI detected and authenticated.")
+    try:
+        remote_check = subprocess.run(
+            ["git", "-C", str(project), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if remote_check.returncode != 0 or "github.com" not in remote_check.stdout:
+            print("   SKIP: git remote 'origin' not pointing to GitHub.")
+            return
+    except Exception:
+        print("   SKIP: cannot detect git remote.")
+        return
+
+    print("   Setting up branch protection automatically...")
+    rc = _setup_branch_protection(project)
+    if rc != 0:
+        _print_manual_branch_protection_guide()
+
+
+def _print_manual_branch_protection_guide() -> None:
+    """Print manual branch protection setup instructions for GitHub web UI."""
+    print("   ═══════════════════════════════════════════════════════════════")
+    print("   Set up GitHub branch protection manually:")
+    print("     Settings → Branches → Add branch protection rule")
+    print("     Branch name pattern: main")
+    print("     ✅ Block force pushes")
+    print("     ✅ Block deletions")
+    print("     ❌ Do NOT enable 'Require a pull request'")
+    print("     ❌ Do NOT enable 'Require status checks'")
+    print("   ═══════════════════════════════════════════════════════════════")
+    print("   Or install gh CLI for automatic setup:")
+    print("     brew install gh && gh auth login")
+    print("     Then re-run: python3 harness_cli.py init-project --project . --setup-branch-protection")
+
+
+
+
+def _print_audit_report(results: dict) -> None:
+    """Print human-readable audit-structure report."""
+    print(f"\n{'='*60}")
+    print("Audit-Structure Report")
+    print(f"Project: {results['project']}")
+    print(f"{'='*60}")
+
+    dims = results["dimensions"]
+    for key, dim in dims.items():
+        icon = "PASS" if dim["passed"] else "FAIL"
+        print(f"\n  [{icon}] {dim['label']}")
+
+        if key == "directory_existence":
+            for pk, dv in dim["details"].items():
+                mark = "✅" if dv["exists"] else "❌"
+                print(f"     {mark} {pk}  {dv['dir']}")
+
+        elif key == "artifact_completeness":
+            for pk, pv in dim["details"].items():
+                mark = "✅" if pv["all_present"] else "❌"
+                print(f"     {mark} {pk} ({pv['dir']})")
+                if not pv["all_present"]:
+                    for f in pv["files"]:
+                        if not f["exists"]:
+                            print(f"        ❌ MISSING: {f['path']}")
+
+        elif key == "content_quality":
+            for pk, pv in dim["details"].items():
+                mark = "✅" if pv["all_quality_ok"] else "⚠️"
+                print(f"     {mark} {pk} ({pv['dir']})")
+                for f in pv["files"]:
+                    if f["quality"] != "good" and not f["path"].endswith("/"):
+                        issues = ", ".join(f.get("issues", []))
+                        print(f"        ⚠️  {f['path']}: {f['quality']}"
+                              + (f" ({issues})" if issues else ""))
+
+        elif key == "aspice_chain":
+            stats = dim["details"].get("stats", {})
+            print(f"     Verified: {stats.get('verified', '?')}/{stats.get('total', '?')} links")
+            for link in dim["details"].get("missing_links", [])[:5]:
+                print(f"        ❌ {link}")
+
+        elif key == "naming_convention":
+            if dim["passed"]:
+                print("     ✅ All 0X-name/ directories match expected names")
+            else:
+                for issue in dim["details"]["issues"]:
+                    print(f"        ❌ {issue}")
+
+    # Footer
+    s = results["summary"]
+    print(f"\n{'='*60}")
+    if s["all_passed"]:
+        print(f"RESULT: ALL PASS ({s['pass_count']}/{s['total_dims']} dimensions)")
+    else:
+        print(f"RESULT: FAIL — {s['total_dims'] - s['pass_count']} dimension(s) failed")
+    print(f"{'='*60}")
 
 
 def register(sub) -> None:
