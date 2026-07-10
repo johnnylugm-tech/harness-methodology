@@ -50,15 +50,15 @@
   bug: "P5 was incompletely removed from the per-FR Gate 1 set (multi-copy drift incident) — set membership must stay pinned"
   fixed_in: "5e18f58"
 
-- test: tests/test_harness_cli.py::TestPushMilestoneStateJsonWriteBeforePush::test_state_json_written_before_commit_and_push_p8
+- test: tests/cli/test_push_cmds_cli.py::TestPushMilestoneStateJsonWriteBeforePush::test_state_json_written_before_commit_and_push_p8
   bug: "audit fields written to state.json AFTER commit_and_push — the pushed state.json was stale"
   fixed_in: "28864f7"
 
-- test: tests/test_harness_cli.py::TestPushMilestoneStateJsonWriteBeforePush::test_reverted_on_push_failure
+- test: tests/cli/test_push_cmds_cli.py::TestPushMilestoneStateJsonWriteBeforePush::test_reverted_on_push_failure
   bug: "push-milestone: audit fields left behind in state.json after a failed push — local state diverges from origin"
   fixed_in: "dd9129b"
 
-- test: tests/test_harness_cli.py::TestPushCheckpointStateJsonWriteBeforePush::test_reverted_on_push_failure
+- test: tests/cli/test_push_cmds_cli.py::TestPushCheckpointStateJsonWriteBeforePush::test_reverted_on_push_failure
   bug: "push-checkpoint: same class — audit-field write not reverted when the push fails"
   fixed_in: "dd9129b"
 
