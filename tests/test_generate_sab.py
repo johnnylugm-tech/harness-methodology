@@ -99,6 +99,36 @@ class TestGenerateSabGenerate:
         assert result.returncode == 1
         assert "SAD.md not found" in result.stderr
 
+    def test_generate_fails_on_unknown_nfr_type_before_writing(self, tmp_path):
+        """Round 3 Station K: the DEFAULT generate path must run the same
+        static validation as --validate. Pre-fix, an illegal NFR type
+        generated a SAB.json whose NFR silently mapped to no gate dimension
+        (unenforced until P6's --validate step, four phases later)."""
+        _write_sad(tmp_path, _VALID_SAB + (
+            "\n  nfr_traceability:\n"
+            "    NFR-01:\n"
+            "      type: preformance\n"
+            "      target: 'p95 < 200ms'\n"
+            "      module: app.api\n"
+        ))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 1
+        assert "preformance" in result.stderr
+        assert not (tmp_path / ".methodology" / "SAB.json").exists()
+
+    def test_generate_passes_with_legal_nfr_type(self, tmp_path):
+        """Counterexample: a legal NFR type must not trip the new validation."""
+        _write_sad(tmp_path, _VALID_SAB + (
+            "\n  nfr_traceability:\n"
+            "    NFR-01:\n"
+            "      type: performance\n"
+            "      target: 'p95 < 200ms'\n"
+            "      module: app.api\n"
+        ))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        assert (tmp_path / ".methodology" / "SAB.json").exists()
+
 
 class TestGenerateSabDropsInitModules:
     """__init__.py-sourced entries can never resolve: `_check_sab_module_alignment`

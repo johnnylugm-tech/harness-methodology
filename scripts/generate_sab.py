@@ -24,6 +24,7 @@ if str(_HARNESS_ROOT) not in sys.path:
 
 from core.utils.project_layout import ProjectLayout  # noqa: E402
 from core.quality_gate.sab_amender import normalize_sab_module_to_dotted  # noqa: E402
+from core.quality_gate.sab_parser import validate_sab_block  # noqa: E402
 
 
 def _import_extract_sab_from_sad():
@@ -79,6 +80,19 @@ def parse_sad(sad_path: str) -> dict:
     }
 
 
+def _print_validation_errors(errors: list, sad_file: Path) -> None:
+    """Shared failure report for --validate and the default generate path."""
+    print(f"SAB validation FAILED ({len(errors)} error(s)):", file=sys.stderr)
+    for e in errors:
+        print(f"  - {e}", file=sys.stderr)
+    print(
+        f"\nFix the SAB block in {sad_file} §5.\n"
+        "See core/quality_gate/sab_parser.py docstring for the contract,\n"
+        "or call render_canonical_sab_template() for a working example.",
+        file=sys.stderr,
+    )
+
+
 def main():
     """CLI entry point.
 
@@ -123,18 +137,9 @@ def main():
 
     # ── Validate-only path ────────────────────────────────────────────────
     if args.validate:
-        from core.quality_gate.sab_parser import validate_sab_block
         errors = validate_sab_block(sad_file)
         if errors:
-            print(f"SAB validation FAILED ({len(errors)} error(s)):", file=sys.stderr)
-            for e in errors:
-                print(f"  - {e}", file=sys.stderr)
-            print(
-                f"\nFix the SAB block in {sad_file} §5.\n"
-                "See core/quality_gate/sab_parser.py docstring for the contract,\n"
-                "or call render_canonical_sab_template() for a working example.",
-                file=sys.stderr,
-            )
+            _print_validation_errors(errors, sad_file)
             return 1
         print(f"SAB validation PASSED: {sad_file}")
         return 0
@@ -175,6 +180,17 @@ def main():
 
     if sab_spec is None:
         print(f"Failed to parse {sad_file} - no SAB block found", file=sys.stderr)
+        return 1
+
+    # Round 3 Station K: static-validate on the default generate path too,
+    # BEFORE anything is written. Without this, an illegal NFR type (e.g. a
+    # typo like "preformance") produced a SAB.json whose NFR silently mapped
+    # to no gate dimension — unenforced until P6's --validate step caught it
+    # four phases later (the hazard sab_parser's _NFR_TYPE_TO_DIM comment
+    # warns about).
+    errors = validate_sab_block(sad_file)
+    if errors:
+        _print_validation_errors(errors, sad_file)
         return 1
 
     # Drop __init__.py-sourced entries: `_check_sab_module_alignment`
