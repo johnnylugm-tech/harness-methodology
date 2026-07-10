@@ -69,9 +69,10 @@ def test_phase_deliverables_p6_includes_quality_manifest() -> None:
 
 
 def test_harness_cli_re_exports_phase_deliverables() -> None:
-    """harness_cli._PHASE_DELIVERABLES is a backward-compat alias. The
-    tests in test_harness_cli.py import it directly; if the alias is removed
-    these tests fail at import time."""
+    """harness_cli._PHASE_DELIVERABLES is a backward-compat alias for
+    external consumers of the entrypoint module; this test pins the
+    re-export (the old test_harness_cli.py monolith that imported it was
+    split into tests/cli/ in C1, 2026-07-10)."""
     import sys
     # Inject a dummy arg so the argparse parser at the bottom of harness_cli
     # does not SystemExit before we read the alias.
