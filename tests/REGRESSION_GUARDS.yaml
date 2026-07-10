@@ -141,3 +141,7 @@
 - test: tests/test_cli_layering.py::test_harness_cli_no_midfile_imports
   bug: "a module-level import below harness_cli's first def is the mid-file circular-import dance returning — 16 noqa:E402 imports and the sys.modules.setdefault hack grew from exactly this"
   fixed_in: "harness_cli 絞殺者續章 S5 (終態 gate)"
+
+- test: tests/test_postflight_registry.py::test_registry_complete
+  bug: "same root cause as the preflight registry (Station A): a postflight_* method existing on PhaseHooks without being declared in POSTFLIGHT_CHECK_METHODS (or excluded with a reason) is the 'silently un-wired check' class — this meta-test makes the omission a failure at birth, even though _do_postflight_all itself stays hand-written (real data dependencies, not a homogeneous list)"
+  fixed_in: "弱點強化 Round 2 Station E (postflight completeness meta-test)"

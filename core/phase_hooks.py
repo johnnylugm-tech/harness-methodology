@@ -134,6 +134,26 @@ NON_PIPELINE_PREFLIGHTS: "dict[str, str]" = {
     ),
 }
 
+# postflight_* completeness declaration — NOT a call-order registry.
+# _do_postflight_all has real data dependencies (success is computed from
+# bvs/drift/artifact_links before it can be passed to postflight_update_state,
+# and FR-approval accounting is inline logic, not a postflight_* method at
+# all), so forcing a PREFLIGHT_CHECKS-style execution loop onto it would be
+# the wrong abstraction. This only guarantees every postflight_* method is
+# either called from _do_postflight_all or explicitly excluded here — see
+# tests/test_postflight_registry.py.
+POSTFLIGHT_CHECK_METHODS: "frozenset[str]" = frozenset({
+    "postflight_bvs_invariants",
+    "postflight_drift_check",
+    "postflight_artifact_links",
+    "postflight_update_state",
+    "postflight_summary",
+})
+NON_PIPELINE_POSTFLIGHTS: "dict[str, str]" = {
+    "postflight_all": "aggregator, not a check",
+    "postflight_constitution": "on-demand only since 減法 T3 (2026-07-07)",
+}
+
 
 class PhaseHooks:
     """
