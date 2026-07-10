@@ -1589,9 +1589,17 @@ class TestSabContractInPlan:
         import sys
 
         # Evict cached modules so the import below re-runs top-level statements.
+        # Round 3 M2: the loud guard moved into plangen.artifact_parsers, so
+        # both of that package's import identities must be evicted too —
+        # otherwise the facade re-import serves it from cache and the guard's
+        # top-level try/except never re-runs.
         for mod_name in (
             "core.quality_gate.sab_parser",
             "scripts.generate_full_plan",
+            "scripts.plangen.artifact_parsers",
+            "scripts.plangen",
+            "plangen.artifact_parsers",
+            "plangen",
         ):
             monkeypatch.delitem(sys.modules, mod_name, raising=False)
         monkeypatch.delitem(sys.modules, "scripts", raising=False)

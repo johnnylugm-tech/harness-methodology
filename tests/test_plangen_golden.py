@@ -82,6 +82,23 @@ def test_plan_output_matches_golden(phase, dynamic, tmp_path):
     )
 
 
+def test_harness_version_reads_pyproject():
+    """The version probe must not silently fall back to its "2.4.0" default.
+
+    The golden normalization is self-referential on _HARNESS_VERSION (it
+    replaces whatever the probe returned), so a broken probe is invisible to
+    the goldens. M2 moved the probe one directory deeper (plangen/) and its
+    __file__-anchored pyproject path needed a depth fix — this pins that
+    anchor class directly against the real pyproject.toml.
+    """
+    py = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    m = re.search(
+        r'\[project\]\n.*?\nversion\s*=\s*"([^"]+)"', py.read_text(), re.DOTALL
+    )
+    assert m, "pyproject.toml [project] version not found"
+    assert _HARNESS_VERSION == m.group(1)
+
+
 def test_generation_is_deterministic(tmp_path):
     """Two runs over the same fixture must agree after normalization —
     catches any nondeterminism source beyond the two documented ones."""
