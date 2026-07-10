@@ -62,7 +62,7 @@
   bug: "push-checkpoint: same class — audit-field write not reverted when the push fails"
   fixed_in: "dd9129b"
 
-- test: tests/test_harness_cli.py::TestFinalizeGate4StateJsonWriteBeforePush::test_reverted_on_push_failure
+- test: tests/cli/test_gate_cmds_cli.py::TestFinalizeGate4StateJsonWriteBeforePush::test_reverted_on_push_failure
   bug: "finalize-gate 4: last_milestone_command written before commit_and_push_gate had NO revert on push failure — a failed gate-4 push read as a completed finalize downstream (ci_state_helper trusts the field alone); same class as the push-milestone/checkpoint reverts (dd9129b) that DID exist"
   fixed_in: "弱點強化 Station B3 (gate-4 field-level revert)"
 
