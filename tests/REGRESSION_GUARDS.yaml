@@ -154,6 +154,10 @@
   bug: "split-brain residual (Round 3 claim 6): doctor reconciled state.json against manifest/CLAUDE.md/attestation/git history but never reconciled quality_manifest's per-FR Gate 1 quality_complete claims against the three O2 evidence channels — a hand-edited or fabricated manifest row (which also feeds the CLAUDE.md FR Registry) went completely undetected at rest"
   fixed_in: "弱點強化 Round 3 Station J (doctor gate1-evidence check)"
 
+- test: tests/test_plangen_golden.py::test_plan_output_matches_golden
+  bug: "plan-prose drift class (God-file symptom, Round 3 claim 2): 3,379-line generate_full_plan.py meant any prose regression hid inside f-string seas until an agent followed a stale instruction (bea1bb1 found one by hand). Goldens pin all 9 phase plans byte-for-byte (Date/version normalized) — they are also the byte-equal proof under the M2-M4 plangen split, and any deliberate prose change must regenerate them in the same commit"
+  fixed_in: "弱點強化 Round 3 Station M1 (golden byte-equal harness)"
+
 - test: tests/test_sentinel_template_ssot.py::test_plan_prose_renders_sentinel_from_template
   bug: "sentinel filename drift class (fixed by hand in bea1bb1): generate_full_plan.py's phase-plan prose hand-wrote the sentinel path (`g1_<fr>.flag`) while the real artifact format is g{gate}_p{phase}_{key}.flag (gate1_evidence.py, v2.13 phase scoping) — nothing pinned the prose to the producer, so agents were instructed to look for files that never exist"
   fixed_in: "弱點強化 Round 3 Station I (SENTINEL_*_TEMPLATE SSOT + render-from-SSOT prose)"
