@@ -152,14 +152,15 @@ def test_preflight_noop_without_declarations(tmp_path: Path) -> None:
 
 def test_property_spec_is_wired_into_preflight_all() -> None:
     """Composition guard: the gate must stay in the blocking aggregate
-    (REGRESSION_GUARDS-pinned)."""
-    import inspect
+    (REGRESSION_GUARDS-pinned).
 
-    from core.phase_hooks import PhaseHooks
+    Mechanism upgraded with the PREFLIGHT_CHECKS registry: membership in the
+    registry IS composition — tests/test_preflight_registry.py proves
+    _do_preflight_all runs exactly the registry."""
+    from core.phase_hooks import PREFLIGHT_CHECKS
 
-    src = inspect.getsource(PhaseHooks._do_preflight_all)
-    assert "preflight_property_spec" in src, (
-        "property_spec gate dropped from _do_preflight_all — declared but "
+    assert ("property_spec", "preflight_property_spec") in PREFLIGHT_CHECKS, (
+        "property_spec gate dropped from PREFLIGHT_CHECKS — declared but "
         "unexecuted / contradictory property invariants would stop blocking"
     )
 

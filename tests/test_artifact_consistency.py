@@ -129,12 +129,14 @@ def test_preflight_nfr_coverage_only_checked_from_p3(tmp_path: Path) -> None:
 
 
 def test_artifact_consistency_is_wired_into_preflight_all() -> None:
-    import inspect
+    """Mechanism upgraded with the PREFLIGHT_CHECKS registry: membership in
+    the registry IS composition — tests/test_preflight_registry.py proves
+    _do_preflight_all runs exactly the registry."""
+    from core.phase_hooks import PREFLIGHT_CHECKS
 
-    from core.phase_hooks import PhaseHooks
-
-    src = inspect.getsource(PhaseHooks._do_preflight_all)
-    assert "preflight_artifact_consistency" in src, (
-        "artifact_consistency gate dropped from _do_preflight_all — invented "
+    assert (
+        "artifact_consistency", "preflight_artifact_consistency",
+    ) in PREFLIGHT_CHECKS, (
+        "artifact_consistency gate dropped from PREFLIGHT_CHECKS — invented "
         "filenames / NFR coverage gaps would stop blocking"
     )

@@ -98,6 +98,14 @@
   bug: "P1/P2 audit gate: preflight_artifact_consistency must stay composed into _do_preflight_all — else invented forward-ref filenames (ARCHITECTURE.md) and NFRs dropped from ADR's traceability table stop being caught"
   fixed_in: "artifact_consistency gate (audit issues 2/3)"
 
+- test: tests/test_preflight_registry.py::test_registry_complete
+  bug: "pipeline-by-coincidence root cause: a preflight_* method existing on PhaseHooks without being registered in PREFLIGHT_CHECKS (or excluded with a reason) is exactly the 'silently un-wired check' class that produced 7 per-incident wiring guards — this meta-test makes the omission a failure at birth"
+  fixed_in: "弱點強化 Station A (declarative preflight registry)"
+
+- test: tests/test_preflight_registry.py::test_do_preflight_all_driven_by_registry
+  bug: "a hand-written check dict sneaking back into _do_preflight_all would bypass the registry and resurrect silent un-wiring — this test proves the aggregate runs exactly PREFLIGHT_CHECKS in order"
+  fixed_in: "弱點強化 Station A (declarative preflight registry)"
+
 - test: tests/test_cli_layering.py::test_hc_ref_ratchet
   bug: "cli/ modules borrowing names via `_hc.` late-binding (409 refs at S0) — the debt that forces harness_cli's mid-file E402 imports and sys.modules hack; per-file counts must only decrease"
   fixed_in: "harness_cli 絞殺者續章 S0 (ratchet 安全網)"

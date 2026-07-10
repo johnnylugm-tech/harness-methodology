@@ -99,6 +99,42 @@ def _dispatch_trace_auto_fix(project_path, untested, uncoded, phase=None) -> boo
         return False
 
 
+# Declarative preflight pipeline: the ONLY source of checks for
+# _do_preflight_all. Each entry is (result_key, method_name) — result_key is
+# the key in the returned details dict; tuple order is execution/print order.
+# Adding a preflight_* method to PhaseHooks without registering it here (or in
+# NON_PIPELINE_PREFLIGHTS with a reason) fails the completeness meta-test in
+# tests/test_preflight_registry.py — the structural fix for the recurring
+# "check silently un-wired during refactor" incident class (7 wiring guards
+# in tests/REGRESSION_GUARDS.yaml each pin one such incident).
+PREFLIGHT_CHECKS: "tuple[tuple[str, str], ...]" = (
+    ("manifest_integrity", "preflight_manifest_integrity"),
+    ("fsm", "preflight_fsm_check"),
+    ("bvs_phase_order", "preflight_bvs_phase_order"),
+    ("kill_switch", "preflight_kill_switch"),
+    ("previous_phase_artifacts", "preflight_previous_phase_artifacts"),
+    ("drift_detection", "preflight_drift_detection"),
+    ("sab", "preflight_sab_check"),
+    ("tool_registry", "preflight_tool_registry"),
+    ("traceability", "preflight_traceability"),
+    ("fr_spec_consistency", "preflight_fr_spec_consistency"),
+    ("spec_alignment", "preflight_spec_alignment"),
+    ("property_spec", "preflight_property_spec"),
+    ("artifact_consistency", "preflight_artifact_consistency"),
+    ("reliability_lint", "preflight_reliability_lint"),
+    ("config_liveness", "preflight_config_liveness"),
+)
+
+# preflight_* methods deliberately NOT in the automatic pipeline (reason required):
+NON_PIPELINE_PREFLIGHTS: "dict[str, str]" = {
+    "preflight_all": "aggregator, not a check",
+    "preflight_constitution": (
+        "on-demand only since 減法 T3 (2026-07-07) — still called by "
+        "postflight_constitution and the standalone check-constitution CLI"
+    ),
+}
+
+
 class PhaseHooks:
     """
     Phase execution hooks framework.
@@ -1147,25 +1183,9 @@ class PhaseHooks:
         return self._do_preflight_all()
 
     def _do_preflight_all(self) -> Dict[str, Any]:
-        """Run all pre-flight checks."""
+        """Run all pre-flight checks, driven by the PREFLIGHT_CHECKS registry."""
         print(f"\n{'='*60}\nPRE-FLIGHT: Phase {self.phase}\n{'='*60}")
-        results = {
-            "manifest_integrity": self.preflight_manifest_integrity(),
-            "fsm": self.preflight_fsm_check(),
-            "bvs_phase_order": self.preflight_bvs_phase_order(),
-            "kill_switch": self.preflight_kill_switch(),
-            "previous_phase_artifacts": self.preflight_previous_phase_artifacts(),
-            "drift_detection": self.preflight_drift_detection(),
-            "sab": self.preflight_sab_check(),
-            "tool_registry": self.preflight_tool_registry(),
-            "traceability": self.preflight_traceability(),
-            "fr_spec_consistency": self.preflight_fr_spec_consistency(),
-            "spec_alignment": self.preflight_spec_alignment(),
-            "property_spec": self.preflight_property_spec(),
-            "artifact_consistency": self.preflight_artifact_consistency(),
-            "reliability_lint": self.preflight_reliability_lint(),
-            "config_liveness": self.preflight_config_liveness(),
-        }
+        results = {key: getattr(self, method)() for key, method in PREFLIGHT_CHECKS}
         self.preflight_results = results
         all_passed = all(r.get("passed", False) for r in results.values())
 

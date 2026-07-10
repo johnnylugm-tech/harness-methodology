@@ -177,13 +177,14 @@ def test_preflight_skips_in_elicitation_mode(tmp_path: Path) -> None:
 
 def test_spec_alignment_is_wired_into_preflight_all() -> None:
     """Composition guard: the gate must stay in the blocking aggregate so an
-    agent cannot bypass it by advancing a phase (REGRESSION_GUARDS-pinned)."""
-    import inspect
+    agent cannot bypass it by advancing a phase (REGRESSION_GUARDS-pinned).
 
-    from core.phase_hooks import PhaseHooks
+    Mechanism upgraded with the PREFLIGHT_CHECKS registry: membership in the
+    registry IS composition — tests/test_preflight_registry.py proves
+    _do_preflight_all runs exactly the registry."""
+    from core.phase_hooks import PREFLIGHT_CHECKS
 
-    src = inspect.getsource(PhaseHooks._do_preflight_all)
-    assert "preflight_spec_alignment" in src, (
-        "spec_alignment gate dropped from _do_preflight_all — the front-edge "
+    assert ("spec_alignment", "preflight_spec_alignment") in PREFLIGHT_CHECKS, (
+        "spec_alignment gate dropped from PREFLIGHT_CHECKS — the front-edge "
         "canonical↔SRS check would no longer block phase advance"
     )
