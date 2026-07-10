@@ -18,6 +18,7 @@ Rules:
 """
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -25,10 +26,10 @@ class PhaseSpec:
     num: int
     name: str                 # canonical long display name
     dir: str                  # on-disk phase directory (e.g. "09-maintenance")
-    entry_gate: int | None    # gate that must PASS before the phase may start
-    exit_gate: int | None     # composite gate that closes the phase
+    entry_gate: Optional[int] # gate that must PASS before the phase may start
+    exit_gate: Optional[int]  # composite gate that closes the phase
     per_fr_gate1: bool        # phase runs Gate 1 per-FR
-    prerequisite: int | None  # phase that must be complete first (BVS order)
+    prerequisite: Optional[int]  # phase that must be complete first (BVS order)
 
 
 PHASES: dict[int, PhaseSpec] = {
@@ -77,7 +78,7 @@ PHASE_PREREQUISITES: dict[int, int] = {
 PHASE_DIRS: dict[int, str] = {p: spec.dir for p, spec in PHASES.items()}
 
 
-def phase_name(num: int, default: str | None = None) -> str:
+def phase_name(num: int, default: Optional[str] = None) -> str:
     """Canonical long name for a phase; *default* (if given) for unknown nums."""
     spec = PHASES.get(num)
     if spec is None:

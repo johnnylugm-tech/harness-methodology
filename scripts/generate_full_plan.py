@@ -1870,7 +1870,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
             f"  > **v2.9.1 B.2** -- replaces label-only `chore(P{phase}-exit): ...` commits.",
             "  > Pre-flight (enforced) checks:",
             f"  >   1. `.methodology/gate{post_gate}_result.json` composite ≥ phase threshold",
-            "  >   2. Per-FR Gate 1 sentinel `.sessi-work/sentinels/g1_<fr>.flag` exists for every FR in `--fr-ids`",
+            f"  >   2. Per-FR Gate 1 sentinel `.sessi-work/sentinels/g1_p{phase}_<fr>.flag` exists for every FR in `--fr-ids`",
             "  > If either fails the push is BLOCKED with a clear error list (exit 1).",
             f"  > On success: writes HANDOVER.md with `resume_phase={phase + 1}` + commits + pushes.",
             "",
@@ -3349,6 +3349,7 @@ Examples:
     parser.add_argument('--repo', type=str, required=True, help='Repository path')
     parser.add_argument('--output', type=str, help='Output file path')
     parser.add_argument('--no-output', action='store_true', help='Print to stdout instead of saving to file')
+    parser.add_argument('--force', action='store_true', help='Force regeneration even if file contains progress marks')
 
     args = parser.parse_args()
 
@@ -3361,7 +3362,7 @@ Examples:
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    plan = generate_full_plan(args.phase, repo_path, output_path)
+    plan = generate_full_plan(args.phase, repo_path, output_path, force=args.force)
 
     if plan:
         if args.no_output:
