@@ -12,14 +12,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 from core.harness_config import get_timeout
+from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.utils.project_layout import ProjectLayout
+from harness import tool_checks
 import harness_cli as _hc
 
 
@@ -117,7 +120,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     status = result.get("status", "SPAWNED")
     session_id = result.get("session_id", "")
     print(f"[dispatch] {args.fr_id or 'phase'} | {args.role} | {status} | session={session_id}")
-    if status in _hc._DISPATCH_ERROR_STATUSES:
+    if status in _DISPATCH_ERROR_STATUSES:
         return 1
 
     # For completed reviewer dispatches, extract and persist Agent B approval JSON.
@@ -127,7 +130,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         and args.fr_id
     ):
         output_text = result.get("output", "")
-        review_data = _hc._extract_review_json(output_text)
+        review_data = _extract_review_json(output_text)
         if review_data:
             approvals_dir = project / ".methodology" / "agent_b_approvals"
             approvals_dir.mkdir(parents=True, exist_ok=True)
@@ -151,7 +154,7 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
         and args.fr_id
     ):
         output_text = result.get("output", "")
-        agent_output = _hc._extract_agent_output_json(output_text)
+        agent_output = _extract_agent_output_json(output_text)
         if agent_output:
             outputs_dir = project / ".methodology" / "agent_a_outputs"
             outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -226,7 +229,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         return 0
 
     # 2. Pre-flight checks — must pass before agent dispatch
-    preflight_ok, preflight_errors = _hc._fr_step_preflight(step, project, fr_id, srs_path=srs_path)
+    preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=srs_path)
     if not preflight_ok:
         print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=sys.stderr)
         for err in preflight_errors:
@@ -239,7 +242,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
     # 4. Dispatch sub-agent (phase_sop_override="" skips full SOP load)
     spawner = AgentSpawner(project_path=project)
-    phase_ctx = _hc._resolve_phase3_context(project)
+    phase_ctx = _resolve_phase3_context(project)
     if getattr(args, "no_mcp", False):
         phase_ctx["mcp_config"] = None
 
@@ -251,7 +254,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             return _explicit_max_turns
         if step_name.upper() in ("CODE-FIX", "COVERAGE-FIX") and _fr_code_fix_max_turns:
             return _fr_code_fix_max_turns
-        return _hc._STEP_MAX_TURNS.get(step_name.upper(), 40)
+        return _STEP_MAX_TURNS.get(step_name.upper(), 40)
 
     # All FR steps need shell access:
     #   GATE1/GATE1-DELTA: ruff, pyright, pytest, coverage
@@ -277,7 +280,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     )
 
     _status = result.get("status")
-    if _status in _hc._DISPATCH_ERROR_STATUSES:
+    if _status in _DISPATCH_ERROR_STATUSES:
         # GATE1/GATE1-DELTA: ERROR or TIMEOUT means sub-agent exhausted
         # turns before writing gate1_result.json. Treat as GATE1 FAIL so
         # the CODE-FIX retry loop gets a chance to re-run with fresh context.
@@ -364,7 +367,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             failing_dims: list | None = None
             block_reason = ""
         else:
-            gate_pass, failing_dims, block_reason = _hc._parse_gate_output(result.get("output", ""))
+            gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
         if not gate_pass:
             gate_pass = _hc._fr_step_already_done(step, fr_id, project)
 
@@ -386,7 +389,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             if not is_s3:
                 # ── Pre-run tools at orchestration time ──────────────────────────
                 # Capture actual ruff + pytest output so fix agents target real errors.
-                tool_snapshot = _hc._capture_tool_snapshot(project, src_dir, test_file)
+                tool_snapshot = _capture_tool_snapshot(project, src_dir, test_file)
 
                 # ── B: lateral variation detection ───────────────────────────────
                 curr_sig = tool_snapshot[:300] if tool_snapshot else ""
@@ -404,7 +407,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 prev_snapshot_sig = curr_sig
 
                 # ── A: classify failure → route to the correct fixer ─────────────
-                failure_class = _hc._classify_snapshot_failure(tool_snapshot, failing_dims=failing_dims)
+                failure_class = _classify_snapshot_failure(tool_snapshot, failing_dims=failing_dims)
 
                 if failure_class == "ENV":
                     print(f"[run-fr-step] {fr_id} ENV error — human intervention required\n"
@@ -483,7 +486,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     mcp_config=phase_ctx["mcp_config"],
                     setting_sources=phase_ctx["setting_sources"],
                 )
-                if fix_result.get("status") in _hc._DISPATCH_ERROR_STATUSES:
+                if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
                     print(f"[run-fr-step] {fix_step_name} failed: "
                           f"{fix_result.get('output','')[:200]}")
                     # [LINT-FIX fallback] If the spawned LINT-FIX sub-agent
@@ -625,7 +628,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 setting_sources=phase_ctx["setting_sources"],
                 permission_mode=_pmode,
             )
-            gate_pass, failing_dims, block_reason = _hc._parse_gate_output(result.get("output", ""))
+            gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
                 gate_pass = _hc._fr_step_already_done(step, fr_id, project)
         else:
@@ -785,6 +788,381 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
     except Exception as e:  # pylint: disable=broad-exception-caught
         print(f"\n[ERROR] Failed to reload policies: {e}")
         return 1
+
+
+
+
+# --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4c) ---
+
+# Statuses that indicate an agent dispatch failure (all others treated as success).
+_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
+# Per-step default max_turns for run-fr-step. --max-turns override takes priority.
+# GATE1 needs more turns: 5-step workflow (run-gate → evaluate → write result.json
+# → finalize-gate → report) plus multi-dimension assessment on brownfield codebases.
+_STEP_MAX_TURNS: dict[str, int] = {
+    "TDD-RED":      40,
+    "TDD-GREEN":    40,
+    "TDD-IMPROVE":  40,
+    "GATE1":        70,
+    "GATE1-DELTA":  70,
+    "CODE-FIX":     50,
+    "TEST-FIX":     40,
+    "INFRA-FIX":    40,
+    "LINT-FIX":     70,   # 20+ constant renames with reference updates need many turns
+    "COVERAGE-FIX": 90,   # bulk spec-test writing (100+ tests) needs headroom
+}
+
+def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "Path | str | None" = None) -> tuple[bool, list[str]]:
+    """Verify environment and artifacts are ready before spawning a sub-agent for an FR step.
+
+    Returns (ok, error_lines). On ok=[], sub-agent spawn proceeds. On failure,
+    caller prints error_lines to stderr and returns 1 before any agent dispatch.
+
+    Step-aware: GATE1/CODE-FIX need full tool + DB checks; TDD-RED only needs pytest.
+    """
+    errors: list[str] = []
+    step = step.upper()
+
+    # ── 1. Git repo check ────────────────────────────────────────────────────
+    if not project.exists() or not (project / ".git").exists():
+        errors.append(f"✗ {project} is not a git repo or does not exist")
+
+    # ── 2. SRS.md (required for all steps — traceability back to requirements) ─
+    srs = project / "SRS.md"
+    if srs_path:
+        srs_arg = Path(srs_path)
+        srs = srs_arg if srs_arg.is_absolute() else project / srs_arg
+    else:
+        for candidate in ["01-requirements/SRS.md", "SRS.md", ".methodology/SRS.md"]:
+            if (project / candidate).exists():
+                srs = project / candidate
+                break
+
+    if not srs.exists():
+        try:
+            rel_path = srs.relative_to(project)
+        except ValueError:
+            rel_path = srs
+        errors.append(f"✗ SRS.md not found at {rel_path} (required for all FR steps)")
+
+    # ── 3. quality_manifest.json + FR-ID registration ────────────────────────
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if not manifest_path.exists():
+        errors.append("✗ .methodology/quality_manifest.json not found (run run-phase first)")
+    else:
+        try:
+            m = json.loads(manifest_path.read_text(encoding="utf-8"))
+            registered = m.get("fr_ids", [])
+            if fr_id and fr_id not in registered:
+                errors.append(
+                    f"✗ FR-ID {fr_id} not in quality_manifest.json fr_ids ({', '.join(registered)})"
+                )
+        except Exception:
+            errors.append("✗ quality_manifest.json is malformed JSON")
+
+    # ── 4. TEST_SPEC.md (required for TDD-RED — test names come from here) ───
+    # Must match _extract_test_spec_names: canonical location is 02-architecture/
+    test_spec = ProjectLayout(project).test_spec_path
+    if step == "TDD-RED":
+        if not test_spec.exists():
+            errors.append(
+                "✗ 02-architecture/TEST_SPEC.md not found (TDD-RED requires test catalog)"
+            )
+        else:
+            # Basic validity: must contain FR-ID sections
+            try:
+                content = test_spec.read_text(encoding="utf-8")
+                if fr_id and not re.search(rf'#+\s+{re.escape(fr_id)}\b', content):
+                    errors.append(
+                        f"✗ 02-architecture/TEST_SPEC.md has no section for {fr_id}"
+                        " (run derive_test_cases.md skill first)"
+                    )
+            except Exception:
+                errors.append("✗ 02-architecture/TEST_SPEC.md exists but is unreadable")
+
+    # ── 5. Tool checks (step-aware) ───────────────────────────────────────────
+    def _missing_tool(name: str) -> str:
+        return f"✗ {name} not found in PATH — install with: pip install {name}"
+
+    if step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
+        _, gate_errors = tool_checks.verify_gate_tools(1, str(project))
+        errors.extend(gate_errors)
+        # Delegate env readiness to LLM-driven run-env-check — no hardcoded
+        # DATABASE_URL/pytest/ruff here. Claude evaluates project-specific needs
+        # from SAD.md + SRS.md at run-env-check time.
+        env_result = project / ".sessi-work" / "env_check_result.json"
+        if not env_result.exists():
+            errors.append(
+                "✗ env_check_result.json not found. "
+                "Run: python harness_cli.py run-env-check --phase <phase> --project . "
+                "then evaluate inline and run finalize-env-check."
+            )
+
+    if step in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE"):
+        missing_tools = check_cli_tools(["pytest", "ruff"])
+        for tool in missing_tools:
+            errors.append(_missing_tool(tool))
+
+    return len(errors) == 0, errors
+
+def _extract_review_json(text: str, _depth: int = 0) -> "dict | None":
+    """Extract the first JSON object containing 'review_status' from free text.
+
+    Scans from every '{' position so it works whether the agent output is plain
+    JSON, JSON inside a markdown code fence, or JSON embedded in prose.
+
+    Also unwraps the Claude CLI JSON envelope (``{"result": "...", "session_id": "..."}``)
+    when the agent output was captured as the raw CLI response rather than the
+    unwrapped ``result`` field.  Recursion is bounded at 2 levels (Claude CLI
+    envelope is always exactly 1 level deep).
+    Returns None if no valid review JSON is found.
+    """
+    if not text or not isinstance(text, str):
+        return None
+
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != '{':
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+            if not isinstance(obj, dict):
+                continue
+            if "review_status" in obj:
+                return obj
+            # Unwrap Claude CLI envelope: {"result": "...", "session_id": "..."}
+            if "result" in obj and isinstance(obj["result"], str) and _depth < 2:
+                inner = _extract_review_json(obj["result"], _depth + 1)
+                if inner is not None:
+                    return inner
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return None
+
+def _extract_agent_output_json(text: str) -> "dict | None":
+    """Extract Agent A's structured output JSON from free text.
+
+    Looks for a dict that has 'status' plus at least one of the Agent A
+    output fields (files, confidence, citations, summary).  This is distinct
+    from Agent B's review JSON which carries 'review_status'.
+    Returns None if no matching JSON block is found.
+    """
+    _AGENT_A_FIELDS = frozenset({"files", "confidence", "citations", "summary"})
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch != '{':
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+            if (
+                isinstance(obj, dict)
+                and "status" in obj
+                and "review_status" not in obj  # not an Agent B block
+                and _AGENT_A_FIELDS & obj.keys()
+            ):
+                return obj
+        except json.JSONDecodeError:
+            pass
+    return None
+
+def _parse_gate_output(out: str) -> tuple[bool, list, str]:
+    """Extract gate_pass, failing_dims, and block_reason from sub-agent output.
+
+    Tries full-string JSON parse first, then scans for embedded JSON objects
+    by tracking brace depth — handles nested structures in failing_dims.
+    Also scans for finalize-gate [BLOCKED] lines to surface S3/S4 details.
+
+    Returns (gate_pass, failing_dims, block_reason).
+    block_reason is a non-empty string when finalize-gate blocked with S3/S4;
+    empty string otherwise.  Falls back to (False, [], "") on parse failure.
+    """
+    def _try(s: str) -> dict | None:
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict) and "pass" in obj:
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return None
+
+    def _extract_dims(obj: dict) -> list:
+        # Accept both the prompt-specified key ("failing_dims") and the score.py
+        # schema key ("failing_dimensions") — agents sometimes copy the wrong one.
+        return obj.get("failing_dims") or obj.get("failing_dimensions") or []
+
+    def _extract_block_reason(text: str) -> str:
+        """Scan agent output for finalize-gate [BLOCKED] lines (S3/S4 errors)."""
+        for line in text.splitlines():
+            if "[BLOCKED]" in line and (
+                "tool_evidence_missing" in line or "tool_score_fabrication" in line
+            ):
+                return line.strip()
+        return ""
+
+    block_reason = _extract_block_reason(out)
+
+    # Try whole string first (agent returned bare JSON)
+    obj = _try(out.strip())
+    if obj:
+        return bool(obj.get("pass", False)), _extract_dims(obj), block_reason
+
+    # Scan for any embedded JSON object via brace-depth tracking
+    i = 0
+    while i < len(out):
+        if out[i] == "{":
+            depth = 0
+            for j in range(i, len(out)):
+                if out[j] == "{":
+                    depth += 1
+                elif out[j] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        obj = _try(out[i : j + 1])
+                        if obj is not None:
+                            return bool(obj.get("pass", False)), _extract_dims(obj), block_reason
+                        break
+        i += 1
+
+    return False, [], block_reason
+
+
+def _resolve_phase3_context(project: Path) -> dict:
+    """Resolve MCP config and CLAUDE.md settings for Phase 3+ sub-agents.
+
+    Auto-detects whether code-review-graph MCP tools and project CLAUDE.md
+    are available, returning appropriate values for AgentSpawner.spawn().
+    Gracefully degrades: if nothing is found, returns current defaults
+    (no MCP, no CLAUDE.md).
+
+    Returns:
+        dict with keys:
+            mcp_config: str | None  -- relative path to .mcp.json, or None
+            setting_sources: str    -- "project" or ""
+    """
+    import shutil as _shutil
+    result: dict[str, str | None] = {"mcp_config": None, "setting_sources": ""}
+
+    # MCP: only enable if uvx is on PATH (required by our .mcp.json)
+    if _shutil.which("uvx"):
+        for candidate in ["harness/.mcp.json", ".mcp.json"]:
+            if (project / candidate).exists():
+                result["mcp_config"] = candidate
+                break
+
+    # CLAUDE.md: load if it exists at project root
+    if (project / "CLAUDE.md").exists():
+        result["setting_sources"] = "project"
+
+    return result
+
+def _capture_tool_snapshot(
+    project: Path, src_dir: str, test_file: str
+) -> str:
+    """Run ruff + pytest at orchestration time and return combined output (max 2000 chars).
+
+    Used to give CODE-FIX agents concrete, targeted error messages rather than
+    forcing them to re-discover failures from scratch.  Failures are non-fatal —
+    returns "" on any subprocess error so the CODE-FIX prompt degrades gracefully.
+    """
+    import subprocess as _sp
+    lines: list[str] = []
+    # PYTHONPATH must include the src root for src-layout projects.
+    # Using PYTHONPATH=project alone causes ModuleNotFoundError for packages
+    # under 03-development/src/, masking the real assertion failures from fixers.
+    # We include BOTH project root (original behaviour) and src_dir (new) so
+    # that nothing that previously worked can regress.
+    import os as _os
+    _pythonpath = (
+        _os.pathsep.join([str(project / src_dir), str(project)])
+        if src_dir else str(project)
+    )
+    # Try ruff from PATH first; fall back to python3 -m ruff when ruff is
+    # installed only inside a specific Python environment (e.g. Python 3.9 venv
+    # while the system python3 is 3.14).  exit code 127 = command not found.
+    _ruff_r = None
+    for _ruff_cmd in (
+        ["ruff", "check", f"{src_dir}/", "--extend-ignore", "RUF001,RUF002,RUF003"],
+        ["python3", "-m", "ruff", "check", f"{src_dir}/", "--extend-ignore", "RUF001,RUF002,RUF003"],
+    ):
+        try:
+            _ruff_r = _sp.run(
+                _ruff_cmd, capture_output=True, text=True,
+                cwd=str(project), timeout=30,
+            )
+            if _ruff_r.returncode != 127:
+                break
+        except Exception:
+            _ruff_r = None
+    if _ruff_r and (_ruff_r.stdout.strip() or _ruff_r.stderr.strip()):
+        lines.append(f"ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 (exit {_ruff_r.returncode}):")
+        lines.append((_ruff_r.stdout + _ruff_r.stderr).strip()[:600])
+        lines.append("")
+    try:
+        r = _sp.run(
+            ["python3", "-m", "pytest", test_file, "-v", "--tb=short", "-q"],
+            capture_output=True, text=True, cwd=str(project),
+            timeout=60, env={**__import__("os").environ, "PYTHONPATH": _pythonpath},
+        )
+        output = (r.stdout + r.stderr).strip()
+        if output:
+            lines.append(f"pytest {test_file} -v --tb=short (exit {r.returncode}):")
+            # Tail: most useful failures are at the end
+            lines.append(output[-800:])
+    except Exception:
+        pass
+    return "\n".join(lines)[:2000]
+
+
+def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) -> str:
+    """Classify the root cause of a Gate 1 failure from tool snapshot output.
+
+    Returns one of:
+      "ENV"             — ModuleNotFoundError / ImportError (environment not set up)
+      "ISOLATION"       — tests fail due to auth/HMAC short-circuit, not missing feature
+      "PATCH_OBJECT"    — AttributeError: obj has no attribute 'method' (stub missing)
+      "LOW_COVERAGE"    — all tests pass but test_coverage dim failing (coverage < threshold)
+      "MISSING_FEATURE" — AssertionError / genuine logic failure (CODE-FIX can help)
+      "UNKNOWN"         — cannot classify (fall through to CODE-FIX)
+    """
+    if not snapshot:
+        return "UNKNOWN"
+    s = snapshot.lower()
+    if "no module named" in s or "modulenotfounderror" in s or "importerror" in s:
+        return "ENV"
+    if "attributeerror" in s and "has no attribute" in s:
+        return "PATCH_OBJECT"
+    # Isolation: infrastructure intercepts before feature logic — all tests return 401/auth
+    if ("status_code=401" in s or "source='auth'" in s
+            or 'source="auth"' in s or "401 unauthorized" in s):
+        return "ISOLATION"
+    # Compute shared flags early — referenced by INFRA_SKIP, LINT, and LOW_COVERAGE checks.
+    _test_cov_failing = (
+        failing_dims is not None
+        and any("test_coverage" in str(d).lower() for d in failing_dims)
+    )
+    _has_test_failures = "failed" in s or "assertionerror" in s
+    # INFRA_SKIP: tests skipped (not failed) because Docker/Redis/external service unavailable.
+    # Coverage is low because skipped tests contribute 0 executed lines. Distinct from
+    # ISOLATION: no 401/auth signal — pytest just reports "N skipped".
+    if _test_cov_failing and "skipped" in s and not _has_test_failures:
+        return "INFRA_SKIP"
+    # LINT_FAIL / LINT_AND_COVERAGE: ruff linting dimension is failing.
+    # Always fix linting first — mixing linting + coverage in one CODE-FIX round causes timeout.
+    _lint_failing = (
+        failing_dims is not None
+        and any("linting" in str(d).lower() for d in failing_dims)
+    )
+    if _lint_failing:
+        # LINT_AND_COVERAGE: both failing — fix linting this round, coverage next round.
+        return "LINT_AND_COVERAGE" if _test_cov_failing else "LINT_FAIL"
+    # LOW_COVERAGE: test_coverage dim failing but all tests pass — coverage % below threshold.
+    # Snapshot is collected without --cov, so coverage % is not visible; detect via
+    # failing_dims (test_coverage listed) + no test failures in snapshot + tests did pass.
+    if _test_cov_failing and not _has_test_failures and "passed" in s:
+        return "LOW_COVERAGE"
+    if "assertionerror" in s or "failed" in s or "error" in s:
+        return "MISSING_FEATURE"
+    return "UNKNOWN"
 
 
 def register(sub) -> None:

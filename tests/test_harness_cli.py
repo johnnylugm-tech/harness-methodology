@@ -1554,14 +1554,14 @@ class TestExtractReviewJson:
     """Tests for _extract_review_json helper."""
 
     def test_plain_json(self):
-        from harness_cli import _extract_review_json
+        from cli.fr_cmds import _extract_review_json
         text = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"], "confidence": 0.9}'
         result = _extract_review_json(text)
         assert result is not None
         assert result["review_status"] == "APPROVE"
 
     def test_json_inside_prose(self):
-        from harness_cli import _extract_review_json
+        from cli.fr_cmds import _extract_review_json
         text = (
             "After reviewing the document I conclude:\n"
             '{"fr": "FR-02", "review_status": "REJECT", "docs_embedded": ["SRS.md"]}\n'
@@ -1573,7 +1573,7 @@ class TestExtractReviewJson:
         assert result["fr"] == "FR-02"
 
     def test_json_inside_code_fence(self):
-        from harness_cli import _extract_review_json
+        from cli.fr_cmds import _extract_review_json
         text = (
             "```json\n"
             '{"fr": "FR-03", "review_status": "APPROVE", "docs_embedded": ["SRS.md", "SAD.md"], "reason": "Reviewed all deliverables; acceptance criteria covered, no critical gaps found.", "citations": ["SRS.md:1"], "confidence": 0.85}\n'
@@ -1584,12 +1584,12 @@ class TestExtractReviewJson:
         assert result["confidence"] == 0.85
 
     def test_no_review_status_returns_none(self):
-        from harness_cli import _extract_review_json
+        from cli.fr_cmds import _extract_review_json
         result = _extract_review_json('{"fr": "FR-01", "other_key": "value"}')
         assert result is None
 
     def test_empty_string_returns_none(self):
-        from harness_cli import _extract_review_json
+        from cli.fr_cmds import _extract_review_json
         assert _extract_review_json("") is None
 
 
@@ -1697,7 +1697,7 @@ class TestExtractAgentOutputJson:
     """Tests for _extract_agent_output_json (Gap-4)."""
 
     def test_plain_agent_a_json(self):
-        from harness_cli import _extract_agent_output_json
+        from cli.fr_cmds import _extract_agent_output_json
         text = '{"status": "complete", "files": ["SRS.md"], "confidence": 0.9, "citations": ["FR-01"], "summary": "done"}'
         result = _extract_agent_output_json(text)
         assert result is not None
@@ -1705,7 +1705,7 @@ class TestExtractAgentOutputJson:
         assert result["confidence"] == 0.9
 
     def test_agent_a_json_inside_prose(self):
-        from harness_cli import _extract_agent_output_json
+        from cli.fr_cmds import _extract_agent_output_json
         text = 'Task complete.\n{"status": "complete", "files": ["SAD.md"], "summary": "arch done"}'
         result = _extract_agent_output_json(text)
         assert result is not None
@@ -1713,18 +1713,18 @@ class TestExtractAgentOutputJson:
 
     def test_agent_b_block_not_matched(self):
         """review_status blocks must not be treated as Agent A output."""
-        from harness_cli import _extract_agent_output_json
+        from cli.fr_cmds import _extract_agent_output_json
         text = '{"fr": "FR-01", "review_status": "APPROVE", "docs_embedded": ["SRS.md"], "status": "done"}'
         result = _extract_agent_output_json(text)
         assert result is None
 
     def test_no_agent_a_fields_returns_none(self):
-        from harness_cli import _extract_agent_output_json
+        from cli.fr_cmds import _extract_agent_output_json
         result = _extract_agent_output_json('{"status": "complete", "phase": 1}')
         assert result is None
 
     def test_empty_string_returns_none(self):
-        from harness_cli import _extract_agent_output_json
+        from cli.fr_cmds import _extract_agent_output_json
         assert _extract_agent_output_json("") is None
 
 
@@ -1884,7 +1884,7 @@ class TestAdvancePrechecksTDD:
 
     def _make_p3_project(self, tmp_path: Path) -> None:
         """Minimal P3 project skeleton (PhaseAuditor will be mocked)."""
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
         (tmp_path / ".methodology").mkdir()
         (tmp_path / "03-development" / "src").mkdir(parents=True)
         # Next-phase plan required by _advance_prechecks (phase >= 3)
@@ -3495,7 +3495,7 @@ class TestGitTestPatterns:
 
     def test_no_symlink_returns_standard_patterns(self, tmp_path):
         """When tests/ is a regular directory, return only standard patterns."""
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
         (tmp_path / "tests").mkdir()
         patterns = harness_cli._git_test_patterns(tmp_path, "01", "1")
         assert patterns == ["tests/test_fr01.py", "tests/test_fr1.py"]
@@ -5406,7 +5406,7 @@ class TestP2AdvanceRegeneratesManifest:
         """Minimal project + mocked advance prechecks so cmd_advance_phase
         reaches the manifest-regeneration block.
         """
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
         (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
         (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
         (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
@@ -5640,7 +5640,7 @@ class TestP7AdvanceGeneratesP8Baseline:
     rather than authoring from scratch."""
 
     def _setup(self, tmp_path: Path, monkeypatch):
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
         (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
         (tmp_path / ".methodology" / "phase7_plan.md").touch()
         (tmp_path / ".methodology" / "phase8_plan.md").touch()
@@ -6310,30 +6310,33 @@ class TestFrStepPreflightSrsPath:
         )
 
     def test_explicit_absolute_srs_path_accepted(self, tmp_path):
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+        from cli import fr_cmds as _frm
         # SRS.md at a non-default absolute path — no default lookup should occur.
         srs_dir = tmp_path / "custom-docs"
         srs_dir.mkdir()
         srs = srs_dir / "SRS.md"
         srs.write_text("### FR-01: Feature\n\n---\n", encoding="utf-8")
         self._make_manifest(tmp_path)
-        _ok, errors = harness_cli._fr_step_preflight("TDD-RED", tmp_path, "FR-01", srs_path=srs)
+        _ok, errors = _frm._fr_step_preflight("TDD-RED", tmp_path, "FR-01", srs_path=srs)
         assert not any("SRS" in e for e in errors), f"Unexpected SRS error: {errors}"
 
     def test_explicit_srs_path_missing_adds_error(self, tmp_path):
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+        from cli import fr_cmds as _frm
         self._make_manifest(tmp_path)
         nonexistent = tmp_path / "no-such.md"
-        ok, errors = harness_cli._fr_step_preflight("TDD-RED", tmp_path, "FR-01", srs_path=nonexistent)
+        ok, errors = _frm._fr_step_preflight("TDD-RED", tmp_path, "FR-01", srs_path=nonexistent)
         assert not ok
         assert any("SRS" in e for e in errors)
 
     def test_relative_srs_str_resolved_against_project(self, tmp_path):
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+        from cli import fr_cmds as _frm
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "SRS.md").write_text("### FR-01: Feature\n\n---\n", encoding="utf-8")
         self._make_manifest(tmp_path)
-        _ok, errors = harness_cli._fr_step_preflight(
+        _ok, errors = _frm._fr_step_preflight(
             "TDD-RED", tmp_path, "FR-01", srs_path="docs/SRS.md"
         )
         assert not any("SRS" in e for e in errors), f"Unexpected SRS error: {errors}"
@@ -6349,7 +6352,7 @@ class TestFrStepPreflightSrsPath:
             captured["srs_path"] = srs_path
             return True, []
 
-        monkeypatch.setattr(harness_cli, "_fr_step_preflight", _spy)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_preflight", _spy)
         monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: True)
 
         args = argparse.Namespace(
@@ -7104,7 +7107,7 @@ class TestBackupTempDirCleanup:
     """
 
     def _setup_minimal(self, tmp_path, monkeypatch):
-        import harness_cli
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
         (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
         (tmp_path / "01-requirements").mkdir(parents=True, exist_ok=True)
         (tmp_path / "02-architecture").mkdir(parents=True, exist_ok=True)
