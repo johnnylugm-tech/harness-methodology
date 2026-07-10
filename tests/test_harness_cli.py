@@ -10,6 +10,14 @@ from unittest import mock
 import io
 from core.quality_gate import gate1_evidence
 
+import harness_cli as _hc_entry  # noqa: F401  entry-first before cli imports
+from cli.fr_cmds import (  # noqa: E402
+    _build_fr_step_prompt,
+    _compute_fr_spec_data,
+    _extract_srs_fr_section,
+    _fr_step_already_done,
+)
+
 
 # =============================================================================
 # _fr_num_str
@@ -2487,7 +2495,7 @@ class TestRunFrStep:
     def test_skip_if_already_done(self, tmp_path, monkeypatch):
         """Idempotency: returns 0 immediately if step commit already exists."""
         import harness_cli
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: True)
         args = argparse.Namespace(
             phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
             srs=None, timeout=600, max_turns=30, max_fix_rounds=3,
@@ -2503,7 +2511,7 @@ class TestRunFrStep:
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
         # _fr_step_already_done always returns False (step not done)
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
 
         dispatched: dict = {}
 
@@ -2535,40 +2543,36 @@ class TestRunFrStep:
 
     def test_extract_srs_fr_section_returns_correct_fr(self, tmp_path):
         """_extract_srs_fr_section returns only the target FR's content."""
-        import harness_cli
         srs = tmp_path / "SRS.md"
         srs.write_text(
             "### FR-01: Feature A\n\n**Description**: Alpha text\n\n---\n"
             "### FR-02: Feature B\n\n**Description**: Beta text\n\n---\n",
             encoding="utf-8",
         )
-        section = harness_cli._extract_srs_fr_section(srs, "FR-01")
+        section = _extract_srs_fr_section(srs, "FR-01")
         assert "Alpha text" in section
         assert "Beta text" not in section
 
     def test_extract_srs_fr_section_missing_fr(self, tmp_path):
         """_extract_srs_fr_section returns empty string when FR not found."""
-        import harness_cli
         srs = tmp_path / "SRS.md"
         srs.write_text("### FR-02: Feature B\n\n**Description**: Beta\n\n---\n")
-        assert harness_cli._extract_srs_fr_section(srs, "FR-01") == ""
+        assert _extract_srs_fr_section(srs, "FR-01") == ""
 
     def test_prompt_tdd_red_contains_srs_section(self, tmp_path):
         """TDD-RED prompt includes extracted SRS section and commit format."""
-        import harness_cli
         srs = tmp_path / "SRS.md"
         srs.write_text(
             "### FR-01: My Feature\n\n**Description**: Do important thing X\n\n---\n",
             encoding="utf-8",
         )
-        prompt = harness_cli._build_fr_step_prompt("TDD-RED", "FR-01", 3, tmp_path, srs)
+        prompt = _build_fr_step_prompt("TDD-RED", "FR-01", 3, tmp_path, srs)
         assert "Do important thing X" in prompt
         assert "test(RED): failing test for FR-01" in prompt
         assert "failing test" in prompt.lower()
 
     def test_prompt_tdd_green_inlines_test_file(self, tmp_path):
         """TDD-GREEN prompt includes the current test file content inline."""
-        import harness_cli
         srs = tmp_path / "SRS.md"
         srs.write_text(
             "### FR-01: My Feature\n\n**Description**: Do X\n\n---\n", encoding="utf-8"
@@ -2577,14 +2581,13 @@ class TestRunFrStep:
         (tmp_path / "tests" / "test_fr01.py").write_text(
             "def test_my_feature(): assert False  # RED", encoding="utf-8"
         )
-        prompt = harness_cli._build_fr_step_prompt("TDD-GREEN", "FR-01", 3, tmp_path, srs)
+        prompt = _build_fr_step_prompt("TDD-GREEN", "FR-01", 3, tmp_path, srs)
         assert "assert False  # RED" in prompt
         assert "feat(FR-01): GREEN" in prompt
 
     def test_prompt_gate1_contains_run_gate_command(self, tmp_path):
         """GATE1 prompt includes run-gate and finalize-gate commands."""
-        import harness_cli
-        prompt = harness_cli._build_fr_step_prompt("GATE1", "FR-01", 3, tmp_path, None)
+        prompt = _build_fr_step_prompt("GATE1", "FR-01", 3, tmp_path, None)
         assert "run-gate --gate 1 --phase 3 --fr-id FR-01" in prompt
         assert "finalize-gate --gate 1 --phase 3 --fr-id FR-01" in prompt
         assert '"pass"' in prompt
@@ -2592,8 +2595,7 @@ class TestRunFrStep:
     def test_prompt_gate1_delta_uses_full_gate_evaluation(self, tmp_path):
         """GATE1-DELTA prompt runs full GATE1 (no --delta — skip is handled by
         _fr_step_already_done() git diff check before dispatch)."""
-        import harness_cli
-        prompt = harness_cli._build_fr_step_prompt("GATE1-DELTA", "FR-05", 5, tmp_path, None)
+        prompt = _build_fr_step_prompt("GATE1-DELTA", "FR-05", 5, tmp_path, None)
         assert "run-gate --gate 1" in prompt
         assert "finalize-gate --gate 1" in prompt
         assert "--delta" not in prompt
@@ -2601,7 +2603,6 @@ class TestRunFrStep:
     def test_prompt_code_fix_test_coverage_only(self, tmp_path):
         """CODE-FIX with test_coverage only → [TEST COVERAGE FIX] section,
         FORBIDDEN allows adding tests, git add includes test file."""
-        import harness_cli
 
         # Set up TEST_SPEC.md so _extract_test_spec_names returns names
         spec_dir = tmp_path / "02-architecture"
@@ -2615,7 +2616,7 @@ class TestRunFrStep:
             encoding="utf-8",
         )
 
-        prompt = harness_cli._build_fr_step_prompt(
+        prompt = _build_fr_step_prompt(
             "CODE-FIX", "FR-01", 3, tmp_path, None,
             failing_dims=["test_coverage"],
         )
@@ -2630,9 +2631,8 @@ class TestRunFrStep:
 
     def test_prompt_code_fix_source_only(self, tmp_path):
         """CODE-FIX with ruff only → no test section, FORBIDDEN blocks test files."""
-        import harness_cli
 
-        prompt = harness_cli._build_fr_step_prompt(
+        prompt = _build_fr_step_prompt(
             "CODE-FIX", "FR-01", 3, tmp_path, None,
             failing_dims=["ruff"],
         )
@@ -2643,7 +2643,6 @@ class TestRunFrStep:
     def test_prompt_code_fix_mixed_dims(self, tmp_path):
         """CODE-FIX with test_coverage + ruff → both sections, git add includes
         both src_dir and test_file."""
-        import harness_cli
 
         spec_dir = tmp_path / "02-architecture"
         spec_dir.mkdir()
@@ -2655,7 +2654,7 @@ class TestRunFrStep:
             encoding="utf-8",
         )
 
-        prompt = harness_cli._build_fr_step_prompt(
+        prompt = _build_fr_step_prompt(
             "CODE-FIX", "FR-01", 3, tmp_path, None,
             failing_dims=["test_coverage", "ruff"],
         )
@@ -2670,9 +2669,8 @@ class TestRunFrStep:
     def test_prompt_code_fix_none_fallback(self, tmp_path):
         """CODE-FIX with failing_dims=None → diagnostic mode — self-identify
         failures via pytest + ruff (gate1_result.json doesn't exist)."""
-        import harness_cli
 
-        prompt = harness_cli._build_fr_step_prompt(
+        prompt = _build_fr_step_prompt(
             "CODE-FIX", "FR-02", 3, tmp_path, None,
             failing_dims=None,
         )
@@ -2694,8 +2692,7 @@ class TestRunFrStep:
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
         # TDD-RED done, TDD-GREEN not yet done
-        monkeypatch.setattr(
-            harness_cli, "_fr_step_already_done",
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done",
             lambda step, fr_id, project: step == "TDD-RED",
         )
         captured = io.StringIO()
@@ -2717,7 +2714,7 @@ class TestRunFrStep:
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: True)
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
@@ -2736,7 +2733,7 @@ class TestRunFrStep:
             json.dumps({"phase": 3, "frs": {"FR-02": {"status": "gate1_pass"}}}),
             encoding="utf-8",
         )
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: False)
         captured = io.StringIO()
         monkeypatch.setattr(sys, "stdout", captured)
 
@@ -2753,7 +2750,7 @@ class TestRunFrStep:
 
         _setup_preflight_fixtures(tmp_path, step="GATE1")
 
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
 
         # Sub-agent always returns gate_pass=false
         _fail_output = '{"status": "DONE", "pass": false, "failing_dims": ["D1"], "gate_score": 0.2}'
@@ -2784,7 +2781,7 @@ class TestRunFrStep:
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: False)
         monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a: False,
         )
         captured = io.StringIO()
@@ -2811,7 +2808,7 @@ class TestRunFrStep:
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
         )
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a: False)
         monkeypatch.setattr("core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1", lambda *a: True,
         )
         captured = io.StringIO()
@@ -2826,7 +2823,6 @@ class TestRunFrStep:
 
     def test_fr_step_already_done_requires_file_existence(self, tmp_path, monkeypatch):
         """_fr_step_already_done returns False if commit matches but physical test file or src dir is missing."""
-        import harness_cli
         import subprocess as _sp
 
         class _FakeResult:
@@ -2837,24 +2833,24 @@ class TestRunFrStep:
         monkeypatch.setattr(_sp, "run", lambda *_, **__: _FakeResult())
 
         # RED Test: Test file missing -> should return False
-        assert not harness_cli._fr_step_already_done("TDD-RED", "FR-01", tmp_path)
+        assert not _fr_step_already_done("TDD-RED", "FR-01", tmp_path)
 
         # Create test file -> should return True
         (tmp_path / "tests").mkdir(parents=True, exist_ok=True)
         (tmp_path / "tests" / "test_fr01.py").write_text("def test_fr(): pass")
-        assert harness_cli._fr_step_already_done("TDD-RED", "FR-01", tmp_path)
+        assert _fr_step_already_done("TDD-RED", "FR-01", tmp_path)
 
         # GREEN Test: Src dir missing -> should return False
-        assert not harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
+        assert not _fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
 
         # Create empty src dir -> should return False
         (tmp_path / "03-development" / "src").mkdir(parents=True, exist_ok=True)
-        assert not harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
+        assert not _fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
 
         # Create source file with tag -> should return True
         f = tmp_path / "03-development" / "src" / "impl.py"
         f.write_text("# [FR-01]")
-        assert harness_cli._fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
+        assert _fr_step_already_done("TDD-GREEN", "FR-01", tmp_path)
 
     def test_gate1_already_done_uses_quality_complete_not_overall_score(self, tmp_path, monkeypatch):
         """_fr_step_already_done("GATE1", ...) must key off the manifest's
@@ -2868,7 +2864,6 @@ class TestRunFrStep:
         re-evaluation even though quality_complete was False (test_coverage
         dimension score=42 < its own 80 threshold).
         """
-        import harness_cli
         import subprocess as _sp
 
         class _FakeResult:
@@ -2889,7 +2884,7 @@ class TestRunFrStep:
                 "score": 80.28, "quality_complete": False,
             }}},
         }))
-        assert not harness_cli._fr_step_already_done("GATE1", "FR-01", tmp_path), (
+        assert not _fr_step_already_done("GATE1", "FR-01", tmp_path), (
             "quality_complete=False must force re-evaluation regardless of "
             "how overall_score compares to min_coverage"
         )
@@ -2901,7 +2896,7 @@ class TestRunFrStep:
                 "score": 97.62, "quality_complete": True,
             }}},
         }))
-        assert harness_cli._fr_step_already_done("GATE1", "FR-01", tmp_path)
+        assert _fr_step_already_done("GATE1", "FR-01", tmp_path)
 
     def test_run_fr_step_handles_git_push_failure_as_fatal(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step prints an error and returns 1 when git push fails (fatal check-recovery)."""
@@ -2912,7 +2907,7 @@ class TestRunFrStep:
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
 
         class _FakeSpawner:
             def __init__(self, project_path=None): pass
@@ -2951,7 +2946,7 @@ class TestRunFrStep:
 
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: False)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: False)
 
         class _FakeSpawner:
             def __init__(self, project_path=None): pass
@@ -3304,7 +3299,7 @@ class TestRunFrStepSkipSideEffects:
         """record_gate_timestamp must be called for GATE1-DELTA skip."""
         import harness_cli
         recorded = []
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: True)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp",
                             lambda project, phase, gate, fr_id: recorded.append((phase, gate, fr_id)))
@@ -3324,7 +3319,7 @@ class TestRunFrStepSkipSideEffects:
         """record_gate_timestamp must NOT be called for non-DELTA step skips."""
         import harness_cli
         recorded = []
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda *a, **k: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: True)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp",
                             lambda *a, **k: recorded.append(True))
@@ -3366,7 +3361,6 @@ class TestComputeFrSpecDataParameterized:
 
     def test_parameterized_name_matches_base_function(self, tmp_path):
         """TEST_SPEC row 'test_fn[param]' must match 'def test_fn' in test file."""
-        import harness_cli
         self._make_project(
             tmp_path,
             spec_rows=[
@@ -3375,57 +3369,53 @@ class TestComputeFrSpecDataParameterized:
             ],
             test_body="def test_fr_01_lexicon_coverage(word_pair):\n    pass\n",
         )
-        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
         assert result["spec_cov_pct"] == 100, (
             f"parameterized names must match by base name; got {result['spec_cov_pct']}"
         )
 
     def test_missing_base_function_gives_zero(self, tmp_path):
         """If the base function does not exist in the test file, spec_cov_pct == 0."""
-        import harness_cli
         self._make_project(
             tmp_path,
             spec_rows=["test_fr_01_missing[param]"],
             test_body="# no functions here\n",
         )
-        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
         assert result["spec_cov_pct"] == 0
 
     def test_backtick_name_matches(self, tmp_path):
         """TEST_SPEC row '`test_fn`' (backtick-quoted) must match 'def test_fn'."""
-        import harness_cli
         self._make_project(
             tmp_path,
             spec_rows=["`test_fr_01_lookup`"],
             test_body="def test_fr_01_lookup(x):\n    pass\n",
         )
-        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
         assert result["spec_cov_pct"] == 100, (
             f"backtick-quoted spec name must strip backticks before matching; got {result['spec_cov_pct']}"
         )
 
     def test_paren_suffix_matches(self, tmp_path):
         """TEST_SPEC row 'test_fn()' (with parens) must match 'def test_fn'."""
-        import harness_cli
         self._make_project(
             tmp_path,
             spec_rows=["test_fr_01_lookup()"],
             test_body="def test_fr_01_lookup(x):\n    pass\n",
         )
-        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
         assert result["spec_cov_pct"] == 100, (
             f"() suffix must be stripped before matching; got {result['spec_cov_pct']}"
         )
 
     def test_async_def_matches(self, tmp_path):
         """'async def test_fn(...)' must be found the same as sync 'def test_fn'."""
-        import harness_cli
         self._make_project(
             tmp_path,
             spec_rows=["test_fr_01_async"],
             test_body="async def test_fr_01_async(client):\n    pass\n",
         )
-        result = harness_cli._compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
         assert result["spec_cov_pct"] == 100, (
             f"async def must be detected by the function scanner; got {result['spec_cov_pct']}"
         )
@@ -6350,7 +6340,7 @@ class TestFrStepPreflightSrsPath:
             return True, []
 
         monkeypatch.setattr("cli.fr_cmds._fr_step_preflight", _spy)
-        monkeypatch.setattr(harness_cli, "_fr_step_already_done", lambda s, f, p: True)
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p: True)
 
         args = argparse.Namespace(
             phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),

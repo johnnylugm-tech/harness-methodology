@@ -32,7 +32,7 @@ _HC_REF_CEILING = {
     "__init__.py": 0,
     "check_cmds.py": 0,    # S4e — fully de-borrowed (was 95)
     "cr_cmds.py": 0,
-    "fr_cmds.py": 16,      # S4e (was 73 → S1 33 → S3 31 → S4c 19)
+    "fr_cmds.py": 2,       # S4f (was 73 → … → S4e 16)
     "gate_cmds.py": 5,     # S4b (was 53 → S1 8)
     "phase_cmds.py": 7,    # S4d (was 81 → S1 12)
     "project_cmds.py": 0,  # S4e — fully de-borrowed (was 68)
