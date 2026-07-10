@@ -31,6 +31,7 @@ from core.atomic_io import (
 )
 from core.canonical_form import canonical_form
 from core.quality_gate import agent_b_approvals, gate1_evidence
+from core.quality_gate.ghost_detector import scan_phase_ghost_trails
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.quality_gate import spec_coverage
 from core.quality_gate.spec_coverage import _parse_inventory_fallback, _parse_test_spec
@@ -1396,6 +1397,41 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
 
     return {"passed": False, "gate": "Unknown", "reason": f"No entry gate defined for phase {phase}"}
 
+
+def _check_ghost_paper_trail(project: Path, completed_phase: int) -> int:
+    """Block advance if any FR in this phase has an unresolved ghost detection.
+
+    Ghost paper-trail records are written by ``cmd_run_fr_step`` when an agent
+    self-reports completion but made zero substantive code changes (only
+    whitespace, comments, or non-code files).
+
+    Returns 0 if clear, 22 (GHOST_DETECTED) if unresolved ghosts remain.
+    """
+    ghost_trails = scan_phase_ghost_trails(project, completed_phase)
+    if not ghost_trails:
+        return 0
+
+    # Group by FR for clear reporting.
+    by_fr: dict[str, list[dict]] = {}
+    for gt in ghost_trails:
+        fr = gt.get("fr_id", "unknown")
+        by_fr.setdefault(fr, []).append(gt)
+
+    print(
+        f"\n[BLOCKED] Ghost paper-trail detected in Phase {completed_phase}:\n"
+        f"  {len(ghost_trails)} step(s) across {len(by_fr)} FR(s) reported completion\n"
+        f"  but made no substantive code changes."
+    )
+    for fr, trails in by_fr.items():
+        for t in trails:
+            print(f"    {fr} / {t.get('step', '?')}: {t.get('reason', 'unknown')}")
+    print(
+        f"\n  Re-run each flagged step with genuine code changes, then re-run advance-phase.\n"
+        f"  Ghost paper-trail records: .sessi-work/ghost_detected/"
+    )
+    return 22
+
+
 def _advance_prechecks(project: Path, completed_phase: int) -> int:
     """Run pre-advance checks: Agent B approvals, gate variance, Phase Truth,
     PhaseAuditor C1-C12, TDD.
@@ -1411,6 +1447,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       16 = Constitution postflight below phase threshold (all phases)
       17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
       18 = Submodule guard: harness/ has uncommitted edits that would be clobbered
+      22 = Ghost paper-trail detected (agent claimed progress but made no code changes) (P3+)
     """
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
@@ -1442,6 +1479,14 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # ── Deferred-fix closure (P3+) — close the quality loop ────────────
     if completed_phase >= 3:
         _rc = _check_deferred_fixes_resolved(project)
+        if _rc != 0:
+            return _rc
+
+    # ── Ghost paper-trail check (P3+) — detect agent self-reports with   ──
+    # zero substantive code changes. Aggregate per-FR ghost detections from
+    # this phase; block advance until each flagged step is re-run.
+    if completed_phase >= 3:
+        _rc = _check_ghost_paper_trail(project, completed_phase)
         if _rc != 0:
             return _rc
 

@@ -21,6 +21,10 @@ from core.canonical_form import fr_num_str
 from core.harness_config import get_timeout
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
+from core.quality_gate.ghost_detector import (
+    detect_ghost_changes,
+    write_ghost_paper_trail,
+)
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.utils.project_layout import ProjectLayout
 from harness import tool_checks
@@ -264,6 +268,16 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # broken code, causing the next GATE1 to fail again.
     _explicit_pmode = getattr(args, "permission_mode", None)
     _pmode = _explicit_pmode if _explicit_pmode is not None else "bypassPermissions"
+
+    # ── Ghost paper-trail detection: capture pre-dispatch HEAD SHA ──────────
+    # Reuses AgentSpawner's static method so we can diff pre/post state after
+    # the agent finishes and verify it made substantive code changes.
+    # Try/except guards against mock spawners in tests that don't implement
+    # _git_head_sha.
+    try:
+        _pre_step_sha = AgentSpawner._git_head_sha(project) or ""
+    except Exception:
+        _pre_step_sha = ""
 
     result = spawner.spawn(
         role="developer",
@@ -685,6 +699,29 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 6  # Same exit code as finalize-gate commit-failed
+
+    # ── Ghost paper-trail detection ──────────────────────────────────────
+    # Verify that the sub-agent's CLAIMED work matches ACTUAL code changes.
+    # Catches self-reports like "fixed lint error" where git diff shows
+    # zero substantive changes (only whitespace/comments/config files).
+    if _pre_step_sha:
+        _ghost_result = detect_ghost_changes(
+            project, _pre_step_sha, step, fr_id,
+            agent_output=result.get("output", ""),
+        )
+        if _ghost_result["ghost_detected"]:
+            write_ghost_paper_trail(project, {
+                **_ghost_result, "phase": phase, "fr_id": fr_id, "step": step,
+            })
+            print(
+                f"\n[GHOST DETECTED] {fr_id} {step}: "
+                f"agent claimed work but made no substantive code changes.\n"
+                f"  Reason: {_ghost_result['reason']}\n"
+                f"  Paper trail: .sessi-work/ghost_detected/{fr_id}_{step}.json\n"
+                f"  Re-run the step with genuine code changes.",
+                file=sys.stderr,
+            )
+            return 22  # GHOST_DETECTED
 
     no_push = getattr(args, "no_push", False) or os.environ.get("HARNESS_NO_GIT")
     if no_push:

@@ -236,3 +236,85 @@ class TestConfigLiveness:
         result = PhaseHooks(str(project), phase=4).preflight_config_liveness()
         assert result["passed"] is True
         assert result["used_count"] == 1
+
+
+# ── Pragma no-cover audit ────────────────────────────────────────────────────
+
+
+PRAGMA_WORKAROUND = """\
+def foo():
+    if True:  # pragma: no cover -- workaround, should be tested
+        return 1
+"""
+
+PRAGMA_LEGITIMATE = """\
+import os
+
+def save():
+    try:
+        os.replace("a", "b")
+    except BaseException:  # pragma: no cover -- atomic-write cleanup
+        os.unlink("a")
+"""
+
+PRAGMA_MIXED = """\
+def bar():
+    if False:  # pragma: no cover -- workaround
+        pass
+
+def baz():
+    try:
+        os.replace("x", "y")
+    except BaseException:  # pragma: no cover -- atomic cleanup allowed
+        os.unlink("x")
+"""
+
+
+class TestPragmaNoCoverAudit:
+    """# pragma: no cover audit — only except BaseException is exempt."""
+
+    def test_flags_workaround(self, tmp_path):
+        """# pragma: no cover on non-BaseException lines → flagged."""
+        project = _project(tmp_path)
+        (project / "src" / "mod.py").write_text(PRAGMA_WORKAROUND, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-pragma-no-cover" in rules
+
+    def test_allows_baseexception(self, tmp_path):
+        """# pragma: no cover on except BaseException → allowed."""
+        project = _project(tmp_path)
+        (project / "src" / "mod.py").write_text(PRAGMA_LEGITIMATE, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-pragma-no-cover" not in rules
+
+    def test_mixed_pragmas(self, tmp_path):
+        """Mixed workaround + legitimate pragmas → only workaround flagged."""
+        project = _project(tmp_path)
+        (project / "src" / "mixed.py").write_text(PRAGMA_MIXED, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        pragma_findings = [
+            f for f in result["findings"] if f["rule"] == "py-pragma-no-cover"
+        ]
+        assert len(pragma_findings) == 1
+        assert pragma_findings[0]["line"] == 2  # "if False:  # pragma..."
+
+    def test_no_pragma_files_pass(self, tmp_path):
+        """No pragma files → no pragma findings."""
+        project = _project(tmp_path)
+        (project / "src" / "clean.py").write_text(
+            "def foo():\n    return 1\n", encoding="utf-8",
+        )
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-pragma-no-cover" not in rules
+
+    def test_p3_informational_not_blocking(self, tmp_path):
+        """At P3, pragma findings are informational (not blocking)."""
+        project = _project(tmp_path)
+        (project / "src" / "mod.py").write_text(PRAGMA_WORKAROUND, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=3).preflight_reliability_lint()
+        assert result["blocking"] is False
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-pragma-no-cover" in rules

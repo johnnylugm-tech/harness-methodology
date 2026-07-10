@@ -155,6 +155,48 @@ NON_PIPELINE_POSTFLIGHTS: "dict[str, str]" = {
 }
 
 
+def _audit_pragma_no_cover(targets: list[str]) -> list[dict]:
+    """Scan source dirs for ``# pragma: no cover`` outside allowed patterns.
+
+    Semgrep operates on AST and cannot match Python comments, so this runs
+    as a separate grep-based check integrated into ``preflight_reliability_lint``.
+
+    Allowlist: only ``except BaseException`` for atomic-write cleanup is
+    automatically accepted.  All other pragma uses must be justified with a
+    unit test — if the code path is reachable, write the test and remove the
+    pragma; if it is genuinely unreachable, document why.
+
+    Returns a list of finding dicts compatible with the semgrep findings
+    format used by ``preflight_reliability_lint``.
+    """
+    findings: list[dict] = []
+    for target in targets:
+        for py_file in Path(target).rglob("*.py"):
+            try:
+                lines = py_file.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                continue
+            for i, line in enumerate(lines, 1):
+                if "# pragma: no cover" not in line:
+                    continue
+                # Allow: except BaseException for atomic-write cleanup.
+                if "except BaseException" in line:
+                    continue
+                findings.append({
+                    "rule": "py-pragma-no-cover",
+                    "file": str(py_file),
+                    "line": i,
+                    "severity": "WARNING",
+                    "message": (
+                        "Write a unit test instead of # pragma: no cover. "
+                        "Only except BaseException atomic-write cleanup is exempt. "
+                        "This code path is reachable via unit test — the pragma "
+                        "produces synthetic coverage that hides untested code."
+                    ),
+                })
+    return findings
+
+
 class PhaseHooks:
     """
     Phase execution hooks framework.
@@ -881,6 +923,23 @@ class PhaseHooks:
              "severity": r.get("extra", {}).get("severity", "?")}
             for r in findings
         ]
+
+        # ── Pragma no-cover audit ───────────────────────────────────────
+        # Semgrep operates on AST and cannot match Python comments. Run a
+        # separate grep-based check for # pragma: no cover and validate
+        # each against the allowlist (only except BaseException atomic-write
+        # cleanup is exempt).
+        _pragma_findings = _audit_pragma_no_cover(targets)
+        if _pragma_findings:
+            # Normalise paths for display — semgrep reports relative paths
+            # from the project root, so strip the project root prefix.
+            _proj = str(self.project_path)
+            for pf in _pragma_findings:
+                _raw_path = pf["file"]
+                if _raw_path.startswith(_proj):
+                    pf["file"] = _raw_path[len(_proj):].lstrip("/")
+            items.extend(_pragma_findings)
+
         passed = (not items) or (not blocking)
         if items:
             for it in items[:10]:
