@@ -61,7 +61,7 @@ import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Optional
 
 # Fail fast with a clear message when an unsupported Python is used.
 # Common mistake: agents or shells use /usr/bin/python3 (macOS system 3.9)
@@ -80,7 +80,6 @@ if TYPE_CHECKING:
     from harness.git_strategy import GitStrategy
     from harness.harness_bridge import GateBlockedError
 
-from harness.handover_generator import HandoverGenerator
 
 # Ensure repo root on path so core/ and harness/ resolve
 _REPO_ROOT = Path(__file__).parent
@@ -93,7 +92,7 @@ if __name__ == "__main__":  # pragma: no cover  (script-mode only)
     sys.modules.setdefault("harness_cli", sys.modules[__name__])
 
 # Atomic state-file writers (CV-3 / SG-12 from robustness audit)
-from core.atomic_io import StateTransaction, atomic_write_json, file_lock, state_lock_path  # noqa: E402
+from core.atomic_io import atomic_write_json, file_lock, state_lock_path  # noqa: E402
 from core.phase_topology import (  # noqa: E402
     ADVANCE_GATE1_CHECK_PHASES as _TOPOLOGY_ADVANCE_GATE1,
     ENTRY_GATE_MAP as _TOPOLOGY_ENTRY_GATES,
@@ -132,6 +131,7 @@ from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES  # noqa: E402  
 # S2 extractions — call via module namespace (tool_checks.verify_…) so the
 # only monkeypatch seam is the function's home module, never a harness_cli
 # attribute that could go stale.
+from core import claude_md  # noqa: E402
 from core.quality_gate import gate1_evidence  # noqa: E402
 from core.utils import env_loader  # noqa: E402
 from harness import tool_checks  # noqa: E402
@@ -666,101 +666,6 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
             print("        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     return 0
 
-def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
-    """PR 6: mtime-based trace staleness probe — <50ms, no rglob.
-
-    Compares `attestation.json` mtime against `SAD.md` mtime and the
-    newest `tests/test_fr*.py` mtime. Returns the *first* staleness
-    cause found, in this order: missing attestation, SAD newer,
-    tests newer. Catches the common case where a developer edited
-    code or spec but forgot to re-derive `attestation.json`. False
-    negatives (edits to `core/foo.py` without FR tag changes) are
-    caught by the full preflight at `run-phase` time.
-    """
-    trace_dir = project_path / ".methodology" / "trace"
-    att_path = trace_dir / "attestation.json"
-
-    _FIX_HINT = (
-        "Fix: python3 harness_cli.py build-trace-attestation --project . --write"
-    )
-    if not att_path.exists():
-        return {
-            "passed": False,
-            "reason": f"attestation.json missing — {_FIX_HINT}",
-            "staler": None,
-            "newer": None,
-        }
-
-    try:
-        att_mtime = att_path.stat().st_mtime
-    except OSError as e:
-        return {"passed": False, "reason": f"attestation.json stat failed: {e}",
-                "staler": None, "newer": None}
-
-    # SAD.md (canonical locations)
-    for sad_candidate in ("02-architecture/SAD.md", "SAD.md"):
-        sad_path = project_path / sad_candidate
-        if sad_path.exists():
-            try:
-                if sad_path.stat().st_mtime > att_mtime:
-                    return {"passed": False,
-                            "reason": (
-                                f"{sad_candidate} newer than attestation.json — "
-                                f"{_FIX_HINT}"
-                            ),
-                            "staler": str(sad_path.relative_to(project_path)),
-                            "newer": "attestation.json"}
-            except OSError:
-                pass
-            break
-
-    # Newest test file (language-aware glob; test_*.py or *.test.ts etc.)
-    from core.utils.lang_patterns import iter_test_files, project_language
-    tests_dir = ProjectLayout(project_path).active_test_dir
-    if tests_dir.is_dir():
-        try:
-            candidates = list(
-                iter_test_files(tests_dir, project_language(project_path))
-            )
-        except OSError:
-            candidates = []
-        if candidates:
-            try:
-                newest_test = max(candidates,
-                                  key=lambda p: p.stat().st_mtime)
-                if newest_test.stat().st_mtime > att_mtime:
-                    rel = str(newest_test.relative_to(project_path))
-                    return {"passed": False,
-                            "reason": (
-                                f"{rel} newer than attestation.json — "
-                                f"{_FIX_HINT}"
-                            ),
-                            "staler": rel, "newer": "attestation.json"}
-            except OSError:
-                pass
-
-    return {"passed": True, "reason": "trace attestation is current",
-            "staler": None, "newer": None}
-
-
-def _run_fast_preflight(hooks) -> dict:
-    """Lightweight preflight: FSM, BVS phase order, kill-switch, trace mtime.
-
-    Used exclusively by cmd_pre_commit_check (git commit hook path).
-    Not exposed via run-phase to prevent agents from bypassing full enforcement.
-
-    PR 6: adds `_trace_dirty_state` mtime probe (cheaper than the full
-    `preflight_traceability` re-derive). Catches the common case of
-    "I edited [FR-XX] but forgot to re-attest" before commit.
-    """
-    results = {
-        "fsm": hooks.preflight_fsm_check(),
-        "bvs_phase_order": hooks.preflight_bvs_phase_order(),
-        "kill_switch": hooks.preflight_kill_switch(),
-        "trace_dirt": _trace_dirty_state(hooks.project_path),
-    }
-    all_passed = all(r.get("passed", False) for r in results.values())
-    return {"all_passed": all_passed, "details": results}
 
 def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
     """Return the sentinel file path that run-gate writes and finalize-gate verifies.
@@ -2424,7 +2329,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             Path(args.project).resolve(), args.gate, fr_id,
             gate_score=result.score, phase=args.phase,
         )
-        _update_claude_md(Path(args.project).resolve())  # gate pass → refresh CLAUDE.md
+        claude_md.update_claude_md(Path(args.project).resolve())  # gate pass → refresh CLAUDE.md
 
         # P1: Record successful finalization timestamp HERE (after all checks pass),
         # not inside check_commit_intervals.  Failed attempts must not leave a trace
@@ -3993,49 +3898,6 @@ def _scope_violation_scripts(project: Path) -> list[str]:
     return offenders
 
 
-def _advance_commit_targets(
-    completed_phase: int,
-    next_phase: int,
-    manifest_regenerated: bool,
-    fr_progress_exists: bool,
-    gate_timestamps_exists: bool = False,
-    stage_pass_exists: bool = False,
-) -> list[str]:
-    """Files the advance-phase local commit must stage.
-
-    Uses an explicit list (not `git add -A`) so unrelated working-tree noise is
-    not swept in. fr_progress.json is rewritten by _advance_fsm during this same
-    advance, so it must be staged — but only when present: pre-Gate-1 advances
-    (P1->P2, P2->P3) have no fr_progress.json yet, and an explicit `git add` of a
-    missing pathspec fails the whole commit.
-
-    gate_timestamps.jsonl is functional FR-gate state (read back to verify per-FR
-    gate events) that the DELTA fast-path appends within a phase; the advance
-    commit sweeps its tail so it does not linger unstaged after every phase bump.
-    Conditional-exists for the same missing-pathspec reason as fr_progress.json.
-
-    00-summary/Phase{N}_STAGE_PASS.md is machine-generated by _generate_stage_pass
-    on every advance-phase run (always-regenerate). It is staged here too so a
-    single `git add` in the advance commit covers it — even if the earlier
-    conditional git-add at line ~6372 was skipped because content matched the
-    already-committed bytes.
-    """
-    targets = [
-        ".methodology/state.json", "HANDOVER.md",
-        "CLAUDE.md",
-        f".methodology/phase{completed_phase}_plan.md",
-    ]
-    if fr_progress_exists:
-        targets.append(".methodology/fr_progress.json")
-    if gate_timestamps_exists:
-        targets.append(".methodology/gate_timestamps.jsonl")
-    if manifest_regenerated:
-        targets.append(".methodology/quality_manifest.json")
-    if stage_pass_exists:
-        targets.append(f"00-summary/Phase{completed_phase}_STAGE_PASS.md")
-    if next_phase == 8:
-        targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
-    return targets
 
 
 # ---------------------------------------------------------------------------
@@ -4942,258 +4804,6 @@ def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa
     no_git = getattr(args, "no_git", False) or getattr(args, "dry_run", False)
     return GitStrategy(project=project, enabled=not no_git)
 
-# ---------------------------------------------------------------------------
-# CLAUDE.md auto-update helpers
-# ---------------------------------------------------------------------------
-
-_CLAUDE_AUTO_START = "<!-- harness:auto-start -->"
-_CLAUDE_AUTO_END   = "<!-- harness:auto-end -->"
-
-_PHASE_NAMES = {
-    1: "Requirements", 2: "Architecture", 3: "Implementation",
-    4: "Testing", 5: "Verification", 6: "Quality", 7: "Risk", 8: "Config Management",
-    9: "Maintenance",
-}
-
-
-def _build_claude_md_auto_section(project_path: Path) -> str:
-    """Build the harness status markdown block from state.json + quality_manifest.json.
-
-    Gracefully degrades: missing files → empty dicts → "Not Started" placeholders.
-    """
-    from datetime import datetime, timezone as _tz
-
-    manifest: dict = {}
-    state: dict = {}
-    for fpath, store_key in (
-        (project_path / ".methodology" / "quality_manifest.json", "manifest"),
-        (project_path / ".methodology" / "state.json", "state"),
-    ):
-        if fpath.exists():
-            try:
-                data = json.loads(fpath.read_text(encoding="utf-8"))
-                if store_key == "manifest":
-                    manifest = data
-                else:
-                    state = data
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
-
-    current_phase = state.get("current_phase", 1)
-    phase_name = _PHASE_NAMES.get(current_phase, f"Phase {current_phase}")
-    last_gate = state.get("last_gate", "—")
-    last_fr_str = f" | Last FR: {state['last_fr']}" if state.get("last_fr") else ""
-    updated = datetime.now(_tz.utc).strftime("%Y-%m-%d")
-
-    gates = manifest.get("gate_results", {})
-    fr_ids: list = manifest.get("fr_ids", [])
-
-    # Gate progress rows (G1 shows done/total FRs; G2-G4 show numeric score)
-    gate_rows: list[str] = []
-    for gn in (1, 2, 3, 4):
-        g = gates.get(f"gate{gn}")
-        if isinstance(g, dict) and "score" in g:
-            score_str = f"{g['score']:.1f}"
-            status = "✅ PASS" if g.get("quality_complete") else "🔄 In Progress"
-        elif isinstance(g, dict):
-            # gate1: {FR-XX: {score, quality_complete, ...}}
-            fr_vals = [v for v in g.values() if isinstance(v, dict) and "score" in v]
-            done = sum(1 for v in fr_vals if v.get("quality_complete"))
-            total = len(fr_ids) if fr_ids else len(fr_vals)
-            score_str = f"{done}/{total} FRs" if total else "—"
-            status = "✅ PASS" if (total and done == total) else "🔄 In Progress"
-        else:
-            score_str, status = "—", "⬜ Not Started"
-        gate_rows.append(f"| Gate {gn} | {score_str} | {status} |")
-
-    gate_table = "\n".join(gate_rows)
-
-    # FR Registry rows (from gate1 results)
-    gate1 = gates.get("gate1")
-    fr_rows: list[str] = []
-    if fr_ids:
-        for fr_id in fr_ids:
-            r = gate1.get(fr_id) if isinstance(gate1, dict) else None
-            if isinstance(r, dict) and "score" in r:
-                fr_score = f"{r['score']:.1f}"
-                fr_status = "✅ COMPLETE" if r.get("quality_complete") else "🔄 In Progress"
-            else:
-                fr_score, fr_status = "—", "⬜ Pending"
-            fr_rows.append(f"| {fr_id} | {fr_score} | {fr_status} |")
-    fr_table_body = ("\n".join(fr_rows)
-                     if fr_rows else "| — | — | No FRs registered yet |")
-
-    # Optional sections (only when non-empty)
-    extra_sections = ""
-    arch = manifest.get("architecture_constraints", [])
-    if arch:
-        items = "\n".join(f"- {c}" for c in arch)
-        extra_sections += f"\n### Architecture Constraints\n{items}\n"
-    high_risk = manifest.get("high_risk_modules", [])
-    if high_risk:
-        items = "\n".join(f"- {m}" for m in high_risk)
-        extra_sections += f"\n### High-Risk Modules\n{items}\n"
-    nfr_map = manifest.get("nfr_dimension_mapping", {})
-    if nfr_map:
-        items = "\n".join(f"- {k} → {v}" for k, v in nfr_map.items())
-        extra_sections += f"\n### NFR → Dimension Mapping\n{items}\n"
-
-    return (
-        f"## Harness Status _(auto-generated — do not edit this block)_\n\n"
-        f"> Phase: **{current_phase} — {phase_name}**"
-        f" | Last Gate: **Gate {last_gate}**{last_fr_str}"
-        f" | Updated: {updated}\n\n"
-        f"### Gate Progress\n"
-        f"| Gate | Score / FRs | Status |\n"
-        f"|------|-------------|--------|\n"
-        f"{gate_table}\n\n"
-        f"### FR Registry (Gate 1)\n"
-        f"| FR ID | Score | Status |\n"
-        f"|-------|-------|--------|\n"
-        f"{fr_table_body}\n"
-        f"{extra_sections}"
-    )
-
-
-def _update_claude_md(project_path: Path) -> None:
-    """Refresh the harness-managed block in project_path/CLAUDE.md (non-blocking).
-
-    Called at: init-project, finalize-gate (pass), advance-phase.
-    Replaces content between <!-- harness:auto-start/end --> markers.
-    Preserves all content outside the markers (user customizations).
-    Legacy CLAUDE.md without markers: auto block prepended, existing content kept.
-    """
-    try:
-        auto = _build_claude_md_auto_section(project_path)
-        claude_path = project_path / "CLAUDE.md"
-
-        if not claude_path.exists():
-            claude_path.write_text(
-                f"# Project: {project_path.name}\n\n"
-                + _CLAUDE_AUTO_START + "\n" + auto + _CLAUDE_AUTO_END + "\n",
-                encoding="utf-8",
-            )
-            return
-
-        existing = claude_path.read_text(encoding="utf-8")
-        if _CLAUDE_AUTO_START in existing and _CLAUDE_AUTO_END in existing:
-            s = existing.index(_CLAUDE_AUTO_START)
-            e = existing.index(_CLAUDE_AUTO_END) + len(_CLAUDE_AUTO_END)
-            new_content = (
-                existing[:s]
-                + _CLAUDE_AUTO_START + "\n"
-                + auto
-                + _CLAUDE_AUTO_END
-                + existing[e:]
-            )
-        else:
-            # Legacy CLAUDE.md: prepend auto block, keep all existing content
-            new_content = (
-                _CLAUDE_AUTO_START + "\n"
-                + auto
-                + _CLAUDE_AUTO_END + "\n\n"
-                + existing
-            )
-        claude_path.write_text(new_content, encoding="utf-8")
-    except Exception as _exc:  # pylint: disable=broad-exception-caught
-        print(f"  [WARN] CLAUDE.md update skipped: {_exc}")
-
-
-# Patterns that indicate stale harness phase/gate status in manual content.
-# Deliberately narrow to avoid false-positives on architecture descriptions.
-_STALE_HARNESS_RE = re.compile(
-    r"Current\s+state:.*Phase\s+\d"           # "Current state: Phase 7"
-    r"|Working\s+in\s+Phase\s+\d"             # "Working in Phase 7+"
-    r"|Gate\s+[1-4]\s+\(\d+\s+dimensions"     # "Gate 4 (14 dimensions..."
-    r"|Gate\s+[1-4]\s+(?:PASS|FAIL)"          # "Gate 4 PASS"
-    r"|score\s+\d+(?:\.\d+)?\s*\)",           # "score 96.5)"
-    re.IGNORECASE,
-)
-
-
-def _llm_clean_stale_claude_md(project_path: Path) -> None:
-    """Remove stale harness phase/gate status text from CLAUDE.md via LLM.
-
-    Called only on advance-phase (major milestone, acceptable 30-60s overhead).
-    Pre-screens for stale patterns — skips LLM call when content is already clean.
-    Non-blocking: any failure prints [WARN] and returns without modifying the file.
-    """
-    import shutil as _shutil
-    from core.agent_spawner import _child_env as _agent_child_env
-    try:
-        claude_path = project_path / "CLAUDE.md"
-        if not claude_path.exists():
-            return
-
-        content = claude_path.read_text(encoding="utf-8")
-
-        # Extract content outside auto block for stale pattern detection
-        if _CLAUDE_AUTO_START in content and _CLAUDE_AUTO_END in content:
-            s = content.index(_CLAUDE_AUTO_START)
-            e = content.index(_CLAUDE_AUTO_END) + len(_CLAUDE_AUTO_END)
-            outside = content[:s] + content[e:]
-        else:
-            outside = content
-
-        # Pre-screen: skip LLM call if no stale harness patterns found
-        if not _STALE_HARNESS_RE.search(outside):
-            return
-
-        cli = _shutil.which("claude")
-        if not cli:
-            return  # claude CLI unavailable — skip silently
-
-        prompt = (
-            "Edit the following CLAUDE.md file. Rules:\n"
-            "1. The block between <!-- harness:auto-start --> and "
-            "<!-- harness:auto-end --> is auto-managed — preserve it EXACTLY as-is.\n"
-            "2. Outside that block, remove or condense into a single short line "
-            "any text that describes harness phase/gate status — e.g. "
-            "'Current state: Phase 7', 'Gate 4 PASS (score 96.5)', "
-            "'Working in Phase 7+', phase-specific task lists, "
-            "gate dimension counts, completed gate result paths.\n"
-            "3. Keep all architecture descriptions, commands, code blocks, "
-            "and non-harness-status content exactly unchanged.\n"
-            "4. Return ONLY the complete updated file content — "
-            "no explanation, no markdown fencing.\n\n"
-            f"File:\n{content}"
-        )
-
-        proc = subprocess.run(
-            [
-                cli, "-p", prompt,
-                "--output-format", "text",
-                "--setting-sources", "",
-                "--disable-slash-commands",
-                "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-                "--no-session-persistence",
-            ],
-            capture_output=True, text=True, timeout=60,
-            cwd=str(project_path),
-            env=_agent_child_env(),
-        )
-
-        if proc.returncode != 0:
-            print(f"  [WARN] CLAUDE.md stale cleanup failed (exit {proc.returncode})")
-            return
-
-        cleaned = proc.stdout.strip()
-        if not cleaned:
-            print("  [WARN] CLAUDE.md stale cleanup: empty LLM output — skipping")
-            return
-
-        # Safety: auto block must survive the LLM edit intact
-        if _CLAUDE_AUTO_START not in cleaned or _CLAUDE_AUTO_END not in cleaned:
-            print("  [WARN] CLAUDE.md stale cleanup: LLM dropped auto markers — skipping")
-            return
-
-        claude_path.write_text(cleaned, encoding="utf-8")
-        print("  [CLAUDE.md] Stale harness status cleaned")
-
-    except subprocess.TimeoutExpired:
-        print("  [WARN] CLAUDE.md stale cleanup timed out — skipping")
-    except Exception as _exc:  # pylint: disable=broad-exception-caught
-        print(f"  [WARN] CLAUDE.md stale cleanup skipped: {_exc}")
 
 
 def _update_state_checkpoint(
@@ -5227,104 +4837,6 @@ def _update_state_checkpoint(
             existing["phase_truth_passed"] = True
         atomic_write_json(state_path, existing)
 
-def _advance_fsm(project: Path, completed_phase: int,
-                 last_gate: int | None = None,
-                 last_fr: str | None = None) -> None:
-    """Write state.json — the single source of truth for phase state.
-
-    Local hooks, CI, and all harness commands read .methodology/state.json::current_phase.
-    No other phase storage mechanisms exist.
-    """
-    from datetime import datetime, timezone
-    from core.fsm.fsm import validate_fsm_state, FSMError
-
-    next_phase = completed_phase + 1
-
-    # 1. Prepare the full write set BEFORE anything becomes visible, then
-    # publish HANDOVER.md + state.json in one StateTransaction (state.json
-    # LAST — it is the authoritative file, so a partial commit can never
-    # claim more progress than the artifacts on disk support). This is the
-    # fix for the half-state class: the old order wrote state.json first
-    # and only WARNed when HANDOVER regeneration failed afterwards, leaving
-    # state advanced with a stale crash-recovery document (the P8→9 crash).
-    # Cross-process locked (SG-12) so a parallel _update_state_checkpoint
-    # or push-milestone state-write cannot corrupt the file.
-    state_path = project / ".methodology" / "state.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_lock(state_lock_path(project)):
-        existing_state = "INIT"
-        state_data: dict = {}
-        if state_path.exists():
-            try:
-                state_data = json.loads(state_path.read_text())
-            except Exception:  # pylint: disable=broad-exception-caught
-                state_data = {}
-            else:
-                try:
-                    existing_state = validate_fsm_state(state_data.get("state", "INIT"))
-                except FSMError as e:
-                    print(f"\n  [FSM ERROR] {e}")
-                    print("  Fix state.json manually or run `advance-phase` with a clean state.")
-                    sys.exit(11)
-        # Merge into the existing dict rather than replacing it — state.json also
-        # carries fields this function doesn't own (last_push_checkpoint,
-        # phase_completed, ci_readiness_ack, language, test_runner, ...); a bare
-        # replacement here silently discarded them on every advance-phase call.
-        state_data.update({
-            "state": existing_state,
-            "current_phase": next_phase,
-            "last_gate": last_gate,
-            "last_fr": last_fr,
-            "last_update": datetime.now(timezone.utc).isoformat(),
-            # P5-BUG-02: User expects phase_truth_passed to be True after advance-phase runs verify_phase_truth
-            "phase_truth_passed": True,
-            "last_milestone_command": f"advance-phase --completed-phase {completed_phase}",
-        })
-
-        # Render HANDOVER.md before any write — a render failure aborts the
-        # advance with NOTHING published (previously it warned after state
-        # was already advanced).
-        gen = HandoverGenerator(project)
-        handover_content = gen.render(
-            checkpoint_id=f"P{next_phase}-entry-{datetime.now(timezone.utc).strftime('%Y%m%d')}",
-            phase=next_phase,
-            task_background=(
-                f"Phase {completed_phase} completed. Advancing FSM to Phase {next_phase}."
-            ),
-            current_status=f"FSM advanced from Phase {completed_phase} to Phase {next_phase}.",
-            next_steps=[
-                f"Follow SKILL.md §0.1 Phase {next_phase} entry checklist",
-                f"Read the Phase {next_phase} plan and execute",
-            ],
-            resume_phase=next_phase,
-        )
-
-        with StateTransaction(project) as txn:
-            txn.stage_text(gen.handover_path, handover_content)
-            txn.stage_json(state_path, state_data)   # authoritative file last
-            txn.commit()
-
-        # B5: Advance fr_progress.json inside the same lock so state.json and
-        # fr_progress.json are always updated atomically from any reader's
-        # perspective. Moving it outside created a window where another process
-        # could see next_phase in state.json but the old phase in fr_progress.json.
-        # SG-9: do not silently swallow exceptions — log to stderr so the
-        # operator knows if state.json and fr_progress.json fall out of sync.
-        # FileNotFoundError is expected for P1/P2 (no fr_progress.json yet).
-        try:
-            from harness.fr_progress_tracker import FRProgressTracker
-            FRProgressTracker(project, phase=next_phase).advance_phase(next_phase)
-        except FileNotFoundError:
-            pass  # P1/P2 projects: fr_progress.json doesn't exist yet — expected.
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            print(
-                f"  [WARN] FRProgressTracker.advance_phase failed: {type(exc).__name__}: {exc}\n"
-                f"  state.json advanced to phase {next_phase}, but fr_progress.json may now\n"
-                f"  be out of sync. Inspect .methodology/fr_progress.json and repair if needed.",
-                file=sys.stderr,
-            )
-    print(f"  [FSM] state.json current_phase → {next_phase}")
-    print(f"  [FSM] HANDOVER.md regenerated for Phase {next_phase}")
 
     # 2. No other phase storage — state.json is the single source of truth.
     #    git config quality.phase and GitHub CURRENT_PHASE variable are no longer used.

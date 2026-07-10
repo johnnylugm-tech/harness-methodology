@@ -34,8 +34,8 @@ _HC_REF_CEILING = {
     "cr_cmds.py": 0,
     "fr_cmds.py": 19,      # S4c (was 73 → S1 33 → S3 31)
     "gate_cmds.py": 5,     # S4b (was 53 → S1 8)
-    "phase_cmds.py": 12,   # S1 (was 81)
-    "project_cmds.py": 4,  # S4a (was 68 → S1 15 → S2 14)
+    "phase_cmds.py": 7,    # S4d (was 81 → S1 12)
+    "project_cmds.py": 2,  # S4d (was 68 → S1 15 → S2 14 → S4a 4)
     "push_cmds.py": 6,     # S4b (was 39 → S1 7)
 }
 

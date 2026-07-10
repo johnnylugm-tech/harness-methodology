@@ -162,6 +162,7 @@ class TestTraceDirtyStateJs:
         att.write_text("{}", encoding="utf-8")
         old = time.time() - 3600
         os.utime(att, (old, old))
-        result = harness_cli._trace_dirty_state(project)
+        from cli.phase_cmds import _trace_dirty_state
+        result = _trace_dirty_state(project)
         assert result["passed"] is False
         assert "test_fr01_parse.test.ts" in result["reason"]

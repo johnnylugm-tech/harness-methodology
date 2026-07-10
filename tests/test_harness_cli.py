@@ -3672,7 +3672,7 @@ class TestInitProjectRootWrapper:
         # Stub out all the heavyweight steps
         monkeypatch.setattr(_projc, "_init_phase_dirs", lambda _p: None)
         monkeypatch.setattr(_projc, "_init_copy_templates", lambda _p, _h, **_: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         monkeypatch.setattr(_projc, "_check_and_offer_ecc_hooks", lambda _h: None)
         monkeypatch.setattr(_projc, "_auto_offer_branch_protection", lambda _p: None)
         # S2: verify_gate_tools moved to harness/tool_checks.py; all callers
@@ -4011,7 +4011,7 @@ class TestFinalizeGatePersistCompositeScore:
         monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -4118,7 +4118,7 @@ class TestFinalizeGateManifestPatch:
         monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -4272,7 +4272,7 @@ class TestFinalizeGateCommitFailureRollback:
         monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -4403,7 +4403,7 @@ class TestFinalizeGateNoneDimVariance:
         monkeypatch.setattr(hc, "_finalize_gate_fr_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda _a, _p: None)
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -4470,7 +4470,7 @@ class TestTraceDirtyState:
 
     def test_missing_attestation_reason_includes_fix_hint(self, tmp_path):
         """No attestation.json → reason must contain the fix command."""
-        from harness_cli import _trace_dirty_state
+        from cli.phase_cmds import _trace_dirty_state
         (tmp_path / ".methodology" / "trace").mkdir(parents=True)
         result = _trace_dirty_state(tmp_path)
         assert not result["passed"]
@@ -4481,7 +4481,7 @@ class TestTraceDirtyState:
     def test_newer_test_file_reason_includes_fix_hint(self, tmp_path):
         """Test file newer than attestation → reason must contain the fix command."""
         import os
-        from harness_cli import _trace_dirty_state
+        from cli.phase_cmds import _trace_dirty_state
 
         # attestation written first (older)
         att = self._make_attestation(tmp_path)
@@ -4503,7 +4503,7 @@ class TestTraceDirtyState:
     def test_current_attestation_passes(self, tmp_path):
         """Attestation newer than all files → passed=True."""
         import os
-        from harness_cli import _trace_dirty_state
+        from cli.phase_cmds import _trace_dirty_state
 
         # Write a test file first (older)
         tests_dir = tmp_path / "tests"
@@ -5072,7 +5072,7 @@ class TestAdvanceCommitTargetsIncludesStagePass:
     git-add covers everything."""
 
     def test_targets_includes_stage_pass_when_exists(self):
-        from harness_cli import _advance_commit_targets
+        from cli.phase_cmds import _advance_commit_targets
 
         targets = _advance_commit_targets(
             completed_phase=3,
@@ -5087,7 +5087,7 @@ class TestAdvanceCommitTargetsIncludesStagePass:
         )
 
     def test_targets_excludes_stage_pass_when_missing(self):
-        from harness_cli import _advance_commit_targets
+        from cli.phase_cmds import _advance_commit_targets
 
         targets = _advance_commit_targets(
             completed_phase=3,
@@ -5103,7 +5103,7 @@ class TestAdvanceCommitTargetsIncludesStagePass:
 
     def test_targets_uses_completed_phase_in_path(self):
         """The path uses completed_phase (the phase just finished), not next_phase."""
-        from harness_cli import _advance_commit_targets
+        from cli.phase_cmds import _advance_commit_targets
 
         targets = _advance_commit_targets(
             completed_phase=6,
@@ -5437,15 +5437,15 @@ class TestP2AdvanceRegeneratesManifest:
         # Mock prechecks so cmd_advance_phase doesn't trip on missing CI artifacts
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
-        monkeypatch.setattr("harness_cli._update_claude_md", lambda _: None)
-        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)  # no CRG
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda *_, **__: None)
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
             def __init__(self, *a, **kw): pass
             def write(self, *a, **kw): pass
-        monkeypatch.setattr("harness_cli.HandoverGenerator", _FakeGen)
+        monkeypatch.setattr("cli.phase_cmds.HandoverGenerator", _FakeGen)
 
         # Capture git-add target list so we can assert manifest is included
         self._git_add_calls: list[list] = []
@@ -5663,15 +5663,15 @@ class TestP7AdvanceGeneratesP8Baseline:
 
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
-        monkeypatch.setattr("harness_cli._update_claude_md", lambda _: None)
-        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda *_, **__: None)
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
             def __init__(self, *a, **kw): pass
             def write(self, *a, **kw): pass
-        monkeypatch.setattr("harness_cli.HandoverGenerator", _FakeGen)
+        monkeypatch.setattr("cli.phase_cmds.HandoverGenerator", _FakeGen)
 
         self._git_add_calls: list[list] = []
 
@@ -7125,15 +7125,15 @@ class TestBackupTempDirCleanup:
 
         harness_cli._write_finalize_sentinels_for_tests(tmp_path)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda _, __: 0)
-        monkeypatch.setattr("harness_cli._update_claude_md", lambda _: None)
-        monkeypatch.setattr("harness_cli._llm_clean_stale_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("harness_cli.shutil.which", lambda c: None)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda *_, **__: None)
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
             def __init__(self, *a, **kw): pass
             def write(self, *a, **kw): pass
-        monkeypatch.setattr("harness_cli.HandoverGenerator", _FakeGen)
+        monkeypatch.setattr("cli.phase_cmds.HandoverGenerator", _FakeGen)
 
         class _R:
             returncode = 0
@@ -7189,7 +7189,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
     """
 
     def _setup(self, tmp_path, monkeypatch, milestone_type="p8", exists=True):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7267,7 +7267,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
     def test_reverted_on_p8_validation_failure(self, tmp_path, monkeypatch):
         """P8 preflight failure must revert the optimistic audit write —
         ci_state_helper.cmd_is_p8 trusts last_milestone_command alone."""
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7302,7 +7302,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
 
     def test_reverted_on_push_failure(self, tmp_path, monkeypatch):
         """commit_and_push_p8 returning False must revert the optimistic write."""
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7347,7 +7347,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
     def test_state_json_written_before_commit_and_push_p1_with_phase_completed_sha(
         self, tmp_path, monkeypatch
     ):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7416,7 +7416,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
         )
 
     def test_skip_when_state_json_missing(self, tmp_path, monkeypatch):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7451,7 +7451,7 @@ class TestPushCheckpointStateJsonWriteBeforePush:
         """_verify_entry_gate reads state.json's live content directly, so a
         failed commit_and_push_p1 must revert the optimistic checkpoint write
         — otherwise a local push failure still satisfies the Human1 gate."""
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7521,7 +7521,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
         monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -7637,7 +7637,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr(hc, "_finalize_gate_cross_checks", lambda *_a: None)
         monkeypatch.setattr(hc, "_check_gate4_prerequisites", lambda *_a: (False, set()))
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)
@@ -7755,7 +7755,7 @@ class TestAdvanceFsmPreservesExistingStateFields:
     test_runner, ...) on every advance-phase call."""
 
     def test_preserves_unrelated_existing_fields(self, tmp_path, monkeypatch):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7770,9 +7770,10 @@ class TestAdvanceFsmPreservesExistingStateFields:
             "test_runner": "pytest",
         }), encoding="utf-8")
 
-        monkeypatch.setattr(hc.HandoverGenerator, "write", lambda self, **_kw: None)
+        monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", lambda self, **_kw: None)
 
-        hc._advance_fsm(tmp_path, completed_phase=1, last_gate=1, last_fr="FR-01")
+        from cli.phase_cmds import _advance_fsm
+        _advance_fsm(tmp_path, completed_phase=1, last_gate=1, last_fr="FR-01")
 
         sd = json.loads(state_path.read_text(encoding="utf-8"))
         # fields owned by other commands must survive
@@ -7788,10 +7789,11 @@ class TestAdvanceFsmPreservesExistingStateFields:
         assert sd["phase_truth_passed"] is True
 
     def test_still_works_when_state_json_missing(self, tmp_path, monkeypatch):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
-        monkeypatch.setattr(hc.HandoverGenerator, "write", lambda self, **_kw: None)
-        hc._advance_fsm(tmp_path, completed_phase=1, last_gate=None, last_fr=None)
+        monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", lambda self, **_kw: None)
+        from cli.phase_cmds import _advance_fsm
+        _advance_fsm(tmp_path, completed_phase=1, last_gate=None, last_fr=None)
 
         state_path = tmp_path / ".methodology" / "state.json"
         sd = json.loads(state_path.read_text(encoding="utf-8"))
@@ -7799,15 +7801,16 @@ class TestAdvanceFsmPreservesExistingStateFields:
         assert sd["state"] == "INIT"
 
     def test_still_works_with_corrupt_state_json(self, tmp_path, monkeypatch):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
         state_path = meth / "state.json"
         state_path.write_text("{not valid json", encoding="utf-8")
 
-        monkeypatch.setattr(hc.HandoverGenerator, "write", lambda self, **_kw: None)
-        hc._advance_fsm(tmp_path, completed_phase=1, last_gate=None, last_fr=None)
+        monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", lambda self, **_kw: None)
+        from cli.phase_cmds import _advance_fsm
+        _advance_fsm(tmp_path, completed_phase=1, last_gate=None, last_fr=None)
 
         sd = json.loads(state_path.read_text(encoding="utf-8"))
         assert sd["current_phase"] == 2
@@ -7819,7 +7822,7 @@ class TestPushMilestonePostPushDirtyWarn:
     tree is dirty."""
 
     def _setup(self, tmp_path, monkeypatch, dirty_paths):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7884,7 +7887,7 @@ class TestPushCheckpointPostPushDirtyWarn:
     tree is dirty."""
 
     def _setup(self, tmp_path, monkeypatch, dirty_paths):
-        import harness_cli as hc
+        import harness_cli as hc  # noqa: F401  entry-first load order
 
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -7976,7 +7979,7 @@ class TestFinalizeGate4PostPushDirtyWarn:
         monkeypatch.setattr(hc, "_check_gate4_prerequisites",
                             lambda *_a: (False, set()))
         monkeypatch.setattr(hc, "_update_state_checkpoint", lambda *_, **__: None)
-        monkeypatch.setattr(hc, "_update_claude_md", lambda _p: None)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
         monkeypatch.setattr(_ge, "record_gate_timestamp", lambda *_a: None)
         monkeypatch.setattr(hc, "_generate_stage_pass", lambda *_a: None)

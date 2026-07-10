@@ -7,7 +7,8 @@ staged when present, but NOT added unconditionally: P1->P2 / P2->P3 run before a
 Gate-1 event, so fr_progress.json may not exist yet, and an explicit `git add` of a
 missing pathspec fails the whole commit.
 """
-from harness_cli import _advance_commit_targets
+import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+from cli.phase_cmds import _advance_commit_targets
 
 
 def test_includes_fr_progress_when_present():

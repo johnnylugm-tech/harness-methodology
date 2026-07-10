@@ -12,13 +12,13 @@ _repo = Path(__file__).resolve().parent.parent
 if str(_repo) not in sys.path:
     sys.path.insert(0, str(_repo))
 
-from harness_cli import (  # noqa: E402
-    _CLAUDE_AUTO_END,
-    _CLAUDE_AUTO_START,
-    _STALE_HARNESS_RE,
-    _build_claude_md_auto_section,
-    _llm_clean_stale_claude_md,
-    _update_claude_md,
+from core.claude_md import (  # noqa: E402
+    CLAUDE_AUTO_END as _CLAUDE_AUTO_END,
+    CLAUDE_AUTO_START as _CLAUDE_AUTO_START,
+    STALE_HARNESS_RE as _STALE_HARNESS_RE,
+    build_claude_md_auto_section as _build_claude_md_auto_section,
+    llm_clean_stale_claude_md as _llm_clean_stale_claude_md,
+    update_claude_md as _update_claude_md,
 )
 
 

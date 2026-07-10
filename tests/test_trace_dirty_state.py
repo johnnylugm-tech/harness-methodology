@@ -47,7 +47,7 @@ def test_clean_when_attestation_newer_than_sad_and_tests(fixture_repo):
     sys_path = str(Path(__file__).resolve().parent.parent)
     if sys_path not in __import__("sys").path:
         __import__("sys").path.insert(0, sys_path)
-    from harness_cli import _trace_dirty_state
+    from cli.phase_cmds import _trace_dirty_state
     result = _trace_dirty_state(fixture_repo)
     assert result["passed"] is True
     assert result["reason"] == "trace attestation is current"
@@ -63,7 +63,7 @@ def test_fails_when_sad_modified_after_attestation(fixture_repo):
                  / "attestation.json").stat().st_mtime + 5
     os.utime(sad, (new_mtime, new_mtime))
 
-    from harness_cli import _trace_dirty_state
+    from cli.phase_cmds import _trace_dirty_state
     result = _trace_dirty_state(fixture_repo)
     assert result["passed"] is False
     assert "SAD.md" in result["reason"]
@@ -80,7 +80,7 @@ def test_fails_when_test_file_modified_after_attestation(fixture_repo):
                  / "attestation.json").stat().st_mtime + 5
     os.utime(test, (new_mtime, new_mtime))
 
-    from harness_cli import _trace_dirty_state
+    from cli.phase_cmds import _trace_dirty_state
     result = _trace_dirty_state(fixture_repo)
     assert result["passed"] is False
     assert "test_fr_01.py" in result["reason"]
@@ -97,7 +97,7 @@ def test_fails_when_attestation_missing(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_fr_01.py").write_text("# stub")
 
-    from harness_cli import _trace_dirty_state
+    from cli.phase_cmds import _trace_dirty_state
     result = _trace_dirty_state(tmp_path)
     assert result["passed"] is False
     assert "attestation.json missing" in result["reason"]

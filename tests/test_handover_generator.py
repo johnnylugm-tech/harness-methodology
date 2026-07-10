@@ -975,7 +975,7 @@ class TestCmdAdvancePhase:
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr(
             "harness.handover_generator.HandoverGenerator.write",
             lambda self, **kw: tmp_path / "HANDOVER.md",
@@ -1181,7 +1181,7 @@ class TestCmdAdvancePhase:
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
@@ -1231,7 +1231,7 @@ class TestCmdAdvancePhase:
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
-        monkeypatch.setattr("harness_cli._advance_fsm", lambda project, phase, **kw: None)
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("harness_cli.subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("harness_cli._advance_prechecks", lambda project, phase: 0)
@@ -1599,7 +1599,7 @@ class TestAdvanceFsm:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
-        from harness_cli import _advance_fsm
+        from cli.phase_cmds import _advance_fsm
         _advance_fsm(tmp_path, 3, last_gate=2, last_fr="FR-13")
 
         import json
@@ -1621,7 +1621,7 @@ class TestAdvanceFsm:
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
-        from harness_cli import _advance_fsm
+        from cli.phase_cmds import _advance_fsm
         _advance_fsm(tmp_path, 1)
 
         import json
@@ -1653,7 +1653,7 @@ class TestAdvanceFsm:
             (tmp_path / ".methodology" / "fr_progress.json").read_text()
         )["phase"] == 3
 
-        from harness_cli import _advance_fsm
+        from cli.phase_cmds import _advance_fsm
         _advance_fsm(tmp_path, 3, last_gate=2, last_fr="FR-01")
 
         # fr_progress.json should now have phase=4

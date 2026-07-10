@@ -68,7 +68,11 @@ class TestPythonMirrors:
         assert harness_cli._PHASE_EXIT_GATES == EXIT_GATE_MAP
         # S4: the _PHASE_DIRS mirror is gone — cli/project_cmds imports
         # PHASE_DIRS straight from the topology SSOT (no mirror to drift).
-        assert set(harness_cli._PHASE_NAMES) == ALL_PHASES
+
+    def test_claude_md_phase_names(self):
+        # S4d: the short-label payload map moved to core/claude_md.py.
+        from core.claude_md import PHASE_NAMES
+        assert set(PHASE_NAMES) == ALL_PHASES
 
     def test_generate_full_plan_gate1_set(self):
         from scripts.generate_full_plan import _PHASE_GATE1_PHASES

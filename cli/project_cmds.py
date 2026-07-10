@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core import claude_md
 from core.atomic_io import atomic_write_json
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
 from core.utils.project_layout import ProjectLayout
@@ -244,7 +245,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         atomic_write_json(state_path, _state)
         print(f"   OK — state.json initialized (phase={phase}, language={language})")
     # Refresh CLAUDE.md harness status block now that state.json exists
-    _hc._update_claude_md(project)
+    claude_md.update_claude_md(project)
 
     # 7a. Initialize trace attestation.json (required by pre-commit-check trace_dirt probe).
     # Without it, every fresh project's first commit fails pre-flight on
@@ -411,7 +412,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # Phase progress table (short display names shared with the CLAUDE.md
     # status block — one map, keys anchored by test_phase_topology_ssot)
-    phase_names = _hc._PHASE_NAMES
+    phase_names = claude_md.PHASE_NAMES
     phase_status = {}
     for p in VALID_PHASES:
         if p < current_phase:
