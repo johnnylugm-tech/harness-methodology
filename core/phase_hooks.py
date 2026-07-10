@@ -154,6 +154,8 @@ NON_PIPELINE_POSTFLIGHTS: "dict[str, str]" = {
     "postflight_constitution": "on-demand only since 減法 T3 (2026-07-07)",
 }
 
+_PRAGMA_RE = re.compile(r"#\s*pragma:\s*no\s*cover")
+
 
 def _audit_pragma_no_cover(targets: list[str]) -> list[dict]:
     """Scan source dirs for ``# pragma: no cover`` outside allowed patterns.
@@ -177,7 +179,7 @@ def _audit_pragma_no_cover(targets: list[str]) -> list[dict]:
             except (OSError, UnicodeDecodeError):
                 continue
             for i, line in enumerate(lines, 1):
-                if "# pragma: no cover" not in line:
+                if not _PRAGMA_RE.search(line):
                     continue
                 # Allow: except BaseException for atomic-write cleanup.
                 if "except BaseException" in line:

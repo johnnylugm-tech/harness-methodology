@@ -247,6 +247,12 @@ def foo():
         return 1
 """
 
+PRAGMA_WHITESPACE_WORKAROUND = """\
+def foo():
+    if True:  #pragma: nocover -- workaround, should be tested
+        return 1
+"""
+
 PRAGMA_LEGITIMATE = """\
 import os
 
@@ -277,6 +283,14 @@ class TestPragmaNoCoverAudit:
         """# pragma: no cover on non-BaseException lines → flagged."""
         project = _project(tmp_path)
         (project / "src" / "mod.py").write_text(PRAGMA_WORKAROUND, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-pragma-no-cover" in rules
+
+    def test_flags_whitespace_workaround(self, tmp_path):
+        """#pragma: nocover (without spaces) → flagged."""
+        project = _project(tmp_path)
+        (project / "src" / "mod.py").write_text(PRAGMA_WHITESPACE_WORKAROUND, encoding="utf-8")
         result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
         rules = {f["rule"] for f in result["findings"]}
         assert "py-pragma-no-cover" in rules
