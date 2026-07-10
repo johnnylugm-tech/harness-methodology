@@ -106,6 +106,10 @@
   bug: "a hand-written check dict sneaking back into _do_preflight_all would bypass the registry and resurrect silent un-wiring — this test proves the aggregate runs exactly PREFLIGHT_CHECKS in order"
   fixed_in: "弱點強化 Station A (declarative preflight registry)"
 
+- test: tests/test_advance_commit_rollback.py::TestAdvanceCommitRollback::test_commit_failure_rolls_back_and_exits_6
+  bug: "advance-phase ghost state: a rejected handover commit only WARNed while state.json had already advanced — hooks/CI immediately targeted a phase git history never recorded (split-brain P0); the failed run even printed 'Done' and exited 0"
+  fixed_in: "弱點強化 Station B1 (FileSnapshot rollback + exit 6)"
+
 - test: tests/test_cli_layering.py::test_hc_ref_ratchet
   bug: "cli/ modules borrowing names via `_hc.` late-binding (409 refs at S0) — the debt that forces harness_cli's mid-file E402 imports and sys.modules hack; per-file counts must only decrease"
   fixed_in: "harness_cli 絞殺者續章 S0 (ratchet 安全網)"

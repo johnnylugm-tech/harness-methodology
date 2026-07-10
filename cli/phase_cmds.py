@@ -22,7 +22,13 @@ from typing import Any, Dict, Optional
 
 from cli import _shared
 from core import claude_md
-from core.atomic_io import StateTransaction, atomic_write_json, file_lock, state_lock_path
+from core.atomic_io import (
+    FileSnapshot,
+    StateTransaction,
+    atomic_write_json,
+    file_lock,
+    state_lock_path,
+)
 from core.canonical_form import canonical_form
 from core.quality_gate import agent_b_approvals, gate1_evidence
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
@@ -351,6 +357,26 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         return rc
 
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
+    # B1 (split-brain fix): capture the advance write-set BEFORE anything is
+    # written, so a failed handover commit can restore the pre-advance state
+    # instead of leaving state.json claiming a phase git never recorded
+    # (ghost state — hooks and CI read state.json::current_phase).
+    # Superset of _advance_commit_targets; absent files are restored to
+    # absent. .sessi-work cleanup is deliberately NOT restored: it is
+    # idempotent hygiene, not phase state, and re-runs on the next attempt.
+    _layout = ProjectLayout(project)
+    _advance_snap = FileSnapshot([
+        project / ".methodology" / "state.json",
+        project / ".methodology" / "fr_progress.json",
+        project / ".methodology" / "gate_timestamps.jsonl",
+        project / ".methodology" / "quality_manifest.json",
+        project / ".methodology" / f"phase{args.completed_phase}_plan.md",
+        project / "HANDOVER.md",
+        project / "CLAUDE.md",
+        project / "00-summary" / f"Phase{args.completed_phase}_STAGE_PASS.md",
+        _layout.config_records_path,
+        _layout.release_checklist_path,
+    ])
     _advance_fsm(project, args.completed_phase,
                  last_gate=last_gate_num, last_fr=last_fr_id)
     claude_md.update_claude_md(project)               # phase number just changed → refresh CLAUDE.md
@@ -550,13 +576,15 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             (project / ".methodology" / "fr_progress.json").exists(),
             (project / ".methodology" / "gate_timestamps.jsonl").exists(),
             (project / "00-summary" / f"Phase{args.completed_phase}_STAGE_PASS.md").exists(),
+            (project / ".methodology" / f"phase{args.completed_phase}_plan.md").exists(),
         )
+        _commit_failure: Optional[str] = None
         add_result = subprocess.run(
             ["git", "-C", str(project), "add", *_add_targets],
             capture_output=True, text=True,
         )
         if add_result.returncode != 0:
-            print(f"[advance-phase] WARN: git add failed — {add_result.stderr.strip()}")
+            _commit_failure = f"git add failed — {add_result.stderr.strip()}"
         else:
             commit_result = subprocess.run(
                 ["git", "-C", str(project), "commit", "-m",
@@ -568,7 +596,40 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             elif "nothing to commit" in (commit_result.stdout + commit_result.stderr):
                 print("[advance-phase] Nothing to commit (already clean).")
             else:
-                print(f"[advance-phase] WARN: git commit failed — {commit_result.stderr.strip()}")
+                _commit_failure = (
+                    "git commit failed — "
+                    f"{(commit_result.stdout + commit_result.stderr).strip()}"
+                )
+        if _commit_failure:
+            # B1 (split-brain fix): the advance did NOT land in git — restore
+            # the pre-advance write-set so state.json never claims a phase
+            # git history doesn't record. WARN-and-continue here was the
+            # ghost-state bug: hooks/CI immediately targeted the phantom
+            # phase (see tests/test_advance_commit_rollback.py).
+            _advance_snap.restore()
+            # Un-stage what our `git add` staged so the index matches the
+            # restored worktree (best-effort: fails only on an unborn HEAD,
+            # which methodology projects never have past init).
+            subprocess.run(
+                ["git", "-C", str(project), "reset", "-q", "--", *_add_targets],
+                capture_output=True, text=True,
+            )
+            print(
+                f"\n[BLOCKED] advance-phase: {_commit_failure}\n"
+                f"  The advance was rolled back — state.json still says "
+                f"Phase {args.completed_phase}.\n"
+                f"  Fix the reported error (often a commit-hook rejection), "
+                f"then re-run:\n"
+                f"    python harness_cli.py advance-phase "
+                f"--completed {args.completed_phase} --project {project}",
+                file=sys.stderr,
+            )
+            try:
+                if os.getcwd() != _saved_cwd:
+                    os.chdir(_saved_cwd)
+            except OSError:
+                pass
+            return 6  # same commit-failed exit code as run-fr-step / finalize-gate
 
     print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
     # Restore CWD if any internal Python code (hook, library) changed it.
@@ -956,6 +1017,7 @@ def _advance_commit_targets(
     fr_progress_exists: bool,
     gate_timestamps_exists: bool = False,
     stage_pass_exists: bool = False,
+    plan_exists: bool = True,
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -979,8 +1041,13 @@ def _advance_commit_targets(
     targets = [
         ".methodology/state.json", "HANDOVER.md",
         "CLAUDE.md",
-        f".methodology/phase{completed_phase}_plan.md",
     ]
+    if plan_exists:
+        # Same missing-pathspec hazard as fr_progress.json below: a project
+        # without the pre-generated plan file made the whole `git add` fail,
+        # so the advance commit NEVER landed (caught by
+        # tests/test_advance_commit_rollback.py).
+        targets.append(f".methodology/phase{completed_phase}_plan.md")
     if fr_progress_exists:
         targets.append(".methodology/fr_progress.json")
     if gate_timestamps_exists:

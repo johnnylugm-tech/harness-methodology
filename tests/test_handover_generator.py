@@ -1026,8 +1026,13 @@ class TestCmdAdvancePhase:
 
     # ── git add failure ──────────────────────────────────────────────────────
 
-    def test_git_add_fails_surfaces_warning(self, tmp_path, monkeypatch):
-        """git add non-zero → warning printed, commit skipped."""
+    def test_git_add_fails_rolls_back_and_blocks(self, tmp_path, monkeypatch):
+        """git add non-zero → advance rolled back, exit 6 (B1 split-brain fix).
+
+        Contract change 2026-07-10: WARN-and-continue was the ghost-state bug
+        (state.json advanced while nothing landed in git, still exited 0) —
+        see tests/test_advance_commit_rollback.py for the full behavior pin.
+        """
         def fake_run(cmd, **kw):
             class R:
                 pass
@@ -1045,10 +1050,11 @@ class TestCmdAdvancePhase:
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, subprocess_run=fake_run,
         )
-        assert exit_code == 0
-        assert "WARN: git add failed" in output
-        assert "not a git repository" in output
+        assert exit_code == 6
         assert "Committed" not in output
+        assert "Done" not in output, (
+            "a failed advance must not report success to the operator"
+        )
 
     # ── git commit "nothing to commit" ───────────────────────────────────────
 
@@ -1099,8 +1105,13 @@ class TestCmdAdvancePhase:
 
     # ── git commit failure ───────────────────────────────────────────────────
 
-    def test_git_commit_fails_surfaces_warning(self, tmp_path, monkeypatch):
-        """git commit non-zero (not nothing-to-commit) → warning printed."""
+    def test_git_commit_fails_rolls_back_and_blocks(self, tmp_path, monkeypatch):
+        """git commit non-zero (not nothing-to-commit) → rollback, exit 6.
+
+        Contract change 2026-07-10: WARN-and-continue was the ghost-state bug
+        (state.json advanced while nothing landed in git, still exited 0) —
+        see tests/test_advance_commit_rollback.py for the full behavior pin.
+        """
         def fake_run(cmd, **kw):
             class R:
                 pass
@@ -1118,9 +1129,11 @@ class TestCmdAdvancePhase:
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, subprocess_run=fake_run,
         )
-        assert exit_code == 0
-        assert "WARN: git commit failed" in output
-        assert "unable to create commit" in output
+        assert exit_code == 6
+        assert "Committed" not in output
+        assert "Done" not in output, (
+            "a failed advance must not report success to the operator"
+        )
 
     # ── Phase number correctness ─────────────────────────────────────────────
 
