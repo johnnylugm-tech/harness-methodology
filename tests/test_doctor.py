@@ -199,6 +199,32 @@ class TestGitSync:
         findings = run_doctor(project)
         assert not [f for f in findings if f.check == "git-sync"]
 
+    def test_many_near_miss_commits_do_not_hide_the_real_advance(self, tmp_path):
+        """Round 2 Station G: the git log scan no longer caps at -n 200 (-n
+        applies to grep-filtered results, not raw history depth — verified
+        empirically against a real repo). This is why that matters: with
+        enough commits that loosely match git's --grep but fail the strict
+        _ADVANCE_SUBJECT regex, a re-introduced small -n cap would return
+        only near-misses and silently lose the real advance commit."""
+        project = _project(
+            tmp_path,
+            state={"state": "RUNNING", "current_phase": 2},
+            claude_md=GOOD_CLAUDE.replace("**1 — Requirements**", "**2 — Architecture**"),
+        )
+        git = _init_git(project)
+        _advance_commit(git, 2)  # the one real, strictly-matching advance commit
+        for i in range(70):
+            # loosely matches git's --grep (same prefix) but fails the strict
+            # "^...Phase (\\d+)$" regex because of the trailing suffix.
+            git("commit", "--allow-empty", "-m",
+                f"handover: advance to Phase 2 (amended {i})")
+
+        findings = run_doctor(project)
+        assert not [f for f in findings if f.check == "git-sync"], (
+            "70 near-miss commits after the real advance commit must not "
+            "hide it — a re-introduced -n cap smaller than 71 would fail this"
+        )
+
 
 class TestInterruptedTransaction:
     def test_leftover_journal_is_error(self, tmp_path):

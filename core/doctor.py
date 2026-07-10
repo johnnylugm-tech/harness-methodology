@@ -148,8 +148,12 @@ def _check_git_sync(project: Path, current_phase: int) -> list[Finding]:
     try:
         if _git("rev-parse", "--is-inside-work-tree").returncode != 0:
             return []  # not a git repo — nothing to cross-check
-        log = _git("log", "-n", "200",
-                   "--grep=^handover: advance to Phase ", "--format=%s")
+        # No -n cap (Round 2 Station G): -n applies to grep-filtered results,
+        # not raw history depth, so any cap risks truncating past a real
+        # match if enough near-miss commits (loosely matching --grep but
+        # failing the strict _ADVANCE_SUBJECT regex below) precede it. The
+        # 5s subprocess timeout below is the actual safety valve.
+        log = _git("log", "--grep=^handover: advance to Phase ", "--format=%s")
         if log.returncode != 0:
             # e.g. unborn HEAD (repo initialised, nothing committed yet)
             return []
