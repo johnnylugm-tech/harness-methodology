@@ -640,7 +640,19 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # finds a gate=1 entry for this FR (it reads gate_timestamps.jsonl; without
     # this, advance-phase always exits 14 when run-fr-step is used instead of
     # finalize-gate --gate 1 per FR).
-    if step in ("GATE1", "GATE1-DELTA"):
+    #
+    # Skip when the step's own commit already landed (e.g. the dispatched
+    # sub-agent called `finalize-gate` itself, which records its own
+    # gate_timestamps.jsonl entry at gate_cmds.py:2190 immediately before its
+    # commit). Recording again here would append a second, never-committed
+    # entry — always leaving the working tree dirty — which the dirty-tree
+    # guard below then misreports as a hook rejection. record_gate_timestamp
+    # itself must stay a plain unconditional append (it is also relied on by
+    # the anti-batch-fabrication detector in check_commit_intervals, which
+    # needs to see genuinely repeated finalizations); the redundancy is
+    # avoided here, at the call site that has the git-log context to know
+    # whether a new record is actually needed.
+    if step in ("GATE1", "GATE1-DELTA") and not _fr_step_already_done(step, fr_id, project):
         gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
 
     # 5. Verify commit exists (non-fatal warning for TDD-IMPROVE / CODE-FIX)
