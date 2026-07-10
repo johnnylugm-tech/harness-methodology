@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 from core.phase_topology import VALID_PHASES
+from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+from core.quality_gate.spec_coverage import _run_spec_coverage_check
 from core.utils.project_layout import ProjectLayout
 import harness_cli as _hc
 
@@ -179,7 +181,7 @@ def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     threshold = getattr(args, "threshold", 80.0)
     fr_id = getattr(args, "fr_id", None)
-    code, _ = _hc._run_spec_coverage_check(project, threshold, fr_id=fr_id, verbose=True)
+    code, _ = _run_spec_coverage_check(project, threshold, fr_id=fr_id, verbose=True)
     return code
 
 
@@ -510,7 +512,7 @@ def cmd_manifest(args: argparse.Namespace) -> int:
     manifest = json.loads(out.read_text(encoding="utf-8"))
     print(f"  fr_ids        : {manifest['fr_ids']}")
     print(f"  generated_at  : phase {manifest['generated_at_phase']}")
-    _hc._generate_sab_json(project)
+    _generate_sab_json(project)
     return 0
 
 
@@ -563,7 +565,7 @@ def cmd_verify_agent_b_approvals(args: argparse.Namespace) -> int:
 
     fr_ids_arg = getattr(args, "fr_ids", "") or ""
     fr_ids = [f.strip() for f in fr_ids_arg.split(",") if f.strip()]
-    deliverable_ids = _hc._resolve_deliverable_ids(project, phase, fr_ids)
+    deliverable_ids = _resolve_deliverable_ids(project, phase, fr_ids)
 
     if not deliverable_ids:
         print("[verify-agent-b] No FR IDs found — pass --fr-ids or ensure quality_manifest.json exists.")
@@ -706,7 +708,7 @@ def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
         print(f"[ERROR] Spec file not found: {spec_path}")
         return 1
 
-    report = _hc._run_gap_analysis(project, similarity=args.similarity, spec=spec)
+    report = _run_gap_analysis(project, similarity=args.similarity, spec=spec)
 
     if report.get("skipped"):
         reason = report.get("reason") or report.get("error", "unknown")
@@ -910,7 +912,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         print(f"{'='*60}")
 
         result = check_single_file(file_path, phase)
-        return _hc._print_constitution_result(result, composite_threshold, profile, phase, file_path)
+        return _print_constitution_result(result, composite_threshold, profile, phase, file_path)
 
     # ── Existing directory branch (unchanged) ──────────────────────────
     _phase_dir = ProjectLayout(project).get_phase_dir(phase)
@@ -929,7 +931,7 @@ def cmd_check_constitution(args: argparse.Namespace) -> int:
         current_phase=phase, check_mode="postflight",
     )
 
-    return _hc._print_constitution_result(result, composite_threshold, profile, phase, _phase_dir)
+    return _print_constitution_result(result, composite_threshold, profile, phase, _phase_dir)
 
 
 def cmd_print_legal_artifacts(args: argparse.Namespace) -> int:
@@ -964,6 +966,146 @@ def cmd_print_legal_artifacts(args: argparse.Namespace) -> int:
     json.dump(payload, sys.stdout, indent=2)
     print()  # trailing newline
     return 0
+
+
+
+
+# --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4b) ---
+
+def _generate_sab_json(project: Path) -> bool:
+    """Run scripts/generate_sab.py to produce .methodology/SAB.json. Returns True on success."""
+    import subprocess  # nosec B404
+    sab_script = Path(__file__).parent / "scripts" / "generate_sab.py"
+    if not sab_script.exists():
+        print("  [SAB] ERROR: generate_sab.py not found — pipeline blocked")
+        return False
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["python3", str(sab_script), "--project", str(project)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            sab_path = project / ".methodology" / "SAB.json"
+            print(f"  [SAB] SAB.json written → {sab_path}")
+            return True
+        else:
+            print(f"  [SAB] ERROR: generate_sab.py failed — pipeline blocked: {result.stderr[:200]}")
+            return False
+    except Exception as exc:
+        print(f"  [SAB] ERROR: SAB generation error — pipeline blocked: {exc}")
+        return False
+
+def _resolve_deliverable_ids(
+    project: Path, phase: int, fr_ids: "list[str]"
+) -> "list[str]":
+    """Return the deliverable IDs to check for Agent B approvals.
+
+    P1/P2: always returns the phase-level deliverables from PHASE_DELIVERABLES
+           (per-FR approval is only meaningful from P3 onwards).
+    P3+:   fr_ids from caller → quality_manifest.json → empty list.
+    """
+    if phase in PHASE_DELIVERABLES:
+        return PHASE_DELIVERABLES[phase]
+    if fr_ids:
+        return fr_ids
+    manifest_path = project / ".methodology" / "quality_manifest.json"
+    if manifest_path.exists():
+        try:
+            return json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            ).get("fr_ids", [])
+        except Exception:  # pylint: disable=broad-exception-caught
+            pass
+    return []
+
+def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
+    """Run M3 gap analysis. Returns gap report dict; warns on failure."""
+    try:
+        from gap_detector.parser import SpecParser
+        from gap_detector.scanner import CodeScanner
+        from gap_detector.detector import GapDetector
+
+        spec_path = project / spec
+        if not spec_path.exists():
+            print(f"  [M3] {spec} not found — skipping gap analysis")
+            return {"skipped": True, "reason": f"{spec} not found"}
+
+        parsed_spec = SpecParser(str(spec_path)).parse()
+        scanner = CodeScanner(str(project))
+        code = scanner.scan()
+        detector = GapDetector(parsed_spec, code, similarity_threshold=similarity)
+        gaps = detector.detect()
+        summary = detector.get_summary()
+
+        report = {
+            "summary": {
+                "total": summary.total_gaps, "missing": summary.missing,
+                "incomplete": summary.incomplete, "orphaned": summary.orphaned,
+                "critical": summary.critical, "major": summary.major,
+                "minor": summary.minor,
+            },
+            "gaps": [{"type": g.gap_type, "severity": g.severity,
+                       "reason": g.reason, "action": g.recommended_action}
+                      for g in gaps],
+        }
+        report_path = project / ".methodology" / "gap_report.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2))
+        print(f"  [M3] Gap report → {report_path}  "
+              f"(total={summary.total_gaps}, critical={summary.critical})")
+        return report
+    except ImportError:
+        print("  [M3] gap_detector unavailable — skipping gap analysis")
+        return {"skipped": True, "reason": "gap_detector unavailable"}
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [M3] Gap analysis error: {exc}")
+        return {"skipped": True, "error": str(exc)}
+
+def _print_constitution_result(result, composite_threshold, profile, phase: int, docs_path) -> int:
+    """Print per-dimension breakdown + pass/fail verdict. Shared between
+    directory-mode and single-file-mode branches of cmd_check_constitution.
+    *docs_path* is the graded directory or single file; it is used to enumerate
+    the exact keywords behind each sub-threshold *active* dimension so a fixing
+    agent adds content instead of reverse-engineering the gap (same idiom as the
+    advance-phase postflight). Returns 0 on pass, 1 on fail.
+    """
+    from core.quality_gate.constitution.runner import missing_keywords
+
+    # Only the active (composite-scored) dimensions gate the phase; display-only
+    # dims (e.g. security on a P2 architecture doc) are shown but must NOT drive
+    # keyword advice, or agents chase irrelevant terms into the wrong document.
+    _active = set(profile.active_dimensions(phase))
+    print(f"\n  Score: {result.score:.0f}%  (threshold={composite_threshold:.0f}%)")
+    for dim, score in sorted(result.dimensions.items()):
+        dim_threshold = profile.dimension_threshold(dim, phase)
+        status = "✓" if score >= dim_threshold else "✗"
+        suffix = ""
+        if score < dim_threshold and dim in _active and docs_path is not None:
+            _miss = missing_keywords(str(docs_path), dim, phase)
+            if _miss:
+                suffix = f"  ·  missing: {', '.join(_miss)}"
+        print(f"    {status} {dim}: {score:.0f}%  (threshold={dim_threshold:.0f}%){suffix}")
+
+    if result.violations:
+        # result.violations flags any per-dimension score below its own
+        # threshold (100% for P1-P4), which is independent from the
+        # composite gate above (bottleneck min-of-dimensions vs
+        # composite_threshold, e.g. 80%). A dimension can appear here while
+        # the overall gate still PASSES — label accordingly so "Violations"
+        # doesn't misread as a blocking failure when it isn't one.
+        _label = "Violations" if not result.passed else "Sub-threshold notes (informational — composite already PASSED)"
+        print(f"\n  {_label} ({len(result.violations)}):")
+        for v in result.violations[:10]:
+            print(f"    - [{v.get('dimension', '?')}] {v.get('message', str(v))[:120]}")
+        if len(result.violations) > 10:
+            print(f"    ... and {len(result.violations) - 10} more")
+
+    if result.passed:
+        print(f"\n  [PASS] Constitution quality ≥ {composite_threshold:.0f}% ✓")
+        return 0
+    print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {composite_threshold:.0f}%")
+    print("  Add substantive coverage of the missing keywords listed above, then re-run check-constitution until PASS.")
+    return 1
 
 
 def register(sub) -> None:

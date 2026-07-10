@@ -936,7 +936,7 @@ class TestVerifyEnvCheckClaims:
         (work / "env_check_result.json").write_text(json.dumps(payload))
 
     def test_claimed_cli_tool_missing_blocks(self, tmp_path):
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         self._write(tmp_path, {"cli_tools": {"required": [
             {"name": "definitely_not_a_real_tool_xyz", "present": True},
         ]}})
@@ -945,14 +945,14 @@ class TestVerifyEnvCheckClaims:
 
     def test_claimed_absent_tool_not_flagged(self, tmp_path):
         """present:false tools are not force-verified."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         self._write(tmp_path, {"cli_tools": {"required": [
             {"name": "definitely_not_a_real_tool_xyz", "present": False},
         ]}})
         assert _verify_env_check_claims(tmp_path) == []
 
     def test_claimed_env_var_unset_blocks(self, tmp_path, monkeypatch):
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         monkeypatch.delenv("HARNESS_A2_PROBE", raising=False)
         self._write(tmp_path, {"env_vars": {"required": [
             {"name": "HARNESS_A2_PROBE", "present": True},
@@ -962,21 +962,21 @@ class TestVerifyEnvCheckClaims:
 
     def test_present_cli_tool_passes(self, tmp_path):
         """A real tool claimed present is not flagged."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         self._write(tmp_path, {"cli_tools": {"required": [
             {"name": "python3", "present": True},
         ]}})
         assert _verify_env_check_claims(tmp_path) == []
 
     def test_no_result_file_no_findings(self, tmp_path):
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         assert _verify_env_check_claims(tmp_path) == []
 
     def test_annotated_venv_name_not_flagged(self, tmp_path):
         """B1: 'python3 (.venv)' annotation must be stripped before PATH check.
         The base tool 'python3' exists on PATH, so no fabrication finding.
         """
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         self._write(tmp_path, {"cli_tools": {"required": [
             {"name": "python3 (.venv)", "present": True},
         ]}})
@@ -987,7 +987,7 @@ class TestVerifyEnvCheckClaims:
 
     def test_python_package_not_flagged_via_import(self, tmp_path):
         """B1: Python packages (e.g. 'json') not on PATH must pass via import fallback."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         # 'json' is stdlib — always importable, never a CLI binary.
         # The old code would flag it; the new code must not.
         self._write(tmp_path, {"cli_tools": {"required": [
@@ -1000,7 +1000,7 @@ class TestVerifyEnvCheckClaims:
 
     def test_venv_python_fallback_active_venv(self, tmp_path, monkeypatch):
         """Bug #128: semantic venv-python passes if active venv is detected."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         import sys
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python", "present": True}]}})
         monkeypatch.setattr(sys, "prefix", "/mock/venv")
@@ -1009,7 +1009,7 @@ class TestVerifyEnvCheckClaims:
 
     def test_venv_python_fallback_inactive_unix(self, tmp_path, monkeypatch):
         """Bug #128: semantic venv-python passes if inactive venv exists (Unix)."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         import sys
         import os
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "python-venv", "present": True}]}})
@@ -1022,7 +1022,7 @@ class TestVerifyEnvCheckClaims:
 
     def test_venv_python_fallback_inactive_windows(self, tmp_path, monkeypatch):
         """Bug #128: semantic venv-python passes if inactive venv exists (Windows)."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         import sys
         import os
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python3", "present": True}]}})
@@ -1036,7 +1036,7 @@ class TestVerifyEnvCheckClaims:
 
     def test_venv_python_fallback_fails(self, tmp_path, monkeypatch):
         """Bug #128: semantic venv-python fails if no venv detected."""
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         import sys
         import os
         self._write(tmp_path, {"cli_tools": {"required": [{"name": "venv-python", "present": True}]}})
@@ -1053,7 +1053,7 @@ class TestVerifyEnvCheckClaims:
         `.venv/bin/python harness_cli.py ...` directly, which never exports
         VIRTUAL_ENV — the old $VIRTUAL_ENV-only probe was dead code there.
         """
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         (tmp_path / ".venv" / "bin").mkdir(parents=True)
         (tmp_path / ".venv" / "bin" / "faketool_only_in_venv_xyz").touch()
@@ -1068,7 +1068,7 @@ class TestVerifyEnvCheckClaims:
         (e.g. pytest-cov) passes must not depend on which interpreter
         happens to run harness_cli.
         """
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         bindir = tmp_path / ".venv" / "bin"
         bindir.mkdir(parents=True)
@@ -1085,7 +1085,7 @@ class TestVerifyEnvCheckClaims:
         """Bug #129: 'python311' is a version-semantic name for the
         `python3.11` binary — honest when that binary actually exists.
         """
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         import harness_cli as hc
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setattr(hc.shutil, "which", lambda *_a, **_k: None)
@@ -1101,7 +1101,7 @@ class TestVerifyEnvCheckClaims:
         (PATH, project venvs, import) is still flagged even when a project
         venv directory exists.
         """
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         (tmp_path / ".venv" / "bin").mkdir(parents=True)
         self._write(tmp_path, {"cli_tools": {"required": [
@@ -1114,7 +1114,7 @@ class TestVerifyEnvCheckClaims:
         """Anti-fraud: 'python312' claimed when only python3.11 exists must
         still be flagged — version-semantic normalization is not a blank pass.
         """
-        from harness_cli import _verify_env_check_claims
+        from cli.gate_cmds import _verify_env_check_claims
         import harness_cli as hc
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setattr(hc.shutil, "which", lambda *_a, **_k: None)
@@ -1146,14 +1146,14 @@ class TestCmdRunEnvCheck:
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 0
 
     def test_ready_false_exits_1(self, tmp_path, monkeypatch, capsys):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"ready": false}', monkeypatch)
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
         out, _ = capsys.readouterr()
         assert "[BLOCKED]" in out
@@ -1162,7 +1162,7 @@ class TestCmdRunEnvCheck:
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"other": "data"}', monkeypatch)
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
     def test_missing_file_exits_1(self, tmp_path, monkeypatch):
@@ -1170,21 +1170,21 @@ class TestCmdRunEnvCheck:
         self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
         (tmp_path / ".sessi-work" / "env_check_result.json").unlink()
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
     def test_malformed_json_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, 'not valid json', monkeypatch)
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
     def test_json_not_a_dict_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '["ready"]', monkeypatch)
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
 
     # -- Bug #138: timeout must use artifact-based success, not process exit --
@@ -1221,7 +1221,7 @@ class TestCmdRunEnvCheck:
         """
         from harness_cli import cmd_run_env_check
         self._setup_timeout(tmp_path, monkeypatch, write_result='{"ready": true}')
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 0
 
@@ -1229,7 +1229,7 @@ class TestCmdRunEnvCheck:
         """Artifact-based fallback must still honor ready=false."""
         from harness_cli import cmd_run_env_check
         self._setup_timeout(tmp_path, monkeypatch, write_result='{"ready": false}')
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 1
 
@@ -1237,7 +1237,7 @@ class TestCmdRunEnvCheck:
         """No artifact written by this spawn → genuine failure, rc 1."""
         from harness_cli import cmd_run_env_check
         self._setup_timeout(tmp_path, monkeypatch, write_result=None)
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 1
 
@@ -1255,7 +1255,7 @@ class TestCmdRunEnvCheck:
         rp.write_text('{"ready": true}', encoding="utf-8")
         past = _time.time() - 3600
         os.utime(rp, (past, past))
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 1
 
@@ -1264,7 +1264,7 @@ class TestCmdRunEnvCheck:
         from harness_cli import cmd_run_env_check
         self._setup_timeout(tmp_path, monkeypatch, write_result=None,
                             stderr_tail="AUTH_HINT: token refresh loop")
-        monkeypatch.setattr("harness_cli._verify_env_check_claims", lambda _: [])
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 1
         _, err = capsys.readouterr()
@@ -1281,14 +1281,14 @@ class TestValidateP8Completion:
         (archive / "phase8_plan.md").write_text("# P8 plan\n", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("# Handover\n\nP8 complete. All phases done.\n")
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
         assert errors == []
 
     def test_missing_archive_autocreated(self, tmp_path):
         # Auto-create .methodology-archive/ when absent; report content error
         # (the directory was never populated, not just never created).
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
         assert not (tmp_path / ".methodology-archive").exists()
         errors = _validate_p8_completion(tmp_path)
         assert (tmp_path / ".methodology-archive").exists(), "dir must be auto-created"
@@ -1304,7 +1304,7 @@ class TestValidateP8Completion:
         (archive / "quality_manifest.json").write_text("{}", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("# Handover\n\nNext: Begin Phase 9 tasks.\n")
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
         assert not any("Phase 9" in e or "phase 9" in e.lower() for e in errors)
 
@@ -1329,7 +1329,7 @@ class TestP8ArchiveContentCheck:
         dest already exists from mkdir) copies the CONTENTS of .methodology/
         directly into .methodology-archive/ — no "methodology/" subdirectory.
         """
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
 
         archive = tmp_path / ".methodology-archive"
         archive.mkdir(parents=True)
@@ -1344,7 +1344,7 @@ class TestP8ArchiveContentCheck:
 
     def test_archive_with_only_manifest_passes(self, tmp_path):
         """Archive with quality_manifest.json (no phase plan) still passes."""
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
 
         archive = tmp_path / ".methodology-archive"
         archive.mkdir(parents=True)
@@ -1367,7 +1367,7 @@ class TestP8ArchiveContentCheck:
         (crg_metrics.json, gate result JSONs, etc.). The validator must catch
         this and point to the correct command.
         """
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
 
         archive = tmp_path / ".methodology-archive" / "sessi-work"
         archive.mkdir(parents=True)
@@ -1390,7 +1390,7 @@ class TestP8ArchiveContentCheck:
 
     def test_empty_archive_fails(self, tmp_path):
         """.methodology-archive/ exists but is empty (mkdir ran, cp never did) → error."""
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
 
         # Do NOT pre-create the archive dir; the validator creates it automatically.
         # Result: .methodology-archive/ exists but contains no plan files or manifest.
@@ -1432,7 +1432,7 @@ class TestP8ArchiveContentCheck:
         (archive / "quality_manifest.json").write_text("{}", encoding="utf-8")
         handover = tmp_path / "HANDOVER.md"
         handover.write_text("See phase9_plan.md for next steps.\n")
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
         assert not any("Phase 9" in e or "phase9" in e.lower() for e in errors)
 
@@ -1441,7 +1441,7 @@ class TestP8ArchiveContentCheck:
         archive.mkdir()
         (archive / "phase8_plan.md").write_text("# P8\n", encoding="utf-8")
         # No HANDOVER.md — should not raise
-        from harness_cli import _validate_p8_completion
+        from cli.push_cmds import _validate_p8_completion
         errors = _validate_p8_completion(tmp_path)
         assert errors == []
 
@@ -7211,7 +7211,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
         # bypass p8 preflight (we don't have real artifacts)
-        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: [])
+        monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: [])
 
         _orig_atomic = hc.atomic_write_json
 
@@ -7283,7 +7283,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
                 raise AssertionError("commit_and_push_p8 must not be called on preflight failure")
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
-        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: ["missing artifact"])
+        monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: ["missing artifact"])
 
         args = argparse.Namespace(
             project=str(tmp_path), type="p8", fr_ids="",
@@ -7321,7 +7321,7 @@ class TestPushMilestoneStateJsonWriteBeforePush:
                 return False
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a, **_k: FakeGit())
-        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: [])
+        monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: [])
 
         args = argparse.Namespace(
             project=str(tmp_path), type="p8", fr_ids="",
@@ -7838,7 +7838,7 @@ class TestPushMilestonePostPushDirtyWarn:
 
         monkeypatch.setattr(hc, "_make_git", lambda *_a: FakeGit())
         # Bypass P8 pre-flight validation — needs real .methodology-archive.
-        monkeypatch.setattr(hc, "_validate_p8_completion", lambda _p: [])
+        monkeypatch.setattr("cli.push_cmds._validate_p8_completion", lambda _p: [])
         # Stub the new helper so the test does NOT need a real git repo.
         monkeypatch.setattr(
             hc, "_post_push_self_check",

@@ -10,7 +10,10 @@ imports are unaffected.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.harness_config import get_timeout
+from core.utils.project_layout import ProjectLayout
 from core.quality_gate.mutation_enforcer import compute_mutation_score
 import harness_cli as _hc
 
@@ -110,7 +114,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     Path(ctx.work_dir).mkdir(parents=True, exist_ok=True)
 
     # Write sentinel so finalize-env-check can verify run-env-check was called.
-    sf = _hc._sentinel_env_path(Path(project))
+    sf = _sentinel_env_path(Path(project))
     sf.parent.mkdir(parents=True, exist_ok=True)
     sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
     print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
@@ -195,7 +199,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         print("[ERROR] env-check sub-agent did not write env_check_result.json.", file=sys.stderr)
         return 1
 
-    _fab = _hc._verify_env_check_claims(Path(project))
+    _fab = _verify_env_check_claims(Path(project))
     if _fab:
         print("[ERROR] env-check agent fabricated claims:\n  " + "\n  ".join(_fab), file=sys.stderr)
         return 1
@@ -235,7 +239,7 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     fr_id = getattr(args, "fr_id", None) or None
 
     # Sentinel check — prevent fabricated results
-    sf = _hc._sentinel_env_path(project)
+    sf = _sentinel_env_path(project)
     if not sf.exists():
         print(
             f"\n[BLOCKED] Sentinel not found: {sf.relative_to(project)}\n"
@@ -389,6 +393,183 @@ def cmd_mutation_test_score(args: argparse.Namespace) -> int:
         "cache_path": str(project / ".mutmut-cache"),
     }, ensure_ascii=False))
     return 0 if success else 1
+
+
+
+
+# --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4b) ---
+
+def _sentinel_env_path(project: Path) -> Path:
+    """Return the sentinel file path for env-check."""
+    d = project / ".sessi-work" / "sentinels"
+    return d / "env_check.flag"
+
+
+def _verify_env_check_claims(project: Path) -> "list[str]":
+    """A2: independently re-verify the cli_tools / env_vars the env-check agent
+    claimed present. Returns fabrication findings (empty = all claims hold up).
+
+    Only claims of `present: true` are checked — tools/vars the agent reported as
+    absent/optional are not forced. infra_services (DB/docker) stay agent-reported
+    (the framework cannot reliably probe them here).
+    """
+    result_path = project / ".sessi-work" / "env_check_result.json"
+    if not result_path.exists():
+        return []
+    try:
+        data = json.loads(result_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+    findings: list[str] = []
+    # Tools whose fast checks (PATH/venv-bin/semantic-name) all missed are
+    # deferred here instead of probed inline — see the batched concurrent
+    # probe below.
+    _pending_probes: list[tuple[str, str, dict, list[str]]] = []
+    for t in data.get("cli_tools", {}).get("required", []):
+        if isinstance(t, dict) and t.get("present") and t.get("name"):
+            raw_name = str(t["name"])
+            # Strip parenthetical annotations added by sub-agents (e.g. "python3 (.venv)")
+            # and take only the first token so "python3 -m pip" → "python3".
+            _stripped = re.sub(r"\s*\(.*?\)\s*$", "", raw_name).strip()
+            name = _stripped.split()[0] if _stripped else raw_name
+            if not name:
+                continue
+            # v2.13 Bug #123 fix: skip framework-internal subcommands.
+            # Names ending in `.py` (e.g. "harness_cli.py finalize-env-check") are
+            # subcommands of framework scripts, not standalone PATH tools — they
+            # never appear in `shutil.which()` results. Without this skip, every
+            # env-check that reports a framework subcommand FAILs with a false
+            # "fabricated claim" finding, blocking P3/P5/P7 entry.
+            if name.lower().endswith(".py"):
+                continue
+            _found = shutil.which(name) is not None
+            _bindir = "Scripts" if os.name == "nt" else "bin"
+            if not _found:
+                # PATH miss: also check venv-local bin/ and Python import as fallbacks.
+                # Covers tools installed only inside .venv and Python packages (e.g.
+                # pydantic) that are not CLI binaries but are valid "present" claims.
+                #
+                # Bug #129 root-cause fix (2026-07-02): probe project-local venvs
+                # (.venv/venv) directly, not only $VIRTUAL_ENV. Orchestrated runs
+                # invoke `.venv/bin/python harness_cli.py ...` without activating,
+                # so VIRTUAL_ENV is never exported and the old probe was dead code
+                # there — honest claims about venv-only tools were flagged as
+                # fabricated. Also normalize python-version-semantic names
+                # ("python311" → "python3.11"): sub-agents name the interpreter
+                # after the SAD version string, but the binary is `python3.11`.
+                # A wrong-version claim (e.g. python312 with only 3.11 installed)
+                # still fails every probe and stays flagged.
+                _cands = [name]
+                _pv = re.fullmatch(r"python[-_.]?(\d)[-_.]?(\d+)", name.lower())
+                if _pv:
+                    _cands.append(f"python{_pv.group(1)}.{_pv.group(2)}")
+                _venv_dirs = [os.environ.get("VIRTUAL_ENV", "")]
+                _venv_dirs += [str(project / d) for d in (".venv", "venv")]
+                for _cn in _cands:
+                    if _cn != name and shutil.which(_cn):
+                        _found = True
+                    for _vd in _venv_dirs:
+                        if _vd and os.path.exists(os.path.join(_vd, _bindir, _cn)):
+                            _found = True
+                            break
+                    if _found:
+                        break
+                if not _found:
+                    # Bug #128 root-cause fix (2026-06-27): semantic venv-Python names
+                    # like "venv-python", "python-venv", "venv-python3" are LOGICAL
+                    # names meaning "the Python interpreter inside the project's
+                    # virtualenv", not literal PATH binaries. The agent's claim is
+                    # honest when (a) the running interpreter is itself a venv
+                    # interpreter (`sys.prefix != sys.base_prefix`), or (b) a
+                    # project-local venv (.venv/venv) exists and contains a Python
+                    # binary. Without this fallback, every project using venv-
+                    # semantic naming gets a false "fabricated claim" finding and
+                    # P3/P5/P7 entry is wrongly blocked. Generalization: any name
+                    # whose lowercased tokens contain both "venv" and "python"
+                    # is treated as a venv-Python semantic name.
+                    _name_lc = name.lower()
+                    if "venv" in _name_lc and "python" in _name_lc:
+                        try:
+                            if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+                                _found = True
+                            else:
+                                exe_name = "python.exe" if os.name == "nt" else "python3"
+                                bindir = "Scripts" if os.name == "nt" else "bin"
+                                for _venv_dir in (".venv", "venv"):
+                                    _cand = project / _venv_dir / bindir / exe_name
+                                    if _cand.exists():
+                                        _found = True
+                                        break
+                        except Exception:
+                            pass
+                if not _found:
+                    # Python package fallback: "import <name>" via the current interpreter.
+                    # src-layout projects (e.g. 03-development/src/taskq) are importable
+                    # only with the project's src root on PYTHONPATH — the deliverable
+                    # package is a valid "present" claim even before pip install.
+                    _pkg = name.replace("-", "_")
+                    _import_env = {**os.environ}
+                    try:
+                        _src_dir = ProjectLayout(project).active_src_dir
+                        if _src_dir.is_dir():
+                            _import_env["PYTHONPATH"] = os.pathsep.join(
+                                p for p in (str(_src_dir), _import_env.get("PYTHONPATH", "")) if p
+                            )
+                    except Exception:
+                        pass
+                    # Bug #129: try the project venv's python too — whether a
+                    # plugin-only package (e.g. pytest-cov) verifies must not
+                    # depend on which interpreter happens to run harness_cli.
+                    _interps = [sys.executable]
+                    _py_exe = "python.exe" if os.name == "nt" else "python"
+                    for _vd in (".venv", "venv"):
+                        _vp = project / _vd / _bindir / _py_exe
+                        if _vp.exists():
+                            _interps.append(str(_vp))
+                    # Defer the actual subprocess spawn: several unresolved
+                    # tools each sequentially spawning up to len(_interps)
+                    # `import <pkg>` probes (5s timeout each) can serialize
+                    # to tens of seconds on this blocking CLI path. Batch
+                    # all deferred probes below and run them concurrently.
+                    _pending_probes.append((raw_name, _pkg, _import_env, _interps))
+                    continue
+            if not _found:
+                findings.append(
+                    f"cli_tool '{raw_name}': claimed present, but not found on PATH, "
+                    f"in $VIRTUAL_ENV/bin/, or via Python import"
+                )
+
+    if _pending_probes:
+        def _probe_import(item: "tuple[str, str, dict, list[str]]") -> "tuple[str, bool]":
+            _raw_name, _pkg, _import_env, _interps = item
+            for _interp in _interps:
+                try:
+                    _r = subprocess.run(
+                        [_interp, "-c", f"import {_pkg}"],
+                        capture_output=True, timeout=5, env=_import_env,
+                    )
+                    if _r.returncode == 0:
+                        return _raw_name, True
+                except Exception:
+                    pass
+            return _raw_name, False
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(8, len(_pending_probes))
+        ) as _ex:
+            for _raw_name, _found_import in _ex.map(_probe_import, _pending_probes):
+                if not _found_import:
+                    findings.append(
+                        f"cli_tool '{_raw_name}': claimed present, but not found on PATH, "
+                        f"in $VIRTUAL_ENV/bin/, or via Python import"
+                    )
+
+    for v in data.get("env_vars", {}).get("required", []):
+        if isinstance(v, dict) and v.get("present") and v.get("name"):
+            name = str(v["name"])
+            if name not in os.environ:
+                findings.append(f"env_var '{name}': claimed present, but not set")
+    return findings
 
 
 def register(sub) -> None:

@@ -52,10 +52,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import importlib.util
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -1668,178 +1666,6 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
 # run-env-check (project-aware environment readiness evaluation)
 # ---------------------------------------------------------------------------
 
-def _sentinel_env_path(project: Path) -> Path:
-    """Return the sentinel file path for env-check."""
-    d = project / ".sessi-work" / "sentinels"
-    return d / "env_check.flag"
-
-
-def _verify_env_check_claims(project: Path) -> "list[str]":
-    """A2: independently re-verify the cli_tools / env_vars the env-check agent
-    claimed present. Returns fabrication findings (empty = all claims hold up).
-
-    Only claims of `present: true` are checked — tools/vars the agent reported as
-    absent/optional are not forced. infra_services (DB/docker) stay agent-reported
-    (the framework cannot reliably probe them here).
-    """
-    result_path = project / ".sessi-work" / "env_check_result.json"
-    if not result_path.exists():
-        return []
-    try:
-        data = json.loads(result_path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return []
-    findings: list[str] = []
-    # Tools whose fast checks (PATH/venv-bin/semantic-name) all missed are
-    # deferred here instead of probed inline — see the batched concurrent
-    # probe below.
-    _pending_probes: list[tuple[str, str, dict, list[str]]] = []
-    for t in data.get("cli_tools", {}).get("required", []):
-        if isinstance(t, dict) and t.get("present") and t.get("name"):
-            raw_name = str(t["name"])
-            # Strip parenthetical annotations added by sub-agents (e.g. "python3 (.venv)")
-            # and take only the first token so "python3 -m pip" → "python3".
-            _stripped = re.sub(r"\s*\(.*?\)\s*$", "", raw_name).strip()
-            name = _stripped.split()[0] if _stripped else raw_name
-            if not name:
-                continue
-            # v2.13 Bug #123 fix: skip framework-internal subcommands.
-            # Names ending in `.py` (e.g. "harness_cli.py finalize-env-check") are
-            # subcommands of framework scripts, not standalone PATH tools — they
-            # never appear in `shutil.which()` results. Without this skip, every
-            # env-check that reports a framework subcommand FAILs with a false
-            # "fabricated claim" finding, blocking P3/P5/P7 entry.
-            if name.lower().endswith(".py"):
-                continue
-            _found = shutil.which(name) is not None
-            _bindir = "Scripts" if os.name == "nt" else "bin"
-            if not _found:
-                # PATH miss: also check venv-local bin/ and Python import as fallbacks.
-                # Covers tools installed only inside .venv and Python packages (e.g.
-                # pydantic) that are not CLI binaries but are valid "present" claims.
-                #
-                # Bug #129 root-cause fix (2026-07-02): probe project-local venvs
-                # (.venv/venv) directly, not only $VIRTUAL_ENV. Orchestrated runs
-                # invoke `.venv/bin/python harness_cli.py ...` without activating,
-                # so VIRTUAL_ENV is never exported and the old probe was dead code
-                # there — honest claims about venv-only tools were flagged as
-                # fabricated. Also normalize python-version-semantic names
-                # ("python311" → "python3.11"): sub-agents name the interpreter
-                # after the SAD version string, but the binary is `python3.11`.
-                # A wrong-version claim (e.g. python312 with only 3.11 installed)
-                # still fails every probe and stays flagged.
-                _cands = [name]
-                _pv = re.fullmatch(r"python[-_.]?(\d)[-_.]?(\d+)", name.lower())
-                if _pv:
-                    _cands.append(f"python{_pv.group(1)}.{_pv.group(2)}")
-                _venv_dirs = [os.environ.get("VIRTUAL_ENV", "")]
-                _venv_dirs += [str(project / d) for d in (".venv", "venv")]
-                for _cn in _cands:
-                    if _cn != name and shutil.which(_cn):
-                        _found = True
-                    for _vd in _venv_dirs:
-                        if _vd and os.path.exists(os.path.join(_vd, _bindir, _cn)):
-                            _found = True
-                            break
-                    if _found:
-                        break
-                if not _found:
-                    # Bug #128 root-cause fix (2026-06-27): semantic venv-Python names
-                    # like "venv-python", "python-venv", "venv-python3" are LOGICAL
-                    # names meaning "the Python interpreter inside the project's
-                    # virtualenv", not literal PATH binaries. The agent's claim is
-                    # honest when (a) the running interpreter is itself a venv
-                    # interpreter (`sys.prefix != sys.base_prefix`), or (b) a
-                    # project-local venv (.venv/venv) exists and contains a Python
-                    # binary. Without this fallback, every project using venv-
-                    # semantic naming gets a false "fabricated claim" finding and
-                    # P3/P5/P7 entry is wrongly blocked. Generalization: any name
-                    # whose lowercased tokens contain both "venv" and "python"
-                    # is treated as a venv-Python semantic name.
-                    _name_lc = name.lower()
-                    if "venv" in _name_lc and "python" in _name_lc:
-                        try:
-                            if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
-                                _found = True
-                            else:
-                                exe_name = "python.exe" if os.name == "nt" else "python3"
-                                bindir = "Scripts" if os.name == "nt" else "bin"
-                                for _venv_dir in (".venv", "venv"):
-                                    _cand = project / _venv_dir / bindir / exe_name
-                                    if _cand.exists():
-                                        _found = True
-                                        break
-                        except Exception:
-                            pass
-                if not _found:
-                    # Python package fallback: "import <name>" via the current interpreter.
-                    # src-layout projects (e.g. 03-development/src/taskq) are importable
-                    # only with the project's src root on PYTHONPATH — the deliverable
-                    # package is a valid "present" claim even before pip install.
-                    _pkg = name.replace("-", "_")
-                    _import_env = {**os.environ}
-                    try:
-                        _src_dir = ProjectLayout(project).active_src_dir
-                        if _src_dir.is_dir():
-                            _import_env["PYTHONPATH"] = os.pathsep.join(
-                                p for p in (str(_src_dir), _import_env.get("PYTHONPATH", "")) if p
-                            )
-                    except Exception:
-                        pass
-                    # Bug #129: try the project venv's python too — whether a
-                    # plugin-only package (e.g. pytest-cov) verifies must not
-                    # depend on which interpreter happens to run harness_cli.
-                    _interps = [sys.executable]
-                    _py_exe = "python.exe" if os.name == "nt" else "python"
-                    for _vd in (".venv", "venv"):
-                        _vp = project / _vd / _bindir / _py_exe
-                        if _vp.exists():
-                            _interps.append(str(_vp))
-                    # Defer the actual subprocess spawn: several unresolved
-                    # tools each sequentially spawning up to len(_interps)
-                    # `import <pkg>` probes (5s timeout each) can serialize
-                    # to tens of seconds on this blocking CLI path. Batch
-                    # all deferred probes below and run them concurrently.
-                    _pending_probes.append((raw_name, _pkg, _import_env, _interps))
-                    continue
-            if not _found:
-                findings.append(
-                    f"cli_tool '{raw_name}': claimed present, but not found on PATH, "
-                    f"in $VIRTUAL_ENV/bin/, or via Python import"
-                )
-
-    if _pending_probes:
-        def _probe_import(item: "tuple[str, str, dict, list[str]]") -> "tuple[str, bool]":
-            _raw_name, _pkg, _import_env, _interps = item
-            for _interp in _interps:
-                try:
-                    _r = subprocess.run(
-                        [_interp, "-c", f"import {_pkg}"],
-                        capture_output=True, timeout=5, env=_import_env,
-                    )
-                    if _r.returncode == 0:
-                        return _raw_name, True
-                except Exception:
-                    pass
-            return _raw_name, False
-
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(8, len(_pending_probes))
-        ) as _ex:
-            for _raw_name, _found_import in _ex.map(_probe_import, _pending_probes):
-                if not _found_import:
-                    findings.append(
-                        f"cli_tool '{_raw_name}': claimed present, but not found on PATH, "
-                        f"in $VIRTUAL_ENV/bin/, or via Python import"
-                    )
-
-    for v in data.get("env_vars", {}).get("required", []):
-        if isinstance(v, dict) and v.get("present") and v.get("name"):
-            name = str(v["name"])
-            if name not in os.environ:
-                findings.append(f"env_var '{name}': claimed present, but not set")
-    return findings
-
 
 # ---------------------------------------------------------------------------
 # Gate 4 prerequisite checks  (A2-A5 schema, B2 score files)
@@ -2848,28 +2674,6 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 # manifest
 # ---------------------------------------------------------------------------
 
-def _generate_sab_json(project: Path) -> bool:
-    """Run scripts/generate_sab.py to produce .methodology/SAB.json. Returns True on success."""
-    import subprocess  # nosec B404
-    sab_script = Path(__file__).parent / "scripts" / "generate_sab.py"
-    if not sab_script.exists():
-        print("  [SAB] ERROR: generate_sab.py not found — pipeline blocked")
-        return False
-    try:
-        result = subprocess.run(  # nosec B603 B607
-            ["python3", str(sab_script), "--project", str(project)],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode == 0:
-            sab_path = project / ".methodology" / "SAB.json"
-            print(f"  [SAB] SAB.json written → {sab_path}")
-            return True
-        else:
-            print(f"  [SAB] ERROR: generate_sab.py failed — pipeline blocked: {result.stderr[:200]}")
-            return False
-    except Exception as exc:
-        print(f"  [SAB] ERROR: SAB generation error — pipeline blocked: {exc}")
-        return False
 
 # ---------------------------------------------------------------------------
 # generate-verification-report  (P5 — produces 05-verification/VERIFICATION_REPORT.md)
@@ -2978,28 +2782,6 @@ def _extract_agent_output_json(text: str) -> "dict | None":
             pass
     return None
 
-def _resolve_deliverable_ids(
-    project: Path, phase: int, fr_ids: "list[str]"
-) -> "list[str]":
-    """Return the deliverable IDs to check for Agent B approvals.
-
-    P1/P2: always returns the phase-level deliverables from _PHASE_DELIVERABLES
-           (per-FR approval is only meaningful from P3 onwards).
-    P3+:   fr_ids from caller → quality_manifest.json → empty list.
-    """
-    if phase in _PHASE_DELIVERABLES:
-        return _PHASE_DELIVERABLES[phase]
-    if fr_ids:
-        return fr_ids
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    if manifest_path.exists():
-        try:
-            return json.loads(
-                manifest_path.read_text(encoding="utf-8")
-            ).get("fr_ids", [])
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
-    return []
 
 def _verify_agent_b_approvals_core(
     project: Path, phase: int, deliverable_ids: "list[str]"
@@ -3097,58 +2879,6 @@ def _verify_agent_b_approvals_core(
 
 
 
-def _validate_p8_completion(project: Path) -> list[str]:
-    """Pre-flight checks required before push-milestone --type p8 is allowed."""
-    errors: list[str] = []
-
-    # 1. .methodology-archive/ — auto-create if absent
-    archive_dir = project / ".methodology-archive"
-    if not archive_dir.exists():
-        archive_dir.mkdir(parents=True, exist_ok=True)
-
-    # 2. (removed) HANDOVER.md used to be forbidden from referencing Phase 9
-    # back when P8 was the terminal phase. Phase 9 (Maintenance) is now a
-    # legal steady state entered via `advance-phase --completed 8`, so a
-    # P8-exit HANDOVER legitimately points at Phase 9 next steps.
-
-    # 3. Finding #24: archive must contain .methodology/ contents (not .sessi-work/).
-    # Old P8 plan had a typo: 'cp -r .sessi-work/ .methodology-archive/' which copied
-    # the gitignored runtime scratch dir instead of the methodology artifacts the
-    # archive name semantically implies. Validator now checks the archive actually
-    # has methodology content (e.g. a phase*_plan.md or quality_manifest.json).
-    # Also catches the inverse case: archive contains a `sessi-work/` subdir
-    # (i.e. the agent ran the buggy cp command verbatim and produced
-    # .methodology-archive/sessi-work/).
-    archive_sessi = archive_dir / "sessi-work"
-    if archive_sessi.exists():
-        errors.append(
-            ".methodology-archive/sessi-work/ exists — this is the Finding #24 "
-            "typo outcome. The P8 archive must contain .methodology/ contents, "
-            "not the gitignored runtime scratch dir. Re-run: "
-            "`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
-            "cp -r .methodology/ .methodology-archive/`."
-        )
-
-    # Positive content check: `cp -r .methodology/ .methodology-archive/` (trailing
-    # slash on source, destination already created by mkdir) copies the CONTENTS of
-    # .methodology/ directly into .methodology-archive/ — phase*_plan.md and
-    # quality_manifest.json land at archive_dir/*.  There is no "methodology/"
-    # subdirectory.  Catch both an empty archive (mkdir ran but cp didn't) and any
-    # other wrong-source copy, but skip when sessi-work was already reported above.
-    if not archive_sessi.exists():
-        _has_methodology_content = any(archive_dir.glob("phase*_plan.md")) or (
-            archive_dir / "quality_manifest.json"
-        ).exists()
-        if not _has_methodology_content:
-            errors.append(
-                ".methodology-archive/ contains no methodology artifacts "
-                "(phase*_plan.md / quality_manifest.json). "
-                "Re-run: `rm -rf .methodology-archive && mkdir -p .methodology-archive"
-                " && cp -r .methodology/ .methodology-archive/` "
-                "(do NOT copy .sessi-work/ — that is the Finding #24 typo)."
-            )
-
-    return errors
 
 
 def _validate_p3_post_gate2_precondition(
@@ -5566,48 +5296,6 @@ def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) 
 # ---------------------------------------------------------------------------
 
 
-def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
-    """Run M3 gap analysis. Returns gap report dict; warns on failure."""
-    try:
-        from gap_detector.parser import SpecParser
-        from gap_detector.scanner import CodeScanner
-        from gap_detector.detector import GapDetector
-
-        spec_path = project / spec
-        if not spec_path.exists():
-            print(f"  [M3] {spec} not found — skipping gap analysis")
-            return {"skipped": True, "reason": f"{spec} not found"}
-
-        parsed_spec = SpecParser(str(spec_path)).parse()
-        scanner = CodeScanner(str(project))
-        code = scanner.scan()
-        detector = GapDetector(parsed_spec, code, similarity_threshold=similarity)
-        gaps = detector.detect()
-        summary = detector.get_summary()
-
-        report = {
-            "summary": {
-                "total": summary.total_gaps, "missing": summary.missing,
-                "incomplete": summary.incomplete, "orphaned": summary.orphaned,
-                "critical": summary.critical, "major": summary.major,
-                "minor": summary.minor,
-            },
-            "gaps": [{"type": g.gap_type, "severity": g.severity,
-                       "reason": g.reason, "action": g.recommended_action}
-                      for g in gaps],
-        }
-        report_path = project / ".methodology" / "gap_report.json"
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, indent=2))
-        print(f"  [M3] Gap report → {report_path}  "
-              f"(total={summary.total_gaps}, critical={summary.critical})")
-        return report
-    except ImportError:
-        print("  [M3] gap_detector unavailable — skipping gap analysis")
-        return {"skipped": True, "reason": "gap_detector unavailable"}
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        print(f"  [M3] Gap analysis error: {exc}")
-        return {"skipped": True, "error": str(exc)}
 
 def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
     """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast.
@@ -6175,51 +5863,6 @@ def _format_block_diagnostic(
 # ---------------------------------------------------------------------------
 
 
-def _print_constitution_result(result, composite_threshold, profile, phase: int, docs_path) -> int:
-    """Print per-dimension breakdown + pass/fail verdict. Shared between
-    directory-mode and single-file-mode branches of cmd_check_constitution.
-    *docs_path* is the graded directory or single file; it is used to enumerate
-    the exact keywords behind each sub-threshold *active* dimension so a fixing
-    agent adds content instead of reverse-engineering the gap (same idiom as the
-    advance-phase postflight). Returns 0 on pass, 1 on fail.
-    """
-    from core.quality_gate.constitution.runner import missing_keywords
-
-    # Only the active (composite-scored) dimensions gate the phase; display-only
-    # dims (e.g. security on a P2 architecture doc) are shown but must NOT drive
-    # keyword advice, or agents chase irrelevant terms into the wrong document.
-    _active = set(profile.active_dimensions(phase))
-    print(f"\n  Score: {result.score:.0f}%  (threshold={composite_threshold:.0f}%)")
-    for dim, score in sorted(result.dimensions.items()):
-        dim_threshold = profile.dimension_threshold(dim, phase)
-        status = "✓" if score >= dim_threshold else "✗"
-        suffix = ""
-        if score < dim_threshold and dim in _active and docs_path is not None:
-            _miss = missing_keywords(str(docs_path), dim, phase)
-            if _miss:
-                suffix = f"  ·  missing: {', '.join(_miss)}"
-        print(f"    {status} {dim}: {score:.0f}%  (threshold={dim_threshold:.0f}%){suffix}")
-
-    if result.violations:
-        # result.violations flags any per-dimension score below its own
-        # threshold (100% for P1-P4), which is independent from the
-        # composite gate above (bottleneck min-of-dimensions vs
-        # composite_threshold, e.g. 80%). A dimension can appear here while
-        # the overall gate still PASSES — label accordingly so "Violations"
-        # doesn't misread as a blocking failure when it isn't one.
-        _label = "Violations" if not result.passed else "Sub-threshold notes (informational — composite already PASSED)"
-        print(f"\n  {_label} ({len(result.violations)}):")
-        for v in result.violations[:10]:
-            print(f"    - [{v.get('dimension', '?')}] {v.get('message', str(v))[:120]}")
-        if len(result.violations) > 10:
-            print(f"    ... and {len(result.violations) - 10} more")
-
-    if result.passed:
-        print(f"\n  [PASS] Constitution quality ≥ {composite_threshold:.0f}% ✓")
-        return 0
-    print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {composite_threshold:.0f}%")
-    print("  Add substantive coverage of the missing keywords listed above, then re-run check-constitution until PASS.")
-    return 1
 
 
 

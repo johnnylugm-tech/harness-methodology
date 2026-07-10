@@ -323,7 +323,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     elif milestone_type == "p7":
         ok = git.commit_and_push_p7()
     elif milestone_type == "p8":
-        p8_errors = _hc._validate_p8_completion(project)
+        p8_errors = _validate_p8_completion(project)
         if p8_errors:
             print("[ERROR] P8 push blocked — pre-flight checks failed:")
             for e in p8_errors:
@@ -375,6 +375,64 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             print(f"  HANDOVER.md → {handover}")
         print(f"  [git] milestone {milestone_type} pushed → remote ✓")
     return 0 if ok else 1
+
+
+
+
+# --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4b) ---
+
+def _validate_p8_completion(project: Path) -> list[str]:
+    """Pre-flight checks required before push-milestone --type p8 is allowed."""
+    errors: list[str] = []
+
+    # 1. .methodology-archive/ — auto-create if absent
+    archive_dir = project / ".methodology-archive"
+    if not archive_dir.exists():
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. (removed) HANDOVER.md used to be forbidden from referencing Phase 9
+    # back when P8 was the terminal phase. Phase 9 (Maintenance) is now a
+    # legal steady state entered via `advance-phase --completed 8`, so a
+    # P8-exit HANDOVER legitimately points at Phase 9 next steps.
+
+    # 3. Finding #24: archive must contain .methodology/ contents (not .sessi-work/).
+    # Old P8 plan had a typo: 'cp -r .sessi-work/ .methodology-archive/' which copied
+    # the gitignored runtime scratch dir instead of the methodology artifacts the
+    # archive name semantically implies. Validator now checks the archive actually
+    # has methodology content (e.g. a phase*_plan.md or quality_manifest.json).
+    # Also catches the inverse case: archive contains a `sessi-work/` subdir
+    # (i.e. the agent ran the buggy cp command verbatim and produced
+    # .methodology-archive/sessi-work/).
+    archive_sessi = archive_dir / "sessi-work"
+    if archive_sessi.exists():
+        errors.append(
+            ".methodology-archive/sessi-work/ exists — this is the Finding #24 "
+            "typo outcome. The P8 archive must contain .methodology/ contents, "
+            "not the gitignored runtime scratch dir. Re-run: "
+            "`rm -rf .methodology-archive && mkdir -p .methodology-archive && "
+            "cp -r .methodology/ .methodology-archive/`."
+        )
+
+    # Positive content check: `cp -r .methodology/ .methodology-archive/` (trailing
+    # slash on source, destination already created by mkdir) copies the CONTENTS of
+    # .methodology/ directly into .methodology-archive/ — phase*_plan.md and
+    # quality_manifest.json land at archive_dir/*.  There is no "methodology/"
+    # subdirectory.  Catch both an empty archive (mkdir ran but cp didn't) and any
+    # other wrong-source copy, but skip when sessi-work was already reported above.
+    if not archive_sessi.exists():
+        _has_methodology_content = any(archive_dir.glob("phase*_plan.md")) or (
+            archive_dir / "quality_manifest.json"
+        ).exists()
+        if not _has_methodology_content:
+            errors.append(
+                ".methodology-archive/ contains no methodology artifacts "
+                "(phase*_plan.md / quality_manifest.json). "
+                "Re-run: `rm -rf .methodology-archive && mkdir -p .methodology-archive"
+                " && cp -r .methodology/ .methodology-archive/` "
+                "(do NOT copy .sessi-work/ — that is the Finding #24 typo)."
+            )
+
+    return errors
 
 
 def register(sub) -> None:
