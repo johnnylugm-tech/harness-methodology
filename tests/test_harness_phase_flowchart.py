@@ -17,8 +17,13 @@ from typing import Dict
 
 
 def get_code_phase_routing() -> Dict[int, Dict]:
-    """Extract phase routing info from generate_full_plan.py."""
-    gen_full_plan = Path(__file__).parent.parent / "scripts" / "generate_full_plan.py"
+    """Extract phase routing info from the plan generator's source.
+
+    Round 3 M3 re-anchor: the three text-scraped literals (_GATE_META,
+    _PHASE_ROLES, _entry_gate_check's _ENTRY_MAP) moved verbatim from
+    scripts/generate_full_plan.py into scripts/plangen/blocks.py.
+    """
+    gen_full_plan = Path(__file__).parent.parent / "scripts" / "plangen" / "blocks.py"
     content = gen_full_plan.read_text(encoding='utf-8')
 
     # Extract _GATE_META: gate_num -> (score_gate_min, num_dims, dim_names_str)
