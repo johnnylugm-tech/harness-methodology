@@ -148,15 +148,16 @@ class TestTimeoutPropagation:
         assert call_kwargs.kwargs.get("task_timeout") == 300
 
     def test_try_chain_routes_to_subagent(self):
-        """_try_chain dispatches directly to the Claude sub-agent."""
+        """_try_chain dispatches directly to the Claude sub-agent — verified
+        by the observable routing outcome (_reviewer_used), not by asserting
+        the private _try_subagent call itself (弱點強化 Round 2 Station H)."""
         from unittest.mock import patch
         router = self._make_router()
         approve = {"review_status": "APPROVE", "confidence": 0.9, "violations": [], "summary": "ok"}
-        with patch.object(router, "_try_subagent", return_value=dict(approve)) as mock_sub:
+        with patch.object(router, "_try_subagent", return_value=dict(approve)):
             result = router._try_chain("reviewer", "prompt", 3, "FR-01", timeout_ms=None)
         assert result["review_status"] == "APPROVE"
         assert result["_reviewer_used"] == "subagent"
-        mock_sub.assert_called_once()
 
 
 # ── Parallel waves (Layer 3) ─────────────────────────────────────────────────

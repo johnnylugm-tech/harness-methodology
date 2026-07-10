@@ -480,10 +480,12 @@ class TestTryChain:
         return _make_router()
 
     def test_routes_to_subagent(self):
+        """Verified by the observable routing outcome (_reviewer_used), not
+        by asserting the private _try_subagent call itself (弱點強化 Round 2
+        Station H)."""
         r = self._router()
-        with patch.object(r, "_try_subagent", return_value=dict(APPROVE_RESULT)) as mock_sub:
+        with patch.object(r, "_try_subagent", return_value=dict(APPROVE_RESULT)):
             result = r._try_chain("reviewer", "prompt", 3, None, None)
-        mock_sub.assert_called_once()
         assert result["review_status"] == "APPROVE"
         assert result["_reviewer_used"] == "subagent"
 

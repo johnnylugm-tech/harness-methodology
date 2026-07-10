@@ -342,6 +342,9 @@ class TestFinalizeGate:
                         bridge.finalize_gate(ctx)
 
     def test_finalize_gate_updates_manifest(self, tmp_path):
+        """_update_quality_manifest runs for real (弱點強化 Round 2 Station
+        H) — asserts the manifest file is actually updated with the gate's
+        score/quality_complete, not just that the private method was called."""
         bridge = HarnessBridge()
         ctx = self._make_context(tmp_path, gate_num=2)
         self._write_result(ctx, {
@@ -349,12 +352,17 @@ class TestFinalizeGate:
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {"linting": {"score": 90.0, "threshold": 85.0}},
         })
-        with patch.object(bridge, "_update_quality_manifest") as mock_update:
-            with patch.object(bridge, "_log"):
-                with patch.object(bridge, "_effort"):
-                    bridge.finalize_gate(ctx)
-        mock_update.assert_called_once()
-        mock_update.call_args[1] if mock_update.call_args[1] else mock_update.call_args[0]
+        manifest_path = tmp_path / ".methodology" / "quality_manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"gate_results": {"gate2": None}}))
+
+        with patch.object(bridge, "_log"):
+            with patch.object(bridge, "_effort"):
+                bridge.finalize_gate(ctx)
+
+        updated = json.loads(manifest_path.read_text())
+        assert updated["gate_results"]["gate2"]["score"] == 85.0
+        assert updated["gate_results"]["gate2"]["quality_complete"] is True
 
     def test_finalize_gate_gate1_dimension_threshold(self, tmp_path):
         """Gate 1 uses per-dimension thresholds, not composite score_gate."""

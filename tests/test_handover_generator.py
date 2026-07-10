@@ -244,17 +244,25 @@ class TestGitStrategyGitOps:
     """Tests that hit the actual git subprocess paths (_commit, _run_git, etc.)."""
 
     def test_has_changes_true(self, tmp_path: Path):
+        """Real tmp git repo, not a mocked _run_git (弱點強化 Round 2 Station
+        H) — this class's docstring says it hits the actual git subprocess
+        paths; an untracked file is real evidence of a dirty worktree."""
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+        (tmp_path / "file.py").write_text("x = 1\n")
+
         gs = GitStrategy(project=tmp_path, enabled=True, push=False)
-        with patch.object(gs, "_run_git") as mock_git:
-            mock_git.return_value = MagicMock(stdout="M file.py", returncode=0)
-            assert gs._has_changes() is True
-            mock_git.assert_called_once_with("status", "--porcelain")
+        assert gs._has_changes() is True
 
     def test_has_changes_false(self, tmp_path: Path):
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "--allow-empty", "-q", "-m", "baseline"], cwd=tmp_path, check=True)
+
         gs = GitStrategy(project=tmp_path, enabled=True, push=False)
-        with patch.object(gs, "_run_git") as mock_git:
-            mock_git.return_value = MagicMock(stdout="", returncode=0)
-            assert gs._has_changes() is False
+        assert gs._has_changes() is False
 
     def test_commit_no_changes(self, tmp_path: Path):
         gs = GitStrategy(project=tmp_path, enabled=True, push=False)

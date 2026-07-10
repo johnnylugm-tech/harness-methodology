@@ -42,11 +42,11 @@ _FORMS = (
 
 # Snapshot 2026-07-10 (弱點強化 C2), 400 total. Only decrease; unlisted = 0.
 _PRIVATE_PATCH_CEILING: dict[str, int] = {
-    "tests/test_harness_bridge.py": 67,
+    "tests/test_harness_bridge.py": 66,
     "tests/cli/test_gate_cmds_cli.py": 58,
     "tests/test_mutation_enforcer.py": 46,
     "tests/cli/test_phase_cmds_cli.py": 36,
-    "tests/test_handover_generator.py": 30,
+    "tests/test_handover_generator.py": 28,
     "tests/test_handover_generator_injection.py": 18,
     "tests/cli/test_push_cmds_cli.py": 17,
     "tests/test_crg_integration_fallback.py": 15,
