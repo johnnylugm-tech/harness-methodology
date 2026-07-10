@@ -46,7 +46,7 @@
   bug: "directly-constructed ScoringProfile silently dropped by merge() because _explicit was never set"
   fixed_in: "7247c5d"
 
-- test: tests/test_harness_cli.py::TestGate1LiveCoverageCheck::test_phases_with_gate1_fr_check_constant
+- test: tests/cli/test_phase_cmds_cli.py::TestGate1LiveCoverageCheck::test_phases_with_gate1_fr_check_constant
   bug: "P5 was incompletely removed from the per-FR Gate 1 set (multi-copy drift incident) — set membership must stay pinned"
   fixed_in: "5e18f58"
 
