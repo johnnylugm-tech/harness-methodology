@@ -1,0 +1,124 @@
+"""Private-patch ratchet — implementation-detail mocking can only decrease.
+
+The P2 finding of the 2026-07-10 弱點強化 round: tests that
+monkeypatch/mock private attributes of project modules are bound to the
+implementation, not the behavior — every refactor that moves or renames a
+helper breaks them even when behavior is unchanged (the S0-S5 strangler
+round re-targeted ~30 such files by hand). Rewriting 400 existing patches
+wholesale would mean rewriting the safety net itself, so instead this
+ratchet freezes the debt: per-file counts below may only DECREASE, and a
+file not listed here has a ceiling of 0.
+
+New tests exercise public behavior (CLI subprocess journeys in tests/e2e/,
+public functions, fixture-built repos) instead of reaching into private
+seams. Patching stdlib/public names is not counted.
+
+Counted forms (same ratchet mechanism as test_cli_layering._HC_REF_CEILING):
+  1. monkeypatch.setattr(<obj>, "_name", ...)      — quoted private attr
+  2. patch("cli.x._name") / mock.patch("core.y._n") — dotted private target
+     in a project package (incl. setattr string form)
+  3. patch.object(<obj>, "_name")
+
+Deliberate escape hatch: none. If a new test truly needs a private seam,
+refactor the seam into a public/injectable one instead — that is the point.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+_FORMS = (
+    re.compile(r'monkeypatch\.setattr\(\s*[A-Za-z_][\w.]*\s*,\s*["\']_'),
+    re.compile(
+        r'(?:mock\.patch|patch|monkeypatch\.setattr)\('
+        r'\s*["\'](?:cli|core|harness|scripts|detection|kill_switch|harness_cli)'
+        r'[\w.]*\._[A-Za-z]'
+    ),
+    re.compile(r'patch\.object\(\s*[\w.]+\s*,\s*["\']_'),
+)
+
+# Snapshot 2026-07-10 (弱點強化 C2), 400 total. Only decrease; unlisted = 0.
+_PRIVATE_PATCH_CEILING: dict[str, int] = {
+    "tests/test_harness_bridge.py": 67,
+    "tests/cli/test_gate_cmds_cli.py": 58,
+    "tests/test_mutation_enforcer.py": 46,
+    "tests/cli/test_phase_cmds_cli.py": 36,
+    "tests/test_handover_generator.py": 30,
+    "tests/test_handover_generator_injection.py": 18,
+    "tests/cli/test_push_cmds_cli.py": 17,
+    "tests/test_crg_integration_fallback.py": 15,
+    "tests/cli/test_fr_cmds_cli.py": 14,
+    "tests/test_crg_bridge.py": 12,
+    "tests/test_gate_trace_dimension.py": 12,
+    "tests/test_reviewer_router_extended.py": 11,
+    "tests/test_git_strategy_handover_revert.py": 9,
+    "tests/test_handover_generator_mediums.py": 9,
+    "tests/cli/test_project_cmds_cli.py": 6,
+    "tests/test_crg_independent.py": 6,
+    "tests/test_crg_api.py": 4,
+    "tests/test_reviewer_router.py": 4,
+    "tests/test_w6_gap_fill.py": 4,
+    "tests/test_gap_detector.py": 3,
+    "tests/test_test_compliance.py": 3,
+    "tests/test_4a_denominator_dedup.py": 2,
+    "tests/test_agent_spawner.py": 2,
+    "tests/test_edge_coverage.py": 2,
+    "tests/test_feedback_hook.py": 2,
+    "tests/test_advance_commit_rollback.py": 1,
+    "tests/test_generate_full_plan.py": 1,
+    "tests/test_harness_bridge_highs2.py": 1,
+    "tests/test_kill_switch_complete.py": 1,
+    "tests/test_phase_hooks_adapter.py": 1,
+    "tests/test_reviewer_router_mediums2.py": 1,
+    "tests/test_rotate_decision_logs.py": 1,
+    "tests/test_sab_parser.py": 1,
+}
+
+
+def _count_private_patches(source: str) -> int:
+    return sum(len(p.findall(source)) for p in _FORMS)
+
+
+def test_private_patch_ratchet():
+    over = []
+    for path in sorted((REPO / "tests").rglob("test_*.py")):
+        rel = path.relative_to(REPO).as_posix()
+        if rel == "tests/test_patch_discipline.py":
+            continue  # this file quotes the patterns it scans for
+        count = _count_private_patches(
+            path.read_text(encoding="utf-8", errors="replace")
+        )
+        ceiling = _PRIVATE_PATCH_CEILING.get(rel, 0)
+        if count > ceiling:
+            over.append(f"{rel}: {count} private-target patches > ceiling {ceiling}")
+    assert not over, (
+        "implementation-detail mocking increased — test public behavior "
+        "(CLI subprocess, public functions, fixture repos) or make the seam "
+        "public/injectable instead of patching private names:\n  "
+        + "\n  ".join(over)
+    )
+
+
+def test_scanner_detects_all_three_forms():
+    """Negative: each counted form must trigger the scanner."""
+    probe = "\n".join([
+        'monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *a: 0)',
+        'patch("cli.gate_cmds._check_sab_module_alignment")',
+        'mock.patch("core.doctor._check_git_sync")',
+        'monkeypatch.setattr("harness_cli._old_helper", None)',
+        'patch.object(bridge, "_finalize", autospec=True)',
+    ])
+    assert _count_private_patches(probe) == 5
+
+
+def test_scanner_ignores_public_and_stdlib_targets():
+    probe = "\n".join([
+        'monkeypatch.setattr(phase_cmds, "cmd_advance_phase", fake)',
+        'patch("subprocess.run")',
+        'monkeypatch.setattr(PhaseHooks, method, sentinel)',
+        'patch("cli.gate_cmds.atomic_write_json")',
+    ])
+    assert _count_private_patches(probe) == 0
