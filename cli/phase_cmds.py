@@ -1426,8 +1426,8 @@ def _check_ghost_paper_trail(project: Path, completed_phase: int) -> int:
         for t in trails:
             print(f"    {fr} / {t.get('step', '?')}: {t.get('reason', 'unknown')}")
     print(
-        f"\n  Re-run each flagged step with genuine code changes, then re-run advance-phase.\n"
-        f"  Ghost paper-trail records: .sessi-work/ghost_detected/"
+        "\n  Re-run each flagged step with genuine code changes, then re-run advance-phase.\n"
+        "  Ghost paper-trail records: .sessi-work/ghost_detected/"
     )
     return 22
 

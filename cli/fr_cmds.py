@@ -407,8 +407,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     print(f"    ... and {len(_pf) - 8} more")
                 if gate_pass:
                     print(
-                        f"  Sub-agent reported GATE1 PASS but pragma audit "
-                        f"found untested code — overriding to FAIL."
+                        "  Sub-agent reported GATE1 PASS but pragma audit "
+                        "found untested code — overriding to FAIL."
                     )
                 gate_pass = False
                 failing_dims = (failing_dims or []) + ["pragma-no-cover"]
