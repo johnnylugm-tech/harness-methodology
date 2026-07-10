@@ -34,7 +34,18 @@ __all__ = [
     "record_gate1_score",
     "_sentinel_path",
     "_finalize_sentinel_path",
+    "SENTINEL_FLAG_TEMPLATE",
+    "SENTINEL_FINALIZED_TEMPLATE",
 ]
+
+# Sentinel filename SSOT (Round 3 Station I): every consumer of the on-disk
+# sentinel format — the two path builders below, the evidence probe, and the
+# prose generate_full_plan.py renders into phase plans — formats these
+# templates instead of hand-writing the pattern. bea1bb1 fixed exactly that
+# hand-written-copy drift by hand; tests/test_sentinel_template_ssot.py makes
+# the next one fail at birth.
+SENTINEL_FLAG_TEMPLATE = "g{gate}_p{phase}_{key}.flag"
+SENTINEL_FINALIZED_TEMPLATE = "g{gate}_p{phase}_{key}.finalized"
 
 
 def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
@@ -64,7 +75,7 @@ def _sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | Non
             stacklevel=2,
         )
         return d / f"g{gate}_{key}.flag"
-    return d / f"g{gate}_p{phase}_{key}.flag"
+    return d / SENTINEL_FLAG_TEMPLATE.format(gate=gate, phase=phase, key=key)
 
 
 def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: int | None = None) -> Path:
@@ -77,7 +88,7 @@ def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: 
     d = project / ".sessi-work" / "sentinels"
 
     if phase is not None:
-        return d / f"g{gate}_p{phase}_{key}.finalized"
+        return d / SENTINEL_FINALIZED_TEMPLATE.format(gate=gate, phase=phase, key=key)
 
     # Legacy fallback (no phase provided): prefer the new-style .finalized;
     # fall back to legacy .flag with hyphen-stripped fr id (Bug #120 compat).
@@ -156,9 +167,9 @@ def gate1_evidence_exists(project: Path, fr_id: str, phase: int = 3) -> bool:
     """
     fr_key = fr_id.replace("-", "").lower()
     sentinels_dir = project / ".sessi-work" / "sentinels"
-    if (sentinels_dir / f"g1_p{phase}_{fr_key}.flag").exists():
+    if (sentinels_dir / SENTINEL_FLAG_TEMPLATE.format(gate=1, phase=phase, key=fr_key)).exists():
         return True
-    if (sentinels_dir / f"g1_p{phase}_{fr_key}.finalized").exists():
+    if (sentinels_dir / SENTINEL_FINALIZED_TEMPLATE.format(gate=1, phase=phase, key=fr_key)).exists():
         return True
     ts_file = project / ".methodology" / GATE_TIMESTAMPS_FILE
     if ts_file.exists():

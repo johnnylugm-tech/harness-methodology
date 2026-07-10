@@ -30,6 +30,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, cast
 from core.harness_config import load_harness_config as _load_harness_config
+from core.quality_gate.gate1_evidence import SENTINEL_FLAG_TEMPLATE
 from core.phase_topology import (
     EXIT_GATE_MAP,
     PER_FR_GATE1_PHASES,
@@ -1870,7 +1871,7 @@ def _milestone_push_steps(fr_ids: List[str], phase: int,
             f"  > **v2.9.1 B.2** -- replaces label-only `chore(P{phase}-exit): ...` commits.",
             "  > Pre-flight (enforced) checks:",
             f"  >   1. `.methodology/gate{post_gate}_result.json` composite ≥ phase threshold",
-            f"  >   2. Per-FR Gate 1 sentinel `.sessi-work/sentinels/g1_p{phase}_<fr>.flag` exists for every FR in `--fr-ids`",
+            f"  >   2. Per-FR Gate 1 sentinel `.sessi-work/sentinels/{SENTINEL_FLAG_TEMPLATE.format(gate=1, phase=phase, key='<fr>')}` exists for every FR in `--fr-ids`",
             "  > If either fails the push is BLOCKED with a clear error list (exit 1).",
             f"  > On success: writes HANDOVER.md with `resume_phase={phase + 1}` + commits + pushes.",
             "",
