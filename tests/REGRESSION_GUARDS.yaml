@@ -145,3 +145,7 @@
 - test: tests/test_postflight_registry.py::test_registry_complete
   bug: "same root cause as the preflight registry (Station A): a postflight_* method existing on PhaseHooks without being declared in POSTFLIGHT_CHECK_METHODS (or excluded with a reason) is the 'silently un-wired check' class — this meta-test makes the omission a failure at birth, even though _do_postflight_all itself stays hand-written (real data dependencies, not a homogeneous list)"
   fixed_in: "弱點強化 Round 2 Station E (postflight completeness meta-test)"
+
+- test: tests/test_advance_commit_rollback.py::TestRollbackLockAndResetDiagnostic::test_restore_runs_under_lock
+  bug: "FileSnapshot.restore() writes via a bare os.replace with no locking — called unlocked in cmd_advance_phase's rollback branch, a concurrent process legitimately holding state_lock (e.g. push-milestone) could interleave with the restore and corrupt state.json. Verified without real threading: a second non-blocking acquisition of the same lock from inside restore() must fail, proving the outer lock is held at that moment"
+  fixed_in: "弱點強化 Round 2 Station F (restore()+git-reset run inside file_lock)"

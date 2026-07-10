@@ -128,3 +128,101 @@ class TestAdvanceCommitRollback:
         assert json.loads(committed)["current_phase"] == 2, (
             "the advance commit must carry the advanced state.json"
         )
+
+
+class TestRollbackLockAndResetDiagnostic:
+    """Round 2 Station F: restore()+git-reset run inside state_lock (closes
+    the window where a concurrent lock-holder's legitimate write could
+    interleave with the rollback); a failed `git reset` after rollback now
+    prints a diagnostic instead of being silently swallowed."""
+
+    def test_restore_runs_under_lock(self, advance_project, monkeypatch):
+        """Verified without real threading: from inside FileSnapshot.restore
+        (called only while cmd_advance_phase's own `with file_lock(...)` is
+        held), a second NON-BLOCKING acquisition of the same lock file must
+        fail — fcntl.flock is exclusive even within one process across
+        distinct os.open() fds, so this proves the outer lock is actually
+        held at the moment restore() runs, not just present somewhere in the
+        function."""
+        proj = advance_project
+        _install_rejecting_hook(proj)
+
+        from core.atomic_io import FileSnapshot, file_lock, state_lock_path
+
+        original_restore = FileSnapshot.restore
+        second_acquire_results = []
+
+        def spying_restore(self):
+            try:
+                with file_lock(state_lock_path(proj), blocking=False):
+                    second_acquire_results.append(True)  # would mean NOT locked
+            except (OSError, BlockingIOError):
+                second_acquire_results.append(False)  # expected: already held
+            return original_restore(self)
+
+        monkeypatch.setattr(FileSnapshot, "restore", spying_restore)
+
+        rc = _advance(proj)
+
+        assert rc == 6
+        assert second_acquire_results == [False], (
+            "a second non-blocking lock acquisition succeeded while "
+            "restore() ran — the rollback is not actually holding state_lock"
+        )
+
+    def test_restore_and_reset_are_source_order_inside_the_lock(self):
+        """Cross-check via source inspection: restore() and the post-restore
+        `git reset` call must both appear inside the `with file_lock(...)`
+        block, not after it (a regression could move reset back outside the
+        lock while still passing the behavioral test above by coincidence).
+
+        cmd_advance_phase has an EARLIER, unrelated `with file_lock(...)`
+        (the CV-2 state.json read guard, near the top of the function) — use
+        rindex to anchor on the LAST occurrence, which is the rollback one.
+        """
+        import inspect
+
+        src = inspect.getsource(phase_cmds.cmd_advance_phase)
+        assert src.count("with file_lock(state_lock_path(project)):") == 2, (
+            "expected exactly 2 file_lock uses (CV-2 read guard + rollback) — "
+            "this test's rindex anchor assumes that; update it if this changes"
+        )
+        lock_pos = src.rindex("with file_lock(state_lock_path(project)):")
+        restore_pos = src.rindex("_advance_snap.restore()")
+        reset_pos = src.rindex('"reset", "-q"')
+        assert lock_pos < restore_pos < reset_pos, (
+            "restore() and the git reset call must both be nested inside "
+            "the rollback's file_lock block, in that order"
+        )
+
+    def test_reset_failure_prints_diagnostic_but_state_stays_correct(
+        self, advance_project, monkeypatch, capsys
+    ):
+        """A `git reset` failure after a rolled-back commit must not be
+        silently swallowed — worktree/state.json are already correctly
+        restored by FileSnapshot regardless, so the exit code and rollback
+        outcome are unaffected; only a diagnostic is added."""
+        proj = advance_project
+        _install_rejecting_hook(proj)
+
+        real_run = subprocess.run
+
+        def spying_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and "reset" in cmd and "-q" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd, returncode=1, stdout="",
+                    stderr="fatal: forced test failure\n",
+                )
+            return real_run(cmd, *args, **kwargs)
+
+        monkeypatch.setattr(phase_cmds.subprocess, "run", spying_run)
+
+        rc = _advance(proj)
+
+        assert rc == 6
+        captured = capsys.readouterr()
+        assert "git reset after rollback failed" in captured.err
+        state = json.loads((proj / ".methodology" / "state.json").read_text())
+        assert state["current_phase"] == 1, (
+            "a failed git reset must not affect the already-restored state.json"
+        )

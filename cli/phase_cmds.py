@@ -606,14 +606,33 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             # git history doesn't record. WARN-and-continue here was the
             # ghost-state bug: hooks/CI immediately targeted the phantom
             # phase (see tests/test_advance_commit_rollback.py).
-            _advance_snap.restore()
-            # Un-stage what our `git add` staged so the index matches the
-            # restored worktree (best-effort: fails only on an unborn HEAD,
-            # which methodology projects never have past init).
-            subprocess.run(
-                ["git", "-C", str(project), "reset", "-q", "--", *_add_targets],
-                capture_output=True, text=True,
-            )
+            #
+            # Round 2 Station F: restore() writes with a bare os.replace (no
+            # lock) — hold state_lock here so a concurrent process legitimately
+            # writing state.json (e.g. push-milestone) cannot interleave with
+            # the rollback. This does NOT wrap the whole advance-phase flow:
+            # _advance_fsm acquires this same lock internally, and fcntl.flock
+            # is not reentrant within one process across separate os.open()
+            # calls — nesting here would deadlock. By this point that inner
+            # lock has long been released, so this is safe.
+            with file_lock(state_lock_path(project)):
+                _advance_snap.restore()
+                # Un-stage what our `git add` staged so the index matches the
+                # restored worktree (best-effort: fails only on an unborn HEAD,
+                # which methodology projects never have past init).
+                reset_result = subprocess.run(
+                    ["git", "-C", str(project), "reset", "-q", "--", *_add_targets],
+                    capture_output=True, text=True,
+                )
+            if reset_result.returncode != 0:
+                print(
+                    f"  [WARN] git reset after rollback failed — the index may "
+                    f"still show staged entries (worktree content is already "
+                    f"restored): {reset_result.stderr.strip()}\n"
+                    f"  Run `git status` and `git reset -- <file>` manually if "
+                    f"needed.",
+                    file=sys.stderr,
+                )
             print(
                 f"\n[BLOCKED] advance-phase: {_commit_failure}\n"
                 f"  The advance was rolled back — state.json still says "
