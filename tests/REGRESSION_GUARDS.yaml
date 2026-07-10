@@ -154,6 +154,10 @@
   bug: "split-brain residual (Round 3 claim 6): doctor reconciled state.json against manifest/CLAUDE.md/attestation/git history but never reconciled quality_manifest's per-FR Gate 1 quality_complete claims against the three O2 evidence channels — a hand-edited or fabricated manifest row (which also feeds the CLAUDE.md FR Registry) went completely undetected at rest"
   fixed_in: "弱點強化 Round 3 Station J (doctor gate1-evidence check)"
 
+- test: tests/test_file_size_ratchet.py::test_production_file_line_ratchet
+  bug: "god-file drift class (Round 3 claims 2/4): five production files exceeded 2,000 lines with nothing making further growth visible — every feature landed silently in the same monoliths (generate_full_plan.py reached 3,379 lines before the plangen split). Growth past a snapshot ceiling, or any new ≥900-line file, now fails until the ceiling is deliberately raised in the same commit with justification"
+  fixed_in: "弱點強化 Round 3 Station L (line-count ratchet)"
+
 - test: tests/test_plangen_golden.py::test_plan_output_matches_golden
   bug: "plan-prose drift class (God-file symptom, Round 3 claim 2): 3,379-line generate_full_plan.py meant any prose regression hid inside f-string seas until an agent followed a stale instruction (bea1bb1 found one by hand). Goldens pin all 9 phase plans byte-for-byte (Date/version normalized) — they are also the byte-equal proof under the M2-M4 plangen split, and any deliberate prose change must regenerate them in the same commit"
   fixed_in: "弱點強化 Round 3 Station M1 (golden byte-equal harness)"
