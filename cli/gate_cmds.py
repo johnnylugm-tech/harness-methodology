@@ -19,7 +19,10 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from harness.harness_bridge import GateBlockedError
 
 from cli import _shared
 from core import claude_md
@@ -2400,7 +2403,7 @@ _DIMENSION_HINTS: dict[str, str] = {
 }
 
 def _format_block_diagnostic(
-    exc: "GateBlockedError",  # noqa: F821 — lazy import
+    exc: "GateBlockedError",
     gate_num: int,
     phase: int,
     fr_id: str | None,
