@@ -943,7 +943,8 @@ class TestSabClosureGaps:
                             with pytest.raises(GateBlockedError) as exc_info:
                                 bridge.finalize_gate(ctx)
                             
-                            failed_dims = [d.name for d in exc_info.value.result.dimensions if d.score < d.threshold]
+                            failed_dims = [d.name for d in exc_info.value.result.dimensions
+                                           if d.score is not None and d.score < d.threshold]
                             assert "test_coverage" in failed_dims
 
     def test_finalize_gate_override_is_floor_not_ceiling(self, tmp_path):
