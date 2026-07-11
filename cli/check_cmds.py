@@ -977,9 +977,16 @@ def cmd_print_legal_artifacts(args: argparse.Namespace) -> int:
 # --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4b) ---
 
 def _generate_sab_json(project: Path) -> bool:
-    """Run scripts/generate_sab.py to produce .methodology/SAB.json. Returns True on success."""
+    """Run scripts/generate_sab.py to produce .methodology/SAB.json. Returns True on success.
+
+    Round 5: resolves scripts/ via the shared `harness_scripts_dir()` SSOT
+    instead of `Path(__file__).parent / "scripts"` — `cli/` has no `scripts/`
+    subdirectory (it's a sibling at the repo root), so that arithmetic always
+    resolved to a non-existent path and this call unconditionally failed.
+    """
     import subprocess  # nosec B404
-    sab_script = Path(__file__).parent / "scripts" / "generate_sab.py"
+    from core.utils.script_loader import harness_scripts_dir
+    sab_script = harness_scripts_dir() / "generate_sab.py"
     if not sab_script.exists():
         print("  [SAB] ERROR: generate_sab.py not found — pipeline blocked")
         return False

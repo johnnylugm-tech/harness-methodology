@@ -347,6 +347,52 @@ class TestA1_ThreeSitesInvokeSameHelper:
         )
 
 
+class TestGenerateSabJsonPathBug:
+    """Round 5: `cli/check_cmds.py:_generate_sab_json` built its own
+    `Path(__file__).parent / "scripts"` — `cli/` has no `scripts/`
+    subdirectory (scripts/ is a sibling at the repo root), so
+    `sab_script.exists()` was always False. Every `harness_cli.py manifest`
+    run printed a false "[SAB] ERROR: generate_sab.py not found" and the
+    caller (`cmd_generate_quality_manifest`) discarded the return value, so
+    the failure was invisible. Same `.parent` vs `.parent.parent` bug class
+    as P6-2026-07-07 — never swept by the P6/A1 fixes because those only
+    grepped for `from scripts.X import`, not a manually-built subprocess
+    Path. Fix: `_generate_sab_json` now resolves the script via the shared
+    `harness_scripts_dir()` SSOT (core/utils/script_loader.py) instead of
+    its own path arithmetic.
+    """
+
+    def test_generate_sab_json_finds_the_real_script_from_foreign_cwd(self, tmp_path):
+        """Invoke the REAL `_generate_sab_json` (not a replicated path calc —
+        c38a9fe's own lesson: 'tests passed because they replicated the path
+        calculation rather than invoking the real inlined helper') from /tmp
+        cwd against an empty consumer project. Pre-fix, this always printed
+        the false "not found" message regardless of project contents;
+        post-fix, the script IS found (generation may still legitimately
+        fail for an unrelated reason — no SAD.md in this empty fixture —
+        but that is a different, honest error message).
+        """
+        harness_repo = str(HARNESS_REPO)
+        project = tmp_path / "consumer_project"
+        project.mkdir()
+        snippet = (
+            "import sys; "
+            f"sys.path.insert(0, {harness_repo!r}); "
+            "from pathlib import Path; "
+            "from cli.check_cmds import _generate_sab_json; "
+            f"_generate_sab_json(Path({str(project)!r}))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", snippet],
+            cwd="/tmp", capture_output=True, text=True, timeout=30,
+        )
+        combined = result.stdout + result.stderr
+        assert "generate_sab.py not found" not in combined, (
+            "the real generate_sab.py must be found via harness_scripts_dir(), "
+            f"regardless of caller cwd; got: {combined[:600]!r}"
+        )
+
+
 class TestA1_PhaseAuditorAbsolutePathLoad:
     """A1-2026-07-07 site coverage: each site that previously inline-imported
     `from scripts.phase_auditor import …` now loads via the helper. These tests

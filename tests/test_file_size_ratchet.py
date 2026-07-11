@@ -53,7 +53,10 @@ _LINE_CEILING: dict[str, int] = {
     # (phase_hooks.py) and cmd_check_artifact_consistency (check_cmds.py),
     # mirroring the existing check_forward_refs/check_nfr_adr_coverage wiring.
     "core/phase_hooks.py": 1582,
-    "cli/check_cmds.py": 1362,
+    # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
+    # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
+    # (broken) Path(__file__).parent arithmetic.
+    "cli/check_cmds.py": 1369,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,
