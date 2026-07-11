@@ -1287,6 +1287,38 @@ _FR_STEP_COMMIT_PATTERNS: dict[str, str] = {
 }
 
 
+def _fr_step_lineage_boundary(project: Path, phase: int | None) -> str | None:
+    """Resolve the commit SHA marking the start of this phase's lineage.
+
+    Read from the tracked `.methodology/state.json` `phase_completed` map —
+    it survives `git reset --hard` (unlike sentinels under the gitignored
+    .sessi-work/), so idempotency greps can be scoped to
+    `<this-boundary>..HEAD` and stop matching commits from a lineage that
+    was reset away but is still reachable as an ancestor of the current
+    boundary commit (2026-07-11 repro: the chosen P3-pre boundary was
+    itself a descendant of an earlier complete P3 run, so its own ancestry
+    already contained a stale `refactor(FR-02): IMPROVE` commit).
+
+    Returns None when unresolvable (no phase, no state.json, no recorded
+    entry for phase-1) — callers must fall back to the unscoped grep so
+    projects without reset history see no behavior change.
+    """
+    if phase is None or phase < 2:
+        return None
+    state_path = project / ".methodology" / "state.json"
+    if not state_path.exists():
+        return None
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    entry = state.get("phase_completed", {}).get(str(phase - 1))
+    if not isinstance(entry, dict):
+        return None
+    sha = entry.get("sha")
+    return sha if isinstance(sha, str) and sha else None
+
+
 def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | None = None) -> bool:
     """Idempotency check: is this step already done for THIS phase?
 
@@ -1317,11 +1349,14 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
         sentinel = gate1_evidence._finalize_sentinel_path(project, 1, fr_id, phase=phase)
         committed = sentinel.exists()
     else:
-        # Legacy callers without phase info: unscoped grep (unchanged behavior).
-        r = _sp.run(
-            ["git", "log", "--oneline", "--grep", pattern],
-            capture_output=True, text=True, cwd=str(project),
-        )
+        # TDD steps: grep scoped to this phase's lineage when a boundary is
+        # resolvable (see _fr_step_lineage_boundary) — falls back to the
+        # unscoped grep (unchanged behavior) when it is not.
+        cmd = ["git", "log", "--oneline", "--grep", pattern]
+        boundary = _fr_step_lineage_boundary(project, phase)
+        if boundary:
+            cmd.append(f"{boundary}..HEAD")
+        r = _sp.run(cmd, capture_output=True, text=True, cwd=str(project))
         committed = bool(r.stdout.strip())
     if not committed:
         return False

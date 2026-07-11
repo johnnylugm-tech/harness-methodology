@@ -736,6 +736,99 @@ class TestRunFrStep:
         }))
         assert not _fr_step_already_done("GATE1", "FR-05", tmp_path, phase=3)
 
+    @staticmethod
+    def _git(tmp_path, *args):
+        import subprocess as _sp
+        r = _sp.run(["git", *args], cwd=str(tmp_path), capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return r.stdout
+
+    def _init_repo(self, tmp_path):
+        self._git(tmp_path, "init", "-q")
+        self._git(tmp_path, "config", "user.email", "t@t.com")
+        self._git(tmp_path, "config", "user.name", "t")
+
+    def test_tdd_improve_ignores_stale_commit_before_phase_boundary(self, tmp_path):
+        """Reset-rerun repro (2026-07-11 P3 rerun, FR-02): a059848 (the chosen
+        P3-pre boundary) was itself a descendant of an earlier complete P3 run
+        and its OWN ancestry already contained `refactor(FR-02): IMPROVE`.
+        _fr_step_already_done's unscoped `git log --grep` matched that stale
+        commit, and TDD-IMPROVE has no secondary evidence check (unlike
+        TDD-RED/GREEN) — it fell straight to `return True`, silently skipping
+        the real IMPROVE work for this run. Scoping the grep to
+        `<phase-boundary>..HEAD` (boundary read from tracked state.json
+        phase_completed, which survives `git reset --hard` unlike sentinels
+        under gitignored .sessi-work/) excludes commits that predate this
+        run's lineage.
+        """
+        self._init_repo(tmp_path)
+
+        # Stale prior-lineage work, an ancestor of the boundary commit —
+        # mirrors a059848's ancestry containing old GREEN/IMPROVE commits.
+        (tmp_path / "old.txt").write_text("1")
+        self._git(tmp_path, "add", "old.txt")
+        self._git(tmp_path, "commit", "-q", "-m", "refactor(FR-02): IMPROVE")
+
+        # This run's lineage root (state.json phase_completed["2"].sha points here).
+        (tmp_path / "boundary.txt").write_text("2")
+        self._git(tmp_path, "add", "boundary.txt")
+        self._git(tmp_path, "commit", "-q", "-m", "handover: advance to Phase 3")
+        boundary_sha = self._git(tmp_path, "rev-parse", "HEAD").strip()
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text(json.dumps({
+            "phase_completed": {"2": {"sha": boundary_sha}},
+        }))
+
+        # This run's own progress so far — no IMPROVE commit for FR-02 in it.
+        (tmp_path / "new.txt").write_text("3")
+        self._git(tmp_path, "add", "new.txt")
+        self._git(tmp_path, "commit", "-q", "-m", "test(RED): failing test for FR-02")
+
+        assert not _fr_step_already_done("TDD-IMPROVE", "FR-02", tmp_path, phase=3), (
+            "stale IMPROVE commit predating the phase-3 boundary must not "
+            "satisfy idempotency for this run's TDD-IMPROVE step"
+        )
+
+    def test_tdd_improve_recognizes_commit_after_phase_boundary(self, tmp_path):
+        """Companion to the stale-lineage repro: a genuine IMPROVE commit made
+        WITHIN this run's lineage (after the boundary) must still mark the
+        step done — the range-scoping must not break real idempotency."""
+        self._init_repo(tmp_path)
+
+        (tmp_path / "boundary.txt").write_text("1")
+        self._git(tmp_path, "add", "boundary.txt")
+        self._git(tmp_path, "commit", "-q", "-m", "handover: advance to Phase 3")
+        boundary_sha = self._git(tmp_path, "rev-parse", "HEAD").strip()
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        (method_dir / "state.json").write_text(json.dumps({
+            "phase_completed": {"2": {"sha": boundary_sha}},
+        }))
+
+        (tmp_path / "new.txt").write_text("2")
+        self._git(tmp_path, "add", "new.txt")
+        self._git(tmp_path, "commit", "-q", "-m", "refactor(FR-02): IMPROVE")
+
+        assert _fr_step_already_done("TDD-IMPROVE", "FR-02", tmp_path, phase=3)
+
+    def test_tdd_improve_falls_back_to_unscoped_when_boundary_unresolvable(self, tmp_path, monkeypatch):
+        """No state.json / no phase_completed entry (e.g. old projects, or
+        phase=1/2 with nothing recorded yet): behavior must be unchanged
+        (unscoped grep) — the range-scoping fix must be a no-op for projects
+        with no reset history."""
+        import subprocess as _sp
+
+        class _FakeResult:
+            returncode = 0
+            stdout = "refactor(FR-02): IMPROVE"
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _FakeResult())
+
+        assert _fr_step_already_done("TDD-IMPROVE", "FR-02", tmp_path, phase=3)
+
     def test_run_fr_step_handles_git_push_failure_as_fatal(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step prints an error and returns 1 when git push fails (fatal check-recovery)."""
         import sys

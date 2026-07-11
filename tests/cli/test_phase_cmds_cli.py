@@ -223,6 +223,35 @@ def _mock_constitution_pass(monkeypatch):
     )
 
 
+def _mock_prechecks_reach_sab_block(monkeypatch):
+    """Pass PhaseAuditor + Phase Truth + spec-coverage so _advance_prechecks
+    (with no 03-development/src, so pytest is skipped) reaches the P2-A SAB
+    consistency block. Shared by every test below that needs to observe SAB
+    check behavior without re-deriving the same pass-through mocks.
+    """
+    monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
+    monkeypatch.setattr(
+        "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
+        type("FV", (), {
+            "__init__": lambda _, __, ___: None,
+            "verify": lambda _: {"passed": True, "total_score": 100.0},
+        }),
+    )
+    monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check",
+                        lambda *_, **__: (0, 100.0))
+
+
+def _mock_advance_phase_bypass_prechecks(monkeypatch):
+    """Bypass _advance_prechecks + _advance_fsm so cmd_advance_phase reaches
+    its post-precheck commit-staging logic without needing a full CI-passing
+    project. Shared by every cmd_advance_phase-level test below (TestP2 /
+    TestAdvancePhaseRefreshesAttestation / ...) that only cares about
+    behavior AFTER the prechecks gate.
+    """
+    monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
+    monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
+
+
 class TestAdvancePrechecksTDD:
     """Tests for the P3+ TDD block in _advance_prechecks."""
 
@@ -274,22 +303,41 @@ class TestAdvancePrechecksTDD:
         (tmp_path / ".methodology").mkdir()  # no src dir
         _write_finalize_sentinels_for_tests(tmp_path)
         _mock_constitution_pass(monkeypatch)
-        monkeypatch.setattr("cli._shared._run_phase_auditor", lambda _, __: 0)
-        monkeypatch.setattr(
-            "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
-            type("FV", (), {
-                "__init__": lambda _, __, ___: None,
-                "verify": lambda _: {"passed": True, "total_score": 100.0},
-            }),
-        )
-        # spec-coverage returns pass (unified D4, v2.6)
-        monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check",
-                            lambda *_, **__: (0, 100.0))
+        _mock_prechecks_reach_sab_block(monkeypatch)
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 0
+
+    def test_sab_missing_module_blocks_advance_returns_12(self, tmp_path, monkeypatch):
+        """SAB declares a module with no on-disk file → _advance_prechecks returns 12.
+
+        Reset-rerun 2026-07-11: the probe matched `"missing from codebase" in
+        description`, but detect_sab_drift's actual text is "file not found in
+        codebase" — the substring never matched, so this guard (added
+        specifically to catch missing-file drift "before git push fails")
+        never fired and a P3 advance with 3 undeclared-missing SAB modules
+        proceeded straight through to a stranded handover commit.
+        """
+        from cli.phase_cmds import _advance_prechecks
+
+        (tmp_path / ".methodology").mkdir()
+        _write_finalize_sentinels_for_tests(tmp_path)
+        _mock_constitution_pass(monkeypatch)
+        _mock_prechecks_reach_sab_block(monkeypatch)
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
+        (tmp_path / ".methodology" / "SAB.json").write_text(json.dumps({
+            "layers": [
+                {"name": "core", "modules": ["taskq.config"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {"core": []},
+        }))
+        # taskq.config deliberately has no file on disk anywhere
+
+        rc = _advance_prechecks(tmp_path, completed_phase=3)
+        assert rc == 12
 
     def test_spec_coverage_below_threshold_returns_10(self, tmp_path, monkeypatch):
         """spec-coverage below threshold → _advance_prechecks returns 10."""
@@ -1238,11 +1286,10 @@ class TestP2AdvanceRegeneratesManifest:
 
         # Mock prechecks so cmd_advance_phase doesn't trip on missing CI artifacts
         _write_finalize_sentinels_for_tests(tmp_path)
-        monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
+        _mock_advance_phase_bypass_prechecks(monkeypatch)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
         monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("shutil.which", lambda c: None)  # no CRG
-        monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
 
         class _FakeGen:
             def __init__(self, *a, **kw): pass
@@ -1432,6 +1479,118 @@ class TestP2AdvanceRegeneratesManifest:
 # =============================================================================
 # P7→P8: deterministic CONFIG_RECORDS / RELEASE_CHECKLIST baseline
 # =============================================================================
+
+class TestAdvancePhaseRefreshesAttestation:
+    """Regression 2026-07-11: cmd_advance_phase never refreshed the
+    traceability attestation before its handover commit, unlike
+    push-checkpoint/push-milestone (push_cmds.py: "every push path is
+    symmetric"). A P3->P4 advance could land a stale attestation SHA that
+    then blocks the next P5+ pre-push with a mismatch it gives no
+    actionable trail back to.
+    """
+
+    def _setup(self, tmp_path: Path, monkeypatch) -> None:
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+        (tmp_path / ".methodology" / "trace").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "phase3_plan.md").touch()
+        (tmp_path / ".methodology" / "phase4_plan.md").touch()
+        _write_finalize_sentinels_for_tests(tmp_path)
+
+        _mock_advance_phase_bypass_prechecks(monkeypatch)
+        monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
+        monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
+        monkeypatch.setattr("shutil.which", lambda c: None)  # no CRG
+        # _regen_traceability_views is NOT mocked here — it self-guards
+        # missing SRS/SAD sources with a print-and-skip (verified: running
+        # it for real against this fixture's bare tmp_path only prints
+        # "TRACEABILITY_MATRIX.md view regen skipped: ..."), so leaving it
+        # real avoids one more private-name patch for no behavior difference.
+
+        class _FakeGen:
+            def __init__(self, *a, **kw): pass
+            def write(self, *a, **kw): pass
+        monkeypatch.setattr("cli.phase_cmds.HandoverGenerator", _FakeGen)
+
+        self._git_add_calls: list[list] = []
+
+        def _fake_run(cmd, **kwargs):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            if isinstance(cmd, (list, tuple)) and cmd[0] == "git" and "add" in cmd:
+                self._git_add_calls.append(list(cmd))
+            return R()
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    def _build_args(self, project: Path, completed_phase: int):
+        import argparse
+        return argparse.Namespace(
+            project=str(project), completed_phase=completed_phase,
+        )
+
+    def test_p3_advance_refreshes_attestation_before_commit(self, tmp_path, monkeypatch):
+        """P3->P4 advance must call build_attestation/write_attestation and
+        stage the resulting attestation.json — mirroring push_cmds.py."""
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+
+        calls = {"build": 0, "write": 0}
+
+        def _fake_build(project):
+            calls["build"] += 1
+            return {"git_sha": "deadbeef", "content_sha256": "abc123"}
+
+        def _fake_write(project, attestation):
+            calls["write"] += 1
+            att_path = project / ".methodology" / "trace" / "attestation.json"
+            att_path.write_text(json.dumps(attestation), encoding="utf-8")
+
+        monkeypatch.setattr(
+            "scripts.build_trace_attestation.build_attestation", _fake_build
+        )
+        monkeypatch.setattr(
+            "scripts.build_trace_attestation.write_attestation", _fake_write
+        )
+
+        assert cmd_advance_phase(self._build_args(tmp_path, 3)) == 0
+
+        assert calls["build"] == 1, "build_attestation was not called during P3->P4 advance"
+        assert calls["write"] == 1, "write_attestation was not called during P3->P4 advance"
+
+        added = any(
+            any(str(arg).endswith("attestation.json") for arg in call)
+            for call in self._git_add_calls
+        )
+        assert added, (
+            f"git-add did not include refreshed attestation.json; "
+            f"captured calls: {self._git_add_calls}"
+        )
+
+    def test_p2_advance_skips_attestation_refresh(self, tmp_path, monkeypatch):
+        """P2->P3 (completed_phase < 3): no code exists yet for the scan —
+        attestation refresh must not run (mirrors _regen_traceability_views
+        gating)."""
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        (tmp_path / ".methodology" / "phase2_plan.md").touch()
+
+        calls = {"build": 0}
+
+        def _fake_build(project):
+            calls["build"] += 1
+            return {"git_sha": "deadbeef", "content_sha256": "abc123"}
+
+        monkeypatch.setattr(
+            "scripts.build_trace_attestation.build_attestation", _fake_build
+        )
+
+        assert cmd_advance_phase(self._build_args(tmp_path, 2)) == 0
+        assert calls["build"] == 0, "attestation refresh must not run before P3"
+
 
 class TestP7AdvanceGeneratesP8Baseline:
     """Regression tests for the post-merge review finding: the

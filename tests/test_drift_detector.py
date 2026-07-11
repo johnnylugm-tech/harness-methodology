@@ -73,6 +73,60 @@ class TestDriftDetector:
         assert result.has_drift is False
         assert result.score == 1.0
 
+    def test_detect_sad_drift_ignores_nfr_rows(self, tmp_path):
+        """NFR-XX table rows must not be parsed as phantom FR-XX mappings.
+
+        Reset-rerun 2026-07-11: SAD.md NFR rows like
+        `| NFR-06 | deployability | \\`config.py\\` ... |` matched
+        SAD_FR_PATTERN via the FR-06 substring inside NFR-06, producing a
+        HIGH "SAD maps FR-06 to config.py but file not found" drift for an
+        FR that does not exist in the spec.
+        """
+        arch_dir = tmp_path / "02-architecture"
+        arch_dir.mkdir()
+        sad_path = arch_dir / "SAD.md"
+        sad_path.write_text(
+            "| NFR-06 | deployability | `config.py` reads 8 env vars |\n"
+            "| NFR-03 | reliability | `store.py` atomic writes |\n"
+        )
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sad_drift()
+
+        assert result.checked == 0
+        assert result.drifted == 0
+        assert result.has_drift is False
+
+    def test_detect_sad_drift_still_matches_real_fr_rows(self, tmp_path):
+        """Real FR-XX rows keep matching after the NFR lookbehind fix."""
+        arch_dir = tmp_path / "02-architecture"
+        arch_dir.mkdir()
+        (arch_dir / "SAD.md").write_text(
+            "| FR-01 | `missing.py` |\n"
+            "| NFR-06 | `config.py` env vars |\n"
+        )
+
+        result = DriftDetector(str(tmp_path)).detect_sad_drift()
+
+        assert result.checked == 1
+        assert result.drifted == 1
+        assert result.drift_items[0].location == "FR-01"
+
+    def test_detect_spec_drift_ignores_nfr_mentions(self, tmp_path):
+        """NFR-XX text in SRS/code must not create phantom FR requirements."""
+        req_dir = tmp_path / "01-requirements"
+        req_dir.mkdir()
+        (req_dir / "SRS.md").write_text(
+            "Requirements: FR-01. Non-functional: NFR-06 deployability."
+        )
+        (tmp_path / "app.py").write_text('""" [FR-01] """\ndef main(): pass')
+
+        result = DriftDetector(str(tmp_path)).detect_spec_drift()
+
+        assert result.checked == 1  # FR-01 only — NFR-06 is not FR-06
+        assert result.drifted == 0
+        assert result.has_drift is False
+
     def test_detect_all_returns_dict(self, tmp_path):
         detector = DriftDetector(str(tmp_path))
         results = detector.detect_all()
@@ -264,6 +318,42 @@ class TestSabDriftDetection:
             f"Bug #31 regression: registered dotted-module files falsely flagged "
             f"as unregistered: {[i.location for i in unregistered]}"
         )
+
+    def test_sab_drift_missing_module_counted_once(self, tmp_path):
+        """A missing SAB module must produce exactly ONE drift item.
+
+        Reset-rerun 2026-07-11: the registry registers each bare module key
+        plus a pkg_dir-prefixed alias (built only so Check 2 can match
+        src-layout paths — see the comment above the alias registration).
+        Check 1 iterated both keys, so every missing module was double-counted
+        (3 real gaps reported as 6 drifts) and existing modules double-counted
+        as passing, distorting the sab score in both directions.
+        """
+        import json as _json
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "core", "modules": ["taskq.cli", "taskq.config"],
+                 "allowed_dependencies": []},
+            ],
+            "dependencies": {"core": []},
+        }
+        (method_dir / "SAB.json").write_text(_json.dumps(sab_json))
+        dev_dir = tmp_path / "03-development" / "src" / "taskq"
+        dev_dir.mkdir(parents=True)
+        (dev_dir / "cli.py").write_text("# cli")
+        # taskq.config deliberately missing
+
+        result = DriftDetector(str(tmp_path)).detect_sab_drift()
+
+        missing = [i for i in result.drift_items if i.actual == "not found"]
+        assert len(missing) == 1, (
+            f"missing module double-counted: {[i.expected for i in missing]}"
+        )
+        assert missing[0].expected == "taskq.config"
+        assert result.checked == 2  # one entry per declared module
+        assert result.drifted == 1
 
     def test_dotted_sab_entry_unregistered_file_still_caught(self, tmp_path):
         """Check 2 with dotted SAB entries: a truly unregistered file alongside

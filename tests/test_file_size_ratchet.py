@@ -28,8 +28,17 @@ _GOD_FILE_THRESHOLD = 900
 _LINE_CEILING: dict[str, int] = {
     "harness/harness_bridge.py": 2929,
     "cli/gate_cmds.py": 2567,
-    "cli/phase_cmds.py": 2515,
-    "cli/fr_cmds.py": 2147,
+    # 2026-07-11: +26 lines — cmd_advance_phase now refreshes the
+    # traceability attestation before its handover commit (mirrors the
+    # existing push_cmds.py refresh in push-checkpoint/push-milestone), and
+    # the P2-A SAB pre-check now matches DriftItem.actual instead of a dead
+    # description substring.
+    "cli/phase_cmds.py": 2541,
+    # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
+    # scoped to the current phase's lineage boundary (read from tracked
+    # state.json phase_completed), fixing a false "already done" skip on
+    # reset-and-rerun projects (TDD-IMPROVE had no secondary evidence check).
+    "cli/fr_cmds.py": 2182,
     "cli/project_cmds.py": 1860,
     "scripts/phase_auditor.py": 1846,
     "scripts/plangen/blocks.py": 1650,

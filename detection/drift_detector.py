@@ -272,9 +272,13 @@ class DriftDetector:
     3. Phase drift-- state.json phase vs artifact presence
     """
 
-    FR_PATTERN = re.compile(r'FR-(\d+)')
+    # (?<!N) — "NFR-06" contains the substring "FR-06"; without the
+    # lookbehind every NFR table row parses as a phantom FR mapping
+    # (2026-07-11: SAD.md NFR-06 row produced a HIGH "FR-06 → config.py
+    # not found" drift for an FR that does not exist in the spec).
+    FR_PATTERN = re.compile(r'(?<!N)FR-(\d+)')
     MODULE_PATTERN = re.compile(r'`([^`]+\.py)`')
-    SAD_FR_PATTERN = re.compile(r'FR-(\d+)[^\n]*?`([^`]+\.py)`')
+    SAD_FR_PATTERN = re.compile(r'(?<!N)FR-(\d+)[^\n]*?`([^`]+\.py)`')
 
     # Expected artifacts per phase (canonical 0X-name/ paths)
     PHASE_ARTIFACTS = {
@@ -550,6 +554,11 @@ class DriftDetector:
 
         # ── Build SAB file registry ───────────────────────────────────────
         sab_files: dict[str, str] = {}  # relative_path → layer_name
+        # pkg_dir-prefixed aliases exist ONLY so Check 2 can match src-layout
+        # file paths; Check 1 and the `checked` denominator must skip them,
+        # otherwise every module is counted twice (a missing module produced
+        # two drift items and an existing one two passes — both distortions).
+        alias_keys: set[str] = set()
         for layer in layers:
             layer_name = layer.get("name", "")
             for mod in layer.get("modules", []):
@@ -573,14 +582,17 @@ class DriftDetector:
                     pkg_dir_basename = pkg_dir.rsplit("/", 1)[-1]
                     if actual_mod.split(".", 1)[0] != pkg_dir_basename:
                         norm_pkg = pkg_dir.replace("/", ".")
-                        sab_files[f"{norm_pkg}.{actual_mod}"] = layer_name
+                        alias_key = f"{norm_pkg}.{actual_mod}"
+                        if alias_key not in sab_files:
+                            sab_files[alias_key] = layer_name
+                            alias_keys.add(alias_key)
                 # Also register files inside directories (e.g. "core/quality_gate/" → all files)
                 if actual_mod.endswith("/"):
                     for py_file in self.project_path.rglob(f"{actual_mod}*.py"):
                         rel = str(py_file.relative_to(self.project_path))
                         sab_files[rel] = layer_name
 
-        checked += len(sab_files)
+        checked += len(sab_files) - len(alias_keys)
 
         # ── Check 1: SAB files missing from codebase ──────────────────────
         # SAB `modules` entries use Python dotted notation (e.g. "src.taskq.config",
@@ -589,6 +601,8 @@ class DriftDetector:
         # Bug #119: use shared sab_module_to_path_variants() so this check
         # agrees with PhaseHooks._check_sab_constitution.
         for rel_path, layer_name in sab_files.items():
+            if rel_path in alias_keys:
+                continue
             if not rel_path.endswith("/") and not re.match(r'^FR-\d+$', rel_path):
                 path_variants = sab_module_to_path_variants(rel_path, pkg_dir)
                 exists = False

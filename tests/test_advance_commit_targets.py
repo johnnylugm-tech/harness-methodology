@@ -60,3 +60,25 @@ def test_phase8_config_files_only_when_entering_p8():
     non_p8 = _advance_commit_targets(6, 7, manifest_regenerated=False, fr_progress_exists=True)
     assert "08-config/CONFIG_RECORDS.md" in p8
     assert "08-config/CONFIG_RECORDS.md" not in non_p8
+
+
+def test_includes_attestation_when_present():
+    """Regression 2026-07-11: push-checkpoint/push-milestone both refresh +
+    stage .methodology/trace/attestation.json before every push (push_cmds.py
+    comment: "so every push path is symmetric"), but advance-phase was the one
+    caller that never did — so a handover commit lands with a stale
+    attestation SHA, only caught (as blocking) at the P5+ pre-push.
+    """
+    targets = _advance_commit_targets(
+        3, 4, manifest_regenerated=False, fr_progress_exists=True,
+        attestation_exists=True,
+    )
+    assert ".methodology/trace/attestation.json" in targets
+
+
+def test_omits_attestation_when_absent():
+    targets = _advance_commit_targets(
+        3, 4, manifest_regenerated=False, fr_progress_exists=True,
+        attestation_exists=False,
+    )
+    assert ".methodology/trace/attestation.json" not in targets

@@ -90,3 +90,15 @@ class TestEnsembleScorer:
         assert d["mean_confidence"] == 0.5
         assert d["threshold"] == 0.6
         assert d["count"] == 0
+
+    def test_coverage_scorer_ignores_nfr_mentions(self):
+        """An NFR-03 mention must not satisfy expected_fr=FR-03 (phantom substring)."""
+        scorer = EnsembleScorer()
+        result = {
+            "status": "success",
+            "confidence": 9,
+            "summary": "Verified NFR-03 reliability targets",
+            "citations": ["NFR-03 SAD.md#L220"],
+        }
+        score = scorer.score(result, expected_fr="FR-03")
+        assert score.coverage_score == 0.0

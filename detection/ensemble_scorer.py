@@ -108,7 +108,9 @@ class _CitationScorer:
 class _CoverageScorer:
     """Score FR requirement coverage."""
 
-    FR_PATTERN = re.compile(r'FR-\d+')
+    # (?<!N) — an "NFR-03" mention must not count as FR-03 coverage
+    # (same phantom-FR substring bug as DriftDetector.FR_PATTERN).
+    FR_PATTERN = re.compile(r'(?<!N)FR-\d+')
 
     def score(self, result: Dict[str, Any], expected_fr: Optional[str] = None) -> float:
         """Score."""

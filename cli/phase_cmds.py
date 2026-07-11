@@ -567,6 +567,22 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
+        # Refresh the traceability attestation before staging — mirrors the
+        # push_cmds.py pre-refresh in cmd_push_checkpoint/cmd_push_milestone
+        # ("every push path is symmetric"). advance-phase was the one caller
+        # that skipped this, so its handover commit could carry a stale
+        # attestation SHA that only surfaces as a blocking failure at the
+        # next P5+ pre-push. Gated to completed_phase >= 3 — no code exists
+        # yet for the scan before that (same threshold as
+        # _regen_traceability_views below).
+        if args.completed_phase >= 3:
+            try:
+                from scripts.build_trace_attestation import build_attestation, write_attestation
+                _att = build_attestation(project)
+                write_attestation(project, _att)
+            except Exception as _att_err:  # pylint: disable=broad-exception-caught
+                print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
+
         # Fix Finding #3: include regenerated quality_manifest.json in commit when
         # P2→P3 just regenerated it, so the advance commit captures the fresh data
         # atomically (state.json + manifest). Without this, the regenerated file
@@ -578,6 +594,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             (project / ".methodology" / "gate_timestamps.jsonl").exists(),
             (project / "00-summary" / f"Phase{args.completed_phase}_STAGE_PASS.md").exists(),
             (project / ".methodology" / f"phase{args.completed_phase}_plan.md").exists(),
+            attestation_exists=(project / ".methodology" / "trace" / "attestation.json").exists(),
         )
         _commit_failure: Optional[str] = None
         add_result = subprocess.run(
@@ -1038,6 +1055,7 @@ def _advance_commit_targets(
     gate_timestamps_exists: bool = False,
     stage_pass_exists: bool = False,
     plan_exists: bool = True,
+    attestation_exists: bool = False,
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -1057,6 +1075,12 @@ def _advance_commit_targets(
     single `git add` in the advance commit covers it — even if the earlier
     conditional git-add at line ~6372 was skipped because content matched the
     already-committed bytes.
+
+    .methodology/trace/attestation.json mirrors the refresh-before-push pattern
+    push_cmds.py already applies to push-checkpoint/push-milestone ("every push
+    path is symmetric") — advance-phase was the one caller that skipped it,
+    landing a handover commit with a stale attestation SHA that only surfaces
+    as a blocking failure at the next P5+ pre-push.
     """
     targets = [
         ".methodology/state.json", "HANDOVER.md",
@@ -1076,6 +1100,8 @@ def _advance_commit_targets(
         targets.append(".methodology/quality_manifest.json")
     if stage_pass_exists:
         targets.append(f"00-summary/Phase{completed_phase}_STAGE_PASS.md")
+    if attestation_exists:
+        targets.append(".methodology/trace/attestation.json")
     if next_phase == 8:
         targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
     return targets
@@ -1804,7 +1830,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             _sab_medium = [
                 _item for _item in _sab_result.drift_items
                 if _item.severity.value in ("MEDIUM", "HIGH", "CRITICAL")
-                and "missing from codebase" in _item.description
+                and _item.actual == "not found"
             ]
             if _sab_medium:
                 print(
