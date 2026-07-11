@@ -396,7 +396,9 @@ async function runSubTask(cfg) {
     // validates prefix/size/SHA; eliminates LLM-as-parser failure mode).
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix, cfg.phaseName)
     if (content.startsWith('FILE_MISSING') || content.startsWith('ERROR:') || content.length < 50) {
-      return { error: cfg.name + ': not found on disk after A (round ' + round + ')', loader_preview: content.slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }
+      log('  A disk empty (parse-fail + no file) → retrying next round')
+      continue
     }
     log('  A status=' + (a && a.status ? a.status : 'assumed-OK') + ' | ' + cfg.diskPath + ' loaded: ' + content.length + ' chars')
 
@@ -741,7 +743,7 @@ function srsAPrompt(round, prevB2) {
     + '   - FORBIDDEN: vague/non-testable acceptance criteria.\n'
     + '   - Structure: 1) Introduction, 2) Constraints, 3) Functional Requirements (one § per FR with testable AC + canonical spec citation), 4) Non-Functional Requirements (one § per NFR with measurable AC + citation), 5) Acceptance Criteria Summary, 6) Out-of-Scope, 7) Open Issues (deferred items with NFR-99 / FR-XX-deferred tags), 8) Risks, 9) Glossary.\n'
     + '   - Create directory ' + REPO + '/01-requirements if missing. Use Write tool to create the file.\n'
-    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes to SRS.md via Edit (surgical; do NOT rewrite the whole file). MED/LOW gaps: log but skip unless trivial.\n'
+    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes to SRS.md via Edit (surgical; do NOT rewrite the whole file). MED/LOW gaps: log but skip unless trivial.\n' : '')
     + '5. (Re-)read file via Read tool to capture its FINAL on-disk state after any edits.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/SRS.md && wc -l ' + REPO + '/01-requirements/SRS.md`\n'
     + '7. Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
@@ -812,7 +814,7 @@ function specTrackAPrompt(round, prevB2) {
     + '2. Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness.\n'
     + '   **REQUIRED H1 (must include "Specification Tracking Matrix")**: the file MUST start with `# Specification Tracking Matrix — \`<project-name>\`` (or any H1 line containing the phrase "Specification Tracking Matrix"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n'
     + '3. (Re-)read file via Read for final state.\n'
-    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
+    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n' : '')
     + '5. (Re-)read file for final state.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/SPEC_TRACKING.md && wc -l ' + REPO + '/01-requirements/SPEC_TRACKING.md`\n'
     + '7. Return ONLY this compact JSON — do NOT embed file content:\n'
@@ -873,7 +875,7 @@ function traceAPrompt(round, prevB2) {
     + '   - If MISSING: Continue to step 2.\n'
     + '2. Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage.\n'
     + '3. (Re-)read file via Read for final state.\n'
-    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
+    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n' : '')
     + '5. (Re-)read file for final state.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && wc -l ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md`\n'
     + '7. Return ONLY this compact JSON:\n'
@@ -945,7 +947,7 @@ function testInvAPrompt(round, prevB2) {
     + '     - by_layer.<L>.count MUST equal count(tc_ids in tests block with layer=<L>).\n'
     + '     - These two MUST equal total_test_cases (no arithmetic drift).\n'
     + '3. (Re-)read file via Read for final state.\n'
-    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
+    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n' : '')
     + '5. (Re-)read file for final state.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/TEST_INVENTORY.yaml && wc -l ' + REPO + '/TEST_INVENTORY.yaml`\n'
     + '7. Verify internal arithmetic: enumerate tc_ids in tests block → must equal by_fr_total AND by_layer_total AND total_test_cases.\n'

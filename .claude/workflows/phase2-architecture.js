@@ -251,7 +251,9 @@ async function abLoop(cfg) {
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)
     if (content.startsWith('ERROR:') || content.length < 50) {
-      return { error: cfg.deliverable + ' not found on disk after A (round ' + round + ')', loader_preview: content.slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }
+      log('  A disk empty (parse-fail + no file) → retrying next round')
+      continue
     }
     log('  A status=' + (a && a.status ? a.status : 'assumed-OK') + ' | disk loaded: ' + content.length + ' chars, confidence=' + (a && a.confidence ? a.confidence : '?'))
 
@@ -516,7 +518,7 @@ const sad = await abLoop({
     + '   - §5 SAB block placeholder: include the literal marker `<!-- SAB:START -->` (real YAML filled in SAB Generation phase later).\n'
     + '   - No circular dependencies.\n'
     + '3. Re-read file (Read) for FINAL state. Create dir ' + REPO + '/02-architecture if missing (Write tool).\n'
-    + (round > 1 ? '4. Apply HIGH-severity gap fixes from previous B-2 (DOC below) via Edit (surgical, do NOT rewrite whole file).\n' : '')
+    + (round > 1 && prevB2 ? '4. Apply HIGH-severity gap fixes from previous B-2 (DOC below) via Edit (surgical, do NOT rewrite whole file).\n' : '')
     + 'Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","files":["02-architecture/SAD.md"],"confidence":"high|medium|low","citations":["SRS.md FR-01","..."],"summary":"<1-2 lines>"}\n\n'
     + 'SCOPE RULES:\n- DO NOT write ADR.md or TEST_SPEC.md.\n- DO NOT run phase-transition / quality-gate / generate_sab commands.\n- DO NOT modify harness/ (HR-17).\n- ONLY author SAD.md and return JSON.'
@@ -549,7 +551,7 @@ const adr = await abLoop({
     + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/adr/ADR.md`. If EXISTS, Read it.\n'
     + '2. Extract key architecture decisions from SAD.md (read ' + REPO + '/02-architecture/SAD.md). Write individual ADR entries. EACH ADR: context, decision, consequences, alternatives considered. Cover tech stack (Python 3.11 stdlib-only), patterns (ThreadPoolExecutor, atomic write, circuit breaker), interfaces. Remove any `<!-- harness:template-stub -->` markers.\n'
     + '3. Create dir ' + REPO + '/02-architecture/adr if missing. Re-read for FINAL state.\n'
-    + (round > 1 ? '4. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
+    + (round > 1 && prevB2 ? '4. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
     + 'Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","files":["02-architecture/adr/ADR.md"],"confidence":"high|medium|low","citations":["..."],"summary":"..."}\n\n'
     + 'SCOPE RULES:\n- DO NOT write SAD.md or TEST_SPEC.md.\n- DO NOT run phase-transition / quality-gate commands.\n- ONLY author ADR.md.'
@@ -606,7 +608,7 @@ const testSpec = await abLoop({
     + '   - NFR Pattern Activation table + cross-cutting section + Summary table (counts per type).\n'
     + '3. Run self-consistency: `' + PY + ' ' + REPO + '/harness_cli.py check-test-spec-consistency --project ' + REPO + '`. Fix until it passes.\n'
     + '4. Re-read for FINAL state.\n'
-    + (round > 1 ? '5. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
+    + (round > 1 && prevB2 ? '5. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
     + 'Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","files":["02-architecture/TEST_SPEC.md"],"confidence":"high|medium|low","citations":["..."],"summary":"..."}\n\n'
     + 'SCOPE RULES:\n- DO NOT write SAD/ADR.\n- DO NOT run phase-transition / run-gate commands.\n- DO NOT modify harness/.\n- ONLY author TEST_SPEC.md (check-test-spec-consistency is allowed).'
