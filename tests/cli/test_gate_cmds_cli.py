@@ -212,12 +212,12 @@ class TestVerifyEnvCheckClaims:
         """env_vars.optional_missing is trusted by design — the verifier
         never inspects it. Vars with baked-in config defaults go here."""
         from cli.gate_cmds import _verify_env_check_claims
-        monkeypatch.delenv("TASKQ_HOME", raising=False)
-        monkeypatch.delenv("TASKQ_MAX_WORKERS", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("REDIS_HOST", raising=False)
         self._write(tmp_path, {
             "env_vars": {
                 "required": [],
-                "optional_missing": ["TASKQ_HOME", "TASKQ_MAX_WORKERS"],
+                "optional_missing": ["DATABASE_URL", "REDIS_HOST"],
             },
         })
         assert _verify_env_check_claims(tmp_path) == [], (
@@ -230,33 +230,33 @@ class TestVerifyEnvCheckClaims:
         untouched — even when the same var name appears there too."""
         from cli.gate_cmds import _verify_env_check_claims
         monkeypatch.delenv("FAKE_MISSING_VAR_XYZ", raising=False)
-        monkeypatch.delenv("TASKQ_HOME", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
         self._write(tmp_path, {
             "env_vars": {
                 "required": [
                     {"name": "FAKE_MISSING_VAR_XYZ", "present": True},
                 ],
-                "optional_missing": ["TASKQ_HOME"],
+                "optional_missing": ["DATABASE_URL"],
             },
         })
         findings = _verify_env_check_claims(tmp_path)
         assert len(findings) == 1, f"expected 1 finding (FAKE_MISSING_VAR_XYZ only), got {findings}"
         assert any("FAKE_MISSING_VAR_XYZ" in f for f in findings)
-        assert not any("TASKQ_HOME" in f for f in findings), (
-            "TASKQ_HOME in optional_missing must NOT be flagged"
+        assert not any("DATABASE_URL" in f for f in findings), (
+            "DATABASE_URL in optional_missing must NOT be flagged"
         )
 
     def test_real_exported_var_and_optional_missing_pass_together(self, tmp_path, monkeypatch):
         """A real exported var (PATH) in required + optional_missing entries
         — both pass; the real claim is verified, the optional entries trusted."""
         from cli.gate_cmds import _verify_env_check_claims
-        monkeypatch.delenv("TASKQ_HOME", raising=False)
+        monkeypatch.delenv("DATABASE_URL", raising=False)
         self._write(tmp_path, {
             "env_vars": {
                 "required": [
                     {"name": "PATH", "present": True},
                 ],
-                "optional_missing": ["TASKQ_HOME"],
+                "optional_missing": ["DATABASE_URL"],
             },
         })
         assert _verify_env_check_claims(tmp_path) == [], (
