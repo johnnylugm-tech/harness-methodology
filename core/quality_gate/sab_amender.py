@@ -224,5 +224,6 @@ def _safe_load(path: Path) -> dict:
     try:
         with path.open(encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] _safe_load: could not read {path}: {exc}")
         return {}

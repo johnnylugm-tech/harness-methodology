@@ -408,8 +408,9 @@ def fr_code_changed_since_last_gate1(fr_id: str, project: Path, phase: int | Non
                                 return True
                     except Exception:
                         pass
-        except Exception:
+        except Exception as exc:
             # On parse error, fail safe
+            print(f"[WARN] git diff hunk parse failed for {fr_id}: {exc}")
             return True
 
     return False
@@ -453,7 +454,8 @@ def validate_fr_coverage_immediate(
         )
     except subprocess.TimeoutExpired:
         return None
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] validate_fr_coverage_immediate: pytest run failed: {exc}")
         return None
     m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout)
     if m:

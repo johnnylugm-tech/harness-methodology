@@ -894,7 +894,8 @@ def _architecture_regression_reason(
         from harness.ssi.scripts.crg_analysis import compute_structural_drift
         bl = json.loads(bl_path.read_text(encoding="utf-8"))
         drift = compute_structural_drift(bl, crg_metrics)
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] structural-drift check failed, skipping: {exc}")
         return None
     if drift >= dthr:
         return (f"structural drift {drift:.2f} ≥ {dthr:.2f} vs P4 baseline "
@@ -2502,7 +2503,8 @@ class HarnessBridge:
                     if nfr_id not in nfr_map:
                         nfr_map[nfr_id] = self._nfr_type_to_dim(m.group(2).strip())
             return nfr_map
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] NFR-dimension map parse failed: {exc}")
             return {}
 
     def _parse_nfr_fr_xref(self, project_root: Path) -> dict[str, list[str]]:
@@ -2557,7 +2559,8 @@ class HarnessBridge:
                 for nfr_id in nfr_ids:
                     nfr_fr.setdefault(nfr_id, []).append(fr_id)
             return nfr_fr
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] NFR→FR cross-reference parse failed: {exc}")
             return {}
 
     def _reconcile_with_sab_json(

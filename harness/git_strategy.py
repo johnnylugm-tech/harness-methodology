@@ -823,7 +823,8 @@ class GitStrategy:
             return []
         try:
             raw_ids = _json.loads(manifest.read_text(encoding="utf-8")).get("fr_ids", [])
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] _manifest_fr_ids: could not read {manifest}: {exc}")
             return []
         if not isinstance(raw_ids, list):
             raise ValueError(
@@ -853,7 +854,8 @@ class GitStrategy:
             try:
                 text = srs_path.read_text(encoding="utf-8", errors="replace")
                 return sorted(set(_re.findall(r"###\s+(FR-\d+)\s*:", text)))
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                print(f"[WARN] _auto_fr_ids: could not read {srs_path}: {exc}")
                 return []
         return []
 

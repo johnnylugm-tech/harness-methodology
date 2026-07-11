@@ -302,7 +302,8 @@ def _post_push_self_check(project: Path) -> list[str]:
             ["git", "-C", str(project), "status", "--porcelain"],
             capture_output=True, text=True, timeout=10,
         )
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] post-push dirty-check probe failed: {exc}")
         return []
     if _r.returncode != 0:
         return []

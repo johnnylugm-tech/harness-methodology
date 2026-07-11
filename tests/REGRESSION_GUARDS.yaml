@@ -165,3 +165,7 @@
 - test: tests/test_sentinel_template_ssot.py::test_plan_prose_renders_sentinel_from_template
   bug: "sentinel filename drift class (fixed by hand in bea1bb1): generate_full_plan.py's phase-plan prose hand-wrote the sentinel path (`g1_<fr>.flag`) while the real artifact format is g{gate}_p{phase}_{key}.flag (gate1_evidence.py, v2.13 phase scoping) — nothing pinned the prose to the producer, so agents were instructed to look for files that never exist"
   fixed_in: "弱點強化 Round 3 Station I (SENTINEL_*_TEMPLATE SSOT + render-from-SSOT prose)"
+
+- test: tests/test_exception_swallow_ratchet.py::test_no_silent_fail_open
+  bug: "silent-swallow drift class (Round 4 finding 1): 9 prior incidents (agent_spawner, spec_logic_checker, check_methodology_consistency, state_monitor, gap-detector/pattern-matcher, mutation_enforcer x2, TDD/mutmut, preflight/exit checks, advance-phase HANDOVER) were all the same shape — a broad except returns a success-looking value with nothing logged, so the failure stays invisible until someone notices an absent side effect. Each was fixed reactively with a narrow per-function regression test; nothing scanned the codebase's shape. AST scan across cli/core/harness/scripts/detection found 15 more unlogged instances at HEAD (all logged, none were logic bugs) before this guard existed"
+  fixed_in: "弱點強化 Round 5 (exception-swallow ratchet — AST scan, no allowlist, every broad except with a success-shaped return must log/print/raise)"

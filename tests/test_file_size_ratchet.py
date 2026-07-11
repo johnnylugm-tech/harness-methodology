@@ -26,7 +26,10 @@ _GOD_FILE_THRESHOLD = 900
 # generate_full_plan.py itself is down to a ~250-line facade and off this
 # list; the split's two large products are honestly listed).
 _LINE_CEILING: dict[str, int] = {
-    "harness/harness_bridge.py": 2929,
+    # 2026-07-12: +3 lines — Round 5 exception-swallow ratchet: 3 broad
+    # excepts now log the swallowed exception before returning (crg drift
+    # check, NFR-dim map parse, NFR<->FR xref parse).
+    "harness/harness_bridge.py": 2932,
     "cli/gate_cmds.py": 2567,
     # 2026-07-11: +26 lines — cmd_advance_phase now refreshes the
     # traceability attestation before its handover commit (mirrors the
@@ -40,7 +43,9 @@ _LINE_CEILING: dict[str, int] = {
     # reset-and-rerun projects (TDD-IMPROVE had no secondary evidence check).
     "cli/fr_cmds.py": 2182,
     "cli/project_cmds.py": 1860,
-    "scripts/phase_auditor.py": 1846,
+    # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
+    # LocalFetcher.get_file_content now log the swallowed decode/read error.
+    "scripts/phase_auditor.py": 1848,
     "scripts/plangen/blocks.py": 1650,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
@@ -49,7 +54,9 @@ _LINE_CEILING: dict[str, int] = {
     # mirroring the existing check_forward_refs/check_nfr_adr_coverage wiring.
     "core/phase_hooks.py": 1582,
     "cli/check_cmds.py": 1362,
-    "harness/git_strategy.py": 1290,
+    # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
+    # / _auto_fr_ids now log the swallowed parse error before returning [].
+    "harness/git_strategy.py": 1292,
     "scripts/plangen/phase_tasks.py": 1106,
     "core/quality_gate/mutation_enforcer.py": 967,
 }

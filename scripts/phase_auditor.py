@@ -398,7 +398,8 @@ class GitHubFetcher:
             content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
             self._file_cache[path] = content
             return content
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] GitHubFetcher: could not decode {path}: {exc}")
             self._file_cache[path] = None
             return None
 
@@ -461,7 +462,8 @@ class LocalFetcher:
             content = full.read_text(encoding="utf-8", errors="replace")
             self._file_cache[path] = content
             return content
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] LocalFetcher: could not read {full}: {exc}")
             self._file_cache[path] = None
             return None
 

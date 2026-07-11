@@ -176,7 +176,8 @@ def _crg_call(project: Path, func: str, **kwargs) -> dict:
             _sys.path.insert(0, _repo_root)
         from harness.crg_api import call_crg_tool
         return call_crg_tool(str(project), func, **kwargs) or {}
-    except Exception:  # CRG absent / failed → informational, never blocking
+    except Exception as exc:  # CRG absent / failed → informational, never blocking
+        print(f"[WARN] CRG call {func} failed: {exc}")
         return {}
 
 

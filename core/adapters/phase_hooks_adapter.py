@@ -216,7 +216,8 @@ class PhaseHooksAdapter:
         try:
             state = json.loads(state_path.read_text())
             return state.get("current_phase")
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] get_current_phase: could not read {state_path}: {exc}")
             return None
 
     def get_monitoring_events(self) -> List[Dict[str, Any]]:

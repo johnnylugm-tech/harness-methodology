@@ -513,7 +513,8 @@ class AgentSpawner:
             parsed = DocstringRemover().visit(parsed)
             try:
                 return len(ast.unparse(parsed).splitlines())
-            except Exception:
+            except Exception as exc:
+                print(f"[WARN] get_logical_lines: ast.unparse failed: {exc}")
                 return None
 
         if not self.project_path:
@@ -540,5 +541,6 @@ class AgentSpawner:
             if pre_lines is None or post_lines is None:
                 return None
             return pre_lines - post_lines
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] logical-line diff probe failed for {path}: {exc}")
             return None
