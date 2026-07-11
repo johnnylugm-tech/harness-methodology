@@ -212,11 +212,12 @@ def main():
     # at 03-development/src/X.py (project uses 03-development/ layout with a src
     # symlink that may not always exist), rewrite to the real path so SAB.json
     # never depends on a symlink and all downstream checkers see correct paths.
+    layout = ProjectLayout(project)
     for layer in sab_spec.layers:
         layer["modules"] = [
-            "03-development/" + m
+            layout.get_relative_str(layout.phase3_development_dir / m)
             if (not (project / m).exists()
-                and (ProjectLayout(project).phase3_development_dir / m).exists())
+                and (layout.phase3_development_dir / m).exists())
             else m
             for m in layer.get("modules", [])
         ]

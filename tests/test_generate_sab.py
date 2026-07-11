@@ -167,3 +167,44 @@ class TestGenerateSabDropsInitModules:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
         assert data["layers"][0]["modules"] == ["app.api", "app.initializer"]
+
+
+class TestGenerateSabNormalizes03DevelopmentPath:
+    """SAD may declare a module as ``src/X.py`` while the file actually
+    lives at ``03-development/src/X.py`` (the harness-scaffolded layout —
+    see ``project_cmds.py:_init_phase_dirs``). generate_sab.py must rewrite
+    the path so SAB.json always matches what's really on disk. Previously
+    zero test coverage exercised this branch."""
+
+    def test_rewrites_to_03_development_when_only_dev_path_exists(self, tmp_path):
+        _write_sad(tmp_path, _VALID_SAB.replace(
+            'modules: ["app.api"]', 'modules: ["src/app/api.py"]'
+        ))
+        dev_file = tmp_path / "03-development" / "src" / "app" / "api.py"
+        dev_file.parent.mkdir(parents=True)
+        dev_file.write_text("x = 1")
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == ["03-development/src/app/api.py"]
+
+    def test_leaves_path_unchanged_when_it_already_exists_at_declared_location(self, tmp_path):
+        _write_sad(tmp_path, _VALID_SAB.replace(
+            'modules: ["app.api"]', 'modules: ["src/app/api.py"]'
+        ))
+        root_file = tmp_path / "src" / "app" / "api.py"
+        root_file.parent.mkdir(parents=True)
+        root_file.write_text("x = 1")
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == ["src/app/api.py"]
+
+    def test_leaves_path_unchanged_when_neither_location_exists(self, tmp_path):
+        _write_sad(tmp_path, _VALID_SAB.replace(
+            'modules: ["app.api"]', 'modules: ["src/app/api.py"]'
+        ))
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == ["src/app/api.py"]
