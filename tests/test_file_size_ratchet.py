@@ -26,10 +26,10 @@ _GOD_FILE_THRESHOLD = 900
 # generate_full_plan.py itself is down to a ~250-line facade and off this
 # list; the split's two large products are honestly listed).
 _LINE_CEILING: dict[str, int] = {
-    # 2026-07-12: +30 lines — env-check prompt teaches optional_missing vs
+    # 2026-07-12: +31 lines — env-check prompt teaches optional_missing vs
     # required distinction (fix false fabrication flag on vars with baked-in
-    # defaults, e.g. SPEC §5.1 8×TASKQ_* vars).
-    "harness/harness_bridge.py": 2962,
+    # config defaults). Example uses generic DATABASE_URL, not project-specific.
+    "harness/harness_bridge.py": 2963,
     "cli/gate_cmds.py": 2567,
     # 2026-07-11: +26 lines — cmd_advance_phase now refreshes the
     # traceability attestation before its handover commit (mirrors the
