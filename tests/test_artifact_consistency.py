@@ -110,6 +110,22 @@ def test_no_adr_table_needs_review(tmp_path: Path) -> None:
 # (unbacked ownership claim, no AC row ever cites taskq.executor under FR-05).
 
 
+def test_class_method_citation_counts_as_ground_truth(tmp_path: Path) -> None:
+    """Round-trip bug: `module::Class.method` (a dot in the function part, e.g.
+    real citations like `taskq.breaker::Breaker.tick`) must still count as
+    ground truth — a bare `\\w+` after `::` stops at the first `.` and fails
+    the whole backtick-delimited match, silently dropping the citation. No
+    "Linked Modules" line here, so there is no fallback masking the gap."""
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "### 3.1 FR-01\n"
+       "| AC-FR01-1 | desc | `pkg.mod::Cls.method` | test | ok |\n\n"
+       "### 5.3 Module Coverage\n"
+       "| `pkg.mod` | (none direct) | | |\n")
+    errs = [v for v in check_module_fr_coverage(tmp_path) if v.check_type == "module_coverage_gap"]
+    assert any("FR-01" in v.message and "pkg.mod" in v.message for v in errs), (
+        "module::Class.method citation must establish ground truth, same as module::func")
+
+
 def test_module_coverage_gap_in_matrix_own_table_blocks(tmp_path: Path) -> None:
     _w(ProjectLayout(tmp_path).traceability_matrix_path,
        "### 3.1 FR-01\n"

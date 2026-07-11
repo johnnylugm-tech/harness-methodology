@@ -163,9 +163,13 @@ _FR_NFR_HEADING = re.compile(r"^#{1,6}[^\n]*?\b(FR|NFR)-(\d+)\b", re.MULTILINE)
 # not leak into the next unrelated heading, e.g. "## 5. Backward Traceability").
 _ANY_HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
 _FR_NFR_ID = re.compile(r"\b(FR|NFR)-(\d+)\b")
-# `module.sub::func` — Design-column citation in an AC row. Requires `::` so a
-# bare backtick token (a test name, a filename) is never mistaken for a module.
-_MODULE_FUNC_REF = re.compile(r"`([a-z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)::\w+`")
+# `module.sub::func` or `module.sub::Class.method` — Design-column citation in
+# an AC row. Requires `::` so a bare backtick token (a test name, a filename)
+# is never mistaken for a module. The function part allows dots (`[\w.]+`, not
+# `\w+`) — a real citation style in this project (`taskq.breaker::Breaker.tick`)
+# was silently dropped by a bare `\w+`, which stops at the first `.` and then
+# fails the whole match since the required trailing backtick is never reached.
+_MODULE_FUNC_REF = re.compile(r"`([a-z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)::[\w.]+`")
 # `module.sub` bare — used only inside a "**Linked Modules**" line, where no
 # function suffix is expected.
 _MODULE_BARE_REF = re.compile(r"`([a-z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)`")
@@ -262,8 +266,8 @@ def _check_ownership_table(text: str, source_label: str,
 
         for extra in sorted(declared - required):
             owners = fr_to_modules.get(extra)
-            if not owners or module in owners:
-                continue  # no confirmed owner anywhere, or this module IS one
+            if not owners:
+                continue  # no confirmed owner anywhere — nothing to contradict
             violations.append(Violation(
                 check_type="module_ownership_mismatch", rule_id=f"{module}:{extra}",
                 severity="error",
