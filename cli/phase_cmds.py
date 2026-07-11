@@ -46,12 +46,22 @@ from core.phase_topology import (
     phase_name,
 )
 from core.utils.project_layout import ProjectLayout
+from core.utils.script_loader import load_harness_script
 from harness.handover_generator import HandoverGenerator
 
 
 def cmd_plan_phase(args: argparse.Namespace) -> int:
-    """Generate phase execution plan from SRS/SAD artifacts."""
-    from scripts.generate_full_plan import generate_full_plan
+    """Generate phase execution plan from SRS/SAD artifacts.
+
+    Round 5 建議2站2: replace cwd-relative `from scripts.generate_full_plan
+    import …` with `load_harness_script()` — same P6-2026-07-07 bug class
+    (never swept by the original P6/A1 fixes, which only covered
+    phase_auditor/generate_quality_report/generate_release_notes). Behavior
+    is bit-equivalent; user-facing CLI is allowed to hard-fail if the
+    install is corrupted (an ImportError means scripts/ is missing, which
+    is a real problem worth surfacing).
+    """
+    generate_full_plan = load_harness_script("generate_full_plan.py").generate_full_plan
 
     repo_path = Path(args.project).resolve()
     output_path = Path(args.output) if args.output else None
@@ -72,8 +82,12 @@ def cmd_plan_phase(args: argparse.Namespace) -> int:
 
 
 def cmd_plan_all(args: argparse.Namespace) -> int:
-    """Generate all 8 phase plans in dynamic mode at project start."""
-    from scripts.generate_full_plan import generate_full_plan
+    """Generate all 8 phase plans in dynamic mode at project start.
+
+    Round 5 建議2站2: see cmd_plan_phase's docstring for the
+    load_harness_script migration rationale (same call, same bug class).
+    """
+    generate_full_plan = load_harness_script("generate_full_plan.py").generate_full_plan
 
     project = Path(args.project).resolve()
     out_dir = Path(args.output_dir) if args.output_dir else project / ".methodology"

@@ -36,13 +36,19 @@ _LINE_CEILING: dict[str, int] = {
     # existing push_cmds.py refresh in push-checkpoint/push-milestone), and
     # the P2-A SAB pre-check now matches DriftItem.actual instead of a dead
     # description substring.
-    "cli/phase_cmds.py": 2541,
+    # 2026-07-12: +14 lines — Round 5 建議2站2: cmd_plan_phase/cmd_plan_all
+    # migrate from cwd-relative `from scripts.generate_full_plan import` to
+    # load_harness_script("generate_full_plan.py") (same P6/A1 bug class,
+    # never swept for this module).
+    "cli/phase_cmds.py": 2555,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
     # reset-and-rerun projects (TDD-IMPROVE had no secondary evidence check).
     "cli/fr_cmds.py": 2182,
-    "cli/project_cmds.py": 1860,
+    # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
+    # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
+    "cli/project_cmds.py": 1863,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

@@ -267,6 +267,78 @@ class TestA1_HelperPathFix:
         )
 
 
+class TestGenerateFullPlanNeverSwept:
+    """Round 5 建議2站2: `generate_full_plan.py` was never part of the P6/A1
+    sweep (that sweep only touched `phase_auditor`/`generate_quality_report`/
+    `generate_release_notes`). Its 4 remaining `from scripts.generate_full_plan
+    import …` call sites are the same cwd-relative shape that already broke
+    3 times elsewhere — no live bug reproduced here (unlike
+    TestGenerateSabJsonPathBug), this is the preventive migration to the
+    proven `load_harness_script` pattern before a 4th incident forces it.
+    """
+
+    def _fn_source(self, path: Path, fn_signature: str) -> str:
+        src = path.read_text(encoding="utf-8")
+        fn_start = src.find(f"def {fn_signature}(")
+        assert fn_start > 0, f"{fn_signature} must exist in {path}"
+        tail = src[fn_start:]
+        next_def = tail.find("\n\ndef ", 1)
+        return tail if next_def < 0 else tail[:next_def]
+
+    def test_cmd_plan_phase_calls_helper(self):
+        fn_src = self._fn_source(HARNESS_REPO / "cli" / "phase_cmds.py", "cmd_plan_phase")
+        assert 'load_harness_script("generate_full_plan.py")' in fn_src, (
+            "cmd_plan_phase must call load_harness_script(\"generate_full_plan.py\")"
+        )
+        assert "from scripts.generate_full_plan import" not in fn_src
+
+    def test_cmd_plan_all_calls_helper(self):
+        fn_src = self._fn_source(HARNESS_REPO / "cli" / "phase_cmds.py", "cmd_plan_all")
+        assert 'load_harness_script("generate_full_plan.py")' in fn_src, (
+            "cmd_plan_all must call load_harness_script(\"generate_full_plan.py\")"
+        )
+        assert "from scripts.generate_full_plan import" not in fn_src
+
+    def test_project_cmds_fr_details_site_calls_helper(self):
+        src = (HARNESS_REPO / "cli" / "project_cmds.py").read_text(encoding="utf-8")
+        parse_srs_idx = src.find("parse_srs_fr_sections")
+        assert parse_srs_idx > 0, "parse_srs_fr_sections call site must exist"
+        window = src[max(0, parse_srs_idx - 400):parse_srs_idx + 120]
+        assert 'load_harness_script("generate_full_plan.py")' in window, (
+            "parse_srs_fr_sections call site must resolve via load_harness_script"
+        )
+        assert "from scripts.generate_full_plan import" not in window
+
+    def test_project_cmds_modules_site_calls_helper(self):
+        src = (HARNESS_REPO / "cli" / "project_cmds.py").read_text(encoding="utf-8")
+        parse_sad_idx = src.find("parse_sad_modules")
+        assert parse_sad_idx > 0, "parse_sad_modules call site must exist"
+        window = src[max(0, parse_sad_idx - 400):parse_sad_idx + 120]
+        assert 'load_harness_script("generate_full_plan.py")' in window, (
+            "parse_sad_modules call site must resolve via load_harness_script"
+        )
+        assert "from scripts.generate_full_plan import" not in window
+
+    def test_load_harness_script_exposes_generate_full_plan_api_from_foreign_cwd(self):
+        """Functional safety net: load_harness_script("generate_full_plan.py")
+        from /tmp cwd must expose generate_full_plan, parse_srs_fr_sections,
+        and parse_sad_modules — the 3 names the 4 call sites need.
+        """
+        result = TestA1_HelperPathFix()._call_real_helper_from_cwd(
+            "generate_full_plan.py", cwd="/tmp",
+        )
+        assert result.returncode == 0, (
+            f"real helper must succeed for generate_full_plan.py from /tmp cwd; "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        import json as _json
+        attrs = _json.loads(result.stdout.strip())
+        for name in ("generate_full_plan", "parse_srs_fr_sections", "parse_sad_modules"):
+            assert name in attrs, (
+                f"generate_full_plan.py must expose {name}, got {attrs!r}"
+            )
+
+
 class TestA1_ThreeSitesInvokeSameHelper:
     """A1-2026-07-07 invariant: the 3 sites that previously inline-imported
     `from scripts.X` must all call the shared `load_harness_script()`. A

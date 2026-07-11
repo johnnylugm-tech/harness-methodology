@@ -665,7 +665,9 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     # fr_details from SRS.md (optional)
     fr_details: dict = {}
     try:
-        from scripts.generate_full_plan import parse_srs_fr_sections
+        # Round 5 建議2站2: load_harness_script, not cwd-relative import —
+        # same P6-2026-07-07 bug class, never swept by the original fix.
+        parse_srs_fr_sections = load_harness_script("generate_full_plan.py").parse_srs_fr_sections
         srs_path = ProjectLayout(project).srs_path
         frs = parse_srs_fr_sections(srs_path if srs_path.exists() else None)
         for fr in frs:
@@ -680,7 +682,8 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     # modules from SAD.md (optional)
     modules: dict = {}
     try:
-        from scripts.generate_full_plan import parse_sad_modules
+        # Round 5 建議2站2: same load_harness_script migration as above.
+        parse_sad_modules = load_harness_script("generate_full_plan.py").parse_sad_modules
         modules = parse_sad_modules(project)
     except Exception:  # pylint: disable=broad-exception-caught
         pass
