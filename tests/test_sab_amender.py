@@ -15,6 +15,7 @@ from core.quality_gate.sab_amender import (
     amend_sab,
     discover_modules,
     missing_modules,
+    normalize_sab_module_to_dotted,
     phantom_modules,
 )
 
@@ -62,6 +63,59 @@ class TestDiscoverModules:
 
 
 # ---------------------------------------------------------------------------
+# TestNormalizeSabModuleToDotted
+# ---------------------------------------------------------------------------
+
+class TestNormalizeSabModuleToDotted:
+    """SAB `modules` entries may be dict-shaped ({"name": ..., "implemented_in":
+    ...}) — the official schema form rendered by
+    sab_parser.render_canonical_sab_template() for a module whose logical
+    name differs from its physical location. Before this fix, dict entries
+    silently normalised to None (isinstance(mod, str) guard), making the
+    registered set permanently empty for any SAB.json using this form."""
+
+    def test_dict_with_implemented_in_uses_implemented_in(self):
+        assert normalize_sab_module_to_dotted(
+            {"name": "app.cli", "implemented_in": "app.interface.cli"}
+        ) == "app.interface.cli"
+
+    def test_dict_without_implemented_in_falls_back_to_name(self):
+        assert normalize_sab_module_to_dotted({"name": "app.executor"}) == "app.executor"
+
+    def test_dict_missing_both_fields_returns_none(self):
+        assert normalize_sab_module_to_dotted({"foo": "bar"}) is None
+        assert normalize_sab_module_to_dotted({}) is None
+
+    def test_dict_implemented_in_blank_falls_back_to_name(self):
+        assert normalize_sab_module_to_dotted(
+            {"name": "app.core", "implemented_in": ""}
+        ) == "app.core"
+
+    def test_dict_implemented_in_non_string_falls_back_to_name(self):
+        assert normalize_sab_module_to_dotted(
+            {"name": "app.core", "implemented_in": None}
+        ) == "app.core"
+
+    def test_dict_extracted_string_is_directory_marker_returns_none(self):
+        assert normalize_sab_module_to_dotted({"name": "app/legacy/"}) is None
+
+    def test_dict_implemented_in_path_form_normalises(self):
+        assert normalize_sab_module_to_dotted(
+            {"name": "app.cli", "implemented_in": "03-development/src/app/cli.py"}
+        ) == "app.cli"
+
+    def test_plain_string_dotted_unchanged(self):
+        assert normalize_sab_module_to_dotted("app.cli") == "app.cli"
+
+    def test_plain_string_path_form_unchanged(self):
+        assert normalize_sab_module_to_dotted("src/app/cli.py") == "app.cli"
+
+    def test_non_dict_non_str_returns_none(self):
+        for bad in (None, 42, [], True, 3.14):
+            assert normalize_sab_module_to_dotted(bad) is None
+
+
+# ---------------------------------------------------------------------------
 # TestMissingModules
 # ---------------------------------------------------------------------------
 
@@ -100,6 +154,12 @@ class TestMissingModules:
     def test_handles_layers_without_modules_key(self):
         sab = {"layers": [{"name": "empty"}]}
         assert missing_modules(sab, ["taskq.x"]) == ["taskq.x"]
+
+    def test_dict_shaped_registered_entry_counts_as_registered(self):
+        sab = {"layers": [{"name": "interface", "modules": [
+            {"name": "app.cli", "implemented_in": "app.interface.cli"}
+        ]}]}
+        assert missing_modules(sab, ["app.interface.cli"]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +229,12 @@ class TestPhantomModules:
         """A layer with no 'modules' key is degenerate but must not crash."""
         sab = {"layers": [{"name": "empty"}]}
         assert phantom_modules(sab, []) == []
+
+    def test_dict_shaped_registered_entry_not_phantom_when_implemented(self):
+        sab = {"layers": [{"name": "interface", "modules": [
+            {"name": "app.cli", "implemented_in": "app.interface.cli"}
+        ]}]}
+        assert phantom_modules(sab, ["app.interface.cli"]) == []
 
 
 # ---------------------------------------------------------------------------

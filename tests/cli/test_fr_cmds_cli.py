@@ -379,6 +379,19 @@ class TestRunFrStep:
         assert "finalize-gate --gate 1" in prompt
         assert "--delta" not in prompt
 
+    def test_prompt_gate1_uses_resolved_project_not_dot(self, tmp_path):
+        """Regression: the GATE1 prompt sent to the sub-agent must interpolate
+        the already-resolved absolute project path, not a literal '.' — a
+        sub-agent's own Bash CWD when it runs this command is not guaranteed
+        to be the project root, and a CWD-relative '--project .' silently
+        no-ops _check_sab_module_alignment's SAB.json/src_dir existence
+        check (see core.quality_gate.sab_amender fix in the same commit)."""
+        assert tmp_path != Path.cwd()  # sanity: fixture path is NOT this test's CWD
+        prompt = _build_fr_step_prompt("GATE1", "FR-01", 3, tmp_path, None)
+        assert f"--project {tmp_path}" in prompt
+        assert "--project .`" not in prompt
+        assert prompt.count(f"--project {tmp_path}") == 2  # run-gate AND finalize-gate
+
     def test_prompt_code_fix_test_coverage_only(self, tmp_path):
         """CODE-FIX with test_coverage only → [TEST COVERAGE FIX] section,
         FORBIDDEN allows adding tests, git add includes test file."""
@@ -520,6 +533,34 @@ class TestRunFrStep:
         rc = harness_cli.cmd_resume_fr_phase(args)
         assert rc == 0
         assert "FR-02" in captured.getvalue()
+
+    def test_resume_fr_phase_prints_resolved_project_not_dot(self, tmp_path, monkeypatch):
+        """Regression: the printed 'Next step' command must use the resolved
+        absolute project path, not a literal '.' (see _build_fr_step_prompt
+        GATE1 regression test for the same class of bug). Uses a real (empty)
+        git repo rather than patching the private `_fr_step_already_done` —
+        `git log --grep` on a repo with no matching commit naturally reports
+        "not done", which is real public (subprocess) behavior, not an
+        implementation-detail patch (see tests/test_patch_discipline.py)."""
+        import harness_cli
+        import sys
+        import subprocess as _sp
+
+        assert tmp_path != Path.cwd()
+        _sp.run(["git", "init", "-q"], cwd=str(tmp_path), check=False)
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        args = argparse.Namespace(phase=3, project=str(tmp_path))
+        rc = harness_cli.cmd_resume_fr_phase(args)
+        assert rc == 0
+        out = captured.getvalue()
+        assert f"--project {tmp_path}" in out
+        assert "--project ." not in out
 
     def test_gate1_blocked_after_max_rounds(self, tmp_path, monkeypatch):
         """Returns exit 2 (BLOCKED) when GATE1 never passes after max_fix_rounds."""
@@ -867,6 +908,52 @@ class TestRunFrStep:
         assert rc == 1
         captured = capsys.readouterr().out
         assert "git push failed" in captured
+
+    def test_run_fr_step_dirty_tree_message_uses_resolved_project(self, tmp_path, monkeypatch, capsys):
+        """Regression: the dirty-tree BLOCKED resume instruction must not tell
+        the user/sub-agent to re-run with a CWD-relative '--project .' — a
+        sub-agent's Bash CWD when it later re-runs this command is not
+        guaranteed to be the project root."""
+        import sys
+        import types
+        import harness_cli
+        import subprocess as _sp
+
+        assert tmp_path != Path.cwd()
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None): pass
+            def spawn(self, **kwargs):
+                return {"status": "complete", "output": "{}"}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        # No explicit _fr_step_already_done patch: `git status --porcelain`
+        # is the only command faked to return dirty output below; every
+        # other subprocess call (including the real idempotency `git log
+        # --grep` inside _fr_step_already_done) sees empty stdout and
+        # naturally reports "not done" — real subprocess behavior, not an
+        # implementation-detail patch (tests/test_patch_discipline.py).
+        def _fake_run(cmd, **_):
+            class _Res:
+                returncode = 0
+                stdout = "M somefile.py\n" if "status" in cmd and "--porcelain" in cmd else ""
+                stderr = ""
+            return _Res()
+        monkeypatch.setattr(_sp, "run", _fake_run)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=600, max_turns=30, max_fix_rounds=3, no_push=False,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 6
+        err = capsys.readouterr().err
+        assert f"--project {tmp_path}" in err
+        assert "--project ." not in err
 
     def test_run_fr_step_respects_no_push_argument(self, tmp_path, monkeypatch, capsys):
         """cmd_run_fr_step skips git push when no_push is True."""
@@ -1294,6 +1381,23 @@ class TestFrStepPreflightSrsPath:
             "TDD-RED", tmp_path, "FR-01", srs_path="docs/SRS.md"
         )
         assert not any("SRS" in e for e in errors), f"Unexpected SRS error: {errors}"
+
+    def test_env_check_missing_message_uses_resolved_project(self, tmp_path):
+        """Regression: the env_check_result.json-missing preflight error must
+        tell the caller to re-run run-env-check with the resolved absolute
+        project path, not a literal '.' — the same CWD-relative-path bug
+        class as the GATE1 sub-agent prompt (see _build_fr_step_prompt
+        regression test)."""
+        import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
+        from cli import fr_cmds as _frm
+
+        assert tmp_path != Path.cwd()
+        self._make_manifest(tmp_path)
+        ok, errors = _frm._fr_step_preflight("GATE1", tmp_path, "FR-01", srs_path=None)
+        assert not ok
+        joined = "\n".join(errors)
+        assert f"--project {tmp_path}" in joined
+        assert "--project . " not in joined
 
     def test_cmd_run_fr_step_passes_resolved_path_not_raw_string(self, tmp_path, monkeypatch):
         """Regression: cmd_run_fr_step line 7056 was passing getattr(args,'srs',None)

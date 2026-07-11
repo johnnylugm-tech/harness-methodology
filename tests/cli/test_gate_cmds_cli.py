@@ -1402,6 +1402,55 @@ class TestSabModuleAlignmentCheck:
         (dev_src / "app" / "main.py").write_text("x = 1")
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
 
+    def test_dict_shaped_modules_with_implemented_in_registers_correctly(self, tmp_path):
+        """SAB modules may be dict-shaped {"name": ..., "implemented_in": ...}
+        (the official schema form for a module whose logical name differs
+        from its physical location). Regression: prior to the fix, dict
+        entries silently normalised to None, making the registered set
+        permanently empty."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, [
+            {"name": "app.cli", "implemented_in": "app.interface.cli"},
+        ])
+        src = tmp_path / "03-development" / "src" / "app" / "interface"
+        src.mkdir(parents=True)
+        (src / "cli.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_dict_shaped_modules_fall_back_to_name_when_no_implemented_in(self, tmp_path):
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, [{"name": "app.cli"}])
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "cli.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
+    def test_dict_shaped_modules_still_blocks_on_unregistered(self, tmp_path):
+        """Fixing dict-entry normalization must not disable the unregistered
+        check for genuinely unregistered files."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, [
+            {"name": "app.cli", "implemented_in": "app.interface.cli"},
+        ])
+        src = tmp_path / "03-development" / "src" / "app" / "interface"
+        src.mkdir(parents=True)
+        (src / "cli.py").write_text("x = 1")
+        (src / "store.py").write_text("x = 1")  # not in SAB → must still BLOCK
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
+
+    def test_sab_mixed_dict_and_string_modules(self, tmp_path):
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, [
+            "app.core",
+            {"name": "app.cli", "implemented_in": "app.interface.cli"},
+        ])
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "core.py").write_text("x = 1")
+        (src / "interface").mkdir()
+        (src / "interface" / "cli.py").write_text("x = 1")
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
+
 
 # =============================================================================
 # _check_sab_module_alignment — phantom branch + per-FR scoping (2026-07-08 fix)

@@ -726,7 +726,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 f"(stale trace attestation, FSM check, etc.).\n"
                 f"  Fix the hook-reported error, then re-run:\n"
                 f"    python harness_cli.py resume-fr-step --phase {phase} "
-                f"--fr-id {fr_id} --project .\n"
+                f"--fr-id {fr_id} --project {project}\n"
                 f"  Dirty files:\n{dirty[:2000]}",
                 file=sys.stderr,
             )
@@ -816,7 +816,7 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
                 srs_flag = " --srs .methodology/SRS.md" if step in ("TDD-RED", "TDD-GREEN") else ""
                 print(
                     f"Next step: python3 harness_cli.py run-fr-step "
-                    f"--phase {phase} --fr-id {fr_id} --step {step} --project .{srs_flag}"
+                    f"--phase {phase} --fr-id {fr_id} --step {step} --project {project}{srs_flag}"
                 )
                 return 0
 
@@ -1002,7 +1002,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
         if not env_result.exists():
             errors.append(
                 "✗ env_check_result.json not found. "
-                "Run: python harness_cli.py run-env-check --phase <phase> --project . "
+                f"Run: python harness_cli.py run-env-check --phase <phase> --project {project} "
                 "then evaluate inline and run finalize-env-check."
             )
 
@@ -1743,7 +1743,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"  A low score with tool_evidence is always better than a timeout.\n\n"
             f"[TASK — follow EXACTLY in order]\n"
             f"1. Run: `python3 harness_cli.py run-gate --gate 1 --phase {phase} "
-            f"--fr-id {fr_id} --project .`\n"
+            f"--fr-id {fr_id} --project {project}`\n"
             f"   The output contains FR-SCOPED TOOL OVERRIDES — exact commands for each\n"
             f"   dimension.  Use those commands, not the generic ones in evaluate_dimension.md.\n\n"
             f"2. Run the three tool commands from step 1's FR-SCOPED TOOL OVERRIDES:\n"
@@ -1784,7 +1784,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"     Currently: {missing_spec_count} required tests missing → spec_cov_pct = {spec_cov_pct}% → score capped at {spec_cov_pct}.\n"
             f"     ALL required tests must exist and pass — partial spec coverage = partial score.\n\n"
             f"4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} "
-            f"--fr-id {fr_id} --project .`\n"
+            f"--fr-id {fr_id} --project {project}`\n"
             f"   If finalize-gate prints [BLOCKED], include the exact error in your output summary.\n\n"
             f"5. Report pass/fail and failing dimensions (if any).\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "gate_score": <float>, '

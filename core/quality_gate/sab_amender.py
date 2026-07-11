@@ -49,14 +49,35 @@ def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR)
     dotted name after stripping the project-relative path prefix
     (``<src_dir>/`` or ``src/``) and the ``.py`` suffix.
 
-    Returns ``None`` for directory markers (trailing ``/``) and
-    non-string entries.
+    Entries may also be dict-shaped: ``{"name": <logical>, "implemented_in":
+    <dotted-or-path, optional>}`` — the official schema form emitted by
+    `sab_parser.render_canonical_sab_template()` for a module whose logical
+    name differs from its physical location ("consolidated into another
+    file"). `implemented_in` is preferred when present and non-blank (it is
+    the actual physical location); otherwise `name` is used. The extracted
+    string is then run through the same normalization tail as a plain-string
+    entry. A dict with neither field usable (or `implemented_in` non-string)
+    falls back the same way; a dict with no usable string at all is
+    equivalent to a malformed entry.
+
+    Returns ``None`` for directory markers (trailing ``/``) and entries with
+    no usable string (non-dict, non-str, or a dict with no `name`/
+    `implemented_in`).
 
     This is the single source of truth for SAB module-name normalization:
     `_flatten_registered` below and `harness_cli._check_sab_module_alignment`
-    both call this function, so `amend_sab` and the alignment gate can never
-    silently disagree about which modules are "registered".
+    both call this function (via its `_normalize_sab_module_to_dotted`
+    delegate), so `amend_sab` and the alignment gate can never silently
+    disagree about which modules are "registered". `scripts/generate_sab.py`
+    also calls it directly when filtering `__init__.py`-sourced entries.
+    Note: `core.phase_hooks.preflight_sab_check` does NOT call this function
+    — it has its own independent, already dict-aware inline unwrap.
     """
+    if isinstance(mod, dict):
+        candidate = mod.get("implemented_in")
+        if not isinstance(candidate, str) or not candidate.strip():
+            candidate = mod.get("name")
+        mod = candidate
     if not isinstance(mod, str):
         return None
     stripped = mod.strip().lstrip("./")
