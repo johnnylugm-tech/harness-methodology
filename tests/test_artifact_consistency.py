@@ -16,6 +16,7 @@ from pathlib import Path
 
 from core.quality_gate.artifact_consistency import (
     check_forward_refs,
+    check_module_fr_coverage,
     check_nfr_adr_coverage,
 )
 from core.utils.project_layout import ProjectLayout
@@ -99,6 +100,79 @@ def test_no_adr_table_needs_review(tmp_path: Path) -> None:
     _w(ProjectLayout(tmp_path).srs_path, "### NFR-01\n")
     _w(_adr_path(tmp_path), "# ADR\n\nprose only, no traceability table.\n")
     assert [v.severity for v in check_nfr_adr_coverage(tmp_path)] == ["info"]
+
+
+# ── module ↔ FR/NFR ownership coverage ────────────────────────────────────────
+# Real defects reproduced from a live P1 run (taskq project): TRACEABILITY_MATRIX.md
+# §3/§4 AC rows cite `taskq.cli::cmd_run` under FR-03, but §5.3's own `taskq.cli`
+# row omits FR-03 (self-contradiction); SPEC_TRACKING.md's §5 assigns FR-05 to
+# `taskq.executor` when every FR-05 AC row only ever cites `taskq.cli`/`taskq.store`
+# (unbacked ownership claim, no AC row ever cites taskq.executor under FR-05).
+
+
+def test_module_coverage_gap_in_matrix_own_table_blocks(tmp_path: Path) -> None:
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "### 3.1 FR-01\n"
+       "| AC-FR01-1 | desc | `pkg.mod::func` | test | ok |\n\n"
+       "### 5.3 Module Coverage\n"
+       "| `pkg.mod` | (none direct) | | |\n")
+    errs = [v for v in check_module_fr_coverage(tmp_path) if v.check_type == "module_coverage_gap"]
+    assert any("FR-01" in v.message and "pkg.mod" in v.message for v in errs)
+
+
+def test_module_ownership_mismatch_in_spec_tracking_blocks(tmp_path: Path) -> None:
+    layout = ProjectLayout(tmp_path)
+    _w(layout.traceability_matrix_path,
+       "### 3.1 FR-01\n"
+       "| AC-FR01-1 | desc | `pkg.mod::func` | test | ok |\n\n"
+       "### 5.3 Module Coverage\n"
+       "| `pkg.mod` | FR-01 | | |\n")
+    _w(layout.spec_tracking_path,
+       "## 5. Module Ownership\n"
+       "| `pkg.other` | high-risk | X | Y | FR-01 |\n")
+    errs = [v for v in check_module_fr_coverage(tmp_path) if v.check_type == "module_ownership_mismatch"]
+    assert any("pkg.other" in v.message and "FR-01" in v.message and "pkg.mod" in v.message
+               for v in errs), "unbacked FR-01 claim on pkg.other must be flagged"
+
+
+def test_spec_tracking_partial_ownership_not_flagged_as_missing(tmp_path: Path) -> None:
+    """SPEC_TRACKING.md's §5 is explicitly scoped to 'high-risk modules per
+    C-11' ownership assignment, not a completeness claim (unlike
+    TRACEABILITY_MATRIX.md's own §5.3, whose heading claims exhaustive
+    coverage) — omitting an FR/NFR there must NOT be flagged as a gap."""
+    layout = ProjectLayout(tmp_path)
+    _w(layout.traceability_matrix_path,
+       "### 3.1 FR-01\n"
+       "| AC-FR01-1 | desc | `pkg.mod::func` | test | ok |\n\n"
+       "### 4.1 NFR-01\n"
+       "| AC-NFR01-1 | desc | `pkg.mod::other` | test | ok |\n\n"
+       "### 5.3 Module Coverage\n"
+       "| `pkg.mod` | FR-01, NFR-01 | | |\n")
+    _w(layout.spec_tracking_path,
+       "## 5. Module Ownership\n"
+       "| `pkg.mod` | high-risk | X | Y | FR-01 |\n")  # NFR-01 omitted — allowed
+    gaps = [v for v in check_module_fr_coverage(tmp_path)
+            if v.check_type == "module_coverage_gap" and "SPEC_TRACKING" in v.message]
+    assert gaps == []
+
+
+def test_module_fr_coverage_all_consistent_passes(tmp_path: Path) -> None:
+    layout = ProjectLayout(tmp_path)
+    _w(layout.traceability_matrix_path,
+       "### 3.1 FR-01\n"
+       "| AC-FR01-1 | desc | `pkg.mod::func` | test | ok |\n\n"
+       "### 5.3 Module Coverage\n"
+       "| `pkg.mod` | FR-01 | | |\n")
+    _w(layout.spec_tracking_path,
+       "## 5. Module Ownership\n"
+       "| `pkg.mod` | high-risk | X | Y | FR-01 |\n")
+    assert check_module_fr_coverage(tmp_path) == []
+
+
+def test_module_fr_coverage_no_fr_headings_no_op(tmp_path: Path) -> None:
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "# Traceability Matrix\n\nNo requirement headings here.\n")
+    assert check_module_fr_coverage(tmp_path) == []
 
 
 # ── preflight wiring (phase-gated blocking + composition guard) ──────────────

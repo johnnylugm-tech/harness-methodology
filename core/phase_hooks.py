@@ -826,20 +826,23 @@ class PhaseHooks:
                 "errors": len(errors), "needs_review": len(reviews)}
 
     def preflight_artifact_consistency(self) -> Dict[str, Any]:
-        """Machine-catch two P1/P2 artifact hallucinations (audit fix): an
+        """Machine-catch P1/P2 artifact hallucinations (audit fix): an
         invented forward-reference filename (02-architecture/ARCHITECTURE.md when
-        the P2 deliverable is SAD.md) and an NFR dropped from ADR.md's
-        traceability table. Decidable, no LLM. forward-refs block from P2 (P1
-        artifacts fixed); NFR→ADR coverage runs from P3 (ADR.md exists after P2).
+        the P2 deliverable is SAD.md), a module/FR-NFR ownership drift between
+        TRACEABILITY_MATRIX.md and SPEC_TRACKING.md, and an NFR dropped from
+        ADR.md's traceability table. Decidable, no LLM. forward-refs and
+        module-fr-coverage block from P2 (both only need P1 artifacts, already
+        fixed by then); NFR→ADR coverage runs from P3 (ADR.md exists after P2).
         Informational at P1; fail-closed on scan error.
         """
         from core.quality_gate.artifact_consistency import (
             check_forward_refs,
+            check_module_fr_coverage,
             check_nfr_adr_coverage,
         )
         print("\n[PRE-FLIGHT] Artifact Consistency")
         try:
-            violations = check_forward_refs(self._layout.root)
+            violations = check_forward_refs(self._layout.root) + check_module_fr_coverage(self._layout.root)
             if self.phase is not None and self.phase >= 3:
                 violations = violations + check_nfr_adr_coverage(self._layout.root)
         except Exception as e:  # noqa: BLE001 — fail-closed on scan error
@@ -861,7 +864,7 @@ class PhaseHooks:
         elif reviews:
             print(f"   needs_review: {reviews[0].message}")
         else:
-            print("   P1/P2 artifact references + NFR→ADR coverage consistent")
+            print("   P1/P2 artifact references + module/FR-NFR ownership + NFR→ADR coverage consistent")
         return {"passed": passed, "blocking": blocking,
                 "errors": len(errors), "needs_review": len(reviews)}
 

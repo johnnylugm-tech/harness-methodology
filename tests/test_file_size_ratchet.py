@@ -42,8 +42,13 @@ _LINE_CEILING: dict[str, int] = {
     "cli/project_cmds.py": 1860,
     "scripts/phase_auditor.py": 1846,
     "scripts/plangen/blocks.py": 1650,
-    "core/phase_hooks.py": 1579,
-    "cli/check_cmds.py": 1356,
+    # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
+    # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
+    # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
+    # (phase_hooks.py) and cmd_check_artifact_consistency (check_cmds.py),
+    # mirroring the existing check_forward_refs/check_nfr_adr_coverage wiring.
+    "core/phase_hooks.py": 1582,
+    "cli/check_cmds.py": 1362,
     "harness/git_strategy.py": 1290,
     "scripts/plangen/phase_tasks.py": 1106,
     "core/quality_gate/mutation_enforcer.py": 967,

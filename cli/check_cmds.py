@@ -365,21 +365,26 @@ def cmd_check_property_spec(args: argparse.Namespace) -> int:
 
 
 def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
-    """P2/P3 gate — machine-catch two P1/P2 artifact hallucinations (audit fix).
+    """P2/P3 gate — machine-catch P1/P2 artifact hallucinations (audit fix).
 
     check_forward_refs: a `NN-stage/FILE.md` reference must name a real framework
     deliverable (catches 02-architecture/ARCHITECTURE.md when the P2 deliverable
     is SAD.md). check_nfr_adr_coverage: every SRS NFR must appear in ADR.md's
-    traceability TABLE (catches an NFR dropped from the table). Both decidable,
-    no LLM. NFR coverage is only meaningful once ADR.md exists (P3+).
+    traceability TABLE (catches an NFR dropped from the table). check_module_fr_coverage:
+    TRACEABILITY_MATRIX.md's own §5.3 reverse-coverage table must match its own
+    AC-row citations, and SPEC_TRACKING.md must not claim an FR/NFR ownership the
+    AC citations attribute to a different module. All decidable, no LLM. NFR
+    coverage is only meaningful once ADR.md exists (P3+).
     """
     project = Path(args.project).resolve()
     from core.quality_gate.artifact_consistency import (
         check_forward_refs,
+        check_module_fr_coverage,
         check_nfr_adr_coverage,
     )
 
     violations = (check_forward_refs(project)
+                  + check_module_fr_coverage(project)
                   + ([] if getattr(args, 'forward_refs_only', False)
                      else check_nfr_adr_coverage(project)))
     errors = [v for v in violations if v.severity == "error"]
@@ -1189,7 +1194,8 @@ def register(sub) -> None:
     aci = sub.add_parser(
         "check-artifact-consistency",
         help="P2/P3: catch invented forward-reference filenames (ARCHITECTURE.md vs "
-             "SAD.md) and NFRs dropped from ADR.md's traceability table",
+             "SAD.md), module/FR-NFR ownership drift between TRACEABILITY_MATRIX.md "
+             "and SPEC_TRACKING.md, and NFRs dropped from ADR.md's traceability table",
     )
     aci.add_argument("--project", default=".", help="Project root (default: .)")
     aci.add_argument("--forward-refs-only", action="store_true",
