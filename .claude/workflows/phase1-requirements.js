@@ -184,7 +184,12 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       phase: phaseName,
       agentType: 'general-purpose',
     })
-    const text = (typeof res === 'string' ? res : String(res ?? '')).trim()
+    const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()
+    // sub-agent runtime sometimes emits a literal <think>...</think> preamble
+    // merged into the same line as the real content (no newline in between),
+    // which defeats the ^-anchored prefix check below even though the agent
+    // DID read the correct file. Strip it before validating.
+    const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
     if (text.startsWith('ERROR_LOAD_FAILED')) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')
       continue
