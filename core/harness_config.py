@@ -1,4 +1,4 @@
-"""Global per-project harness feature flags.
+"""Global per-project harness configuration — the ONE place a tunable lives.
 
 Config file: <project>/.methodology/harness_config.json
 Schema version 1::
@@ -8,14 +8,27 @@ Schema version 1::
       "features": {
         "mutation_testing": false,
         "phase4_llm_review": true,
-        "crg_architecture": true
+        "crg_architecture": true,
+        "cross_artifact_live_cov": false
+      },
+      "values": {
+        "drift_threshold": 85.0,
+        "max_fix_rounds": 3,
+        "permission_mode": "bypassPermissions",
+        "timeouts": {"mutation": 7200},
+        "step_max_turns": {"GATE1": 90}
       },
       "crg_cohesion_healthy": 0.2,
       "crg_excludes": [".claude/*", "*.mjs"]
     }
 
-``features`` holds boolean flags (see ``load_harness_config``). The
-top-level ``crg_*`` value keys calibrate the framework-owned CRG
+``features`` holds boolean flags (see ``load_harness_config``); ``values``
+holds tunable parameters (see ``get_value``). Every default equals the
+behavior the framework shipped with before the key existed — an absent or
+empty config changes nothing. The full key reference lives in
+docs/CONFIGURATION.md (a meta-test keeps registry and doc in sync).
+
+The top-level ``crg_*`` value keys calibrate the framework-owned CRG
 architecture score (see ``get_crg_settings``):
 
 * ``crg_cohesion_healthy`` — per-project cohesion floor for a community
@@ -26,8 +39,13 @@ architecture score (see ``get_crg_settings``):
   community whose files are majority-matched is excluded from scoring
   (project tooling such as workflow scripts is not product code).
 
-Missing file or malformed JSON → hardcoded defaults (no crash).
-Unknown keys are silently ignored (forward-compatible).
+Missing file or malformed JSON → hardcoded defaults (no crash). Unknown
+keys warn once per process and are otherwise ignored (Round 9: the audit
+found zombie settings — enforcement.json's dataclass, SSI config.yaml —
+whose silent no-op edits were worse than a crash; a typo'd key here used
+to be the same trap). A value of the wrong type/range also warns and
+falls back to the default — the gate pipeline must never crash on a
+hand-edited config.
 """
 import json
 from pathlib import Path
@@ -37,6 +55,11 @@ _DEFAULTS: dict[str, Any] = {
     "mutation_testing": False,
     "phase4_llm_review": True,
     "crg_architecture": True,
+    # Round 9: promoted from the HARNESS_CROSS_ARTIFACT_COV env var (which
+    # still wins when set, for per-invocation override) — run live pytest
+    # --cov during finalize-gate cross-artifact checks instead of reusing
+    # .coverage data (costs up to ~120s per gate call).
+    "cross_artifact_live_cov": False,
 }
 
 # Dimension name → harness_config.json feature key.
@@ -49,17 +72,55 @@ _DIM_TO_FEATURE: dict[str, str] = {
 }
 
 
-def load_harness_config(project: "str | Path") -> dict:
-    """Return the merged features dict (file values overlaid on defaults)."""
+# Top-level keys the schema knows. Anything else in the file is a typo or
+# a leftover from an older schema — warn, don't silently no-op (P3 of the
+# Round 9 audit: "unknown keys silently ignored" is how "mutation_testng"
+# quietly runs with the default).
+_KNOWN_TOP_LEVEL = {"version", "features", "values",
+                    "crg_cohesion_healthy", "crg_excludes"}
+
+# Warn once per (section, key) per process — load_harness_config is called
+# a dozen times in a single CLI run and a repeated wall of WARNs helps
+# nobody; one line per typo does.
+_warned_unknown: set = set()
+
+
+def _warn_unknown(section: str, present, known) -> None:
+    for key in sorted(set(present) - set(known)):
+        if (section, key) in _warned_unknown:
+            continue
+        _warned_unknown.add((section, key))
+        print(f"[harness-config] WARN: unknown {section} key {key!r} ignored "
+              f"(valid: {', '.join(sorted(known))})")
+
+
+def _read_raw(project: "str | Path") -> dict:
+    """The raw config dict; missing file / bad JSON / non-dict → {}."""
     cfg_path = Path(project) / ".methodology" / "harness_config.json"
     if not cfg_path.exists():
-        return dict(_DEFAULTS)
+        return {}
     try:
         raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-        features = raw.get("features", {})
-        return {k: features.get(k, v) for k, v in _DEFAULTS.items()}
-    except Exception:
+    except Exception as exc:
+        if ("malformed", str(cfg_path)) not in _warned_unknown:
+            _warned_unknown.add(("malformed", str(cfg_path)))
+            print(f"[harness-config] WARN: {cfg_path} unreadable ({exc}) — "
+                  f"using built-in defaults")
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def load_harness_config(project: "str | Path") -> dict:
+    """Return the merged features dict (file values overlaid on defaults)."""
+    raw = _read_raw(project)
+    if not raw:
         return dict(_DEFAULTS)
+    _warn_unknown("top-level", raw, _KNOWN_TOP_LEVEL)
+    features = raw.get("features", {})
+    if not isinstance(features, dict):
+        return dict(_DEFAULTS)
+    _warn_unknown("features", features, _DEFAULTS)
+    return {k: features.get(k, v) for k, v in _DEFAULTS.items()}
 
 
 def get_feature(project: "str | Path", key: str) -> Any:
@@ -71,6 +132,83 @@ def get_feature(project: "str | Path", key: str) -> Any:
     has no entry for it.
     """
     return load_harness_config(project).get(key)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tunable values — the ``values`` section
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Registry of every tunable parameter. Every default IS the pre-Round-9
+# hardcoded behavior; consumers pass through get_value so the precedence
+# chain stays: CLI flag > per-FR fr_config (quality_manifest) > this file >
+# these defaults. Anti-backdoor rule (docs/CONFIGURATION.md): values that
+# guard gate integrity (gate1 coverage floor, milestone entry gates, ghost
+# detection) are deliberately NOT here and must not be added.
+
+_VALUE_DEFAULTS: dict[str, Any] = {
+    # M2 drift-detection ensemble score threshold (0-100). Consumed by the
+    # PhaseHooks construction sites in cli/phase_cmds, cli/gate_cmds, and
+    # core/adapters/phase_hooks_adapter.
+    "drift_threshold": 85.0,
+    # Global default for run-fr-step fix rounds (per-FR fr_config and the
+    # --max-fix-rounds CLI flag both override).
+    "max_fix_rounds": 3,
+    # permission_mode passed to spawned sub-agents (--permission-mode wins).
+    "permission_mode": "bypassPermissions",
+    # Per-key overlay onto STALL_TIMEOUTS, e.g. {"mutation": 7200}.
+    "timeouts": {},
+    # Per-step overlay onto cli/fr_cmds._STEP_MAX_TURNS, e.g. {"GATE1": 90}.
+    "step_max_turns": {},
+}
+
+
+def _valid_value(key: str, v: Any) -> bool:
+    """Type/range validation for a ``values`` entry (registry-declared)."""
+    if key == "drift_threshold":
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < float(v) <= 100
+    if key == "max_fix_rounds":
+        return isinstance(v, int) and not isinstance(v, bool) and v >= 1
+    if key == "permission_mode":
+        return isinstance(v, str) and bool(v)
+    if key in ("timeouts", "step_max_turns"):
+        return isinstance(v, dict) and all(
+            isinstance(k, str)
+            and isinstance(n, int) and not isinstance(n, bool) and n >= 1
+            for k, n in v.items()
+        )
+    return False
+
+
+def get_value(project: "str | Path", key: str) -> Any:
+    """Return one tunable from the ``values`` section, or its default.
+
+    Unknown *key* raises KeyError (a consumer typo is a programming error —
+    same strict contract as ``get_timeout``). A file value that fails the
+    registry's type/range check warns and falls back to the default.
+    """
+    if key not in _VALUE_DEFAULTS:
+        valid = ", ".join(sorted(_VALUE_DEFAULTS))
+        raise KeyError(f"unknown values key: {key!r}; valid keys: {valid}")
+    default = _VALUE_DEFAULTS[key]
+    values = _read_raw(project).get("values", {})
+    if not isinstance(values, dict) or key not in values:
+        if isinstance(values, dict):
+            _warn_unknown("values", values, _VALUE_DEFAULTS)
+        return _copy_default(default)
+    _warn_unknown("values", values, _VALUE_DEFAULTS)
+    v = values[key]
+    if not _valid_value(key, v):
+        if ("values-invalid", key) not in _warned_unknown:
+            _warned_unknown.add(("values-invalid", key))
+            print(f"[harness-config] WARN: values.{key} = {v!r} fails "
+                  f"type/range validation — using default {default!r}")
+        return _copy_default(default)
+    return v
+
+
+def _copy_default(default: Any) -> Any:
+    """Never hand out the registry's own mutable dict."""
+    return dict(default) if isinstance(default, dict) else default
 
 
 _CRG_VALUE_DEFAULTS: dict[str, Any] = {
@@ -158,7 +296,7 @@ STALL_TIMEOUTS: dict[str, int] = {
 }
 
 
-def get_timeout(key: str) -> int:
+def get_timeout(key: str, project: "str | Path | None" = None) -> int:
     """Return the stall/timeout threshold for ``key``.
 
     Raises ``KeyError`` for unknown keys. A typo'd key (e.g. ``"subproc"``
@@ -166,11 +304,19 @@ def get_timeout(key: str) -> int:
     which would 2x the wallclock of env-check / wiki-update subprocesses
     or 6x-shorten mutation testing runs with no log line. Strict mode
     surfaces the typo at the first call site.
+
+    With *project* (Round 9), the config file's ``values.timeouts`` overlay
+    wins for keys it names; ``None`` keeps the built-in table verbatim, so
+    every pre-existing call site is untouched. An overlay key that isn't a
+    real STALL_TIMEOUTS key warns and is ignored (never silently invents a
+    new timeout class).
     """
-    try:
-        return int(STALL_TIMEOUTS[key])
-    except KeyError as exc:
+    if key not in STALL_TIMEOUTS:
         valid = ", ".join(sorted(STALL_TIMEOUTS))
-        raise KeyError(
-            f"unknown STALL_TIMEOUTS key: {key!r}; valid keys: {valid}"
-        ) from exc
+        raise KeyError(f"unknown STALL_TIMEOUTS key: {key!r}; valid keys: {valid}")
+    if project is not None:
+        overlay = get_value(project, "timeouts")
+        _warn_unknown("values.timeouts", overlay, STALL_TIMEOUTS)
+        if key in overlay:
+            return int(overlay[key])
+    return int(STALL_TIMEOUTS[key])

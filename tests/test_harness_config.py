@@ -109,7 +109,8 @@ class TestGetCrgSettings:
             "crg_excludes": [".claude/*"],
         })
         cfg = load_harness_config(tmp_path)
-        assert set(cfg) == {"mutation_testing", "phase4_llm_review", "crg_architecture"}
+        assert set(cfg) == {"mutation_testing", "phase4_llm_review",
+                            "crg_architecture", "cross_artifact_live_cov"}
         assert cfg["crg_architecture"] is False
 
 
@@ -293,3 +294,136 @@ class TestStallTimeouts:
     def test_stall_timeouts_values_are_int(self):
         for v in STALL_TIMEOUTS.values():
             assert isinstance(v, int)
+
+
+# ---------------------------------------------------------------------------
+# TestValuesSection (Round 9 站1) — every default IS the pre-Round-9
+# hardcoded behavior, so an absent/empty config must change nothing.
+# ---------------------------------------------------------------------------
+
+def _write_cfg(tmp_path, payload):
+    (tmp_path / ".methodology").mkdir(exist_ok=True)
+    (tmp_path / ".methodology" / "harness_config.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+
+
+class TestGetValue:
+    def test_missing_file_returns_defaults(self, tmp_path):
+        from core.harness_config import get_value
+        assert get_value(tmp_path, "drift_threshold") == 85.0
+        assert get_value(tmp_path, "max_fix_rounds") == 3
+        assert get_value(tmp_path, "permission_mode") == "bypassPermissions"
+        assert get_value(tmp_path, "timeouts") == {}
+        assert get_value(tmp_path, "step_max_turns") == {}
+
+    def test_file_value_wins(self, tmp_path):
+        from core.harness_config import get_value
+        _write_cfg(tmp_path, {"values": {"drift_threshold": 70,
+                                         "max_fix_rounds": 5,
+                                         "permission_mode": "acceptEdits"}})
+        assert get_value(tmp_path, "drift_threshold") == 70
+        assert get_value(tmp_path, "max_fix_rounds") == 5
+        assert get_value(tmp_path, "permission_mode") == "acceptEdits"
+
+    def test_unknown_consumer_key_raises(self, tmp_path):
+        from core.harness_config import get_value
+        with pytest.raises(KeyError, match="drift_threshold"):
+            get_value(tmp_path, "drift_treshold")  # consumer typo = programming error
+
+    @pytest.mark.parametrize("key,bad", [
+        ("drift_threshold", "85"),      # string
+        ("drift_threshold", 0),          # below range
+        ("drift_threshold", 101),        # above range
+        ("drift_threshold", True),       # bool masquerading as number
+        ("max_fix_rounds", 0),
+        ("max_fix_rounds", 2.5),
+        ("permission_mode", ""),
+        ("timeouts", {"mutation": "long"}),
+        ("timeouts", [1, 2]),
+        ("step_max_turns", {"GATE1": 0}),
+    ])
+    def test_invalid_value_warns_and_falls_back(self, tmp_path, capsys, key, bad):
+        import core.harness_config as hc
+        hc._warned_unknown.clear()
+        _write_cfg(tmp_path, {"values": {key: bad}})
+        assert hc.get_value(tmp_path, key) == hc._VALUE_DEFAULTS[key]
+        assert "fails type/range validation" in capsys.readouterr().out
+
+    def test_returned_dict_default_is_a_copy(self, tmp_path):
+        from core.harness_config import get_value, _VALUE_DEFAULTS
+        got = get_value(tmp_path, "timeouts")
+        got["mutation"] = 1
+        assert _VALUE_DEFAULTS["timeouts"] == {}  # registry not mutated
+
+
+class TestUnknownKeyWarn:
+    def test_typo_feature_key_warns_once(self, tmp_path, capsys):
+        import core.harness_config as hc
+        hc._warned_unknown.clear()
+        _write_cfg(tmp_path, {"features": {"mutation_testng": True}})
+        hc.load_harness_config(tmp_path)
+        hc.load_harness_config(tmp_path)  # second call must not re-warn
+        out = capsys.readouterr().out
+        assert out.count("mutation_testng") == 1
+        assert "unknown features key" in out
+
+    def test_typo_values_key_warns(self, tmp_path, capsys):
+        import core.harness_config as hc
+        hc._warned_unknown.clear()
+        _write_cfg(tmp_path, {"values": {"drift_treshold": 70}})
+        assert hc.get_value(tmp_path, "drift_threshold") == 85.0
+        assert "drift_treshold" in capsys.readouterr().out
+
+    def test_unknown_top_level_key_warns(self, tmp_path, capsys):
+        import core.harness_config as hc
+        hc._warned_unknown.clear()
+        _write_cfg(tmp_path, {"features": {}, "quality_gate_threshold": 60})
+        hc.load_harness_config(tmp_path)
+        assert "quality_gate_threshold" in capsys.readouterr().out
+
+    def test_known_keys_stay_silent(self, tmp_path, capsys):
+        import core.harness_config as hc
+        hc._warned_unknown.clear()
+        _write_cfg(tmp_path, {"version": 1,
+                              "features": {"crg_architecture": False},
+                              "values": {"drift_threshold": 70.0},
+                              "crg_cohesion_healthy": 0.2,
+                              "crg_excludes": []})
+        hc.load_harness_config(tmp_path)
+        hc.get_value(tmp_path, "drift_threshold")
+        assert capsys.readouterr().out == ""
+
+
+class TestTimeoutOverlay:
+    def test_no_project_keeps_builtin_verbatim(self):
+        assert get_timeout("mutation") == STALL_TIMEOUTS["mutation"]
+
+    def test_unconfigured_project_keeps_builtin(self, tmp_path):
+        assert get_timeout("mutation", tmp_path) == STALL_TIMEOUTS["mutation"]
+
+    def test_overlay_wins_for_named_key_only(self, tmp_path):
+        _write_cfg(tmp_path, {"values": {"timeouts": {"mutation": 7200}}})
+        assert get_timeout("mutation", tmp_path) == 7200
+        assert get_timeout("fr_step", tmp_path) == STALL_TIMEOUTS["fr_step"]
+
+    def test_overlay_typo_key_warns_and_is_ignored(self, tmp_path, capsys):
+        import core.harness_config as hc
+        hc._warned_unknown.clear()
+        _write_cfg(tmp_path, {"values": {"timeouts": {"mutatoin": 7200}}})
+        assert get_timeout("mutation", tmp_path) == STALL_TIMEOUTS["mutation"]
+        assert "mutatoin" in capsys.readouterr().out
+
+    def test_unknown_key_still_raises_with_project(self, tmp_path):
+        _write_cfg(tmp_path, {"values": {"timeouts": {"mutation": 7200}}})
+        with pytest.raises(KeyError):
+            get_timeout("subproc", tmp_path)
+
+
+class TestCrossArtifactLiveCovFlag:
+    def test_defaults_to_false(self, tmp_path):
+        assert get_feature(tmp_path, "cross_artifact_live_cov") is False
+
+    def test_file_can_enable(self, tmp_path):
+        _write_cfg(tmp_path, {"features": {"cross_artifact_live_cov": True}})
+        assert get_feature(tmp_path, "cross_artifact_live_cov") is True
