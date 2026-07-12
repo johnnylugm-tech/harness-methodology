@@ -58,7 +58,10 @@ _LINE_CEILING: dict[str, int] = {
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
     # (phase_hooks.py) and cmd_check_artifact_consistency (check_cmds.py),
     # mirroring the existing check_forward_refs/check_nfr_adr_coverage wiring.
-    "core/phase_hooks.py": 1582,
+    # 2026-07-12: +1 line — Round 6 站1: preflight_sab_check now imports
+    # sab_amender.sab_module_candidate() instead of a locally-duplicated
+    # dict-unwrap inline.
+    "core/phase_hooks.py": 1583,
     # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
     # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
     # (broken) Path(__file__).parent arithmetic.

@@ -186,6 +186,49 @@ class TestSabDriftDetection:
         assert result.drifted >= 2
         assert any("missing_one.py" in i.description for i in result.drift_items)
 
+    def test_detect_sab_drift_dict_module_blank_implemented_in_falls_back_to_name(
+        self, tmp_path
+    ):
+        """Dict-shaped module entry with a *blank* (present-but-empty)
+        ``implemented_in`` must fall back to ``name`` for the existence
+        check, exactly like a missing key does.
+
+        Round 6 station 1: the pre-fix inline unwrap was
+        ``mod.get("implemented_in", mod.get("name", ""))`` — ``.get()``
+        only falls back to its default when the key is *absent*, not when
+        it is present-but-blank, so ``implemented_in: ""`` resolved to the
+        literal empty string, and ``Path(x) / "" == Path(x)`` (the project
+        root, which always exists) silently passed the existence check for
+        ANY module carrying this shape. Delegating to
+        ``sab_amender.sab_module_candidate()`` closes this.
+        """
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {
+                    "name": "L1",
+                    "modules": [
+                        {"name": "missing_pkg.py", "implemented_in": ""},
+                    ],
+                    "allowed_dependencies": [],
+                },
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        # Deliberately do NOT create missing_pkg.py anywhere.
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True, (
+            "blank implemented_in must not silently mask a missing module "
+            f"(got: {result})"
+        )
+        assert any("missing_pkg.py" in i.description for i in result.drift_items)
+
     def test_detect_sab_drift_unregistered_file(self, tmp_path):
         """New Python file not in any SAB layer is flagged.
 

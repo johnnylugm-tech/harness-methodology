@@ -2604,7 +2604,7 @@ class HarnessBridge:
         values (e.g. ``FR-01: "app.api.webhooks"``) for projects that never
         project-tailored §5 after using the canonical template. Meanwhile
         ``.methodology/SAB.json`` is the *runtime canonical* source — every
-        downstream hook (drift_detector, phase_hooks, _check_sab_constitution,
+        downstream hook (drift_detector, phase_hooks.preflight_sab_check,
         spec_coverage) reads SAB.json, not the §5 YAML. When §5 and SAB.json
         disagree, the manifest currently writes §5's templated values and
         silently drifts from what the rest of the harness trusts.

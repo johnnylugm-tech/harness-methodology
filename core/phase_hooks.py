@@ -440,12 +440,13 @@ class PhaseHooks:
             # candidates so this check agrees with DriftDetector.detect_sab_drift.
             if self.phase is not None and self.phase >= 4:
                 from detection.drift_detector import sab_module_to_path_variants
+                from core.quality_gate.sab_amender import sab_module_candidate
                 # Try to read pkg_dir the same way drift_detector does so that
                 # SAB "taskq.cli" matches src/taskq/cli.py in src/-layout projects.
                 pkg_dir = self._read_pkg_dir_for_sab()
                 missing_modules = []
                 for m in modules:
-                    actual_m = m.get("implemented_in", m.get("name", "")) if isinstance(m, dict) else m
+                    actual_m = sab_module_candidate(m)
                     if not isinstance(actual_m, str):
                         continue
                     if actual_m.endswith("/") or re.match(r'^FR-\d+$', actual_m):

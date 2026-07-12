@@ -242,6 +242,52 @@ class TestSabConstitutionCheck:
         assert result["passed"] is False
         assert any("missing" in v for v in result["violations"])
 
+    def test_sab_check_dict_module_blank_implemented_in_falls_back_to_name(
+        self, tmp_path, phase_hooks_cls
+    ):
+        """Dict-shaped module entry with a *blank* (present-but-empty)
+        ``implemented_in`` must fall back to ``name`` for the existence
+        check, exactly like a missing key does.
+
+        Round 6 station 1: the pre-fix inline unwrap was
+        ``m.get("implemented_in", m.get("name", ""))`` — ``.get()`` only
+        falls back to its default when the key is *absent*, not when it is
+        present-but-blank, so ``implemented_in: ""`` resolved to the literal
+        empty string. ``Path(x) / ""  == Path(x)``, and the project root
+        always exists, so the existence check silently passed for ANY
+        module carrying this shape — a false negative that would hide a
+        genuinely missing module forever. Delegating to
+        ``sab_amender.sab_module_candidate()`` (which explicitly checks
+        ``isinstance(candidate, str) and candidate.strip()`` before using
+        ``implemented_in``) closes this.
+        """
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {
+                    "name": "L1",
+                    "modules": [
+                        {"name": "nonexistent_module", "implemented_in": ""},
+                    ],
+                    "allowed_dependencies": [],
+                },
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        # Deliberately do NOT create nonexistent_module.py anywhere.
+
+        hooks = phase_hooks_cls(str(tmp_path), phase=4)
+        result = hooks.preflight_sab_check()
+        assert result["passed"] is False, (
+            "blank implemented_in must not silently mask a missing module "
+            f"(got: {result})"
+        )
+        assert any("missing" in v for v in result["violations"])
+
     def test_sab_check_missing_modules_p3_allowed(self, tmp_path, phase_hooks_cls):
         """At P3 entry, module-existence check is skipped — implementation dirs not created yet."""
         method_dir = tmp_path / ".methodology"

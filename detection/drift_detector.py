@@ -112,7 +112,7 @@ def sab_module_to_path_variants(
       - directory marker: "taskq/"  (caller skips via .endswith("/"))
 
     Returns a list of candidate paths to try in order. Both
-    ``DriftDetector.detect_sab_drift`` and ``PhaseHooks._check_sab_constitution``
+    ``DriftDetector.detect_sab_drift`` and ``PhaseHooks.preflight_sab_check``
     use this helper so the two checks agree on what counts as "on disk".
     """
     if mod.endswith("/"):
@@ -551,6 +551,7 @@ class DriftDetector:
         # Read package_dir from setup.cfg to handle src/-layout projects
         # (Bug #v2.11 fix: SAB uses "taskq.cli", file is at "src/taskq/cli.py")
         pkg_dir = self._read_package_dir()
+        from core.quality_gate.sab_amender import sab_module_candidate
 
         # ── Build SAB file registry ───────────────────────────────────────
         sab_files: dict[str, str] = {}  # relative_path → layer_name
@@ -562,7 +563,7 @@ class DriftDetector:
         for layer in layers:
             layer_name = layer.get("name", "")
             for mod in layer.get("modules", []):
-                actual_mod = mod.get("implemented_in", mod.get("name", "")) if isinstance(mod, dict) else mod
+                actual_mod = sab_module_candidate(mod)
                 if not isinstance(actual_mod, str):
                     continue
                 sab_files[actual_mod] = layer_name
@@ -599,7 +600,7 @@ class DriftDetector:
         # "taskq.config"); filesystem uses path notation with slashes. Convert
         # dotted → path before checking existence (Bug #30 fix).
         # Bug #119: use shared sab_module_to_path_variants() so this check
-        # agrees with PhaseHooks._check_sab_constitution.
+        # agrees with PhaseHooks.preflight_sab_check.
         for rel_path, layer_name in sab_files.items():
             if rel_path in alias_keys:
                 continue
@@ -696,8 +697,17 @@ class DriftDetector:
             layer_name = layer.get("name", "")
             mods: set[str] = set()
             for mod in layer.get("modules", []):
-                # Normalize: strip .py and trailing / so matching works against dotted imports
-                clean = mod.rstrip("/")
+                # Normalize: strip .py and trailing / so matching works against dotted imports.
+                # Round 6 station 1: dict-shaped entries reach here too (this loop
+                # has no isinstance guard at all, unlike Check 1/Check 2 above) —
+                # unwrap via the shared primitive first or `.rstrip` crashes outright.
+                # (Named mod_candidate, not candidate — Check 1 above already binds
+                # `candidate: str` as a path_variants loop var in this same function
+                # scope; reusing the name would conflict under mypy.)
+                mod_candidate = sab_module_candidate(mod)
+                if not isinstance(mod_candidate, str):
+                    continue
+                clean = mod_candidate.rstrip("/")
                 if clean.endswith(".py"):
                     clean = clean[:-3]
                 mods.add(clean)
