@@ -217,14 +217,23 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
         claimed_pct = float(claimed_match.group(1))
 
     # Try running pytest --cov to get actual coverage.
-    # Guarded behind HARNESS_CROSS_ARTIFACT_COV=1 to avoid re-running the full
-    # test suite (up to 120s) on every finalize-gate call. When disabled, fall
-    # back to .coverage data if available.
+    # Costs up to 120s per finalize-gate call, so it is opt-in: the
+    # HARNESS_CROSS_ARTIFACT_COV env var decides when set (per-invocation
+    # override, "1" = on, anything else = off); otherwise the persistent
+    # per-project features.cross_artifact_live_cov flag decides (Round 9;
+    # default False = the pre-flag behavior). When off, fall back to
+    # .coverage data if available.
     import os as _os
     import subprocess  # nosec B404
     import sys
 
-    if _os.environ.get("HARNESS_CROSS_ARTIFACT_COV") == "1":
+    _live_env = _os.environ.get("HARNESS_CROSS_ARTIFACT_COV")
+    if _live_env is not None:
+        _live_cov = _live_env == "1"
+    else:
+        from core.harness_config import get_feature
+        _live_cov = bool(get_feature(project_root, "cross_artifact_live_cov"))
+    if _live_cov:
         test_target = "."
         if layout.active_test_dir.is_dir():
             test_target = layout.get_relative_str(layout.active_test_dir)

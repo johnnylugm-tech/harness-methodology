@@ -64,7 +64,12 @@ _LINE_CEILING: dict[str, int] = {
     # sibling FRs' stub modules sit at 0% coverage (P3 2026-07-12: FR-01/
     # FR-02 both BLOCKED after 2 no-progress rounds chasing the wrong
     # denominator).
-    "cli/fr_cmds.py": 2247,
+    # 2026-07-13: +21 lines — Round 9 station 2: run-fr-step's tunables now
+    # read the harness_config `values` section (permission_mode /
+    # max_fix_rounds / fr_step timeout / step_max_turns overlay with
+    # unknown-step WARN); precedence chain unchanged and locked by
+    # tests/test_fr_cmds_values_wiring.py.
+    "cli/fr_cmds.py": 2268,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     "cli/project_cmds.py": 1863,

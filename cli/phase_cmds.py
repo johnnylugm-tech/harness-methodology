@@ -36,7 +36,7 @@ from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.quality_gate import spec_coverage
 from core.quality_gate.spec_coverage import _parse_inventory_fallback, _parse_test_spec
 from harness import tool_checks
-from core.harness_config import get_timeout
+from core.harness_config import get_timeout, get_value
 from core.phase_topology import (
     ADVANCE_GATE1_CHECK_PHASES,
     ENTRY_GATE_MAP,
@@ -184,7 +184,8 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
     from core.phase_hooks import PhaseHooks
 
     project = Path(args.project).resolve()
-    hooks = PhaseHooks(str(project), phase=args.phase)
+    hooks = PhaseHooks(str(project), phase=args.phase,
+                       drift_threshold=get_value(project, "drift_threshold"))
 
     print(f"\n{'='*60}\npre-commit-check: Phase {args.phase}\n{'='*60}")
 
@@ -407,7 +408,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             try:
                 subprocess.run(
                     [_crg_bin, "wiki", "--repo", str(project)],
-                    check=True, capture_output=True, text=True, timeout=get_timeout("subprocess"),
+                    check=True, capture_output=True, text=True, timeout=get_timeout("subprocess", project),
                 )
                 print("  [CRG] Wiki updated → .code-review-graph/wiki/")
             except Exception as _w:  # non-blocking, but surface the reason (no silent pass)
@@ -1236,7 +1237,8 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     from core.phase_hooks import PhaseHooks
 
     project = Path(args.project).resolve()
-    hooks = PhaseHooks(str(project), phase=args.phase)
+    hooks = PhaseHooks(str(project), phase=args.phase,
+                       drift_threshold=get_value(project, "drift_threshold"))
 
     print(f"\n{'='*60}\nrun-phase: Phase {args.phase}\n{'='*60}")
 
@@ -1761,7 +1763,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                     cwd=str(project),
                     capture_output=True,
                     text=True,
-                    timeout=get_timeout("gitleaks"),
+                    timeout=get_timeout("gitleaks", project),
                 )
             except subprocess.TimeoutExpired:
                 print("\n[BLOCKED] Secrets Scanning (gitleaks) timed out.")

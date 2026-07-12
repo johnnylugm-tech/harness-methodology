@@ -549,7 +549,7 @@ def run_stryker_precheck(project: Path) -> tuple[bool, str]:
         r = subprocess.run(
             ["npx", "--no-install", "stryker", "run"],
             cwd=project, capture_output=True, text=True,
-            timeout=get_timeout("mutation"),  # 60 min hard cap — same budget as the mutmut path
+            timeout=get_timeout("mutation", project),  # 60 min hard cap — same budget as the mutmut path
         )
     except subprocess.TimeoutExpired:
         return False, (
@@ -703,7 +703,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
         r = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
-            timeout=get_timeout("mutation"),  # 60 min hard cap — mutation testing is meaningless if it hangs
+            timeout=get_timeout("mutation", project),  # 60 min hard cap — mutation testing is meaningless if it hangs
         )
 
         if r.returncode not in (0, 2):
@@ -863,7 +863,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
 
         r = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
-            timeout=get_timeout("mutation"),
+            timeout=get_timeout("mutation", project),
         )
         # mutmut 2.x exit codes:
         #   0 = all mutants killed (rare; full pass)

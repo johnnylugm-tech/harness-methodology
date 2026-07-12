@@ -27,7 +27,7 @@ from cli import _shared
 from core import claude_md
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path
 from core.canonical_form import canonical_form
-from core.harness_config import get_timeout
+from core.harness_config import get_timeout, get_value
 from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate import gate1_evidence
 from core.quality_gate import spec_coverage
@@ -159,7 +159,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             cmd,
             capture_output=True,
             text=True,
-            timeout=get_timeout("subprocess"),
+            timeout=get_timeout("subprocess", project),
             cwd=str(Path(project).resolve()),
             env=_child_env(),
         )
@@ -189,7 +189,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         if not _fresh:
             print(
                 f"[ERROR] env-check sub-agent timed out after "
-                f"{get_timeout('subprocess')}s without writing "
+                f"{get_timeout('subprocess', project)}s without writing "
                 f"env_check_result.json.",
                 file=sys.stderr,
             )
@@ -1900,7 +1900,8 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             print(f"\n[POST-FLIGHT] Structural checks (Gate {args.gate})...")
             try:
                 from core.phase_hooks import PhaseHooks
-                _ph = PhaseHooks(project, phase=args.phase, enable_kill_switch=False)
+                _ph = PhaseHooks(project, phase=args.phase, enable_kill_switch=False,
+                                 drift_threshold=get_value(project, "drift_threshold"))
                 _art = _ph.postflight_artifact_links()
                 _drft = _ph.postflight_drift_check()
                 _pf_ok = _art.get("passed", True) and _drft.get("passed", True)

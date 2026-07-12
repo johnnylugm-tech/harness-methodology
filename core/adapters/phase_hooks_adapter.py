@@ -60,8 +60,11 @@ class PhaseHooksAdapter:
     def _get_hooks(self):
         """Lazy-initialize PhaseHooks."""
         if self._hooks is None:
+            from core.harness_config import get_value
             from core.phase_hooks import PhaseHooks
-            self._hooks = PhaseHooks(self.project_path, phase=self.phase)
+            self._hooks = PhaseHooks(
+                self.project_path, phase=self.phase,
+                drift_threshold=get_value(self.project_path, "drift_threshold"))
         return self._hooks
 
     # ------------------------------------------------------------------

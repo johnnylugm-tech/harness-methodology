@@ -19,7 +19,7 @@ from pathlib import Path
 from cli import gate_cmds
 from core.agent_spawner import is_structurally_broken
 from core.canonical_form import fr_num_str
-from core.harness_config import get_timeout
+from core.harness_config import get_timeout, get_value
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
@@ -111,7 +111,9 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     # Use None sentinel to distinguish "user didn't specify" from explicit --timeout 300.
     _raw_timeout: int | None = args.timeout
     if _raw_timeout is None:
-        _raw_timeout = get_timeout("task_dev") if (args.phase in {1, 2} and not is_reviewer) else get_timeout("task_default")
+        _raw_timeout = (get_timeout("task_dev", project)
+                        if (args.phase in {1, 2} and not is_reviewer)
+                        else get_timeout("task_default", project))
     result = spawner.spawn(
         role=args.role,
         prompt=_prompt,
@@ -208,7 +210,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # Per-FR config: read fr_config from quality_manifest.json.
     # Allows large / complex FRs (e.g. FR-19 with 11-stage pipeline) to declare
     # longer timeouts and more fix rounds without changing global defaults.
-    # CLI flags --timeout / --max-fix-rounds still take precedence.
+    # Precedence (locked by tests/test_fr_cmds_values_wiring.py): per-FR
+    # fr_config > explicit CLI flag > harness_config values > built-in.
+    # (fr_config outranking an explicit CLI flag is pre-existing behavior,
+    # kept verbatim — Round 9 only slots `values` in above the built-ins.)
     # Example manifest entry:
     #   {"fr_config": {"FR-19": {"timeout": 1200, "max_fix_rounds": 5,
     #                             "code_fix_max_turns": 90}}}
@@ -221,8 +226,12 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         )
     except (OSError, json.JSONDecodeError, AttributeError):
         pass
-    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", get_timeout("fr_step")))
-    _fr_max_fix_rounds = _fr_conf.get("max_fix_rounds", getattr(args, "max_fix_rounds", 3))
+    _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", None))
+    if _fr_timeout is None:
+        _fr_timeout = get_timeout("fr_step", project)
+    _fr_max_fix_rounds = _fr_conf.get("max_fix_rounds", getattr(args, "max_fix_rounds", None))
+    if _fr_max_fix_rounds is None:
+        _fr_max_fix_rounds = get_value(project, "max_fix_rounds")
     _fr_code_fix_max_turns: int | None = _fr_conf.get("code_fix_max_turns")
 
     # 1. Idempotency — skip if already committed
@@ -254,13 +263,23 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
     _explicit_max_turns = getattr(args, "max_turns", None)
 
+    _turns_overlay = get_value(project, "step_max_turns")
+    _unknown_steps = sorted(set(_turns_overlay) - set(_STEP_MAX_TURNS))
+    if _unknown_steps:
+        print(f"[run-fr-step] WARN: values.step_max_turns key(s) {_unknown_steps} "
+              f"match no step; valid: {sorted(_STEP_MAX_TURNS)}")
+
     def _max_turns(step_name: str) -> int:
-        """Per-step max_turns: explicit --max-turns wins, then per-FR config, else _STEP_MAX_TURNS."""
+        """Per-step max_turns: explicit --max-turns wins, then per-FR config,
+        then values.step_max_turns (per-project overlay), else _STEP_MAX_TURNS."""
         if _explicit_max_turns is not None:
             return _explicit_max_turns
         if step_name.upper() in ("CODE-FIX", "COVERAGE-FIX") and _fr_code_fix_max_turns:
             return _fr_code_fix_max_turns
-        return _STEP_MAX_TURNS.get(step_name.upper(), 40)
+        step = step_name.upper()
+        if step in _turns_overlay:
+            return _turns_overlay[step]
+        return _STEP_MAX_TURNS.get(step, 40)
 
     # All FR steps need shell access:
     #   GATE1/GATE1-DELTA: ruff, pyright, pytest, coverage
@@ -269,7 +288,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # acceptEdits blocks Bash → agents skip verification steps and commit
     # broken code, causing the next GATE1 to fail again.
     _explicit_pmode = getattr(args, "permission_mode", None)
-    _pmode = _explicit_pmode if _explicit_pmode is not None else "bypassPermissions"
+    _pmode = (_explicit_pmode if _explicit_pmode is not None
+              else get_value(project, "permission_mode"))
 
     # ── Ghost paper-trail detection: capture pre-dispatch HEAD SHA ──────────
     # Reuses AgentSpawner's static method so we can diff pre/post state after
@@ -2195,18 +2215,21 @@ def register(sub) -> None:
         "--srs", default=None,
         help="Path to SRS.md for FR context extraction (default: .methodology/SRS.md)",
     )
-    rfp.add_argument("--timeout", type=int, default=600,
-                     help="Sub-agent max execution time in seconds (default: 600)")
+    rfp.add_argument("--timeout", type=int, default=None,
+                     help="Sub-agent max execution time in seconds "
+                          "(default: values.timeouts.fr_step or 600)")
     rfp.add_argument("--max-turns", type=int, default=None, dest="max_turns",
                      help="Sub-agent max tool-using turns (default: per-step, 40-70)")
-    rfp.add_argument("--max-fix-rounds", type=int, default=3, dest="max_fix_rounds",
-                     help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL (default: 3)")
+    rfp.add_argument("--max-fix-rounds", type=int, default=None, dest="max_fix_rounds",
+                     help="Max CODE-FIX + GATE1 retry rounds on GATE1 FAIL "
+                          "(default: values.max_fix_rounds or 3)")
     rfp.add_argument("--no-push", action="store_true", help="Skip git push origin HEAD after completion")
     rfp.add_argument("--no-mcp", action="store_true", dest="no_mcp",
                      help="Disable code-review-graph MCP for this FR step (debugging)")
     rfp.add_argument("--permission-mode", default=None, dest="permission_mode",
                      choices=["acceptEdits", "bypassPermissions", "default", "plan"],
-                     help="Override sub-agent permission mode (default: bypassPermissions for GATE1, acceptEdits otherwise)")
+                     help="Override sub-agent permission mode for every step "
+                          "(default: values.permission_mode or bypassPermissions)")
     rfp.set_defaults(func=cmd_run_fr_step)
 
     # resume-fr-phase
