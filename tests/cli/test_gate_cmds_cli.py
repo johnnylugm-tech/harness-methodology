@@ -1451,6 +1451,28 @@ class TestSabModuleAlignmentCheck:
         (src / "interface" / "cli.py").write_text("x = 1")
         assert _check_sab_module_alignment(str(tmp_path), gate=1) is None
 
+    def test_unregistered_scan_matches_discover_modules_at(self, tmp_path):
+        """Round 6 station 2: the (a) unregistered-direction scan now
+        delegates to sab_amender.discover_modules_at instead of a locally
+        re-implemented rglob loop (the two had silently diverged — this
+        scan never skipped ``__pycache__``). A direct call to
+        discover_modules_at on the same tree and the gate's own decision
+        must agree, since they are now the same code path."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        from core.quality_gate.sab_amender import discover_modules_at
+        from core.utils.project_layout import ProjectLayout
+
+        self._make_sab(tmp_path, ["app.core"])
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "core.py").write_text("x = 1")
+        (src / "extra.py").write_text("x = 1")  # unregistered
+
+        active_src_dir = ProjectLayout(str(tmp_path)).active_src_dir
+        direct = set(discover_modules_at(active_src_dir))
+        assert {"app.core", "app.extra"} <= direct
+        assert _check_sab_module_alignment(str(tmp_path), gate=1) == 1
+
 
 # =============================================================================
 # _check_sab_module_alignment — phantom branch + per-FR scoping (2026-07-08 fix)

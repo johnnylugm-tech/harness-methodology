@@ -1116,6 +1116,13 @@ def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = 
     both are normalised to dotted names before comparison so the check
     agrees with `drift_detector.sab_module_to_path_variants`.
 
+    Unregistered detection (the (a) branch, Round 6 station 2) delegates
+    the on-disk scan to `core.quality_gate.sab_amender.discover_modules_at`
+    instead of a locally re-implemented rglob loop — the two versions had
+    silently diverged (this one never skipped ``__pycache__``), which is
+    exactly the class of drift `phantom_modules` below was already
+    centralised to prevent for the (b) branch.
+
     Phantom detection (the (b) branch) closes the silent gap that previously
     let P2 architecture planning register `taskq.config` / `taskq.models`
     layers survive into P4 uncaught. The implementation delegates to
@@ -1155,13 +1162,8 @@ def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = 
                 if dotted is not None:
                     sab_modules.add(dotted)
 
-        actual_modules: set[str] = set()
-        for py_file in src_dir.rglob("*.py"):
-            if py_file.name == "__init__.py":
-                continue
-            rel_path = py_file.relative_to(src_dir)
-            mod_name = ".".join(rel_path.with_suffix("").parts)
-            actual_modules.add(mod_name)
+        from core.quality_gate.sab_amender import discover_modules_at
+        actual_modules: set[str] = set(discover_modules_at(src_dir))
 
         unregistered = actual_modules - sab_modules
         if unregistered:

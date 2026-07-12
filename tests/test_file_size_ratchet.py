@@ -30,7 +30,12 @@ _LINE_CEILING: dict[str, int] = {
     # required distinction (fix false fabrication flag on vars with baked-in
     # config defaults). Example uses generic DATABASE_URL, not project-specific.
     "harness/harness_bridge.py": 2963,
-    "cli/gate_cmds.py": 2567,
+    # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
+    # unregistered-direction scan now delegates to sab_amender.
+    # discover_modules_at() (removed inline loop, +docstring paragraph
+    # explaining the delegation) instead of a locally re-implemented rglob
+    # loop that had silently diverged (never skipped __pycache__).
+    "cli/gate_cmds.py": 2569,
     # 2026-07-11: +26 lines — cmd_advance_phase now refreshes the
     # traceability attestation before its handover commit (mirrors the
     # existing push_cmds.py refresh in push-checkpoint/push-milestone), and

@@ -104,18 +104,21 @@ def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR)
     return stripped.replace("/", ".")
 
 
-def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
-    """Return sorted list of dotted module names under `<project>/<src_dir>/`.
+def discover_modules_at(src_path: Path) -> list[str]:
+    """Return sorted list of dotted module names found directly under `src_path`.
 
-    Mirrors `_check_sab_module_alignment` in harness_cli.py: skip
+    Mirrors `_check_sab_module_alignment` in cli/gate_cmds.py: skip
     ``__pycache__`` and ``__init__.py`` (package marker, not a SAB module)
     and emit dotted form (``taskq.core.models``), not the raw project-relative
-    path. The two functions must use the SAME representation, otherwise an
+    path. Both call sites must use the SAME representation, otherwise an
     amend run can never close the BLOCKED it was supposed to fix — the path
     strings written into SAB.json by amend would never equal the dotted
-    strings checked against SAB.json by the gate.
+    strings checked against SAB.json by the gate. `gate_cmds.py` calls this
+    directly (it already has the resolved `ProjectLayout(...).active_src_dir`
+    in hand); `discover_modules` below is a thin project-root+src_dir-string
+    wrapper for callers (like `amend_sab`'s CLI-facing ``--src-dir`` flag)
+    that don't.
     """
-    src_path = project_root / src_dir
     if not src_path.is_dir():
         return []
     found = []
@@ -130,6 +133,14 @@ def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> lis
             continue
         found.append(".".join(parts))
     return found
+
+
+def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
+    """Return sorted list of dotted module names under `<project>/<src_dir>/`.
+
+    See `discover_modules_at` for the actual scan + the two-call-site contract.
+    """
+    return discover_modules_at(project_root / src_dir)
 
 
 def _flatten_registered(sab: dict, src_dir: str = _DEFAULT_SRC_DIR) -> set[str]:
