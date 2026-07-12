@@ -50,7 +50,13 @@ _LINE_CEILING: dict[str, int] = {
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
     # reset-and-rerun projects (TDD-IMPROVE had no secondary evidence check).
-    "cli/fr_cmds.py": 2182,
+    # 2026-07-12: +39 lines — dispatch failures now fail fast on the
+    # deterministic "claude.ai connectors are disabled" signature (shared
+    # _abort_dispatch_structurally_broken() helper, 2 call sites) instead of
+    # exhausting max_fix_rounds against an environment that cannot ever
+    # succeed (P3 2026-07-12 FR-04 GATE1: 5.4h silent retry loop before the
+    # external workflow watchdog aborted).
+    "cli/fr_cmds.py": 2221,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     "cli/project_cmds.py": 1863,

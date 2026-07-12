@@ -10,6 +10,7 @@ import io
 
 import harness_cli as _hc_entry  # noqa: F401  entry-first before cli imports
 from cli.fr_cmds import (  # noqa: E402
+    DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE,
     _build_fr_step_prompt,
     _compute_fr_spec_data,
     _extract_srs_fr_section,
@@ -591,6 +592,62 @@ class TestRunFrStep:
         )
         rc = harness_cli.cmd_run_fr_step(args)
         assert rc == 2  # BLOCKED
+
+    def test_gate1_fails_fast_on_connector_disabled(self, tmp_path, monkeypatch):
+        """Regression (P3 2026-07-12 FR-04 abort): when a spawned fix sub-agent
+        can't start because claude.ai connectors are disabled (an
+        ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN-style env var takes precedence),
+        every retry reproduces the identical, deterministic failure — there is
+        no number of CODE-FIX/LINT-FIX/COVERAGE-FIX rounds that can ever
+        succeed. run-fr-step must detect this signature and abort immediately
+        with DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE instead of exhausting
+        max_fix_rounds (previously: a silent multi-hour retry loop).
+
+        Uses a real (fresh) git repo with no finalize-gate sentinel rather than
+        patching the private `_fr_step_already_done` — on a fresh tmp_path,
+        GATE1's idempotency check naturally finds no sentinel and returns
+        False, which is real public behavior, not an implementation-detail
+        patch (see tests/test_patch_discipline.py)."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="GATE1")
+
+        _gate_fail_output = '{"status": "DONE", "pass": false, "failing_dims": ["D1"], "gate_score": 0.2}'
+        _connector_disabled_output = (
+            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
+            "or another auth source is set and takes precedence over your "
+            "claude.ai login · Unset it to load your organization's connectors"
+        )
+        spawn_calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                spawn_calls.append(kwargs)
+                if len(spawn_calls) == 1:
+                    # Initial GATE1 dispatch: gate fails, triggers a fix round.
+                    return {"status": "complete", "output": _gate_fail_output}
+                # Every fix-dispatch attempt (CODE-FIX/LINT-FIX/etc.) fails
+                # identically because the environment itself is broken.
+                return {"status": "FAILED", "output": _connector_disabled_output}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="GATE1", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=3,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
+        # Exactly 2 spawns: the initial GATE1 dispatch + the first fix attempt.
+        # No second or third fix round, no GATE1 re-dispatch — the whole
+        # point is to not retry a structurally-broken environment.
+        assert len(spawn_calls) == 2
 
     def test_resume_fr_phase_carryforward_uses_gate1_delta(self, tmp_path, monkeypatch):
         """resume-fr-phase emits GATE1-DELTA for carry-forward phases when code unchanged."""

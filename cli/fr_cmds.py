@@ -533,8 +533,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     setting_sources=phase_ctx["setting_sources"],
                 )
                 if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
+                    _fix_output = fix_result.get('output', '')
                     print(f"[run-fr-step] {fix_step_name} failed: "
-                          f"{fix_result.get('output','')[:200]}")
+                          f"{_fix_output[:200]}")
+                    if _is_connector_disabled_failure(_fix_output):
+                        return _abort_dispatch_structurally_broken(fr_id, step, phase, project)
                     # [LINT-FIX fallback] If the spawned LINT-FIX sub-agent
                     # failed (e.g. ANTHROPIC_API_KEY precedence disabling
                     # claude.ai connectors), try an inline repair with ruff
@@ -674,6 +677,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 setting_sources=phase_ctx["setting_sources"],
                 permission_mode=_pmode,
             )
+            if (result.get("status") in _DISPATCH_ERROR_STATUSES
+                    and _is_connector_disabled_failure(result.get("output", ""))):
+                return _abort_dispatch_structurally_broken(fr_id, step, phase, project)
             gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
                 gate_pass = _fr_step_already_done(step, fr_id, project, phase=phase)
@@ -904,6 +910,39 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
+
+# Claude Code CLI prints this exact substring when an ANTHROPIC_API_KEY/
+# ANTHROPIC_AUTH_TOKEN-style env var overrides claude.ai login, blocking ALL
+# sub-agent spawns. Deterministic + reproduces identically every retry, so
+# fail fast instead of exhausting max_fix_rounds (was: silent multi-hour
+# retry loop, P3 2026-07-12 FR-04 abort).
+_CONNECTOR_DISABLED_SIGNATURE = "claude.ai connectors are disabled"
+# Distinct from BLOCKED (2) / commit-dirty (6) / GHOST_DETECTED (22): means
+# "do not retry — the environment itself is broken."
+DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE = 23
+
+
+def _is_connector_disabled_failure(output: str) -> bool:
+    """True if a dispatch's captured output shows the connector-disabled signature."""
+    return _CONNECTOR_DISABLED_SIGNATURE in (output or "")
+
+
+def _abort_dispatch_structurally_broken(fr_id: str, step: str, phase: int, project: Path) -> int:
+    """FATAL diagnostic + abort code, shared by every dispatch site in the
+    fix-round loop — callers must return this immediately, not retry."""
+    print(
+        f"\n[FATAL] {fr_id} {step}: sub-agent dispatch is structurally broken — "
+        "Claude Code reports claude.ai connectors are disabled (an "
+        "ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN-style env var is overriding "
+        "claude.ai login). Every retry will fail identically; not attempting "
+        "further rounds.\n"
+        "  Fix: unset the auth-override env var in the shell that launches "
+        "this process, then re-run:\n"
+        f"    python harness_cli.py resume-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --project {project}",
+        file=sys.stderr,
+    )
+    return DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
 # GATE1 needs more turns: 5-step workflow (run-gate → evaluate → write result.json
 # → finalize-gate → report) plus multi-dimension assessment on brownfield codebases.
