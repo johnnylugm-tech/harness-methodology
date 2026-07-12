@@ -159,14 +159,22 @@ _VALUE_DEFAULTS: dict[str, Any] = {
     "timeouts": {},
     # Per-step overlay onto cli/fr_cmds._STEP_MAX_TURNS, e.g. {"GATE1": 90}.
     "step_max_turns": {},
+    # HR-11 Phase Truth verification score floor (0-100). Round 9 station 3:
+    # migrated from enforcement.json's hr_overrides.HR-11_phase_truth_threshold
+    # (still honored as a fallback by phase_truth_verifier, with a migration
+    # nudge).
+    "phase_truth_threshold": 90.0,
+    # Phase Truth pytest run cap in seconds (SG-5; floor 30 enforced by the
+    # consumer). Migrated from enforcement.json's phase_truth.pytest_timeout_seconds.
+    "phase_truth_pytest_timeout": 300,
 }
 
 
 def _valid_value(key: str, v: Any) -> bool:
     """Type/range validation for a ``values`` entry (registry-declared)."""
-    if key == "drift_threshold":
+    if key in ("drift_threshold", "phase_truth_threshold"):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < float(v) <= 100
-    if key == "max_fix_rounds":
+    if key in ("max_fix_rounds", "phase_truth_pytest_timeout"):
         return isinstance(v, int) and not isinstance(v, bool) and v >= 1
     if key == "permission_mode":
         return isinstance(v, str) and bool(v)
@@ -209,6 +217,20 @@ def get_value(project: "str | Path", key: str) -> Any:
 def _copy_default(default: Any) -> Any:
     """Never hand out the registry's own mutable dict."""
     return dict(default) if isinstance(default, dict) else default
+
+
+def value_is_configured(project: "str | Path", key: str) -> bool:
+    """True when the config file itself sets ``values.<key>`` (validly).
+
+    Lets a consumer with a legacy fallback source (phase_truth_verifier's
+    enforcement.json keys) distinguish "operator chose this value" from
+    "get_value returned the registry default".
+    """
+    if key not in _VALUE_DEFAULTS:
+        valid = ", ".join(sorted(_VALUE_DEFAULTS))
+        raise KeyError(f"unknown values key: {key!r}; valid keys: {valid}")
+    values = _read_raw(project).get("values", {})
+    return isinstance(values, dict) and key in values and _valid_value(key, values[key])
 
 
 _CRG_VALUE_DEFAULTS: dict[str, Any] = {

@@ -49,8 +49,10 @@ class PhaseTruthVerifier:
     def __init__(self, project_root: str, phase: int, threshold: float | None = None):
         """
         :param threshold: Override HR-11 ≥90% threshold. If None, reads
+            harness_config ``values.phase_truth_threshold`` (Round 9 home for
+            tunables), honoring the legacy
             `.methodology/enforcement.json::hr_overrides.HR-11_phase_truth_threshold`
-            falling back to 90.0. See SG-7 in robustness audit.
+            as a fallback, else 90.0. See SG-7 in robustness audit.
         """
         self.project_root = Path(project_root)
         self.phase = phase
@@ -60,18 +62,37 @@ class PhaseTruthVerifier:
             else self._load_threshold_from_config()
         )
 
-    def _load_threshold_from_config(self) -> float:
-        """Read HR-11 threshold from enforcement.json (SG-7)."""
+    def _legacy_enforcement_value(self, section: str, key: str, label: str):
+        """Legacy enforcement.json read + one-line migration nudge (Round 9
+        station 3: these two keys moved to harness_config values.*; the old
+        location keeps working so no project breaks mid-run)."""
         cfg_path = ProjectLayout(self.project_root).enforcement_config_path
-        if cfg_path.exists():
+        if not cfg_path.exists():
+            return None
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            v = cfg.get(section, {}).get(key)
+        except (json.JSONDecodeError, ValueError, OSError):
+            return None
+        if v is not None:
+            print(f"[phase-truth] NOTE: reading legacy enforcement.json "
+                  f"{section}.{key} — migrate to harness_config.json "
+                  f"values.{label} (doctor flags this file)")
+        return v
+
+    def _load_threshold_from_config(self) -> float:
+        """HR-11 threshold: values.phase_truth_threshold > legacy enforcement.json > 90.0 (SG-7)."""
+        from core.harness_config import get_value, value_is_configured
+        if value_is_configured(self.project_root, "phase_truth_threshold"):
+            return float(get_value(self.project_root, "phase_truth_threshold"))
+        legacy = self._legacy_enforcement_value(
+            "hr_overrides", "HR-11_phase_truth_threshold", "phase_truth_threshold")
+        if legacy is not None:
             try:
-                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-                v = cfg.get("hr_overrides", {}).get("HR-11_phase_truth_threshold")
-                if v is not None:
-                    return float(v)
-            except (json.JSONDecodeError, ValueError, OSError):
+                return float(legacy)
+            except (TypeError, ValueError):
                 pass
-        return 90.0
+        return float(get_value(self.project_root, "phase_truth_threshold"))
 
     def to_fix_context(self) -> dict:
         """Serialize verify failures for AutoFixEngine consumption."""
@@ -124,21 +145,23 @@ class PhaseTruthVerifier:
 
 
     def _get_pytest_timeout(self) -> int:
-        """SG-5: pytest timeout is configurable via enforcement.json. Default 300s.
+        """SG-5: pytest cap — values.phase_truth_pytest_timeout > legacy
+        enforcement.json > 300s. Floor 30s to prevent footguns.
 
         Hardcoded 120s previously caused medium-sized test suites to time out,
         scoring 0 on Phase Truth and blocking P3/P4 advance.
         """
-        cfg_path = ProjectLayout(self.project_root).enforcement_config_path
-        if cfg_path.exists():
+        from core.harness_config import get_value, value_is_configured
+        if value_is_configured(self.project_root, "phase_truth_pytest_timeout"):
+            return max(30, int(get_value(self.project_root, "phase_truth_pytest_timeout")))
+        legacy = self._legacy_enforcement_value(
+            "phase_truth", "pytest_timeout_seconds", "phase_truth_pytest_timeout")
+        if legacy is not None:
             try:
-                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-                v = cfg.get("phase_truth", {}).get("pytest_timeout_seconds")
-                if v is not None:
-                    return max(30, int(v))  # floor at 30s to prevent footguns
-            except (json.JSONDecodeError, ValueError, OSError):
+                return max(30, int(legacy))
+            except (TypeError, ValueError):
                 pass
-        return 300
+        return max(30, int(get_value(self.project_root, "phase_truth_pytest_timeout")))
 
     def check_pytest(self) -> Tuple[bool, float, str]:
         """Check the test suite actually passes; capture structured failure output.

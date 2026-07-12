@@ -177,8 +177,10 @@ def _check_enforcement_zombie_keys(layout: ProjectLayout) -> list[Finding]:
     return [Finding("enforcement-config", "WARN",
                     f"enforcement.json keys {zombie} have no consumer (the "
                     f"EnforcementConfig reader was removed as dead code); only "
-                    f"{sorted(_ENFORCEMENT_LIVE_KEYS)} are read — editing the "
-                    f"others changes nothing")]
+                    f"{sorted(_ENFORCEMENT_LIVE_KEYS)} are still read, and only "
+                    f"as legacy fallbacks — migrate them to harness_config.json "
+                    f"values.phase_truth_threshold / values.phase_truth_pytest_timeout "
+                    f"and delete this file")]
 
 
 def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]:

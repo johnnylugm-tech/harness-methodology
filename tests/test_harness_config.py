@@ -427,3 +427,60 @@ class TestCrossArtifactLiveCovFlag:
     def test_file_can_enable(self, tmp_path):
         _write_cfg(tmp_path, {"features": {"cross_artifact_live_cov": True}})
         assert get_feature(tmp_path, "cross_artifact_live_cov") is True
+
+
+# ---------------------------------------------------------------------------
+# TestPhaseTruthKeyMigration (Round 9 站3): the two live enforcement.json
+# keys move home to values.*; the old location keeps working as a fallback
+# with a migration nudge, so no project breaks mid-run.
+# ---------------------------------------------------------------------------
+
+class TestPhaseTruthKeyMigration:
+    def _write_enforcement(self, tmp_path, payload):
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "enforcement.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+
+    def _verifier(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        return PhaseTruthVerifier(str(tmp_path), phase=1)
+
+    def test_nothing_configured_keeps_90_and_300(self, tmp_path):
+        v = self._verifier(tmp_path)
+        assert v.threshold == 90.0
+        assert v._get_pytest_timeout() == 300
+
+    def test_values_keys_win(self, tmp_path):
+        _write_cfg(tmp_path, {"values": {"phase_truth_threshold": 80.0,
+                                         "phase_truth_pytest_timeout": 120}})
+        v = self._verifier(tmp_path)
+        assert v.threshold == 80.0
+        assert v._get_pytest_timeout() == 120
+
+    def test_legacy_enforcement_keys_still_work_with_nudge(self, tmp_path, capsys):
+        self._write_enforcement(tmp_path, {
+            "hr_overrides": {"HR-11_phase_truth_threshold": 75},
+            "phase_truth": {"pytest_timeout_seconds": 60},
+        })
+        v = self._verifier(tmp_path)
+        assert v.threshold == 75.0
+        assert v._get_pytest_timeout() == 60
+        out = capsys.readouterr().out
+        assert "migrate to harness_config.json" in out
+
+    def test_values_beat_legacy_when_both_present(self, tmp_path):
+        _write_cfg(tmp_path, {"values": {"phase_truth_threshold": 80.0}})
+        self._write_enforcement(tmp_path, {
+            "hr_overrides": {"HR-11_phase_truth_threshold": 75}})
+        assert self._verifier(tmp_path).threshold == 80.0
+
+    def test_pytest_timeout_floor_still_30(self, tmp_path):
+        _write_cfg(tmp_path, {"values": {"phase_truth_pytest_timeout": 5}})
+        assert self._verifier(tmp_path)._get_pytest_timeout() == 30
+
+    def test_explicit_ctor_threshold_still_wins_over_everything(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+        _write_cfg(tmp_path, {"values": {"phase_truth_threshold": 80.0}})
+        v = PhaseTruthVerifier(str(tmp_path), phase=1, threshold=95.0)
+        assert v.threshold == 95.0
