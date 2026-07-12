@@ -581,19 +581,15 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
-        # Refresh the traceability attestation before staging — mirrors the
-        # push_cmds.py pre-refresh in cmd_push_checkpoint/cmd_push_milestone
-        # ("every push path is symmetric"). advance-phase was the one caller
-        # that skipped this, so its handover commit could carry a stale
-        # attestation SHA that only surfaces as a blocking failure at the
-        # next P5+ pre-push. Gated to completed_phase >= 3 — no code exists
-        # yet for the scan before that (same threshold as
-        # _regen_traceability_views below).
+        # Shared pre-push attestation refresh (refresh_attestation's docstring
+        # carries the "every push path is symmetric" invariant and its
+        # history). Gated to completed_phase >= 3 — no code exists yet for
+        # the scan before that (same threshold as _regen_traceability_views
+        # below). The try only guards the import — the helper never raises.
         if args.completed_phase >= 3:
             try:
-                from scripts.build_trace_attestation import build_attestation, write_attestation
-                _att = build_attestation(project)
-                write_attestation(project, _att)
+                from scripts.build_trace_attestation import refresh_attestation
+                refresh_attestation(project)
             except Exception as _att_err:  # pylint: disable=broad-exception-caught
                 print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
 

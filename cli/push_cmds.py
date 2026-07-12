@@ -43,15 +43,12 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         print(f"[ERROR] push-checkpoint only supports P1/P2 (got phase {phase}).")
         return 1
 
-    # F-2.5-style refresh: deliverables (SAD.md/ADR.md/TEST_SPEC.md, tests) may
-    # have been written since attestation.json was last built, which would fail
-    # the `_trace_dirty_state` pre-commit probe mid-push. Refresh in-place
-    # before the commit/push flow triggers the hook — mirrors the auto-fix
-    # in-place refresh pattern in phase_hooks.py (F-2.5, fd174bf).
+    # Shared pre-push attestation refresh (refresh_attestation's docstring
+    # carries the "every push path is symmetric" invariant and its history);
+    # the try only guards the import — the helper itself never raises.
     try:
-        from scripts.build_trace_attestation import build_attestation, write_attestation
-        _att = build_attestation(project)
-        write_attestation(project, _att)
+        from scripts.build_trace_attestation import refresh_attestation
+        refresh_attestation(project)
     except Exception as _att_err:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
 
@@ -189,14 +186,12 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         print(f"[dry-run] push-milestone --type {args.type} would: write HANDOVER.md + "
               f"commit + push to origin (no changes made; Bug #112 safety flag)")
         return 0
-    # F-2.5-style refresh: deliverables may have been written since
-    # attestation.json was last built, which would fail the `_trace_dirty_state`
-    # pre-commit probe mid-push. Mirrors the same pre-refresh block in
-    # cmd_push_checkpoint (push_cmds.py:40-50) so every push path is symmetric.
+    # Shared pre-push attestation refresh (refresh_attestation's docstring
+    # carries the "every push path is symmetric" invariant and its history);
+    # the try only guards the import — the helper itself never raises.
     try:
-        from scripts.build_trace_attestation import build_attestation, write_attestation
-        _att = build_attestation(project)
-        write_attestation(project, _att)
+        from scripts.build_trace_attestation import refresh_attestation
+        refresh_attestation(project)
     except Exception as _att_err:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
     milestone_type = args.type

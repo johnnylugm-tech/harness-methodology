@@ -109,6 +109,35 @@ def write_attestation(
     return canonical_path, latest_path
 
 
+def refresh_attestation(project: Path) -> bool:
+    """Re-derive and write attestation.json in place; never raises.
+
+    The shared pre-push refresh ritual: deliverables may have been written
+    since attestation.json was last built, which would fail the
+    `_trace_dirty_state` pre-commit probe mid-push. Every push path —
+    push-checkpoint, push-milestone, advance-phase — must call this before
+    its commit/push flow triggers the hook. That "every push path is
+    symmetric" invariant used to live in comments alone and broke once
+    (90e35b2 bug 4: advance-phase skipped the refresh, stranding a handover
+    commit whose stale attestation SHA only surfaced as a blocking failure
+    at the next P5+ push); tests/test_push_path_symmetry.py now asserts
+    every registered push path references this helper.
+
+    phase_hooks' F-2.5 auto-fix block re-derives the same files but is NOT
+    a push path (different reporting contract: success line on stdout,
+    failure to stderr) — deliberately not migrated here.
+
+    Returns True on success; on failure prints the WARN and returns False.
+    """
+    try:
+        attestation = build_attestation(project)
+        write_attestation(project, attestation)
+        return True
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] attestation pre-refresh failed: {exc}")
+        return False
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build git-anchored FR trace attestation (PR 3)."
