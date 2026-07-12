@@ -502,33 +502,116 @@ def _extract_parametrize(tree: ast.AST):
     return first_var_names, all_rows
 
 
+# Sentinel returned by _parse_trigger when a Compare node with an ast.Name
+# on either side + a single comparison operator cannot be fully parsed but
+# is structurally recognizable as a trigger attempt. _collect_ifs collects
+# assertions inside the block but marks them with an empty trigger set so
+# the MIRROR check surfaces a trigger_mismatch violation instead of silently
+# dropping the assertions.
+_UNHANDLED_TRIGGER = object()
+
+
 def _parse_trigger(test_node: ast.AST):
-    """Return (var, {values}) for `VAR == c` / `VAR in (…)`, else None."""
-    if not (isinstance(test_node, ast.Compare) and len(test_node.ops) == 1
-            and isinstance(test_node.left, ast.Name)):
+    """Return (var, {values}) for trigger patterns, else None or sentinel.
+
+    Handled forms (var on either side of the operator):
+      - var == literal  /  literal == var       (Eq)
+      - var != literal  /  literal != var       (NotEq)
+      - var in (lit, ...)  /  "lit" in var      (In, collection or scalar)
+      - var not in (lit, ...)                   (NotIn, collection)
+
+    Returns ``_UNHANDLED_TRIGGER`` (sentinel) for structured Compare nodes
+    with exactly 1 op + an ast.Name on either side that we cannot fully
+    parse (e.g. ``var < literal``). Callers collect the assertions but mark
+    the trigger set as empty — the assertion is visible to the MIRROR check
+    rather than silently dropped.
+
+    Returns ``None`` for non-Compare nodes, multi-op conditions, or nodes
+    with no ast.Name on either side — those are not trigger patterns at all.
+    """
+    if not (isinstance(test_node, ast.Compare) and len(test_node.ops) == 1):
         return None
-    var = test_node.left.id
+
+    left = test_node.left
     op = test_node.ops[0]
     comp = test_node.comparators[0]
+
+    # Determine which side has the ast.Name (the "variable" side).
+    var: str | None = None
+    value_expr: ast.AST | None = None
+
+    if isinstance(left, ast.Name):
+        var = left.id
+        value_expr = comp
+    elif isinstance(comp, ast.Name):
+        var = comp.id
+        value_expr = left
+
+    if var is None or value_expr is None:
+        return None  # no Name on either side — not a trigger pattern
+
+    # --- Handled cases (return (var, {values})) ---
+
+    # Eq: var == literal  /  literal == var
     if isinstance(op, ast.Eq):
-        v, ok = _literal_value(comp)
+        v, ok = _literal_value(value_expr)
         return (var, {v}) if ok else None
-    if isinstance(op, ast.In) and isinstance(comp, (ast.Tuple, ast.List, ast.Set)):
-        vals = set()
-        for e in comp.elts:
+
+    # NotEq: var != literal  /  literal != var
+    if isinstance(op, ast.NotEq):
+        v, ok = _literal_value(value_expr)
+        return (var, {v}) if ok else None
+
+    # In with collection literal: var in (a, b, c)  /  ("a","b") in var
+    if isinstance(op, ast.In) and isinstance(value_expr, (ast.Tuple, ast.List, ast.Set)):
+        vals: set = set()
+        for e in value_expr.elts:
             v, ok = _literal_value(e)
             if not ok:
                 return None
             vals.add(v)
         return (var, vals)
-    return None
+
+    # NotIn with collection literal: var not in (a, b, c)
+    if isinstance(op, ast.NotIn) and isinstance(value_expr, (ast.Tuple, ast.List, ast.Set)):
+        vals = set()
+        for e in value_expr.elts:
+            v, ok = _literal_value(e)
+            if not ok:
+                return None
+            vals.add(v)
+        return (var, vals)
+
+    # In with scalar: "constant" in var  /  var in "constant"
+    if isinstance(op, ast.In):
+        v, ok = _literal_value(value_expr)
+        return (var, {v}) if ok else None
+
+    # --- Unhandled but structured: return sentinel ---
+    # Covers Lt, LtE, Gt, GtE, Is, IsNot, NotIn with non-collection right,
+    # and any other comparison operator we haven't explicitly handled.
+    # The caller collects assertions but marks the trigger set as empty.
+    return _UNHANDLED_TRIGGER
 
 
 def _collect_ifs(stmts: list, uses: list) -> None:
     for st in stmts:
         if isinstance(st, ast.If):
             trig = _parse_trigger(st.test)
-            if trig is not None:
+            if trig is _UNHANDLED_TRIGGER:
+                # Structured trigger we cannot fully parse (e.g. var < 5).
+                # Collect the assertions so they are visible to the MIRROR
+                # check, but use an empty trigger set — the comparison at
+                # line 648 (test_trigger != spec_trigger) will produce a
+                # trigger_mismatch violation instead of a silent drop.
+                _var = _trigger_var_name(st.test)
+                if _var is not None:
+                    _asserts = frozenset(
+                        p for bs in st.body for s in ast.walk(bs)
+                        if isinstance(s, ast.Assert)
+                        for p in [_canonical_predicate(ast.unparse(s.test))] if p)
+                    uses.append(_SubUse(_var, frozenset(), _asserts))
+            elif trig is not None:
                 var, values = trig
                 # Bug #27 fix: use _canonical_predicate for both sides so
                 # semantically equivalent predicates (different whitespace,
@@ -540,6 +623,17 @@ def _collect_ifs(stmts: list, uses: list) -> None:
                     for p in [_canonical_predicate(ast.unparse(s.test))] if p)
                 uses.append(_SubUse(var, frozenset(values), asserts))
             _collect_ifs(st.orelse, uses)  # elif chain
+
+
+def _trigger_var_name(test_node: ast.AST) -> str | None:
+    """Extract the variable name from a Compare node, regardless of side."""
+    if isinstance(test_node, ast.Compare):
+        if isinstance(test_node.left, ast.Name):
+            return test_node.left.id
+        if (len(test_node.comparators) == 1
+                and isinstance(test_node.comparators[0], ast.Name)):
+            return test_node.comparators[0].id
+    return None
 
 
 def _extract_sub_assertions(tree: ast.AST) -> list:

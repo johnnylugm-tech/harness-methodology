@@ -83,6 +83,55 @@ def parse_sad(sad_path: str) -> dict:
     }
 
 
+def _preserve_amended_modules(existing_sab_path: Path, new_layers: list) -> list[str]:
+    """Merge previously amend-registered modules into new SAD.md-derived layers.
+
+    Reads the existing SAB.json (if it exists), finds modules in each layer
+    that are NOT present in the new SAD.md-derived spec, and appends them
+    to the corresponding layer in ``new_layers`` (in-place).
+
+    Returns the sorted list of dotted names that were preserved, for operator
+    reporting.  Handles both string-form and dict-form module entries.
+    """
+    if not existing_sab_path.exists():
+        return []
+
+    try:
+        old_sab = json.loads(existing_sab_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+
+    old_layers: list = old_sab.get("layers", [])
+    if not old_layers:
+        return []
+
+    # Build a set of normalized names in the NEW spec for fast lookup.
+    new_names: set[str] = set()
+    for layer in new_layers:
+        for m in layer.get("modules", []):
+            norm = normalize_sab_module_to_dotted(m)
+            if norm:
+                new_names.add(norm)
+
+    # Build a name → existing_entry map from OLD layers (first occurrence wins).
+    old_entries: dict[str, object] = {}
+    for layer in old_layers:
+        for m in layer.get("modules", []):
+            norm = normalize_sab_module_to_dotted(m)
+            if norm and norm not in new_names and norm not in old_entries:
+                old_entries[norm] = m
+
+    if not old_entries:
+        return []
+
+    # Append preserved entries to the LAST layer (same heuristic as
+    # sab_amender.amend_sab — least risky; operator can re-categorize later).
+    if new_layers:
+        new_layers[-1].setdefault("modules", []).extend(old_entries.values())
+
+    return sorted(old_entries.keys())
+
+
 def _print_validation_errors(errors: list, sad_file: Path) -> None:
     """Shared failure report for --validate and the default generate path."""
     print(f"SAB validation FAILED ({len(errors)} error(s)):", file=sys.stderr)
@@ -248,11 +297,31 @@ def main():
                 new_modules.append(rewritten)
         layer["modules"] = new_modules
 
+    # ── Preserve amend-sab registrations (Bug A2 fix) ──────────────────────
+    # amend-sab (sab_amender.py) can register modules that are NOT yet declared
+    # in SAD.md §5.  Without this merge, generate_sab --overwrite would wipe
+    # those runtime registrations on every ORCH-POST step.
+    preserved: list[str] = []
+    if args.overwrite and output_file.exists():
+        preserved = _preserve_amended_modules(output_file, sab_spec.layers)
+        if preserved:
+            print(f"\n  [INFO] Preserved {len(preserved)} module(s) from amend-sab "
+                  f"registrations not in SAD.md §5:")
+            for name in preserved:
+                print(f"         - {name}")
+            print(
+                f"  [WARN] {len(preserved)} module(s) were preserved from amend-sab "
+                f"registrations.\n"
+                f"         To make them permanent, add them to SAD.md §5 SAB block."
+            )
+
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w") as f:
         json.dump(sab_spec.to_dict(), f, indent=2, ensure_ascii=False)
 
-    print("SAB generated successfully")
+    print("\nSAB generated successfully")
+    if preserved:
+        print(f"  (incl. {len(preserved)} preserved amend-sab registration(s))")
     print(f"  Modules: {len(sab_spec.modules)}")
     print(f"  Layers: {len(sab_spec.layers)}")
     print(f"  File: {output_file}")
