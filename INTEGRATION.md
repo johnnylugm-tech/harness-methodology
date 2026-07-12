@@ -311,6 +311,10 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 |---|---|---|---|
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
 
+The full, test-enforced registry of every environment variable and config
+key the framework reads lives in **`docs/CONFIGURATION.md`**
+(`tests/test_configuration_doc.py` fails on unregistered additions).
+
 <!-- Round 9 站0: dropped DRIFT_PROJECT_PATH (cron_drift_monitor removed in 減法 T4),
      SSI_ROOT (zero consumers), HARNESS_CLAUDE_MODEL (its only consumers, llm_router.py /
      config_loader.py, were zombie SSI scripts — removed). -->
