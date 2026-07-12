@@ -156,7 +156,14 @@ def run_doctor(project_root: Path) -> list[Finding]:
     return findings
 
 
-_ENFORCEMENT_LIVE_KEYS = {"hr_overrides", "phase_truth"}
+# hr_overrides + phase_truth: legacy fallbacks read by phase_truth_verifier
+# (migrated to harness_config values.phase_truth_* in Round 9 站3).
+# constitution: still a live override layer — constitution/profile.py's
+# load_profile() merges enforcement.json["constitution"] into the on-demand
+# constitution profile (found by dogfooding this very check on the harness
+# repo: the station-0 sweep grepped for the dataclass names and missed
+# profile.py's string-literal path read).
+_ENFORCEMENT_LIVE_KEYS = {"hr_overrides", "phase_truth", "constitution"}
 
 
 def _check_enforcement_zombie_keys(layout: ProjectLayout) -> list[Finding]:

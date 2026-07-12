@@ -69,8 +69,11 @@ an explicit CLI flag is long-standing run-fr-step behavior, locked by
   (`timeout`, `max_fix_rounds`, `code_fix_max_turns`) — scoped to one FR,
   reviewed with the manifest; global defaults for the same knobs live in
   `values`.
-- **`enforcement.json`**: legacy. Its two live keys migrated to
-  `values.phase_truth_*`; doctor WARNs while the file exists.
+- **`enforcement.json`**: mostly legacy. Its `hr_overrides`/`phase_truth`
+  keys migrated to `values.phase_truth_*` (old location still honored as a
+  fallback); the `constitution` key remains a live override layer for the
+  on-demand constitution profile (`core/quality_gate/constitution/profile.py::load_profile`).
+  doctor WARNs on any other key in the file.
 
 ## Environment variables
 
@@ -88,6 +91,7 @@ scans the source and fails on unregistered additions.
 | `OTEL_EXPORTER` | external | OpenTelemetry exporter selector (observability). |
 | `VIRTUAL_ENV` | system | Read to locate the active interpreter's tooling during env checks. |
 | `USER` | system | Default operator id for kill-switch audit logging. |
+| `METHODOLOGY_CONSTITUTION_PROFILE` | harness | JSON string overriding the on-demand constitution profile (read via a variable name in `constitution/profile.py`, so the AST literal scan can't see it — registered by hand; the scanner's known limit). |
 
 ## Deliberately NOT configurable (anti-backdoor)
 

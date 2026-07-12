@@ -329,6 +329,9 @@ class TestEnforcementZombieKeys:
         self._write_enforcement(project, {
             "hr_overrides": {"HR-11_phase_truth_threshold": 80},
             "phase_truth": {"pytest_timeout_seconds": 120},
+            # constitution stays live: constitution/profile.py load_profile()
+            # merges this key into the on-demand constitution profile.
+            "constitution": {"correctness": {"p1": 90}},
         })
         assert self._findings(project) == []
 
