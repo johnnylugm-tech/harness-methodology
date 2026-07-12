@@ -23,7 +23,10 @@ if str(_HARNESS_ROOT) not in sys.path:
     sys.path.insert(0, str(_HARNESS_ROOT))
 
 from core.utils.project_layout import ProjectLayout  # noqa: E402
-from core.quality_gate.sab_amender import normalize_sab_module_to_dotted  # noqa: E402
+from core.quality_gate.sab_amender import (  # noqa: E402
+    normalize_sab_module_to_dotted,
+    sab_module_candidate,
+)
 from core.quality_gate.sab_parser import validate_sab_block  # noqa: E402
 
 
@@ -212,15 +215,38 @@ def main():
     # at 03-development/src/X.py (project uses 03-development/ layout with a src
     # symlink that may not always exist), rewrite to the real path so SAB.json
     # never depends on a symlink and all downstream checkers see correct paths.
+    #
+    # SAB module entries may also be dict-shaped ({"name": ..., "implemented_in":
+    # ...}) — the official schema form for a module whose logical name differs
+    # from its physical location (see sab_parser.render_canonical_sab_template()
+    # "implemented_in: ... # OPTIONAL — Use if consolidated into another file").
+    # Pre-fix, ``project / m`` raised TypeError on dict entries, so any SAB
+    # block using the documented dict form crashed at P3 ORCH-POST (workflow_js
+    # phase3 ORCH-POST step 6b). `implemented_in` is itself allowed to be a
+    # path-form string (see sab_amender tests), so dict entries need the SAME
+    # rewrite check as string entries — sab_module_candidate() unwraps the
+    # dict to its path candidate, the rewrite check runs identically for both
+    # shapes, and only `implemented_in` is patched back (name/other fields
+    # untouched) when a rewrite actually fires.
     layout = ProjectLayout(project)
     for layer in sab_spec.layers:
-        layer["modules"] = [
-            layout.get_relative_str(layout.phase3_development_dir / m)
-            if (not (project / m).exists()
-                and (layout.phase3_development_dir / m).exists())
-            else m
-            for m in layer.get("modules", [])
-        ]
+        new_modules = []
+        for m in layer.get("modules", []):
+            candidate = sab_module_candidate(m)
+            if not isinstance(candidate, str) or not candidate:
+                new_modules.append(m)
+                continue
+            rewritten = (
+                layout.get_relative_str(layout.phase3_development_dir / candidate)
+                if (not (project / candidate).exists()
+                    and (layout.phase3_development_dir / candidate).exists())
+                else candidate
+            )
+            if isinstance(m, dict):
+                new_modules.append({**m, "implemented_in": rewritten} if rewritten != candidate else m)
+            else:
+                new_modules.append(rewritten)
+        layer["modules"] = new_modules
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, "w") as f:

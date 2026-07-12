@@ -17,6 +17,7 @@ from core.quality_gate.sab_amender import (
     missing_modules,
     normalize_sab_module_to_dotted,
     phantom_modules,
+    sab_module_candidate,
 )
 
 
@@ -60,6 +61,49 @@ class TestDiscoverModules:
             (src / name).write_text("")
         result = discover_modules(tmp_path, src_dir="src")
         assert result == sorted(result)
+
+
+# ---------------------------------------------------------------------------
+# TestSabModuleCandidate
+# ---------------------------------------------------------------------------
+
+class TestSabModuleCandidate:
+    """sab_module_candidate is the shared dict-unwrap primitive: it extracts
+    the physical-location candidate string from a SAB modules entry, without
+    the further dotted-name normalization normalize_sab_module_to_dotted
+    applies. scripts/generate_sab.py's path-rewrite step needs this raw
+    (pre-normalization) candidate to run the same on-disk existence check
+    string-shaped entries get — see TestGenerateSabDictShapedModules."""
+
+    def test_dict_with_implemented_in_returns_implemented_in(self):
+        assert sab_module_candidate(
+            {"name": "app.cli", "implemented_in": "app.interface.cli"}
+        ) == "app.interface.cli"
+
+    def test_dict_without_implemented_in_falls_back_to_name(self):
+        assert sab_module_candidate({"name": "app.executor"}) == "app.executor"
+
+    def test_dict_implemented_in_blank_falls_back_to_name(self):
+        assert sab_module_candidate(
+            {"name": "app.core", "implemented_in": ""}
+        ) == "app.core"
+
+    def test_dict_implemented_in_non_string_falls_back_to_name(self):
+        assert sab_module_candidate(
+            {"name": "app.core", "implemented_in": None}
+        ) == "app.core"
+
+    def test_dict_missing_both_fields_returns_none(self):
+        assert sab_module_candidate({"foo": "bar"}) is None
+        assert sab_module_candidate({}) is None
+
+    def test_plain_string_passes_through_unchanged(self):
+        assert sab_module_candidate("app.cli") == "app.cli"
+        assert sab_module_candidate("src/app/cli.py") == "src/app/cli.py"
+
+    def test_non_dict_non_str_passes_through_unchanged(self):
+        for val in (None, 42, [], True, 3.14):
+            assert sab_module_candidate(val) is val
 
 
 # ---------------------------------------------------------------------------

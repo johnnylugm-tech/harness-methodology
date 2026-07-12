@@ -40,6 +40,33 @@ from core.atomic_io import atomic_write_json
 _DEFAULT_SRC_DIR = "03-development/src"
 
 
+def sab_module_candidate(mod: object) -> object:
+    """Extract the physical-location candidate from a SAB ``modules`` entry.
+
+    Dict-shaped entries (``{"name": <logical>, "implemented_in":
+    <dotted-or-path, optional>}`` — the official schema form emitted by
+    `sab_parser.render_canonical_sab_template()` for a module whose logical
+    name differs from its physical location) prefer `implemented_in` when
+    present and non-blank (it is the actual physical location); otherwise
+    `name` is used. Non-dict values (including plain strings and malformed
+    types) pass through unchanged.
+
+    This is the single source of truth for unwrapping dict-shaped SAB
+    entries: `normalize_sab_module_to_dotted` below feeds its result through
+    the dotted-name normalization tail, and `scripts/generate_sab.py`'s
+    path-rewrite step uses it directly so dict- and string-shaped entries
+    are rewritten under the same logic. Note: `core.phase_hooks.
+    preflight_sab_check` does NOT call this function — it has its own
+    independent, already dict-aware inline unwrap.
+    """
+    if isinstance(mod, dict):
+        candidate = mod.get("implemented_in")
+        if not isinstance(candidate, str) or not candidate.strip():
+            candidate = mod.get("name")
+        return candidate
+    return mod
+
+
 def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR) -> str | None:
     """Normalise a SAB ``modules`` entry into a dotted module name.
 
@@ -47,18 +74,8 @@ def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR)
     ``core.utils``) or path notation (``taskq/cli.py``,
     ``03-development/src/taskq/cli.py``). Both forms map to the same
     dotted name after stripping the project-relative path prefix
-    (``<src_dir>/`` or ``src/``) and the ``.py`` suffix.
-
-    Entries may also be dict-shaped: ``{"name": <logical>, "implemented_in":
-    <dotted-or-path, optional>}`` — the official schema form emitted by
-    `sab_parser.render_canonical_sab_template()` for a module whose logical
-    name differs from its physical location ("consolidated into another
-    file"). `implemented_in` is preferred when present and non-blank (it is
-    the actual physical location); otherwise `name` is used. The extracted
-    string is then run through the same normalization tail as a plain-string
-    entry. A dict with neither field usable (or `implemented_in` non-string)
-    falls back the same way; a dict with no usable string at all is
-    equivalent to a malformed entry.
+    (``<src_dir>/`` or ``src/``) and the ``.py`` suffix. Dict-shaped entries
+    are first unwrapped to a candidate string via `sab_module_candidate`.
 
     Returns ``None`` for directory markers (trailing ``/``) and entries with
     no usable string (non-dict, non-str, or a dict with no `name`/
@@ -70,14 +87,8 @@ def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR)
     delegate), so `amend_sab` and the alignment gate can never silently
     disagree about which modules are "registered". `scripts/generate_sab.py`
     also calls it directly when filtering `__init__.py`-sourced entries.
-    Note: `core.phase_hooks.preflight_sab_check` does NOT call this function
-    — it has its own independent, already dict-aware inline unwrap.
     """
-    if isinstance(mod, dict):
-        candidate = mod.get("implemented_in")
-        if not isinstance(candidate, str) or not candidate.strip():
-            candidate = mod.get("name")
-        mod = candidate
+    mod = sab_module_candidate(mod)
     if not isinstance(mod, str):
         return None
     stripped = mod.strip().lstrip("./")

@@ -208,3 +208,86 @@ class TestGenerateSabNormalizes03DevelopmentPath:
         assert result.returncode == 0, f"stderr: {result.stderr}"
         data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
         assert data["layers"][0]["modules"] == ["src/app/api.py"]
+
+
+class TestGenerateSabDictShapedModules:
+    """Dict-shaped module entries ({"name": ..., "implemented_in": ...}) are
+    the official schema form for a module whose logical name differs from
+    its physical location (sab_parser.render_canonical_sab_template()).
+    Pre-fix, the path-rewrite step's ``project / m`` raised TypeError on
+    any dict entry, crashing generate_sab.py --overwrite at P3 ORCH-POST
+    for every SAB.json using this documented form."""
+
+    _DICT_SAB = """\
+sab:
+  version: "1.0"
+  phase: 2
+  project: "cli-test"
+  layers:
+    - name: interface
+      modules:
+        - name: "app.cli"
+          implemented_in: "app.interface.cli"
+      allowed_dependencies: []
+  allowed_dependencies: []
+  fr_module_traceability:
+    FR-01: "app.interface.cli"
+"""
+
+    def test_dotted_implemented_in_does_not_crash_and_round_trips(self, tmp_path):
+        """The realistic case: implemented_in is a dotted name with no
+        filesystem correspondence — same as this project's real SAB.json.
+        Must not crash, and the dict entry is written back unchanged."""
+        _write_sad(tmp_path, self._DICT_SAB)
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == [
+            {"name": "app.cli", "implemented_in": "app.interface.cli"}
+        ]
+
+    def test_path_form_implemented_in_rewritten_to_03_development(self, tmp_path):
+        """implemented_in may legitimately be a path-form string (see
+        sab_amender's test_dict_implemented_in_path_form_normalises). When
+        only the 03-development/ copy exists on disk, the dict entry must
+        get the SAME rewrite treatment as an equivalent plain-string entry
+        — this is the behavioral gap a naive "skip all dict entries" fix
+        would silently leave unfixed."""
+        _write_sad(tmp_path, self._DICT_SAB.replace(
+            'implemented_in: "app.interface.cli"',
+            'implemented_in: "src/app/cli.py"',
+        ))
+        dev_file = tmp_path / "03-development" / "src" / "app" / "cli.py"
+        dev_file.parent.mkdir(parents=True)
+        dev_file.write_text("x = 1")
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == [
+            {"name": "app.cli", "implemented_in": "03-development/src/app/cli.py"}
+        ]
+
+    def test_mixed_dict_and_string_modules_both_handled(self, tmp_path):
+        sab = self._DICT_SAB.replace(
+            'modules:\n        - name: "app.cli"\n          implemented_in: "app.interface.cli"',
+            'modules:\n        - name: "app.cli"\n          implemented_in: "app.interface.cli"\n        - "app.other"',
+        )
+        _write_sad(tmp_path, sab)
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == [
+            {"name": "app.cli", "implemented_in": "app.interface.cli"},
+            "app.other",
+        ]
+
+    def test_dict_with_no_usable_fields_does_not_crash(self, tmp_path):
+        sab = self._DICT_SAB.replace(
+            '- name: "app.cli"\n          implemented_in: "app.interface.cli"',
+            '- foo: "bar"',
+        )
+        _write_sad(tmp_path, sab)
+        result = _run_cli("--project", str(tmp_path))
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        assert data["layers"][0]["modules"] == [{"foo": "bar"}]
