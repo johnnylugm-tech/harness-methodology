@@ -652,7 +652,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.append("")
     lines.append("### Phase 5 Overview")
     lines.append("Phase 5 verifies the system against test results, ensuring all FRs meet acceptance criteria.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥80% + mutmut mutation testing) before FSM transition.")
+    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P5 was cleared by Gate 3 at P4 exit. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥80%) before FSM transition. Mutation testing is gated per-FR at Gate 1, not re-verified here.")
     lines.append("")
     lines.append(
         "> If code changes are needed for any FR (e.g., bug fixes found during verification), "
@@ -804,7 +804,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.append("")
     lines.append("### Phase 7 Overview")
     lines.append("Phase 7 identifies, tracks, and mitigates all risks introduced during development.")
-    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
+    lines.append("Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate — P7 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥90%) before FSM transition. Mutation testing is gated per-FR at Gate 1, not re-verified here.")
     lines.append("")
     lines.append(
         "> If risk mitigation requires code changes to any FR, run full TDD: "
@@ -897,7 +897,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.append("")
     lines.append("### Phase 8 Overview")
     lines.append("Phase 8 establishes a complete configuration management system ensuring traceability.")
-    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥90% + mutmut mutation testing) before FSM transition.")
+    lines.append("Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-gate — P8 cleared by Gate 4. However, advance-phase still enforces TDD-PRECHECK (gitleaks + ruff + mypy + pytest 100% + D4 spec-coverage ≥90%) before FSM transition. Mutation testing is gated per-FR at Gate 1, not re-verified here.")
     lines.append("")
     lines.append(
         "> If configuration changes require code modifications to any FR, run full TDD: "

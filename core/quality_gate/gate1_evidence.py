@@ -430,8 +430,9 @@ def validate_fr_coverage_immediate(
     not the other 7 FRs' files, so a per-FR scope would always report
     ~1/N of project coverage. Whole-project coverage is the only signal
     that proves "all source is exercised by tests" (the actual TDD goal).
-    Mirrors the TDD-PRECHECK check at line ~4220; advance-phase re-runs the
-    same measurement so the manifest's recorded score is verified live.
+    Mirrors the TDD-PRECHECK check in `cli/phase_cmds.py::_advance_prechecks`;
+    advance-phase re-runs the same measurement so the manifest's recorded
+    score is verified live.
 
     """
     layout = ProjectLayout(project)
