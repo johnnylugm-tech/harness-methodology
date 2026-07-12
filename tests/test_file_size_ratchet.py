@@ -69,7 +69,11 @@ _LINE_CEILING: dict[str, int] = {
     # max_fix_rounds / fr_step timeout / step_max_turns overlay with
     # unknown-step WARN); precedence chain unchanged and locked by
     # tests/test_fr_cmds_values_wiring.py.
-    "cli/fr_cmds.py": 2268,
+    # 2026-07-13: +3 lines — FIX-O: cmd_run_fr_step's first-dispatch error
+    # branch (TDD-RED/GREEN/IMPROVE + GATE1's pre-fix-loop attempt) now calls
+    # _is_connector_disabled_failure/_abort_dispatch_structurally_broken,
+    # mirroring the two other dispatch sites in this file that already had it.
+    "cli/fr_cmds.py": 2271,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     "cli/project_cmds.py": 1863,

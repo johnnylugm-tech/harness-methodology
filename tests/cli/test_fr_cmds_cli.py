@@ -679,6 +679,49 @@ class TestRunFrStep:
         # point is to not retry a structurally-broken environment.
         assert len(spawn_calls) == 2
 
+    def test_first_dispatch_fails_fast_on_connector_disabled(self, tmp_path, monkeypatch):
+        """FIX-O regression (P3 2026-07-13 FR-01 abort): the connector-disabled
+        signature must be caught on the FIRST dispatch of a step too, not only
+        inside the GATE1 fix-loop's retry dispatches. Before this fix, a
+        TDD-RED/TDD-GREEN/TDD-IMPROVE (or GATE1's very first, pre-fix-loop)
+        dispatch hitting this env condition fell into the generic
+        `else: ... return 1` branch — no [FATAL] diagnostic, no distinct exit
+        code, no env-var hint — even though the two other dispatch sites in
+        this same function (fix-loop CODE-FIX/LINT-FIX/COVERAGE-FIX, and
+        GATE1's post-fix-round re-dispatch) already special-case it."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
+        _connector_disabled_output = (
+            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
+            "or another auth source is set and takes precedence over your "
+            "claude.ai login · Unset it to load your organization's connectors"
+        )
+        spawn_calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                spawn_calls.append(kwargs)
+                return {"status": "FAILED", "output": _connector_disabled_output}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=30, max_fix_rounds=3,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
+        # Single dispatch, no retry — TDD-RED has no fix-loop to enter.
+        assert len(spawn_calls) == 1
+
     def test_resume_fr_phase_carryforward_uses_gate1_delta(self, tmp_path, monkeypatch):
         """resume-fr-phase emits GATE1-DELTA for carry-forward phases when code unchanged."""
         import harness_cli

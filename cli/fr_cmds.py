@@ -338,8 +338,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             print("[run-fr-step] Sub-agent dispatch REJECTED — manual review required.")
             return 1
         else:
+            _output = result.get("output", "")
+            if _is_connector_disabled_failure(_output):
+                return _abort_dispatch_structurally_broken(fr_id, step, phase, project)
             print(f"[run-fr-step] {fr_id} {step}: sub-agent {_status}")
-            print(result.get("output", "")[:500])
+            print(_output[:500])
             return 1
 
     # 4. GATE1: auto-retry with CODE-FIX sub-agent on failure
