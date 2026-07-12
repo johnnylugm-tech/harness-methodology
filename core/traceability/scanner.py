@@ -32,7 +32,10 @@ from core.utils.project_layout import ProjectLayout
 FR_TAG_PATTERN = re.compile(r'\[FR-(\d+)\]', re.IGNORECASE)
 FR_SAD_PATTERN = re.compile(r'\bFR-(\d+)\b', re.IGNORECASE)
 # SAD module rows may reference source files in any supported language.
-SAD_ROW_PATTERN = re.compile(r'FR-(\d+)[^\n]*?`([^`]+\.(?:py|jsx?|tsx?|mjs|cjs))`')
+# (?<!N) keeps NFR table rows citing files (e.g. "| NFR-06 | ... `config.py` |")
+# from becoming phantom FR→module mappings — same fix form as 90e35b2's
+# DriftDetector.SAD_FR_PATTERN; parity-locked by tests/test_fr_token_parity.py.
+SAD_ROW_PATTERN = re.compile(r'(?<!N)FR-(\d+)[^\n]*?`([^`]+\.(?:py|jsx?|tsx?|mjs|cjs))`')
 TEST_FILENAME_PATTERN = re.compile(r'test_fr_?(\d+)', re.IGNORECASE)
 
 

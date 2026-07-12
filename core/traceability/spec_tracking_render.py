@@ -26,7 +26,9 @@ from core.utils.project_layout import ProjectLayout
 
 __all__ = ["write_spec_tracking", "refresh_status_table"]
 
-_FR_CELL = re.compile(r"FR-(\d+)")
+# (?<!N) so an NFR row is never hijacked by the same-numbered FR's status
+# (parity-locked by tests/test_fr_token_parity.py).
+_FR_CELL = re.compile(r"(?<!N)FR-(\d+)")
 
 
 def _status_str(status) -> str:

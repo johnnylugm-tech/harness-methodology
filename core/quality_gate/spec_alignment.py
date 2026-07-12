@@ -36,7 +36,9 @@ __all__ = ["check_spec_alignment", "resolve_canonical_spec"]
 _FR_HEADING = re.compile(r"^#{1,6}\s*FR-(\d+)\b", re.MULTILINE)
 _FR_TABLE = re.compile(r"^\|\s*FR-(\d+)\b", re.MULTILINE)
 _FR_JSON = re.compile(r'"id"\s*:\s*"FR-(\d+)"')
-_FR_DEFERRED = re.compile(r"FR-(\d+)-deferred\b")
+# (?<!N): "NFR-06-deferred" must not phantom-excuse FR-06 from front-edge
+# coverage (parity-locked by tests/test_fr_token_parity.py).
+_FR_DEFERRED = re.compile(r"(?<!N)FR-(\d+)-deferred\b")
 
 # canonical_spec declaration in PROJECT_BRIEF.md — two accepted layouts, same
 # as the P1 fallback in cli/project_cmds.py (kept in sync; ~4 lines, replicated
