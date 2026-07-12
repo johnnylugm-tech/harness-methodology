@@ -145,7 +145,40 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # (push-milestone p3-post-gate2, advance-phase).
     findings.extend(_check_gate1_evidence(project, layout))
 
+    # 8. enforcement.json zombie keys (Round 9 站0): the EnforcementConfig
+    # dataclass that once consumed mode/platform/enforce_on_*/thresholds was
+    # removed as dead code — the only keys anything still reads are
+    # hr_overrides and phase_truth (core/quality_gate/phase_truth_verifier.py).
+    # An operator editing e.g. quality_gate_threshold gets silence today;
+    # WARN so a zombie setting can't masquerade as a working knob.
+    findings.extend(_check_enforcement_zombie_keys(layout))
+
     return findings
+
+
+_ENFORCEMENT_LIVE_KEYS = {"hr_overrides", "phase_truth"}
+
+
+def _check_enforcement_zombie_keys(layout: ProjectLayout) -> list[Finding]:
+    cfg_path = layout.enforcement_config_path
+    if not cfg_path.is_file():
+        return []
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return [Finding("enforcement-config", "WARN",
+                        f"{cfg_path.name} is not valid JSON — nothing reads a "
+                        f"broken file, but a hand-edit probably went wrong")]
+    if not isinstance(cfg, dict):
+        return []
+    zombie = sorted(k for k in cfg if k not in _ENFORCEMENT_LIVE_KEYS)
+    if not zombie:
+        return []
+    return [Finding("enforcement-config", "WARN",
+                    f"enforcement.json keys {zombie} have no consumer (the "
+                    f"EnforcementConfig reader was removed as dead code); only "
+                    f"{sorted(_ENFORCEMENT_LIVE_KEYS)} are read — editing the "
+                    f"others changes nothing")]
 
 
 def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]:

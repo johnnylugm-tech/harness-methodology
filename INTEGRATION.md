@@ -309,10 +309,12 @@ Phase is auto-detected from `.methodology/state.json` — no GitHub Variable req
 
 | Variable | Used by | Default | Purpose |
 |---|---|---|---|
-| `DRIFT_PROJECT_PATH` | `cron_drift_monitor.py` | cwd | Path to target project for drift analysis |
 | `PYTHONPATH` | All scripts | — | Must include harness-methodology root if not using submodule |
-| `SSI_ROOT` | All scripts | `harness/ssi` | Path to embedded SSI package (auto-detected from harness_cli.py location) |
-| `HARNESS_CLAUDE_MODEL` | `llm_router.py` | `claude-sonnet-4-5` | Override Claude model for all dimension evaluation and review (all tiers use Claude). |
+
+<!-- Round 9 站0: dropped DRIFT_PROJECT_PATH (cron_drift_monitor removed in 減法 T4),
+     SSI_ROOT (zero consumers), HARNESS_CLAUDE_MODEL (its only consumers, llm_router.py /
+     config_loader.py, were zombie SSI scripts — removed). -->
+
 
 > **Reviewer backend**: `harness/reviewer_router.py` uses Claude sub-agent for all A/B reviews (all phases). No Hermes MCP or Gemini CLI MCP configuration required — only the `claude` CLI must be installed.
 

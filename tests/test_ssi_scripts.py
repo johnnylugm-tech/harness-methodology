@@ -14,11 +14,9 @@ SCHEMAS_DIR = SSI_DIR / "schemas"
 
 REQUIRED_SCRIPTS = [
     "checkpoint",
-    "config_loader",
     "crg_analysis",
     "crg_integration",
     "issue_tracker",
-    "llm_router",
     "report_gen",
     "score",
     "setup_target",

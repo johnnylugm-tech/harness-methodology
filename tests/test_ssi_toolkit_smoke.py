@@ -15,14 +15,12 @@ sys.path.insert(0, str(SSI_DIR))
 
 
 @pytest.mark.parametrize("module_name", [
-    "config_loader",
     "crg_analysis",
     "crg_integration",
     "issue_tracker",
     "report_gen",
     "checkpoint",
     "setup_target",
-    "llm_router",
     "verify",
 ])
 def test_ssi_module_import(module_name):
@@ -47,26 +45,6 @@ def test_setup_target_resolve(tmp_path):
 
     result = resolve_target(str(tmp_path))
     assert isinstance(result, str)
-
-
-def test_llm_router_route():
-    """llm_router.route returns a dict with model key."""
-    from llm_router import route
-
-    result = route("linting")
-    assert isinstance(result, dict)
-    assert "model" in result
-
-
-def test_config_loader_defaults(tmp_path):
-    """config_loader returns valid config dict with required keys."""
-    from config_loader import load_config
-
-    cfg_file = tmp_path / "config.yaml"
-    cfg_file.write_text("dimensions:\n  linting:\n    weight: 1.0\n    enabled: true\n")
-    cfg = load_config(str(cfg_file))
-    assert isinstance(cfg, dict)
-    assert "dimensions" in cfg
 
 
 def test_issue_tracker_create_and_load(tmp_path):

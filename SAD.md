@@ -999,44 +999,9 @@ def create_isolated_spawn(task, role, input_paths, output_paths, persona_prompt)
 
 ---
 
-### §3.11 — `core/verification_gate.py` — Gate Remediation Report
+### §3.11 — (removed) `core/verification_gate.py`
 
-**Responsibility**: Structured gate-failure diagnosis for HANDOVER.md crash recovery. Generates per-gate action items with score/gap analysis.
-
-**Module-level constants**:
-
-```python
-_GATE_THRESHOLDS: Dict[int, float] = {1: 75.0, 2: 75.0, 3: 80.0, 4: 85.0}
-_GATE_ACTION_TEMPLATES: Dict[int, List[str]]  # per-gate ordered fix hints (Gates 1–4)
-```
-
-**`GateRemediationReport`** (`@dataclass`):
-
-```python
-@dataclass
-class GateRemediationReport:
-    gate_num: int
-    phase: int
-    score: float
-    threshold: Optional[float] = None       # None → uses _GATE_THRESHOLDS[gate_num]
-    failing_checks: List[str] = []          # e.g. ["D3_Coverage", "D5_Security"]
-    gate_evidence: Optional[Dict] = None    # raw evidence dict
-    def effective_threshold -> float
-    def gap -> float                         # how many points below threshold
-    def action_items() -> List[str]          # failing-check items first, then generic
-    def to_status_string() -> str            # one-paragraph HANDOVER summary
-    def to_dict() -> Dict[str, Any]
-
-    @property
-    def effective_threshold(self) -> float: ...   # override or default
-    @property
-    def gap(self) -> float: ...                   # max(0, threshold - score)
-    def action_items(self) -> List[str]: ...      # failing_checks items first, then templates
-    def to_status_string(self) -> str: ...        # "Gate N FAILED: score=X (threshold=Y, gap=Z)..."
-    def to_dict(self) -> Dict[str, Any]: ...      # JSON-serialisable; used by HandoverGenerator
-```
-
-`action_items()` ordering: each `failing_checks` entry prepends `"Fix failing check: **{check}** (score=X)"` before the generic `_GATE_ACTION_TEMPLATES[gate_num]` list. For unknown gate_num, falls back to `["Investigate Gate N failure...", "Re-run gate after fixing..."]`.
+Removed in Round 9 站0: the GateRemediationReport / `_GATE_THRESHOLDS` module had zero production importers (its HANDOVER crash-recovery wiring never landed), making its per-gate thresholds a zombie configuration surface — editing them changed nothing.
 
 ---
 
@@ -2027,7 +1992,6 @@ CREATE TABLE IF NOT EXISTS effort (
         "core/task_splitter.py",
         "core/sessions_spawn_logger.py",
         "core/subagent_isolator.py",
-        "core/verification_gate.py",
         "core/lifecycle_hooks.py",
         "core/workspace_manager.py",
         "core/atomic_io.py",
@@ -2063,7 +2027,6 @@ CREATE TABLE IF NOT EXISTS effort (
       "description": "Cross-cutting concerns: schemas, configuration, templates, and CLI prompts.",
       "modules": [
         "schemas/",
-        "core/enforcement_config.py",
         "core/cli_phase_prompts.py",
         "templates/"
       ],
@@ -2398,11 +2361,11 @@ REQUIREMENTS_ENGINEER, TECH_LEAD) were added to satisfy the per-phase A/B role m
 
 ---
 
-### §3.26 — `core/cli_phase_prompts.py` + `core/enforcement_config.py` — Layer 4 Utilities
+### §3.26 — `core/cli_phase_prompts.py` — Layer 4 Utilities
 
 **`core/cli_phase_prompts.py`** (24KB): Phase-specific prompt templates used by `harness_cli.py plan-phase` and the pipeline to generate FR execution prompts. Contains one prompt template per phase (P1–P8), formatted for the sub-agent that will execute the FR.
 
-**`core/enforcement_config.py`** (5KB): Configuration schema and defaults for the `enforcement/` subsystem. Provides `EnforcementConfig` dataclass with fields for policy severity levels, audit trail retention, and hook behavior. Loaded by `FrameworkEnforcer.__init__()` at phase preflight.
+(`core/enforcement_config.py` was removed in Round 9 站0 — its `EnforcementConfig` dataclass had zero importers anywhere, including `enforcement/`; the claim that `FrameworkEnforcer.__init__()` loaded it was documentation drift. The two keys anything actually reads from `.methodology/enforcement.json` — `hr_overrides`, `phase_truth` — are consumed by `core/quality_gate/phase_truth_verifier.py` via raw JSON.)
 
 ---
 
@@ -2713,7 +2676,7 @@ external package install required.
 |---|---|---|
 | Evaluation prompt | `harness/ssi/prompts/evaluate_dimension.md` | Per-dimension scoring instructions |
 | Verification prompt | `harness/ssi/prompts/verify_round.md` | Round verification |
-| Scripts | `harness/ssi/scripts/` | `score.py`, `issue_tracker.py`, `llm_router.py`, etc. |
+| Scripts | `harness/ssi/scripts/` | `score.py`, `issue_tracker.py`, `verify_tools.py`, etc. |
 | Schema | `harness/ssi/schemas/harness_gate_result.schema.json` | Result validation |
 
 The only remaining reference to `software_self_improvement` is in

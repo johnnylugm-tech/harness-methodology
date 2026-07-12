@@ -297,3 +297,47 @@ class TestGate1Evidence:
     def test_no_manifest_yields_no_findings(self, tmp_path):
         project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
         assert self._findings(project) == []
+
+
+class TestEnforcementZombieKeys:
+    """Check 8 (Round 9 站0): the EnforcementConfig dataclass that once read
+    mode/platform/enforce_on_*/quality_gate_threshold from enforcement.json
+    was removed as dead code — only hr_overrides and phase_truth are still
+    consumed (phase_truth_verifier). A hand-edited zombie key must WARN so a
+    dead setting can't masquerade as a working knob."""
+
+    def _findings(self, project):
+        return [f for f in run_doctor(project) if f.check == "enforcement-config"]
+
+    def _write_enforcement(self, project, payload):
+        (project / ".methodology" / "enforcement.json").write_text(
+            payload if isinstance(payload, str) else json.dumps(payload),
+            encoding="utf-8",
+        )
+
+    def test_zombie_key_warns_and_names_it(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_enforcement(project, {"quality_gate_threshold": 60.0,
+                                          "phase_truth": {"pytest_timeout_seconds": 60}})
+        found = self._findings(project)
+        assert len(found) == 1 and found[0].severity == "WARN"
+        assert "quality_gate_threshold" in found[0].message
+        assert "phase_truth" not in found[0].message.split("have no consumer")[0]
+
+    def test_live_keys_only_is_silent(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_enforcement(project, {
+            "hr_overrides": {"HR-11_phase_truth_threshold": 80},
+            "phase_truth": {"pytest_timeout_seconds": 120},
+        })
+        assert self._findings(project) == []
+
+    def test_missing_file_is_silent(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        assert self._findings(project) == []
+
+    def test_malformed_json_warns(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_enforcement(project, "{not json")
+        found = self._findings(project)
+        assert len(found) == 1 and found[0].severity == "WARN"
