@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from cli import gate_cmds
+from core.agent_spawner import is_structurally_broken
 from core.canonical_form import fr_num_str
 from core.harness_config import get_timeout
 from core.pre_flight import check_cli_tools
@@ -912,20 +913,17 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 # Statuses that indicate an agent dispatch failure (all others treated as success).
 _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
 
-# Claude Code CLI prints this exact substring when an ANTHROPIC_API_KEY/
-# ANTHROPIC_AUTH_TOKEN-style env var overrides claude.ai login, blocking ALL
-# sub-agent spawns. Deterministic + reproduces identically every retry, so
-# fail fast instead of exhausting max_fix_rounds (was: silent multi-hour
-# retry loop, P3 2026-07-12 FR-04 abort).
-_CONNECTOR_DISABLED_SIGNATURE = "claude.ai connectors are disabled"
 # Distinct from BLOCKED (2) / commit-dirty (6) / GHOST_DETECTED (22): means
 # "do not retry — the environment itself is broken."
 DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE = 23
 
 
 def _is_connector_disabled_failure(output: str) -> bool:
-    """True if a dispatch's captured output shows the connector-disabled signature."""
-    return _CONNECTOR_DISABLED_SIGNATURE in (output or "")
+    """True on a deterministic-breakage signature — delegates to
+    core.agent_spawner.is_structurally_broken (single-source registry; the
+    module-level import stays real even when tests fake AgentSpawner in
+    sys.modules). Wrapper keeps c1bacf4's two call sites unchanged."""
+    return is_structurally_broken(output)
 
 
 def _abort_dispatch_structurally_broken(fr_id: str, step: str, phase: int, project: Path) -> int:

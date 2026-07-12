@@ -46,16 +46,41 @@ _INFRA_ERROR_RE = re.compile(
 )
 
 
+# Deterministic environment breakage: the failure output reproduces
+# identically on every retry, so no dispatch loop may retry it (P3 2026-07-12
+# FR-04 GATE1: a 5.4h silent stall before c1bacf4 taught the fix-round loop
+# this one signature). The detection registry lives HERE and only here —
+# cli/fr_cmds.py delegates to is_structurally_broken(); a second copy of a
+# signature string is the next unswept-sibling incident.
+_STRUCTURAL_FAILURE_SIGNATURES = (
+    # Claude Code CLI's fixed output when an ANTHROPIC_API_KEY/
+    # ANTHROPIC_AUTH_TOKEN-style env var overrides claude.ai login,
+    # blocking ALL sub-agent spawns.
+    "claude.ai connectors are disabled",
+)
+
+
+def is_structurally_broken(output: str) -> bool:
+    """True when a dispatch failure is deterministic — retrying cannot succeed."""
+    text = output or ""
+    return any(sig in text for sig in _STRUCTURAL_FAILURE_SIGNATURES)
+
+
 def _classify_dispatch_error(output: str) -> str:
     """Classify a non-zero `claude -p` failure for sessions_spawn.log observability.
 
-    Returns "INFRA_ERROR" when the failure output signals an environment / API /
-    model / network problem (the model could not be reached or used), else
-    "EXECUTION_ERROR". This lets a run of dispatch ERRORs be recognised as
-    environmental instead of mis-diagnosed as a harness bug. Observability label
-    only: the entry's `status` stays "ERROR", so all existing control flow
-    (retry, dispatch-error detection) is unchanged.
+    Returns "STRUCTURAL" when the output carries a known deterministic-breakage
+    signature (see _STRUCTURAL_FAILURE_SIGNATURES — retrying can never succeed),
+    "INFRA_ERROR" when it signals an environment / API / model / network problem
+    (the model could not be reached or used), else "EXECUTION_ERROR". This lets
+    a run of dispatch ERRORs be recognised as environmental instead of
+    mis-diagnosed as a harness bug. Observability label only: the entry's
+    `status` stays "ERROR", so the spawner's own control flow is unchanged —
+    abort-vs-retry decisions belong to callers (cli/fr_cmds.py reads
+    is_structurally_broken).
     """
+    if is_structurally_broken(output):
+        return "STRUCTURAL"
     return "INFRA_ERROR" if output and _INFRA_ERROR_RE.search(output) else "EXECUTION_ERROR"
 
 

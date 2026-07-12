@@ -8,7 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.agent_spawner import AgentSpawner, _classify_dispatch_error
+from core.agent_spawner import (
+    AgentSpawner,
+    _classify_dispatch_error,
+    is_structurally_broken,
+)
 
 
 class TestAgentSpawner:
@@ -695,6 +699,71 @@ class TestClassifyDispatchError:
     ])
     def test_execution_defaults(self, output):
         assert _classify_dispatch_error(output) == "EXECUTION_ERROR"
+
+    def test_structural_signature_wins_over_infra(self):
+        """The connectors-disabled output is deterministic breakage — it must
+        classify STRUCTURAL (do not retry), not merely INFRA_ERROR, even
+        though _INFRA_ERROR_RE's `connector` substring also matches it."""
+        output = (
+            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
+            "or another auth source is set and takes precedence over your "
+            "claude.ai login"
+        )
+        assert is_structurally_broken(output) is True
+        assert _classify_dispatch_error(output) == "STRUCTURAL"
+
+    def test_structural_predicate_rejects_ordinary_failures(self):
+        assert is_structurally_broken("HTTP 401 Unauthorized") is False
+        assert is_structurally_broken("") is False
+
+
+class TestStructuralSignatureSingleSource:
+    """The 5.4h FR-04 stall (c1bacf4) was fixed by teaching ONE loop one
+    signature; the signature then lived in cli/fr_cmds.py while the dispatch
+    failure classifier lived here — two half-classifiers, so the next
+    deterministic signature would need remembering in two places (Round 8
+    station 4). The registry now lives only in _STRUCTURAL_FAILURE_SIGNATURES
+    and fr_cmds delegates; these tests keep it that way."""
+
+    def test_fr_cmds_delegates_instead_of_owning_a_signature_copy(self):
+        import inspect
+
+        from cli import fr_cmds
+
+        fr_source = inspect.getsource(fr_cmds)
+        assert "_CONNECTOR_DISABLED_SIGNATURE" not in fr_source, (
+            "cli/fr_cmds.py re-grew its own signature constant — the "
+            "detection registry is core.agent_spawner._STRUCTURAL_FAILURE_SIGNATURES"
+        )
+        assert "is_structurally_broken" in inspect.getsource(
+            fr_cmds._is_connector_disabled_failure
+        )
+
+    def test_signature_literal_defined_only_in_agent_spawner(self):
+        """No production module may define its own copy of a structural
+        signature as a string literal (human-facing diagnostics that merely
+        *mention* the phrase live inside f-string prose in fr_cmds' FATAL
+        message — those match here too, so the scan checks assignment-style
+        single-quoted/double-quoted literal LINES that bind a constant)."""
+        repo = Path(__file__).resolve().parent.parent
+        offenders = []
+        for base in ("cli", "core", "harness", "scripts", "detection"):
+            for path in sorted((repo / base).rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                rel = path.relative_to(repo).as_posix()
+                if rel == "core/agent_spawner.py":
+                    continue
+                for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                    stripped = line.strip()
+                    if (
+                        "claude.ai connectors are disabled" in stripped
+                        and "=" in stripped.split("claude.ai")[0]
+                    ):
+                        offenders.append(f"{rel}:{lineno}")
+        assert not offenders, (
+            f"structural-failure signature bound outside core/agent_spawner.py: {offenders}"
+        )
 
 
 class TestCalculateLogicalRemoval:
