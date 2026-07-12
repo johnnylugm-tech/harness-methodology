@@ -288,9 +288,9 @@ For each FR, write an entry in the following format:
 
 | # | Test Function | Inputs | Type | Derivation |
 |---|---|---|---|---|
-| 1 | `test_frXX_{behavior}` | x="視頻"; expected="影片" | happy_path | Q1 |
+| 1 | `test_frXX_{behavior}` | x="colour"; expected="color" | happy_path | Q1 |
 | 2 | `test_frXX_{error_condition}` | x="" | validation | Q2 |
-| 3 | `test_frXX_{field}_boundary` | x="垃圾"; expected="ㄌㄜˋ ㄙㄜˋ" | boundary | Q3 |
+| 3 | `test_frXX_{field}_boundary` | x="lorem-ipsum"; expected="lorem ipsum" | boundary | Q3 |
 | 4 | `test_frXX_unauthenticated_returns_401` | token="" | nfr_pattern | Q6/NP-01 |
 | 5 | `test_frXX_with_frYY_pipeline` | x="…" | integration | Q7/FR-YY |
 
@@ -302,17 +302,17 @@ For each FR, write an entry in the following format:
 ```
 
 **Inputs column** (mandatory): concrete declared values as `key="value"`,
-semicolon-separated, in the TRUE form — `expected="ㄌㄜˋ ㄙㄜˋ"` with a real
-space, never the pytest-id form `ㄌㄜˋ_ㄙㄜˋ`. A descriptive id is NOT a
+semicolon-separated, in the TRUE form — `expected="lorem ipsum"` with a real
+space, never the pytest-id form `lorem_ipsum`. A descriptive id is NOT a
 substitute for a value: a case like `all_boundary_chars` with no `text_input="…"`
 lets P3 invent the input and mis-count it.
 
 **Sub-assertions table**: list a case under `applies_to` only if the predicate
 is genuinely true for that case's Inputs. The P2 gate
 `check-test-spec-consistency` evaluates every predicate against every
-`applies_to` case and FAILS on a contradiction (e.g. `" " in "ㄏㄢˋ"` is False,
-so 和 must NOT be in a `" " in expected` group; `len(result)==4` with a 5-char
-input is unsatisfiable). Correctness is locked here, in P2.
+`applies_to` case and FAILS on a contradiction (e.g. `" " in "color"` is False,
+so case 1 must NOT be in a `" " in expected` group; `len(result)==4` with a
+5-char input is unsatisfiable). Correctness is locked here, in P2.
 
 **Naming convention**:
 - Prefer: `test_{module}_{behavior}` using actual module names from SAD.md

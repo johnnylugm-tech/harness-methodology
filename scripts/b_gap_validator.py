@@ -58,8 +58,8 @@ DEFAULT_TECHNICAL_VOCAB: dict[str, list[str]] = {
     # Languages / runtimes
     "python": ["python", "python3", "py3", ".py", "pyright", "pytest", "ruff", "mypy"],
     "node":   ["node", "node.js", "nodejs", "javascript", "typescript", "npm"],
-    # Task / queue terminology
-    "taskq":  ["taskq", "task_queue", "tasks.json", "submit", "status", "clear", "queue"],
+    # Task / queue terminology (generic — never a target project's package name)
+    "task_queue": ["task_queue", "task queue", "tasks.json", "submit", "status", "clear", "queue"],
     "redis":  ["redis", "rq", "celery", "broker"],
     "rabbitmq": ["rabbitmq", "amqp", "pika"],
     # Web / API

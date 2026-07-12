@@ -62,12 +62,12 @@
 
 | # | Test Function | Inputs | Type | Derivation |
 |---|---|---|---|---|
-| 1 | `test_fr01_` | source="視頻"; expected="影片" | happy_path | Q1 |
-| 2 | `test_fr01_` | source="和"; expected="ㄏㄢˋ" | validation | Q2 |
+| 1 | `test_fr01_` | source="colour"; expected="color" | happy_path | Q1 |
+| 2 | `test_fr01_` | source="a"; expected="alpha" | validation | Q2 |
 
 <!-- Inputs column: concrete declared values as key="value", semicolon-separated.
-     MUST be the TRUE value (e.g. expected="ㄌㄜˋ ㄙㄜˋ" with a real space), NOT the
-     pytest-id form (ㄌㄜˋ_ㄙㄜˋ). A case with only a descriptive id and no concrete
+     MUST be the TRUE value (e.g. expected="lorem ipsum" with a real space), NOT the
+     pytest-id form (lorem_ipsum). A case with only a descriptive id and no concrete
      Inputs is REJECTED — it lets P3 invent values and mis-count (the FR-03
      all-boundary bug). P3 implements these verbatim.
 
@@ -86,14 +86,14 @@ spec-level declarations evaluated by the P2 self-consistency engine, not test
 code. For js/ts projects the P3 mirror gate checks structure only and flags
 each predicate as needs_review for the human reviewer. The P2 self-consistency gate
 (`harness_cli.py check-test-spec-consistency`) proves every predicate holds for
-every case in `applies_to`; an unsatisfiable group (e.g. `" " in "ㄏㄢˋ"` False,
+every case in `applies_to`; an unsatisfiable group (e.g. `" " in "alpha"` False,
 or 4 one-char chunks for a 5-char input) FAILS P2 — correctness is locked HERE,
 before P3. List a case in `applies_to` only if the predicate truly holds for its
 Inputs.
 
 | rule_id | predicate (over Inputs / result) | applies_to (case #) |
 |---|---|---|
-| AC5-bopomofo-space | `" " in expected` | 3 |
+| AC5-separator-space | `" " in expected` | 3 |
 
 **Properties** — OPTIONAL (Direction B, opt-in per FR). Universal invariants that
 must hold for ALL inputs, not just the declared cases. Add one only when the FR
