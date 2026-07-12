@@ -34,7 +34,7 @@ _LOG_NAMES = {
 }
 
 _SUCCESS_SHAPES = (
-    "True", "None", "[] (empty list)", "{} (empty dict)",
+    "True", "None", "[] (empty list)", "{} (empty dict)", "(True, ...) tuple",
 )
 
 
@@ -45,6 +45,16 @@ def _is_success_shaped(node: ast.expr) -> bool:
         return True
     if isinstance(node, ast.Dict) and len(node.keys) == 0:
         return True
+    if isinstance(node, ast.Tuple) and node.elts:
+        # tuple[bool, ...] convention (Round 7: mutation_enforcer.py's
+        # dominant return shape) — only the unambiguous "first slot is
+        # literal True" case is flagged. A plain int/str tuple like
+        # (0, 0) is deliberately NOT flagged: it has legitimate
+        # non-error meanings elsewhere (e.g. mutation counts) and has no
+        # comparable universal "nothing happened" reading the way
+        # True/None/[]/{} do.
+        first = node.elts[0]
+        return isinstance(first, ast.Constant) and first.value is True
     return False
 
 
@@ -185,5 +195,59 @@ def test_scanner_ignores_non_success_shaped_return():
         "        risky()\n"
         "    except Exception:\n"
         "        return 0.0\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_flags_unlogged_tuple_fail_open():
+    """Round 7: mutation_enforcer.py's dominant tuple[bool, ...] shape must
+    trip the scanner too — this is the exact shape of the historical
+    ddeb301/6805567/9a9d95c/ff98cc7 mutation_enforcer bugs, which the
+    original True/None/[]/{} heuristic could not see."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception:\n"
+        "        return True, ''\n"
+    )
+    assert _scan_source(probe) == [4]
+
+
+def test_scanner_ignores_logged_tuple_fail_open():
+    """Negative: a logged (True, ...) tuple return clears it, same as bare True."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception as exc:\n"
+        "        print(f'failed: {exc}')\n"
+        "        return True, ''\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_ignores_non_true_first_tuple_element():
+    """Negative: a tuple not starting with literal True (e.g. int-pair counts
+    like (0, 0)) is deliberately out of scope — it has legitimate non-error
+    meanings elsewhere (see _is_success_shaped's docstring reasoning)."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception:\n"
+        "        return 0, 0\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_ignores_false_first_tuple_element():
+    """Negative: (False, ...) is the correct fail-closed shape, not fail-open."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception as exc:\n"
+        "        return False, str(exc)\n"
     )
     assert _scan_source(probe) == []

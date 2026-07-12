@@ -139,8 +139,9 @@ def verify_gate_tools(
 
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception:
-        return True, []
+    except Exception as exc:
+        print(f"[WARN] verify_gate_tools: could not parse {cfg_path}: {exc}")
+        return False, [f"gate config unreadable: {cfg_path.name} ({exc})"]
 
     from harness.harness_bridge import filter_enabled_dimensions
     cfg["dimensions"] = filter_enabled_dimensions(
