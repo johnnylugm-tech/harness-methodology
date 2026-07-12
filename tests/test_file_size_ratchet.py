@@ -56,7 +56,15 @@ _LINE_CEILING: dict[str, int] = {
     # exhausting max_fix_rounds against an environment that cannot ever
     # succeed (P3 2026-07-12 FR-04 GATE1: 5.4h silent retry loop before the
     # external workflow watchdog aborted).
-    "cli/fr_cmds.py": 2221,
+    # 2026-07-12: +26 lines — COVERAGE-FIX's measurement command now scopes
+    # to the FR's own owned source via the shared
+    # core.quality_gate.cov_utils.resolve_fr_scoped_src_files() (same
+    # resolver run-gate --fr-id already uses), instead of the whole
+    # 03-development/src tree — the whole tree was unsatisfiable while
+    # sibling FRs' stub modules sit at 0% coverage (P3 2026-07-12: FR-01/
+    # FR-02 both BLOCKED after 2 no-progress rounds chasing the wrong
+    # denominator).
+    "cli/fr_cmds.py": 2247,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     "cli/project_cmds.py": 1863,

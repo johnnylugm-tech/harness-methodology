@@ -21,6 +21,7 @@ from core.canonical_form import fr_num_str
 from core.harness_config import get_timeout
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
+from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
 from core.quality_gate.ghost_detector import (
     detect_ghost_changes,
     write_ghost_paper_trail,
@@ -1868,6 +1869,31 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         # Two root causes:
         #   A. Existing tests don't cover enough source lines (code_cov < 80%).
         #   B. Required test functions from TEST_SPEC.md are absent (spec_cov < 80%).
+        #
+        # Coverage measurement here MUST match the scope run-gate --fr-id
+        # already uses (fr_module_traceability), not the whole src_dir — the
+        # whole tree includes OTHER FRs' not-yet-implemented stub modules
+        # (0% coverage each), making an 80% whole-tree target unsatisfiable
+        # from this FR's own test file alone (P3 2026-07-12: FR-01/FR-02 both
+        # BLOCKED after 2 no-progress rounds chasing the wrong denominator).
+        _cf_manifest: dict = {}
+        try:
+            _cf_manifest = json.loads(
+                (project / ".methodology" / "quality_manifest.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+            pass
+        _cf_src_files = resolve_fr_scoped_src_files(
+            str(project), fr_id, test_file, src_dir, _cf_manifest
+        )
+        if _cf_src_files:
+            _cf_include = ",".join(_cf_src_files)
+            _cov_check_cmd = (
+                f'coverage run -m pytest {test_file} -q '
+                f'&& coverage report --include="{_cf_include}" -m'
+            )
+        else:
+            _cov_check_cmd = f"pytest {test_file} --cov={src_dir} --cov-report=term-missing -q"
         return (
             f"You are a coverage fixer for {fr_id}.\n\n"
             f"[FORBIDDEN — read first]\n"
@@ -1882,7 +1908,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"[ACTUAL TOOL OUTPUT — from pre-run]\n"
             f"{tool_snapshot or '(not available)'}\n\n"
             f"[TASK]\n"
-            f"1. Run `pytest {test_file} --cov={src_dir} --cov-report=term-missing -q` "
+            f"1. Run `{_cov_check_cmd}` "
             f"to identify which source lines are not covered (Miss column).\n"
             f"2. Read `02-architecture/TEST_SPEC.md` section for {fr_id} to identify required "
             f"test function names. For each function missing from `{test_file}` — add it.\n"
@@ -1890,7 +1916,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"   a. Line CAN be reached by a test → add a targeted unit test.\n"
             f"   b. Line is genuinely untestable → apply ESCAPE HATCH (see below).\n"
             f"4. Re-run until coverage reaches ≥ 80%: "
-            f"`pytest {test_file} --cov={src_dir} --cov-report=term-missing -q`\n"
+            f"`{_cov_check_cmd}`\n"
             f"5. Commit both `{test_file}` and any source changes from ESCAPE HATCH:\n"
             f"   `git add {src_dir}/ {test_file} && "
             f"git commit -m \"test({fr_id}): add coverage tests and pragma exclusions\"`\n\n"

@@ -475,6 +475,36 @@ class TestRunFrStep:
         assert "Deleting or modifying existing passing tests" in prompt
         assert "git add 03-development/src/ tests/test_fr02.py" in prompt
 
+    def test_prompt_coverage_fix_uses_fr_scoped_coverage_target(self, tmp_path):
+        """Regression (P3 2026-07-12 FR-01/FR-02 GATE1 BLOCKED): COVERAGE-FIX's
+        measurement command must scope to the FR's own owned source (via
+        fr_module_traceability, same resolver run-gate --fr-id already uses),
+        not the whole 03-development/src tree — the whole tree includes other
+        FRs' not-yet-implemented stub modules at 0% coverage, making an 80%
+        whole-tree target unsatisfiable from this FR's own test file alone."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_module_traceability": {"FR-01": "taskq.storage.store"}}),
+            encoding="utf-8",
+        )
+        store_dir = tmp_path / "03-development" / "src" / "taskq" / "storage"
+        store_dir.mkdir(parents=True)
+        store_dir.joinpath("store.py").write_text("def save(): pass\n", encoding="utf-8")
+
+        prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
+        scoped_cmd = (
+            'coverage run -m pytest tests/test_fr01.py -q '
+            '&& coverage report --include="03-development/src/taskq/storage/store.py" -m'
+        )
+        assert scoped_cmd in prompt
+        assert "--cov=03-development/src --cov-report=term-missing -q" not in prompt
+
+    def test_prompt_coverage_fix_falls_back_to_whole_tree_when_unresolvable(self, tmp_path):
+        """No fr_module_traceability entry and no resolvable imports → today's
+        whole-tree fallback command is unchanged."""
+        prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
+        assert "pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q" in prompt
+
     def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
         """resume-fr-phase prints the first step that is not yet done."""
         import harness_cli
