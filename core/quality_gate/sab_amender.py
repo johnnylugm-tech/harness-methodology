@@ -107,17 +107,28 @@ def normalize_sab_module_to_dotted(mod: object, src_dir: str = _DEFAULT_SRC_DIR)
 def discover_modules_at(src_path: Path) -> list[str]:
     """Return sorted list of dotted module names found directly under `src_path`.
 
-    Mirrors `_check_sab_module_alignment` in cli/gate_cmds.py: skip
-    ``__pycache__`` and ``__init__.py`` (package marker, not a SAB module)
-    and emit dotted form (``taskq.core.models``), not the raw project-relative
-    path. Both call sites must use the SAME representation, otherwise an
-    amend run can never close the BLOCKED it was supposed to fix — the path
-    strings written into SAB.json by amend would never equal the dotted
-    strings checked against SAB.json by the gate. `gate_cmds.py` calls this
+    Mirrors `_check_sab_module_alignment` in cli/gate_cmds.py: emit dotted
+    form (``taskq.core.models``), not the raw project-relative path. Both
+    call sites must use the SAME representation, otherwise an amend run can
+    never close the BLOCKED it was supposed to fix — the path strings
+    written into SAB.json by amend would never equal the dotted strings
+    checked against SAB.json by the gate. `gate_cmds.py` calls this
     directly (it already has the resolved `ProjectLayout(...).active_src_dir`
     in hand); `discover_modules` below is a thin project-root+src_dir-string
     wrapper for callers (like `amend_sab`'s CLI-facing ``--src-dir`` flag)
     that don't.
+
+    A SAB entry may name either a leaf module (``taskq.cli`` → `taskq/cli.py`)
+    or a PACKAGE (``taskq.cli`` → `taskq/cli/__init__.py`) — two distinct
+    on-disk shapes sharing one dotted-name space (see
+    `detection.drift_detector.sab_module_to_path_variants`, which already
+    tries both). Round 6 station 3: ``__init__.py`` is still skipped as a
+    *leaf-module* candidate (the marker file itself isn't a module), but the
+    PACKAGE it marks is additionally registered under its own dotted name —
+    omitting this made every package-style SAB registration look "phantom"
+    to `phantom_modules` even though `preflight_sab_check` (P4+, via
+    path-variant probing) correctly found it: a confirmed false-positive
+    Gate 1 BLOCK on a legitimate registration.
     """
     if not src_path.is_dir():
         return []
@@ -126,13 +137,16 @@ def discover_modules_at(src_path: Path) -> list[str]:
         if "__pycache__" in py.parts:
             continue
         if py.name == "__init__.py":
+            pkg_rel = py.parent.relative_to(src_path)
+            if pkg_rel.parts:  # not the src_path root itself
+                found.append(".".join(pkg_rel.parts))
             continue
         rel = py.relative_to(src_path)
         parts = rel.with_suffix("").parts
         if not parts:
             continue
         found.append(".".join(parts))
-    return found
+    return sorted(set(found))
 
 
 def discover_modules(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:

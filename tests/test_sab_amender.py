@@ -62,6 +62,27 @@ class TestDiscoverModules:
         result = discover_modules(tmp_path, src_dir="src")
         assert result == sorted(result)
 
+    def test_registers_package_style_modules(self, tmp_path):
+        """Round 6 station 3: a directory containing __init__.py (no leaf
+        .py file of the same name) must be registered under its own dotted
+        name — a SAB entry may name a PACKAGE, not just a leaf module (see
+        detection.drift_detector.sab_module_to_path_variants, which already
+        expands an __init__.py candidate). Prior to this fix, discover_modules
+        excluded __init__.py-marked directories entirely, making a
+        legitimate package-style registration look "phantom" to Gate 1's
+        phantom_modules even though P4 preflight correctly found it."""
+        src = tmp_path / "03-development" / "src" / "taskq"
+        src.mkdir(parents=True)
+        (src / "__init__.py").write_text("")
+        (src / "cli").mkdir()
+        (src / "cli" / "__init__.py").write_text("")  # package, no cli.py leaf
+        (src / "executor.py").write_text("")
+        result = discover_modules(tmp_path)
+        assert "taskq.cli" in result  # the package itself, not a leaf module
+        assert "taskq" in result  # the top-level package too
+        assert "taskq.executor" in result  # existing leaf-module behavior unaffected
+        assert all(not p.endswith("__init__") for p in result)
+
 
 # ---------------------------------------------------------------------------
 # TestSabModuleCandidate
