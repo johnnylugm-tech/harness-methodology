@@ -189,16 +189,19 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 > It blocks Gate 3 if `.methodology/bug_hunt_report.json` is absent or any confirmed
 > critical/high finding is still `open`. Run the hunt BEFORE `G3a`.
 
-- **[HUNT-TARGETS]** Generate targeting manifest (CRG hubs + mutation survivors + integration gaps):
+- **[HUNT-TARGETS]** Generate targeting manifest (CRG hubs + mutation survivors + integration gaps + SAD §6 threat model):
   ```bash
   python3 harness_cli.py bug-hunt-targets --project .
   ```
-  Output: `.methodology/bug_hunt_targets.json`
+  Output: `.methodology/bug_hunt_targets.json` (its `threat_model` entries — SAD.md §6
+  declared threats — are forced high-risk attack-vector seeds, independent of CRG/mutation signals)
 
 - **[HUNT-RUN]** Execute the adversarial bug hunt:
   - Protocol: `harness/harness/ssi/prompts/hunt_bugs.md` (4-phase: scout → lens hunters → verify → synthesize)
   - Reference workflow: `templates/workflows/hunt-bugs.js`
   - **Use a model DIFFERENT from the developer model** to minimise same-source bias
+  - `threat_model` targets: verify the declared `mitigation` actually blocks the attack
+    (not just that defensive-looking code exists)
   - Output: `.methodology/bug_hunt_report.json` + `.audit/*.md`
 
 - **[HUNT-RESOLVE]** For each **confirmed critical/high** finding, set `resolution.status`:

@@ -123,6 +123,50 @@ Rules:
 
 ---
 
+## Step 1c: SEC-Block Threat Triggers (Round 10 — MANDATORY, SAD §6-driven)
+
+> Why: NP-01/02/03/08/09/14 (auth, authz, rate-limit, attack, audit,
+> encryption) are exactly the patterns Bug #35 stripped from automated
+> keyword scoring (SRS/SAD prose keyword density false-positive-failed
+> honest tool-type projects, so `security` was removed from constitution
+> P1/P3/P4 scoring). Without an independent forcing mechanism, a project
+> that DOES have a real attack surface but writes non-keyword prose
+> ("reject bad input" instead of "input validation") gets zero of these
+> tests. SAD §6's `threats[]` are structured data, not prose — they force
+> the pattern deterministically, the same way Step 1b forces patterns from
+> SAD/SAB facts.
+
+Read SAD.md §6's `threats[]` (only present when `applicability: full`). For
+every threat, its `category` forces the listed pattern(s) for the FR that
+owns `owner_module` — **regardless of SRS keywords**:
+
+| Threat category (STRIDE) | Forced patterns |
+|---|---|
+| spoofing | NP-01 |
+| elevation_of_privilege | NP-02 |
+| denial_of_service | NP-03 |
+| tampering | NP-04 + NP-08 |
+| information_disclosure | NP-08 + NP-14 |
+| repudiation | NP-09 |
+
+**Required case shape**: the threat's own `verified_by` name (already
+declared in SAD.md §6) IS the forced case — do not author a second,
+redundant test. Add ONE row to the owning FR's TEST_SPEC table using that
+exact name, `Type: nfr_pattern`, `Derivation: Q6/1c/NP-XX`.
+
+Rules:
+- Record each Step-1c activation in the TEST_SPEC "Pattern Activation" table
+  with trigger source `SEC: <threat-id>` (vs `SAD: <module>` from Step 1b,
+  `SRS: <keyword>` from Step 1).
+- A threat whose category maps here and has NO corresponding row in the
+  owning FR's TEST_SPEC entry is an Agent B REJECT (see checklist).
+- `check-artifact-consistency` (`core.quality_gate.security_design`, rule
+  R8) independently enforces that every `verified_by` name exists as a real
+  test from Phase 5 — Step 1c is what gets it written into TEST_SPEC during
+  P2 so P3 implements it on schedule, not a last-minute P5 scramble.
+
+---
+
 ## Step 2: Per-FR Derivation (8-Question Protocol)
 
 Repeat for each `FR-XX` in SRS §2:
@@ -390,6 +434,10 @@ Standard Verification:
       has its forced cases in TEST_SPEC, with `SAD: <module>` trigger recorded
       and integration variants under `tests/integration/`. A risky module with
       zero forced cases → REJECT
+- [ ] **Threat coverage (Step 1c)**: every SAD §6 threat (when
+      `applicability: full`) has its `verified_by` test as a row in the
+      owning FR's TEST_SPEC entry, with `SEC: <threat-id>` trigger recorded.
+      A threat whose forced NP pattern has zero corresponding row → REJECT
 - [ ] No test function names are generic (`test_basic`, `test_case_1`, etc.)
 - [ ] All derivation fields are non-empty and cite a Q-number or NP-number
 - [ ] Module names in test functions match SAD.md module/class names where available

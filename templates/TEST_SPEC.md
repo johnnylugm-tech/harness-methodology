@@ -20,18 +20,21 @@
 
 ---
 
-## NFR Pattern Activation (Step 1 + Step 1b Output)
+## NFR Pattern Activation (Step 1 + Step 1b + Step 1c Output)
 
 <!-- The table MUST enumerate ALL 15 patterns (NP-01…NP-15) from
      derive_test_cases.md Step 1 — a shortened table caused real pattern
      drift (a project shipped concurrency bugs because NP-13 was absent from
      its copy of this table). The Trigger column records the source:
-     "SRS: <keyword>" (Step 1) or "SAD: <module>" (Step 1b architecture-risk —
-     fires REGARDLESS of SRS keywords; its cases are mandatory and need
-     integration variants under tests/integration/).
+     "SRS: <keyword>" (Step 1), "SAD: <module>" (Step 1b architecture-risk),
+     or "SEC: <threat-id>" (Step 1c — SAD.md §6 STRIDE threat, Round 10).
+     The latter two fire REGARDLESS of SRS keywords; their cases are
+     mandatory. Step 1b's need integration variants under
+     tests/integration/; Step 1c's case IS the threat's own verified_by
+     name (see derive_test_cases.md Step 1c — no separate case is authored).
 
-| Pattern | Trigger (SRS keyword / SAD module) | Activated |
-|---------|-------------------------------------|-----------|
+| Pattern | Trigger (SRS keyword / SAD module / SEC threat) | Activated |
+|---------|--------------------------------------------------|-----------|
 | NP-01 (auth 401)          | not found                  | ❌ |
 | NP-02 (authz 403)         | not found                  | ❌ |
 | NP-03 (rate limit 429)    | not found                  | ❌ |
@@ -39,7 +42,7 @@
 | NP-05 (idempotency)       | not found                  | ❌ |
 | NP-06 (latency SLA)       | SRS: "p95"                 | ✅ |
 | NP-07 (dependency fault)  | SAD: redis_cache (cache)   | ✅ |
-| NP-08 (security attack)   | not found                  | ❌ |
+| NP-08 (security attack)   | SEC: T-01 (tampering)      | ✅ |
 | NP-09 (audit log)         | not found                  | ❌ |
 | NP-10 (data round-trip)   | not found                  | ❌ |
 | NP-11 (backward compat)   | not found                  | ❌ |

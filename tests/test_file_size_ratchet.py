@@ -96,7 +96,11 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,
-    "scripts/plangen/blocks.py": 1650,
+    # 2026-07-13: +5 lines — Round 10 站4: P2 Agent B checklist (both
+    # _AGENT_B_CHECKS[2] and the SAD.md deliverable's own "checks" list)
+    # gains a SEC-block-complete item; P4 hunt step text notes threat_model
+    # targets from bug-hunt-targets.
+    "scripts/plangen/blocks.py": 1655,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
@@ -121,7 +125,10 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,
-    "scripts/plangen/phase_tasks.py": 1106,
+    # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
+    # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
+    # the SAB block's own authoring-guidance shape.
+    "scripts/plangen/phase_tasks.py": 1134,
     "core/quality_gate/mutation_enforcer.py": 967,
 }
 

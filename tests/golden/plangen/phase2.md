@@ -130,6 +130,7 @@ are not re-opened. This bounds backtracking to a single step.
   - All NFR `type` values from legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?
   - Directory structure follows CRG cohesion principles (SAD.md §2.1)?  Hub coverage per dir, per-function-body calls, entry point placement.  See embedded DOC 3 for the full 6 universal principles.
   - No flat dumps or god-modules? (≤15 files per dir, no single dir with all source)
+  - SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?
 
   Return JSON only:
   {"review_status":"APPROVE"|"REJECT",
@@ -407,6 +408,34 @@ are not re-opened. This bounds backtracking to a single step.
     high_risk_modules.
   - Used by: drift detector (M2), gate architecture dimension, constitution check
   - Also embedded inline in `quality_manifest.json` via `harness_bridge`
+
+### Security Design (STRIDE-lite Threat Model, Round 10)
+
+> **CONTRACT**: The SEC block in SAD.md §6 is parsed by
+> `core/quality_gate/security_design.py:extract_security_block()`.
+> Do NOT hand-write the YAML — paste from the canonical template below.
+> `applicability: none` + a justification (>=20 chars) is a fully valid,
+> honest declaration for a project with no real attack surface.
+
+- **[SEC-WRITE]** Write the SEC block into `02-architecture/SAD.md` §6
+  using the canonical template (replace EXAMPLE values with real project values):
+  ```python
+  from core.quality_gate.security_design import render_canonical_security_template
+  print(render_canonical_security_template())
+  ```
+  `applicability: full` requires >=1 `trust_boundaries` and >=1 `threats` per
+  boundary; each threat's `owner_module` must be declared in the §5 SAB block,
+  `nfr` (optional) must exist in SRS.md, and `verified_by` names the test that
+  proves the mitigation (Step 1c of `derive_test_cases.md` forces this test
+  into TEST_SPEC.md; `check-artifact-consistency` requires it exist from Phase 5).
+
+- **[SEC-VALIDATE]** Validate before committing:
+  ```bash
+  python3 harness_cli.py check-artifact-consistency --project .
+  ```
+  - MUST exit 0. On failure the message lists the exact rule violated
+    (missing block, bad STRIDE category, unregistered owner_module, ...).
+  - Fix and re-run until PASS.
 
 ### Phase 2 Deliverables
 - `SAD.md` — Software Architecture Document (every FR has module mapping)
