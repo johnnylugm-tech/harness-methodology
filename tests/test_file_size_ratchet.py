@@ -114,7 +114,14 @@ _LINE_CEILING: dict[str, int] = {
     # targets from bug-hunt-targets.
     # 2026-07-14 (+2): _deliverable_ab_block templates updated to 3-layer
     # defense — remaining "NO access / paste full content" → Bash-cat prose.
-    "scripts/plangen/blocks.py": 1665,
+    # 2026-07-14 (+14, 2nd round): _dynamic_fr_template_block (the function
+    # plan-all actually calls, dynamic=True always) was missing ORCH-POST
+    # (spec-coverage-check 40% + amend-sab) and the NFR-annotation reminder
+    # that only ever existed in the static-mode-only _fr_dev_steps/
+    # _fr_carryforward_steps — added for parity; also dropped the invalid
+    # `--phase` arg from its check-test-mirrors-spec line (same argparse bug
+    # independently found in phase3-implementation.js).
+    "scripts/plangen/blocks.py": 1679,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency

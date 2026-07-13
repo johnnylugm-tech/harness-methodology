@@ -1199,13 +1199,23 @@ def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | Non
             f">   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED` → TDD-GREEN → TDD-IMPROVE → GATE1",
             "> - CASE 3 BLOCKED: 3 TDD rounds still failing → escalate to human.",
             ">   Provide: last Gate 1 output + pytest failure log.",
+            "",
+            "- **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
+            "  ```bash",
+            "  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {FR-ID}",
+            "  python3 harness_cli.py amend-sab --project .",
+            "  ```",
         ]
     else:
         _layout = ProjectLayout(project)
         test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
         fr_steps = [
             f"- **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
-            f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --phase {phase} --fr-id {{FR-ID}} --test-file {test_dir_str}/test_*.py --project .`",
+            "> **NFR annotation (4c gate dim — F-2.3)**: the new test file MUST include `# NFR-XX`"
+            " annotations for every NFR associated with {FR-ID} in `01-requirements/SRS.md §2` `NFR"
+            " Association` column (e.g. `# NFR-01 perf: submit+status p95 < 50ms`). Without these,"
+            " compute_trace_dimension 4c = 0% and Gate 2 blocks. NFR-99 placeholder is excluded.",
+            f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --fr-id {{FR-ID}} --test-file {test_dir_str}/test_*.py --project .`",
             f"- **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
             f"- **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",
             f"- **[ORCH-GATE1]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step GATE1 --project .`",
@@ -1218,6 +1228,12 @@ def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | Non
             ">   (linting: `ruff check . --fix`; coverage: add tests; type_safety: fix pyright errors)",
             "> - CASE 3 BLOCKED: 3 rounds still failing → escalate to human.",
             ">   Provide: Gate 1 output + failing dimension details.",
+            "",
+            "- **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
+            "  ```bash",
+            "  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {FR-ID}",
+            "  python3 harness_cli.py amend-sab --project .",
+            "  ```",
         ]
     return [
         "### FR Tasks — Expanded at Execution Time",
