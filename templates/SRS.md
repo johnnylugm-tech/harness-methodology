@@ -35,7 +35,8 @@
 ## 6. Cross-Cutting Test Requirements
 
 > 此章節由 harness P1 模板自動注入，開發者必須填入具體測試名稱後才可進入 P2。
-> 執行 `python harness_cli.py verify-spec --project .` 可掃描未填寫的 placeholder。
+> `verify-spec` 檢查的是 FR→module 追溯完整性（實作是否存在），並非本節
+> 的 placeholder 是否已填——填寫本節由人工 review + Agent B P2 審查把關。
 
 ### API Completeness（每個端點必須有以下四類測試）
 - 正常流程 (2xx)
@@ -51,6 +52,14 @@
 - [ ] `test_redteam_prompt_injection_direct_<entrypoint>_payload`
 - [ ] `test_redteam_rate_limit_burst_attack_blocked`
 - [ ] `test_redteam_pii_mixed_<type>_leak_detected`
+
+> These are examples, not an enforced list — the enforced mechanism is
+> `02-architecture/SAD.md` §6's STRIDE-lite threat model: every declared
+> `threats[]` entry names a `verified_by` test that `check-artifact-
+> consistency` requires to exist on disk from Phase 5 onward, and each
+> threat forces its matching NFR test pattern in `derive_test_cases.md`
+> Step 1c regardless of SRS keywords. Use this section for narrative
+> intent; SAD.md §6 is where red-team coverage becomes binding.
 
 ### KPI Gates（對應 ODD SQL + k6）
 - [ ] `test_kpi_p95_latency_phase<N>_under_<X>s`

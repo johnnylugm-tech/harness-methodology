@@ -125,6 +125,27 @@ sab:
 
 ---
 
+## Step 1.5 — 寫入 SEC Block（機讀 — STRIDE-lite 威脅模型，BINDING CONTRACT）
+
+> **CONTRACT**：block 格式由 `core/quality_gate/security_design.py:render_canonical_security_template()` 定義。
+> 請勿手寫 YAML — 貼上 canonical 範本後替換 EXAMPLE 值。與 SAB block 一樣，
+> 這是唯一權威來源；本文件不再維護第二份手寫快照。
+
+```python
+from core.quality_gate.security_design import render_canonical_security_template
+print(render_canonical_security_template())
+```
+
+`applicability: none` + `justification`（≥20 字）對無真實攻擊面的專案（如純
+CLI 工具）是誠實且完全合法的宣告——會通過所有後續規則。`applicability: full`
+要求 ≥1 個 `trust_boundaries` + 每個邊界 ≥1 個 `threats`；每個 threat 的
+`owner_module` 必須是 §5 SAB block 已宣告的模組、`nfr`（選填）必須存在於
+SRS.md、`verified_by` 是驗證此威脅緩解的測試名稱（自 Phase 5 起
+`check-artifact-consistency` 會要求該測試已存在）。此機制取代舊有的關鍵字
+密度安全評分（已於 Bug #35 證明會誤殺誠實的工具型專案）。
+
+---
+
 ## Step 2 — ADR（Architecture Decision Records）
 
 針對每個關鍵架構決策，寫入 `docs/adr/ADR-001-{title}.md`：

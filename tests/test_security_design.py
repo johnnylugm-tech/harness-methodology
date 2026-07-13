@@ -517,3 +517,27 @@ def test_well_formed_full_block_with_sab_passes_at_phase_3(tmp_path):
     _w(layout.sad_path,
        _sab_block(_sab_yaml(modules=["pkg.mod"])) + "\n" + _sec_block(_sec_yaml()))
     assert check_security_design(tmp_path, phase=3) == []
+
+
+# ── template ↔ factory snapshot contract ────────────────────────────────────
+
+
+def test_sad_template_sec_block_is_factory_snapshot():
+    """templates/SAD.md §6 SEC block MUST be a verbatim snapshot of
+    render_canonical_security_template(). The static markdown cannot call
+    the factory at runtime, so this test is the only guard against the two
+    drifting apart (same pattern as test_sab_parser.py's SAB snapshot
+    test — the exact failure this design set out to prevent)."""
+    import re
+
+    sad_path = Path(__file__).resolve().parent.parent / "templates" / "SAD.md"
+    text = sad_path.read_text(encoding="utf-8")
+    m = re.search(
+        r"<!-- SEC:START -->\n```yaml\n(.*?)```\n<!-- SEC:END -->",
+        text, re.DOTALL,
+    )
+    assert m, "fenced ```yaml SEC block not found in templates/SAD.md"
+    assert m.group(1).strip("\n") == render_canonical_security_template().strip("\n"), (
+        "templates/SAD.md §6 SEC block has drifted from "
+        "render_canonical_security_template() — re-paste the factory output."
+    )

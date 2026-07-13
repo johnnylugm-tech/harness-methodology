@@ -181,3 +181,48 @@ sab:
 
 Note: Fill in the YAML above — it is used for Drift Detection and gate scoring.
 Generate: `python3 scripts/generate_sab.py --project . [--overwrite]`
+
+---
+
+## 6. Security Design (STRIDE-lite — machine-readable, BINDING CONTRACT)
+
+> **CONTRACT**: Field names and the `security_design:` root key are parsed
+> by `core/quality_gate/security_design.py:extract_security_block()`.
+> Do NOT hand-write the YAML — paste from the canonical template and
+> replace EXAMPLE values with your project's real values.
+> Validate: `python3 harness_cli.py check-artifact-consistency --project .`
+>
+> `applicability: none` is a fully valid, honest declaration for a project
+> with no real attack surface (e.g. a pure CLI formatting tool) — it
+> requires a `justification` (>=20 chars) and skips the rest of this
+> block. This is a decidable structural check, not a keyword scorer: an
+> honest `none` always passes.
+
+<!-- SEC:START -->
+```yaml
+security_design:
+  version: "1.0"
+  applicability: full   # full | none — none REQUIRES justification and skips the rest
+  justification: ""     # required (>=20 chars) when applicability: none
+  trust_boundaries:     # EXAMPLE — replace with your project's real boundaries
+    - id: TB-01
+      name: "external HTTP input"
+      description: "requests crossing from unauthenticated clients into the API layer"
+  threats:              # STRIDE-lite — every boundary needs >=1 threat
+    - id: T-01
+      boundary: TB-01
+      category: tampering   # spoofing|tampering|repudiation|information_disclosure|denial_of_service|elevation_of_privilege
+      description: "malformed payload mutates task state without validation"
+      mitigation: "schema validation + reject on unknown fields"
+      owner_module: "app.api.webhooks"   # MUST be a module declared in the SAB block (§5)
+      nfr: NFR-02                        # optional — MUST exist in SRS when present
+      verified_by: "test_sec_t01_malformed_payload_rejected"
+```
+<!-- SEC:END -->
+
+Note: `owner_module` must name a module declared in the §5 SAB block;
+`nfr` (optional) must exist in SRS.md; `verified_by` names the test that
+proves the mitigation — from Phase 5 onward, `check-artifact-consistency`
+blocks if that test doesn't exist yet. Threats also seed
+`bug-hunt-targets`' adversarial-review targeting and force NFR-pattern
+test cases in `derive_test_cases.md` Step 1c regardless of SRS keywords.
