@@ -98,7 +98,7 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         # minimum FR count in SRS
         "min_fr_count": 3,
         # required SRS section keywords
-        "srs_required_sections": ["Functional Requirements", "FR-", "Logic Verification Method"],
+        "srs_required_sections": ["Functional Requirements", "FR-"],
         # required SPEC_TRACKING columns
         "spec_tracking_required_cols": ["FR", "Description", "Status"],
         # required TRACEABILITY columns (Phase 1 init only; module column may be 'TBD')
@@ -663,8 +663,14 @@ class PhaseAuditor:
             ))
 
     def _check_quality_status(self, content: str) -> None:
-        """C2 supplement: verify machine STAGE_PASS contains quality_complete marker."""
-        if "quality_complete: True" in content or "quality_complete=True" in content:
+        """C2 supplement: verify machine STAGE_PASS contains quality_complete marker.
+
+        _generate_stage_pass() (cli/_shared.py) renders the value with markdown
+        bold (`quality_complete: **True**`) for human readability. Match that
+        format (asterisks optional) instead of the plain-text substring the
+        generator never actually emits.
+        """
+        if re.search(r"quality_complete[:=]\s*\*{0,2}True\*{0,2}", content):
             self.result.add(Finding(
                 check_id="C2", dimension="STAGE_PASS Certificate",
                 severity="PASS",
@@ -737,30 +743,6 @@ class PhaseAuditor:
                 severity="CRITICAL" if fr_count == 0 else "WARNING",
                 title=f"{'❌' if fr_count==0 else '⚠️'} SRS.md only has {fr_count} FR(s) (minimum: {min_fr})",
                 detail=f"Found: {sorted(set(fr_matches))}",
-            ))
-
-        # logic verification method
-        logic_count = len(re.findall(r"Logic Verification Method", content))
-        # Bug M15 fix: previous threshold was `max(1, fr_count // 2)`,
-        # which silently passed 3 FRs with only 1 logic method (ratio 1:3).
-        # SKILL.md intent is 1:1 — each FR has a corresponding Logic
-        # Verification Method. Use the strict 1:1 threshold.
-        required_logic = fr_count
-        if logic_count >= required_logic:
-            self.result.add(Finding(
-                check_id="C5",
-                dimension="Document Content Depth",
-                severity="PASS",
-                title=f"SRS.md contains {logic_count} Logic Verification Method(s)",
-                detail="Each FR should have a corresponding Logic Verification Method",
-            ))
-        else:
-            self.result.add(Finding(
-                check_id="C5",
-                dimension="Document Content Depth",
-                severity="WARNING",
-                title=f"SRS.md insufficient Logic Verification Methods ({logic_count} vs {fr_count} FRs)",
-                detail="SKILL.md Phase 1 requires each FR to have a Logic Verification Method",
             ))
 
         # NFR existence
@@ -1416,6 +1398,13 @@ class PhaseAuditor:
         Checks: (1) state.json current_phase matches audited phase,
                 (2) gate4_result.json present for P6+ (Gate 4 entry).
         Silently no-ops when using GitHubFetcher (is_local = False).
+
+        No workflow JS ever calls `audit-phase` automatically — it is a
+        standalone CLI health-check tool. Run it BEFORE advance-phase for a
+        meaningful phase-scoped (1) result; a retroactive audit run after
+        that phase's advance-phase has already succeeded will correctly
+        WARNING here (current_phase has legitimately moved on) — expected,
+        not a defect.
         """
         if not getattr(self.gh, "is_local", False):
             return  # Skip in GitHub mode

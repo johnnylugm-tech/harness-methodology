@@ -113,6 +113,40 @@ class TestGenerateStagePassEmptyGateData:
             f"Summary section must say FAIL when phase_truth_passed=False; got:\n{content}"
         )
 
+    def test_truth_override_true_ignores_stale_state_json(self, tmp_path):
+        """2026-07-13 fix (ordering bug): _advance_prechecks now calls this as
+        its LAST step, after every blocking check has already passed, and
+        passes truth_override=True — because at that call site
+        state.json.phase_truth_passed has not been written yet (_advance_fsm
+        sets it AFTER _advance_prechecks returns). The override must win over
+        a stale/False on-disk state.json."""
+        from cli._shared import _generate_stage_pass
+
+        self._setup(tmp_path, phase_truth_passed=False)  # stale pre-advance value
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=1, truth_override=True)
+
+        out = tmp_path / "00-summary" / "Phase1_STAGE_PASS.md"
+        content = out.read_text(encoding="utf-8")
+        assert "quality_complete: **True**" in content, (
+            f"truth_override=True must win over stale state.json; got:\n{content}"
+        )
+        assert "PASS" in content.split("## Summary")[1]
+
+    def test_truth_override_none_falls_back_to_state_json(self, tmp_path):
+        """Sanity: omitting truth_override preserves the original fallback
+        behavior (reads state.json.phase_truth_passed), e.g. for the
+        finalize-gate call site where ordering is already correct."""
+        from cli._shared import _generate_stage_pass
+
+        self._setup(tmp_path, phase_truth_passed=True)
+
+        _generate_stage_pass(tmp_path, gate_num=1, phase_num=1)
+
+        out = tmp_path / "00-summary" / "Phase1_STAGE_PASS.md"
+        content = out.read_text(encoding="utf-8")
+        assert "quality_complete: **True**" in content
+
     def test_phase1_passes_when_state_json_missing(self, tmp_path):
         """No state.json + empty quality_manifest → fall back to FAIL (safe default)."""
         from cli._shared import _generate_stage_pass

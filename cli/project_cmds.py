@@ -1794,6 +1794,13 @@ def register(sub) -> None:
     ap = sub.add_parser(
         "audit-phase",
         help="Audit a phase against GitHub artifacts (8-dimension PhaseAuditor check)",
+        description=(
+            "Audit a phase against GitHub/local artifacts (8-dimension PhaseAuditor check). "
+            "No workflow ever calls this automatically — run it BEFORE advance-phase for a "
+            "phase-scoped audit. Running it AFTER that phase's advance-phase has already "
+            "succeeded will correctly show a C10 'current_phase != audited phase' WARNING "
+            "(phase drift is real once you've moved on, not a defect)."
+        ),
     )
     ap.add_argument("--phase",  type=int, required=True, help="Phase number to audit (1-8)")
     _ap_src = ap.add_mutually_exclusive_group(required=True)

@@ -583,3 +583,29 @@ class TestC2StagePassMachineGenerated:
         a.check_c2_stage_pass()
         criticals = [f for f in a.result.findings if f.check_id == "C2" and f.severity == "CRITICAL"]
         assert not criticals, f"Unexpected C2 CRITICAL finding(s): {[c.title for c in criticals]}"
+
+    def test_machine_generated_true_marker_passes_quality_status(self):
+        """2026-07-13 fix: the generator writes `quality_complete: **True**`
+        (markdown bold) but the checker used to test the literal substring
+        `quality_complete: True` (no asterisks) — never a match, so this
+        exact realistic fixture always WARNING'd even though qc was True."""
+        files = {"00-summary/Phase3_STAGE_PASS.md": self.MACHINE_GENERATED_CONTENT}
+        a = PhaseAuditor(FakeGitHubFetcher(files), 3)  # type: ignore[reportArgumentType]
+        a.check_c2_stage_pass()
+        qc_findings = [f for f in a.result.findings if f.check_id == "C2" and "quality_complete" in f.title.lower()]
+        assert qc_findings and qc_findings[0].severity == "PASS", (
+            f"expected a PASS quality_complete finding, got {[(f.severity, f.title) for f in qc_findings]}"
+        )
+
+    def test_machine_generated_false_marker_warns_quality_status(self):
+        """Sanity: **False** must still WARNING (not silently pass)."""
+        content = self.MACHINE_GENERATED_CONTENT.replace(
+            "quality_complete: **True**", "quality_complete: **False**"
+        )
+        files = {"00-summary/Phase3_STAGE_PASS.md": content}
+        a = PhaseAuditor(FakeGitHubFetcher(files), 3)  # type: ignore[reportArgumentType]
+        a.check_c2_stage_pass()
+        qc_findings = [f for f in a.result.findings if f.check_id == "C2" and "quality_complete" in f.title.lower()]
+        assert qc_findings and qc_findings[0].severity == "WARNING", (
+            f"expected a WARNING quality_complete finding, got {[(f.severity, f.title) for f in qc_findings]}"
+        )

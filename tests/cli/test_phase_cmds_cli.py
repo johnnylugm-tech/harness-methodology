@@ -477,6 +477,38 @@ class TestAdvancePreChecksAgentB:
         rc = _advance_prechecks(tmp_path, completed_phase=1)
         assert rc == 0
 
+    def test_p1_approved_stage_pass_shows_quality_complete_true(self, tmp_path, monkeypatch):
+        """2026-07-13 ordering fix: STAGE_PASS generation used to run BEFORE
+        the Agent B approvals check (the real P1 exit gate), baking
+        quality_complete=**False** into Phase1_STAGE_PASS.md even on a
+        successful advance (state.json.phase_truth_passed isn't written until
+        _advance_fsm runs, AFTER _advance_prechecks returns). It now runs
+        last, after Agent B approvals passes, with truth_override=True."""
+        from cli.phase_cmds import _advance_prechecks
+        from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES as _PHASE_DELIVERABLES
+        import json
+
+        method_dir = tmp_path / ".methodology"
+        (method_dir / "agent_b_approvals").mkdir(parents=True)
+        for did in _PHASE_DELIVERABLES[1]:
+            (method_dir / "agent_b_approvals" / f"{did}.json").write_text(
+                json.dumps({"review_status": "APPROVE", "docs_embedded": ["SRS.md"], "reason": "Reviewed deliverable; acceptance criteria covered, no critical gaps.", "citations": ["SRS.md:1"]}),
+                encoding="utf-8",
+            )
+
+        (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        # Stale/False — must NOT leak into STAGE_PASS.md now that truth_override wins.
+        (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE", "phase_truth_passed": False}))
+        self._mock_p1_prechecks(monkeypatch)
+
+        rc = _advance_prechecks(tmp_path, completed_phase=1)
+
+        assert rc == 0
+        stage_pass = (tmp_path / "00-summary" / "Phase1_STAGE_PASS.md").read_text(encoding="utf-8")
+        assert "quality_complete: **True**" in stage_pass, (
+            f"expected quality_complete: **True** after a successful advance; got:\n{stage_pass}"
+        )
+
     def test_p2_rejected_approval_returns_13(self, tmp_path, monkeypatch):
         """P2 with one REJECT approval → returns 13."""
         from cli.phase_cmds import _advance_prechecks
@@ -917,7 +949,7 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
     # Do NOT pre-create Phase3_STAGE_PASS.md so auto-generation is triggered.
     # Mock _generate_stage_pass to write the file (quality_manifest.json is
     # absent in the tmp project, so the real generator would print WARN + skip).
-    def _write_stage_pass(project, gate, phase):
+    def _write_stage_pass(project, gate, phase, **_kw):
         sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
         sp.parent.mkdir(exist_ok=True)
         sp.write_text(f"# Phase {phase} STAGE_PASS\n## Summary\n", encoding="utf-8")
@@ -1001,7 +1033,7 @@ class TestAdvancePhaseRegeneratesStagePass:
             "Phase 3 exit gate PASS.\n"
         )
 
-        def _write_new_stage_pass(project, gate, phase):
+        def _write_new_stage_pass(project, gate, phase, **_kw):
             sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
             sp.parent.mkdir(exist_ok=True)
             sp.write_text(new_content, encoding="utf-8")
@@ -1034,7 +1066,7 @@ class TestAdvancePhaseRegeneratesStagePass:
         sp_path = sp_dir / "Phase3_STAGE_PASS.md"
         sp_path.write_text("# STALE OLD CONTENT\n", encoding="utf-8")
 
-        def _write_different(project, gate, phase):
+        def _write_different(project, gate, phase, **_kw):
             sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
             sp.parent.mkdir(exist_ok=True)
             sp.write_text("# NEW CONTENT AFTER REGENERATE\n", encoding="utf-8")
@@ -1076,7 +1108,7 @@ class TestAdvancePhaseRegeneratesStagePass:
         same_content = "# SAME CONTENT\n"
         sp_path.write_text(same_content, encoding="utf-8")
 
-        def _write_same(project, gate, phase):
+        def _write_same(project, gate, phase, **_kw):
             sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
             sp.parent.mkdir(exist_ok=True)
             sp.write_text(same_content, encoding="utf-8")
@@ -1112,7 +1144,13 @@ class TestAdvancePhaseRegeneratesStagePass:
     def test_missing_file_still_generates_regression(self, tmp_path, monkeypatch):
         """Regression: if STAGE_PASS.md does not exist, advance-phase still
         calls _generate_stage_pass and stages the new file (original behavior
-        must be preserved)."""
+        must be preserved).
+
+        2026-07-13: now called TWICE when missing — an early pass (right
+        after HR-11) so the internal Phase Auditor call's own C2 check
+        doesn't CRITICAL-fail on a first-ever advance, and a final pass
+        (with truth_override=True) near the end of _advance_prechecks that
+        writes the authoritative content after every blocking check passed."""
         from cli.phase_cmds import _advance_prechecks
 
         _setup_advance_prechecks_env(tmp_path, monkeypatch)
@@ -1122,7 +1160,7 @@ class TestAdvancePhaseRegeneratesStagePass:
 
         called = {"count": 0}
 
-        def _write_when_missing(project, gate, phase):
+        def _write_when_missing(project, gate, phase, **_kw):
             called["count"] += 1
             sp = project / "00-summary" / f"Phase{phase}_STAGE_PASS.md"
             sp.parent.mkdir(exist_ok=True)
@@ -1133,7 +1171,7 @@ class TestAdvancePhaseRegeneratesStagePass:
 
         _advance_prechecks(tmp_path, completed_phase=3)
 
-        assert called["count"] == 1, "_generate_stage_pass not called for missing file"
+        assert called["count"] == 2, "_generate_stage_pass not called (early-exists + final) for missing file"
         assert sp_path.exists(), "STAGE_PASS.md not generated for missing-file case"
 
 
@@ -1223,7 +1261,7 @@ def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch
 
     monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
     monkeypatch.setattr("cli.phase_cmds._check_gate1_live_coverage", lambda _, __: 0)
-    monkeypatch.setattr("cli._shared._generate_stage_pass", lambda p, g, ph: None)
+    monkeypatch.setattr("cli._shared._generate_stage_pass", lambda p, g, ph, **_kw: None)
     monkeypatch.setattr(
         "core.quality_gate.mutation_enforcer.run_mutation_precheck",
         lambda _: (True, "ok"),

@@ -1620,41 +1620,19 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             return 11
 
 
-    # ── Always-regenerate Phase{N}_STAGE_PASS.md ─────────────────────
-    # The file is machine-generated from quality_manifest.json + state.json (no LLM).
-    # Always regenerate (not just when missing) so a previously-committed stale
-    # artifact (e.g. pre-d8fccea "always FAIL" content from older _generate_stage_pass
-    # logic) gets refreshed on every advance-phase run. Stage the file only if
-    # its content actually changed — avoids empty no-op commits when the logic
-    # already produced the right bytes.
-    _stage_pass_path = project / "00-summary" / f"Phase{completed_phase}_STAGE_PASS.md"
-    _sp_gate = 4 if completed_phase >= 6 else 1
-    _existing_bytes_hash: int | None = None
-    if _stage_pass_path.exists():
-        try:
-            _existing_bytes_hash = hash(_stage_pass_path.read_bytes())
-        except OSError:
-            pass
-    print(
-        f"  [advance-phase] Regenerating Phase{completed_phase}_STAGE_PASS.md "
-        f"from quality_manifest (gate {_sp_gate})"
-    )
-    _shared._generate_stage_pass(project, _sp_gate, completed_phase)
-    # Stage only if content changed — avoids touching git index when nothing
-    # actually differs from what is already committed.
-    if _stage_pass_path.exists():
-        try:
-            _new_bytes_hash = hash(_stage_pass_path.read_bytes())
-        except OSError:
-            _new_bytes_hash = None
-        if _new_bytes_hash != _existing_bytes_hash:
-            subprocess.run(
-                ["git", "add", str(_stage_pass_path)],
-                cwd=str(project), capture_output=True,
-            )
-            print(
-                f"  [STAGE_PASS] content changed → staged {completed_phase} advance commit"
-            )
+    # ── Ensure Phase{N}_STAGE_PASS.md exists before the internal Phase
+    # Auditor call below — its own C2 check CRITICAL-fails when the file is
+    # entirely missing (first-ever advance for this phase). This early pass
+    # may write a stale quality_complete value (state.json.phase_truth_passed
+    # hasn't been finalized yet) — that's fine, it only needs to exist here.
+    # The authoritative content is written by the final regeneration pass
+    # near the end of this function (see truth_override=True below), after
+    # every blocking check (including this same Phase Auditor call) passes.
+    _early_sp_path = project / "00-summary" / f"Phase{completed_phase}_STAGE_PASS.md"
+    if not _early_sp_path.exists():
+        _shared._generate_stage_pass(project, 4 if completed_phase >= 6 else 1, completed_phase)
+        if _early_sp_path.exists():
+            subprocess.run(["git", "add", str(_early_sp_path)], cwd=str(project), capture_output=True)
 
     # ── Always-regenerate traceability views from SSOT ───────────────
     # TRACEABILITY_MATRIX.md (and SPEC_TRACKING.md) are render-only views of the
@@ -1887,6 +1865,55 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
     # ── Submodule drift advisory (non-blocking) ──────────────────────
     _check_submodule_drift(project)
+
+    # ── Always-regenerate Phase{N}_STAGE_PASS.md ─────────────────────
+    # The file is machine-generated from quality_manifest.json + state.json (no LLM).
+    # Always regenerate (not just when missing) so a previously-committed stale
+    # artifact (e.g. pre-d8fccea "always FAIL" content from older _generate_stage_pass
+    # logic) gets refreshed on every advance-phase run. Stage the file only if
+    # its content actually changed — avoids empty no-op commits when the logic
+    # already produced the right bytes.
+    #
+    # Placement (B-2026-07-13 fix): this block runs LAST in _advance_prechecks,
+    # after every blocking check (Agent B approvals, TDD/coverage, SAB drift,
+    # WRITE_SCOPE, submodule safety, ...) has already passed. Reaching this
+    # point means _advance_prechecks is about to return 0 (success), so for
+    # phases with no gate_data yet (P1-P2's empty-gate-data fallback in
+    # _generate_stage_pass) we can pass truth_override=True instead of reading
+    # state.json.phase_truth_passed — which _advance_fsm() does not set to
+    # True until AFTER this function returns, so reading it here would always
+    # see the stale pre-advance value. Previously this block ran immediately
+    # after the HR-11 Phase Truth check (before Agent B approvals and other
+    # blocking checks even ran), permanently baking quality_complete=False
+    # into every first-ever Phase 1/2 STAGE_PASS.md.
+    _stage_pass_path = project / "00-summary" / f"Phase{completed_phase}_STAGE_PASS.md"
+    _sp_gate = 4 if completed_phase >= 6 else 1
+    _existing_bytes_hash: int | None = None
+    if _stage_pass_path.exists():
+        try:
+            _existing_bytes_hash = hash(_stage_pass_path.read_bytes())
+        except OSError:
+            pass
+    print(
+        f"  [advance-phase] Regenerating Phase{completed_phase}_STAGE_PASS.md "
+        f"from quality_manifest (gate {_sp_gate})"
+    )
+    _shared._generate_stage_pass(project, _sp_gate, completed_phase, truth_override=True)
+    # Stage only if content changed — avoids touching git index when nothing
+    # actually differs from what is already committed.
+    if _stage_pass_path.exists():
+        try:
+            _new_bytes_hash = hash(_stage_pass_path.read_bytes())
+        except OSError:
+            _new_bytes_hash = None
+        if _new_bytes_hash != _existing_bytes_hash:
+            subprocess.run(
+                ["git", "add", str(_stage_pass_path)],
+                cwd=str(project), capture_output=True,
+            )
+            print(
+                f"  [STAGE_PASS] content changed → staged {completed_phase} advance commit"
+            )
 
     return 0
 

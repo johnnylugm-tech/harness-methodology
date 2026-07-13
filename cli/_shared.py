@@ -67,20 +67,32 @@ def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
         _sf.parent.mkdir(parents=True, exist_ok=True)
         _sf.write_text("test-sentinel\n", encoding="utf-8")
 
-def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> None:
+def _generate_stage_pass(
+    project_path: Path, gate_num: int, phase_num: int,
+    truth_override: bool | None = None,
+) -> None:
     """Write machine-generated 00-summary/Phase{N}_STAGE_PASS.md from quality_manifest.json.
 
     No LLM involvement — content comes entirely from quality_manifest.json +
     state.json.phase_truth_passed (fallback). Called automatically by
-    cmd_finalize_gate() after bridge.finalize_gate succeeds.
+    cmd_finalize_gate() after bridge.finalize_gate succeeds, and by
+    _advance_prechecks() as the last step before returning success.
 
     Gate-data interpretation rules (B-class bug fix — Phase 1-2 + per-FR Gate 1):
       - Gate 2/3/4: flat dict with top-level `score` + `quality_complete`.
       - Gate 1 in Phase 3+: per-FR dict `{"FR-XX": {"score": N, "quality_complete":
         bool}, ...}` — aggregate across FRs (ALL must be True for PASS).
       - Empty gate_data (Phase 1-2 where Gate 1 has not fired yet) — fall back to
-        state.json.phase_truth_passed to derive verdict. Without this fallback,
-        Phase 1-2 always wrote "exit gate FAIL" even when the phase succeeded.
+        `truth_override` if given, else state.json.phase_truth_passed. Without
+        this fallback, Phase 1-2 always wrote "exit gate FAIL" even when the
+        phase succeeded.
+
+    truth_override: when the caller already knows the phase truth verdict (e.g.
+        _advance_prechecks calling this as its final step, after every blocking
+        check has already passed) pass it directly instead of re-reading
+        state.json — at that call site, state.json.phase_truth_passed has not
+        been written yet (_advance_fsm sets it AFTER _advance_prechecks
+        returns), so reading it would always see the stale pre-advance value.
     """
     from datetime import datetime, timezone as _tz
 
@@ -114,6 +126,11 @@ def _generate_stage_pass(project_path: Path, gate_num: int, phase_num: int) -> N
         # Flat structure (Gate 2/3/4 or pre-DELTA Gate 1).
         score = gate_data.get("score", "N/A")
         qc = bool(gate_data.get("quality_complete", False))
+    elif truth_override is not None:
+        # Caller already knows the verdict (see truth_override docstring) —
+        # state.json.phase_truth_passed may not be written yet at this call site.
+        score = "N/A"
+        qc = truth_override
     else:
         # Empty gate_data — gate has not fired for this phase.
         # Phase 1-2 + Phase 5/7/8: Gate 1 not fired yet (Gate 1 is per-FR at

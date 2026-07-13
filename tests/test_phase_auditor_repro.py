@@ -1,10 +1,13 @@
-"""Regression tests for phase_auditor — Bugs M15/M16.
+"""Regression tests for phase_auditor — Bug M16.
 
-M15 (line 968): _check_srs_depth uses `logic_count >= max(1, fr_count // 2)`.
-   With 3 FRs, threshold is 1 — so 1 logic method for 3 FRs passes.
-   SKILL.md intent is 1:1, so the half-count threshold silently violates it.
 M16 (line 1469): integrity_score may be a string ("90%") from .integrity_tracker.json.
    Line 1472 `if score >= 80` raises TypeError on int vs str in Python 3.
+
+(Former Bug M15 coverage — SRS "Logic Verification Method" 1:1 ratio — was
+removed 2026-07-13: the underlying check tested a requirement with no basis
+in SKILL.md or phase1_plan.md, ported from a different codebase (methodology-v2,
+commit 979f0e5) and never given a corresponding SKILL.md rule here. See
+_check_srs_depth in scripts/phase_auditor.py.)
 """
 
 from __future__ import annotations
@@ -35,16 +38,15 @@ def _auditor(module, project_root: str | Path, phase: int = 1):
 
 
 # ---------------------------------------------------------------------------
-# Bug M15: SRS with 3 FRs and 1 logic method must FAIL
+# Orphaned-check removal (2026-07-13): SRS.md without "Logic Verification
+# Method" text must NOT produce any C5 finding referencing that phrase —
+# the phrase has no basis in SKILL.md or phase1_plan.md (see module docstring).
 # ---------------------------------------------------------------------------
 
-class TestM15SrsLogicThreshold:
-    def test_three_frs_one_logic_method_fails(
+class TestSrsDepthNoLogicVerificationMethodCheck:
+    def test_srs_without_logic_verification_method_produces_no_such_finding(
         self, module, tmp_path
     ):
-        """Bug M15 regression: 3 FRs + 1 Logic Verification Method must NOT
-        pass. With SKILL.md's 1:1 intent, the threshold must require at
-        least 3 logic methods (or document the relaxed ratio)."""
         req_dir = tmp_path / "01-requirements"
         req_dir.mkdir(parents=True, exist_ok=True)
         srs = req_dir / "SRS.md"
@@ -52,38 +54,7 @@ class TestM15SrsLogicThreshold:
             "SRS\n"
             "FR-01: do X\n"
             "FR-02: do Y\n"
-            "FR-03: do Z\n"
-            "Logic Verification Method: one method covers all 3 FRs\n",
-            encoding="utf-8",
-        )
-        auditor = _auditor(module, tmp_path)
-        auditor._check_srs_depth()
-        # Look ONLY for the logic-method finding (filter on dimension or text)
-        logic_findings = [
-            f for f in auditor.result.findings
-            if "logic verification method" in f.title.lower()
-        ]
-        assert len(logic_findings) == 1, (
-            f"M15: expected exactly 1 logic-method finding, got {len(logic_findings)}"
-        )
-        assert logic_findings[0].severity in ("WARNING", "CRITICAL"), (
-            f"M15: 3 FRs + 1 logic method should be WARNING/CRITICAL, got "
-            f"severity={logic_findings[0].severity}, title={logic_findings[0].title!r}"
-        )
-
-    def test_three_frs_three_logic_methods_passes(
-        self, module, tmp_path
-    ):
-        """Sanity: 3 FRs + 3 Logic Verification Methods still passes."""
-        req_dir = tmp_path / "01-requirements"
-        req_dir.mkdir(parents=True, exist_ok=True)
-        srs = req_dir / "SRS.md"
-        srs.write_text(
-            "SRS\n"
-            "FR-01: a\nFR-02: b\nFR-03: c\n"
-            "Logic Verification Method: a\n"
-            "Logic Verification Method: b\n"
-            "Logic Verification Method: c\n",
+            "FR-03: do Z\n",
             encoding="utf-8",
         )
         auditor = _auditor(module, tmp_path)
@@ -92,9 +63,8 @@ class TestM15SrsLogicThreshold:
             f for f in auditor.result.findings
             if "logic verification method" in f.title.lower()
         ]
-        assert len(logic_findings) == 1
-        assert logic_findings[0].severity == "PASS", (
-            f"M15: 3 FRs + 3 logic should PASS, got {logic_findings[0].severity}"
+        assert logic_findings == [], (
+            f"expected no Logic Verification Method finding, got {logic_findings}"
         )
 
 

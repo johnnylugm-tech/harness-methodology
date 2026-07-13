@@ -45,7 +45,16 @@ _LINE_CEILING: dict[str, int] = {
     # migrate from cwd-relative `from scripts.generate_full_plan import` to
     # load_harness_script("generate_full_plan.py") (same P6/A1 bug class,
     # never swept for this module).
-    "cli/phase_cmds.py": 2555,
+    # 2026-07-13: +25 lines — STAGE_PASS generation-order fix: the
+    # "Always-regenerate Phase{N}_STAGE_PASS.md" block moved from mid-function
+    # (right after HR-11) to the true end of _advance_prechecks (after Agent B
+    # approvals / TDD / SAB drift / submodule guard all pass), so it can pass
+    # truth_override=True to _generate_stage_pass instead of reading
+    # state.json.phase_truth_passed before _advance_fsm has written it. Added
+    # a small early "ensure exists" pass at the block's old position so the
+    # internal Phase Auditor call (a few lines later) doesn't CRITICAL-fail
+    # its own C2 check on a first-ever advance.
+    "cli/phase_cmds.py": 2580,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -92,7 +101,10 @@ _LINE_CEILING: dict[str, int] = {
     "cli/fr_cmds.py": 2271,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
-    "cli/project_cmds.py": 1863,
+    # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
+    # clarifying it must run BEFORE advance-phase for a phase-scoped C10
+    # result (no workflow JS ever calls it automatically).
+    "cli/project_cmds.py": 1870,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,
