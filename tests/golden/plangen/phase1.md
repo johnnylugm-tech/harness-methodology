@@ -90,15 +90,16 @@ are not re-opened. This bounds backtracking to a single step.
 <!-- @rule R-NO-PRESCRIPTION-001 -->NO-PRESCRIPTION RULE (anti-methodology-injection): Agent A MUST NOT add methodology/process artifacts to the deliverable that are not required by SRS scope (e.g. prompt-injection regex tables, sha256 hashes of canonical files, 'Methodology pin' sections). These are workflow internals; they belong in .sessi-work/ debug artifacts, NOT in SRS.md. Exception: SRS §8 Open Issues MAY reference the prompt-injection scan outcome as a one-line summary only.<!-- @end-rule -->
   - FORBIDDEN: vague/non-testable acceptance criteria
 - **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
-- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as **STATELESS** subagent:
-  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.
-  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.
-  > ALL context must be pasted verbatim into the prompt text. This is mandatory.
-  >
-  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.
-  > Round 4 succeeded only after embedding full document content directly.
+- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent:
+  > **3-layer B-review defense** (T1-B, 2026-07-14):
+  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat
+  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).
+  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically
+  >   verifies each gap's claims against actual file content (Python open(), not LLM).
+  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has
+  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
-  **Embed these documents in full** (copy content, not paths):
+  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
   - `Project description / stakeholder brief`
   - `draft 01-requirements/SRS.md (full content)`
   - `srs_vs_spec_diff.json — produced by `python3 harness/scripts/canonical_diff.py --srs 01-requirements/SRS.md --spec SPEC.md --out srs_vs_spec_diff.json`. Each AC clause is scored 0.0 (verbatim canonical) to 1.0 (pure invention); gaps with over_spec_score > 0.7 are framework-flagged. If file is missing (Elicitation mode or SPEC.md absent), treat all ACs as potential over-spec and apply the rubric from §A-1 prompt-level Canonical Interpretation Rule.`
@@ -162,15 +163,16 @@ are not re-opened. This bounds backtracking to a single step.
 - **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness. Use the STANDARD template columns; do NOT invent a Gate-score column as authority — Status is machine-refreshed from build_traceability at advance-phase, and score authority is quality_manifest.json (this file is a human-readable view, not the SSOT).
   - FORBIDDEN: vague/non-testable acceptance criteria
 - **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
-- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as **STATELESS** subagent:
-  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.
-  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.
-  > ALL context must be pasted verbatim into the prompt text. This is mandatory.
-  >
-  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.
-  > Round 4 succeeded only after embedding full document content directly.
+- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent:
+  > **3-layer B-review defense** (T1-B, 2026-07-14):
+  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat
+  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).
+  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically
+  >   verifies each gap's claims against actual file content (Python open(), not LLM).
+  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has
+  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
-  **Embed these documents in full** (copy content, not paths):
+  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
   - `Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)`
   - `01-requirements/SRS.md (APPROVED — full content)`
   - `draft 01-requirements/SPEC_TRACKING.md (full content)`
@@ -231,15 +233,16 @@ are not re-opened. This bounds backtracking to a single step.
 - **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage. Forward-reference downstream artifacts by their CANONICAL framework filename (the P2 architecture doc is SAD.md, NOT ARCHITECTURE.md); run `check-artifact-consistency` to verify no invented filenames 404 downstream.
   - FORBIDDEN: vague/non-testable acceptance criteria
 - **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
-- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as **STATELESS** subagent:
-  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.
-  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.
-  > ALL context must be pasted verbatim into the prompt text. This is mandatory.
-  >
-  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.
-  > Round 4 succeeded only after embedding full document content directly.
+- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent:
+  > **3-layer B-review defense** (T1-B, 2026-07-14):
+  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat
+  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).
+  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically
+  >   verifies each gap's claims against actual file content (Python open(), not LLM).
+  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has
+  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
-  **Embed these documents in full** (copy content, not paths):
+  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
   - `Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)`
   - `Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (Sub-Task 2/4, gaps field may contain non-blocking caveats)`
   - `01-requirements/SRS.md (APPROVED — full content)`
@@ -308,15 +311,16 @@ are not re-opened. This bounds backtracking to a single step.
 - **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention. **1:1 rule**: matrix sub-ranges (e.g. `TC-FR01-05a..g` = 7 sub-cases) MUST enumerate as separate tc_ids in YAML — one entry per sub-case, NOT collapse into a single entry with internal loop. This prevents B-2 review from REJECT-ing on 1:1 violation.
   - FORBIDDEN: vague/non-testable acceptance criteria
 - **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
-- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as **STATELESS** subagent:
-  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.
-  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.
-  > ALL context must be pasted verbatim into the prompt text. This is mandatory.
-  >
-  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.
-  > Round 4 succeeded only after embedding full document content directly.
+- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent:
+  > **3-layer B-review defense** (T1-B, 2026-07-14):
+  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat
+  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).
+  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically
+  >   verifies each gap's claims against actual file content (Python open(), not LLM).
+  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has
+  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
-  **Embed these documents in full** (copy content, not paths):
+  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
   - `Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (Sub-Task 3/4, gaps field may contain non-blocking caveats)`
   - `01-requirements/SRS.md (APPROVED — full content)`
   - `01-requirements/TRACEABILITY_MATRIX.md (APPROVED — full content)`
@@ -396,12 +400,14 @@ are not re-opened. This bounds backtracking to a single step.
 > Phase 1/2 exit gate = Agent B document review (NOT `harness run-gate --gate 1`).
 > APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.
 
-- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as **STATELESS** subagent (holistic review of all deliverables):
-  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.
-  > NEVER pass file paths in the prompt — ALL document content must be pasted verbatim.
-  >
-  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.
-  > Round 4 succeeded only after embedding full document content directly.
+- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent (holistic review of all deliverables; 3-layer defense, T1-B):
+  > **3-layer B-review defense** (T1-B, 2026-07-14):
+  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat
+  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).
+  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically
+  >   verifies each gap's claims against actual file content (Python open(), not LLM).
+  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has
+  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
   **Embed ALL deliverables in full** (copy content, not paths):
   - `01-requirements/SRS.md (full content)`

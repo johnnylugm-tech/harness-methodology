@@ -82,7 +82,7 @@ Agent B peer review of the QA deliverables (HR-01) — both are required to exit
 
 > A/B collaboration is active for Phase 6 deliverables (HR-01).
 > Agent A generates QUALITY_REPORT.md and RELEASE_NOTES.md.
-> Agent B (reviewer — stateless) reviews the deliverables and verifies Gate 4 score.
+> Agent B (reviewer) reviews the deliverables and verifies Gate 4 score (3-layer defense, T1-B).
 
 ### Pre-Gate Preparation
 - Confirm all FRs are merged to main branch
@@ -225,7 +225,7 @@ Agent B peer review of the QA deliverables (HR-01) — both are required to exit
   Must reference `VERIFICATION_REPORT.md` (verification provenance).
 
 - **G4g** Agent B Peer Review (HR-01):
-  Agent B (reviewer — stateless) explicitly reviews ALL deliverables.
+  Agent B (reviewer) explicitly reviews ALL deliverables. B gets makeDocSummary() orientation + must Bash-cat full files for citations (3-layer defense, T1-B).
   1. Review `06-quality/QUALITY_REPORT.md`, `RELEASE_NOTES.md`, and `FINAL_SIGN_OFF.md`.
   2. Cross-check `.methodology/quality_manifest.json` Gate 4 scoring logic.
   3. Reference `05-verification/VERIFICATION_REPORT.md` for historical traceability.

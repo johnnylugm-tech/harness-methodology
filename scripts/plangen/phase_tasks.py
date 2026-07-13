@@ -781,7 +781,7 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     lines.append("")
     lines.append("> A/B collaboration is active for Phase 6 deliverables (HR-01).")
     lines.append("> Agent A generates QUALITY_REPORT.md and RELEASE_NOTES.md.")
-    lines.append("> Agent B (reviewer — stateless) reviews the deliverables and verifies Gate 4 score.")
+    lines.append("> Agent B (reviewer) reviews the deliverables and verifies Gate 4 score (3-layer defense, T1-B).")
     lines.append("")
 
     # Only embed static quality metrics from QUALITY_REPORT.md in non-dynamic mode.

@@ -688,12 +688,12 @@ class TestReviewCheckpoint:
             assert "Reviewer reads" not in joined, f"P{phase}: 'Reviewer reads' is human-reviewer language"
             assert "Reviewer records" not in joined, f"P{phase}: 'Reviewer records' is human-reviewer language"
 
-    def test_has_stateless_subagent_dispatch(self):
-        """Exit gate must dispatch Agent B as STATELESS subagent (same as inline [B-1])."""
+    def test_has_separate_subagent_dispatch(self):
+        """Exit gate must dispatch Agent B as separate subagent (3-layer defense, T1-B)."""
         for phase in (1, 2):
             joined = "\n".join(_review_checkpoint(phase))
-            assert "STATELESS" in joined, f"P{phase}: missing STATELESS subagent dispatch"
-            assert "dispatch as **STATELESS** subagent" in joined, \
+            assert "3-layer B-review defense" in joined, f"P{phase}: missing 3-layer defense docs"
+            assert "dispatch as separate subagent" in joined, \
                 f"P{phase}: missing explicit dispatch instruction"
 
     def test_has_correct_role_b(self):
@@ -879,10 +879,11 @@ class TestDeliverableAbBlock:
         joined = "\n".join(lines)
         assert "Agent B Peer Review" in joined
 
-    def test_contains_stateless_sandbox_warning(self, srs_deliverable: Dict):
+    def test_contains_3layer_defense_docs(self, srs_deliverable: Dict):
+        # T1-B (2026-07-14): replaced STATELESS SANDBOX with 3-layer defense
         lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)
         joined = "\n".join(lines)
-        assert "STATELESS SANDBOX" in joined
+        assert "3-layer B-review defense" in joined
 
     def test_deliverable_specific_checks_appear(self, srs_deliverable: Dict):
         lines = _deliverable_ab_block(1, srs_deliverable, 1, 3)

@@ -101,7 +101,7 @@ _PHASE_ROLES: dict = {
     8: ("DEVOPS",      "ARCHITECT",   "Document config items → verify env vars/secrets → update CONFIG_RECORDS.md"),
 }
 
-# Agent B embed doc list per phase — ALL must be pasted verbatim into the prompt (no file paths)
+# Agent B document list per phase — delivered as makeDocSummary() orientation; B Bash-cats full file for citations (3-layer defense, T1-B)
 _AGENT_B_EMBED_DOCS: Dict[int, List[str]] = {
     1: ["Project description / stakeholder brief", "draft 01-requirements/SRS.md (full content)"],
     2: ["01-requirements/SRS.md (full)", "draft 02-architecture/SAD.md (full)"],
@@ -265,11 +265,13 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
 
 def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[str]:
     """
-    Generate the full Agent B stateless dispatch block for a given phase.
+    Generate the Agent B dispatch block for a given phase.
 
-    Key principle: Agent B = completely fresh MCP sandbox with ZERO filesystem access.
-    Every document must be embedded verbatim in the prompt — never use file paths.
-    This is the #1 lesson from P1 Rounds 2-3 failures.
+    T1-B (2026-07-14): replaced "stateless MCP sandbox" premise with 3-layer
+    B-review defense — Agent B gets makeDocSummary() orientation + must Bash-cat
+    files for citations; harness structured_b_review.py deterministically verifies
+    gap claims against actual file content (Python open(), not LLM context);
+    enforce_escalation computes the round-loop verdict after severity correction.
     """
     embed_docs = _AGENT_B_EMBED_DOCS.get(phase, ["relevant documents"])
     checks = _AGENT_B_CHECKS.get(phase, ["Review for correctness and completeness"])
@@ -277,15 +279,16 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
     _task_obj = {7: "risk assessment", 8: "configuration record"}.get(phase, "deliverable")
 
     lines: List[str] = [
-        f"- **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as **STATELESS** subagent:",
-        "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
-        "  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.",
-        "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
-        "  >",
-        "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
-        "  > Round 4 succeeded only after embedding full document content directly.",
+        f"- **[B-1]** Agent B ({role_b}){fr_suffix} — dispatch as separate subagent:",
+        "  > **3-layer B-review defense** (T1-B, 2026-07-14):",
+        "  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat",
+        "  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).",
+        "  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically",
+        "  >   verifies each gap's claims against actual file content (Python open(), not LLM).",
+        "  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has",
+        "  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.",
         "",
-        "  **Embed these documents in full** (copy content, not paths):",
+        "  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):",
     ]
     for doc in embed_docs:
         lines.append(f"  - `{doc}`")
@@ -448,17 +451,18 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         "- **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`",
     ]
 
-    # Agent B stateless dispatch block (customized per deliverable)
+    # Agent B dispatch block (customized per deliverable; 3-layer defense, T1-B)
     lines += [
-        f"- **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent:",
-        "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
-        "  > NEVER write 'read 01-requirements/SRS.md' in the prompt — it will fail silently.",
-        "  > ALL context must be pasted verbatim into the prompt text. This is mandatory.",
-        "  >",
-        "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
-        "  > Round 4 succeeded only after embedding full document content directly.",
+        f"- **[B-1]** Agent B ({role_b}) — dispatch as separate subagent:",
+        "  > **3-layer B-review defense** (T1-B, 2026-07-14):",
+        "  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat",
+        "  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).",
+        "  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically",
+        "  >   verifies each gap's claims against actual file content (Python open(), not LLM).",
+        "  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has",
+        "  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.",
         "",
-        "  **Embed these documents in full** (copy content, not paths):",
+        "  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):",
     ]
     for doc in embed_docs:
         lines.append(f"  - `{doc}`")
@@ -683,7 +687,7 @@ def _entry_gate_check(phase: int) -> List[str]:
 def _review_checkpoint(phase: int) -> List[str]:
     """Agent B peer-review checkpoint for P1/P2 (deliverable review — NOT harness run-gate).
 
-    Agent B is dispatched as a STATELESS sub-agent (same pattern as inline [B-1][B-2]).
+    Agent B is dispatched as a separate sub-agent (same pattern as inline [B-1][B-2]; 3-layer defense, T1-B).
     [B-1] = dispatch Agent B with ALL deliverables embedded in prompt (no file paths)
     [B-2] = orchestrator parses Agent B's JSON response (APPROVE/REJECT)
     [B-PUSH] = orchestrator runs push-checkpoint after APPROVE
@@ -704,12 +708,14 @@ def _review_checkpoint(phase: int) -> List[str]:
         "> Phase 1/2 exit gate = Agent B document review (NOT `harness run-gate --gate 1`).",
         "> APPROVE criteria: all FRs addressed, no critical gaps, terminology consistent.",
         "",
-        f"- **[B-1]** Agent B ({role_b}) — dispatch as **STATELESS** subagent (holistic review of all deliverables):",
-        "  > ⚠️  **STATELESS SANDBOX**: Agent B has ZERO access to local files or /tmp.",
-        "  > NEVER pass file paths in the prompt — ALL document content must be pasted verbatim.",
-        "  >",
-        "  > **Lesson (stateless agent)**: Rounds 2-3 failed because prompts used file paths.",
-        "  > Round 4 succeeded only after embedding full document content directly.",
+        f"- **[B-1]** Agent B ({role_b}) — dispatch as separate subagent (holistic review of all deliverables; 3-layer defense, T1-B):",
+        "  > **3-layer B-review defense** (T1-B, 2026-07-14):",
+        "  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat",
+        "  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).",
+        "  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically",
+        "  >   verifies each gap's claims against actual file content (Python open(), not LLM).",
+        "  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has",
+        "  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.",
         "",
         "  **Embed ALL deliverables in full** (copy content, not paths):",
         *(["  > Note: `quality_manifest.json` and `SAB.json` are machine-generated by `generate_sab.py`",
@@ -1468,7 +1474,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, gate_meta: "dict | None" = 
             "  Must reference `VERIFICATION_REPORT.md` (verification provenance).",
             "",
             "- **G4g** Agent B Peer Review (HR-01):",
-            "  Agent B (reviewer — stateless) explicitly reviews ALL deliverables.",
+            "  Agent B (reviewer) explicitly reviews ALL deliverables. B gets makeDocSummary() orientation + must Bash-cat full files for citations (3-layer defense, T1-B).",
             "  1. Review `06-quality/QUALITY_REPORT.md`, `RELEASE_NOTES.md`, and `FINAL_SIGN_OFF.md`.",
             "  2. Cross-check `.methodology/quality_manifest.json` Gate 4 scoring logic.",
             "  3. Reference `05-verification/VERIFICATION_REPORT.md` for historical traceability.",
