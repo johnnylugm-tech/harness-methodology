@@ -475,13 +475,14 @@ def _deliverable_ab_block(phase: int, deliverable: Dict, sub_n: int, total: int,
         "  **Agent B prompt structure** (use this template verbatim):",
         "  ```",
         f"  You are {role_b}. Your task: review the following deliverable ({label}).",
-        "  You have NO access to any files — all context is provided below.",
+        "  DOC blocks below are a SUMMARY for orientation — for any citation file:line,",
+        "  you MUST re-read the full file via Bash cat first (playbook §8.2).",
         "",
     ]
     for i, doc in enumerate(embed_docs, 1):
         lines += [
             f"  === [DOC {i}: {doc}] ===",
-            "  <<paste full content here>>",
+            "  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>",
             "",
         ]
     lines += [
@@ -733,13 +734,14 @@ def _review_checkpoint(phase: int) -> List[str]:
         "  **Agent B prompt structure** (use this template verbatim):",
         "  ```",
         f"  You are {role_b}. Your task: holistic review of ALL Phase {phase} deliverables.",
-        "  You have NO access to any files — all context is provided below.",
+        "  DOC blocks below are a SUMMARY for orientation — for any citation file:line,",
+        "  you MUST re-read the full file via Bash cat first (playbook §8.2).",
         "",
     ]
     for i, artifact in enumerate(artifacts, 1):
         lines += [
             f"  === [DOC {i}: {artifact}] ===",
-            "  <<paste full content here>>",
+            "  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>",
             "",
         ]
     p2_sab_checks = [

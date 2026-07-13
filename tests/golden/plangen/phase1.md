@@ -107,16 +107,17 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are BUSINESS_ANALYST. Your task: review the following deliverable (SRS.md).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: Project description / stakeholder brief] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: draft 01-requirements/SRS.md (full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: srs_vs_spec_diff.json — produced by `python3 harness/scripts/canonical_diff.py --srs 01-requirements/SRS.md --spec SPEC.md --out srs_vs_spec_diff.json`. Each AC clause is scored 0.0 (verbatim canonical) to 1.0 (pure invention); gaps with over_spec_score > 0.7 are framework-flagged. If file is missing (Elicitation mode or SPEC.md absent), treat all ACs as potential over-spec and apply the rubric from §A-1 prompt-level Canonical Interpretation Rule.] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Did Agent A correctly resolve canonical_spec via PROJECT_BRIEF.md precedence (not silently switch modes)?
@@ -180,16 +181,17 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are BUSINESS_ANALYST. Your task: review the following deliverable (SPEC_TRACKING.md).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 01-requirements/SRS.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: draft 01-requirements/SPEC_TRACKING.md (full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
@@ -252,22 +254,23 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are BUSINESS_ANALYST. Your task: review the following deliverable (TRACEABILITY_MATRIX.md).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (Sub-Task 2/4, gaps field may contain non-blocking caveats)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: 01-requirements/SRS.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 4: 01-requirements/SPEC_TRACKING.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
@@ -329,19 +332,20 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are BUSINESS_ANALYST. Your task: review the following deliverable (TEST_INVENTORY.yaml).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (Sub-Task 3/4, gaps field may contain non-blocking caveats)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 01-requirements/SRS.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: 01-requirements/TRACEABILITY_MATRIX.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 4: draft TEST_INVENTORY.yaml (full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
@@ -418,19 +422,20 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are BUSINESS_ANALYST. Your task: holistic review of ALL Phase 1 deliverables.
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: 01-requirements/SRS.md] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 01-requirements/SPEC_TRACKING.md] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: 01-requirements/TRACEABILITY_MATRIX.md] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 4: TEST_INVENTORY.yaml] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - All FRs covered across all deliverables?

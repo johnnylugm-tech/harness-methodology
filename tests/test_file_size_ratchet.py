@@ -112,10 +112,9 @@ _LINE_CEILING: dict[str, int] = {
     # _AGENT_B_CHECKS[2] and the SAD.md deliverable's own "checks" list)
     # gains a SEC-block-complete item; P4 hunt step text notes threat_model
     # targets from bug-hunt-targets.
-    # 2026-07-14: +8 lines — T1-B B-prompt templates updated to 3-layer defense
-    # prose (removed "NO access to files / paste full content"); plan-phase step
-    # removed from _phase_advance_step (plan-all is canonical, not plan-phase).
-    "scripts/plangen/blocks.py": 1663,
+    # 2026-07-14 (+2): _deliverable_ab_block templates updated to 3-layer
+    # defense — remaining "NO access / paste full content" → Bash-cat prose.
+    "scripts/plangen/blocks.py": 1665,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency

@@ -110,16 +110,17 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are TECH_LEAD. Your task: review the following deliverable (SAD.md).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: 01-requirements/SRS.md (full)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: draft 02-architecture/SAD.md (full)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: harness/templates/SAD.md §2.1 (Directory Structure Design Principles)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Every FR maps to ≥1 module?
@@ -185,19 +186,20 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are TECH_LEAD. Your task: review the following deliverable (ADR.md).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: Previous Sub-Task B-2 review JSON — SAD.md (Sub-Task 1/3, gaps field may contain non-blocking caveats)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 02-architecture/SAD.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: draft 02-architecture/adr/ADR.md (full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 4: harness/templates/ADR.md (template format)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
@@ -275,22 +277,23 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are TECH_LEAD. Your task: review the following deliverable (TEST_SPEC.md).
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: Previous Sub-Task B-2 review JSON — ADR.md (Sub-Task 2/3, gaps field may contain non-blocking caveats)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 01-requirements/SRS.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: 02-architecture/SAD.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 4: 02-architecture/adr/ADR.md (APPROVED — full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 5: draft 02-architecture/TEST_SPEC.md (full content)] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
@@ -485,16 +488,17 @@ are not re-opened. This bounds backtracking to a single step.
   **Agent B prompt structure** (use this template verbatim):
   ```
   You are TECH_LEAD. Your task: holistic review of ALL Phase 2 deliverables.
-  You have NO access to any files — all context is provided below.
+  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
+  you MUST re-read the full file via Bash cat first (playbook §8.2).
 
   === [DOC 1: 02-architecture/SAD.md] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 02-architecture/adr/ADR.md] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 3: 02-architecture/TEST_SPEC.md] ===
-  <<paste full content here>>
+  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - All FRs covered across all deliverables?
