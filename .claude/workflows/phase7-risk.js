@@ -176,11 +176,17 @@ phase('Manifest Integrity')
 // Detect the three known corruption patterns (fr_ids truncated, traceability
 // cleared, gate1 wiped) at entry AND re-check before the phase-exit push so
 // corruption is never baked into a milestone commit.
-const integrityCmd = PY + ' -c "import json, sys; m = json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')); ids = m.get(\'fr_ids\') or []; mt = m.get(\'fr_module_traceability\') or {}; g1 = (m.get(\'gate_results\',{}) or {}).get(\'gate1\',{}) or {}; ok_ids = len(ids) >= 2; ok_trace = len(mt) >= len(ids); ok_g1 = isinstance(g1, dict) and len(g1) >= len(ids); print(\'OK\' if (ok_ids and ok_trace and ok_g1) else json.dumps({\'BROKEN\': True, \'fr_ids_count\': len(ids), \'traceability_count\': len(mt), \'gate1_keys\': len(g1), \'recovery\': \'git checkout HEAD -- .methodology/quality_manifest.json\'}))"'
+// T1-A (8-phase audit remediation): the previous inline Python one-liner
+// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`
+// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded
+// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own
+// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead
+// (same fix already applied to phase3/4/5/6/8; this file was missed).
+const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 7'
 async function checkManifestIntegrity(phaseLabel, agentLabel) {
   const verdict = await agent(
-    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is exactly `OK`; reason = the verbatim stdout.',
+    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '; echo RC=$?`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',
     { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   const ok = !!(verdict && verdict.pass === true)

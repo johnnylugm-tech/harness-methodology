@@ -326,11 +326,32 @@ const fastProbe = await agent(
   + 'Report via the StructuredOutput tool: pass_fr_ids + fail_fr_ids (every FR in exactly one list).',
   { label: 'delta-fastpath', phase: 'Per-FR Delta', agentType: 'general-purpose', schema: DELTA_FAST_SCHEMA },
 )
+// ORCH-POST (per phase4_plan.md, mirroring phase3-implementation.js):
+// after a FR's Gate 1 PASS, run spec-coverage-check at 40% early-warning
+// threshold and sync SAB — Gate 3 will block at 80%, this catches the drop
+// early. Use amend-sab (additive, idempotent) per the documented phase3
+// pattern; do NOT run generate_sab.py --overwrite (would destroy Phase 3's
+// FR-scoped module entries). Shared by both the fast-path and full-DELTA
+// loops — a fast-path FR still needs its own early-warning check.
+async function runOrchPost(frId) {
+  const orchPostCmd = PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '; echo "RC=$?"'
+  const orchVerdict = await agent(
+    'Run EXACTLY this command via the Bash tool:\n`' + orchPostCmd + ' && ' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if the spec-coverage-check exit code is 0 (the `RC=0` line); reason = the verbatim output.',
+    { label: 'orch-post-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+  )
+  if (orchVerdict && orchVerdict.pass === true) {
+    log('  ' + frId + ' ORCH-POST OK [spec-coverage ≥40% + amend-sab]')
+  } else {
+    log('  ' + frId + ' ORCH-POST WARNING: ' + (orchVerdict ? orchVerdict.reason : 'agent null') + ' — spec-coverage below 40% early-warning; will block at Gate 3 if still below 80%')
+  }
+}
 if (fastProbe && Array.isArray(fastProbe.pass_fr_ids)) {
   const fastPassed = fastProbe.pass_fr_ids.filter((f) => frIds.includes(f))
   for (const fr of fastPassed) {
     gate1Pass.push(fr)
     log('  ' + fr + ' GATE1-DELTA fast-path PASS [manifest qc + p4 timestamp] — full DELTA skipped')
+    await runOrchPost(fr)
   }
   deltaTodo = frIds.filter((f) => !fastPassed.includes(f))
 } else {
@@ -371,24 +392,9 @@ for (const frId of deltaTodo) {
     { label: 'gate1-verify-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   const passed = !!(verdict && verdict.pass === true)
-  if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')
-    // ORCH-POST (per phase4_plan.md, mirroring phase3-implementation.js):
-    // after each FR's Gate 1 PASS, run spec-coverage-check at 40% early-warning
-    // threshold and sync SAB — Gate 3 will block at 80%, this catches the drop
-    // early. Use amend-sab (additive, idempotent) per the documented phase3
-    // pattern; do NOT run generate_sab.py --overwrite (would destroy Phase 3's
-    // FR-scoped module entries).
-    const orchPostCmd = PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '; echo "RC=$?"'
-    const orchVerdict = await agent(
-      'Run EXACTLY this command via the Bash tool:\n`' + orchPostCmd + ' && ' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\n'
-      + 'Then report via the StructuredOutput tool: pass = true ONLY if the spec-coverage-check exit code is 0 (the `RC=0` line); reason = the verbatim output.',
-      { label: 'orch-post-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
-    )
-    if (orchVerdict && orchVerdict.pass === true) {
-      log('  ' + frId + ' ORCH-POST OK [spec-coverage ≥40% + amend-sab]')
-    } else {
-      log('  ' + frId + ' ORCH-POST WARNING: ' + (orchVerdict ? orchVerdict.reason : 'agent null') + ' — spec-coverage below 40% early-warning; will block at Gate 3 if still below 80%')
-    }
+  if (passed) {
+    gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')
+    await runOrchPost(frId)
   }
   else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 
@@ -399,7 +405,7 @@ for (const frId of deltaTodo) {
     await agent(
       'YOU ARE THE P4 MID-MILESTONE PUSHER (≥50% FRs Gate 1 PASS).\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-      + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="p4-mid" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
+      + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P4-mid)" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
       + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-mid --project ' + REPO
       + ' --fr-done ' + gate1Pass.length + ' --fr-total ' + frIds.length + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
       + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'

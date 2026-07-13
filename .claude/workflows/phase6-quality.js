@@ -381,6 +381,9 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
       if (!v.reason || String(v.reason).trim().length < 100) {
         throw new Error('verdict for ' + v.deliverable + ' has reason < 100 chars')
       }
+      if (!Array.isArray(v.citations) || v.citations.length < 1) {
+        throw new Error('verdict for ' + v.deliverable + ' has empty citations[] — agent_b_approvals.py hard-blocks this at advance-phase')
+      }
     }
     peerVerdict = parsed
     log('  peer review verdict parsed (round ' + attempt + '/' + MAX_OUTER_ATTEMPTS_PEER + ')')

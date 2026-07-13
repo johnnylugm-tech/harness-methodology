@@ -243,14 +243,21 @@ async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum
     return { b2: null, escalation_action: 'retry', escalation_reason: 'structured_b_review.py output unparseable', review_out: String(reviewAgent ?? '').slice(0, 200) }
   }
 
+  // structured_b_review.py's own `out` dict does NOT forward reason/citations/
+  // docs_embedded (only status/review_status/gaps/diagnostic/b2_verification/
+  // escalation_*) — re-extract them from B's raw text directly, or every
+  // approval persisted from this object would carry empty citations/
+  // docs_embedded and advance-phase's _verify_agent_b_approvals_core would
+  // reject it unconditionally (confirmed 2026-07-14 2nd-round audit).
   let b2 = null
   try {
+    const rawB = extractLastJson(bRawText) || {}
     b2 = {
       review_status: reviewOut.review_status,
       gaps: reviewOut.gaps || [],
-      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : '',
-      citations: [],
-      docs_embedded: [],
+      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : (rawB.reason || ''),
+      citations: Array.isArray(rawB.citations) ? rawB.citations : [],
+      docs_embedded: Array.isArray(rawB.docs_embedded) ? rawB.docs_embedded : [],
       verify: reviewOut.b2_verification || null,
     }
   } catch (_) { b2 = null }
@@ -548,7 +555,8 @@ const sad = await abLoop({
   checklist:
     '- Every FR maps to ≥1 module?\n- NFRs addressed (latency/security/cost)?\n- No circular dependencies?\n- Data flow diagrams consistent?\n'
     + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: "2"`\n- All NFR `type` values from legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?\n'
-    + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\n- ≤15 files/dir, no god-module, no flat dump?',
+    + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\n- ≤15 files/dir, no god-module, no flat dump?\n'
+    + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?',
 })
 if (!sad.ok) return sad
 let sadContent = sad.content, sadB2 = sad.b2

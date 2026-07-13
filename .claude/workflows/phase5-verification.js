@@ -362,7 +362,7 @@ const docsReport = await agent(
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Steps:\n'
   + '1. BASELINE: write ' + REPO + '/05-verification/BASELINE.md (system state snapshot). Follow ' + REPO + '/harness/templates/BASELINE.md — EXACTLY 7 `## ` sections (Baseline Overview, Functional Baseline, Quality Baseline, Performance Baseline, Known Issues, Change Log, Acceptance Sign-off); audit-phase counts H2 headings and warns below 7. Fill with real data: current version, test results summary, coverage %, Gate 3 composite score, the 03-development/src/ module list; Change Log from `git -C ' + REPO + ' log --oneline -10`.\n'
-  + '2. VERIFICATION_REPORT: write ' + REPO + '/05-verification/VERIFICATION_REPORT.md. For each FR in `' + ctxFile + '`: verification status, acceptance-criteria result (PASS/FAIL), evidence. Enumerate FRs with one Bash call: `' + PY + ' -c "import json,sys; d=json.load(open(\'' + ctxFile + '\')); [print(fr) for fr in d.get(\'fr_ids\',[])]"`. Include coverage %, deferred Gate 3 issues. Certify all Gate 3 open issues addressed or deferred-with-justification. Must be NON-trivial (validate-handoff checks this). Reference 04-testing/TEST_RESULTS.md. **NOTE**: Mutation testing is gated per-FR at Gate 1 (P3 exit) — DO NOT re-run mutmut here; reference the mutation score from Gate 1 artifacts if needed.\n'
+  + '2. VERIFICATION_REPORT: run `' + PY + ' ' + REPO + '/harness_cli.py generate-verification-report --project ' + REPO + '` FIRST — it deterministically generates ' + REPO + '/05-verification/VERIFICATION_REPORT.md from quality_manifest.json (Gate 1/3 results) + SRS.md acceptance criteria, with the correct FR certification precedence (UNKNOWN → FAIL → Conditional PASS → PASS). Then Read the generated file and APPEND richer evidence narrative on top (do not rewrite the generated sections). Must be NON-trivial (validate-handoff checks this). Reference 04-testing/TEST_RESULTS.md. **NOTE**: Mutation testing is gated per-FR at Gate 1 (P3 exit) — DO NOT re-run mutmut here; reference the mutation score from Gate 1 artifacts if needed.\n'
   + '3. Re-run integration tests: `' + PY + ' -m pytest ' + REPO + '/tests/integration/ -q` (skip gracefully if dir absent).\n'
   + '4. Confirm performance NFRs: review benchmark entries in 04-testing/TEST_RESULTS.md.\n'
   + '5. Security clean: `bandit -r ' + REPO + '/03-development/src/ -ll` + `gitleaks detect --source ' + REPO + '`.\n\n'
@@ -400,7 +400,7 @@ log('push-milestone p5-baseline (after VERIFICATION_REPORT.md generated)')
 const milestoneReport = await agent(
   'YOU ARE THE P5 MILESTONE PUSHER.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-  + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="p5-baseline" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
+  + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P5): BASELINE.md" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p5-baseline --project ' + REPO + '`\n'
   + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'

@@ -276,12 +276,12 @@ function buildBPrompt(role, deliverableName, docs, checklist) {
   }
   p += 'Review checklist:\n' + checklist + '\n\n'
     + 'SCHEMA REQUIREMENTS (advance-phase `harness_cli.py _verify_agent_b_approvals_core` REJECTS the approval if any of these fail — observed 2026-06-29 wf_3a9377cb):\n'
-    + '  - `reason`: ≥ 100 characters of substantive justification. NOT "APPROVE", "OK", or other one-word response.\n'
+    + '  - `reason`: ≥ 40 characters of substantive justification. NOT "APPROVE", "OK", or other one-word response.\n'
     + '  - `citations`: array of "file:line" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\n'
     + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) looks for PURE basenames like "SRS.md", "TEST_INVENTORY.yaml", NOT descriptive strings like "SRS.md §1-§9 full content". Use bare basenames only.\n'
     + '  - CRITICAL: for Phase 1, `docs_embedded` MUST include "SRS.md" regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[1]) rejects any P1 approval missing it.\n\n'
     + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\n'
-    + '{"review_status":"APPROVE"|"REJECT"|"CANCELLED","reason":"<≥100 chars>","citations":["file:line"],"docs_embedded":["..."],"gaps":[{"severity":"low|medium|high","evidence_type":"real_invention|over_interpretation|methodology_artifact","canonical_ref":"<file:line or section ID>","message":"...","fr_id":"<FR-XX or null>"}]}\n'
+    + '{"review_status":"APPROVE"|"REJECT"|"CANCELLED","reason":"<≥40 chars>","citations":["file:line"],"docs_embedded":["..."],"gaps":[{"severity":"low|medium|high","evidence_type":"real_invention|over_interpretation|methodology_artifact","canonical_ref":"<file:line or section ID>","message":"...","fr_id":"<FR-XX or null>"}]}\n'
     + 'evidence_type tells the framework which fix strategy to dispatch. real_invention=truly new requirement (escalates to high); over_interpretation=ambiguous canonical phrase, missing DERIVED tag (caps at medium); methodology_artifact=framework-side gap, sha256/regex tables etc. (always low).\n\n'
     + 'IMPORTANT: Return ONLY the JSON object as your final message. No prose before or after.'
   return p
@@ -389,14 +389,21 @@ async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum
   }
 
   // Parse B's own JSON from the structured output (the CLI normalized it).
+  // structured_b_review.py's own `out` dict does NOT forward reason/citations/
+  // docs_embedded (only status/review_status/gaps/diagnostic/b2_verification/
+  // escalation_*) — re-extract them from B's raw text directly, or every
+  // approval persisted from this object would carry empty citations/
+  // docs_embedded and advance-phase's _verify_agent_b_approvals_core would
+  // reject it unconditionally (confirmed 2026-07-14 2nd-round audit).
   let b2 = null
   try {
+    const rawB = extractLastJson(bRawText) || {}
     b2 = {
       review_status: reviewOut.review_status,
       gaps: reviewOut.gaps || [],
-      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : '',
-      citations: [],
-      docs_embedded: [],
+      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : (rawB.reason || ''),
+      citations: Array.isArray(rawB.citations) ? rawB.citations : [],
+      docs_embedded: Array.isArray(rawB.docs_embedded) ? rawB.docs_embedded : [],
       verify: reviewOut.b2_verification || null,
     }
   } catch (_) { b2 = null }
@@ -657,6 +664,14 @@ async function runPeerReview(approvedDocs) {
 
     if (sbrResult.escalation_action === 'approve') {
       log('  Peer Review APPROVED (all gaps low)')
+      // Re-persist approval for all 4 deliverables against THIS round's b2 —
+      // a prior round's fixer may have edited any of them after their
+      // Sub-Task-stage approval was written, leaving that on-disk approval
+      // describing stale content. Peer Review is the final holistic review,
+      // so its verdict is what should be on record for every deliverable.
+      for (const d of approvedDocs) {
+        await persistApproval(d.diskPath.split('/').pop(), b2)
+      }
       return { b2: b2 }
     }
     if (sbrResult.escalation_action === 'escalate_human') {
