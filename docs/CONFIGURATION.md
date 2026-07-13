@@ -33,9 +33,12 @@ table below.
 | `phase4_llm_review` | `true` | Enables the adversarial_review dimension (Phase 4 LLM bug hunt). |
 | `crg_architecture` | `true` | Enables the CRG-backed architecture dimension. |
 | `cross_artifact_live_cov` | `false` | finalize-gate cross-artifact check re-runs live `pytest --cov` (up to ~120s) instead of reusing `.coverage` data. The `HARNESS_CROSS_ARTIFACT_COV` env var overrides this per invocation. |
+| `security_design` | **`true`** | Enables `core.quality_gate.security_design`'s structural completeness check of SAD.md §6 (STRIDE-lite threat model — see §6 below). **The one deliberate exception to "default = pre-existing behavior"** (Round 10 gap-analysis response). This flag is a mechanism kill-switch for emergency rollback, not a per-project opt-out — a project with no real attack surface should declare `applicability: none` + a justification *inside* the SEC block instead of disabling the flag, keeping the structural discipline (an honest, reviewed statement) rather than silently opting out. |
 
 Dimension flags are mapped by `core/harness_config.py::_DIM_TO_FEATURE` and
-consumed via `is_dim_disabled()`.
+consumed via `is_dim_disabled()`. `security_design` is NOT a gate dimension
+(no `_DIM_TO_FEATURE` entry) — it is a decidable preflight/CLI structural
+check, not a scored dimension (see §6).
 
 ## `values` — tunable parameters
 
@@ -60,6 +63,28 @@ an explicit CLI flag is long-standing run-fr-step behavior, locked by
 |---|---|---|
 | `crg_cohesion_healthy` | unset (scorer default 0.3) | per-project cohesion floor for a healthy community, float in (0, 1]. |
 | `crg_excludes` | `[]` | fnmatch globs; majority-matched communities are excluded from architecture scoring. |
+
+## Security Design (SAD.md §6 — threat-model-as-code)
+
+Gated by `features.security_design` (default `true`). `core.quality_gate.
+security_design.check_security_design()` decidably validates a `<!-- SEC:
+START/END -->` YAML block in SAD.md §6 — no keyword-density scoring (that
+approach was proven to false-positive-fail honest tool-type projects; see
+Bug #35 and `ConstitutionProfile`'s P1/P3/P4 security-dimension removal).
+Canonical template: `core.quality_gate.security_design.
+render_canonical_security_template()` — never hand-write the YAML.
+
+`applicability: none` + a `justification` (≥20 chars) is a fully valid,
+honest declaration for projects with no real attack surface — it passes
+every rule from R4 onward. `applicability: full` requires ≥1
+`trust_boundaries` entry and ≥1 `threats` entry per boundary; each threat
+declares a STRIDE `category`, `owner_module` (must be declared in the SAD
+§5 SAB block), an optional `nfr` (must exist in SRS.md), and a
+`verified_by` test name. Every SAB NFR typed `security` must be referenced
+by ≥1 threat's `nfr`. From Phase 5, every `verified_by` name must exist in
+the test suite (structural existence, not content evaluation). Threats
+also seed `bug-hunt-targets`' `threat_model` source and force NP test
+patterns in `derive_test_cases.md` regardless of SRS keywords (Step 1c).
 
 ## Other per-project configuration (different files, on purpose)
 

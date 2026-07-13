@@ -110,7 +110,8 @@ class TestGetCrgSettings:
         })
         cfg = load_harness_config(tmp_path)
         assert set(cfg) == {"mutation_testing", "phase4_llm_review",
-                            "crg_architecture", "cross_artifact_live_cov"}
+                            "crg_architecture", "cross_artifact_live_cov",
+                            "security_design"}
         assert cfg["crg_architecture"] is False
 
 
@@ -137,6 +138,16 @@ class TestGetFeature:
 
     def test_unknown_key_returns_none(self, tmp_path):
         assert get_feature(tmp_path, "nonexistent_flag") is None
+
+    def test_security_design_default_true(self, tmp_path):
+        assert get_feature(tmp_path, "security_design") is True
+
+    def test_security_design_file_disables(self, tmp_path):
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "harness_config.json").write_text(
+            json.dumps({"version": 1, "features": {"security_design": False}})
+        )
+        assert get_feature(tmp_path, "security_design") is False
 
 
 # ---------------------------------------------------------------------------

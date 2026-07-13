@@ -9,7 +9,8 @@ Schema version 1::
         "mutation_testing": false,
         "phase4_llm_review": true,
         "crg_architecture": true,
-        "cross_artifact_live_cov": false
+        "cross_artifact_live_cov": false,
+        "security_design": true
       },
       "values": {
         "drift_threshold": 85.0,
@@ -60,6 +61,15 @@ _DEFAULTS: dict[str, Any] = {
     # --cov during finalize-gate cross-artifact checks instead of reusing
     # .coverage data (costs up to ~120s per gate call).
     "cross_artifact_live_cov": False,
+    # Round 10: gap-analysis response. Defaults to True — a DELIBERATE
+    # behavior change (unlike every other key here, whose default preserves
+    # pre-existing behavior). Gates core.quality_gate.security_design's
+    # structural SAD.md §6 threat-model check. An honest `applicability:
+    # none` + justification always passes (see security_design.py) — this
+    # is not a keyword-density scorer (that mechanism was proven to
+    # false-positive-fail honest tool-type projects; see Bug #35 and
+    # ConstitutionProfile's P1/P3/P4 security-dimension removal).
+    "security_design": True,
 }
 
 # Dimension name → harness_config.json feature key.
