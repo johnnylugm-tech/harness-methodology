@@ -44,8 +44,13 @@ _ADR_TABLE = (
 
 
 def test_illegal_forward_ref_blocks(tmp_path: Path) -> None:
+    """Bare-prose forward ref to an invented filename (real hallucination
+    pattern: agent writes `02-architecture/ARCHITECTURE.md` when the legal P2
+    deliverable is SAD.md). Real refs are not wrapped in backticks — that
+    pattern is reserved for documentation quotes and is covered by
+    test_forward_ref_in_code_span_allowed."""
     _w(ProjectLayout(tmp_path).traceability_matrix_path,
-       "Architecture doc: `./02-architecture/ARCHITECTURE.md`\n")
+       "Architecture doc: see 02-architecture/ARCHITECTURE.md for design.\n")
     errs = [v for v in check_forward_refs(tmp_path) if v.severity == "error"]
     assert len(errs) == 1 and "ARCHITECTURE.md" in errs[0].message
 
@@ -62,6 +67,44 @@ def test_unknown_stage_dir_not_flagged(tmp_path: Path) -> None:
     _w(ProjectLayout(tmp_path).traceability_matrix_path,
        "./03-development/notes.md and ./00-summary/scratch.md\n")
     assert check_forward_refs(tmp_path) == []
+
+
+def test_forward_ref_in_code_span_allowed(tmp_path: Path) -> None:
+    """A path quoted inside a markdown code span is documentation, not an
+    actionable forward ref — must NOT trigger. Regression for the
+    SPEC_TRACKING.md false-positive where a warning note `` `01-requirements/
+    SPEC.md` `` explaining the illegal path got flagged by its own message."""
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "Note: `01-requirements/SPEC.md` is illegal per harness check.\n"
+       "Canonical lives at `/SPEC.md` (root).\n")
+    assert check_forward_refs(tmp_path) == []
+
+
+def test_forward_ref_in_fenced_code_allowed(tmp_path: Path) -> None:
+    """A path inside a fenced code block is documentation, not a forward ref."""
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "Example of an illegal ref (do not copy):\n"
+       "```\n"
+       "02-architecture/ARCHITECTURE.md\n"
+       "```\n")
+    assert check_forward_refs(tmp_path) == []
+
+
+def test_forward_ref_in_html_comment_allowed(tmp_path: Path) -> None:
+    """A path inside an HTML comment is author-only metadata, not a forward ref."""
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "<!-- TODO: replace 02-architecture/ARCHITECTURE.md with SAD.md -->\n"
+       "Real ref: 02-architecture/SAD.md\n")
+    assert check_forward_refs(tmp_path) == []
+
+
+def test_forward_ref_outside_code_span_still_blocks(tmp_path: Path) -> None:
+    """The fix must not weaken the real check — bare prose refs to invented
+    filenames still block. (Code-stripping must not silently pass real refs.)"""
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "See 02-architecture/ARCHITECTURE.md for the design.\n")
+    errs = [v for v in check_forward_refs(tmp_path) if v.severity == "error"]
+    assert len(errs) == 1 and "ARCHITECTURE.md" in errs[0].message
 
 
 # ── issue 2: NFR → ADR traceability-table coverage ───────────────────────────

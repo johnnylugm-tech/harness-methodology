@@ -197,11 +197,15 @@ class TestArtifactConsistencyProbes:
 
     def test_illegal_forward_ref_blocks_cli(self, tmp_path):
         """A P1 artifact referencing 02-architecture/ARCHITECTURE.md (real
-        deliverable: SAD.md) must block — it 404s downstream automation."""
+        deliverable: SAD.md) must block — it 404s downstream automation.
+        Bare prose is the realistic hallucination pattern (backtick-wrapped
+        paths are documentation citations, covered by the test_artifact_
+        consistency.py code-span test)."""
         req = tmp_path / "01-requirements"
         req.mkdir()
         (req / "TRACEABILITY_MATRIX.md").write_text(
-            "Architecture doc: `./02-architecture/ARCHITECTURE.md`\n", encoding="utf-8")
+            "Architecture doc: see 02-architecture/ARCHITECTURE.md for design.\n",
+            encoding="utf-8")
         result = _run(tmp_path, "check-artifact-consistency")
         assert result.returncode != 0
         combined = result.stdout + result.stderr

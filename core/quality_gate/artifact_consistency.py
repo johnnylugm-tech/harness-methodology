@@ -57,6 +57,29 @@ __all__ = ["check_forward_refs", "check_nfr_adr_coverage", "check_module_fr_cove
 _REF = re.compile(r"(0\d-[a-z]+)/(?:[a-z0-9_]+/)*([A-Za-z_][A-Za-z0-9_.-]*\.(?:md|ya?ml))")
 _NFR = re.compile(r"NFR-(\d+)")
 
+# Strip paths mentioned inside markdown code spans / fenced blocks / HTML
+# comments before forward-ref matching — these are documentation citations
+# warning readers about illegal paths (e.g. `` `01-requirements/SPEC.md` `` is
+# illegal), not actionable forward refs that downstream automation will
+# follow. A "forward ref" semantically means "this file is meant to exist as a
+# deliverable"; code-spanned paths are quoted text, never followed by indexing
+# automation. Strips fenced blocks first (greedy, DOTALL), then HTML comments,
+# then inline code spans (single AND double backtick).
+_FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_CODE_SPAN = re.compile(r"`+[^`\n]+`+")
+
+
+def _strip_code_context(text: str) -> str:
+    """Remove markdown code-span / fenced-code / HTML-comment regions from text
+    before forward-ref scanning. Paths in these regions are documentation
+    citations, not actionable forward refs (regression test: forward_ref
+    mentioned inside backticks in a warning note must not trigger)."""
+    text = _FENCED_CODE.sub("", text)
+    text = _HTML_COMMENT.sub("", text)
+    text = _CODE_SPAN.sub("", text)
+    return text
+
 
 def _adr_path(project: Path) -> Path:
     """ADR.md — under the canonical `adr/` sub-dir if present, else directly in
@@ -83,6 +106,10 @@ def check_forward_refs(project: Path) -> list[Violation]:
     seen: set[tuple[str, str, str]] = set()
     for path in _scan_files(project):
         text = path.read_text(encoding="utf-8", errors="replace")
+        # Strip code-span / fenced-code / HTML-comment context before matching:
+        # paths quoted inside backticks (e.g. `` `01-requirements/SPEC.md` ``
+        # in a warning note) are documentation, not actionable forward refs.
+        text = _strip_code_context(text)
         for m in _REF.finditer(text):
             stage_dir, filename = m.group(1), m.group(2)
             legal = LEGAL_ARTIFACTS.get(stage_dir)
