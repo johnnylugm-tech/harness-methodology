@@ -422,12 +422,16 @@ def _literal_value(node: ast.AST):
     """Concrete value for a parametrize arg / trigger constant.
 
     Constant -> its value; a constants-only expression (e.g. "x"*11) -> safe
-    eval; otherwise (None, False)."""
+    eval; otherwise (None, False). NameError is caught alongside the other
+    eval failures because a parametrize arg may reference a module-level
+    constant this AST-only checker was never meant to resolve (e.g.
+    `_BATCH = ";".join(...)`; `@parametrize("x", [_BATCH])`) — that must
+    degrade to "can't verify this row", not crash the whole MIRROR check."""
     if isinstance(node, ast.Constant):
         return node.value, True
     try:
         return _safe_eval_predicate(ast.unparse(node), {}), True
-    except (SyntaxError, TypeError, ValueError, ArithmeticError, MemoryError):
+    except (SyntaxError, TypeError, ValueError, ArithmeticError, MemoryError, NameError):
         return None, False
 
 
@@ -450,19 +454,31 @@ def _param_row_values(elt: ast.expr, n: int):
     return tuple(vals) if len(vals) == n else None
 
 
-def _extract_parametrize(tree: ast.AST):
-    """Return (var_names, rows) aggregating ALL @pytest.mark.parametrize decorators
-    that share the same variable-name signature (C2 fix: multi-function test files).
+def _extract_parametrize(tree: ast.AST, fr_id: str | None = None):
+    """Return [(var_names, rows), ...] — one entry per distinct variable-name
+    signature found across all @pytest.mark.parametrize decorators (C2 fix:
+    multi-function test files; Bug-E fix: multiple distinct signatures no
+    longer silently drop each other's rows — a TEST_SPEC case set is free to
+    declare cases with different "first input" shapes, e.g. `command` vs
+    `command_batch` vs `task_id`, and every shape must be checked).
+
+    When `fr_id` is given (e.g. "FR-05"), only functions named
+    `test_fr{NN}_*` are considered — the project's canonical-file convention
+    puts Cross-Cutting/NFR/Deployment-smoke tests for OTHER TEST_SPEC
+    sections in the same file, and those rows are out of scope for this
+    FR's own case-table alignment check.
 
     Iterates function definitions in AST order; for each function processes only
-    its decorator_list (not the body) to avoid false matches. Collects rows from
-    every parametrize decorator whose comma-separated variable names match those
-    of the first one found.  Different-signature decorators are silently skipped
-    so that files with multiple unrelated parametrize functions don't cause
-    cross-contamination.
+    its decorator_list (not the body) to avoid false matches.
 
     Supports both an inline args list and a module-level list of pytest.param/tuples.
     """
+    fr_prefix: str | None = None
+    if fr_id:
+        m = re.match(r"N?FR-(\d+)", fr_id)
+        if m:
+            fr_prefix = f"test_fr{m.group(1).zfill(2)}_"
+
     list_vars: dict[str, ast.expr] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and isinstance(node.value, (ast.List, ast.Tuple)):
@@ -470,11 +486,12 @@ def _extract_parametrize(tree: ast.AST):
                 if isinstance(t, ast.Name):
                     list_vars[t.id] = node.value
 
-    first_var_names: list[str] = []
-    all_rows: list = []
+    groups: dict[tuple, list] = {}
 
     for fn in ast.walk(tree):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if fr_prefix and not fn.name.startswith(fr_prefix):
             continue
         for dec in fn.decorator_list:
             if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)
@@ -483,23 +500,19 @@ def _extract_parametrize(tree: ast.AST):
             var_node, args_node = dec.args[0], dec.args[1]
             if not (isinstance(var_node, ast.Constant) and isinstance(var_node.value, str)):
                 continue
-            var_names = [v.strip() for v in var_node.value.split(",")]
-            # Only aggregate parametrize blocks with the same variable signature.
-            if first_var_names and var_names != first_var_names:
-                continue
-            if not first_var_names:
-                first_var_names = var_names
+            var_names = tuple(v.strip() for v in var_node.value.split(","))
             args_seq: ast.expr | None = args_node
             if isinstance(args_node, ast.Name):
                 args_seq = list_vars.get(args_node.id)
             if not isinstance(args_seq, (ast.List, ast.Tuple)):
                 continue
+            rows = groups.setdefault(var_names, [])
             for elt in args_seq.elts:
                 values = _param_row_values(elt, len(var_names))
                 if values is not None:
-                    all_rows.append(values)
+                    rows.append(values)
 
-    return first_var_names, all_rows
+    return [(list(var_names), rows) for var_names, rows in groups.items()]
 
 
 # Sentinel returned by _parse_trigger when a Compare node with an ast.Name
@@ -693,22 +706,34 @@ def check_test_mirrors_spec_js(
     return violations
 
 
-def check_test_mirrors_spec(test_source: str, spec_cases: list, spec_assertions: list) -> list:
-    """Return Violations where the test diverges from the (P2-locked) TEST_SPEC."""
+def check_test_mirrors_spec(
+    test_source: str, spec_cases: list, spec_assertions: list, fr_id: str | None = None
+) -> list:
+    """Return Violations where the test diverges from the (P2-locked) TEST_SPEC.
+
+    `fr_id` scopes the parametrize-alignment check (section 1) to this FR's
+    own test functions (`test_fr{NN}_*`) — the canonical test file also
+    holds Cross-Cutting/NFR/Deployment-smoke tests for OTHER TEST_SPEC
+    sections, whose parametrize rows must not be compared against THIS FR's
+    case table. Optional (defaults to None = unscoped, legacy behavior) so
+    existing callers that check a single-FR-only file keep working."""
     try:
         tree = ast.parse(test_source)
     except SyntaxError as exc:
         return [Violation(check_type="test_unparseable", rule_id="P3", severity="error",
                           message=f"test file does not parse: {exc}")]
 
-    var_names, rows = _extract_parametrize(tree)
+    groups = _extract_parametrize(tree, fr_id=fr_id)
     subs = _extract_sub_assertions(tree)
     cases_by_id = {c.case_id: c for c in spec_cases}
     violations: list = []
 
-    # 1. Parametrize alignment (projected onto the parametrize variables).
-    if var_names and spec_cases:
-        spec_proj = {tuple(_as_str(c.inputs.get(v)) for v in var_names) for c in spec_cases}
+    # 1. Parametrize alignment (projected onto each captured signature group).
+    covered_case_ids: set = set()
+    for var_names, rows in groups:
+        relevant_cases = [c for c in spec_cases if all(v in c.inputs for v in var_names)]
+        covered_case_ids.update(c.case_id for c in relevant_cases)
+        spec_proj = {tuple(_as_str(c.inputs.get(v)) for v in var_names) for c in relevant_cases}
         test_proj = {tuple(_as_str(x) for x in row) for row in rows}
         for miss in sorted(spec_proj - test_proj):
             violations.append(Violation(
@@ -718,6 +743,13 @@ def check_test_mirrors_spec(test_source: str, spec_cases: list, spec_assertions:
             violations.append(Violation(
                 check_type="param_extra", rule_id="P3", severity="error",
                 message=f"test parametrize row {dict(zip(var_names, extra))} is not declared in TEST_SPEC"))
+    if groups:
+        for c in spec_cases:
+            if c.case_id not in covered_case_ids:
+                violations.append(Violation(
+                    check_type="case_uncovered", rule_id="P3", severity="error",
+                    message=f"TEST_SPEC case {c.case_id} (inputs={c.inputs}) has no matching "
+                            f"parametrize signature in the test file"))
 
     # 2. Sub-assertion predicate + trigger alignment.
     for sa in spec_assertions:

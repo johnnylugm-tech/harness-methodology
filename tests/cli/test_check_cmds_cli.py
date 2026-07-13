@@ -602,7 +602,7 @@ class TestCheckTestMirrorsSpecMultiFile:
         from core.quality_gate import red_assertion_check as rac
         called_with: list = []
 
-        def fake_python(src, cases, assertions):
+        def fake_python(src, cases, assertions, fr_id=None):
             called_with.append(src)
             return []
 

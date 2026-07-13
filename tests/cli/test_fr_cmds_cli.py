@@ -232,8 +232,9 @@ def _setup_preflight_fixtures(tmp_path: Path, *, step: str, fr_id: str = "FR-01"
     _sp.run(["git", "config", "user.email", "test@test"], cwd=str(tmp_path), check=False)
     _sp.run(["git", "config", "user.name", "Test"], cwd=str(tmp_path), check=False)
 
-    # 2. SRS.md
-    tmp_path.joinpath("SRS.md").write_text(
+    # 2. SRS.md — canonical location per ProjectLayout.srs_path
+    (tmp_path / "01-requirements").mkdir(exist_ok=True)
+    tmp_path.joinpath("01-requirements", "SRS.md").write_text(
         f"### {fr_id}: Test Feature\n\n**Description**: Test\n\n---\n",
         encoding="utf-8",
     )
@@ -350,6 +351,20 @@ class TestRunFrStep:
         assert "Do important thing X" in prompt
         assert "test(RED): failing test for FR-01" in prompt
         assert "failing test" in prompt.lower()
+
+    def test_prompt_tdd_red_instructs_commit_on_existing_file(self, tmp_path):
+        """Regression: a sub-agent that found test_fr05.py already existing
+        (e.g. untracked after a mid-flight `git reset --hard`) reasoned "needs
+        review, not overwrite" and never ran step 5 (commit) — the prompt gave
+        no guidance for this case. TASK step 1 must now say explicitly that an
+        existing-but-uncommitted file still requires completing step 5."""
+        srs = tmp_path / "SRS.md"
+        srs.write_text(
+            "### FR-01: My Feature\n\n**Description**: Do X\n\n---\n", encoding="utf-8"
+        )
+        prompt = _build_fr_step_prompt("TDD-RED", "FR-01", 3, tmp_path, srs)
+        assert "already exists" in prompt
+        assert "do NOT skip step 5" in prompt
 
     def test_prompt_tdd_green_inlines_test_file(self, tmp_path):
         """TDD-GREEN prompt includes the current test file content inline."""
@@ -592,6 +607,60 @@ class TestRunFrStep:
         out = captured.getvalue()
         assert f"--project {tmp_path}" in out
         assert "--project ." not in out
+
+    def test_preflight_finds_srs_via_project_layout_default(self, tmp_path):
+        """Regression: _fr_step_preflight's "no explicit srs_path" branch used
+        to guess among hard-coded candidate strings instead of using
+        ProjectLayout.srs_path — the single source of truth already relied on
+        by 14+ other call sites across the harness (phase_cmds.py,
+        harness_bridge.py, spec_alignment.py, ...). Must find the real
+        01-requirements/SRS.md with no --srs given."""
+        from cli import fr_cmds as _frm
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text("### FR-01\n", encoding="utf-8")
+        _ok, errors = _frm._fr_step_preflight("TDD-RED", tmp_path, "FR-01", srs_path=None)
+        assert not any("SRS" in e for e in errors), f"Unexpected SRS error: {errors}"
+
+    def test_build_prompt_finds_srs_via_project_layout_default(self, tmp_path):
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "### FR-01: My Feature\n\n**Description**: Do X\n\n---\n", encoding="utf-8"
+        )
+        prompt = _build_fr_step_prompt("TDD-RED", "FR-01", 3, tmp_path, None)
+        assert "Do X" in prompt
+
+    def test_resume_fr_phase_next_step_omits_wrong_srs_flag(self, tmp_path, monkeypatch):
+        """Regression: cmd_resume_fr_phase used to print a hard-coded
+        `--srs .methodology/SRS.md` that doesn't exist in this project
+        (real file is at 01-requirements/SRS.md) — running the printed
+        command failed preflight with 'SRS.md not found'. The suggested
+        command must omit --srs entirely and let the callee auto-resolve.
+        Uses a real (empty) git repo rather than patching the private
+        `_fr_step_already_done` — same rationale as
+        test_resume_fr_phase_prints_resolved_project_not_dot above."""
+        import harness_cli
+        import sys
+        import subprocess as _sp
+
+        _sp.run(["git", "init", "-q"], cwd=str(tmp_path), check=False)
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}), encoding="utf-8"
+        )
+        captured = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", captured)
+
+        args = argparse.Namespace(phase=3, project=str(tmp_path))
+        rc = harness_cli.cmd_resume_fr_phase(args)
+        assert rc == 0
+        out = captured.getvalue()
+        assert "--step TDD-RED" in out
+        assert "--srs" not in out
 
     def test_gate1_blocked_after_max_rounds(self, tmp_path, monkeypatch):
         """Returns exit 2 (BLOCKED) when GATE1 never passes after max_fix_rounds."""

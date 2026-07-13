@@ -455,7 +455,7 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
             dialect = {"ts": "typescript", "tsx": "tsx"}.get(suffix.lstrip("."), "javascript")
             violations = check_test_mirrors_spec_js(test_source, cases, assertions, dialect)
         else:
-            violations = check_test_mirrors_spec(test_source, cases, assertions)
+            violations = check_test_mirrors_spec(test_source, cases, assertions, fr_id=fr_id)
         errs = [v for v in violations if v.severity == "error"]
         reviews = [v for v in violations if v.severity == "info"]
         for v in errs:

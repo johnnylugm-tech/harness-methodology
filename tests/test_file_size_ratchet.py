@@ -73,6 +73,22 @@ _LINE_CEILING: dict[str, int] = {
     # branch (TDD-RED/GREEN/IMPROVE + GATE1's pre-fix-loop attempt) now calls
     # _is_connector_disabled_failure/_abort_dispatch_structurally_broken,
     # mirroring the two other dispatch sites in this file that already had it.
+    # 2026-07-13: net -2 lines — Bug D: SRS.md path resolution was hard-coded
+    # to the wrong location (.methodology/SRS.md) in two call sites while
+    # _fr_step_preflight's own fallback list (never reused) had the correct
+    # 01-requirements/SRS.md entry (P3 FR-05: resume-fr-phase's suggested
+    # command and TDD-RED's prompt builder both failed preflight with "SRS.md
+    # not found"). Both sites + preflight's own fallback loop now call the
+    # existing ProjectLayout(project).srs_path (single source of truth already
+    # used by 14+ other call sites across the harness — phase_cmds.py,
+    # harness_bridge.py, spec_alignment.py, ...) instead of guessing among
+    # hard-coded candidate strings; dropped the wrong --srs flag from
+    # resume-fr-phase's printed command.
+    # Bug F: TDD-RED's prompt gives sub-agents no instruction for a test file
+    # that already exists but is uncommitted (P3 FR-05: a sub-agent found
+    # test_fr05.py surviving a mid-flight reset, chose "review, don't
+    # overwrite", and never ran the commit step) — step 1 now says explicitly
+    # that an existing-but-uncommitted file still requires completing step 5.
     "cli/fr_cmds.py": 2271,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.

@@ -120,6 +120,152 @@ def test_fr03(text_input):
         assert all(v.check_type in {"assertion_missing"} for v in errs)
 
 
+class TestMultiSignatureParametrize:
+    """Bug E: a TEST_SPEC case set may declare cases with different "first
+    input" shapes (command / command_batch / task_id) — every shape must be
+    checked, not just whichever @pytest.mark.parametrize signature the AST
+    walk happens to see first."""
+
+    CASES = [
+        SpecCase(1, {"command": "echo hi"}),
+        SpecCase(2, {"command_batch": "echo a; echo b"}),
+        SpecCase(3, {"task_id": "deadbeef"}),
+    ]
+
+    def test_all_three_signatures_checked_when_correct(self):
+        src = '''
+import pytest
+
+@pytest.mark.parametrize("command", ["echo hi"])
+def test_fr05_01(command):
+    pass
+
+@pytest.mark.parametrize("command_batch", ["echo a; echo b"])
+def test_fr05_02(command_batch):
+    pass
+
+@pytest.mark.parametrize("task_id", ["deadbeef"])
+def test_fr05_03(task_id):
+    pass
+'''
+        errs = _errors(check_test_mirrors_spec(src, self.CASES, [], fr_id="FR-05"))
+        assert errs == []
+
+    def test_second_signature_drift_is_flagged_not_silently_dropped(self):
+        # Pre-fix: _extract_parametrize only kept the FIRST signature it saw
+        # ("command"); the command_batch row below would be silently ignored
+        # instead of being checked against its own spec case.
+        src = '''
+import pytest
+
+@pytest.mark.parametrize("command", ["echo hi"])
+def test_fr05_01(command):
+    pass
+
+@pytest.mark.parametrize("command_batch", ["WRONG VALUE"])
+def test_fr05_02(command_batch):
+    pass
+
+@pytest.mark.parametrize("task_id", ["deadbeef"])
+def test_fr05_03(task_id):
+    pass
+'''
+        errs = _errors(check_test_mirrors_spec(src, self.CASES, [], fr_id="FR-05"))
+        kinds = {v.check_type for v in errs}
+        assert "param_missing" in kinds and "param_extra" in kinds
+
+    def test_fr_scoping_excludes_other_functions_sharing_a_signature(self):
+        # A Cross-Cutting test (test_cli_*) reuses "command" as its parametrize
+        # variable name with a value that is NOT one of FR-05's own cases —
+        # without fr_id scoping this would wrongly surface as param_extra for
+        # FR-05, even though it belongs to a different TEST_SPEC section.
+        src = '''
+import pytest
+
+@pytest.mark.parametrize("command", ["echo hi"])
+def test_fr05_01(command):
+    pass
+
+@pytest.mark.parametrize("command_batch", ["echo a; echo b"])
+def test_fr05_02(command_batch):
+    pass
+
+@pytest.mark.parametrize("task_id", ["deadbeef"])
+def test_fr05_03(task_id):
+    pass
+
+@pytest.mark.parametrize("command", ["echo cross-cutting"])
+def test_cli_pipeline(command):
+    pass
+'''
+        errs = _errors(check_test_mirrors_spec(src, self.CASES, [], fr_id="FR-05"))
+        assert errs == []
+
+    def test_case_with_no_matching_signature_is_case_uncovered(self):
+        src = '''
+import pytest
+
+@pytest.mark.parametrize("command", ["echo hi"])
+def test_fr05_01(command):
+    pass
+'''
+        errs = _errors(check_test_mirrors_spec(src, self.CASES, [], fr_id="FR-05"))
+        uncovered = {v.check_type for v in errs}
+        assert "case_uncovered" in uncovered
+        assert sum(1 for v in errs if v.check_type == "case_uncovered") == 2  # cases 2 and 3
+
+    def test_unscoped_call_keeps_legacy_single_signature_behavior(self):
+        # fr_id=None (the default) must not break existing callers that
+        # never scoped by function name — legacy behavior preserved.
+        src = '''
+import pytest
+
+@pytest.mark.parametrize("command", ["echo hi"])
+def test_fr05_01(command):
+    pass
+'''
+        errs = _errors(check_test_mirrors_spec(src, [self.CASES[0]], []))
+        assert errs == []
+
+
+class TestUnresolvableConstantDegradesGracefully:
+    """Bug E-3: a parametrize arg referencing a module-level constant this
+    AST-only checker cannot statically evaluate (e.g. a str.join(...) result)
+    must degrade to 'row not verified' — not crash the whole MIRROR check."""
+
+    def test_name_reference_to_computed_constant_does_not_crash(self):
+        src = '''
+import pytest
+_BATCH = ";".join(f"echo {i}" for i in range(1, 4))
+
+@pytest.mark.parametrize("command_batch", [_BATCH])
+def test_fr05_02(command_batch):
+    pass
+'''
+        cases = [SpecCase(1, {"command_batch": "echo 1;echo 2;echo 3"})]
+        errs = _errors(check_test_mirrors_spec(src, cases, [], fr_id="FR-05"))
+        # Row could not be statically verified -> reported as missing, not a crash.
+        assert any(v.check_type == "param_missing" for v in errs)
+
+
+class TestRegressionExistingSingleSignatureFiles:
+    """Bug E must not regress a canonically-named single-signature file
+    (FR-01/FR-03 style: one parametrize signature for the whole file) when
+    checked through the new fr_id-scoped path."""
+
+    def test_single_signature_file_still_passes_with_fr_id_scoping(self):
+        cases = [SpecCase(1, {"source": "和", "expected": "ㄏㄢˋ"})]
+        src = '''
+import pytest
+
+@pytest.mark.parametrize("source,expected", [("和", "ㄏㄢˋ")])
+def test_fr01_01_lexicon(source, expected):
+    if source == "和":
+        assert expected == "ㄏㄢˋ"
+'''
+        assert _errors(check_test_mirrors_spec(src, cases, [], fr_id="FR-01")) == []
+
+
 _SPEC_MD = """
 ### FR-01: lexicon
 

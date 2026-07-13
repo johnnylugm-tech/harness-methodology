@@ -844,10 +844,9 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
             steps = ["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1"]
         for step in steps:
             if not _fr_step_already_done(step, fr_id, project, phase=phase):
-                srs_flag = " --srs .methodology/SRS.md" if step in ("TDD-RED", "TDD-GREEN") else ""
                 print(
                     f"Next step: python3 harness_cli.py run-fr-step "
-                    f"--phase {phase} --fr-id {fr_id} --step {step} --project {project}{srs_flag}"
+                    f"--phase {phase} --fr-id {fr_id} --step {step} --project {project}"
                 )
                 return 0
 
@@ -1002,10 +1001,7 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
         srs_arg = Path(srs_path)
         srs = srs_arg if srs_arg.is_absolute() else project / srs_arg
     else:
-        for candidate in ["01-requirements/SRS.md", "SRS.md", ".methodology/SRS.md"]:
-            if (project / candidate).exists():
-                srs = project / candidate
-                break
+        srs = ProjectLayout(project).srs_path
 
     if not srs.exists():
         try:
@@ -1616,8 +1612,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
 
     # Default SRS path if not given
     if srs_path is None:
-        candidate = project / ".methodology" / "SRS.md"
-        srs_path = candidate if candidate.exists() else None
+        srs_path = ProjectLayout(project).srs_path
 
     if step == "TDD-RED":
         srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
@@ -1669,7 +1664,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"[FR REQUIREMENTS]\n"
             f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
             f"[TASK]\n"
-            f"1. Create/edit `{test_file}` with failing tests covering the acceptance criteria above.\n"
+            f"1. Create/edit `{test_file}` with failing tests covering the acceptance criteria above. "
+            f"If the file already exists (e.g. from a prior interrupted run), verify its test names "
+            f"match the TEST SPEC exactly, fix any mismatch, but do NOT skip step 5 — an existing-but-"
+            f"uncommitted file is exactly the state this step must resolve, not something to leave as-is.\n"
             f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
             f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
             f"4. Run `pytest {test_file} -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.\n"
