@@ -30,10 +30,17 @@ from core.utils.project_layout import ProjectLayout
 __all__ = ["check_spec_alignment", "resolve_canonical_spec"]
 
 # Structural FR-ID forms — never a bare prose mention:
-#   heading   `### FR-01: ...`   (SRS §2 sections / canonical SPEC.md)
-#   table id  `| FR-01 | ...`     (SRS §2 table layout)
-#   json id   `"id": "FR-01"`     (SRS §7 FR:START machine block)
-_FR_HEADING = re.compile(r"^#{1,6}\s*FR-(\d+)\b", re.MULTILINE)
+#   heading   `### FR-01: ...`          (canonical SPEC.md / SRS flat layout)
+#   heading   `### 3.1 FR-01 ...`       (SRS subsection-numbered layout:
+#              optional `\d+(\.\d+)*\.?\s+` prefix before FR-NN — the same SRS
+#              that uses §3 Functional Requirements / §3.1 FR-01 / §3.2 FR-02
+#              TOC convention; without it the gate false-positives every FR as
+#              "dropped" on a structurally complete SRS)
+#   table id  `| FR-01 | ...`            (SRS §2 table layout; `\b` after
+#              digit also catches `| FR-01.AC1 |` style AC rows)
+#   json id   `"id": "FR-01"`            (SRS §7 FR:START machine block)
+_FR_HEADING = re.compile(
+    r"^#{1,6}\s*(?:\d+(?:\.\d+)*\.?\s+)?FR-(\d+)\b", re.MULTILINE)
 _FR_TABLE = re.compile(r"^\|\s*FR-(\d+)\b", re.MULTILINE)
 _FR_JSON = re.compile(r'"id"\s*:\s*"FR-(\d+)"')
 # (?<!N): "NFR-06-deferred" must not phantom-excuse FR-06 from front-edge

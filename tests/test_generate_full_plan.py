@@ -2617,6 +2617,52 @@ class TestParseSrsFrSectionsIngestsEmDash:
         assert len(frs) == 1, f"hyphen heading should parse: got {frs}"
         assert frs[0]["fr"] == "FR-01"
 
+    def test_parses_subsection_numbered_heading(self, tmp_path: Path):
+        """SRS layouts where §3 = Functional Requirements / §3.1 FR-01 /
+        §3.2 FR-02 are an INGESTION MODE-natural form. The parser must read
+        them — without this, the real 01-requirements/SRS.md (which uses
+        exactly this convention) is false-positived to have zero FR sections
+        by `parse_srs_fr_sections` and `generate_full_plan` produces an empty
+        per-FR plan."""
+        body = (
+            "# SRS\n\n"
+            "## 3. Functional Requirements\n\n"
+            "### 3.1 FR-01 任務提交與驗證\n\n"
+            "**Description**: submit a task.\n\n"
+            "### 3.2 FR-02 任務執行器\n\n"
+            "**Description**: execute a task.\n\n"
+            "### 3.3 FR-03 重試與斷路器\n\n"
+            "**Description**: retry logic.\n"
+        )
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        ids = sorted(fr["fr"] for fr in frs)
+        assert ids == ["FR-01", "FR-02", "FR-03"], (
+            f"subsection-numbered headings should all parse: got {ids}")
+        # Title should include the original Chinese title (or at least its prefix)
+        for fr in frs:
+            assert fr["fr"] in fr["title"], \
+                f"fr id not echoed in title: {fr}"
+
+    def test_parses_ac_qualified_table_row(self, tmp_path: Path):
+        """SRS AC tables use `| FR-01.AC1 | non-empty ...` rows. The
+        table-format fallback originally required whitespace-then-pipe
+        directly after the FR number, but the `.AC1` qualifier puts `.`
+        there — so the qualifier was silently dropped, yielding zero FR-01
+        hits and dedup-failing back to the warning-message-no-sections
+        codepath."""
+        body = (
+            "# SRS\n\n"
+            "| FR-01 | FR description | desc |\n|-------|----------------|------|\n"
+            "| FR-01.AC1 | Empty command rejected | Exit 2 |\n"
+            "| FR-01.AC2 | Long command rejected | Exit 2 |\n"
+        )
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1, (
+            f"AC-qualified rows should dedupe to one FR-01: got {frs}")
+        assert frs[0]["fr"] == "FR-01"
+
 
 class TestParseSrsFrBlockJson:
     """Gap (2) fix: SRS Appendix A JSON block must be parsed and merged into

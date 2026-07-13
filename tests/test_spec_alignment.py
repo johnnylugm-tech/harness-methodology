@@ -151,6 +151,48 @@ def test_zero_pad_normalisation(tmp_path: Path) -> None:
     assert check_spec_alignment(proj) == []
 
 
+def test_srs_section_numbered_fr_headings_aligned(tmp_path: Path) -> None:
+    """Real SRS layouts number functional requirements under a §3 sub-section
+    (`### 3.1 FR-01`, `### 3.2 FR-02`, etc. — typical TOC convention where
+    §3 = Functional Requirements and the FR is at §3.N). The gate must read
+    both this form and the canonical `### FR-NN:` form, otherwise a
+    structurally complete SRS (such as this repo's own 01-requirements/SRS.md)
+    is false-positived as "dropped" for every FR."""
+    proj = _project(
+        tmp_path,
+        canonical="### FR-01: login\n### FR-02: logout\n### FR-03: refresh\n",
+        srs=("### 3.1 FR-01 login\n\n"
+             "### 3.2 FR-02 logout\n\n"
+             "### 3.3 FR-03 refresh\n"),
+    )
+    assert check_spec_alignment(proj) == []
+
+
+def test_srs_section_numbered_fr_dropped_still_blocks(tmp_path: Path) -> None:
+    """Subsection-numbered SRS, FR-02 genuinely dropped — must still block
+    (the heading-form extension must not silently pass a real gap)."""
+    proj = _project(
+        tmp_path,
+        canonical="### FR-01: login\n### FR-02: logout\n### FR-03: refresh\n",
+        srs="### 3.1 FR-01 login\n\n### 3.3 FR-03 refresh\n",
+    )
+    errors = [v for v in check_spec_alignment(proj) if v.severity == "error"]
+    assert len(errors) == 1
+    assert "FR-02" in errors[0].message and "dropped" in errors[0].message.lower()
+
+
+def test_srs_three_level_section_numbered_fr_aligned(tmp_path: Path) -> None:
+    """Even deeper subsection numbers (`### 4.2.1 FR-NN ...`) must read — the
+    regex prefix accepts arbitrarily nested subsection IDs (one or more
+    decimal-numbered levels), not just one-level `3.N`."""
+    proj = _project(
+        tmp_path,
+        canonical="### FR-01: x\n### FR-02: y\n",
+        srs="### 3.1.1 FR-01 x\n\n### 4.2.3 FR-02 y\n",
+    )
+    assert check_spec_alignment(proj) == []
+
+
 # ── preflight wiring (phase-gated blocking + composition guard) ──────────────
 
 

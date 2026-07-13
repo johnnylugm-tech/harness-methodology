@@ -152,13 +152,23 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     fr_json_meta = _parse_srs_fr_block_json(content)
 
     # Find all FR sections (FR-01 to FR-99).
-    # Char class `[:—–-]` accepts four heading separators:
-    #   :   — template-style colon (existing behavior, kept for back-compat)
-    #   —   — INGESTION MODE em-dash (canonical for SRS authored from SPEC.md)
-    #   –   — en-dash (some editors auto-convert em-dash)
-    #   -   — hyphen (CLI / quick-write fallback)
+    # Char class `[\s:—–-]` accepts five heading separators:
+    #   whitespace  — space (real INGESTION MODE SRS, where the FR title follows
+    #                 FR-NN as a space + Chinese title, e.g. `### 3.1 FR-01 任務提交與驗證`)
+    #   :           — template-style colon (existing behavior, kept for back-compat)
+    #   —           — INGESTION MODE em-dash (canonical for SRS authored from SPEC.md)
+    #   –           — en-dash (some editors auto-convert em-dash)
+    #   -           — hyphen (CLI / quick-write fallback)
+    #
+    # Optional `(?:\d+(?:\.\d+)*\.?\s+)?` prefix accepts an SRS subsection
+    # number between the heading hashes and FR-NN — e.g. `### 3.1 FR-01` is
+    # the natural form when an SRS uses §3 Functional Requirements / §3.1 FR-01
+    # / §3.2 FR-02 TOC numbering. Without this prefix the same lookbehind
+    # false-positives a structurally complete SRS (such as this repo's own
+    # 01-requirements/SRS.md) as having zero FR sections.
     fr_pattern = re.compile(
-        r'(#{2,3} FR-(\d+)\s*[:—–-][^\n]+\n\n)(.*?)(?=\n---\n|\n#{2,3} FR-\d+|$)',
+        r'(#{2,3}\s*(?:\d+(?:\.\d+)*\.?\s+)?FR-(\d+)[\s:—–-][^\n]+\n\n)(.*?)'
+        r'(?=\n---\n|\n#{2,3}\s*(?:\d+(?:\.\d+)*\.?\s+)?FR-\d+|$)',
         re.DOTALL,
     )
 
@@ -201,9 +211,14 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     # Many projects write SRS.md FRs as a markdown table (| FR-01 | desc | ... |)
     # rather than ### FR-01: section headers.  This fallback extracts at least the
     # FR IDs and descriptions so the plan generator can produce per-FR task blocks.
+    #
+    # `(?:\.[\w-]*)?` accepts an optional `.AC1` / `.AC3` qualifier between
+    # the FR number and the closing pipe — SRS AC tables frequently use a
+    # row like `| FR-01.AC1 | non-empty ...` and the original `\s*\|` would
+    # have failed the match (next char after `01` is `.`).
     if not frs:
         table_re = re.compile(
-            r'^\|\s*FR-(\d+)\s*\|\s*(.+?)\s*\|',
+            r'^\|\s*FR-(\d+)(?:\.[\w-]*)?\s*\|\s*(.+?)\s*\|',
             re.MULTILINE,
         )
         seen = set()
@@ -228,8 +243,10 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     if not frs:
         print(
             "[generate_full_plan] WARNING: No FR sections found in SRS.md.\n"
-            "  Expected format: '### FR-01: Title' / '### FR-01 — Title' sections,\n"
-            "  or '| FR-01 | desc |' table rows.\n"
+            "  Expected formats:\n"
+            "    - Section heading '### FR-01: Title' / '### FR-01 — Title'\n"
+            "    - Subsection-numbered heading '### 3.1 FR-01 title'\n"
+            "    - Table row '| FR-01 | desc |' (with optional '.AC1' qualifier)\n"
             "  The generated plan will have no per-FR task blocks. Verify SRS.md format.",
             file=sys.stderr,
         )
