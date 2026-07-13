@@ -3,7 +3,7 @@
 // Structure: FR-loop型 + Gate 2 exit. Script holds the per-FR loop (playbook
 // "plan as code"): load fr_ids via an agent, then for each FR dispatch a
 // narrow agent that runs the TDD chain (RED→MIRROR→GREEN→IMPROVE→GATE1).
-// Milestone pushes are script-driven (≥50% → p3-mid; all done → p3-pre-gate2).
+// Milestone pushes are script-driven (≥1/3 → p3-mid; all done → p3-pre-gate2).
 // Gate 2 is one orchestrator agent (run-gate → eval → finalize → D4 60%).
 //
 // Playbook lessons: NO import/fs/process, Bash for all harness CLI,
@@ -27,18 +27,53 @@ export const meta = {
     { title: 'Milestones' },
     { title: 'Gate 2' },
     { title: 'Advance' },
+    { title: 'Sync' },
   ],
 }
 
-// ---- args / REPO / PY ----
-// REPO precedence: args.repo override wins, then DEFAULT_REPO canonical path.
-// process.env.HARNESS_REPO cannot be read here — playbook §4 forbids process.*
-// in workflow JS. Caller scripts (run-e2e.mjs / harness-e2e.js /
-// phase1-workflow.mjs) read HARNESS_REPO and inject it via args.repo.
-const DEFAULT_REPO = '.'
-let REPO = DEFAULT_REPO
-if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
-if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) REPO = args.repo
+// ---- REPO auto-resolver (canonical pattern — keep verbatim across phase*.js) ----
+// CWD-INDEPENDENT detection: sub-agents inherit arbitrary CWDs from the
+// Workflow tool launcher, so a `./` default is fragile (see 2026-07-10
+// silent-fail bug). This resolver walks up from any CWD via a sub-agent
+// round-trip to find the project root by its markers (harness_cli.py +
+// .methodology/), then returns the absolute path. args.repo is accepted as
+// an absolute-path override (escape hatch) — relative args.repo is rejected
+// loudly. Single round-trip per workflow run (~10-30s) for guaranteed
+// correctness across CWD drift, integration-test path changes, and CI clones.
+async function resolveRepo() {
+  if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+  let argRepo = ''
+  if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) argRepo = args.repo
+  if (argRepo) {
+    if (!argRepo.startsWith('/')) {
+      throw new Error(
+        '[phase3-implementation] args.repo must be an absolute path (got: "' + argRepo + '").\n'
+        + '  Workflow tool sub-agents inherit arbitrary CWDs — relative paths break silently.'
+      )
+    }
+    log('  REPO: from args.repo override = ' + argRepo)
+    return argRepo
+  }
+  const r = await agent(
+    'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/`.\n'
+    + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
+    + 'cd "$(pwd)"; while [ "$(pwd)" != "/" ] && ! { [ -f harness_cli.py ] && [ -d .methodology ]; }; do cd ..; done; '
+    + 'if [ -f harness_cli.py ] && [ -d .methodology ]; then echo "REPO=$(pwd)"; else echo "REPO_NOT_FOUND cwd=$(pwd)"; fi\n'
+    + 'Report the literal stdout as your final message (no commentary, no transformation).',
+    { label: 'resolve-repo', agentType: 'general-purpose' }
+  )
+  const text = String(r ?? '').trim()
+  const match = text.match(/REPO=(\S+)/)
+  if (match && match[1].startsWith('/')) {
+    log('  REPO: auto-detected via walk-up = ' + match[1])
+    return match[1]
+  }
+  throw new Error(
+    '[phase3-implementation] REPO not auto-detected (resolver returned: "' + text.slice(0, 200) + '")\n'
+    + '  Either pass args.repo = absolute path, or run from inside the project repo so harness_cli.py is reachable.'
+  )
+}
+const REPO = await resolveRepo()
 const PY = REPO + '/.venv/bin/python'
 log('REPO = ' + REPO + ' | PY = ' + PY)
 
@@ -174,11 +209,16 @@ phase('Manifest Integrity')
 // MID-RUN (a Gate 2 sub-agent ran bare `pytest`, collecting harness/tests/
 // whose non-hermetic tests overwrote the manifest via CWD fallback). A single
 // entry check misses that window, so Gate 2 rounds and Advance re-verify.
-const integrityCmd = PY + ' -c "import json, sys; m = json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')); ids = m.get(\'fr_ids\') or []; mt = m.get(\'fr_module_traceability\') or {}; g1 = (m.get(\'gate_results\',{}) or {}).get(\'gate1\',{}) or {}; ok_ids = len(ids) >= 2; ok_trace = len(mt) >= len(ids); ok_g1 = isinstance(g1, dict); print(\'OK\' if (ok_ids and ok_trace and ok_g1) else json.dumps({\'BROKEN\': True, \'fr_ids_count\': len(ids), \'traceability_count\': len(mt), \'gate1_keys\': len(g1), \'recovery\': \'git checkout HEAD -- .methodology/quality_manifest.json\'}))"'
+// T1-A (8-phase audit remediation): the previous inline Python one-liner
+// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`
+// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded
+// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own
+// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead.
+const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 3'
 async function checkManifestIntegrity(phaseLabel, agentLabel) {
   const verdict = await agent(
-    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is exactly `OK`; reason = the verbatim stdout.',
+    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '; echo RC=$?`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',
     { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   const ok = !!(verdict && verdict.pass === true)
@@ -306,28 +346,40 @@ for (const frId of frIds) {
     gate1Pass.push(frId)
   } else {
         log('  === ' + frId + ' (' + (frTitle[frId] || '') + ') — TDD chain ===')
+    const frNum = frId.match(/\d+/)[0].padStart(2, '0')
     const frReport = await agent(
       'YOU ARE THE IMPLEMENTER for ' + frId + ' (' + (frTitle[frId] || '') + '). Run the full TDD chain for THIS ONE FR.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+      + 'Direction C (past lessons): FIRST, Bash `cat ' + REPO + '/.sessi-work/phase3_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in this FR\'s TDD chain (implementation / tests / GATE1 fixes).\n\n'
       + 'Run these harness steps IN ORDER (each is a bash command; read its output before the next):\n'
       + '1. TDD-RED:    `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step TDD-RED --project ' + REPO + ' --srs 01-requirements/SRS.md`\n'
-      + '2. MIRROR:     `' + PY + ' ' + REPO + '/harness_cli.py check-test-mirrors-spec --phase 3 --fr-id ' + frId + ' --test-file tests/test_*.py --project ' + REPO + '`\n'
+  + '   AFTER RED writes the test file: open `tests/test_fr' + frNum + '.py` and ensure EVERY NFR associated with ' + frId + ' in the traceability table (TRACEABILITY_MATRIX.md §5 is the canonical listing) has a `# NFR-XX` comment on at least one test function. Without these annotations, `compute_trace_dimension` 4c = 0% and Gate 2 blocks (HR-16). Use `grep -n "# NFR-" tests/test_fr' + frNum + '.py` and check against the NFR list for ' + frId + ' — document every association.\n'
+      + '2. MIRROR:     `' + PY + ' ' + REPO + '/harness_cli.py check-test-mirrors-spec --phase 3 --fr-id ' + frId + ' --test-file tests/test_fr' + frNum + '.py --project ' + REPO + '`\n'
       + '   On MIRROR FAIL: fix the TEST to match TEST_SPEC.md — do NOT edit TEST_SPEC.md (correctness was locked in Phase 2; P3 only implements). Re-run.\n'
       + '3. TDD-GREEN:  `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step TDD-GREEN --project ' + REPO + ' --srs 01-requirements/SRS.md`\n'
       + '4. TDD-IMPROVE:`' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step TDD-IMPROVE --project ' + REPO + '`\n'
-      + '5. GATE1:      `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + '`\n'
+      + '5. amend-sab (proactive, BEFORE GATE1): `' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '` (idempotent, scans 03-development/src/). If it registers any new modules: `git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m "amend: register SAB modules (' + frId + ')"`. This FR\'s GREEN/IMPROVE steps may have added modules GATE1\'s Architecture Amendment Protocol would otherwise BLOCK on — registering them now avoids a wasted GATE1 round.\n'
+      + '6. GATE1 — long-running (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s: can silently block ~2400s worst case). Run it BACKGROUNDED — do NOT invoke it as a plain synchronous command:\n'
+      + '   GATE1 invocation procedure (a/b/c):\n'
+      + '   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + ' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\n'
+      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~20min, comfortably above the ~2400s worst case). Still RUNNING past the cap → report "' + frId + ' GATE1: TIMEOUT" (not FAIL) and stop — do not kill the PID.\n'
+      + '   c. Once DONE: `cat /tmp/gate1_' + frId + '.log` for the full output — identical to what a synchronous run would have printed. Parse PASS/FAIL from it exactly as before.\n'
       + '   Gate 1 thresholds: linting(90) type_safety(85) test_coverage(80).\n'
       + '   - PASS → done.\n'
-      + '   - FAIL → fix failing dims (ruff check . --fix; add tests for coverage; fix pyright errors), re-run GATE1. Max 3 rounds.\n'
+      + '   - FAIL → fix failing dims (ruff check . --fix; add tests for coverage; fix pyright errors), repeat the GATE1 invocation procedure (a/b/c). Max 3 rounds.\n'
       + '   - Still failing after 3 → report FAIL.\n'
-      + '   - Architecture Amendment Protocol [BLOCKED]: if GATE1 prints "Unregistered modules detected: {…}", DO NOT hand-edit SAB.json by hand. Run `' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '` to register the new modules (idempotent, scans 03-development/src/), `git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m "amend: register SAB modules (' + frId + ')"`, then re-run GATE1. Max 1 amend round per FR.\n'
-      + '   Each run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-step --phase 3 --project ' + REPO + '`.\n'
-      + '6. ORCH-POST (after GATE1 PASS, per phase3_plan.md [ORCH-POST]):\n'
+      + '   - Structurally-broken dispatch [FATAL]: if the log contains "[FATAL]" (e.g. "claude.ai connectors are disabled" or any other structurally-broken-dispatch signature), STOP IMMEDIATELY — do NOT unset/modify any environment variables yourself, do NOT retry the GATE1 invocation procedure. The message\'s suggested fix is for a human operator to run OUTSIDE this session, not something you can act on. Report "' + frId + ' GATE1: FAIL — structurally broken dispatch environment, escalate to human (see [FATAL] message)" and stop this FR\'s TDD chain.\n'
+      + '   - Architecture Amendment Protocol [BLOCKED]: if the log contains "Unregistered modules detected: {…}", DO NOT hand-edit SAB.json by hand. Run `' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '` to register the new modules (idempotent, scans 03-development/src/), `git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m "amend: register SAB modules (' + frId + ')"`, then repeat the GATE1 invocation procedure (a/b/c). Max 1 amend round per FR.\n'
+      + '   run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-phase --phase 3 --project ' + REPO + '`.\n'
+      + '7. ORCH-POST (after GATE1 PASS, per phase3_plan.md [ORCH-POST]):\n'
       + '   a. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '` (per-FR D4 ≥40%). FAIL → add the missing test implementations for ' + frId + ', re-run.\n'
-      + '   b. `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --project ' + REPO + ' --overwrite` (regenerate SAB.json).\n\n'
-      + 'Implement the module per SPEC.md (read ' + REPO + '/SPEC.md for ' + frId + ') + SAD.md module mapping. Write source under the project\'s `src/` tree as specified in SAD §2 (do not assume a fixed project layout — read SAD §2 for the module path; e.g. for the canonical `03-development/src/<module>/` layout, use that; otherwise follow whatever SAD §2 specifies). Tests under `tests/` per project layout. Docstrings must include [' + frId + '] reference (NFR-05).\n\n'
+      + '   b. SAB.json is kept in sync by amend-sab (step 5 above). Do NOT run generate_sab.py --overwrite here.\n'
+      + '      (generate_sab.py --overwrite rebuilds SAB purely from SAD.md §5, which was locked in Phase 2\n'
+      + '       and may not reflect modules added during Phase 3 implementation. Only run generate_sab.py --overwrite\n'
+      + '       manually AFTER updating SAD.md §5 to include all Phase 3 modules.)\n\n'
+      + 'Implement the module per SPEC.md (read ' + REPO + '/SPEC.md for ' + frId + ') + SAD.md module mapping. Write source under `03-development/src/<module>/` (the harness-scaffolded canonical layout — see `init-project`\'s directory scaffold). Tests under `tests/` per project layout (MIRROR step above already validated them at that path). All tests for ' + frId + ' MUST live in the single canonical file `tests/test_fr' + frNum + '.py` — this is the only filename the harness coverage/RED-check/GATE1-DELTA diff tooling recognizes. Do not create satellite files like `test_fr' + frNum + '_unit.py`; add more test functions to the one file instead. Docstrings must include [' + frId + '] reference (NFR-05).\n\n'
       + 'Report final line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>".\n\n'
-      + 'SCOPE RULES:\n- DO NOT implement any FR OTHER than ' + frId + '.\n- DO NOT run run-gate (Gate 2), advance-phase, or push-milestone.\n- DO NOT modify harness/ (HR-17).\n- ONLY the 6 steps above for ' + frId + ' (spec-coverage-check + generate_sab.py in step 6 are allowed).',
+      + 'SCOPE RULES:\n- DO NOT implement any FR OTHER than ' + frId + '.\n- DO NOT run run-gate (Gate 2), advance-phase, or push-milestone.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/ (HR-17).\n- ONLY the 7 steps above for ' + frId + ' (amend-sab in step 5, spec-coverage-check in step 7a is allowed).',
       { label: 'tdd-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose' },
     )
     // L1: distinguish a session/rate-limit block (null/empty agent return) from a real
@@ -337,6 +389,23 @@ for (const frId of frIds) {
     if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
       log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
       return { session_limit_blocked: true, phase: 3, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }
+    }
+    // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
+    // (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints "[FATAL] <fr> <step>:
+    // sub-agent dispatch is structurally broken — claude.ai connectors are disabled" to
+    // stderr and returns exit code 23). A sub-agent reading its own GATE1 log and seeing
+    // that banner will escalate to human with "FAIL — structurally broken dispatch" even
+    // when the gate has not yet run a single evaluation round. The harness-side
+    // _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer
+    // for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but TDD-RED/GREEN/IMPROVE
+    // dispatches AND the GATE1 first-round prompt path do NOT have it. Continuing to
+    // dispatch FR-02..FR-05 in that state burns ~5min and ~50K tokens per FR on
+    // identically-broken dispatches. Abort once the structural signal is observed.
+    // FIX-N: workflow JS L1 [FATAL] detection — abort loop on connector-disabled signature.
+    const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
+    if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+      log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+      return { dispatch_structurally_broken: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
     }
     // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes
     // gate_results.gate1[fr].quality_complete on every finalize-gate, pass OR fail) —
@@ -361,7 +430,7 @@ for (const frId of frIds) {
     p3MidPushed = true
     log('  ≥1/3 FRs Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') — pushing p3-mid milestone')
     await agent(
-      'YOU ARE THE P3 MID-MILESTONE PUSHER (≥50% FRs Gate 1 PASS).\n'
+      'YOU ARE THE P3 MID-MILESTONE PUSHER (≥1/3 FRs Gate 1 PASS).\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="p3-mid" -1`. If a p3-mid commit already exists, report "MILESTONE: PASS (already pushed)" and stop — do NOT push again.\n'
       + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-mid --project ' + REPO
@@ -378,7 +447,7 @@ if (gate1Fail.length) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Phase: Milestones (p3-mid pushed in-loop at ≥50%; p3-pre-gate2 here = all done)
+// Phase: Milestones (p3-mid pushed in-loop at ≥1/3; p3-pre-gate2 here = all done)
 // ════════════════════════════════════════════════════════════════════════
 phase('Milestones')
 log('All ' + frIds.length + ' FRs Gate 1 PASS — push p3-pre-gate2 (last stable snapshot before Gate 2)')
@@ -422,8 +491,11 @@ for (let round = 1; round <= 3; round++) {
     + '   NOTE: mutation_testing is disabled by default via .methodology/harness_config.json (mutation_testing=false). If enabled, the harness auto-includes it and re-normalises the composite score.\n'
     + '   NOTE: traceability is FRAMEWORK-OWNED — do NOT score it; the harness injects it in finalize-gate.\n'
     + '   For any failing dim: fix the ROOT CAUSE in code (ruff/pyright/add tests/bandit/mutation), re-run the tool, update the score. (No auto-fix engine.)\n'
-    + '3. G2c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 2 --phase 3 --project ' + REPO + '`.\n'
-    + '   - If blocked by traceability: `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write` then `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m "trace: regen attestation"`, re-run finalize.\n'
+    + '3. G2c — run BACKGROUNDED (finalize-gate\'s own git push triggers the local pre-push hook, plus CRG refresh: bounded on this project today, but a single opaque Bash call with no visible output until it returns is exactly the shape the 180s stall watchdog kills — same class of risk as GATE1, same fix):\n'
+    + '   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 2 --phase 3 --project ' + REPO + ' > /tmp/gate2_finalize_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\n'
+    + '   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → report "GATE2: TIMEOUT" and stop — do not kill the PID.\n'
+    + '   c. Once DONE: `cat /tmp/gate2_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\n'
+    + '   - If blocked by traceability: `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write` then `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m "trace: regen attestation"`, re-run the G2c backgrounded procedure (a/b/c).\n'
     + '4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0`. FAIL → add missing test implementations, re-run.\n\n'
     + 'finalize-gate (G2c) writes HANDOVER.md + pushes on PASS. Report final line: "GATE2: PASS" (composite ≥75 AND all dims ≥ threshold AND D4 ≥60%) or "GATE2: FAIL — <failing dims>".\n\n'
     + 'SCOPE RULES:\n- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\n- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage + code fixes.',
@@ -492,8 +564,11 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 4 ]`. If Phase 4 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. GUARD + PUSH ⑤ p3-post-gate2: `git -C ' + REPO + ' log --oneline --grep="p3-post-gate2" -1`. If a commit exists, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
     + '   Pre-flight (enforced): gate2_result.json composite ≥75 + per-FR Gate 1 sentinel .sessi-work/sentinels/g1_p3_<fr>.flag exists for every FR. If BLOCKED, read the error list and fix.\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 3 --project ' + REPO + '`\n'
-    + '   advance-phase independently re-verifies EVERYTHING before it will advance (lint, types, coverage, document quality, reliability lint, architecture drift, Phase Truth, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says (it often includes the precise command to run), then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports.\n'
+    + '2. advance-phase — run BACKGROUNDED (internally runs `ruff check .` + `mypy .` + `pytest --cov-fail-under=100` over the WHOLE project as sequential subprocess calls inside one opaque Bash call; harmless today at this project\'s size (~25s measured) but this cost only grows as more FRs/tests land, and a single opaque long Bash call is exactly what the 180s stall watchdog kills — same class of risk as GATE1, same fix):\n'
+    + '   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 3 --project ' + REPO + ' > /tmp/advance_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\n'
+    + '   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → report "ADVANCE: TIMEOUT" and stop — do not kill the PID.\n'
+    + '   c. Once DONE: `cat /tmp/advance_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\n'
+    + '   advance-phase independently re-verifies EVERYTHING before it will advance (lint, types, coverage, document quality, reliability lint, architecture drift, Phase Truth, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says (it often includes the precise command to run), then repeat the advance-phase backgrounded procedure (a/b/c). Do NOT guess what might be wrong — trust only what advance-phase itself reports.\n'
     + '   advance-phase is safe to re-run: it re-checks and re-reports without side effects until every check passes, so iterate within this round as many times as needed.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 4 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_4_PLAN: ' + REPO + '/.methodology/phase4_plan.md\n\n'
@@ -523,6 +598,61 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 if (!advancePass) {
   return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 4 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
 }
+
+// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
+// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
+// publishes to origin"). This workflow ends right after Advance with no
+// next-phase push queued, so the handover commit was left stranded on
+// local until whatever runs next happened to push it. Publish it now.
+phase('Sync')
+log('git push origin main (publish advance handover commit)')
+const SYNC_PROMPT = 'Run EXACTLY this command via Bash:\n'
+  + 'git -C ' + REPO + ' push origin main\n\n'
+  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>"'
+  + ' (if a pre-push hook printed a blocker list, include it verbatim).'
+let syncReport = await agent(SYNC_PROMPT, { label: 'sync', phase: 'Sync', agentType: 'general-purpose' })
+let syncPass = /SYNC:\s*PASS/.test(String(syncReport ?? ''))
+if (!syncPass) {
+  // One retry only — covers transient failures (DNS/auth-token blips), not
+  // a real pre-push gate block, which is deterministic and won't clear on
+  // its own.
+  log('  Sync FAIL on first attempt — retrying once (covers transient network failures)')
+  syncReport = await agent(SYNC_PROMPT, { label: 'sync-retry', phase: 'Sync', agentType: 'general-purpose' })
+  syncPass = /SYNC:\s*PASS/.test(String(syncReport ?? ''))
+}
+
+if (!syncPass) {
+  // Do NOT auto `--no-verify` (HR-17 forbids bypassing the gate without a
+  // human decision). Surface the blocker instead of terminating with a bare
+  // error: state.json current_phase is already authoritative for Phase 4
+  // (Advance PASS'd above), the handover commit just hasn't reached origin
+  // yet — a human resolves the printed blocker(s) and pushes manually.
+  const blockers = String(syncReport ?? '').slice(-600)
+  await agent(
+    'Append this section to the END of ' + REPO + '/HANDOVER.md (append — do not overwrite '
+    + 'existing content; create the file only if it truly does not exist):\n\n'
+    + '## Sync Blocked — manual push required\n\n'
+    + 'The Phase 3 advance handover commit landed locally but `git push origin main` '
+    + 'did not pass the pre-push hook:\n\n'
+    + '```\n' + blockers + '\n```\n\n'
+    + 'Resolve the blocker(s) above, then run `git push origin main` manually. '
+    + 'Do NOT use `--no-verify` without explicit human sign-off.\n',
+    { label: 'sync-handover-note', phase: 'Sync', agentType: 'general-purpose' },
+  )
+  log('Phase 3 workflow ends with Sync unresolved — see HANDOVER.md "Sync Blocked" section.')
+  return {
+    phase: 3,
+    fr_count: frIds.length,
+    gate1_pass: gate1Pass,
+    gate2_status: gate2Pass ? 'PASS' : 'unknown',
+    advance_status: 'PASS',
+    sync_status: 'MANUAL_REQUIRED',
+    blockers,
+    artifacts: ['03-development/src/', 'tests/', '.methodology/gate2_result.json', 'HANDOVER.md'],
+    notes: 'Phase 3 complete (Advance PASS) but the handover commit could not be auto-pushed — see HANDOVER.md "Sync Blocked" section for the pre-push blocker list.',
+  }
+}
+
 log('Phase 3 workflow complete. Open .methodology/phase4_plan.md to continue.')
 return {
   phase: 3,
@@ -530,6 +660,7 @@ return {
   gate1_pass: gate1Pass,
   gate2_status: gate2Pass ? 'PASS' : 'unknown',
   advance_status: 'PASS',
+  sync_status: 'PASS',
   artifacts: ['03-development/src/', 'tests/', '.methodology/gate2_result.json', 'HANDOVER.md'],
   notes: 'Phase 3 complete per phase3_plan.md v2.12.0. All FRs Gate 1 PASS + Gate 2 PASS. Phase 4 (Testing) ready.',
 }

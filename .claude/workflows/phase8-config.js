@@ -1,10 +1,10 @@
 // Phase 8 — Configuration Management (faithful to .methodology/phase8_plan.md v2.12.0)
 //
-// Structure: FR-loop型 + FINAL phase (NO advance-phase — pipeline ends here).
+// Structure: FR-loop型 → push-milestone p8 → advance-phase --completed 8 → Sync → Phase 9 (Maintenance).
 // Per-FR GATE1-DELTA re-eval, then REVIEW+APPEND the config baseline (the
 // framework deterministically generated CONFIG_RECORDS.md + RELEASE_CHECKLIST.md
-// via `scripts/phase8_doc_gen.py` during P7→P8 advance-phase per harness_cli.py
-// :6016-6030, harness commits 4738542 + 3f1fd73), create .methodology-archive/
+// via `scripts/phase8_doc_gen.py` during P7→P8 advance-phase (cli/phase_cmds.py
+// advance-phase hook, harness commits 4738542 + 3f1fd73), create .methodology-archive/
 // (cp -r .methodology/ — NOT .sessi-work/, per harness commit 3f1fd73), verify
 // no Phase 9 refs, p8 push.
 //
@@ -28,6 +28,7 @@ export const meta = {
     { title: 'Artifacts Commit' },
     { title: 'Archive' },
     { title: 'Final Push' },
+    { title: 'Sync' },
   ],
 }
 
@@ -36,10 +37,34 @@ export const meta = {
 // process.env.HARNESS_REPO cannot be read here — playbook §4 forbids process.*
 // in workflow JS. Caller scripts (run-e2e.mjs / harness-e2e.js /
 // phase1-workflow.mjs) read HARNESS_REPO and inject it via args.repo.
-const DEFAULT_REPO = '.'
-let REPO = DEFAULT_REPO
-if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
-if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) REPO = args.repo
+async function resolveRepo() {
+  if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+  let argRepo = ''
+  if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) argRepo = args.repo
+  if (argRepo) {
+    if (!argRepo.startsWith('/')) {
+      throw new Error('[workflow] args.repo must be an absolute path; got "' + argRepo + '"')
+    }
+    log('  REPO: from args.repo override = ' + argRepo)
+    return argRepo
+  }
+  const r = await agent(
+    'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/`.\n'
+    + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
+    + 'cd "$(pwd)"; while [ "$(pwd)" != "/" ] && ! { [ -f harness_cli.py ] && [ -d .methodology ]; }; do cd ..; done; '
+    + 'if [ -f harness_cli.py ] && [ -d .methodology ]; then echo "REPO=$(pwd)"; else echo "REPO_NOT_FOUND cwd=$(pwd)"; fi\n'
+    + 'Report the literal stdout as your final message (no commentary, no transformation).',
+    { label: 'resolve-repo', agentType: 'general-purpose' }
+  )
+  const text = String(r ?? '').trim()
+  const match = text.match(/REPO=(\S+)/)
+  if (match && match[1].startsWith('/')) {
+    log('  REPO: auto-detected via walk-up = ' + match[1])
+    return match[1]
+  }
+  throw new Error('[workflow] REPO not auto-detected (resolver returned: "' + text.slice(0, 200) + '"). Pass args.repo = absolute path or run from inside the project repo.')
+}
+let REPO = await resolveRepo()
 const PY = REPO + '/.venv/bin/python'
 log('REPO = ' + REPO + ' | PY = ' + PY)
 // v15: budget guard (Bug #3 — port from phase2-architecture)
@@ -150,11 +175,16 @@ phase('Manifest Integrity')
 // Detect the three known corruption patterns (fr_ids truncated, traceability
 // cleared, gate1 wiped) at entry AND re-check before the phase-exit push so
 // corruption is never baked into a milestone commit.
-const integrityCmd = PY + ' -c "import json, sys; m = json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')); ids = m.get(\'fr_ids\') or []; mt = m.get(\'fr_module_traceability\') or {}; g1 = (m.get(\'gate_results\',{}) or {}).get(\'gate1\',{}) or {}; ok_ids = len(ids) >= 2; ok_trace = len(mt) >= len(ids); ok_g1 = isinstance(g1, dict) and len(g1) >= len(ids); print(\'OK\' if (ok_ids and ok_trace and ok_g1) else json.dumps({\'BROKEN\': True, \'fr_ids_count\': len(ids), \'traceability_count\': len(mt), \'gate1_keys\': len(g1), \'recovery\': \'git checkout HEAD -- .methodology/quality_manifest.json\'}))"'
+// T1-A (8-phase audit remediation): the previous inline Python one-liner
+// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`
+// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded
+// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own
+// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead.
+const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 8'
 async function checkManifestIntegrity(phaseLabel, agentLabel) {
   const verdict = await agent(
-    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is exactly `OK`; reason = the verbatim stdout.',
+    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '; echo RC=$?`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',
     { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   const ok = !!(verdict && verdict.pass === true)
@@ -244,8 +274,12 @@ let deltaTodo = frIds
 const fastProbe = await agent(
   'YOU ARE THE GATE1-DELTA FAST-PATH PROBE. Classify each FR — fix NOTHING.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\nFRs: ' + JSON.stringify(frIds) + '\n\n'
+  + 'Direction C (past lessons): BEFORE classifying, Bash `cat ' + REPO + '/.sessi-work/phase8_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in your pass/fail classification or any follow-up P8 config/archive work.\n\n'
   + 'For EACH FR in order, substituting <FR> with the FR id:\n'
-  + '1. `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id <FR> --step GATE1-DELTA --project ' + REPO + ' 2>&1 | tail -5`\n'
+  + '1. GATE1-DELTA is long-running for any FR whose code actually changed (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s — can silently block ~2400s worst case even though this step is a "probe"). Run it BACKGROUNDED for every FR, not just slow ones — unchanged FRs still hit the fast in-CLI short-circuit almost instantly so this costs nothing extra:\n'
+  + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id <FR> --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_<FR>.log 2>&1 & echo $!` — note the PID.\n'
+  + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 40 polls (~20min). Still RUNNING past the cap → classify <FR> as fail_fr_ids (the full loop below will retry it) and move to the next FR — do not kill the PID.\n'
+  + '   c. DONE → proceed to step 2 (the log itself is not needed — the authoritative verdict is the manifest read below).\n'
   + '2. Authoritative verdict (manifest qc AND a phase-8 gate-1 timestamp for <FR>): `' + PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate1\',{}).get(\'<FR>\',{}) or {}; ts=any(e.get(\'phase\')==8 and e.get(\'gate\')==1 and e.get(\'fr_id\')==\'<FR>\' for e in (json.loads(l) for l in open(\'' + REPO + '/.methodology/gate_timestamps.jsonl\') if l.strip())); print(bool(g.get(\'quality_complete\')) and ts)"`\n'
   + '   stdout `True` → pass_fr_ids; anything else (False/None/timeout/error/missing file) → fail_fr_ids.\n\n'
   + 'HARD RULES:\n- DO NOT fix code, edit files, or run TDD steps.\n- DO NOT retry a failing FR — classify it and move on (the full loop handles it).\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT modify harness/.\n\n'
@@ -268,12 +302,15 @@ for (const frId of deltaTodo) {
     'YOU ARE THE CONFIG-AWARE VERIFIER for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '1. `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + '`\n'
+    + '1. GATE1-DELTA — long-running when code changed (harness runs up to 3 internal CODE-FIX rounds plus, on FAIL, a full TDD-RED→GREEN→IMPROVE→GATE1 chain — can silently block well past 180s). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\n'
+    + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\n'
+    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\'s own retries). Still RUNNING past the cap → report "' + frId + ' GATE1: TIMEOUT" (not FAIL) and stop — do not kill the PID.\n'
+    + '   c. DONE → `cat /tmp/gate1delta_' + frId + '.log` for the full output, identical to a synchronous run. Parse PASS/FAIL from it.\n'
     + '   - PASS → done.\n'
     + '   - FAIL → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report FAIL.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report final line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>".\n\n'
-    + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
+    + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
     { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose' },
   )
   // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
@@ -366,7 +403,7 @@ if (!(archiveReport && archiveReport.pass === true)) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Phase: Final Push (p8 — pipeline complete; NO advance-phase, P8 is last)
+// Phase: Final Push (p8 — push-milestone, then advance-phase --completed 8 → Phase 9 Maintenance)
 // ════════════════════════════════════════════════════════════════════════
 phase('Final Push')
 log('push-milestone p8 (final — pipeline complete)')
@@ -392,11 +429,12 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="p8" -1`. If exists, report "P8-PUSH: PASS (already pushed)" and stop.\n'
+    + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P8" -1`. If exists, report "P8-PUSH: PASS (already pushed)" and stop.\n'
     + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion independently re-verifies EVERYTHING before it will push (lint, types, coverage, Phase Truth, .methodology-archive/ presence, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n'
-    + '2. Confirm: pipeline complete (all 8 phases done).\n\n'
-    + 'Report final line: "P8-PUSH: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off.\n\n'
-    + 'SCOPE RULES:\n- DO NOT run advance-phase (Phase 8 is the final phase — there is no Phase 9).\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p8 + the specific fixes its own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    + '2. ADVANCE: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 8 --project ' + REPO + '`. This transitions into Phase 9 (Maintenance — steady-state, CR-driven). advance-phase independently re-verifies EVERYTHING (TDD-PRECHECK, HR-11 Phase Truth, HR-17 submodule guard, etc.) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction. It is safe to re-run repeatedly within this round.\n'
+    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase >= 8.\n\n'
+    + 'Report final line: "P8-PUSH: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_9_PLAN: ' + REPO + '/.methodology/phase9_plan.md\n\n'
+    + 'SCOPE RULES:\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p8 + advance-phase --completed 8 + the specific fixes their own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'final-push-r' + round, phase: 'Final Push', agentType: 'general-purpose' },
   )
   if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
@@ -406,7 +444,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone
   // commit — the same artifact the step-0 GUARD checks. Read git log via a
   // schema proxy; the pusher's prose "P8-PUSH: PASS" is narrative only.
-  const p8VerifyCmd = 'git -C ' + REPO + ' log --oneline --grep="p8" -1'
+  const p8VerifyCmd = 'git -C ' + REPO + ' log --oneline --grep="P8" -1'
   const p8v = await agent(
     'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
     + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty); reason = the verbatim stdout (or "empty").',
@@ -418,12 +456,28 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 if (!p8Ok) return { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) }
 
-log('Phase 8 workflow complete. 🎉 8-phase pipeline complete.')
+log('Phase 8 push-milestone + advance-phase complete. 🎉 Pipeline complete — Phase 9 (Maintenance) begins.')
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase: Sync (push the advance-phase handover commit to origin)
+// ════════════════════════════════════════════════════════════════════════
+phase('Sync')
+log('Push handover commit (advance-phase commits locally without pushing)')
+const syncReport = await agent(
+  'YOU ARE THE P8 SYNC PUSHER. advance-phase --completed 8 wrote a local handover commit. Push it to origin.\n'
+  + 'REPO: ' + REPO + '\n'
+  + '1. `git -C ' + REPO + ' log --oneline -5` — confirm an advance-phase handover commit exists.\n'
+  + '2. `git -C ' + REPO + ' push origin main`\n'
+  + '3. `git -C ' + REPO + ' tag -l "harness-v*" | head -3` — confirm any Phase 6 gate4 tag is pushed; if there is a P6 tag but `git push origin --tags` hasn\'t run yet, push tags.\n'
+  + 'SCOPE RULES: ONLY push. DO NOT re-run advance-phase.',
+  { label: 'sync-push', phase: 'Sync', agentType: 'general-purpose' },
+)
+
 return {
   phase: 8,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
   p8_push_status: p8Ok ? 'PASS' : 'unknown',
   artifacts: ['08-config/CONFIG_RECORDS.md', '08-config/RELEASE_CHECKLIST.md', '.methodology-archive/', 'HANDOVER.md'],
-  notes: 'Phase 8 complete per phase8_plan.md v2.12.0. 🎉 Full P1→P8 pipeline complete — archive .methodology/ for the audit trail.',
+  notes: 'Phase 8 complete per phase8_plan.md v2.12.0. Full P1→P8 pipeline complete → Phase 9 (Maintenance, CR-driven steady state).',
 }

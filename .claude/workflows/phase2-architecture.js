@@ -31,6 +31,7 @@ export const meta = {
     { title: 'Peer Review' },
     { title: 'Push' },
     { title: 'Advance' },
+    { title: 'Sync' },
   ],
 }
 
@@ -39,16 +40,40 @@ export const meta = {
 // process.env.HARNESS_REPO cannot be read here — playbook §4 forbids process.*
 // in workflow JS. Caller scripts (run-e2e.mjs / harness-e2e.js /
 // phase1-workflow.mjs) read HARNESS_REPO and inject it via args.repo.
-const DEFAULT_REPO = '.'
-let REPO = DEFAULT_REPO
-if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
-if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) REPO = args.repo
+async function resolveRepo() {
+  if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+  let argRepo = ''
+  if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) argRepo = args.repo
+  if (argRepo) {
+    if (!argRepo.startsWith('/')) {
+      throw new Error('[workflow] args.repo must be an absolute path; got "' + argRepo + '"')
+    }
+    log('  REPO: from args.repo override = ' + argRepo)
+    return argRepo
+  }
+  const r = await agent(
+    'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/`.\n'
+    + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
+    + 'cd "$(pwd)"; while [ "$(pwd)" != "/" ] && ! { [ -f harness_cli.py ] && [ -d .methodology ]; }; do cd ..; done; '
+    + 'if [ -f harness_cli.py ] && [ -d .methodology ]; then echo "REPO=$(pwd)"; else echo "REPO_NOT_FOUND cwd=$(pwd)"; fi\n'
+    + 'Report the literal stdout as your final message (no commentary, no transformation).',
+    { label: 'resolve-repo', agentType: 'general-purpose' }
+  )
+  const text = String(r ?? '').trim()
+  const match = text.match(/REPO=(\S+)/)
+  if (match && match[1].startsWith('/')) {
+    log('  REPO: auto-detected via walk-up = ' + match[1])
+    return match[1]
+  }
+  throw new Error('[workflow] REPO not auto-detected (resolver returned: "' + text.slice(0, 200) + '"). Pass args.repo = absolute path or run from inside the project repo.')
+}
+let REPO = await resolveRepo()
 const PY = REPO + '/.venv/bin/python'
 // HR-12: safety ceiling; observed P2 runs converge in ≤2 rounds — lower only if cost is a concern
 const MAX_B_ROUNDS = 5
-// P-01 mirror: peer review is a quality advisory, not a functional gate.
-// Round 3 REJECT → PEER_REVIEW_ADVISORY (non-blocking) instead of HR-12.
-const MAX_PEER_ROUNDS = 3
+// HR-12: Phase 1/2 exit gate Peer Review must converge in 5 rounds.
+// Round-5 REJECT → escalate to human (hard return), must not silently pass.
+const MAX_PEER_ROUNDS = 5
 // v28: retry at orchestrator level, not inside one outer agent call. Single-prompt
 // write+verify via mcp__filesystem__. See persistApproval.
 const MAX_OUTER_ATTEMPTS = 3
@@ -102,20 +127,22 @@ function parseAgentJson(text, label) {
   throw new Error('PARSE_FAIL [' + label + ']: no balanced JSON. tail=' + (text ?? '').toString().slice(-200))
 }
 function hasHighGap(gaps) {
-  return (gaps ?? []).some(function (g) { return g.severity === 'medium' || g.severity === 'high' })
+  // REMOVED — superseded by structured_b_review.py's enforce_escalation (T1-B).
+  // See phase1-requirements.js for full rationale; same replacement here.
+  throw new Error('hasHighGap is removed — caller must use structuredBReview() instead (T1-B)')
 }
 
-// ---- B prompt builder (plan-faithful revision; mirrors phase1-requirements v12) ----
-// Plan §B-1 originally said "STATELESS sandbox: ZERO file access". That
-// assumption is OBSOLETE — Agent B is general-purpose with full Bash/Read
-// tool access. Verbatim-DOC-embedding for all 3 P2 deliverables + upstream
-// SRS.md pushes B's prompt past 60k tokens, dispersing attention so badly
-// that B can hallucinate the deliverable's identity in late rounds (R5).
+// ---- B prompt builder (3-layer B-review defense, T1-B; mirrors phase1 v13) ----
 //
-// Fix: prompt B to USE Bash/Read for fresh disk view. Embedded docs become
-// a SUMMARY (headings + counts) for orientation, NOT the sole source of
-// truth. prevB2 is filtered to drop `reason` (only `gaps` survives —
-// structured, machine-readable, hard to confabulate).
+// Correct B-review architecture has three layers:
+//   Layer 1 — B agent orientation: SUMMARY via makeDocSummary(); B Bash-cats
+//   full file for any citation (playbook §8.2).
+//   Layer 2 — Deterministic gap verification (harness): structured_b_review.py
+//   --doc-content reads the deliverable file directly; b_gap_validator checks
+//   each gap's terms against actual file content — no LLM involved.
+//   Layer 3 — Escalation (harness): enforce_escalation computes the round-loop
+//   verdict AFTER Layer 2 has corrected gap severities.
+// See phase1-requirements.js buildBPrompt header for full rationale.
 function buildBPrompt(role, deliverable, docs, checklist) {
   let p = 'You are ' + role + '. Your task: review the following deliverable (' + deliverable + ').\n'
     + 'You have FULL access to Bash and Read tools — USE THEM to cat/Read the\n'
@@ -130,8 +157,9 @@ function buildBPrompt(role, deliverable, docs, checklist) {
     + '  - `citations`: array of "file:line" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\n'
     + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) looks for PURE basenames like "SAD.md", "ADR.md", "TEST_SPEC.md", NOT descriptive strings. Use bare basenames only.\n'
     + '  - CRITICAL: for Phase 2, `docs_embedded` MUST include ALL of: "SRS.md", "SAD.md" — regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[2]) rejects any P2 approval missing either.\n\n'
-    + 'Return JSON only (no markdown fences, no commentary). Schema:\n'
-    + '{"review_status":"APPROVE"|"REJECT","reason":"<concise>","citations":["file:line"],"docs_embedded":["..."],"gaps":[{"severity":"low|medium|high","message":"...","fr_id":"<FR-XX or null>"}]}\n\n'
+    + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\n'
+    + '{"review_status":"APPROVE"|"REJECT"|"CANCELLED","reason":"<≥100 chars>","citations":["file:line"],"docs_embedded":["..."],"gaps":[{"severity":"low|medium|high","evidence_type":"real_invention|over_interpretation|methodology_artifact","canonical_ref":"<file:line or section ID>","message":"...","fr_id":"<FR-XX or null>"}]}\n'
+    + 'evidence_type tells the framework which fix strategy to dispatch. real_invention=truly new requirement; over_interpretation=ambiguous canonical phrase (caps at medium); methodology_artifact=framework-side gap (always low).\n\n'
     + 'IMPORTANT: Return ONLY the JSON object as your final message. No prose before or after.'
   return p
 }
@@ -168,58 +196,76 @@ function makeDocSummary(content, opts) {
   return JSON.stringify(summary, null, 2)
 }
 
-// ---- runBSelfVerify (mirrors phase1 §B-2.5 X1 mitigation) ----
-// Dispatch B (fresh STATELESS context) to verify its OWN citations and
-// atomic claims via Bash (sed/grep). Returns verify metadata attached to
-// b2.verify. Does NOT change review_status — purely observability.
-async function runBSelfVerify(cfg, b2, round) {
-  const prompt =
-    'YOU ARE B SELF-VERIFIER for ' + cfg.deliverable + ' (round ' + round + ').\n'
-    + 'Your task: verify that the previous B review\'s citations and claims '
-    + 'have actual evidence on disk. You are NOT asked to re-review the '
-    + 'deliverable — only to check that what B claimed is true.\n\n'
-    + 'Previous B review JSON:\n' + JSON.stringify(b2, null, 2) + '\n\n'
-    + 'DELIVERABLE: ' + REPO + '/' + cfg.diskPath + '\n\n'
-    + 'Steps (MAX 6 Bash calls total — stop and return what you have if you reach 6):\n'
-    + '1. Read the deliverable ONCE: Bash `cat ' + REPO + '/' + cfg.diskPath + '`.\n'
-    + '2. For ALL gap.citations: check against the content you already read — '
-    + 'no additional file reads per citation. Set verified:true if the cited text supports gap.message.\n'
-    + '3. For REJECT.reason claims: identify the 1-3 most specific noun/verb keywords\n'
-    + '   from each claim, then run ONE combined Bash grep:\n'
-    + '   grep -n "<keyword_1>\\|<keyword_2>" ' + REPO + '/' + cfg.diskPath + '\n'
-    + '   (Replace <keyword_N> with actual words from the claims. 1 Bash call max.\n'
-    + '    If no reason claims exist, skip this step.)\n'
-    + '4. Return compact JSON ONLY (no markdown, no commentary):\n'
-    + '{"verified_gaps":[{"message":"<short>","citation":"<short>","verified":true|false,"evidence":"<1-line or empty>"}],'
-    + '"unverified_reason_claims":["<short fragment>"],'
-    + '"recalibrated_review":"APPROVE"|"REJECT",'
-    + '"confidence":"high|medium|low"}\n'
-  const res = await agent(prompt, {
-    label: 'verify-b-' + cfg.key + '-r' + round,
-    phase: cfg.phaseName,
-    agentType: 'general-purpose',
-  })
-  try { return parseAgentJson(res, 'verify-' + cfg.key + '-r' + round) }
-  catch (e) { log('  X1 verify parse failed: ' + e.message.slice(0, 80)); return null }
+// ---- structuredBReview (T1-B) — harness-owned B-2 round-loop control ----
+//
+// Replaces hasHighGap() (hand-rolled gap-severity gating), runBSelfVerify()
+// (second LLM re-checking the first LLM's claims), and the VETO guard (that
+// let the second LLM's self-reported confidence silently flip REJECT→APPROVE).
+//
+// Calls structured_b_review.py, which:
+//   1. Extracts JSON from B's raw free-text output
+//   2. Validates against b_review.schema.json
+//   3. Applies downgrade rules (_downgrade_over_interpretation)
+//   4. Runs deterministic gap/reason/citation verification (b_gap_validator)
+//   5. Computes EscalationAction (approve|retry|escalate_human) via enforce_escalation
+//
+// Returns { b2, escalation_action, escalation_reason, review_out } where b2
+// is the normalized (gap-severity-verified) B-2 dict — workflow JS branches
+// on escalation_action.
+async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum) {
+  const rawFile = '/tmp/sbr_raw_' + (phaseNum || 2) + '_r' + round + '.txt'
+  const jsonFile = '/tmp/sbr_out_' + (phaseNum || 2) + '_r' + round + '.json'
+  const delivFlag = delivPath ? ' --doc-content ' + REPO + '/' + delivPath : ''
+  const phaseFlag = ' --phase ' + (phaseNum || 2)
+  const sbrCmd = PY + ' ' + REPO + '/harness/scripts/structured_b_review.py'
+    + ' --raw-text ' + rawFile
+    + ' --round ' + round
+    + ' --max-rounds ' + maxRounds
+    + ' --json-out ' + jsonFile
+    + phaseFlag
+    + delivFlag
+    + ' --quiet'
+
+  const reviewAgent = await agent(
+    'YOU ARE A DETERMINISTIC B-REVIEW VALIDATOR. Run these steps in order via Bash.\n'
+    + '1. Write the raw B-review text to a file (heredoc — verbatim, no modification):\n'
+    + '   cat > ' + rawFile + " <<'HEREDOC_END'\n" + bRawText + '\nHEREDOC_END\n'
+    + '2. Run: `' + sbrCmd + '`\n'
+    + '3. Read the output: `cat ' + jsonFile + '`\n'
+    + 'Return the verbatim cat output as your final message — no commentary.',
+    { label: 'sbr-' + (phaseNum || 2) + '-r' + round, phase: 'B Review', agentType: 'general-purpose' },
+  )
+  let reviewOut = null
+  try {
+    reviewOut = extractLastJson(reviewAgent)
+  } catch (_) { /* fall through */ }
+  if (!reviewOut) {
+    return { b2: null, escalation_action: 'retry', escalation_reason: 'structured_b_review.py output unparseable', review_out: String(reviewAgent ?? '').slice(0, 200) }
+  }
+
+  let b2 = null
+  try {
+    b2 = {
+      review_status: reviewOut.review_status,
+      gaps: reviewOut.gaps || [],
+      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : '',
+      citations: [],
+      docs_embedded: [],
+      verify: reviewOut.b2_verification || null,
+    }
+  } catch (_) { b2 = null }
+
+  return {
+    b2: b2,
+    escalation_action: reviewOut.escalation_action || 'retry',
+    escalation_reason: reviewOut.escalation_reason || '',
+    review_out: reviewOut,
+  }
 }
 
-// verifiedRatio: share of B's gaps that X1 self-verify could confirm on disk.
-// total === 0 (no gaps) → 1 (nothing to disprove). Shared by summarizeVerify (log)
-// and the G1 instability warn in abLoop so both read the same number.
-function verifiedRatio(b2, verify) {
-  if (!verify) return 1
-  const total = (b2.gaps ?? []).length
-  const verified = (verify.verified_gaps ?? []).filter(function (g) { return g.verified }).length
-  return total > 0 ? verified / total : 1
-}
 function summarizeVerify(b2, verify) {
-  if (!verify) return 'verify=skipped'
-  const gaps = b2.gaps ?? []
-  const total = gaps.length
-  const verified = (verify.verified_gaps ?? []).filter(function (g) { return g.verified }).length
-  const unverifiedClaims = (verify.unverified_reason_claims ?? []).length
-  const flag = verifiedRatio(b2, verify) < 0.5 ? ' [X1: B UNSTABLE — majority unverified]' : ''
-  return 'verify=' + verified + '/' + total + ' gaps_verified' + (unverifiedClaims > 0 ? ' | ' + unverifiedClaims + ' unverified_reason_claims' : '') + flag
+  if (verify) return 'verify=harness (b2_verification)'
+  return 'verify=skipped'
 }
 
 // ---- Generic A/B loop (returns {ok,content,b2} or {error,...} — caller propagates) ----
@@ -265,58 +311,27 @@ async function abLoop(cfg) {
       if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
-    try { b2 = parseAgentJson(bResult, 'B-' + cfg.key + '-r' + round) }
-    catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' B parse failed at max rounds', detail: e.message }
-      log('  B parse failed: ' + e.message + ' — retrying'); continue
-    }
-    log('  B-2: ' + b2.review_status + ' | gaps=' + (b2.gaps ?? []).length + ' | high=' + (hasHighGap(b2.gaps) ? 'yes' : 'no'))
 
-    // X1 self-verify (mirrors phase1 §B-2.5; observability layer)
-    b2.verify = await runBSelfVerify(cfg, b2, round)
-    log('  ' + summarizeVerify(b2, b2.verify))
+    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
+    // Replaces hasHighGap/runBSelfVerify/VETO guard — one agent dispatch.
+    const sbrResult = await structuredBReview(
+      bResult,  // raw text from B agent — the CLI extracts JSON from it
+      round, MAX_B_ROUNDS, cfg.diskPath, 2,
+    )
+    b2 = sbrResult.b2 || parseAgentJson(bResult, 'B-' + cfg.key + '-r' + round)
+    log('  B-2: ' + (b2 ? b2.review_status : '(none)')
+      + ' | gaps=' + ((b2 ? b2.gaps : []) || []).length
+      + ' | escalation=' + sbrResult.escalation_action)
 
-    // X1 VETO GUARD (parity with phase1-requirements Bug v17 fix — observed firing
-    // on phase1 2026-06-29). Without this, B can hallucinate a REJECT in a late
-    // round (e.g. "SAD.md failed to load" when the file exists and is complete) and
-    // burn all MAX_B_ROUNDS even though X1 self-verify correctly flags the claim as
-    // false (recalibrated_review=APPROVE + confidence=high). Promoting REJECT →
-    // APPROVE is safe because: (a) X1 has direct disk access to verify the claim;
-    // (b) APPROVE+high is only emitted when X1 found the gap unverified; (c) gap
-    // data stays attached to b2 (x1_veto_overridden flag) for downstream visibility.
-    if (b2.review_status === 'REJECT' &&
-        b2.verify &&
-        b2.verify.recalibrated_review === 'APPROVE' &&
-        b2.verify.confidence === 'high') {
-      log('  X1 VETO — B hallucination confirmed by self-verify (recalibrated_review=APPROVE, confidence=high); promoting REJECT → APPROVE')
-      b2.review_status = 'APPROVE'
-      b2.gaps = []
-      b2.x1_veto_overridden = true
-    }
-
-    // G1: X1 UNSTABLE warn (no auto-promote). B still REJECT and the MAJORITY of its
-    // gaps could not be confirmed on disk (ratio < 0.5), yet X1 did not reach the
-    // APPROVE+high bar the VETO guard above requires. We do NOT flip the verdict (a
-    // low-confidence self-verify must not override B); we only surface the instability
-    // so the otherwise-invisible retry round is attributable. x1_unstable rides on b2
-    // for downstream visibility.
-    if (b2.review_status === 'REJECT' && b2.verify) {
-      const ratio = verifiedRatio(b2, b2.verify)
-      if (ratio < 0.5) {
-        log('  X1 WARN — B REJECT but majority gaps unverified (ratio=' + ratio.toFixed(2) + '); proceeding to round ' + (round + 1) + ' at low confidence')
-        b2.x1_unstable = true
-      }
-    }
-
-    if (b2.review_status === 'APPROVE' && !hasHighGap(b2.gaps)) {
+    if (sbrResult.escalation_action === 'approve') {
       log('  APPROVED')
-      // Persist Agent B approval JSON (harness _verify_agent_b_approvals_core contract).
-      // approval filename = "<did>.json" where did IS the full _PHASE_DELIVERABLES[N]
-      // entry (e.g. "SAD.md" → "SAD.md.json"). DO NOT strip the extension — harness
-      // matches the file via `approvals_dir / f"{did}.json"`.
       const approvalId = cfg.deliverable
       await persistApproval(approvalId, b2)
       return { ok: true, content, b2 }
+    }
+    if (sbrResult.escalation_action === 'escalate_human') {
+      log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
+      return { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }
     }
     if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }
     // APPROVE+high OR REJECT → A fixes next round
@@ -471,6 +486,7 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
     + '4. HANDOFF: `' + PY + ' ' + REPO + '/harness_cli.py validate-handoff --from-phase 1 --project ' + REPO + '`. Must exit 0; if exit 1, read errors, fix upstream P1 deliverable, re-run.\n'
     + '5. PREFLIGHT-CI: confirm `' + REPO + '/.github/workflows/harness_quality_gate.yml` (CI workflow) + `' + REPO + '/.git/hooks/prepare-commit-msg` (git hook) both exist; confirm state.json current_phase=2. If stale: `' + PY + ' ' + REPO + '/harness_cli.py init-project --phase 2 --project ' + REPO + ' --overwrite`.\n'
     + '6. LOAD-CONTEXT: `mkdir -p ' + REPO + '/.sessi-work && ' + PY + ' ' + REPO + '/harness_cli.py load-context --phase 2 --project ' + REPO + ' --json > ' + REPO + '/.sessi-work/phase2_ctx.json`.\n\n'
+    + '7. READ THE LESSONS BLOCK: after step 6, Bash `cat ' + REPO + '/.sessi-work/phase2_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in this preflight or any follow-up P2 work. (Direction C — past lessons injection)\n\n'
     + 'Report plain text: "PREFLIGHT: PASS" or "PREFLIGHT: FAIL — <one-line reason>".\n\n'
     + 'SCOPE RULES:\n'
     + '- DO NOT write any P2 deliverable (SAD/ADR/TEST_SPEC).\n'
@@ -516,9 +532,10 @@ const sad = await abLoop({
     + '   - §1 Overview. §2 Module design: every FR (enumerate from SPEC.md ### FR-XX: headings) maps to ≥1 module; follow SPEC.md §6 directory structure (read SPEC §6 for the project-specific module tree — do not assume a fixed module set). ≤15 files/dir, no god-module.\n'
     + '   - §3 Interfaces & data flows (consistent diagrams). §4 NFR handling (latency/security/cost per all NFRs enumerated from SPEC.md ### NFR-XX: headings).\n'
     + '   - §5 SAB block placeholder: include the literal marker `<!-- SAB:START -->` (real YAML filled in SAB Generation phase later).\n'
+    + '   - §6 Security Design (STRIDE-lite Threat Model): Write the SEC block into SAD.md §6 using the canonical template (do NOT hand-write the YAML — paste from canonical template via `python3 -c "from core.quality_gate.security_design import render_canonical_security_template; print(render_canonical_security_template())"` then replace EXAMPLE values with real project values). Must include literal marker `<!-- SEC:START -->` + boundaries + threats + verified_by, OR an honest `applicability: none` + ≥20-char justification. `applicability: none` is a fully valid declaration for projects with no real attack surface.\n'
     + '   - No circular dependencies.\n'
     + '3. Re-read file (Read) for FINAL state. Create dir ' + REPO + '/02-architecture if missing (Write tool).\n'
-    + (round > 1 && prevB2 ? '4. Apply HIGH-severity gap fixes from previous B-2 (DOC below) via Edit (surgical, do NOT rewrite whole file).\n' : '')
+    + (round > 1 ? '4. Apply HIGH-severity gap fixes from previous B-2 (DOC below) via Edit (surgical, do NOT rewrite whole file).\n' : '')
     + 'Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","files":["02-architecture/SAD.md"],"confidence":"high|medium|low","citations":["SRS.md FR-01","..."],"summary":"<1-2 lines>"}\n\n'
     + 'SCOPE RULES:\n- DO NOT write ADR.md or TEST_SPEC.md.\n- DO NOT run phase-transition / quality-gate / generate_sab commands.\n- DO NOT modify harness/ (HR-17).\n- ONLY author SAD.md and return JSON.'
@@ -549,9 +566,9 @@ const adr = await abLoop({
     + '**REQUIRED H1 (must include "Architecture Decision Records")**: the file MUST start with `# Architecture Decision Records (ADR) — \`<project>\`` (or any H1 line containing the phrase "Architecture Decision Records"). Individual decisions go under `## ADR-NNN: <title>` sub-headings beneath this H1. The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\n\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/adr/ADR.md`. If EXISTS, Read it.\n'
-    + '2. Extract key architecture decisions from SAD.md (read ' + REPO + '/02-architecture/SAD.md). Write individual ADR entries. EACH ADR: context, decision, consequences, alternatives considered. Cover tech stack (Python 3.11 stdlib-only), patterns (ThreadPoolExecutor, atomic write, circuit breaker), interfaces. Remove any `<!-- harness:template-stub -->` markers.\n'
+    + '2. Extract key architecture decisions from SAD.md (read ' + REPO + '/02-architecture/SAD.md). Write individual ADR entries. EACH ADR: context, decision, consequences, alternatives considered. Cover tech stack (Python stdlib-only — read the actual Python version from .venv/bin/python --version), patterns (ThreadPoolExecutor, atomic write, circuit breaker), interfaces. Remove any `<!-- harness:template-stub -->` markers.\n'
     + '3. Create dir ' + REPO + '/02-architecture/adr if missing. Re-read for FINAL state.\n'
-    + (round > 1 && prevB2 ? '4. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
+    + (round > 1 ? '4. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
     + 'Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","files":["02-architecture/adr/ADR.md"],"confidence":"high|medium|low","citations":["..."],"summary":"..."}\n\n'
     + 'SCOPE RULES:\n- DO NOT write SAD.md or TEST_SPEC.md.\n- DO NOT run phase-transition / quality-gate commands.\n- ONLY author ADR.md.'
@@ -573,19 +590,38 @@ let adrContent = adr.content, adrB2 = adr.b2
 
 // ---- Constitution Check — ADR (single-file, per phase2_plan.md CONSTITUTION-CHECK-ADR) ----
 phase('Constitution Check — ADR')
-log('check-constitution --file ADR.md (catches stub/low-density before TEST_SPEC depends on it)')
+log('check-constitution --file ADR.md + check-artifact-consistency (catches stub/low-density AND NFR→ADR coverage gaps before TEST_SPEC/Push depend on it)')
 const adrConstReport = await agent(
   'YOU ARE THE ADR CONSTITUTION CHECKER. Run bash, fix if needed, report.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Command: `' + PY + ' ' + REPO + '/harness_cli.py check-constitution --phase 2 --project ' + REPO + ' --file 02-architecture/adr/ADR.md`\n'
-  + '- PASS → report "ADR-CONSTITUTION: PASS".\n'
+  + '- PASS → proceed to the next command below.\n'
   + '- FAIL → the output lists `missing: <keywords>` on each sub-threshold dimension. Add substantive content covering those exact terms (e.g. a traceability table linking each decision to the SRS FR-IDs and specification it satisfies), remove any template-stub markers, re-run until PASS. Do NOT keyword-stuff — fold the terms into real decision context.\n'
   + '- File missing ([SKIP] exit 0) → report "ADR-CONSTITUTION: FAIL — ADR.md missing" (escalate).\n\n'
-  + 'SCOPE RULES:\n- DO NOT touch SAD/TEST_SPEC.\n- DO NOT run phase-transition commands.\n- ONLY check-constitution on ADR.md and fix it.',
+  + 'After check-constitution PASSes, ALSO run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
+  + '- PASS → report "ADR-CONSTITUTION: PASS".\n'
+  + '- FAIL on nfr_not_traced → the output names the missing NFR-ID. Read the corresponding SRS.md NFR section, then add a genuine traceability-table row for it (a real owning decision, or — if the NFR is cross-cutting with no single owning decision — a short honest ADR entry saying so). Do NOT invent test file paths, benchmark designs, gate numbers, or phase-mechanics that are not already documented elsewhere in this project (SRS.md / SAD.md / SPEC.md) — cite only what those files actually say. Re-run both commands until both PASS.\n'
+  + '- FAIL on illegal_forward_ref → remove/correct the invented filename reference. Re-run both commands until both PASS.\n\n'
+  + 'SCOPE RULES:\n- DO NOT touch SAD/TEST_SPEC.\n- DO NOT run phase-transition commands.\n- ONLY check-constitution + check-artifact-consistency on ADR.md and fix it.',
   { label: 'constitution-adr', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },
 )
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
   return { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) }
+}
+// Structural gate (2026-07-10 fix): don't just trust the agent's self-report — the
+// original bug was discovered because a P2-produced ADR.md silently lacked NFR-01
+// coverage all the way until the Sync-phase git push (after Push+Advance already
+// succeeded). Verify check-artifact-consistency independently here so a false
+// "PASS" claim can't slip through to Push/Advance.
+{
+  const aciVerify = await agent(
+    'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
+    + 'Report ONLY: "ACI: PASS" if exit code 0, else "ACI: FAIL — <first FAIL line>".',
+    { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },
+  )
+  if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
+    return { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -605,10 +641,11 @@ const testSpec = await abLoop({
     + '   - Per FR (enumerate from SPEC.md ### FR-XX: headings — do not assume a fixed FR count): assign Classification (API_ENDPOINT|DATA_ENTITY|ALGORITHM|STATE_MACHINE|INTEGRATION|SECURITY_CONTROL|INFRASTRUCTURE). ≥1 named test case (happy_path + validation mandatory). Preserve TEST_INVENTORY.yaml names where specified.\n'
     + '   - Apply 8-Question Protocol per FR. Concrete Inputs in TRUE form (key="value", NOT pytest-id underscore form). Sub-assertions table per FR (rule_id + predicate + applies_to).\n'
     + '   - Step 1b Architecture-Risk Triggers: scan SAD modules — shared mutable state (store.py) → force NP-13; external process (executor.py subprocess) → force NP-15; cache (cache.py) → force NP-07. Forced cases tagged SAD: in tests/integration/.\n'
+    + '   - **Direction B (Properties)**: If an FR has algebraic invariants (round-trip / idempotence / commutativity / invariant preservation), declare a `**Properties**` table for it (rule_id + property_statement + generator_strategy + shrinks_to). Skip for FRs without clean algebraic invariants (do NOT force).\n'
     + '   - NFR Pattern Activation table + cross-cutting section + Summary table (counts per type).\n'
     + '3. Run self-consistency: `' + PY + ' ' + REPO + '/harness_cli.py check-test-spec-consistency --project ' + REPO + '`. Fix until it passes.\n'
     + '4. Re-read for FINAL state.\n'
-    + (round > 1 && prevB2 ? '5. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
+    + (round > 1 ? '5. Apply HIGH-severity gap fixes from previous B-2 via Edit (surgical).\n' : '')
     + 'Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","files":["02-architecture/TEST_SPEC.md"],"confidence":"high|medium|low","citations":["..."],"summary":"..."}\n\n'
     + 'SCOPE RULES:\n- DO NOT write SAD/ADR.\n- DO NOT run phase-transition / run-gate commands.\n- DO NOT modify harness/.\n- ONLY author TEST_SPEC.md (check-test-spec-consistency is allowed).'
@@ -626,7 +663,7 @@ const testSpec = await abLoop({
     + '- Architecture-risk triggers applied (NP-13/NP-15/NP-07 forced where SAD warrants)?\n'
     + '- Concrete Inputs in TRUE form (key="value"), not pytest-id form?\n- Sub-assertions table per FR (rule_id + predicate + applies_to)?\n'
     + '- Each `### FR-XX:` header followed by TABLE ROWS (not prose-only)?\n- Summary table populated with counts per type?\n'
-    + '- Self-consistency gate passes? (`check-test-spec-consistency`)?\n- Cross-cutting sections complete (NFR Integration + Deployment Smoke + Backward Compatibility if multi-phase)?\n'
+    + '- Self-consistency gate passes? (`check-test-spec-consistency`)?\n- Direction B property gate passes? (python3 harness_cli.py check-property-spec --project .)\n- Cross-cutting sections complete (NFR Integration + Deployment Smoke + Backward Compatibility if multi-phase)?\n'
     + '- All upstream deliverables consistent with each other? No contradictory decisions?',
 })
 if (!testSpec.ok) return testSpec
@@ -678,13 +715,29 @@ for (let attempt = 1; attempt <= 5; attempt++) {
 }
 if (!constPass) return { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) }
 
+// T1-B audit fix: re-run check-artifact-consistency AFTER SAB Generation.
+// The ADR constitution check ran aci against forward-refs only (SAB didn't exist
+// yet). Now that SAB is generated, run the full aci to catch SAB-dependent
+// issues (SEC threat owner_module must exist in SAB, NFR targets vs SAB
+// quality_targets, etc.) — this is the SEC-VALIDATE step phase2_plan.md places
+// AFTER SAB Generation.
+log('check-artifact-consistency (post-SAB SEC-VALIDATE)')
+const aciPostSab = await agent(
+  'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
+  + 'Return the verbatim exit code line: "[check-artifact-consistency] OK" or "[BLOCKED] ...".',
+  { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose' },
+)
+if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
+  return { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) }
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // Phase: Peer Review (holistic Agent B — SAD + ADR + TEST_SPEC)
 // ════════════════════════════════════════════════════════════════════════
 phase('Peer Review')
-log('Agent B (TECH_LEAD) holistic review of all 3 P2 deliverables; max 3 rounds (P-01 advisory, not HR-12)')
+log('Agent B (TECH_LEAD) holistic review of all 3 P2 deliverables; max ' + MAX_PEER_ROUNDS + ' rounds (HR-12)')
 let peerB2 = null
-let peerReviewAdvisory = null
+let peerReviewPassed = false
 // W-02 (parity with phase1 runPeerReview): fixer reports which deliverables it
 // edited; only those get reloaded next round instead of all 3 (saves ~2 loadpy
 // agents/round). null → fall back to full reload.
@@ -709,38 +762,32 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     '- All FRs covered across all deliverables?\n- No contradictions between deliverables?\n- Each item testable/traceable?\n'
     + '- All gaps from sub-task reviews addressed?\n- Terminology consistent across all documents?\n'
     + '- SAB block layers / NFR targets semantically match SAD §2 module design?\n'
-    + '- Every fr_module_traceability entry points to a real SAD §2 module?\n- NFR target fields measurable (not N/A/empty)?'),
+    + '- Every fr_module_traceability entry points to a real SAD §2 module?\n- NFR target fields measurable (not N/A/empty)?\n'
+    + '- SEC block complete in SAD.md §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + ≥20-char justification)?'),
     { label: 'peer-b-r' + round, phase: 'Peer Review', agentType: 'general-purpose' },
   ) } catch (e) {
     if (round === MAX_PEER_ROUNDS) {
-      peerReviewAdvisory = { status: 'advisory', round, reason: 'Peer B agent failed at max rounds: ' + String(e.message ?? e).slice(0, 200), gaps: [] }
-      log('  PEER_REVIEW_ADVISORY: B agent failed at round ' + round + ' — continuing (non-blocking)')
-      break
+      return { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null }
     }
     log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue
   }
-  try { peerB2 = parseAgentJson(bResult, 'PeerB-r' + round) }
-  catch (e) {
-    if (round === MAX_PEER_ROUNDS) {
-      peerReviewAdvisory = { status: 'advisory', round, reason: 'Peer B parse failed at max rounds: ' + e.message, gaps: [] }
-      log('  PEER_REVIEW_ADVISORY: B parse failed at round ' + round + ' — continuing (non-blocking)')
-      break
-    }
-    log('  Peer B parse failed: ' + e.message.slice(0, 80) + ' — retrying'); continue
-  }
-  log('  Peer B-2: ' + peerB2.review_status + ' | gaps=' + (peerB2.gaps ?? []).length + ' | high=' + (hasHighGap(peerB2.gaps) ? 'yes' : 'no'))
+  // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
+  // Peer review spans 3 files — no single --doc-content. Pass null.
+  const sbrResult = await structuredBReview(
+    bResult, round, MAX_PEER_ROUNDS, null, 2,
+  )
+  peerB2 = sbrResult.b2 || parseAgentJson(bResult, 'PeerB-r' + round)
+  log('  Peer B-2: ' + (peerB2 ? peerB2.review_status : '(none)')
+    + ' | gaps=' + ((peerB2 ? peerB2.gaps : []) || []).length
+    + ' | escalation=' + sbrResult.escalation_action)
 
-  // NOTE: no X1 self-verify here. X1 (runBSelfVerify) targets a SINGLE deliverable
-  // via cfg.diskPath; a holistic peer review spans 3 files and has no single
-  // diskPath, so calling it here cat'd an undefined path and produced a useless
-  // verify=0/N. phase1-requirements runPeerReview likewise does not X1-verify the
-  // holistic review — parity preserved.
-  if (peerB2.review_status === 'APPROVE' && !hasHighGap(peerB2.gaps)) { log('  APPROVED'); break }
-  // P-01: round MAX_PEER_ROUNDS REJECT → emit PEER_REVIEW_ADVISORY (non-blocking), continue to Push.
+  if (sbrResult.escalation_action === 'approve') { log('  APPROVED'); break }
+  if (sbrResult.escalation_action === 'escalate_human') {
+    return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }
+  }
+  // HR-12: round MAX_PEER_ROUNDS without convergence → escalate to human.
   if (round === MAX_PEER_ROUNDS) {
-    peerReviewAdvisory = { status: 'advisory', round, reason: peerB2.reason ?? 'Peer review did not converge', gaps: peerB2.gaps ?? [] }
-    log('  PEER_REVIEW_ADVISORY: round ' + round + ' REJECT with ' + (peerB2.gaps ?? []).length + ' gaps — continuing to Push (non-blocking)')
-    break
+    return { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 }
   }
   // Holistic gaps span multiple files → dispatch a fixer agent
   log('  Peer review found gaps — dispatching fixer for round ' + (round + 1))
@@ -786,7 +833,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     + ' ADR=' + adrContent.length + ' Δ' + fmtDelta(adrContent.length - preBytes.adr)
     + ' TEST_SPEC=' + testSpecContent.length + ' Δ' + fmtDelta(testSpecContent.length - preBytes.test))
 }
-if (peerReviewAdvisory) log('  → Peer Review ended with advisory: ' + peerReviewAdvisory.reason.slice(0, 100))
+if (peerReviewPassed) log('  → Peer Review PASS (APPROVE)')
 
 // ════════════════════════════════════════════════════════════════════════
 // Phase: Push (push-checkpoint --phase 2; retry until success, NO --no-verify)
@@ -833,6 +880,23 @@ const advanceReport = await agent(
 // (<90%); do NOT report "complete" when P3 was never entered.
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) }
+}
+
+// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
+// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
+// publishes to origin"). This workflow ends right after Advance with no
+// next-phase push queued, so the handover commit was left stranded on
+// local until whatever runs next happened to push it. Publish it now.
+phase('Sync')
+log('git push origin main (publish advance handover commit)')
+const syncReport = await agent(
+  'Run EXACTLY this command via Bash:\n'
+  + 'git -C ' + REPO + ' push origin main\n\n'
+  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
+  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },
+)
+if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
+  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
 }
 
 log('Phase 2 workflow complete. Open .methodology/phase3_plan.md to continue.')

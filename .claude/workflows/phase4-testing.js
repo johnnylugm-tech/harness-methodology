@@ -27,6 +27,7 @@ export const meta = {
     { title: 'Artifacts Commit' },
     { title: 'Gate 3' },
     { title: 'Advance' },
+    { title: 'Sync' },
   ],
 }
 
@@ -35,10 +36,34 @@ export const meta = {
 // process.env.HARNESS_REPO cannot be read here — playbook §4 forbids process.*
 // in workflow JS. Caller scripts (run-e2e.mjs / harness-e2e.js /
 // phase1-workflow.mjs) read HARNESS_REPO and inject it via args.repo.
-const DEFAULT_REPO = '.'
-let REPO = DEFAULT_REPO
-if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
-if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) REPO = args.repo
+async function resolveRepo() {
+  if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+  let argRepo = ''
+  if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) argRepo = args.repo
+  if (argRepo) {
+    if (!argRepo.startsWith('/')) {
+      throw new Error('[workflow] args.repo must be an absolute path; got "' + argRepo + '"')
+    }
+    log('  REPO: from args.repo override = ' + argRepo)
+    return argRepo
+  }
+  const r = await agent(
+    'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/`.\n'
+    + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
+    + 'cd "$(pwd)"; while [ "$(pwd)" != "/" ] && ! { [ -f harness_cli.py ] && [ -d .methodology ]; }; do cd ..; done; '
+    + 'if [ -f harness_cli.py ] && [ -d .methodology ]; then echo "REPO=$(pwd)"; else echo "REPO_NOT_FOUND cwd=$(pwd)"; fi\n'
+    + 'Report the literal stdout as your final message (no commentary, no transformation).',
+    { label: 'resolve-repo', agentType: 'general-purpose' }
+  )
+  const text = String(r ?? '').trim()
+  const match = text.match(/REPO=(\S+)/)
+  if (match && match[1].startsWith('/')) {
+    log('  REPO: auto-detected via walk-up = ' + match[1])
+    return match[1]
+  }
+  throw new Error('[workflow] REPO not auto-detected (resolver returned: "' + text.slice(0, 200) + '"). Pass args.repo = absolute path or run from inside the project repo.')
+}
+let REPO = await resolveRepo()
 const PY = REPO + '/.venv/bin/python'
 // Bug hunt should use a DIFFERENT model from the developer (minimise same-source bias).
 const HUNT_MODEL = (args && typeof args === 'object' && typeof args.huntModel === 'string') ? args.huntModel : 'claude-opus-4-8'
@@ -187,11 +212,16 @@ phase('Manifest Integrity')
 // Detect the three known corruption patterns (fr_ids truncated, traceability
 // cleared, gate1 wiped) at entry AND re-check before the phase-exit push so
 // corruption is never baked into a milestone commit.
-const integrityCmd = PY + ' -c "import json, sys; m = json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')); ids = m.get(\'fr_ids\') or []; mt = m.get(\'fr_module_traceability\') or {}; g1 = (m.get(\'gate_results\',{}) or {}).get(\'gate1\',{}) or {}; ok_ids = len(ids) >= 2; ok_trace = len(mt) >= len(ids); ok_g1 = isinstance(g1, dict) and len(g1) >= len(ids); print(\'OK\' if (ok_ids and ok_trace and ok_g1) else json.dumps({\'BROKEN\': True, \'fr_ids_count\': len(ids), \'traceability_count\': len(mt), \'gate1_keys\': len(g1), \'recovery\': \'git checkout HEAD -- .methodology/quality_manifest.json\'}))"'
+// T1-A (8-phase audit remediation): the previous inline Python one-liner
+// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`
+// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded
+// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own
+// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead.
+const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 4'
 async function checkManifestIntegrity(phaseLabel, agentLabel) {
   const verdict = await agent(
-    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is exactly `OK`; reason = the verbatim stdout.',
+    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '; echo RC=$?`\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',
     { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   const ok = !!(verdict && verdict.pass === true)
@@ -284,8 +314,12 @@ let deltaTodo = frIds
 const fastProbe = await agent(
   'YOU ARE THE GATE1-DELTA FAST-PATH PROBE. Classify each FR — fix NOTHING.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\nFRs: ' + JSON.stringify(frIds) + '\n\n'
+  + 'Direction C (past lessons): BEFORE classifying, Bash `cat ' + REPO + '/.sessi-work/phase4_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in your pass/fail classification or any follow-up DELTA work.\n\n'
   + 'For EACH FR in order, substituting <FR> with the FR id:\n'
-  + '1. `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 4 --fr-id <FR> --step GATE1-DELTA --project ' + REPO + ' 2>&1 | tail -5`\n'
+  + '1. GATE1-DELTA is long-running for any FR whose code actually changed (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s — can silently block ~2400s worst case even though this step is a "probe"). Run it BACKGROUNDED for every FR, not just slow ones — unchanged FRs still hit the fast in-CLI short-circuit almost instantly so this costs nothing extra:\n'
+  + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 4 --fr-id <FR> --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_<FR>.log 2>&1 & echo $!` — note the PID.\n'
+  + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 40 polls (~20min). Still RUNNING past the cap → classify <FR> as fail_fr_ids (the full loop below will retry it) and move to the next FR — do not kill the PID.\n'
+  + '   c. DONE → proceed to step 2 (the log itself is not needed — the authoritative verdict is the manifest read below).\n'
   + '2. Authoritative verdict (manifest qc AND a phase-4 gate-1 timestamp for <FR>): `' + PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate1\',{}).get(\'<FR>\',{}) or {}; ts=any(e.get(\'phase\')==4 and e.get(\'gate\')==1 and e.get(\'fr_id\')==\'<FR>\' for e in (json.loads(l) for l in open(\'' + REPO + '/.methodology/gate_timestamps.jsonl\') if l.strip())); print(bool(g.get(\'quality_complete\')) and ts)"`\n'
   + '   stdout `True` → pass_fr_ids; anything else (False/None/timeout/error/missing file) → fail_fr_ids.\n\n'
   + 'HARD RULES:\n- DO NOT fix code, edit files, or run TDD steps.\n- DO NOT retry a failing FR — classify it and move on (the full loop handles it).\n- DO NOT run run-gate / bug-hunt / advance-phase / push-milestone.\n- DO NOT modify harness/.\n\n'
@@ -308,12 +342,15 @@ for (const frId of deltaTodo) {
     'YOU ARE THE TEST VERIFIER for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '1. `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 4 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + '`\n'
+    + '1. GATE1-DELTA — long-running when code changed (harness runs up to 3 internal CODE-FIX rounds plus, on FAIL, a full TDD-RED→GREEN→IMPROVE→GATE1 chain — can silently block well past 180s). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\n'
+    + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 4 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\n'
+    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\'s own retries). Still RUNNING past the cap → report "' + frId + ' GATE1: TIMEOUT" (not FAIL) and stop — do not kill the PID.\n'
+    + '   c. DONE → `cat /tmp/gate1delta_' + frId + '.log` for the full output, identical to a synchronous run. Parse PASS/FAIL from it.\n'
     + '   - PASS → done.\n'
     + '   - FAIL → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report FAIL.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report final line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>".\n\n'
-    + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run run-gate / bug-hunt / advance-phase / push-milestone.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
+    + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run run-gate / bug-hunt / advance-phase / push-milestone.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
     { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose' },
   )
   // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
@@ -334,7 +371,25 @@ for (const frId of deltaTodo) {
     { label: 'gate1-verify-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   const passed = !!(verdict && verdict.pass === true)
-  if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]') }
+  if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')
+    // ORCH-POST (per phase4_plan.md, mirroring phase3-implementation.js):
+    // after each FR's Gate 1 PASS, run spec-coverage-check at 40% early-warning
+    // threshold and sync SAB — Gate 3 will block at 80%, this catches the drop
+    // early. Use amend-sab (additive, idempotent) per the documented phase3
+    // pattern; do NOT run generate_sab.py --overwrite (would destroy Phase 3's
+    // FR-scoped module entries).
+    const orchPostCmd = PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '; echo "RC=$?"'
+    const orchVerdict = await agent(
+      'Run EXACTLY this command via the Bash tool:\n`' + orchPostCmd + ' && ' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\n'
+      + 'Then report via the StructuredOutput tool: pass = true ONLY if the spec-coverage-check exit code is 0 (the `RC=0` line); reason = the verbatim output.',
+      { label: 'orch-post-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+    )
+    if (orchVerdict && orchVerdict.pass === true) {
+      log('  ' + frId + ' ORCH-POST OK [spec-coverage ≥40% + amend-sab]')
+    } else {
+      log('  ' + frId + ' ORCH-POST WARNING: ' + (orchVerdict ? orchVerdict.reason : 'agent null') + ' — spec-coverage below 40% early-warning; will block at Gate 3 if still below 80%')
+    }
+  }
   else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 
   // PUSH ⑤ p4-mid — fire once when ≥50% FRs have Gate 1 PASS (but not yet all done).
@@ -388,8 +443,8 @@ const huntReport = await agent(
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'The Gate 3 dimension adversarial_review (threshold 100) BLOCKS the gate if .methodology/bug_hunt_report.json is absent or any confirmed critical/high finding is still "open". Run the hunt NOW.\n\n'
   + 'Steps:\n'
-  + '1. HUNT-TARGETS: `' + PY + ' ' + REPO + '/harness_cli.py bug-hunt-targets --project ' + REPO + '` → .methodology/bug_hunt_targets.json (CRG hubs + mutation survivors + integration gaps).\n'
-  + '2. HUNT-RUN: execute the 4-phase protocol in ' + REPO + '/harness/harness/ssi/prompts/hunt_bugs.md (scout → lens hunters → adversarial verify → synthesize). Reference workflow: ' + REPO + '/harness/templates/workflows/hunt-bugs.js. Spawn hunters/verifiers as sub-agents (you have the Agent tool); use model ' + HUNT_MODEL + ' (DIFFERENT from the developer model to minimise same-source bias). Build the CRG graph first if needed.\n'
+  + '1. HUNT-TARGETS: `' + PY + ' ' + REPO + '/harness_cli.py bug-hunt-targets --project ' + REPO + '` → .methodology/bug_hunt_targets.json (CRG hubs + mutation survivors + integration gaps). **IMPORTANT**: the file\'s `threat_model` entries (SAD.md §6 declared threats via `core.quality_gate.security_design:extract_security_block()`) are forced high-risk attack-vector seeds — INDEPENDENT of CRG/mutation signals — and MUST be present in the target list.\n'
+  + '2. HUNT-RUN: execute the 4-phase protocol in ' + REPO + '/harness/harness/ssi/prompts/hunt_bugs.md (scout → lens hunters → adversarial verify → synthesize). Reference workflow: ' + REPO + '/harness/templates/workflows/hunt-bugs.js. Spawn hunters/verifiers as sub-agents (you have the Agent tool); use model ' + HUNT_MODEL + ' (DIFFERENT from the developer model to minimise same-source bias). Build the CRG graph first if needed. **`threat_model` targets**: verify the declared `mitigation` actually blocks the attack (not just that defensive-looking code exists). For each `threat_model` entry, produce a finding row in `.methodology/bug_hunt_report.json` with `attack_vector`, `attempted_exploit`, and `mitigation_effective: true|false`.\n'
   + '   Output: .methodology/bug_hunt_report.json (schema: harness/schemas/bug_hunt_report.schema.json) + human markdown under 03-development/.audit/.\n'
   + '3. HUNT-RESOLVE: for EACH confirmed critical/high finding set resolution.status:\n'
   + '   - resolved: include fix_commit (SHA) or repro_test (path in tests/).\n'
@@ -476,7 +531,26 @@ if (gate3Blocked) {
   return { session_limit_blocked: true, gate: 3, message: 'Agent hit session/rate limit during Gate 3 evaluation. Resume after quota reset — GUARD checks will skip completed FRs.' }
 }
 if (!gate3Pass) {
-  return { error: 'Gate 3 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate3Report ?? '').slice(-600) }
+  // T1-G: per phase4_plan.md CASE 4/5 (PLATEAU/ABORT), write deferred_fixes.md
+  // with one checkbox per failing dimension — advance-phase hard-blocks
+  // (exit 17) without it, and a human resumes reading from the auto-generated
+  // punch list (not from an empty error string).
+  log('  Gate 3 exhausted 3 rounds — generating deferred_fixes.md')
+  const gate3StateCmd = PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate3\') or {}; print(json.dumps({\'score\': g.get(\'score\'), \'qc\': g.get(\'quality_complete\'), \'dims\': g.get(\'dimensions\',{})}))"'
+  await agent(
+    'YOU ARE THE DEFERRED-FIX RECORDER. Gate 3 failed to reach PASS in 3 rounds.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + '1. Get the last-known Gate 3 state:\n`' + gate3StateCmd + '`\n'
+    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0; echo "RC=$?"` for the D4 status.\n'
+    + '3. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\n'
+    + '   - A brief header: "Gate 3 — deferred fixes" + date + last-known composite score\n'
+    + '   - Each failing dimension (score below its threshold) as a `- [ ]` checkbox item\n'
+    + '   - D4 as a `- [ ]` checkbox item (spec-coverage < 80%)\n'
+    + '   - Each item MUST cite the current score AND the required threshold\n'
+    + '   - A final "Next step:" line: "Resolve every item → re-run Phase 4 Gate 3 → advance-phase"',
+    { label: 'deferred-fixes', phase: 'Gate 3', agentType: 'general-purpose' },
+  )
+  return { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', raw: String(gate3Report ?? '').slice(-600) }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -553,6 +627,24 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 if (!advancePass) {
   return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 5 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
 }
+
+// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
+// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
+// publishes to origin"). This workflow ends right after Advance with no
+// next-phase push queued, so the handover commit was left stranded on
+// local until whatever runs next happened to push it. Publish it now.
+phase('Sync')
+log('git push origin main (publish advance handover commit)')
+const syncReport = await agent(
+  'Run EXACTLY this command via Bash:\n'
+  + 'git -C ' + REPO + ' push origin main\n\n'
+  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
+  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },
+)
+if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
+  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+}
+
 log('Phase 4 workflow complete. Open .methodology/phase5_plan.md to continue.')
 return {
   phase: 4,

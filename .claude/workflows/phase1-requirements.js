@@ -34,27 +34,60 @@ export const meta = {
     { title: 'Sub-Task 4/4 — TEST_INVENTORY.yaml' },
     { title: 'Constitution Check' },
     { title: 'Peer Review' },
+    { title: 'Load Legal Artifacts' },
+    { title: 'Forward Ref Check' },
     { title: 'Push' },
     { title: 'Advance' },
+    { title: 'Sync' },
   ],
 }
 
-// ---- Resolve REPO from args (no process.* / no fs) ----
-const DEFAULT_REPO = '.'
-let REPO = DEFAULT_REPO
-if (typeof args === 'string') {
-  try { args = JSON.parse(args) } catch {}
+// ---- REPO auto-resolver (canonical pattern — keep verbatim across phase*.js) ----
+// CWD-INDEPENDENT via sub-agent round-trip + walk-up. See phase3 for rationale.
+async function resolveRepo() {
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch {}
+  }
+  let argRepo = ''
+  if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) argRepo = args.repo
+  if (argRepo) {
+    if (!argRepo.startsWith('/')) {
+      throw new Error('[workflow] args.repo must be an absolute path; got "' + argRepo + '"')
+    }
+    log('  REPO: from args.repo override = ' + argRepo)
+    return argRepo
+  }
+  const r = await agent(
+    'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/`.\n'
+    + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
+    + 'cd "$(pwd)"; while [ "$(pwd)" != "/" ] && ! { [ -f harness_cli.py ] && [ -d .methodology ]; }; do cd ..; done; '
+    + 'if [ -f harness_cli.py ] && [ -d .methodology ]; then echo "REPO=$(pwd)"; else echo "REPO_NOT_FOUND cwd=$(pwd)"; fi\n'
+    + 'Report the literal stdout as your final message (no commentary, no transformation).',
+    { label: 'resolve-repo', agentType: 'general-purpose' }
+  )
+  const text = String(r ?? '').trim()
+  const match = text.match(/REPO=(\S+)/)
+  if (match && match[1].startsWith('/')) {
+    log('  REPO: auto-detected via walk-up = ' + match[1])
+    return match[1]
+  }
+  throw new Error('[workflow] REPO not auto-detected (resolver returned: "' + text.slice(0, 200) + '"). Pass args.repo = absolute path or run from inside the project repo.')
 }
-if (args && typeof args === 'object' && typeof args.repo === 'string' && args.repo.length > 0) {
-  REPO = args.repo
-}
+let REPO = await resolveRepo()
 log('REPO = ' + REPO)
 
 const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
 log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 const PY = REPO + '/.venv/bin/python'
 const MAX_B_ROUNDS = 5  // HR-12 (sub-tasks: functional gate, must converge)
-const MAX_PEER_ROUNDS = 3  // P-01: advisory threshold (peer review = quality check, not functional gate)
+// 2026-07-13: reverted P-01 (commit 616f2b5, 2026-06-29) — phase1_plan.md's
+// CHECKPOINT-PEER-REVIEW explicitly calls this the "Phase 1/2 exit gate" and
+// mandates max 5 rounds (HR-12) with human escalation on round-5 REJECT.
+// P-01 silently relaxed that to 3 rounds + a non-blocking advisory pass-
+// through, never reflected back into the plan's own text. Restored to match
+// the plan exactly, per instruction that phase1_plan.md is the baseline
+// authority when workflow JS and plan disagree.
+const MAX_PEER_ROUNDS = 5  // HR-12 (Phase 1/2 exit gate — functional, must converge)
 const MAX_OUTER_ATTEMPTS = 3  // v28: retry at orchestrator level, not inside one outer agent call. Single-prompt write+verify via mcp__filesystem__. See persistApproval comment.
 
 // ---- JSON parsing helpers (balanced-brace matcher; matches run-e2e.mjs pattern) ----
@@ -94,25 +127,14 @@ function parseAgentJson(text, agentLabel) {
 }
 
 function hasHighGap(gaps) {
-  // Bug B fix: framework-side schema validation (core/review_schema_validator.py)
-  // downgrades gaps with evidence_type='over_interpretation' from high to medium
-  // (HR-12 regression guard). For workflow JS purposes, a gap counts as
-  // "blocking" (returns true) only if:
-  //   - severity is medium OR high (workflow retains high threshold to catch
-  //     legacy B reviewers that pre-date evidence_type), AND
-  //   - evidence_type is NOT 'over_interpretation' (those are auto-fix path
-  //     → fix_over_interpretation_gap strategy, not retry-loop material).
-  //   - evidence_type IS 'real_invention' (must retry → HR-12 ceiling)
-  //   - OR evidence_type is missing (legacy surface — treat as 'real_invention'
-  //     for back-compat with workflow JS B-2 dispatches that pre-date schema)
-  // methodology_artifact gaps (low severity) never count as blocking.
-  return (gaps ?? []).some(function (g) {
-    if (g.severity !== 'medium' && g.severity !== 'high') return false
-    var et = g.evidence_type
-    if (et === 'over_interpretation') return false
-    if (et === 'methodology_artifact') return false
-    return true  // real_invention OR missing (legacy) → blocking
-  })
+  // REMOVED — superseded by structured_b_review.py's enforce_escalation (T1-B).
+  // The harness-level EscalationAction (approve|retry|escalate_human) combined
+  // with deterministic b_gap_validator severity-recommendation overrides is the
+  // single source of truth for B-2 round-loop control flow. Legacy callers have
+  // been switched to structuredBReview() below; this stub is kept as a comment-
+  // only placeholder so the git diff clearly shows what was replaced. Any code
+  // path still calling hasHighGap() will throw — fix the caller instead.
+  throw new Error('hasHighGap is removed — caller must use structuredBReview() instead (T1-B)')
 }
 
 // ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----
@@ -215,23 +237,33 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath
 }
 
-// ---- B prompt builder (plan §B-1 template, plan-faithful revision) ----
-// Plan §B-1 v2.x originally said "STATELESS sandbox: ZERO file access". That
-// assumption is OBSOLETE — Agent B is general-purpose with full Bash/Read tool
-// access. The verbatim-DOC-embedding pattern causes 3 failure modes:
+// ---- B prompt builder (3-layer B-review defense, T1-B) ----
 //
-//   1. Context window overload: 4 docs × full content = 80k+ tokens → B's
-//      attention disperses; may not actually read the deliverable thoroughly.
-//   2. Premise persistence: prev-round B-2 JSON (incl. any prior hallucination
-//      in `reason`) is re-embedded every round → B extends old false premises
-//      instead of forming fresh judgment from disk.
-//   3. Stale snapshot: embedded content is a round-1 snapshot; if A edits
-//      mid-loop, B never sees the edits unless we re-cat disk.
+// Correct B-review architecture has three layers, not a binary choice between
+// "full embed" and "summary only":
 //
-// Fix: prompt B to USE Bash/Read for fresh disk view. Embedded docs become a
-// SUMMARY (headings + counts) for orientation, NOT the sole source of truth.
-// prevB2 is filtered to drop `reason` (only `gaps` survives — structured,
-// machine-readable, hard to confabulate).
+//   Layer 1 — B agent orientation: embedded docs are a SUMMARY (headings +
+//   counts) via makeDocSummary(). B is instructed to Bash-cat the full file
+//   for any citation file:line before relying on it. Bash cat is reliable
+//   (playbook §8.2); embedding 80k+ tokens of full content disperses B's
+//   attention and causes more hallucination than it prevents.
+//
+//   Layer 2 — Deterministic gap verification (harness): structured_b_review.py
+//   --doc-content reads the deliverable file directly (Python open(), not LLM
+//   context). b_gap_validator checks each gap's message/reason/citations for
+//   term presence in the actual file — claims whose terms never appear get
+//   severity downgraded to low. No LLM involved, no fabrication surface.
+//
+//   Layer 3 — Escalation (harness): enforce_escalation computes the round-loop
+//   verdict (approve|retry|escalate_human) AFTER Layer 2 has corrected gap
+//   severities. A hallucinated "high" gap that got downgraded to "low" by
+//   Layer 2 will not trigger retry; a genuine REJECT with verified claims
+//   still escalates at round MAX_B_ROUNDS.
+//
+// This replaces the old v11 "OBSOLETE stateless-sandbox assumption / Agent B
+// has full Bash access" premise, which was itself a reaction to an even older
+// "must embed full content" premise (phase1_plan.md's original STATELESS rule).
+// Neither extreme was correct — the answer is layers, not embedding depth.
 function buildBPrompt(role, deliverableName, docs, checklist) {
   let p = 'You are ' + role + '. Your task: review the following deliverable (' + deliverableName + ').\n'
     + 'You have FULL access to Bash and Read tools — USE THEM to cat/Read the\n'
@@ -248,8 +280,9 @@ function buildBPrompt(role, deliverableName, docs, checklist) {
     + '  - `citations`: array of "file:line" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\n'
     + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) looks for PURE basenames like "SRS.md", "TEST_INVENTORY.yaml", NOT descriptive strings like "SRS.md §1-§9 full content". Use bare basenames only.\n'
     + '  - CRITICAL: for Phase 1, `docs_embedded` MUST include "SRS.md" regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[1]) rejects any P1 approval missing it.\n\n'
-    + 'Return JSON only (no markdown fences, no commentary). Schema (verbatim from phase1_plan.md B-1):\n'
-    + '{"review_status":"APPROVE"|"REJECT","reason":"<concise>","citations":["file:line"],"docs_embedded":["..."],"gaps":[{"severity":"low|medium|high","message":"...","fr_id":"<FR-XX or null>"}]}\n\n'
+    + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\n'
+    + '{"review_status":"APPROVE"|"REJECT"|"CANCELLED","reason":"<≥100 chars>","citations":["file:line"],"docs_embedded":["..."],"gaps":[{"severity":"low|medium|high","evidence_type":"real_invention|over_interpretation|methodology_artifact","canonical_ref":"<file:line or section ID>","message":"...","fr_id":"<FR-XX or null>"}]}\n'
+    + 'evidence_type tells the framework which fix strategy to dispatch. real_invention=truly new requirement (escalates to high); over_interpretation=ambiguous canonical phrase, missing DERIVED tag (caps at medium); methodology_artifact=framework-side gap, sha256/regex tables etc. (always low).\n\n'
     + 'IMPORTANT: Return ONLY the JSON object as your final message. No prose before or after.'
   return p
 }
@@ -305,52 +338,84 @@ function scopeRules(singleDeliverable, prevDeliverables) {
   return p
 }
 
-// ---- runBSelfVerify (plan §B-2.5 X1 mitigation) ----
-// Dispatch B (fresh STATELESS context) to verify its OWN citations and
-// atomic claims via Bash (sed/grep). Returns verify metadata to be
-// attached to b2 as `b2.verify`. Does NOT change review_status — purely
-// observability layer so humans can spot B hallucination in the log.
-async function runBSelfVerify(cfg, b2, round) {
-  const prompt =
-    'YOU ARE B SELF-VERIFIER for ' + cfg.name + ' (round ' + round + ').\n'
-    + 'Your task: verify that the previous B review\'s citations and claims '
-    + 'have actual evidence on disk. You are NOT asked to re-review the '
-    + 'deliverable — only to check that what B claimed is true.\n\n'
-    + 'Previous B review JSON:\n' + JSON.stringify(b2, null, 2) + '\n\n'
-    + 'DELIVERABLE: ' + REPO + '/' + cfg.diskPath + '\n\n'
-    + 'Steps (MAX 6 Bash calls total — stop and return what you have if you reach 6):\n'
-    + '1. Read the deliverable ONCE: Bash `cat ' + REPO + '/' + cfg.diskPath + '`.\n'
-    + '2. For ALL gap.citations: check against the content you already read — '
-    + 'no additional file reads per citation. Set verified:true if the cited text supports gap.message.\n'
-    + '3. For REJECT.reason claims: identify the 1-3 most specific noun/verb keywords\n'
-    + '   from each claim, then run ONE combined Bash grep:\n'
-    + '   grep -n "<keyword_1>\\|<keyword_2>" ' + REPO + '/' + cfg.diskPath + '\n'
-    + '   (Replace <keyword_N> with actual words from the claims. 1 Bash call max.\n'
-    + '    If no reason claims exist, skip this step.)\n'
-    + '4. Return compact JSON ONLY (no markdown, no commentary):\n'
-    + '{"verified_gaps":[{"message":"<short>","citation":"<short>","verified":true|false,"evidence":"<1-line or empty>"}],'
-    + '"unverified_reason_claims":["<short fragment>"],'
-    + '"recalibrated_review":"APPROVE"|"REJECT",'
-    + '"confidence":"high|medium|low"}\n'
-  const res = await agent(prompt, {
-    label: 'verify-b-' + cfg.idx + '-r' + round,
-    phase: cfg.phaseName,
-    agentType: 'general-purpose',
-  })
-  try { return parseAgentJson(res, 'verify-' + cfg.idx + '-r' + round) }
-  catch (e) { log('  X1 verify parse failed: ' + e.message.slice(0, 80)); return null }
+// ---- structuredBReview (T1-B) — harness-owned B-2 round-loop control ----
+//
+// Replaces hasHighGap() (hand-rolled gap-severity gating), runBSelfVerify()
+// (second LLM re-checking the first LLM's claims), and the VETO guard (that
+// let the second LLM's self-reported confidence silently flip REJECT→APPROVE).
+//
+// Calls structured_b_review.py, which:
+//   1. Extracts JSON from B's raw free-text output
+//   2. Validates against harne/ss b_review.schema.json
+//   3. Applies downgrade rules (_downgrade_over_interpretation)
+//   4. Runs deterministic gap/reason/citation verification (b_gap_validator)
+//   5. Computes EscalationAction (approve|retry|escalate_human) via enforce_escalation
+//
+// Returns { b2, escalation_action, escalation_reason, review_out } where b2
+// is the normalized (gap-severity-verified) B-2 dict – workflow JS branches
+// on escalation_action.
+async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum) {
+  const rawFile = '/tmp/sbr_raw_' + (phaseNum || 1) + '_r' + round + '.txt'
+  const jsonFile = '/tmp/sbr_out_' + (phaseNum || 1) + '_r' + round + '.json'
+  const delivFlag = delivPath ? ' --doc-content ' + REPO + '/' + delivPath : ''
+  const phaseFlag = ' --phase ' + (phaseNum || 1)
+  const sbrCmd = PY + ' ' + REPO + '/harness/scripts/structured_b_review.py'
+    + ' --raw-text ' + rawFile
+    + ' --round ' + round
+    + ' --max-rounds ' + maxRounds
+    + ' --json-out ' + jsonFile
+    + phaseFlag
+    + delivFlag
+    + ' --quiet'
+
+  // Single agent dispatch: write raw text to file → run the harness CLI → cat output.
+  // One agent call replaces the old runBSelfVerify (also one agent dispatch), so
+  // this change is agent-count-neutral per B-2 round.
+  const reviewAgent = await agent(
+    'YOU ARE A DETERMINISTIC B-REVIEW VALIDATOR. Run these steps in order via Bash.\n'
+    + '1. Write the raw B-review text to a file (heredoc — verbatim, no modification):\n'
+    + '   cat > ' + rawFile + " <<'HEREDOC_END'\n" + bRawText + '\nHEREDOC_END\n'
+    + '2. Run: `' + sbrCmd + '`\n'
+    + '3. Read the output: `cat ' + jsonFile + '`\n'
+    + 'Return the verbatim cat output as your final message — no commentary.',
+    { label: 'sbr-' + (phaseNum || 1) + '-r' + round, phase: 'B Review', agentType: 'general-purpose' },
+  )
+  let reviewOut = null
+  try {
+    reviewOut = extractLastJson(reviewAgent)
+  } catch (_) { /* fall through — escalate if unparseable */ }
+  if (!reviewOut) {
+    return { b2: null, escalation_action: 'retry', escalation_reason: 'structured_b_review.py output unparseable', review_out: String(reviewAgent ?? '').slice(0, 200) }
+  }
+
+  // Parse B's own JSON from the structured output (the CLI normalized it).
+  let b2 = null
+  try {
+    b2 = {
+      review_status: reviewOut.review_status,
+      gaps: reviewOut.gaps || [],
+      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : '',
+      citations: [],
+      docs_embedded: [],
+      verify: reviewOut.b2_verification || null,
+    }
+  } catch (_) { b2 = null }
+
+  return {
+    b2: b2,
+    escalation_action: reviewOut.escalation_action || 'retry',
+    escalation_reason: reviewOut.escalation_reason || '',
+    review_out: reviewOut,
+  }
 }
 
-// Summarize X1 verify result for the workflow log line.
 function summarizeVerify(b2, verify) {
-  if (!verify) return 'verify=skipped'
-  const gaps = b2.gaps ?? []
-  const total = gaps.length
-  const verified = (verify.verified_gaps ?? []).filter(function (g) { return g.verified }).length
-  const unverifiedClaims = (verify.unverified_reason_claims ?? []).length
-  const ratio = total > 0 ? verified / total : 1
-  const flag = ratio < 0.5 ? ' [X1: B UNSTABLE — majority unverified]' : ''
-  return 'verify=' + verified + '/' + total + ' gaps_verified' + (unverifiedClaims > 0 ? ' | ' + unverifiedClaims + ' unverified_reason_claims' : '') + flag
+  // REMOVED — replaced by structuredBReview's b2_verification output.
+  // The harness-level b_gap_validator emits gap-level verification details
+  // (verified, matched_terms, unverified_claims, severity_recommendation)
+  // directly in b2.verify. Callers should read that instead.
+  if (verify) return 'verify=harness (b2_verification)'
+  return 'verify=skipped'
 }
 
 // ---- runSubTask: unified A/B loop per phase1_plan.md B-2 verbatim ----
@@ -403,7 +468,7 @@ async function runSubTask(cfg) {
     log('  A status=' + (a && a.status ? a.status : 'assumed-OK') + ' | ' + cfg.diskPath + ' loaded: ' + content.length + ' chars')
 
     // --- B: BUSINESS_ANALYST (stateless; docs embedded verbatim) ---
-    const bDocs = cfg.buildBDocs(round, content, b2)
+    const bDocs = await cfg.buildBDocs(round, content, b2)
     const bPrompt = buildBPrompt('BUSINESS_ANALYST', cfg.name, bDocs, cfg.bChecklist)
     // v15: wrap agent() in try/catch (Bug #2 mitigation)
     let bResult
@@ -415,49 +480,29 @@ async function runSubTask(cfg) {
       if (round === MAX_B_ROUNDS) return { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
-    try { b2 = parseAgentJson(bResult, 'B-' + cfg.idx + '-r' + round) }
-    catch (e) {
-      log('  B parse failed: ' + e.message)
-      if (round === MAX_B_ROUNDS) return { error: 'B parse failed at max rounds', sub_task: cfg.name, detail: e.message }
-      continue
-    }
-    log('  B-2: ' + b2.review_status + ' | gaps=' + (b2.gaps ?? []).length + ' | high=' + (hasHighGap(b2.gaps) ? 'yes' : 'no'))
+    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
+    // Replaces hasHighGap/runBSelfVerify/VETO guard — one agent dispatch.
+    const sbrResult = await structuredBReview(
+      bResult,  // raw text from B agent — the CLI extracts JSON from it
+      round, MAX_B_ROUNDS, cfg.diskPath, 1,
+    )
+    b2 = sbrResult.b2 || parseAgentJson(bResult, 'B-' + cfg.idx + '-r' + round)
+    log('  B-2: ' + (b2 ? b2.review_status : '(none)')
+      + ' | gaps=' + ((b2 ? b2.gaps : []) || []).length
+      + ' | escalation=' + sbrResult.escalation_action)
 
-    // --- B-2.5 X1 self-verify (plan §B-2.5; observability, NOT veto) ---
-    b2.verify = await runBSelfVerify(cfg, b2, round)
-    log('  ' + summarizeVerify(b2, b2.verify))
-
-    // X1 VETO GUARD (Bug v17 — observed 2026-06-29 on phase1-requirements):
-    // Without this guard, B can hallucinate a REJECT in a later round (e.g. round 5
-    // "SRS.md failed to load" when the file exists and is complete) and waste all
-    // 5 B rounds even though X1 self-verify correctly identifies the claim as false
-    // (verified:false + recalibrated_review:APPROVE). Promoting REJECT → APPROVE when
-    // X1 high-confidence overrides is safe because: (a) X1 has direct file system
-    // access to verify citations/claims; (b) recalibrated_review:APPROVE + confidence:high
-    // is only emitted when X1 found the gap unverified; (c) we keep all gap data
-    // attached to b2 for downstream visibility (b2.x1_veto_overridden flag set).
-    if (b2.review_status === 'REJECT' &&
-        b2.verify &&
-        b2.verify.recalibrated_review === 'APPROVE' &&
-        b2.verify.confidence === 'high') {
-      log('  X1 VETO — B hallucination confirmed by self-verify (recalibrated_review=APPROVE, confidence=high); promoting REJECT → APPROVE')
-      b2.review_status = 'APPROVE'
-      b2.gaps = []
-      b2.x1_veto_overridden = true
-    }
-
-    if (b2.review_status === 'APPROVE' && !hasHighGap(b2.gaps)) {
-      log('  APPROVED (all gaps low)' + (b2.x1_veto_overridden ? ' [X1 VETO]' : ''))
-      // Persist Agent B approval JSON (harness _verify_agent_b_approvals_core contract).
-      // approval filename = "<did>.json" where did IS the full _PHASE_DELIVERABLES[N]
-      // entry (e.g. "SRS.md" → "SRS.md.json"). DO NOT strip the extension — harness
-      // matches the file via `approvals_dir / f"{did}.json"`.
+    if (sbrResult.escalation_action === 'approve') {
+      log('  APPROVED (all gaps low)')
       const approvalId = cfg.name
       await persistApproval(approvalId, b2)
       return { content: content, b2: b2 }
     }
+    if (sbrResult.escalation_action === 'escalate_human') {
+      log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
+      return { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }
+    }
     if (round === MAX_B_ROUNDS) {
-      log('  MAX ROUNDS reached without APPROVE+all-low — ESCALATING')
+      log('  MAX ROUNDS reached without convergence — ESCALATING')
       return { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }
     }
     log('  Continue to round ' + (round + 1) + ' (A will fix high-severity gaps or REJECT issues)')
@@ -544,8 +589,11 @@ async function persistApproval(deliverableId, b2) {
 }
 
 // ---- runPeerReview: holistic B review of all 4 deliverables + fixer agent ----
-// P-01: MAX_PEER_ROUNDS=3 — peer review is a quality advisory, not a functional gate.
-//        Round MAX_PEER_ROUNDS REJECT → PEER_REVIEW_ADVISORY (non-blocking), not HR-12.
+// phase1_plan.md CHECKPOINT-PEER-REVIEW is the Phase 1/2 exit gate: max 5
+// rounds (HR-12); round-5 REJECT escalates to human (orchestrator cannot
+// self-resolve). (2026-07-13: reverted the P-01 advisory relaxation —
+// commit 616f2b5 — which had silently dropped this to 3 rounds + a
+// non-blocking pass-through, never reflected back into the plan's text.)
 // W-02: docCache — only reload docs the fixer reports as modified (not all 4 each round).
 async function runPeerReview(approvedDocs) {
   // approvedDocs = [{ diskPath, diskPrefix, label }, ...]
@@ -597,22 +645,36 @@ async function runPeerReview(approvedDocs) {
       if (round === MAX_PEER_ROUNDS) return { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
       log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
-    try { b2 = parseAgentJson(bResult, 'PeerB-r' + round) }
-    catch (e) {
-      if (round === MAX_PEER_ROUNDS) return { error: 'Peer B parse failed at max rounds (round ' + round + ')', detail: e.message }
-      log('  Peer B parse failed: ' + e.message.slice(0, 80) + ' -- retrying'); continue
-    }
+    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
+    // Peer review has no single deliverable, so skip --doc-content.
+    const sbrResult = await structuredBReview(
+      bResult, round, MAX_PEER_ROUNDS, null, 1,
+    )
+    b2 = sbrResult.b2 || b2  // keep parseAgentJson fallback for consistency
+    log('  Peer B-2: ' + (b2 ? b2.review_status : '(none)')
+      + ' | gaps=' + ((b2 ? b2.gaps : []) || []).length
+      + ' | escalation=' + sbrResult.escalation_action)
 
-    log('  Peer B-2: ' + b2.review_status + ' | gaps=' + (b2.gaps ?? []).length + ' | high=' + (hasHighGap(b2.gaps) ? 'yes' : 'no'))
-
-    if (b2.review_status === 'APPROVE' && !hasHighGap(b2.gaps)) {
+    if (sbrResult.escalation_action === 'approve') {
       log('  Peer Review APPROVED (all gaps low)')
       return { b2: b2 }
     }
-    // P-01: last round REJECT → emit advisory (non-blocking), not HR-12 error
+    if (sbrResult.escalation_action === 'escalate_human') {
+      log('  Peer Review ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
+      return {
+        error: 'Peer Review (Phase 1/2 exit gate): ' + sbrResult.escalation_reason,
+        b2: b2, escalation_action: 'escalate_human',
+      }
+    }
+    // HR-12: round MAX_PEER_ROUNDS REJECT (or unresolved medium/high gaps) →
+    // escalate to human. This is the Phase 1/2 exit gate per phase1_plan.md
+    // — the orchestrator cannot self-resolve past this point.
     if (round === MAX_PEER_ROUNDS) {
-      log('  Peer Review did not converge in ' + MAX_PEER_ROUNDS + ' rounds — emitting ADVISORY (non-blocking)')
-      return { b2: b2, peer_review_advisory: { status: 'advisory', round: round, gaps: b2.gaps ?? [], note: 'Deliverables pushed with known gaps; peer review advisory only' } }
+      log('  Peer Review did not converge in ' + MAX_PEER_ROUNDS + ' rounds — HR-12 escalation')
+      return {
+        error: 'Peer Review (Phase 1/2 exit gate) did not reach APPROVE within ' + MAX_PEER_ROUNDS + ' rounds (HR-12) — escalate to human. Fix the remaining gaps manually, then re-dispatch Agent B.',
+        b2: b2,
+      }
     }
 
     // Fixer: address HIGH/MEDIUM gaps; returns modified_files for W-02 selective reload
@@ -670,6 +732,7 @@ for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
     + '   c. ' + REPO + '/.git/hooks/prepare-commit-msg — must exist\n'
     + '   If any missing: ' + PY + ' ' + REPO + '/harness_cli.py init-project --phase 1 --project ' + REPO + ' --overwrite\n'
     + '3. mkdir -p ' + REPO + '/.sessi-work && ' + PY + ' ' + REPO + '/harness_cli.py load-context --phase 1 --project ' + REPO + ' --json > ' + REPO + '/.sessi-work/phase1_ctx.json\n\n'
+    + '4. READ THE LESSONS BLOCK: Bash `cat ' + REPO + '/.sessi-work/phase1_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in your preflight or any follow-up P1 work. (Direction C — past lessons injection)\n\n'
     + 'Report final outcome as plain text: "PREFLIGHT: PASS" or "PREFLIGHT: FAIL — <one-line reason>".\n\n'
     + 'ABSOLUTE SCOPE RULES (violations will break the pipeline):\n'
     + '- ONLY run the 3 steps above. Zero other harness commands.\n'
@@ -704,6 +767,30 @@ if (projectBriefContent.startsWith('FILE_MISSING') || projectBriefContent.starts
   }
 }
 log('  PROJECT_BRIEF content loaded: ' + projectBriefContent.length + ' chars | first line: ' + projectBriefContent.split('\n')[0])
+
+// ============================================================================
+// LOAD LEGAL ARTIFACTS (DRY fix: read SSOT from harness instead of hardcoding)
+// ============================================================================
+phase('Load Legal Artifacts')
+log('Load legal-deliverable filenames from harness SSOT (legal_artifacts.py)')
+
+let LEGAL_ARTIFACTS_HINT = ''
+const laRaw = await agent(
+  'Run EXACTLY this command via Bash:\n'
+  + PY + ' ' + REPO + '/harness_cli.py print-legal-artifacts\n\n'
+  + 'Read the JSON output. Then report a SINGLE line starting with "LEGAL_HINT: " followed by:\n'
+  + '**Forward references to downstream phase docs**: any `NN-stage/FILE.md` reference in the deliverable MUST use a legal framework deliverable filename. The harness `check_forward_refs` gate (artifact_consistency.py) blocks any invented filename. Legal per-stage filenames are: <for each stage from JSON, format as: STAGE → {FILE1, FILE2, ...}; next STAGE → {...}; ...>. NEVER invent filenames like `ARCHITECTURE.md` for the P2 architecture deliverable — use `SAD.md`.\n\n'
+  + 'Output ONLY the LEGAL_HINT: line. Nothing else.',
+  { label: 'legal-artifacts', phase: 'Load Legal Artifacts', agentType: 'general-purpose' },
+)
+const laMatch = String(laRaw ?? '').match(/^LEGAL_HINT:\s*(.+)$/m)
+if (laMatch) {
+  LEGAL_ARTIFACTS_HINT = '   ' + laMatch[1].trim()
+  log('  Legal artifacts hint loaded (' + LEGAL_ARTIFACTS_HINT.length + ' chars)')
+} else {
+  LEGAL_ARTIFACTS_HINT = '   **Forward references to downstream phase docs**: any `NN-stage/FILE.md` reference in the deliverable MUST use a legal framework deliverable filename. The harness `check_forward_refs` gate (artifact_consistency.py) blocks any invented filename. See `harness_cli.py print-legal-artifacts` for the authoritative list. NEVER invent filenames like `ARCHITECTURE.md` for the P2 architecture deliverable — use `SAD.md`.'
+  log('  WARNING: failed to parse legal-artifacts hint; using fallback (forward-ref check still enforced by pre-push hook)')
+}
 
 // ============================================================================
 // SUB-TASK 1/4 — SRS.md (plan: A-1 INGESTION MODE; B-1 STATELESS sandbox)
@@ -743,7 +830,7 @@ function srsAPrompt(round, prevB2) {
     + '   - FORBIDDEN: vague/non-testable acceptance criteria.\n'
     + '   - Structure: 1) Introduction, 2) Constraints, 3) Functional Requirements (one § per FR with testable AC + canonical spec citation), 4) Non-Functional Requirements (one § per NFR with measurable AC + citation), 5) Acceptance Criteria Summary, 6) Out-of-Scope, 7) Open Issues (deferred items with NFR-99 / FR-XX-deferred tags), 8) Risks, 9) Glossary.\n'
     + '   - Create directory ' + REPO + '/01-requirements if missing. Use Write tool to create the file.\n'
-    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes to SRS.md via Edit (surgical; do NOT rewrite the whole file). MED/LOW gaps: log but skip unless trivial.\n' : '')
+    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes to SRS.md via Edit (surgical; do NOT rewrite the whole file). MED/LOW gaps: log but skip unless trivial.\n'
     + '5. (Re-)read file via Read tool to capture its FINAL on-disk state after any edits.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/SRS.md && wc -l ' + REPO + '/01-requirements/SRS.md`\n'
     + '7. Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
@@ -757,10 +844,22 @@ function srsAPrompt(round, prevB2) {
 
 // SRS B DOCs (plan-faithful: PROJECT_BRIEF.md is small, embed fully;
 // draft SRS.md IS the deliverable under review, embed fully)
-function srsBDocs(round, content, prevB2) {
+// DOC 3 (2026-07-13 fix): phase1_plan.md Sub-Task 1/4 B-1 requires a 3rd DOC —
+// srs_vs_spec_diff.json (canonical_diff.py's per-AC over_spec_score, checklist
+// uses over_spec_score > 0.7 as its rubric) — Agent A generates it in srsAPrompt
+// step 3 but it was never forwarded to Agent B, who lost the independent
+// over-spec signal entirely. May legitimately not exist (Elicitation mode /
+// SPEC.md absent — plan's own fallback note is used verbatim below), so this
+// uses a single-attempt load rather than loadFileViaPython's default retries.
+async function srsBDocs(round, content, prevB2) {
+  const diffRaw = await loadFileViaPython('srs_vs_spec_diff.json', null, 'Sub-Task 1/4 — SRS.md', { maxAttempts: 1 })
+  const diffDoc = (diffRaw.startsWith('ERROR') || diffRaw.startsWith('FILE_MISSING'))
+    ? 'srs_vs_spec_diff.json unavailable — treat all ACs as potential over-spec per the Canonical Interpretation Rule.'
+    : diffRaw
   return [
     ['DOC 1: Project description / stakeholder brief (PROJECT_BRIEF.md)', projectBriefContent],
     ['DOC 2: draft 01-requirements/SRS.md (full content)', content],
+    ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 verbatim canonical .. 1.0 pure invention); gaps with over_spec_score > 0.7 are framework-flagged', diffDoc],
   ]
 }
 
@@ -811,10 +910,12 @@ function specTrackAPrompt(round, prevB2) {
     + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SPEC_TRACKING.md && echo EXISTS || echo MISSING`.\n'
     + '   - If EXISTS: Read it (current state). Continue to step 4.\n'
     + '   - If MISSING: Continue to step 2 (first-time authoring).\n'
-    + '2. Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness.\n'
+    + '2. Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness. **STANDARD template columns only** (do NOT invent a Gate-score column as authority — Status is machine-refreshed from `build_traceability` at `advance-phase`, and score authority is `quality_manifest.json`; SPEC_TRACKING.md is a human-readable view, NOT the SSOT).\n'
     + '   **REQUIRED H1 (must include "Specification Tracking Matrix")**: the file MUST start with `# Specification Tracking Matrix — \`<project-name>\`` (or any H1 line containing the phrase "Specification Tracking Matrix"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n'
+    + LEGAL_ARTIFACTS_HINT + '\n'
+    + '   **CANONICAL_SPEC SOURCE PATH (SPEC path guard — completes 914ec62 coverage)**: any reference to the canonical spec source within the matrix MUST use the project-root `SPEC.md` path (i.e. `' + REPO + '/SPEC.md`, written in rows as bare `SPEC.md` without any directory prefix). The harness `check_forward_refs` gate treats `01-requirements/SPEC.md` as an ILLEGAL source path (canonical_spec = root `SPEC.md` per harness SSOT). Anti-pattern: writing `01-requirements/SPEC.md` because the deliverable directory is `01-requirements/` — that path does not exist; the canonical spec lives at the repo root. Specifically: every Ownership / Source / Citation / Reference cell that points back to the spec source MUST use bare `SPEC.md` (root), NOT `01-requirements/SPEC.md`. // @rule R-CANONICAL-SPEC-PATH-001\n'
     + '3. (Re-)read file via Read for final state.\n'
-    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n' : '')
+    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
     + '5. (Re-)read file for final state.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/SPEC_TRACKING.md && wc -l ' + REPO + '/01-requirements/SPEC_TRACKING.md`\n'
     + '7. Return ONLY this compact JSON — do NOT embed file content:\n'
@@ -868,14 +969,15 @@ function traceAPrompt(round, prevB2) {
     'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 3/4 TRACEABILITY_MATRIX.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\n\n'
     + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md\n\n'
-    + '**REQUIRED H1 (must include "Traceability Matrix")**: the file MUST start with `# Traceability Matrix — \`<project-name>\`` (or any H1 line containing the phrase "Traceability Matrix"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n\n'
+    + '**REQUIRED H1 (must include "Traceability Matrix")**: the file MUST start with `# Traceability Matrix — \`<project-name>\`` (or any H1 line containing the phrase "Traceability Matrix"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n'
+    + LEGAL_ARTIFACTS_HINT + '\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && echo EXISTS || echo MISSING`.\n'
     + '   - If EXISTS: Read it. Continue to step 4.\n'
     + '   - If MISSING: Continue to step 2.\n'
     + '2. Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage.\n'
     + '3. (Re-)read file via Read for final state.\n'
-    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n' : '')
+    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
     + '5. (Re-)read file for final state.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && wc -l ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md`\n'
     + '7. Return ONLY this compact JSON:\n'
@@ -947,7 +1049,7 @@ function testInvAPrompt(round, prevB2) {
     + '     - by_layer.<L>.count MUST equal count(tc_ids in tests block with layer=<L>).\n'
     + '     - These two MUST equal total_test_cases (no arithmetic drift).\n'
     + '3. (Re-)read file via Read for final state.\n'
-    + (prevB2 ? '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n' : '')
+    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
     + '5. (Re-)read file for final state.\n'
     + '6. Verify file exists on disk: `test -f ' + REPO + '/TEST_INVENTORY.yaml && wc -l ' + REPO + '/TEST_INVENTORY.yaml`\n'
     + '7. Verify internal arithmetic: enumerate tc_ids in tests block → must equal by_fr_total AND by_layer_total AND total_test_cases.\n'
@@ -1032,7 +1134,7 @@ if (!/CONSTITUTION:\s*PASS/.test(constitutionResult)) {
 // PEER REVIEW (per phase1_plan.md CHECKPOINT-PEER-REVIEW)
 // ============================================================================
 phase('Peer Review')
-log('Agent B holistic review of all 4 deliverables; max 5 rounds')
+log('Agent B holistic review of all 4 deliverables; max ' + MAX_PEER_ROUNDS + ' rounds (HR-12)')
 
 const peerDocs = [
   { diskPath: '01-requirements/SRS.md', diskPrefix: '# Software Requirements Specification', label: '01-requirements/SRS.md (APPROVED)' },
@@ -1043,6 +1145,27 @@ const peerDocs = [
 
 const peerResult = await runPeerReview(peerDocs)
 if (peerResult.error) return peerResult
+
+// ============================================================================
+// FORWARD REF CHECK (pre-PUSH — deterministic forward-reference gate, fail fast)
+// ============================================================================
+phase('Forward Ref Check')
+log('check-artifact-consistency --forward-refs-only (catch invented filenames before 40min push)')
+
+const fwdRefRaw = await agent(
+  'Run EXACTLY this command via Bash:\n'
+  + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --forward-refs-only --project ' + REPO + '\n\n'
+  + 'Report final outcome as plain text: "FWDREF: PASS" or "FWDREF: FAIL — <one-line reason>".\n\n'
+  + 'If FAIL, also report which file(s) contain illegal forward references.',
+  { label: 'forward-ref-check', phase: 'Forward Ref Check', agentType: 'general-purpose' },
+)
+if (!/FWDREF:\s*PASS/.test(String(fwdRefRaw ?? ''))) {
+  return {
+    error: 'Forward ref check FAILED — illegal forward reference in P1 artifact (invented filename like ARCHITECTURE.md). Fix the artifact before push.',
+    raw: String(fwdRefRaw ?? '').slice(-500),
+  }
+}
+log('  Forward ref check PASSED')
 
 // ============================================================================
 // PUSH (per phase1_plan.md B-PUSH)
@@ -1086,6 +1209,23 @@ const advanceReport = await agent(
 )
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) }
+}
+
+// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
+// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
+// publishes to origin"). This workflow ends right after Advance with no
+// next-phase push queued, so the handover commit was left stranded on
+// local until whatever runs next happened to push it. Publish it now.
+phase('Sync')
+log('git push origin main (publish advance handover commit)')
+const syncReport = await agent(
+  'Run EXACTLY this command via Bash:\n'
+  + 'git -C ' + REPO + ' push origin main\n\n'
+  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
+  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },
+)
+if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
+  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
 }
 
 log('Phase 1 workflow complete. Open .methodology/phase2_plan.md to continue.')
