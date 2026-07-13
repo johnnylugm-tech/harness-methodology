@@ -1223,6 +1223,7 @@ class KillSwitch:
 | `feedback_hook.py` | `AutoQualityGateWithFeedback` | AutoQualityGate subclass that submits feedback on gate completion |
 | `constitution/__init__.py` | — | Constitution sub-package (used by `preflight_constitution`) |
 | `cross_artifact.py` | — | D3 cross-artifact fabrication detector: phase title mismatch, FR coverage mismatch, coverage number mismatch; entry point `run_cross_artifact_checks(project_root, phase)` → `{"passed": bool, "violations": [...], "checks_ran": int}`. Runs during Phase Truth verification and `finalize-gate` postflight. |
+| `security_design.py` | — | Round 10: STRIDE-lite threat-model completeness check for SAD.md §6's `<!-- SEC:START/END -->` block — decidable structural rules (boundary/threat/NFR/test-existence cross-references), never keyword-density scoring (the class of check `security` was removed from constitution P1/P3/P4 scoring for — see Bug #35). Entry point `check_security_design(project, phase)` → `list[Violation]`; factory `render_canonical_security_template()`. Feature-gated by `features.security_design` (default `true`). Wired into `preflight_artifact_consistency` and `cmd_check_artifact_consistency`. |
 
 **Support modules (stubs/config — crg-003 additions):**
 
