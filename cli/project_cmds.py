@@ -1231,7 +1231,7 @@ def _harness_workflow_template() -> str:
     Reads directly from templates/harness_quality_gate.yml — the single source of truth.
     init-project and harness-init.sh both deploy the same file, so there is no drift.
     """
-    template_path = Path(__file__).parent / "templates" / "harness_quality_gate.yml"
+    template_path = Path(__file__).parent.parent / "templates" / "harness_quality_gate.yml"
     if not template_path.exists():
         raise FileNotFoundError(
             f"Workflow template not found: {template_path}\n"
