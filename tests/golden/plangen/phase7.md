@@ -155,11 +155,6 @@ Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate
 
 ### Phase 7 → Phase 8: Configuration Management
 
-- Generate Phase 8 plan:
-  ```bash
-  python3 harness_cli.py plan-phase --phase 8 --project . \
-    --output .methodology/phase8_plan.md
-  ```
 - **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase
   > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`
   >   → identify which phase link or gate artifact failed

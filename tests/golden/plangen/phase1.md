@@ -489,11 +489,6 @@ are not re-opened. This bounds backtracking to a single step.
 
 ### Phase 1 → Phase 2: Architecture Design
 
-- Generate Phase 2 plan:
-  ```bash
-  python3 harness_cli.py plan-phase --phase 2 --project . \
-    --output .methodology/phase2_plan.md
-  ```
 - Advance FSM to Phase 2 (writes new HANDOVER.md + local commit):
   ```bash
   python3 harness_cli.py advance-phase --completed 1 --project .

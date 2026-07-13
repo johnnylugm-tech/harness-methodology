@@ -166,11 +166,6 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P
 
 ### Phase 5 → Phase 6: Quality Assurance
 
-- Generate Phase 6 plan:
-  ```bash
-  python3 harness_cli.py plan-phase --phase 6 --project . \
-    --output .methodology/phase6_plan.md
-  ```
 - **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase
   > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`
   >   → identify which phase link or gate artifact failed

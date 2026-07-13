@@ -267,11 +267,6 @@ Agent B peer review of the QA deliverables (HR-01) — both are required to exit
 
 ### Phase 6 → Phase 7: Risk Management
 
-- Generate Phase 7 plan:
-  ```bash
-  python3 harness_cli.py plan-phase --phase 7 --project . \
-    --output .methodology/phase7_plan.md
-  ```
 - **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):
   ```bash
   SCORE=$(python3 -c "import json; d=json.load(open('.methodology/quality_manifest.json')); print(d.get('composite_score','XX'))" 2>/dev/null || echo 'XX')

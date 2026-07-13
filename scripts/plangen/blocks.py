@@ -297,14 +297,18 @@ def _agent_b_dispatch_block(phase: int, role_b: str, fr_id: str = "") -> List[st
         "  **Agent B prompt structure** (use this template verbatim):",
         "  ```",
         f"  You are {role_b}. Your task: review the following {_task_obj}{fr_suffix}.",
-        "  You have NO access to any files — all context is provided below.",
+        "  DOC blocks below are a SUMMARY (headings + counts) for orientation —",
+        "  for any citation file:line, you MUST re-read the full file via Bash cat first",
+        "  (playbook §8.2: Bash cat is reliable; Read tool is not). The harness",
+        "  structured_b_review.py deterministically verifies your gap claims against",
+        "  actual file content (Python open(), not LLM context) — see 3-layer defense.",
         "",
     ]
-    # Auto-enumerate actual doc titles so the agent doesn't have to map them manually
+    # Auto-enumerate actual doc titles as orientation summaries
     for i, doc in enumerate(embed_docs, 1):
         lines += [
-            f"  === [DOC {i}: {doc}] ===",
-            "  <<paste full content here>>",
+            f"  === [DOC {i}: {doc} — orientation summary] ===",
+            "  <<embedded as makeDocSummary() — Bash-cat the full file for any citation>>",
             "",
         ]
     lines += [
@@ -999,13 +1003,11 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
     lines = [
         f"### Phase {phase} → Phase {next_phase}: {next_name}",
         "",
-        *([] if dynamic else [
-            f"- Generate Phase {next_phase} plan:",
-            "  ```bash",
-            f"  python3 harness_cli.py plan-phase --phase {next_phase} --project . \\",
-            f"    --output .methodology/phase{next_phase}_plan.md",
-            "  ```",
-        ]),
+        # plan-phase is debug-only per SKILL.md §0.6a; plan-all pre-generates all
+        # plans at project init. Do not emit it in any mode — executing it as
+        # written would overwrite the pre-generated plan and violate the framework
+        # SSOT rule (HR-05: harness wins all conflicts).
+        *([]),  # plan-phase step intentionally removed (T1-B audit remediation)
         # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
         *(["- **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
            "  ```bash",

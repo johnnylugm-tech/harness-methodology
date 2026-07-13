@@ -315,11 +315,6 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 
 ### Phase 4 → Phase 5: Verification & Delivery
 
-- Generate Phase 5 plan:
-  ```bash
-  python3 harness_cli.py plan-phase --phase 5 --project . \
-    --output .methodology/phase5_plan.md
-  ```
 - **[TDD-PRECHECK]** Verify TDD checks pass — advance-phase enforces:
   - diagnostic script check: orphan diagnostic scripts (e.g. `_diag_xxx.py`) at repo root will BLOCK (exit 21)
   - secrets scanning: `gitleaks detect --source .` (exit 20) — whole-repo, runs before linting

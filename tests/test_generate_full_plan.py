@@ -308,7 +308,7 @@ class TestPhaseAdvanceStep:
         """GAP-F fix: phase advance step must reference next phase."""
         joined = "\n".join(_phase_advance_step(3))
         assert "Phase 4" in joined
-        assert "plan-phase --phase 4" in joined
+        assert "plan-phase --phase 4" not in joined  # T1-B: plan-phase step removed
 
     def test_phase8_pipeline_complete(self):
         joined = "\n".join(_phase_advance_step(8))
@@ -389,7 +389,7 @@ class TestPhase3GateInjection:
         """GAP-F fix: phase advance instruction at end."""
         joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
         assert "Phase 4" in joined
-        assert "plan-phase --phase 4" in joined
+        assert "plan-phase --phase 4" not in joined  # T1-B: plan-phase step removed
 
     def test_early_stop_in_gate2(self, project: Path):
         """GAP-E fix: early-stop cases in Gate 2."""
@@ -757,15 +757,17 @@ class TestGateMetaDimNames:
 
 class TestPhaseAdvanceStep12:
     def test_phase1_points_to_phase2(self):
-        """GAP-K fix: P1 advance must reference Phase 2 Architecture Design."""
+        """GAP-K fix: P1 advance must reference Phase 2 Architecture Design.
+        T1-B: plan-phase step removed — plan-all pre-generates all plans."""
         joined = "\n".join(_phase_advance_step(1))
         assert "Phase 2" in joined
-        assert "plan-phase --phase 2" in joined
+        assert "plan-phase --phase 2" not in joined
 
     def test_phase2_points_to_phase3(self):
+        """T1-B: plan-phase step removed — plan-all pre-generates all plans."""
         joined = "\n".join(_phase_advance_step(2))
         assert "Phase 3" in joined
-        assert "plan-phase --phase 3" in joined
+        assert "plan-phase --phase 3" not in joined
 
 
 # ─── _decomposition_section ──────────────────────────────────────────────────
@@ -992,9 +994,11 @@ class TestPhase1Generator:
         assert "APPROVE" in joined
 
     def test_has_phase_advance_to_p2(self, project: Path):
-        """GAP-K fix: P1 plan must advance to Phase 2."""
+        """GAP-K fix: P1 plan must advance to Phase 2. plan-phase is debug-only
+        (SKILL.md §0.6a); plan-all pre-generates all plans at project init."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "plan-phase --phase 2" in joined
+        assert "advance-phase --completed 1" in joined or "Phase 2" in joined
+        assert "plan-phase --phase 2" not in joined
 
     def test_exit_gate_clarification(self, project: Path):
         """GAP-K2 fix: P1 must clarify exit gate is peer review not harness run-gate."""
@@ -1101,9 +1105,11 @@ class TestPhase2Generator:
         assert "SAD.md" in joined
 
     def test_has_phase_advance_to_p3(self, project: Path):
-        """GAP-K fix: P2 plan must advance to Phase 3."""
+        """GAP-K fix: P2 plan must advance to Phase 3. plan-phase is debug-only
+        (SKILL.md §0.6a); plan-all pre-generates all plans at project init."""
         joined = "\n".join(generate_phase2_tasks(project, project / "SRS.md"))
-        assert "plan-phase --phase 3" in joined
+        assert "advance-phase --completed 2" in joined or "Phase 3" in joined
+        assert "plan-phase --phase 3" not in joined
 
     def test_no_harness_run_gate(self, project: Path):
         """P2 must NOT call harness run-gate --gate 1."""
