@@ -466,6 +466,25 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_manifest_integrity(args: argparse.Namespace) -> int:
+    """Standalone manifest-integrity check (Fix IV) — thin CLI wrapper around
+    PhaseHooks.preflight_manifest_integrity(). Exists so per-phase workflow JS
+    can call one narrow, correct check without running the full run-phase
+    preflight pipeline. Several workflow JS files previously hand-rolled an
+    inline Python one-liner reimplementing this logic with the truncation
+    comparison direction inverted (`fr_trace >= fr_ids` instead of the correct
+    `fr_ids >= fr_trace`); this command is the single source of truth.
+    """
+    project = Path(args.project).resolve()
+    from core.harness_config import get_value
+    from core.phase_hooks import PhaseHooks
+    hooks = PhaseHooks(str(project), phase=args.phase, enable_kill_switch=False,
+                       drift_threshold=get_value(project, "drift_threshold"))
+    result = hooks.preflight_manifest_integrity()
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0 if result.get("passed") else 1
+
+
 def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
     """P3 mirror gate — verify a RED test faithfully implements TEST_SPEC.md.
 
@@ -1273,6 +1292,21 @@ def register(sub) -> None:
                      help="Check forward references only (skip NFR→ADR coverage; "
                           "useful at P1/P2 when ADR.md does not exist yet)")
     aci.set_defaults(func=cmd_check_artifact_consistency)
+
+    # check-manifest-integrity (Fix IV — single source of truth for the
+    # manifest-corruption check; workflow JS should call this instead of
+    # reimplementing it inline)
+    cmi = sub.add_parser(
+        "check-manifest-integrity",
+        help="Validate quality_manifest.json structure (fr_ids/fr_module_traceability/"
+             "gate1 truncation patterns) — single source of truth for the check "
+             "workflow JS previously reimplemented inline",
+    )
+    cmi.add_argument("--project", default=".", help="Project root (default: .)")
+    cmi.add_argument("--phase", type=int, default=None,
+                     help="Current phase number (enables the Gate-1-emptied corruption "
+                          "check, which only applies at phase >= 3)")
+    cmi.set_defaults(func=cmd_check_manifest_integrity)
 
     # (check-test-inventory removed — deprecated since v2.6, it only
     #  delegated to spec-coverage-check. Use spec-coverage-check directly.)

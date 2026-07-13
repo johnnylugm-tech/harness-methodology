@@ -61,11 +61,13 @@ from typing import Any
 
 # Import the existing framework validator (authoritative)
 try:
-    from core.review_schema_validator import validate_b_output
+    from core.review_schema_validator import EscalationAction, enforce_escalation, validate_b_output
 except ImportError:
     # Allow running from harness/ root or scripts/ dir
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from core.review_schema_validator import validate_b_output
+    from core.review_schema_validator import EscalationAction, enforce_escalation, validate_b_output
+
+from scripts.b_gap_validator import validate_b2_response
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +173,49 @@ def extract_b_review_json(raw_text: str) -> tuple[dict | None, dict]:
 # ---------------------------------------------------------------------------
 
 
+def _with_escalation(out: dict[str, Any], round_num: int | None, max_rounds: int) -> dict[str, Any]:
+    """Attach escalation_action/escalation_reason if round_num was supplied.
+
+    round_num=None (the default) means the caller didn't ask for an escalation
+    decision — leave those keys absent so pre-existing callers/tests that only
+    care about status/review_status/gaps are unaffected.
+    """
+    if round_num is None:
+        return out
+    action, reason = enforce_escalation(
+        {"review_status": out.get("review_status"), "gaps": out.get("gaps") or []},
+        round_num, max_rounds,
+    )
+    out["escalation_action"] = action.value if isinstance(action, EscalationAction) else action
+    out["escalation_reason"] = reason
+    return out
+
+
 def structured_b_review(raw_text: str, phase: int = 0,
-                        deliverable: str = "") -> dict[str, Any]:
-    """End-to-end: extract JSON from raw text, validate, return structured dict."""
+                        deliverable: str = "",
+                        round_num: int | None = None,
+                        max_rounds: int = 5,
+                        doc_content: str | None = None,
+                        vocabulary: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """End-to-end: extract JSON from raw text, validate, return structured dict.
+
+    round_num/max_rounds (optional): when supplied, also computes the
+    EscalationAction (approve|retry|escalate_human) via
+    core.review_schema_validator.enforce_escalation — the single source of
+    truth for B-2 round-loop control flow, replacing the hand-rolled
+    hasHighGap()/round-loop logic previously duplicated in workflow JS.
+
+    doc_content/vocabulary (optional): when doc_content is supplied, runs
+    scripts.b_gap_validator.validate_b2_response against it and overrides
+    each gap's severity with its deterministic severity_recommendation
+    before escalation is computed — this replaces workflow JS's "X1 self-
+    verify" (a second LLM agent re-checking the first) and the VETO guard
+    (which let that second LLM's self-reported confidence silently flip a
+    REJECT to APPROVE) with a deterministic, non-LLM check. Note a REJECT
+    review_status is never overridden into APPROVE by this — only the gap
+    severities feed into escalation, so a script can suppress a false-alarm
+    gap inside an APPROVE, but it can never promote a genuine REJECT.
+    """
     extracted, extraction_meta = extract_b_review_json(raw_text)
 
     if extracted is None:
@@ -188,7 +230,7 @@ def structured_b_review(raw_text: str, phase: int = 0,
             ),
             "_synthesized": True,
         }
-        return {
+        return _with_escalation({
             "status": "CANCELLED",
             "extraction": extraction_meta,
             "validation": {
@@ -199,7 +241,7 @@ def structured_b_review(raw_text: str, phase: int = 0,
             "review_status": "CANCELLED",
             "gaps": [synthesized_gap],
             "diagnostic": extraction_meta["diagnostic"],
-        }
+        }, round_num, max_rounds)
 
     # We have a parsed dict — validate against b_review.schema.json
     result = validate_b_output(extracted, phase=phase, deliverable=deliverable)
@@ -212,14 +254,14 @@ def structured_b_review(raw_text: str, phase: int = 0,
 
     if not result.valid and result.synthesized:
         # Schema violation — framework synthesized CANCELLED
-        return {
+        return _with_escalation({
             "status": "CANCELLED",
             "extraction": extraction_meta,
             "validation": validation_meta,
             "review_status": "CANCELLED",
             "gaps": result.normalized.get("gaps", []),
             "diagnostic": result.error,
-        }
+        }, round_num, max_rounds)
 
     if not result.valid:
         # Not a dict at all (shouldn't happen here since extract_b_review_json
@@ -233,15 +275,32 @@ def structured_b_review(raw_text: str, phase: int = 0,
             "diagnostic": result.error,
         }
 
-    # Schema-valid — return normalized form
-    return {
+    # Schema-valid — apply deterministic gap/reason/citation verification
+    # before escalation, if a doc to verify against was supplied.
+    gaps = result.normalized.get("gaps", [])
+    b2_verification: dict[str, Any] | None = None
+    if doc_content is not None:
+        from core.review_quota import categorize_finding
+        b2_verification = validate_b2_response(result.normalized, doc_content, vocabulary)
+        recs = b2_verification["gaps"]["gaps"]
+        for gap, rec in zip(gaps, recs):
+            gap["severity"] = rec["severity_recommendation"]
+            # Re-derive category: enforce_quota (inside validate_b_output, above)
+            # categorized on the pre-verification severity — recompute so
+            # category and severity never disagree in the returned gap.
+            gap["category"] = categorize_finding(gap)
+
+    out = {
         "status": "OK",
         "extraction": extraction_meta,
         "validation": validation_meta,
         "review_status": result.normalized.get("review_status"),
-        "gaps": result.normalized.get("gaps", []),
+        "gaps": gaps,
         "diagnostic": None,
     }
+    if b2_verification is not None:
+        out["b2_verification"] = b2_verification
+    return _with_escalation(out, round_num, max_rounds)
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +329,35 @@ def _cli() -> int:
         help="Deliverable name (for validator context).",
     )
     parser.add_argument(
+        "--round",
+        type=int,
+        default=None,
+        dest="round_num",
+        help="Current B-2 round number (1-based). When set, also computes "
+             "escalation_action (approve|retry|escalate_human) via "
+             "core.review_schema_validator.enforce_escalation.",
+    )
+    parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=5,
+        help="HR-12 round ceiling (default: 5). Only used when --round is set.",
+    )
+    parser.add_argument(
+        "--doc-content",
+        default=None,
+        help="Path to the deliverable B is reviewing. When set, deterministically "
+             "verifies gaps/reason/citations against it (scripts.b_gap_validator) "
+             "and overrides gap severities with the verified recommendation before "
+             "escalation is computed.",
+    )
+    parser.add_argument(
+        "--vocab",
+        default=None,
+        help="Optional JSON file with custom technical vocabulary (passed through "
+             "to b_gap_validator; defaults to its built-in vocabulary).",
+    )
+    parser.add_argument(
         "--json-out",
         default=None,
         help="If set, write JSON to this path; otherwise print to stdout.",
@@ -290,7 +378,30 @@ def _cli() -> int:
               file=sys.stderr)
         return 2
 
-    result = structured_b_review(raw_text, phase=args.phase, deliverable=args.deliverable)
+    doc_content = None
+    if args.doc_content:
+        doc_path = Path(args.doc_content)
+        if not doc_path.exists():
+            print(f"[structured_b_review] ERROR: doc-content file missing: {doc_path}",
+                  file=sys.stderr)
+            return 2
+        try:
+            doc_content = doc_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"[structured_b_review] ERROR: doc-content read failed: {e}",
+                  file=sys.stderr)
+            return 2
+
+    vocabulary = None
+    if args.vocab:
+        from scripts.b_gap_validator import load_vocabulary
+        vocabulary = load_vocabulary(args.vocab)
+
+    result = structured_b_review(
+        raw_text, phase=args.phase, deliverable=args.deliverable,
+        round_num=args.round_num, max_rounds=args.max_rounds,
+        doc_content=doc_content, vocabulary=vocabulary,
+    )
 
     json_text = json.dumps(result, indent=2, ensure_ascii=False)
     if args.json_out:
@@ -303,12 +414,23 @@ def _cli() -> int:
         rs = result.get("review_status") or "(none)"
         gaps_count = len(result.get("gaps", []))
         msg = f"[structured_b_review] {s} review_status={rs} gaps={gaps_count}"
+        if result.get("escalation_action"):
+            msg += f" escalation_action={result['escalation_action']}"
         if result.get("diagnostic"):
             msg += f" — {result['diagnostic']}"
         print(msg, file=sys.stderr)
 
-    # Exit codes:
-    # 0 OK, 1 CANCELLED (synthesized — recoverable, B-2 retries), 2 UNRECOVERABLE
+    # Exit codes (when --round given, escalation_action is authoritative):
+    #   0 = approve, 1 = retry, 2 = escalate_human
+    # Fallback (no --round given, no escalation computed):
+    #   0 OK, 1 CANCELLED (synthesized — recoverable, B-2 retries), 2 UNRECOVERABLE
+    action = result.get("escalation_action")
+    if action is not None:
+        if action == "approve":
+            return 0
+        if action == "escalate_human":
+            return 2
+        return 1
     if result["status"] == "OK":
         return 0
     if result["status"] == "CANCELLED":

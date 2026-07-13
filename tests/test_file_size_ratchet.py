@@ -133,7 +133,11 @@ _LINE_CEILING: dict[str, int] = {
     # state.json); cmd_bug_hunt_targets gains a 6th targeting source
     # (threat_model — SAD.md §6 threats' owner_module resolved to an
     # on-disk path, same candidate expansion preflight_sab_check uses).
-    "cli/check_cmds.py": 1432,
+    # 2026-07-13: +34 lines — T1-A (8-phase workflow-audit remediation):
+    # new cmd_check_manifest_integrity + its subparser registration, a thin
+    # CLI wrapper around PhaseHooks.preflight_manifest_integrity() so
+    # workflow JS stops reimplementing (and getting wrong) this check inline.
+    "cli/check_cmds.py": 1466,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,

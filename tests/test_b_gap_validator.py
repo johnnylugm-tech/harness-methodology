@@ -381,6 +381,58 @@ class TestCLI:
 
 
 # ---------------------------------------------------------------------------
+# validate_b2_response (T1-B) — gaps + reason + citations, replaces X1 LLM re-check
+# ---------------------------------------------------------------------------
+
+
+class TestValidateB2Response:
+    def test_verified_gap_reason_citation(self):
+        from scripts.b_gap_validator import validate_b2_response
+
+        b2 = {
+            "review_status": "REJECT",
+            "reason": "the module uses python subprocess calls without a timeout",
+            "citations": ["app/worker.py:42"],
+            "gaps": [{"severity": "high", "evidence_type": "real_invention",
+                      "message": "subprocess call has no timeout"}],
+        }
+        doc = "app/worker.py:42 calls subprocess.run without timeout="
+        result = validate_b2_response(b2, doc)
+        assert result["gaps"]["summary"]["total"] == 1
+        assert result["reason_verification"]["verified"] is True
+        assert result["citations_verification"][0]["citation"] == "app/worker.py:42"
+        assert result["citations_verification"][0]["verified"] is True
+
+    def test_unverified_reason_and_citation(self):
+        from scripts.b_gap_validator import validate_b2_response
+
+        b2 = {
+            "review_status": "REJECT",
+            "reason": "the document mentions 'quantum encryption' requirements",
+            "citations": ["SPEC.md:999"],
+            "gaps": [],
+        }
+        doc = "# SRS.md\nFR-01: do X\n"
+        result = validate_b2_response(b2, doc)
+        assert result["reason_verification"]["verified"] is False
+        assert "quantum encryption" in result["reason_verification"]["unverified_claims"]
+        assert result["citations_verification"][0]["verified"] is False
+
+    def test_empty_reason_counts_as_verified(self):
+        from scripts.b_gap_validator import validate_b2_response
+
+        result = validate_b2_response({"review_status": "APPROVE", "gaps": []}, "doc")
+        assert result["reason_verification"]["verified"] is True
+        assert result["reason_verification"]["matched_terms"] == []
+
+    def test_no_citations_returns_empty_list(self):
+        from scripts.b_gap_validator import validate_b2_response
+
+        result = validate_b2_response({"review_status": "APPROVE", "gaps": []}, "doc")
+        assert result["citations_verification"] == []
+
+
+# ---------------------------------------------------------------------------
 # Determinism
 # ---------------------------------------------------------------------------
 

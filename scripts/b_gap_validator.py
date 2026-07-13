@@ -336,6 +336,59 @@ def validate_gaps(
 
 
 # ---------------------------------------------------------------------------
+# Full B-2 response validation — gaps + reason + citations
+# ---------------------------------------------------------------------------
+
+
+def validate_b2_response(
+    b2: dict[str, Any],
+    doc_content: str,
+    vocabulary: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Validate a full B-2 response (gaps + reason + citations) against doc_content.
+
+    Extends validate_gaps() to also deterministically check the top-level
+    `reason` free-text rationale and each `citations` entry — the two fields
+    workflow JS's "X1 self-verify" (a second LLM agent re-checking the first
+    LLM's claims) used to cover. Folding this into the same deterministic
+    engine removes the LLM-verifying-LLM fabrication surface (see module
+    docstring) without dropping the underlying verification.
+    """
+    if vocabulary is None:
+        vocabulary = DEFAULT_TECHNICAL_VOCAB
+    vocab_re = _build_vocab_regex(vocabulary)
+
+    gaps_report = validate_gaps(b2.get("gaps") or [], doc_content, vocabulary)
+
+    reason = (b2.get("reason") or "").strip()
+    if reason:
+        reason_matched, reason_unverified = verify_gap_against_doc(reason, doc_content, vocab_re)
+    else:
+        reason_matched, reason_unverified = [], []
+
+    citations_report: list[dict[str, Any]] = []
+    for citation in (b2.get("citations") or []):
+        citation_str = str(citation)
+        matched, unverified = verify_gap_against_doc(citation_str, doc_content, vocab_re)
+        citations_report.append({
+            "citation": citation_str,
+            "verified": bool(matched),
+            "matched_terms": matched,
+            "unverified_claims": unverified,
+        })
+
+    return {
+        "gaps": gaps_report,
+        "reason_verification": {
+            "verified": bool(reason_matched) or not reason,
+            "matched_terms": reason_matched,
+            "unverified_claims": reason_unverified,
+        },
+        "citations_verification": citations_report,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 

@@ -23,7 +23,8 @@
     },
     "reason": {
       "type": "string",
-      "description": "Workflow-JS surface uses 'reason' instead of 'summary' for B-2 concise rationale. Either-or accepted."
+      "minLength": 100,
+      "description": "Workflow-JS surface uses 'reason' instead of 'summary' for B-2 concise rationale. Either-or accepted. Must be >=100 chars when present (absorbs the phase6-quality.js hand-rolled length check)."
     },
     "citations": {
       "type": "array",

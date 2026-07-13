@@ -154,7 +154,9 @@ class TestStructuredBReview:
     def test_valid_reject_with_gaps(self):
         text = json.dumps({
             "review_status": "REJECT",
-            "reason": "missing tests",
+            "reason": "missing tests — AC-FR02-1 has no corresponding assertion in the "
+                      "test file; the acceptance criterion requires validating both the "
+                      "success and failure paths, and only the success path is covered",
             "gaps": [{
                 "severity": "high",
                 "evidence_type": "real_invention",
@@ -329,6 +331,141 @@ class TestCLI:
         out = json.loads(result.stdout)
         # Bug B regression guard: over_interpretation high → medium
         assert out["gaps"][0]["severity"] == "medium"
+
+
+# ---------------------------------------------------------------------------
+# Escalation wiring (T1-B) — enforce_escalation via --round/--max-rounds
+# ---------------------------------------------------------------------------
+
+
+class TestEscalationWiring:
+    def test_no_round_omits_escalation_fields(self):
+        text = '{"review_status": "APPROVE", "gaps": []}'
+        result = structured_b_review(text)
+        assert "escalation_action" not in result
+        assert "escalation_reason" not in result
+
+    def test_approve_no_gaps_escalates_approve(self):
+        text = '{"review_status": "APPROVE", "gaps": []}'
+        result = structured_b_review(text, round_num=1, max_rounds=5)
+        assert result["escalation_action"] == "approve"
+
+    def test_reject_escalates_retry(self):
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "missing tests — AC-FR02-1 has no corresponding assertion in the "
+                      "test file; both success and failure paths must be covered",
+            "gaps": [{
+                "severity": "high", "evidence_type": "real_invention",
+                "canonical_ref": "SPEC.md L10", "message": "AC-FR02-1 test missing",
+            }],
+        })
+        result = structured_b_review(text, round_num=1, max_rounds=5)
+        assert result["escalation_action"] == "retry"
+
+    def test_final_round_escalates_human(self):
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "missing tests — AC-FR02-1 has no corresponding assertion in the "
+                      "test file; both success and failure paths must be covered",
+            "gaps": [{
+                "severity": "high", "evidence_type": "real_invention",
+                "canonical_ref": "SPEC.md L10", "message": "AC-FR02-1 test missing",
+            }],
+        })
+        result = structured_b_review(text, round_num=5, max_rounds=5)
+        assert result["escalation_action"] == "escalate_human"
+
+    def test_cancelled_no_json_escalates_retry(self):
+        result = structured_b_review("no json here at all", round_num=1, max_rounds=5)
+        assert result["status"] == "CANCELLED"
+        assert result["escalation_action"] == "retry"
+
+    def test_cli_exit_code_reflects_escalation_action(self, tmp_path):
+        raw = tmp_path / "raw.txt"
+        raw.write_text(json.dumps({"review_status": "APPROVE", "gaps": []}))
+        result = subprocess.run(
+            [sys.executable, "scripts/structured_b_review.py",
+             "--raw-text", str(raw), "--round", "1", "--max-rounds", "5", "--quiet"],
+            cwd=str(Path(__file__).parent.parent), capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        out = json.loads(result.stdout)
+        assert out["escalation_action"] == "approve"
+
+
+# ---------------------------------------------------------------------------
+# Doc-content deterministic verification (T1-B) — replaces X1/VETO guard
+# ---------------------------------------------------------------------------
+
+
+class TestDocContentVerification:
+    def test_hallucinated_gap_downgraded_and_approved(self):
+        """A high-severity gap whose claimed term never appears in the
+        reviewed doc gets deterministically downgraded to low — this is
+        the safe replacement for the old VETO guard (a second LLM
+        self-reporting confidence to auto-flip REJECT->APPROVE)."""
+        text = json.dumps({
+            "review_status": "APPROVE",
+            "reason": "The document correctly covers all requirements with clear "
+                      "acceptance criteria and no ambiguity remains after this pass",
+            "gaps": [{
+                "severity": "high", "evidence_type": "real_invention",
+                "canonical_ref": "SPEC.md L5",
+                "message": "claims 'quantum encryption' is required but SPEC never mentions this",
+            }],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5,
+            doc_content="# SRS.md\nFR-01: do X\nNo mention of quantum anything here.\n",
+        )
+        assert result["gaps"][0]["severity"] == "low"
+        assert result["gaps"][0]["category"] == "nit"
+        assert result["escalation_action"] == "approve"
+
+    def test_reject_never_promoted_to_approve_by_verification(self):
+        """Even if every gap gets downgraded to low, a REJECT review_status
+        must never be silently promoted to APPROVE by this deterministic
+        check — only a genuine B re-review (or human) can do that."""
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "hallucinated claim about a feature that does not exist anywhere "
+                      "in this document or the underlying specification at all",
+            "gaps": [{
+                "severity": "high", "evidence_type": "real_invention",
+                "canonical_ref": "SPEC.md L5",
+                "message": "claims 'quantum encryption' is required",
+            }],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5,
+            doc_content="# SRS.md\nFR-01: do X\n",
+        )
+        assert result["review_status"] == "REJECT"
+        assert result["gaps"][0]["severity"] == "low"
+        assert result["escalation_action"] == "retry"
+
+    def test_verified_gap_severity_unchanged(self):
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "the document invents a requirement for quantum encryption support "
+                      "that is not present anywhere in the canonical specification file",
+            "gaps": [{
+                "severity": "high", "evidence_type": "real_invention",
+                "canonical_ref": "SPEC.md L5",
+                "message": "claims 'quantum encryption' is required",
+            }],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5,
+            doc_content="# SRS.md\nFR-01: needs quantum encryption support.\n",
+        )
+        assert result["gaps"][0]["severity"] == "high"
+
+    def test_no_doc_content_omits_verification_key(self):
+        text = '{"review_status": "APPROVE", "gaps": []}'
+        result = structured_b_review(text, round_num=1, max_rounds=5)
+        assert "b2_verification" not in result
 
 
 # ---------------------------------------------------------------------------
