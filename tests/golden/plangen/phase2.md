@@ -532,20 +532,20 @@ are not re-opened. This bounds backtracking to a single step.
   > Phase 2 deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[2]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml).
   > `<id>` MUST match the full _PHASE_DELIVERABLES[N] entry EXACTLY, including file extension (e.g. `SRS.md` → file `SRS.md.json`). Harness matches `approvals_dir / f"{did}.json"` directly without stem-stripping.
   > Use Bash + Python (harness_cli.py write-approval subcommand if available, else direct Write tool) — do NOT use Edit (whole-file write only).
-  > **v27 — Retry-with-verify pattern (mandatory)**: The Bash invocation that performs `write-approval` MUST also perform `verify-file` on the produced artifact, wrapped in a bash `for` loop of MAX_PERSIST_ATTEMPTS=3 attempts inside a SINGLE Bash invocation (one shell-wrapper agent call):
+  > **Retry pattern (orchestrator-level, MAX_PERSIST_ATTEMPTS=3)**: `write-approval` already
+  >   self-verifies (write + size + exists check) server-side before printing `[write-approval] OK`,
+  >   so retries live at the orchestrator level, not inside a single Bash call: up to 3 independent
+  >   dispatches, each running `write-approval` once and checking its own exit code / stdout for the
+  >   OK marker. After 3 failed attempts: fail loudly (throw) rather than silently lose the approval.
   > ```bash
-  > # compound retry script — runs write-approval + verify-file up to 3× inside one Bash call
-  > ok=0
-  > for attempt in 1 2 3; do
-  >   if python harness_cli.py write-approval --fr-id <id> --json '<json>' \
-  >      && python harness_cli.py verify-file --file .methodology/agent_b_approvals/<id>.json --expect json --min-bytes 10; then
-  >     ok=1; break
-  >   fi
-  >   sleep 1
-  > done
-  > [ $ok -eq 1 ]
+  > python harness_cli.py write-approval --fr-id <id> --json '<json>'
+  > # exit 0 + `[write-approval] OK` on stdout = success; anything else = this attempt failed,
+  > # the orchestrator re-dispatches (up to 3 attempts total) before giving up.
   > ```
-  > Rationale: workflow JS sandbox (playbook §3-§4) forbids native fs / child_process; the outer `await agent()` is one LLM-as-shell-wrapper call with ~5% random-failure rate. We compensate by retrying INSIDE bash (deterministic) so the only LLM touch-point is the outer invocation. After MAX_PERSIST_ATTEMPTS attempts all fail → throw (option A — fail loudly rather than silently lose the approval). Trust `verify-file OK` on disk as the success signal (more robust than regex-matching write-approval stdout).
+  > Rationale: workflow JS sandbox (playbook §3-§4) forbids native fs / child_process; each `await agent()`
+  >   call is one LLM-as-shell-wrapper invocation with ~5% random-failure rate. Retrying at the
+  >   orchestrator level (independent dispatches) proved more reliable in practice than wrapping the
+  >   retry loop inside a single Bash call, since a dispatch that itself failed can't reliably retry itself.
 
 - **[B-PUSH]** ✅ PUSH ② — Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-PEER-REVIEW saved):
   > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.

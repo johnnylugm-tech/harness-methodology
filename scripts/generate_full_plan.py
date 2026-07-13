@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, cast
+from core.harness_config import get_value as _get_value
 from core.harness_config import load_harness_config as _load_harness_config
 from core.phase_topology import (
     VALID_PHASES,
@@ -126,6 +127,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     that case.
     """
     gate_meta = _build_gate_meta(_load_harness_config(repo_path))
+    max_fix_rounds = _get_value(repo_path, "max_fix_rounds")
 
     if output_path and output_path.exists() and not force:
         try:
@@ -153,10 +155,10 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     generators = {
         1: lambda: generate_phase1_tasks(repo_path, _srs, dynamic=dynamic),
         2: lambda: generate_phase2_tasks(repo_path, _srs, dynamic=dynamic),
-        3: lambda: generate_phase3_tasks(repo_path, _srs, dynamic=dynamic, gate_meta=gate_meta),
-        4: lambda: generate_phase4_tasks(repo_path, _srs, dynamic=dynamic, gate_meta=gate_meta),
+        3: lambda: generate_phase3_tasks(repo_path, _srs, dynamic=dynamic, gate_meta=gate_meta, max_rounds=max_fix_rounds),
+        4: lambda: generate_phase4_tasks(repo_path, _srs, dynamic=dynamic, gate_meta=gate_meta, max_rounds=max_fix_rounds),
         5: lambda: generate_phase5_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
-        6: lambda: generate_phase6_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
+        6: lambda: generate_phase6_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta, max_rounds=max_fix_rounds),
         7: lambda: generate_phase7_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
         8: lambda: generate_phase8_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),
         9: lambda: generate_phase9_tasks(repo_path, dynamic=dynamic, gate_meta=gate_meta),

@@ -23,6 +23,7 @@ from .artifact_parsers import (
     parse_test_plan,
 )
 from .blocks import (
+    _GATE_META,
     _PHASE_DELIVERABLE_DEPS,
     _checkpoint_index,
     _constitution_self_check,
@@ -301,7 +302,7 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     return lines
 
 
-def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
+def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None, max_rounds: int = 3) -> List[str]:
     """Generate Phase 3 detailed tasks (Implementation + Gate 1 per-FR + Gate 2 exit)"""
     lines = []
     lines.append("## Phase 3 Tasks: Implementation")
@@ -475,7 +476,7 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
         lines.extend(_p3_milestone_push_steps(fr_ids))
 
-    lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, gate_meta=gate_meta))
+    lines.extend(_gate_exit_checkpoint(gate_num=2, phase=3, gate_meta=gate_meta, max_rounds=max_rounds))
 
     lines.append("### Phase 3 Deliverables")
     lines.append("- `03-development/src/` - All FR modules implemented")
@@ -490,14 +491,15 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     return lines
 
 
-def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
+def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None, max_rounds: int = 3) -> List[str]:
     """Generate Phase 4 detailed tasks (Testing + Gate 1 per-FR + Gate 3 exit)"""
+    _g3_dims = (gate_meta or _GATE_META)[3][1]
     lines = []
     lines.append("## Phase 4 Tasks: Test Planning & Execution")
     lines.append("")
     lines.append("### Phase 4 Overview")
     lines.append("Phase 4 formulates and executes a complete test plan based on Phase 3 code.")
-    lines.append("Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (16 dims).")
+    lines.append(f"Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 ({_g3_dims} dims).")
     lines.append("")
 
     if dynamic:
@@ -657,7 +659,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         lines.extend(_milestone_push_steps(fr_ids, phase=4, pre_gate=3,
                                            push_prefixes=("⑤", "⑥")))
 
-    lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, gate_meta=gate_meta))
+    lines.extend(_gate_exit_checkpoint(gate_num=3, phase=4, gate_meta=gate_meta, max_rounds=max_rounds))
 
     lines.append("### Phase 4 Deliverables")
     lines.append("- `04-testing/TEST_PLAN.md` - Test plan")
@@ -665,7 +667,7 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.append("- `04-testing/COVERAGE_REPORT.md` - Coverage report")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- Gate 1 PASS for every FR")
-    lines.append("- Gate 3 PASS (phase exit, composite ≥ 80, 16 dims)")
+    lines.append(f"- Gate 3 PASS (phase exit, composite ≥ 80, {_g3_dims} dims)")
     lines.append("")
 
     # audit-phase runs inside advance-phase — no separate local step needed
@@ -755,20 +757,21 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
     return lines
 
 
-def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None) -> List[str]:
+def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "dict | None" = None, max_rounds: int = 3) -> List[str]:
     """Generate Phase 6 detailed tasks (Quality Assurance — Gate 4 full replacement)"""
+    _g4_dims = (gate_meta or _GATE_META)[4][1]
     lines = []
     lines.append("## Phase 6 Tasks: Quality Assurance")
     lines.append("")
     lines.append("### Phase 6 Overview")
     lines.append("Phase 6 centres on Gate 4 — the full-project quality evaluation.")
-    lines.append("No FR loop. Gate 4 = tool-scored automated evaluation (15 dims incl. traceability, CRG recon) PLUS")
+    lines.append(f"No FR loop. Gate 4 = tool-scored automated evaluation ({_g4_dims} dims incl. traceability, CRG recon) PLUS")
     lines.append("Agent B peer review of the QA deliverables (HR-01) — both are required to exit.")
     lines.append("")
 
     # P6 has exactly one checkpoint: Gate 4
     lines.append("> **Checkpoint Index** (push to GitHub = checkpoint saved):")
-    lines.append("> - CHECKPOINT-GATE-4: Gate 4 (Full Project — 15 dims) + Agent B peer review")
+    lines.append(f"> - CHECKPOINT-GATE-4: Gate 4 (Full Project — {_g4_dims} dims) + Agent B peer review")
     lines.append("")
 
     lines.extend(_entry_gate_check(6))
@@ -803,17 +806,17 @@ def generate_phase6_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
 
     lines.extend(_gate4_prerequisites_block())
 
-    lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, gate_meta=gate_meta))
+    lines.extend(_gate_exit_checkpoint(gate_num=4, phase=6, gate_meta=gate_meta, max_rounds=max_rounds))
 
     lines.append("### Post-Gate 4 Git Tagging")
     lines.append("- After Gate 4 PASS, generate the annotated git tag with composite scores:")
     lines.append("  ```bash")
     lines.append("  python3 harness_cli.py gate4-tag --project .")
     lines.append("  ```")
-    lines.append("  → Verify: `git tag -l -n9` shows the new `gate4-pass-*` tag.")
+    lines.append("  → Verify: `git tag -l -n9` shows the new `harness-v4-*` tag.")
     lines.append("")
     lines.append("### Phase 6 Deliverables")
-    lines.append("- Gate 4 PASS (composite ≥ 85, all 15 dims, CRG recon done)")
+    lines.append(f"- Gate 4 PASS (composite ≥ 85, all {_g4_dims} dims, CRG recon done)")
     lines.append("- `06-quality/QUALITY_REPORT.md` - Quality report (auto-generated by Gate 4)")
     lines.append("- `RELEASE_NOTES.md` - Release notes")
     lines.append("- `FINAL_SIGN_OFF.md` - Final sign-off")

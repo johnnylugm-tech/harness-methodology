@@ -146,7 +146,11 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
     # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
     # the SAB block's own authoring-guidance shape.
-    "scripts/plangen/phase_tasks.py": 1134,
+    # 2026-07-14: +3 lines — 2nd-round workflow-JS-audit remediation: P4/P6
+    # dims-count text (previously hardcoded "16"/"15" strings that drifted
+    # from the yaml-derived enabled-dim count) now reads gate_meta[gate][1]
+    # via two local `_g3_dims`/`_g4_dims` variables instead.
+    "scripts/plangen/phase_tasks.py": 1137,
     "core/quality_gate/mutation_enforcer.py": 967,
 }
 

@@ -151,7 +151,7 @@ python3 harness_cli.py load-context --phase 3 --project . --json \
 
 
 ### 🔒 CHECKPOINT-GATE-2: Phase 3 Exit
-> linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · integration_coverage(60) · test_assertion_quality(60) · traceability(100) · composite ≥ 75  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]
+> linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · integration_coverage(60) · test_assertion_quality(60) · execute_verification_target(100) · traceability(100) · composite ≥ 75  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]
 > HR-08: Phase end requires Quality Gate pass — never advance past a failing gate (max 3 retry rounds, then escalate).
 > _Design note_: HR-08 only appears in P3-P6 (Gate 2/3/4 exits). P5/P7/P8 have no gate-exit checkpoint so HR-08 is correctly absent from those plans.
 
@@ -220,7 +220,7 @@ python3 harness_cli.py load-context --phase 3 --project . --json \
 3. Re-run the tool for each fixed dim to confirm the score change
 4. Update `.sessi-work/gate{gate_num}_result.json` with new scores
 5. Re-run: `python3 harness_cli.py finalize-gate --gate 2 --phase 3 --project .`
-6. Repeat until CASE 1 PASS or 9 fix rounds exhausted
+6. Repeat until CASE 1 PASS or 3 fix rounds exhausted
 7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with each remaining dim as a checkbox item ('- [ ] <dim>: <reason>'); every item MUST be resolved and marked '- [x]' before advance-phase (hard-blocked, exit 17, otherwise), then escalate
 8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a `da_waiver` from the Human Developer. Do NOT try to bypass the scanner.
 

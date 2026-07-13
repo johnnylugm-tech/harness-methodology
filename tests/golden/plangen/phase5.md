@@ -103,8 +103,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P
 - **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-01
-  python3 harness/scripts/generate_sab.py --project .
-  # Note: if SAB.json exists, append --overwrite to regenerate
+  python3 harness_cli.py amend-sab --project .
   ```
 
 #### FR-02: Verification
@@ -130,8 +129,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P
 - **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-02
-  python3 harness/scripts/generate_sab.py --project .
-  # Note: if SAB.json exists, append --overwrite to regenerate
+  python3 harness_cli.py amend-sab --project .
   ```
 
 ### P5 System Verification

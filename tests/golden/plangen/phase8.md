@@ -108,8 +108,7 @@ Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-ga
 - **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-01
-  python3 harness/scripts/generate_sab.py --project .
-  # Note: if SAB.json exists, append --overwrite to regenerate
+  python3 harness_cli.py amend-sab --project .
   ```
 
 #### FR-02: Configuration Record
@@ -134,8 +133,7 @@ Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-ga
 - **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-02
-  python3 harness/scripts/generate_sab.py --project .
-  # Note: if SAB.json exists, append --overwrite to regenerate
+  python3 harness_cli.py amend-sab --project .
   ```
 
 ### P8 Archive — REQUIRED before push-milestone (CI p8-archive-check)

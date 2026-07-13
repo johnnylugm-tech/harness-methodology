@@ -44,7 +44,7 @@ _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 # Gate metadata: (score_gate, dim_count, notes)
 _GATE_META: dict = {
     1: (None, 3,  "linting(90) · type_safety(85) · test_coverage(80)"),
-    2: (75,   10, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · traceability(100) · composite ≥ 75  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
+    2: (75,   11, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · execute_verification_target(100) · traceability(100) · composite ≥ 75  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
     3: (80,   16, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100) · composite ≥ 80  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
     4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100) · composite ≥ 85  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
 }
@@ -784,20 +784,20 @@ def _review_checkpoint(phase: int) -> List[str]:
         f"  > Phase {phase} deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[{phase}]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml).",
         "  > `<id>` MUST match the full _PHASE_DELIVERABLES[N] entry EXACTLY, including file extension (e.g. `SRS.md` → file `SRS.md.json`). Harness matches `approvals_dir / f\"{did}.json\"` directly without stem-stripping.",
         "  > Use Bash + Python (harness_cli.py write-approval subcommand if available, else direct Write tool) — do NOT use Edit (whole-file write only).",
-        "  > **v27 — Retry-with-verify pattern (mandatory)**: The Bash invocation that performs `write-approval` MUST also perform `verify-file` on the produced artifact, wrapped in a bash `for` loop of MAX_PERSIST_ATTEMPTS=3 attempts inside a SINGLE Bash invocation (one shell-wrapper agent call):",
+        "  > **Retry pattern (orchestrator-level, MAX_PERSIST_ATTEMPTS=3)**: `write-approval` already",
+        "  >   self-verifies (write + size + exists check) server-side before printing `[write-approval] OK`,",
+        "  >   so retries live at the orchestrator level, not inside a single Bash call: up to 3 independent",
+        "  >   dispatches, each running `write-approval` once and checking its own exit code / stdout for the",
+        "  >   OK marker. After 3 failed attempts: fail loudly (throw) rather than silently lose the approval.",
         "  > ```bash",
-        "  > # compound retry script — runs write-approval + verify-file up to 3× inside one Bash call",
-        "  > ok=0",
-        "  > for attempt in 1 2 3; do",
-        "  >   if python harness_cli.py write-approval --fr-id <id> --json '<json>' \\",
-        "  >      && python harness_cli.py verify-file --file .methodology/agent_b_approvals/<id>.json --expect json --min-bytes 10; then",
-        "  >     ok=1; break",
-        "  >   fi",
-        "  >   sleep 1",
-        "  > done",
-        "  > [ $ok -eq 1 ]",
+        "  > python harness_cli.py write-approval --fr-id <id> --json '<json>'",
+        "  > # exit 0 + `[write-approval] OK` on stdout = success; anything else = this attempt failed,",
+        "  > # the orchestrator re-dispatches (up to 3 attempts total) before giving up.",
         "  > ```",
-        "  > Rationale: workflow JS sandbox (playbook §3-§4) forbids native fs / child_process; the outer `await agent()` is one LLM-as-shell-wrapper call with ~5% random-failure rate. We compensate by retrying INSIDE bash (deterministic) so the only LLM touch-point is the outer invocation. After MAX_PERSIST_ATTEMPTS attempts all fail → throw (option A — fail loudly rather than silently lose the approval). Trust `verify-file OK` on disk as the success signal (more robust than regex-matching write-approval stdout).",
+        "  > Rationale: workflow JS sandbox (playbook §3-§4) forbids native fs / child_process; each `await agent()`",
+        "  >   call is one LLM-as-shell-wrapper invocation with ~5% random-failure rate. Retrying at the",
+        "  >   orchestrator level (independent dispatches) proved more reliable in practice than wrapping the",
+        "  >   retry loop inside a single Bash call, since a dispatch that itself failed can't reliably retry itself.",
         "",
         f"- **[B-PUSH]** ✅ {_PHASE_PUSH_LABELS.get(phase, '')}Push to GitHub + HANDOVER.md — retry until success (CHECKPOINT-PEER-REVIEW saved):",
         "  > Run `push-checkpoint` → if blocked, read the error → fix → re-run until green.",
@@ -925,8 +925,7 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
         "- **[ORCH-POST]** After GATE1 PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
-        "  python3 harness/scripts/generate_sab.py --project .",
-        "  # Note: if SAB.json exists, append --overwrite to regenerate",
+        "  python3 harness_cli.py amend-sab --project .",
         "  ```",
         "",
         f"> 💡 **Crash recovery**: `python3 harness_cli.py resume-fr-phase --phase {phase} --project .`",
@@ -959,8 +958,7 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         "- **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
-        "  python3 harness/scripts/generate_sab.py --project .",
-        "  # Note: if SAB.json exists, append --overwrite to regenerate",
+        "  python3 harness_cli.py amend-sab --project .",
         "  ```",
         "",
     ]
@@ -1010,14 +1008,13 @@ def _phase_advance_step(phase: int, dynamic: bool = False) -> List[str]:
         # written would overwrite the pre-generated plan and violate the framework
         # SSOT rule (HR-05: harness wins all conflicts).
         *([]),  # plan-phase step intentionally removed (T1-B audit remediation)
-        # Git tag step: SKILL.md §0.4 requires Gate 4 tag only (P6→P7 transition)
-        *(["- **[GIT-TAG]** Push Gate 4 git tag (SKILL.md §0.4):",
-           "  ```bash",
-           "  SCORE=$(python3 -c \"import json; d=json.load(open('.methodology/quality_manifest.json')); print(d.get('composite_score','XX'))\" 2>/dev/null || echo 'XX')",
-           "  git tag -a \"harness-v4-$(date +%Y%m%d)-score${SCORE}\" -m \"Gate 4 PASS (score ${SCORE})\"",
-           "  git push origin --tags",
-           "  ```",
-           ""] if phase == 6 else []),
+        # Git tag step (P6→P7): the real instruction lives in the "Post-Gate 4
+        # Git Tagging" section emitted earlier in generate_phase6_tasks (calls
+        # `harness_cli.py gate4-tag`, the correct CLI). This used to duplicate
+        # that with a hand-rolled `git tag` reading a non-existent top-level
+        # `composite_score` key (the real path is gate_results.gate4.score) —
+        # removed rather than fixed, since the correct version already exists.
+        *([]),
         # Phase Truth (HR-11): gates cover P3/P4/P6; P5/P7 have no exit gate so add here
         *(["- **[PHASE-TRUTH]** Phase Truth ≥ 90% (HR-11) — verified by advance-phase",
            "  > **FAIL** → check `phase_truth_verifier` output in `.sessi-work/`",
@@ -1398,7 +1395,8 @@ def _gate4_prerequisites_block() -> List[str]:
     ]
 
 
-def _gate_exit_checkpoint(gate_num: int, phase: int, gate_meta: "dict | None" = None) -> List[str]:
+def _gate_exit_checkpoint(gate_num: int, phase: int, gate_meta: "dict | None" = None,
+                           max_rounds: int = 3) -> List[str]:
     """Phase-exit gate evaluation steps (two-phase + push checkpoint)."""
     meta = (gate_meta or _GATE_META)[gate_num]
     crg_note = (
@@ -1445,7 +1443,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, gate_meta: "dict | None" = 
         "3. Re-run the tool for each fixed dim to confirm the score change",
         "4. Update `.sessi-work/gate{gate_num}_result.json` with new scores",
         f"5. Re-run: `python3 harness_cli.py finalize-gate --gate {gate_num} --phase {phase} --project .`",
-        f"6. Repeat until CASE 1 PASS or {meta[1]} fix rounds exhausted",
+        f"6. Repeat until CASE 1 PASS or {max_rounds} fix rounds exhausted",
         "7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with each remaining dim as a checkbox item ('- [ ] <dim>: <reason>'); every item MUST be resolved and marked '- [x]' before advance-phase (hard-blocked, exit 17, otherwise), then escalate",
         "8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a `da_waiver` from the Human Developer. Do NOT try to bypass the scanner.",
         "",
@@ -1557,7 +1555,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, gate_meta: "dict | None" = 
         *(["  > **architecture** is framework-owned: the harness runs an independent CRG build itself",
            "  > (`harness/crg_independent.py`) and overrides any agent-recorded score with",
            "  > `community_cohesion`. error_handling is tool-scored (`ast-error-handling`), not CRG.",
-           "  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)",
+           f"  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge{' (A3 above)' if gate_num == 4 else ''}",
            "  > and set `devil_advocate` + `da_waiver` + `devil_advocate_evidence` in",
            "  > `.sessi-work/gate{N}_result.json` (gate3_result.json at Gate 3, gate4_result.json at Gate 4)",
            "  > to bypass the threshold — the harness reads the waiver from that file, NOT quality_manifest.json.",

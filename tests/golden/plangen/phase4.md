@@ -19,7 +19,7 @@
 
 ### Phase 4 Overview
 Phase 4 formulates and executes a complete test plan based on Phase 3 code.
-Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (16 dims).
+Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (15 dims).
 
 > **Crash Recovery**: `python3 harness_cli.py resume-fr-phase --phase 4 --project .`
 > prints the next pending step. Each `run-fr-step` auto-pushes to GitHub on completion.
@@ -106,8 +106,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 - **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-01
-  python3 harness/scripts/generate_sab.py --project .
-  # Note: if SAB.json exists, append --overwrite to regenerate
+  python3 harness_cli.py amend-sab --project .
   ```
 
 #### FR-02: [See SRS.md for test targets]
@@ -129,8 +128,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 - **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-02
-  python3 harness/scripts/generate_sab.py --project .
-  # Note: if SAB.json exists, append --overwrite to regenerate
+  python3 harness_cli.py amend-sab --project .
   ```
 
 ### TEST_RESULTS.md Summary
@@ -225,7 +223,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
   > **architecture** is framework-owned: the harness runs an independent CRG build itself
   > (`harness/crg_independent.py`) and overrides any agent-recorded score with
   > `community_cohesion`. error_handling is tool-scored (`ast-error-handling`), not CRG.
-  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge (A3 above)
+  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge
   > and set `devil_advocate` + `da_waiver` + `devil_advocate_evidence` in
   > `.sessi-work/gate{N}_result.json` (gate3_result.json at Gate 3, gate4_result.json at Gate 4)
   > to bypass the threshold — the harness reads the waiver from that file, NOT quality_manifest.json.
@@ -284,7 +282,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 3. Re-run the tool for each fixed dim to confirm the score change
 4. Update `.sessi-work/gate{gate_num}_result.json` with new scores
 5. Re-run: `python3 harness_cli.py finalize-gate --gate 3 --phase 4 --project .`
-6. Repeat until CASE 1 PASS or 15 fix rounds exhausted
+6. Repeat until CASE 1 PASS or 3 fix rounds exhausted
 7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with each remaining dim as a checkbox item ('- [ ] <dim>: <reason>'); every item MUST be resolved and marked '- [x]' before advance-phase (hard-blocked, exit 17, otherwise), then escalate
 8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a `da_waiver` from the Human Developer. Do NOT try to bypass the scanner.
 
@@ -311,7 +309,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 - `04-testing/COVERAGE_REPORT.md` - Coverage report
 - [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (non-blocking debug trail)
 - Gate 1 PASS for every FR
-- Gate 3 PASS (phase exit, composite ≥ 80, 16 dims)
+- Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)
 
 ### Phase 4 → Phase 5: Verification & Delivery
 
