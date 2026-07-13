@@ -30,11 +30,16 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
       2. CRG hub risk — .sessi-work/crg_metrics.json hub_risk_map (critical/high)
       3. mutation survivors — .methodology/mutation_survivors.json (C5 artifact)
       4. integration_coverage — latest gate result breakdown
-      5. source inventory — remaining src files become standard (1-lens) targets
+      5. threat_model — SAD.md §6 STRIDE-lite threats (Round 10): each
+         threat's owner_module is a forced attack-vector seed, resolved to
+         an on-disk path the same way preflight_sab_check resolves SAB
+         module entries
+      6. source inventory — remaining src files become standard (1-lens) targets
 
     Output feeds harness/ssi/prompts/hunt_bugs.md: high_risk modules get the
     3-lens deep scan, standard get 1 general lens; survivor entries tell
-    hunters which functions have behavior no test asserts.
+    hunters which functions have behavior no test asserts; threat_model
+    entries tell hunters which declared attack vector to specifically probe.
     """
     from datetime import datetime, timezone
 
@@ -100,7 +105,34 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
             continue
     sources["integration_coverage"] = integration is not None
 
-    # 5. Assemble: reasons accumulate per module path
+    # 5. Threat model (SAD.md §6, Round 10) — each threat's owner_module is a
+    # forced attack-vector seed, independent of CRG/mutation signals. An
+    # honest applicability: none (or a missing/malformed block) contributes
+    # zero threats, same as every other best-effort source above.
+    from core.quality_gate.security_design import extract_security_block
+    from detection.drift_detector import sab_module_to_path_variants
+
+    threats: list[dict] = []
+    try:
+        raw = extract_security_block(ProjectLayout(project).sad_path)
+        sec = raw.get("security_design") if isinstance(raw, dict) else None
+        if isinstance(sec, dict) and sec.get("applicability") == "full":
+            threats = [t for t in sec.get("threats", []) if isinstance(t, dict)]
+    except RuntimeError:
+        pass
+    sources["threat_model"] = len(threats)
+
+    def _resolve_owner_module_path(dotted: str) -> str | None:
+        """dotted SAB/SEC module name -> on-disk relative path, same
+        candidate expansion preflight_sab_check uses for SAB modules."""
+        for rel_dir in ("03-development/src", "src"):
+            for cand in sab_module_to_path_variants(dotted, rel_dir):
+                candidate = project / cand
+                if candidate.is_file():
+                    return str(candidate.relative_to(project))
+        return None
+
+    # 6. Assemble: reasons accumulate per module path
     reasons: dict[str, list[str]] = {}
     for d in declared:
         note = f"declared{': ' + d['risk'] if d['risk'] else ''}"
@@ -115,6 +147,13 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     for fpath, count in survivors_by_file.items():
         if count >= 3:
             reasons.setdefault(fpath, []).append(f"mutation_survivors:{count}")
+    for t in threats:
+        owner_module = t.get("owner_module")
+        resolved = _resolve_owner_module_path(owner_module) if owner_module else None
+        if resolved:
+            reasons.setdefault(resolved, []).append(
+                f"threat_model:{t.get('id')} {t.get('category')}"
+            )
 
     inventory: list[str] = []
     for rel_dir in ("03-development/src", "src"):
@@ -145,6 +184,13 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     except (subprocess.SubprocessError, OSError):
         pass
 
+    threat_model_out = [
+        {"threat_id": t.get("id"), "category": t.get("category"),
+         "description": t.get("description"), "owner_module": t.get("owner_module"),
+         "boundary": t.get("boundary")}
+        for t in threats
+    ]
+
     targets = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "git_sha": git_sha,
@@ -153,6 +199,7 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
         "standard": standard,
         "mutation_survivors": survivors,
         "integration_coverage": integration,
+        "threat_model": threat_model_out,
         "sources": sources,
     }
     out_path = project / ".methodology" / "bug_hunt_targets.json"
@@ -373,8 +420,12 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     traceability TABLE (catches an NFR dropped from the table). check_module_fr_coverage:
     TRACEABILITY_MATRIX.md's own §5.3 reverse-coverage table must match its own
     AC-row citations, and SPEC_TRACKING.md must not claim an FR/NFR ownership the
-    AC citations attribute to a different module. All decidable, no LLM. NFR
-    coverage is only meaningful once ADR.md exists (P3+).
+    AC citations attribute to a different module. check_security_design: SAD.md
+    §6's STRIDE-lite threat model (Round 10) — structural rules from P3, test-
+    existence rule from P5; a bare invocation with no readable current_phase
+    runs the structural rules only (same "no phase context" convention as
+    forward_refs/module_fr_coverage). All decidable, no LLM. NFR coverage is
+    only meaningful once ADR.md exists (P3+).
     """
     project = Path(args.project).resolve()
     from core.quality_gate.artifact_consistency import (
@@ -382,11 +433,23 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
         check_module_fr_coverage,
         check_nfr_adr_coverage,
     )
+    from core.quality_gate.security_design import check_security_design
+
+    current_phase = None
+    state_path = project / ".methodology" / "state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            phase_val = state.get("current_phase")
+            current_phase = phase_val if isinstance(phase_val, int) else None
+        except (OSError, json.JSONDecodeError):
+            pass
 
     violations = (check_forward_refs(project)
                   + check_module_fr_coverage(project)
                   + ([] if getattr(args, 'forward_refs_only', False)
-                     else check_nfr_adr_coverage(project)))
+                     else check_nfr_adr_coverage(project))
+                  + check_security_design(project, phase=current_phase))
     errors = [v for v in violations if v.severity == "error"]
     reviews = [v for v in violations if v.severity == "info"]
     for v in errors:

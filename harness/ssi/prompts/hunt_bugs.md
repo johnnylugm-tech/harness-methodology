@@ -36,6 +36,14 @@ suspicious patterns),供所有 hunters 共用。
 assert 的行為」。Scout 必須把 survivor 對應的函式標注為 PRIORITY,hunters
 優先審查這些函式。
 
+**威脅模型線索(Round 10)**:manifest 的 `threat_model` 條目來自
+`SAD.md` §6 的 STRIDE-lite 威脅模型(`applicability: full` 時才存在)——每條
+是設計階段**已宣告**的具體攻擊向量(`category`/`description`/`owner_module`/
+`boundary`),不是掃描器猜的。Scout 必須把每個 threat 的 `owner_module`
+標注為 PRIORITY 並在掃描上下文附上該 threat 的 `description`,hunters
+針對該向量**強制**驗證:宣告的 `mitigation` 是否真的擋住這個攻擊(而非只
+是存在防禦性程式碼)。
+
 ## Phase 2 — Hunt(平行 agents)
 
 配對規則(來自 manifest):`high_risk` 模組 × 3 specialist lenses;

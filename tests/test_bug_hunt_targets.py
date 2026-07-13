@@ -140,3 +140,56 @@ class TestBugHuntTargets:
         models = next(t for t in targets["standard"]
                       if t["path"] == "src/models.py")
         assert models["survivors"] == 1
+
+    def test_threat_model_source_seeds_high_risk(self, tmp_path):
+        """Round 10: a SAD.md §6 threat's owner_module is a forced
+        attack-vector seed, resolved to its on-disk path (same candidate
+        expansion preflight_sab_check uses for SAB modules)."""
+        project = _project(tmp_path)
+        (project / "SAD.md").write_text(
+            "# SAD\n\n<!-- SEC:START -->\n```yaml\n"
+            'security_design:\n'
+            '  version: "1.0"\n'
+            "  applicability: full\n"
+            "  trust_boundaries:\n"
+            "    - id: TB-01\n"
+            '      name: "model input"\n'
+            "  threats:\n"
+            "    - id: T-01\n"
+            "      boundary: TB-01\n"
+            "      category: tampering\n"
+            '      description: "malicious model params"\n'
+            '      mitigation: "schema validation"\n'
+            '      owner_module: "models"\n'
+            '      verified_by: "test_sec_t01_ok"\n'
+            "```\n<!-- SEC:END -->\n",
+            encoding="utf-8",
+        )
+        targets = self._run(project)
+        high = {t["path"]: t["reasons"] for t in targets["high_risk"]}
+        assert "src/models.py" in high
+        assert any(r.startswith("threat_model:T-01") for r in high["src/models.py"])
+        assert targets["sources"]["threat_model"] == 1
+        assert targets["threat_model"][0]["threat_id"] == "T-01"
+        assert targets["threat_model"][0]["owner_module"] == "models"
+
+    def test_no_sec_block_yields_zero_threat_model(self, tmp_path):
+        project = _project(tmp_path)
+        targets = self._run(project)
+        assert targets["sources"]["threat_model"] == 0
+        assert targets["threat_model"] == []
+
+    def test_applicability_none_yields_zero_threat_model(self, tmp_path):
+        project = _project(tmp_path)
+        (project / "SAD.md").write_text(
+            "# SAD\n\n<!-- SEC:START -->\n```yaml\n"
+            'security_design:\n'
+            '  version: "1.0"\n'
+            "  applicability: none\n"
+            '  justification: "pure CLI formatting tool, no attack surface."\n'
+            "```\n<!-- SEC:END -->\n",
+            encoding="utf-8",
+        )
+        targets = self._run(project)
+        assert targets["sources"]["threat_model"] == 0
+        assert targets["threat_model"] == []

@@ -9,6 +9,7 @@ ever scores prose content.
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 from pathlib import Path
@@ -541,3 +542,77 @@ def test_sad_template_sec_block_is_factory_snapshot():
         "templates/SAD.md §6 SEC block has drifted from "
         "render_canonical_security_template() — re-paste the factory output."
     )
+
+
+# ── preflight / CLI wiring (Round 10 station 3) ─────────────────────────────
+
+
+def _hooks(project: Path, phase: int):
+    from core.phase_hooks import PhaseHooks
+
+    return PhaseHooks(str(project), phase=phase, enable_kill_switch=False)
+
+
+def test_preflight_artifact_consistency_blocks_on_missing_sec_block(tmp_path):
+    _w(ProjectLayout(tmp_path).sad_path, "# SAD\n\nno block.\n")
+    r2 = _hooks(tmp_path, 2).preflight_artifact_consistency()
+    assert r2["passed"] is True  # P2 — security_design structural rules start at P3
+    r3 = _hooks(tmp_path, 3).preflight_artifact_consistency()
+    assert r3["passed"] is False and r3["errors"] >= 1
+
+
+def test_preflight_artifact_consistency_passes_well_formed_sec_block(tmp_path):
+    layout = ProjectLayout(tmp_path)
+    _w(layout.sad_path,
+       _sab_block(_sab_yaml(modules=["pkg.mod"])) + "\n" + _sec_block(_sec_yaml()))
+    r3 = _hooks(tmp_path, 3).preflight_artifact_consistency()
+    assert r3["passed"] is True
+
+
+def test_preflight_artifact_consistency_ignores_sec_block_when_feature_off(tmp_path):
+    _disable_feature(tmp_path)
+    _w(ProjectLayout(tmp_path).sad_path, "# SAD\n\nno block.\n")
+    r3 = _hooks(tmp_path, 3).preflight_artifact_consistency()
+    assert r3["passed"] is True
+
+
+def test_cli_check_artifact_consistency_reports_missing_sec_block(tmp_path, capsys):
+    from cli.check_cmds import cmd_check_artifact_consistency
+
+    _w(tmp_path / ".methodology" / "state.json",
+       json.dumps({"current_phase": 3}))
+    _w(ProjectLayout(tmp_path).sad_path, "# SAD\n\nno block.\n")
+    rc = cmd_check_artifact_consistency(
+        argparse.Namespace(project=str(tmp_path), forward_refs_only=False)
+    )
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "SEC-R1" in out
+
+
+def test_cli_check_artifact_consistency_passes_well_formed_sec_block(tmp_path):
+    from cli.check_cmds import cmd_check_artifact_consistency
+
+    _w(tmp_path / ".methodology" / "state.json",
+       json.dumps({"current_phase": 3}))
+    layout = ProjectLayout(tmp_path)
+    _w(layout.sad_path,
+       _sab_block(_sab_yaml(modules=["pkg.mod"])) + "\n" + _sec_block(_sec_yaml()))
+    rc = cmd_check_artifact_consistency(
+        argparse.Namespace(project=str(tmp_path), forward_refs_only=False)
+    )
+    assert rc == 0
+
+
+def test_cli_check_artifact_consistency_no_state_json_skips_r8_only(tmp_path, capsys):
+    """No readable current_phase -> phase=None -> R1-R7 fully checked (no
+    phase context = check everything structural) but R8 stays silent."""
+    from cli.check_cmds import cmd_check_artifact_consistency
+
+    _w(ProjectLayout(tmp_path).sad_path, "# SAD\n\nno block.\n")
+    rc = cmd_check_artifact_consistency(
+        argparse.Namespace(project=str(tmp_path), forward_refs_only=False)
+    )
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "SEC-R1" in out

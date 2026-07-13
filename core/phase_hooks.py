@@ -835,17 +835,27 @@ class PhaseHooks:
         module-fr-coverage block from P2 (both only need P1 artifacts, already
         fixed by then); NFR→ADR coverage runs from P3 (ADR.md exists after P2).
         Informational at P1; fail-closed on scan error.
+
+        Also runs check_security_design (Round 10): SAD.md §6's STRIDE-lite
+        threat-model completeness. Unlike the checks above, its own phase
+        gating (structural rules from P3, test-existence rule from P5) lives
+        inside the check function itself rather than at this call site — it
+        has two callers (this hook and cmd_check_artifact_consistency), and
+        keeping the phase rules in one place means both callers can never
+        disagree about when a rule activates.
         """
         from core.quality_gate.artifact_consistency import (
             check_forward_refs,
             check_module_fr_coverage,
             check_nfr_adr_coverage,
         )
+        from core.quality_gate.security_design import check_security_design
         print("\n[PRE-FLIGHT] Artifact Consistency")
         try:
             violations = check_forward_refs(self._layout.root) + check_module_fr_coverage(self._layout.root)
             if self.phase is not None and self.phase >= 3:
                 violations = violations + check_nfr_adr_coverage(self._layout.root)
+            violations = violations + check_security_design(self._layout.root, phase=self.phase)
         except Exception as e:  # noqa: BLE001 — fail-closed on scan error
             print(f"   [BLOCKED] artifact-consistency scan error: {e}")
             return {"passed": False, "blocking": True, "error": str(e)}
@@ -865,7 +875,8 @@ class PhaseHooks:
         elif reviews:
             print(f"   needs_review: {reviews[0].message}")
         else:
-            print("   P1/P2 artifact references + module/FR-NFR ownership + NFR→ADR coverage consistent")
+            print("   P1/P2 artifact references + module/FR-NFR ownership + "
+                  "NFR→ADR coverage + security-design threat model consistent")
         return {"passed": passed, "blocking": blocking,
                 "errors": len(errors), "needs_review": len(reviews)}
 

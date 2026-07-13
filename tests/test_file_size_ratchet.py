@@ -105,11 +105,19 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-12: +1 line — Round 6 站1: preflight_sab_check now imports
     # sab_amender.sab_module_candidate() instead of a locally-duplicated
     # dict-unwrap inline.
-    "core/phase_hooks.py": 1583,
+    # 2026-07-13: +11 lines — Round 10 站3: preflight_artifact_consistency
+    # now also runs check_security_design (SAD.md §6 STRIDE-lite threat
+    # model completeness).
+    "core/phase_hooks.py": 1594,
     # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
     # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
     # (broken) Path(__file__).parent arithmetic.
-    "cli/check_cmds.py": 1369,
+    # 2026-07-13: +63 lines — Round 10 站3: cmd_check_artifact_consistency
+    # now also runs check_security_design (reads current_phase from
+    # state.json); cmd_bug_hunt_targets gains a 6th targeting source
+    # (threat_model — SAD.md §6 threats' owner_module resolved to an
+    # on-disk path, same candidate expansion preflight_sab_check uses).
+    "cli/check_cmds.py": 1432,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,
