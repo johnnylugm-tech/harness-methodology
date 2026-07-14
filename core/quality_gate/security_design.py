@@ -16,6 +16,11 @@ CONTRACT (single source of truth — do not duplicate in templates/docs):
     threats          (list of {id: "T-NN", boundary, category (STRIDE),
                      description, mitigation, owner_module, nfr (optional),
                      verified_by}, >=1 per boundary when full)
+    verified_by is a SINGLE test name, not a comma-separated list — each
+    threat must be independently verifiable by exactly one test (R8 checks
+    that name actually exists in the test source at phase>=5). A threat
+    that needs more than one test is a sign it should be split into
+    separate T-NN entries, not a reason to relax this to a list.
 
 Round 10 (gap-analysis response): security review previously relied on
 SRS/SAD keyword density (Bug #35 — proven to false-positive-fail honest
@@ -144,7 +149,7 @@ def render_canonical_security_template(
     lines.append('      mitigation: "schema validation + reject on unknown fields"')
     lines.append(f'      owner_module: "{module_example}"   # MUST be a module declared in the SAB block (§5)')
     lines.append(f"      nfr: {nfr_id}                        # optional — MUST exist in SRS when present")
-    lines.append('      verified_by: "test_sec_t01_malformed_payload_rejected"')
+    lines.append('      verified_by: "test_sec_t01_malformed_payload_rejected"   # single test name only — NOT "test_a, test_b"; split multi-test threats into separate T-NN entries')
     lines.append("")
 
     return "\n".join(lines)

@@ -216,7 +216,7 @@ security_design:
       mitigation: "schema validation + reject on unknown fields"
       owner_module: "app.api.webhooks"   # MUST be a module declared in the SAB block (§5)
       nfr: NFR-02                        # optional — MUST exist in SRS when present
-      verified_by: "test_sec_t01_malformed_payload_rejected"
+      verified_by: "test_sec_t01_malformed_payload_rejected"   # single test name only — NOT "test_a, test_b"; split multi-test threats into separate T-NN entries
 ```
 <!-- SEC:END -->
 

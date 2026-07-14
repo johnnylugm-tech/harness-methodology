@@ -333,6 +333,20 @@ def test_threat_bad_verified_by_format_blocks(tmp_path):
     assert any(e.rule_id == "SEC-R5" and "test name" in e.message for e in errs)
 
 
+def test_comma_separated_verified_by_blocks(tmp_path):
+    """Real incident (P2 2026-07-14): an agent wrote verified_by as a
+    comma-separated list of test names instead of a single name — pins
+    that exact shape so the regression can't silently reopen."""
+    _w(ProjectLayout(tmp_path).sad_path,
+       "# SAD\n\n" + _sec_block(_sec_yaml(threats=[
+           {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+            "description": "d", "mitigation": "m", "owner_module": "pkg.mod",
+            "verified_by": "test_x, test_y"},
+       ])))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert any(e.rule_id == "SEC-R5" and "test name" in e.message for e in errs)
+
+
 def test_threat_duplicate_id_blocks(tmp_path):
     _w(ProjectLayout(tmp_path).sad_path,
        "# SAD\n\n" + _sec_block(_sec_yaml(threats=[

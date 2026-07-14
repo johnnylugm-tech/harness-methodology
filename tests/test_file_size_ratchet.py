@@ -193,7 +193,14 @@ _LINE_CEILING: dict[str, int] = {
     # prose with no cross-phase counterpart; kept verbatim rather than forced
     # into a false shared abstraction (see js_blocks.py's own note below on
     # phase1's runSubTask vs phase2's abLoop for the same judgment call).
-    "scripts/workflowgen/phase_specs.py": 2932,
+    # 2026-07-15: +1 line — Fix 6/7/8 (agent-format-drift bug class): SEC
+    # checklist gains a verified_by single-name reminder, the SRS prompt
+    # gains a canonical `### FR-XX:` heading example, and the Phase 3 FR-dev
+    # prompt gains an explicit "don't share files across FRs" contrast next
+    # to the existing single-test-file rule — three prompt/template gaps
+    # found by re-verifying the prior session's inference-only "5-layer"
+    # analysis against the actual code.
+    "scripts/workflowgen/phase_specs.py": 2933,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

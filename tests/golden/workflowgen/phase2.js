@@ -545,7 +545,7 @@ const sad = await abLoop({
     '- Every FR maps to ≥1 module?\n- NFRs addressed (latency/security/cost)?\n- No circular dependencies?\n- Data flow diagrams consistent?\n'
     + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: "2"`\n- All NFR `type` values from legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?\n'
     + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\n- ≤15 files/dir, no god-module, no flat dump?\n'
-    + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?',
+    + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?\n- Each threat\'s `verified_by` is a single test name (no comma-separated list) — split into a separate T-NN entry per additional test?',
 })
 if (!sad.ok) return sad
 let sadContent = sad.content, sadB2 = sad.b2

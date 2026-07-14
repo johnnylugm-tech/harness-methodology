@@ -755,6 +755,7 @@ function srsAPrompt(round, prevB2) {
     + '   - Elicitation Mode: elicit from brief and write FRs/NFRs in SRS.md.\n'
     + '   - FORBIDDEN: vague/non-testable acceptance criteria.\n'
     + '   - Structure: 1) Introduction, 2) Constraints, 3) Functional Requirements (one § per FR with testable AC + canonical spec citation), 4) Non-Functional Requirements (one § per NFR with measurable AC + citation), 5) Acceptance Criteria Summary, 6) Out-of-Scope, 7) Open Issues (deferred items with NFR-99 / FR-XX-deferred tags), 8) Risks, 9) Glossary.\n'
+    + '   - Each FR section MUST start with the heading `### FR-XX: <title>` (e.g. `### FR-01: Task submission`) — do not use TOC-numbered subsections like `### 3.1 FR-01`; each NFR section likewise `### NFR-XX: <title>`.\n'
     + '   - Create directory ' + REPO + '/01-requirements if missing. Use Write tool to create the file.\n'
     + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes to SRS.md via Edit (surgical; do NOT rewrite the whole file). MED/LOW gaps: log but skip unless trivial.\n'
     + '5. (Re-)read file via Read tool to capture its FINAL on-disk state after any edits.\n'
