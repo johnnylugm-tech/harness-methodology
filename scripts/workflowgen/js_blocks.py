@@ -25,6 +25,28 @@ _JS_SRC_DIR = Path(__file__).resolve().parent / "js_src"
 _EXPORT_RE = re.compile(r"^export\s+(?=function\b)", re.MULTILINE)
 
 
+def render_rule_prose(rule_id: str) -> str:
+    """Canonical @rule prose from harness/prompts/rules/<id>.md, JS-escaped
+    for embedding in a single-quoted JS string literal.
+
+    Reuses plangen/blocks.py's own SSOT loader (`_load_rule`) rather than a
+    second copy — tests/test_prompt_rules.py's no-fork check scans EVERY .py
+    file, not just plangen's own module, so a hardcoded duplicate of this
+    prose inside workflowgen (phase1's original JS embedded these rules
+    verbatim, its only option since workflow JS can't `import` a .md at
+    runtime) would trip the same guard the moment it's copied into a scanned
+    .py string constant. Loading at generation time is exactly this whole
+    package's reason to exist (see module docstring) and simultaneously
+    fixes a second, independent bug: phase1's original inline text for
+    R-CANONICAL-INTERP-001 pre-dates the rule's extraction and still says
+    "python -m taskq" (a past E2E target project's name) where the
+    canonical .md was already genericized to "python -m <pkg>".
+    """
+    from scripts.plangen.blocks import _load_rule
+
+    return _load_rule(rule_id).replace("'", "\\'")
+
+
 def render_json_utils() -> str:
     """`js_src/json_utils.mjs` with `export` stripped, for inlining into a
     self-contained phase workflow file (the runtime forbids `export`/
@@ -43,7 +65,7 @@ def render_json_utils() -> str:
     return _EXPORT_RE.sub("", body)
 
 
-RESOLVE_REPO_BLOCK = """\
+RESOLVE_REPO_FN_BLOCK = """\
 // ---- args / REPO / PY ----
 // REPO precedence: args.repo override wins, then DEFAULT_REPO canonical path.
 // process.env.HARNESS_REPO cannot be read here — playbook §4 forbids process.*
@@ -77,9 +99,16 @@ async function resolveRepo() {
   }
   throw new Error('[workflow] REPO not auto-detected (resolver returned: "' + text.slice(0, 200) + '"). Pass args.repo = absolute path or run from inside the project repo.')
 }
-let REPO = await resolveRepo()
-const PY = REPO + '/.venv/bin/python'
-log('REPO = ' + REPO + ' | PY = ' + PY)
+"""
+
+RESOLVE_REPO_BLOCK = RESOLVE_REPO_FN_BLOCK + (
+    "let REPO = await resolveRepo()\n"
+    "const PY = REPO + '/.venv/bin/python'\n"
+)
+
+REPO_LOG_LINE = "log('REPO = ' + REPO + ' | PY = ' + PY)\n"
+
+BUDGET_GUARD_BLOCK = """\
 // v15: budget guard (Bug #3 — port from phase2-architecture)
 if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 200000) {
   log('WARNING: budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k remaining) — workflow may not complete')
@@ -707,17 +736,30 @@ def render_gate_loop(
     on_fail_error_msg: str,
     include_manifest_integrity: bool = True,
     deferred_fixes_step: str = "",
+    wrap_try_catch: bool = False,
+    orchestrator_desc: str | None = None,
+    pre_gate_note: str = "",
+    include_finalize_note: bool = True,
 ) -> str:
-    """The Gate-2 (phase3) / Gate-3 (phase4) evaluation round loop — both
-    share this skeleton (round loop, orchestrator agent, session-limit
-    detection, harness-verified manifest-qc + D4 verdict check, retry) but
-    differ enough in real content (dims/thresholds/fix-hints — supplied via
-    `prompt_steps`/`scope_rules`/`pass_line_desc` since that prose doesn't
-    repeat between gates; `include_manifest_integrity` — gate2 re-checks
-    each round, gate3 doesn't; `deferred_fixes_step` — gate3 writes
-    deferred_fixes.md on exhausted-retries FAIL, gate2 doesn't) that this
-    function takes them as explicit parameters rather than guessing a false
-    common prose.
+    """The Gate-2 (phase3) / Gate-3 (phase4) / Gate-4 (phase6) evaluation
+    round loop — all three share this skeleton (round loop, orchestrator
+    agent, session-limit detection, harness-verified manifest-qc + D4
+    verdict check, retry) but differ enough in real content
+    (dims/thresholds/fix-hints — supplied via `prompt_steps`/`scope_rules`/
+    `pass_line_desc` since that prose doesn't repeat between gates;
+    `include_manifest_integrity` — gate2 re-checks each round, gate3/gate4
+    don't; `deferred_fixes_step` — gate3 writes deferred_fixes.md on
+    exhausted-retries FAIL, gate2/gate4 don't; `wrap_try_catch` — gate4's
+    orchestrator call is wrapped in try/catch, ported from phase3 in a
+    historical "Bug #2" fix, gate2/gate3 aren't; `orchestrator_desc` —
+    gate2/gate3 say "(Phase N exit)", gate4 says "(Phase 6 — full project
+    quality)" since Gate 4 isn't a hand-off checkpoint into another phase;
+    `pre_gate_note` — gate4 has an extra "Pre-Gate: confirm ..." sentence
+    gate2/gate3 don't; `include_finalize_note` — gate4's final-line summary
+    omits the "finalize-gate writes HANDOVER.md..." clause because its own
+    numbered step 4 (G4c) already states that, making the clause redundant
+    there only) that this function takes them as explicit parameters rather
+    than guessing a false common prose.
     """
     steps_text = "".join(f"    + '{s}\\n'\n" for s in prompt_steps)
     integrity_block = (
@@ -726,6 +768,20 @@ def render_gate_loop(
         f"    return {{ error: 'Gate {gate_num} round ' + round + ': quality_manifest.json corrupted mid-run', detail: g{gate_num}Integrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first — a corrupted manifest may already be committed)', note: 'Corruption appeared AFTER the entry integrity check. Inspect the previous round\\'s agent transcript for the writer before restoring.' }}\n"
         f"  }}\n"
     ) if include_manifest_integrity else ""
+    agent_open = (
+        f"  // v15: wrap agent() in try/catch (Bug #2)\n"
+        f"  try {{ gate{gate_num}Report = await agent(\n"
+    ) if wrap_try_catch else f"  gate{gate_num}Report = await agent(\n"
+    agent_close = (
+        f"  ) }} catch (e) {{\n"
+        f"    log('  Gate {gate_num} agent threw: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying')\n"
+        f"    gate{gate_num}Report = ''\n"
+        f"    if (round < 3) continue\n"
+        f"  }}\n"
+    ) if wrap_try_catch else "  )\n"
+    desc = orchestrator_desc if orchestrator_desc is not None else f"Phase {phase} exit"
+    pre_gate_block = f"    + '{pre_gate_note}\\n\\n'\n" if pre_gate_note else ""
+    finalize_note = f"finalize-gate (G{gate_num}c) writes HANDOVER.md + pushes on PASS. " if include_finalize_note else ""
     return (
         render_phase_header(f"Gate {gate_num}")
         + f"log('{log_msg}')\n"
@@ -733,15 +789,16 @@ def render_gate_loop(
         + "for (let round = 1; round <= 3; round++) {\n"
         + f"  log('  Gate {gate_num} round ' + round + '/3')\n"
         + integrity_block
-        + f"  gate{gate_num}Report = await agent(\n"
-        + f"    'YOU ARE THE GATE-{gate_num} ORCHESTRATOR (Phase {phase} exit). ROUND ' + round + '.\\n'\n"
+        + agent_open
+        + f"    'YOU ARE THE GATE-{gate_num} ORCHESTRATOR ({desc}). ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + pre_gate_block
         + "    + 'Steps:\\n'\n"
         + steps_text
-        + f"    + 'finalize-gate (G{gate_num}c) writes HANDOVER.md + pushes on PASS. Report final line: \"GATE{gate_num}: PASS\" ({pass_line_desc}) or \"GATE{gate_num}: FAIL — <failing dims>\".\\n\\n'\n"
+        + f"    + '{finalize_note}Report final line: \"GATE{gate_num}: PASS\" ({pass_line_desc}) or \"GATE{gate_num}: FAIL — <failing dims>\".\\n\\n'\n"
         + f"    + 'SCOPE RULES:\\n{scope_rules}',\n"
         + f"    {{ label: 'gate{gate_num}-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose' }},\n"
-        + "  )\n"
+        + agent_close
         + f"  if (gate{gate_num}Report === null || gate{gate_num}Report === undefined || (typeof gate{gate_num}Report === 'string' && gate{gate_num}Report.length < 10)) {{\n"
         + f"    gate{gate_num}Blocked = true\n"
         + f"    log('  Gate {gate_num} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
@@ -766,4 +823,492 @@ def render_gate_loop(
         + deferred_fixes_step
         + f"  return {{ error: '{on_fail_error_msg}', raw: String(gate{gate_num}Report ?? '').slice(-600) }}\n"
         + "}\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# A/B review machine (phase1/phase2/phase6 shared helpers — Round 11 station4)
+#
+# Confirmed by direct diff (not assumption) across all three hand-maintained
+# files: balancedJsonAt/extractLastJson/parseAgentJson are already covered by
+# render_json_utils() (js_src/json_utils.mjs, built station1 but unused until
+# this station). safePrevB2 is byte-identical. makeDocSummary/loadFileViaPython/
+# structuredBReview differ only in comments/defaults (cosmetic, canonicalized
+# below). buildBPrompt and persistApproval have REAL differences, preserved as
+# explicit parameters:
+#   - phase1's buildBPrompt requires reason >=40 chars; phase2's requires
+#     >=100 — verified against the actual harness code
+#     (core/quality_gate/agent_b_approvals.py:21, MIN_REVIEW_REASON_CHARS=40).
+#     phase2's "100" is a stale, stricter-than-necessary requirement that was
+#     apparently never corrected after the harness's real minimum was set to
+#     40 — flagged, not silently fixed (this station migrates, it doesn't
+#     rewrite prompt policy).
+#   - phase1's persistApproval uses a plain fallback reason; phase2's
+#     synthesizes a >=100-char justification when B returns none (matching
+#     phase2's own, stricter, self-imposed 100-char belief). phase6's
+#     writeApprovalJson matches phase1's plain fallback, not phase2's.
+#   - phase1 has an extra scopeRules() text-builder helper phase2 doesn't
+#     (phase2 inlines its SCOPE RULES text per-prompt) — rendered only where
+#     the phase's original file actually defines it.
+#
+# hasHighGap() and summarizeVerify() are dropped: both are confirmed dead in
+# every hand-maintained file (defined, zero callers) — hasHighGap's entire
+# body is an unconditional throw whose own comment says it exists only "so
+# the git diff clearly shows what was replaced"; that diff already happened
+# in this repo's history and doesn't need perpetuating into every future
+# regeneration.
+# ---------------------------------------------------------------------------
+
+
+def render_safe_prev_b2() -> str:
+    return (
+        "// ---- safePrevB2: strip prev-round `reason` to defeat premise persistence ----\n"
+        "function safePrevB2(prevB2) {\n"
+        "  if (!prevB2) return null\n"
+        "  return {\n"
+        "    review_status: prevB2.review_status,\n"
+        "    gaps: Array.isArray(prevB2.gaps) ? prevB2.gaps : [],\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def render_make_doc_summary() -> str:
+    return (
+        "// ---- makeDocSummary: collapse full content → headings + counts ----\n"
+        "// Used for APPROVED upstream docs (B does not re-review them; they're context\n"
+        "// for the deliverable under review). Trims ~95% of token volume while\n"
+        "// preserving the structural skeleton B needs to orient.\n"
+        "function makeDocSummary(content, opts) {\n"
+        "  opts = opts || {}\n"
+        "  const lines = content.split('\\n')\n"
+        "  const headings = []\n"
+        "  for (const ln of lines) {\n"
+        "    const m = ln.match(/^(#{1,6})\\s+(.+?)\\s*$/)\n"
+        "    if (m) headings.push(m[2].slice(0, 80))\n"
+        "  }\n"
+        "  const summary = {\n"
+        "    line_count: lines.length,\n"
+        "    char_count: content.length,\n"
+        "    headings: headings.slice(0, 40),\n"
+        "  }\n"
+        "  if (opts.includeFirstLines) {\n"
+        "    summary.first_3_lines = lines.slice(0, 3).map(l => l.slice(0, 120))\n"
+        "  }\n"
+        "  return JSON.stringify(summary, null, 2)\n"
+        "}\n"
+    )
+
+
+def render_scope_rules() -> str:
+    """phase1-only text-builder (phase2 inlines its SCOPE RULES text
+    per-prompt instead) — only injected into phase1's generated file."""
+    return (
+        "// ---- SCOPE RULES template (playbook §7.3) ----\n"
+        "function scopeRules(singleDeliverable, prevDeliverables) {\n"
+        "  let p = '\\n\\nSCOPE RULES (you MUST obey):\\n'\n"
+        "  p += '- DO NOT write any deliverable OTHER than ' + singleDeliverable + '.\\n'\n"
+        "  if (prevDeliverables && prevDeliverables.length > 0) {\n"
+        "    p += '- DO NOT modify ' + prevDeliverables.join(', ') + ' (already APPROVED).\\n'\n"
+        "  }\n"
+        "  p += '- DO NOT run git commit, git push, advance-phase, push-checkpoint, or any phase-transition command.\\n'\n"
+        "  p += '- DO NOT run constitution-check, peer-review, or any quality-gate command.\\n'\n"
+        "  p += '- DO NOT spawn other agents or do the work of downstream sub-tasks.\\n'\n"
+        "  p += '- ONLY do the steps above. Return the compact JSON when done.'\n"
+        "  return p\n"
+        "}\n"
+    )
+
+
+def render_build_b_prompt(
+    *,
+    min_reason_chars: int,
+    docs_embedded_note: str,
+    critical_docs_note: str,
+    evidence_type_note: str,
+) -> str:
+    """buildBPrompt: the 3-layer B-review defense prompt builder. Real,
+    verified differences between phase1/phase2 preserved as parameters (see
+    module-level comment above) rather than guessed at — NOT the phase-
+    specific per-sub-task docs/checklist content, which stays in phase_specs.py.
+    `docs_embedded_note` was caught by a direct diff AFTER this function was
+    first written (its initial version silently dropped the phase-specific
+    basename examples — "SAD.md/ADR.md/TEST_SPEC.md" for phase2, "SRS.md/
+    TEST_INVENTORY.yaml" + an extra "NOT descriptive strings like ..." clause
+    for phase1); re-verified against both real files before wiring any spec.
+    """
+    return (
+        "// ---- B prompt builder (3-layer B-review defense, T1-B) ----\n"
+        "//\n"
+        "// Correct B-review architecture has three layers:\n"
+        "//   Layer 1 — B agent orientation: SUMMARY via makeDocSummary(); B Bash-cats\n"
+        "//   full file for any citation (playbook §8.2).\n"
+        "//   Layer 2 — Deterministic gap verification (harness): structured_b_review.py\n"
+        "//   --doc-content reads the deliverable file directly; b_gap_validator checks\n"
+        "//   each gap's terms against actual file content — no LLM involved.\n"
+        "//   Layer 3 — Escalation (harness): enforce_escalation computes the round-loop\n"
+        "//   verdict AFTER Layer 2 has corrected gap severities.\n"
+        "function buildBPrompt(role, deliverable, docs, checklist) {\n"
+        "  let p = 'You are ' + role + '. Your task: review the following deliverable (' + deliverable + ').\\n'\n"
+        "    + 'You have FULL access to Bash and Read tools — USE THEM to cat/Read the\\n'\n"
+        "    + 'freshest version of every file you cite. The DOC blocks below are a SUMMARY\\n'\n"
+        "    + 'snapshot for orientation; for any citation file:line, you MUST re-read that\\n'\n"
+        "    + 'file via Read/Bash first. Do NOT extend any prior round\\'s `reason` verbatim\\n'\n"
+        "    + 'into your own reasoning — read disk, then judge.\\n\\n'\n"
+        "  for (let i = 0; i < docs.length; i++) p += '=== [' + docs[i][0] + '] ===\\n' + docs[i][1] + '\\n\\n'\n"
+        "  p += 'Review checklist:\\n' + checklist + '\\n\\n'\n"
+        "    + 'SCHEMA REQUIREMENTS (advance-phase `harness_cli.py _verify_agent_b_approvals_core` REJECTS the approval if any of these fail — observed 2026-06-29 wf_3a9377cb):\\n'\n"
+        f"    + '  - `reason`: ≥ {min_reason_chars} characters of substantive justification. NOT \"APPROVE\", \"OK\", or other one-word response.\\n'\n"
+        "    + '  - `citations`: array of \"file:line\" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\\n'\n"
+        f"    + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) {docs_embedded_note}\\n'\n"
+        f"    + '  - CRITICAL: {critical_docs_note}\\n\\n'\n"
+        "    + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\\n'\n"
+        f"    + '{{\"review_status\":\"APPROVE\"|\"REJECT\"|\"CANCELLED\",\"reason\":\"<≥{min_reason_chars} chars>\",\"citations\":[\"file:line\"],\"docs_embedded\":[\"...\"],\"gaps\":[{{\"severity\":\"low|medium|high\",\"evidence_type\":\"real_invention|over_interpretation|methodology_artifact\",\"canonical_ref\":\"<file:line or section ID>\",\"message\":\"...\",\"fr_id\":\"<FR-XX or null>\"}}]}}\\n'\n"
+        f"    + 'evidence_type tells the framework which fix strategy to dispatch. {evidence_type_note}\\n\\n'\n"
+        "    + 'IMPORTANT: Return ONLY the JSON object as your final message. No prose before or after.'\n"
+        "  return p\n"
+        "}\n"
+    )
+
+
+def render_structured_b_review(*, default_phase_num: int) -> str:
+    return (
+        "// ---- structuredBReview (T1-B) — harness-owned B-2 round-loop control ----\n"
+        "//\n"
+        "// Replaces hasHighGap() (hand-rolled gap-severity gating), runBSelfVerify()\n"
+        "// (second LLM re-checking the first LLM's claims), and the VETO guard (that\n"
+        "// let the second LLM's self-reported confidence silently flip REJECT→APPROVE).\n"
+        "//\n"
+        "// Calls structured_b_review.py, which:\n"
+        "//   1. Extracts JSON from B's raw free-text output\n"
+        "//   2. Validates against b_review.schema.json\n"
+        "//   3. Applies downgrade rules (_downgrade_over_interpretation)\n"
+        "//   4. Runs deterministic gap/reason/citation verification (b_gap_validator)\n"
+        "//   5. Computes EscalationAction (approve|retry|escalate_human) via enforce_escalation\n"
+        "//\n"
+        "// Returns { b2, escalation_action, escalation_reason, review_out } where b2\n"
+        "// is the normalized (gap-severity-verified) B-2 dict — workflow JS branches\n"
+        "// on escalation_action.\n"
+        "async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum) {\n"
+        f"  const rawFile = '/tmp/sbr_raw_' + (phaseNum || {default_phase_num}) + '_r' + round + '.txt'\n"
+        f"  const jsonFile = '/tmp/sbr_out_' + (phaseNum || {default_phase_num}) + '_r' + round + '.json'\n"
+        "  const delivFlag = delivPath ? ' --doc-content ' + REPO + '/' + delivPath : ''\n"
+        f"  const phaseFlag = ' --phase ' + (phaseNum || {default_phase_num})\n"
+        "  const sbrCmd = PY + ' ' + REPO + '/harness/scripts/structured_b_review.py'\n"
+        "    + ' --raw-text ' + rawFile\n"
+        "    + ' --round ' + round\n"
+        "    + ' --max-rounds ' + maxRounds\n"
+        "    + ' --json-out ' + jsonFile\n"
+        "    + phaseFlag\n"
+        "    + delivFlag\n"
+        "    + ' --quiet'\n"
+        "\n"
+        "  const reviewAgent = await agent(\n"
+        "    'YOU ARE A DETERMINISTIC B-REVIEW VALIDATOR. Run these steps in order via Bash.\\n'\n"
+        "    + '1. Write the raw B-review text to a file (heredoc — verbatim, no modification):\\n'\n"
+        "    + '   cat > ' + rawFile + \" <<'HEREDOC_END'\\n\" + bRawText + '\\nHEREDOC_END\\n'\n"
+        "    + '2. Run: `' + sbrCmd + '`\\n'\n"
+        "    + '3. Read the output: `cat ' + jsonFile + '`\\n'\n"
+        "    + 'Return the verbatim cat output as your final message — no commentary.',\n"
+        f"    {{ label: 'sbr-' + (phaseNum || {default_phase_num}) + '-r' + round, phase: 'B Review', agentType: 'general-purpose' }},\n"
+        "  )\n"
+        "  let reviewOut = null\n"
+        "  try {\n"
+        "    reviewOut = extractLastJson(reviewAgent)\n"
+        "  } catch (_) { /* fall through — escalate if unparseable */ }\n"
+        "  if (!reviewOut) {\n"
+        "    return { b2: null, escalation_action: 'retry', escalation_reason: 'structured_b_review.py output unparseable', review_out: String(reviewAgent ?? '').slice(0, 200) }\n"
+        "  }\n"
+        "\n"
+        "  // structured_b_review.py's own `out` dict does NOT forward reason/citations/\n"
+        "  // docs_embedded (only status/review_status/gaps/diagnostic/b2_verification/\n"
+        "  // escalation_*) — re-extract them from B's raw text directly, or every\n"
+        "  // approval persisted from this object would carry empty citations/\n"
+        "  // docs_embedded and advance-phase's _verify_agent_b_approvals_core would\n"
+        "  // reject it unconditionally (confirmed 2026-07-14 2nd-round audit).\n"
+        "  let b2 = null\n"
+        "  try {\n"
+        "    const rawB = extractLastJson(bRawText) || {}\n"
+        "    b2 = {\n"
+        "      review_status: reviewOut.review_status,\n"
+        "      gaps: reviewOut.gaps || [],\n"
+        "      reason: reviewOut.review_status === 'CANCELLED' ? (reviewOut.diagnostic || '') : (rawB.reason || ''),\n"
+        "      citations: Array.isArray(rawB.citations) ? rawB.citations : [],\n"
+        "      docs_embedded: Array.isArray(rawB.docs_embedded) ? rawB.docs_embedded : [],\n"
+        "      verify: reviewOut.b2_verification || null,\n"
+        "    }\n"
+        "  } catch (_) { b2 = null }\n"
+        "\n"
+        "  return {\n"
+        "    b2: b2,\n"
+        "    escalation_action: reviewOut.escalation_action || 'retry',\n"
+        "    escalation_reason: reviewOut.escalation_reason || '',\n"
+        "    review_out: reviewOut,\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def render_persist_approval(
+    *,
+    synthesize_reason: bool,
+    use_schema_verdict: bool = False,
+    label_prefix: str = "persist",
+    phase_label: str = "Persist Approval",
+) -> str:
+    """persistApproval (phase1/phase2 name) / writeApprovalJson (phase6 name,
+    same body shape) — writes .methodology/agent_b_approvals/<id>.json via
+    harness_cli.py write-approval. `synthesize_reason=True` reproduces
+    phase2's exact >=100-char-padding fallback (verified NOT required by the
+    actual harness minimum of 40 — see module docstring — but preserved
+    verbatim since equivalence migration doesn't rewrite prompt/logic policy);
+    phase1 and phase6 both use the plain fallback (synthesize_reason=False).
+    `use_schema_verdict=True` is phase6's REAL, behavioral (not cosmetic)
+    difference: phase1/phase2 read a plain string + regex-match `[write-
+    approval] OK`; phase6 already reports through VERDICT_SCHEMA (pass/
+    reason fields) — the safer schema-transport pattern this whole module's
+    gate loops use elsewhere. Preserved as-is, not downgraded to match
+    phase1/2 nor used to silently upgrade them. `label_prefix`/`phase_label`
+    default to phase1/2's own values; phase6 passes its own (`write-
+    approval` / `Peer Review` — it has no dedicated "Persist Approval" phase
+    box, calling this only from within Peer Review) so no agent() label
+    changes and no rename entry is needed for phase6's migration."""
+    reason_block = (
+        "  const rawReason = String(b2.reason ?? '').trim()\n"
+        "  const synthReason = 'Agent B approved ' + deliverableId + ' (review_status=' + (b2.review_status ?? 'APPROVE')\n"
+        "    + '); the reviewer returned no substantive reason text, so the workflow synthesized this justification to satisfy the harness _verify_agent_b_approvals_core minimum-length (100 char) contract.'\n"
+        "  const reason = (rawReason.length >= 100 ? rawReason : (rawReason ? rawReason + ' — ' + synthReason : synthReason)).slice(0, 800)\n"
+        if synthesize_reason else ""
+    )
+    reason_field = (
+        "reason: reason,"
+        if synthesize_reason else
+        "reason: (b2.reason ?? ('Approved ' + deliverableId + ' (reason omitted)')).slice(0, 800),"
+    )
+    if use_schema_verdict:
+        agent_call = (
+            "      res = await agent(\n"
+            "        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\\n\\n' + cmd + '\\n\\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',\n"
+            f"        {{ label: '{label_prefix}-' + deliverableId + '-try' + attempt, phase: '{phase_label}', agentType: 'general-purpose', schema: VERDICT_SCHEMA }},\n"
+            "      )\n"
+        )
+        success_check = (
+            "    if (res && res.pass === true) {\n"
+            "      log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')\n"
+            "      return\n"
+            "    }\n"
+            "    lastErr = 'CLI did not return OK; got: ' + (res ? String(res.reason ?? '').slice(0, 400) : 'agent returned null')\n"
+        )
+    else:
+        agent_call = (
+            "      res = await agent(\n"
+            "        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command and emit stdout + exit code verbatim:\\n\\n' + cmd + '\\n\\nNo commentary, no preamble, no other tool calls.',\n"
+            f"        {{ label: '{label_prefix}-' + deliverableId + '-try' + attempt, phase: '{phase_label}', agentType: 'general-purpose' }},\n"
+            "      )\n"
+        )
+        success_check = (
+            "    if (typeof res === 'string' && /\\[write-approval\\]\\s*OK/.test(res)) {\n"
+            "      log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')\n"
+            "      return\n"
+            "    }\n"
+            "    lastErr = 'CLI did not return OK; got: ' + String(res).slice(0, 400)\n"
+        )
+    return (
+        "// ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----\n"
+        "// v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-\n"
+        "// phase PASS) + workflow JS outer-level try/catch retry.\n"
+        "async function persistApproval(deliverableId, b2) {\n"
+        "  // v31: SINGLE-LINE JSON (no indent) — multi-line indented JSON gets\n"
+        "  // word-split by shell when the LLM agent emits the command without\n"
+        "  // single-quoting the JSON payload, breaking `--json` argparse.\n"
+        + reason_block
+        + "  const approvalPayload = JSON.stringify({\n"
+        "    fr: deliverableId,\n"
+        "    review_status: b2.review_status ?? 'APPROVE',\n"
+        f"    {reason_field}\n"
+        "    citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],\n"
+        "    docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],\n"
+        "    confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,\n"
+        "  })\n"
+        "  const cliPath = REPO + '/harness/harness_cli.py'\n"
+        "  // v31: explicit single-quote wrap around the JSON payload (zsh glob safety —\n"
+        "  // zsh interprets `[...]` in unquoted strings as glob patterns, and JSON\n"
+        "  // arrays + file:line citations are full of them).\n"
+        "  const escapedPayload = approvalPayload.replace(/'/g, \"'\\\\''\")\n"
+        "  const cmd = PY + ' ' + cliPath + ' write-approval --project ' + REPO +\n"
+        "    ' --fr-id ' + JSON.stringify(deliverableId) + \" --json '\" + escapedPayload + \"'\"\n"
+        "\n"
+        "  let lastErr = null\n"
+        "  for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS; attempt++) {\n"
+        "    let res\n"
+        "    try {\n"
+        + agent_call
+        + "    } catch (e) {\n"
+        "      lastErr = 'agent() threw: ' + (e && e.message ? e.message : String(e))\n"
+        "      log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr.slice(0, 200))\n"
+        "      continue\n"
+        "    }\n"
+        + success_check
+        + "    log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)\n"
+        "  }\n"
+        "  throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)\n"
+        "}\n"
+    )
+
+
+def render_load_file_via_python() -> str:
+    return (
+        "// ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----\n"
+        "// Drops the v29 MCP read path (failed at large-context stages) in favour of a\n"
+        "// single-step Bash tool-call running the deterministic `harness_cli.py\n"
+        "// read-file` + `cat` relay, which does not depend on an MCP server in a\n"
+        "// headless run. read-file's prefix check is a first-line startswith() (file_\n"
+        "// loader Bug v8 guard), so all expectPrefix values passed in must lead with \"#\".\n"
+        "async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {\n"
+        "  opts = opts || {}\n"
+        "  const maxAttempts = opts.maxAttempts || 3\n"
+        "  const filePath = REPO + '/' + relPath\n"
+        "  const expectPrefixArg = expectPrefix ? ' --expect-prefix ' + JSON.stringify(expectPrefix) : ''\n"
+        "  const safeName = relPath.replace(/[\\/.]/g, '_')\n"
+        "  const contentOut = '/tmp/load_' + safeName + '.txt'\n"
+        "  const jsonOut = '/tmp/load_' + safeName + '.json'\n"
+        "  const pythonCmd = PY + ' ' + REPO + '/harness_cli.py read-file --file ' + JSON.stringify(filePath)\n"
+        "    + expectPrefixArg + ' --content --content-out ' + contentOut + ' --json-out ' + jsonOut + ' --quiet'\n"
+        "\n"
+        "  const prompt = 'You are a SHELL WRAPPER AGENT. Your ONLY job is to run ONE shell command and emit ONE file content verbatim.\\n\\n'\n"
+        "    + 'STEPS (DO NOT DEVIATE):\\n'\n"
+        "    + '1. Use the Bash tool to run EXACTLY this command (no modifications):\\n'\n"
+        "    + '   ' + pythonCmd + '\\n\\n'\n"
+        "    + '2. Use the Bash tool to run `cat ' + contentOut + '` — read the content file from disk.\\n\\n'\n"
+        "    + '3. Your final assistant message = the EXACT output of `cat ' + contentOut + '` (verbatim bytes).\\n\\n'\n"
+        "    + 'CRITICAL OUTPUT RULES (violations = failure):\\n'\n"
+        "    + '- DO NOT generate or paraphrase content based on your memory/inference.\\n'\n"
+        "    + '- ALWAYS read the actual file from disk. NEVER hallucinate file content.\\n'\n"
+        "    + '- DO NOT echo the JSON file. Only echo the content file.\\n'\n"
+        "    + '- DO NOT write any preamble or acknowledgment.\\n'\n"
+        "    + '- DO NOT add commentary, summary, or explanation.\\n'\n"
+        "    + '- Your final message = the verbatim cat output only.\\n'\n"
+        "    + '- If the command fails, return EXACTLY: ERROR_LOAD_FAILED: ' + filePath\n"
+        "\n"
+        "  for (let attempt = 1; attempt <= maxAttempts; attempt++) {\n"
+        "    const res = await agent(prompt, {\n"
+        "      label: 'loadpy-' + relPath.replace(/[\\/.]/g, '-') + '-a' + attempt,\n"
+        "      phase: phaseName,\n"
+        "      agentType: 'general-purpose',\n"
+        "    })\n"
+        "    const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()\n"
+        "    // sub-agent runtime sometimes emits a literal <think>...</think> preamble\n"
+        "    // merged into the same line as the real content (no newline in between),\n"
+        "    // which defeats the ^-anchored prefix check below even though the agent\n"
+        "    // DID read the correct file. Strip it before validating.\n"
+        "    const text = rawText.replace(/^\\s*<think>[\\s\\S]*?<\\/think>\\s*/, '')\n"
+        "    if (text.startsWith('ERROR_LOAD_FAILED')) {\n"
+        "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')\n"
+        "      continue\n"
+        "    }\n"
+        "    if (text.length < 50) {\n"
+        "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')\n"
+        "      continue\n"
+        "    }\n"
+        "    if (expectPrefix) {\n"
+        "      const head = text.slice(0, 500)\n"
+        "      const stripped = expectPrefix.replace(/^#\\s*/, '')\n"
+        "      const escaped = stripped.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')\n"
+        "      const anchorRe = new RegExp('^#\\\\s+[^\\\\n]*' + escaped, 'm')\n"
+        "      if (!anchorRe.test(head)) {\n"
+        "        log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected \"' + expectPrefix + '\", got: ' + text.slice(0, 80) + ')')\n"
+        "        continue\n"
+        "      }\n"
+        "    }\n"
+        "    return text\n"
+        "  }\n"
+        "  return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath\n"
+        "}\n"
+    )
+
+
+def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
+    """phase2's abLoop — NOT shared with phase1's runSubTask. Initially
+    assumed unifiable (docstring said so in an earlier draft), but a full
+    line-by-line diff against phase1's real runSubTask (Round 11 station4)
+    found more than the two JS-internal conventions first assumed: cfg field
+    names differ (idx/name/bChecklist vs key/deliverable/checklist),
+    buildBDocs is called `await cfg.buildBDocs(round, content, b2)` in
+    phase1 (one implementation, srsBDocs, is genuinely async) vs sync
+    `cfg.buildBDocs(content)` in phase2, phase1 has two extra log() calls
+    phase2 doesn't, and phase1's round-exhausted return additionally omits
+    `ok`. Forcing both into one function would need a field-name-mapping
+    parameter plus two more behavior toggles — the wrong abstraction for two
+    call sites. phase1's runSubTask is instead rendered as phase1-specific
+    verbatim text in phase_specs.py. This function renders ONLY phase2's
+    shape. `b_role` is fixed to phase2's 'TECH_LEAD' (never varies per sub-
+    task) and `phase_num` selects the structuredBReview phase flag (always 2
+    for this function's only caller) — both generator-time parameters.
+    cfg = { phaseName, key, deliverable, diskPath, diskPrefix,
+            buildAPrompt(round, prevB2), buildBDocs(content), checklist }
+    """
+    return (
+        "// ---- Generic A/B loop (returns {ok,content,b2} or {error,...} — caller propagates) ----\n"
+        "async function abLoop(cfg) {\n"
+        "  phase(cfg.phaseName)\n"
+        "  log(cfg.deliverable + ': A/B loop (max ' + MAX_B_ROUNDS + ' rounds)')\n"
+        "  let content = '', b2 = null\n"
+        "  for (let round = 1; round <= MAX_B_ROUNDS; round++) {\n"
+        "    log('  --- ' + cfg.deliverable + ' round ' + round + '/' + MAX_B_ROUNDS + ' ---')\n"
+        "    if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 50000) {\n"
+        "      const rem = Math.round((budget.remaining() || 0) / 1000)\n"
+        "      log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.deliverable)\n"
+        "      if (b2 && b2.review_status === 'APPROVE') return { ok: true, content, b2, budget_exhausted: true }\n"
+        "      if (b2) return { ok: false, content, b2, budget_exhausted: true }\n"
+        "      return { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true }\n"
+        "    }\n"
+        "    let aResult\n"
+        "    try { aResult = await agent(cfg.buildAPrompt(round, b2), {\n"
+        "      label: 'a-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',\n"
+        "    }) } catch (e) {\n"
+        "      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
+        "    }\n"
+        "    let a\n"
+        "    try { a = parseAgentJson(aResult, 'A-' + cfg.key + '-r' + round) }\n"
+        "    catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }\n"
+        "    content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)\n"
+        "    if (content.startsWith('ERROR:') || content.length < 50) {\n"
+        "      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }\n"
+        "      log('  A disk empty (parse-fail + no file) → retrying next round')\n"
+        "      continue\n"
+        "    }\n"
+        "    log('  A status=' + (a && a.status ? a.status : 'assumed-OK') + ' | disk loaded: ' + content.length + ' chars, confidence=' + (a && a.confidence ? a.confidence : '?'))\n"
+        "\n"
+        "    let bResult\n"
+        f"    try {{ bResult = await agent(buildBPrompt('{b_role}', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist), {{\n"
+        "      label: 'b-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',\n"
+        "    }) } catch (e) {\n"
+        "      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
+        "    }\n"
+        "\n"
+        "    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---\n"
+        "    const sbrResult = await structuredBReview(\n"
+        f"      bResult, round, MAX_B_ROUNDS, cfg.diskPath, {phase_num},\n"
+        "    )\n"
+        "    b2 = sbrResult.b2 || parseAgentJson(bResult, 'B-' + cfg.key + '-r' + round)\n"
+        "    log('  B-2: ' + (b2 ? b2.review_status : '(none)')\n"
+        "      + ' | gaps=' + ((b2 ? b2.gaps : []) || []).length\n"
+        "      + ' | escalation=' + sbrResult.escalation_action)\n"
+        "\n"
+        "    if (sbrResult.escalation_action === 'approve') {\n"
+        "      log('  APPROVED')\n"
+        "      await persistApproval(cfg.deliverable, b2)\n"
+        "      return { ok: true, content, b2 }\n"
+        "    }\n"
+        "    if (sbrResult.escalation_action === 'escalate_human') {\n"
+        "      log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)\n"
+        "      return { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }\n"
+        "    }\n"
+        "    if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }\n"
+        "    // APPROVE+high OR REJECT → A fixes next round\n"
+        "  }\n"
+        "  return { error: cfg.deliverable + ' loop exhausted unexpectedly' }\n"
+        "}\n"
     )

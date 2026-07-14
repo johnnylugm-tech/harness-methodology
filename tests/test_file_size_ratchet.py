@@ -183,9 +183,32 @@ _LINE_CEILING: dict[str, int] = {
     # phase). Station1/2 (phase5/7/8) stayed under the threshold; station3
     # adds phase3 (full TDD chain, own Load FRs/Milestones/Sync — no shared
     # counterpart) and phase4 (Test Plan/Coverage/Bug Hunt), pushing it over.
-    # Expected to keep growing through station4 (phase6/1/2) — same
-    # trajectory as phase_tasks.py above, bumped each time growth lands.
-    "scripts/workflowgen/phase_specs.py": 1173,
+    # 2026-07-15: +1763 lines — Round 11 station4 adds phase6 (Gate 4/Release
+    # Docs/Peer Review/Tag & Advance) and the largest remaining files, phase2
+    # (3 serial A/B sub-tasks + SAB Generation + holistic Peer Review) and
+    # phase1 (4 serial A/B sub-tasks + Load Legal Artifacts + Forward Ref
+    # Check + a dedicated runPeerReview) — all now workflowgen-generated, so
+    # all 8 phases' declarative specs live here. Per-phase custom renderers
+    # (buildAPrompt/buildBDocs/checklist text) are genuinely one-off business
+    # prose with no cross-phase counterpart; kept verbatim rather than forced
+    # into a false shared abstraction (see js_blocks.py's own note below on
+    # phase1's runSubTask vs phase2's abLoop for the same judgment call).
+    "scripts/workflowgen/phase_specs.py": 2932,
+    # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
+    # threshold for the first time (769→1314) adding the shared A/B-review-
+    # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
+    # structuredBReview/persistApproval/loadFileViaPython/genericAbLoop) that
+    # unify phase1/phase2/phase6's previously triplicated JSON-parsing +
+    # B-review helpers, plus splitting RESOLVE_REPO_BLOCK/BUDGET_GUARD_BLOCK/
+    # REPO_LOG_LINE apart (phase1/phase2/phase6 each interleave their own
+    # extra consts between REPO resolution and the REPO/PY log line, in three
+    # different places — the split lets every phase reuse the same resolver
+    # function body without forcing one phase's ordering onto another), plus
+    # render_rule_prose() (loads harness/prompts/rules/<id>.md via plangen/
+    # blocks.py's own _load_rule SSOT instead of phase1's original JS
+    # hand-duplicating that prose — see phase_specs.py's srsAPrompt/
+    # srsBChecklist for the 3 call sites this replaced).
+    "scripts/workflowgen/js_blocks.py": 1314,
 }
 
 

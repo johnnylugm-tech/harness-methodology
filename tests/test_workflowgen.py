@@ -140,8 +140,11 @@ class TestGenerateFacade:
     def test_unmigrated_phase_raises_key_error(self):
         import pytest
 
+        # Round 11 station4: all 8 phases are now migrated (GENERATORS covers
+        # 1-8), so phase 1 is no longer a valid "unmigrated" example — use a
+        # phase number outside the methodology's fixed 1-8 range instead.
         with pytest.raises(KeyError):
-            generate(1)
+            generate(9)
 
     def test_generators_registry_has_expected_filenames(self):
         assert GENERATORS[8][1] == "phase8-config.js"
