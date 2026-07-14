@@ -427,6 +427,77 @@ def test_owner_module_matches_dict_shaped_sab_entry(tmp_path):
     assert not any(e.rule_id == "SEC-R6" for e in errs)
 
 
+def test_r6_normalizes_implemented_in_path_to_dotted(tmp_path):
+    """Regression for Phase 2 wf_04fb0a2a-621 SYNC BLOCK: SAB §5 modules used
+    dict-shaped `{name: "taskq.cli", implemented_in: "src/taskq/cli.py"}`
+    while SEC §6 threats used dotted `owner_module: "taskq.cli"`. The old R6
+    path took `sab_module_candidate` raw — returning the `implemented_in`
+    path strings — so 6/6 threats looked undeclared (every owner_module was
+    a path-vs-dotted mismatch, never a missing registration). Fix: R6 must
+    normalize SAB entries to dotted form via the shared
+    `normalize_sab_module_to_dotted` SSOT, matching how `_check_sab_module_
+    alignment` and `scripts/generate_sab.py` already compare."""
+    layout = ProjectLayout(tmp_path)
+    sab_yaml = yaml.dump({
+        "sab": {
+            "version": "1.0", "created_at": "2026-01-01", "phase": 2,
+            "project": "test",
+            "layers": [{"name": "entry", "modules": [
+                {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+            ]}],
+            "allowed_dependencies": [], "quality_targets": {},
+            "nfr_traceability": {}, "fr_module_traceability": {},
+            "architecture_constraints": [], "high_risk_modules": [],
+        }
+    }, sort_keys=False)
+    sec_yaml = _sec_yaml(threats=[
+        {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+         "description": "d", "mitigation": "m",
+         "owner_module": "taskq.cli",  # dotted form, NOT the path
+         "verified_by": "test_x"},
+    ])
+    _w(layout.sad_path, _sab_block(sab_yaml) + "\n" + _sec_block(sec_yaml))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert not any(e.rule_id == "SEC-R6" for e in errs), (
+        "R6 must normalize SAB `implemented_in` paths to dotted form "
+        "before comparing against threats[].owner_module — the SAB-"
+        "alignment gate in cli/gate_cmds.py already does this; SEC-R6 "
+        "must not silently disagree."
+    )
+
+
+def test_r6_still_blocks_phantom_owner_module(tmp_path):
+    """Counterexample: an owner_module that doesn't exist in the SAB even
+    after normalization must still BLOCK — guards against an over-correction
+    that silently accepts any string. (Pinned to the same SAB shape as
+    test_r6_normalizes_implemented_in_path_to_dotted so the only variable
+    is whether the threat's owner_module matches a registered module.)"""
+    layout = ProjectLayout(tmp_path)
+    sab_yaml = yaml.dump({
+        "sab": {
+            "version": "1.0", "created_at": "2026-01-01", "phase": 2,
+            "project": "test",
+            "layers": [{"name": "entry", "modules": [
+                {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+            ]}],
+            "allowed_dependencies": [], "quality_targets": {},
+            "nfr_traceability": {}, "fr_module_traceability": {},
+            "architecture_constraints": [], "high_risk_modules": [],
+        }
+    }, sort_keys=False)
+    sec_yaml = _sec_yaml(threats=[
+        {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+         "description": "d", "mitigation": "m",
+         "owner_module": "taskq.phantom",
+         "verified_by": "test_x"},
+    ])
+    _w(layout.sad_path, _sab_block(sab_yaml) + "\n" + _sec_block(sec_yaml))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert any(
+        e.rule_id == "SEC-R6" and "taskq.phantom" in e.message for e in errs
+    ), "phantom owner_module must still BLOCK after the normalization fix"
+
+
 def test_missing_sab_gives_info_not_error(tmp_path):
     _w(ProjectLayout(tmp_path).sad_path, "# SAD\n\n" + _sec_block(_sec_yaml()))
     vs = check_security_design(tmp_path, phase=3)

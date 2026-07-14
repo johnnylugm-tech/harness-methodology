@@ -48,7 +48,7 @@ import yaml
 
 from core.harness_config import get_feature
 from core.quality_gate import Violation
-from core.quality_gate.sab_amender import sab_module_candidate
+from core.quality_gate.sab_amender import normalize_sab_module_to_dotted
 from core.quality_gate.sab_parser import extract_sab_from_sad
 from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.lang_patterns import iter_test_files, project_language
@@ -401,10 +401,18 @@ def check_security_design(project, phase: Optional[int] = None) -> list[Violatio
             file=str(sad_path), severity="info",
         ))
     else:
+        # Normalize SAB modules to dotted form before comparison so a SAB
+        # entry that names its physical location (`implemented_in:
+        # "src/taskq/cli.py"`) matches a threats[].owner_module that names
+        # the logical dotted module (`taskq.cli`). Use the SSOT
+        # `normalize_sab_module_to_dotted` (same one `cli/gate_cmds.py`'s
+        # `_check_sab_module_alignment` and `scripts/generate_sab.py` both
+        # call), so SEC-R6 cannot silently disagree with the SAB-alignment
+        # gate about which modules count as "registered".
         registered = {
-            candidate.strip()
+            dotted
             for m in sab_spec.modules
-            if isinstance((candidate := sab_module_candidate(m)), str) and candidate.strip()
+            if (dotted := normalize_sab_module_to_dotted(m))
         }
         for t in threats:
             if not isinstance(t, dict):
