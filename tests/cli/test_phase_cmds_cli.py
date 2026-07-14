@@ -1513,6 +1513,47 @@ class TestP2AdvanceRegeneratesManifest:
             f"expected actionable error mentioning fr_ids; got: {combined}"
         )
 
+    def test_p2_advance_srs_fallback_accepts_subsection_numbered_headings(
+        self, tmp_path, monkeypatch
+    ):
+        """SRS.md fallback scan must tolerate TOC-numbered subsection headings
+        like `### 3.1 FR-01` — same bug class fixed at spec_alignment.py /
+        phase_hooks.py / spec_coverage.py / artifact_parsers.py via the
+        SRS_SUBSECTION_PREFIX constant, but this cli/phase_cmds.py call site
+        was missed in that round (2026-07-14). Regression fixture mirrors the
+        real taskq SRS.md shape: only FR-01 has an AC-table row (`| FR-01.AC1
+        |`), FR-02..FR-05 rely solely on the subsection heading.
+        """
+        import json
+        from harness_cli import cmd_advance_phase
+
+        self._setup(tmp_path, monkeypatch)
+        # Empty the seed fr_ids so the SRS.md fallback scan actually runs.
+        mf = tmp_path / ".methodology" / "quality_manifest.json"
+        seed = json.loads(mf.read_text(encoding="utf-8"))
+        seed["fr_ids"] = []
+        mf.write_text(json.dumps(seed), encoding="utf-8")
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "# SRS\n\n## 3. Functional Requirements\n\n"
+            "### 3.1 FR-01 alpha\n\n"
+            "| ID | Rule |\n|----|------|\n| FR-01.AC1 | non-empty |\n\n"
+            "### 3.2 FR-02 beta\n\n"
+            "### 3.3 FR-03 gamma\n\n"
+            "### 3.4 FR-04 delta\n\n"
+            "### 3.5 FR-05 epsilon\n",
+            encoding="utf-8",
+        )
+
+        assert cmd_advance_phase(self._build_args(tmp_path, 2)) == 0
+
+        manifest = json.loads(mf.read_text(encoding="utf-8"))
+        assert manifest["fr_ids"] == [
+            "FR-01", "FR-02", "FR-03", "FR-04", "FR-05"
+        ], (
+            f"subsection-numbered SRS headings must all be detected; "
+            f"got fr_ids={manifest.get('fr_ids')}"
+        )
+
 
 # =============================================================================
 # P7→P8: deterministic CONFIG_RECORDS / RELEASE_CHECKLIST baseline

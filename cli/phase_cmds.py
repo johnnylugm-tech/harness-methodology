@@ -481,12 +481,17 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     # `\s*:|\s*|` after the digits, which silently dropped SRS files
                     # using em-dash (`### FR-01 — ...`) — leaving fr_ids empty and
                     # tripping the manifest-integrity pre-flight (Bug #140).
+                    # SRS_SUBSECTION_PREFIX tolerates TOC-numbered subsections like
+                    # "### 3.1 FR-01" — same bug class as spec_alignment.py /
+                    # phase_hooks.py / spec_coverage.py / artifact_parsers.py; this
+                    # call site was missed in that round (2026-07-14).
                     import re as _re_fr
+                    from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
                     _srs = ProjectLayout(project).srs_path
                     if _srs.exists():
                         _fr_ids = [
                             f"FR-{n}" for n in _re_fr.findall(
-                                r"^(?:###\s+FR-|\|\s*FR-)(\d+)\b",
+                                r"^(?:###\s+" + SRS_SUBSECTION_PREFIX + r"FR-|\|\s*FR-)(\d+)\b",
                                 _srs.read_text(encoding="utf-8"),
                                 _re_fr.MULTILINE,
                             )
@@ -511,7 +516,9 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         f"    (recommended: pre-populate via `harness_cli.py "
                         f"manifest --fr-ids FR-XX ... --sad {sad_path}`)\n"
                         f"      - repair SRS.md so FR headers are detectable "
-                        f"by `^(?:###\\s+FR-|\\|\\s*FR-)(\\d+)\\b`",
+                        f"by `^(?:###\\s+(?:\\d+(?:\\.\\d+)*\\.?\\s+)?FR-|"
+                        f"\\|\\s*FR-)(\\d+)\\b` (subsection-numbered headings "
+                        f"like `### 3.1 FR-01` are accepted)",
                         file=sys.stderr,
                     )
                     return 2

@@ -54,7 +54,13 @@ _LINE_CEILING: dict[str, int] = {
     # a small early "ensure exists" pass at the block's old position so the
     # internal Phase Auditor call (a few lines later) doesn't CRITICAL-fail
     # its own C2 check on a first-ever advance.
-    "cli/phase_cmds.py": 2580,
+    # 2026-07-14: +7 lines — P2->P3 manifest regen's SRS.md fallback scan
+    # (Fix 5, FR-heading bug class 6th site) now imports SRS_SUBSECTION_PREFIX
+    # from core.quality_gate.parsers so `### 3.1 FR-01` TOC-numbered headings
+    # are detected, matching the fix already applied at spec_alignment.py /
+    # phase_hooks.py / spec_coverage.py / artifact_parsers.py; the fail-fast
+    # error message's regex literal was updated to match.
+    "cli/phase_cmds.py": 2587,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
