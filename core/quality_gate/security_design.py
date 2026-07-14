@@ -48,6 +48,7 @@ import yaml
 
 from core.harness_config import get_feature
 from core.quality_gate import Violation
+from core.quality_gate.parsers.nfr_id_pattern import normalize_nfr_id
 from core.quality_gate.sab_amender import normalize_sab_module_to_dotted
 from core.quality_gate.sab_parser import extract_sab_from_sad
 from core.traceability.scanner import extract_nfr_ids_from_srs
@@ -354,6 +355,12 @@ def check_security_design(project, phase: Optional[int] = None) -> list[Violatio
                 message=f"threat {t_id!r} is missing a non-empty mitigation.",
                 file=str(sad_path), severity="error",
             ))
+        if not t.get("owner_module"):
+            violations.append(Violation(
+                check_type="security_design", rule_id="SEC-R5",
+                message=f"threat {t_id!r} is missing a non-empty owner_module.",
+                file=str(sad_path), severity="error",
+            ))
 
         verified_by = t.get("verified_by")
         if not isinstance(verified_by, str) or not _TEST_NAME_RE.match(verified_by):
@@ -368,14 +375,20 @@ def check_security_design(project, phase: Optional[int] = None) -> list[Violatio
 
         nfr = t.get("nfr")
         if nfr is not None:
-            if nfr not in srs_nfr_ids:
+            # Normalize before comparing — a threat may legally write the
+            # unpadded shorthand "NFR-2" while extract_nfr_ids_from_srs()
+            # always returns the zero-padded "NFR-02" form; without this,
+            # semantically identical IDs written with different padding
+            # false-positive both R7 checks (see nfr_id_pattern.py).
+            normalized_nfr = normalize_nfr_id(nfr)
+            if normalized_nfr is None or normalized_nfr not in srs_nfr_ids:
                 violations.append(Violation(
                     check_type="security_design", rule_id="SEC-R7",
                     message=f"threat {t_id!r} nfr {nfr!r} not found in SRS.md.",
                     file=str(sad_path), severity="error",
                 ))
             else:
-                security_nfrs_referenced.add(nfr)
+                security_nfrs_referenced.add(normalized_nfr)
 
     for tb_id in valid_tb_ids:
         if tb_id not in boundaries_with_threats:
@@ -431,7 +444,11 @@ def check_security_design(project, phase: Optional[int] = None) -> list[Violatio
     if sab_spec is not None:
         for nfr_id, nfr_data in sab_spec.nfr_traceability.items():
             if isinstance(nfr_data, dict) and str(nfr_data.get("type", "")).lower() == "security":
-                if nfr_id not in security_nfrs_referenced:
+                # Normalize the SAB key too — nfr_traceability's own dict key
+                # may be the unpadded "NFR-2" shorthand, same normalization
+                # gap as the threat.nfr comparison above.
+                normalized_id = normalize_nfr_id(nfr_id) or nfr_id
+                if normalized_id not in security_nfrs_referenced:
                     violations.append(Violation(
                         check_type="security_design", rule_id="SEC-R7",
                         message=f"SAB NFR {nfr_id!r} is typed security but "

@@ -640,3 +640,90 @@ class TestSabDriftDetection:
         # real_module.py is flagged, venv/__pycache__ files are not
         flagged = [i for i in result.drift_items if "venv" in i.location or "__pycache__" in i.location]
         assert len(flagged) == 0
+
+    def test_check3_catches_violation_with_dict_shaped_implemented_in(self, tmp_path):
+        """Regression: Check 3 (import-dependency violations) must normalize
+        dict-shaped SAB module entries to dotted form before comparing
+        against real import statements.
+
+        2026-07-15: the pre-fix inline unwrap (sab_module_candidate() +
+        manual .rstrip("/")/.py-strip) never stripped the src_dir/"src/"
+        path prefix, so a dict-shaped entry declaring `implemented_in:
+        "taskq/cli.py"` normalized to "taskq/cli" instead of "taskq.cli" —
+        _resolve_import_layer() then never matched it against a real
+        `import taskq.config`, silently skipping the architecture-violation
+        check entirely (a false PASS with zero warning, not a false BLOCK).
+        Fixed by routing through the same normalize_sab_module_to_dotted()
+        SSOT already used by SEC-R6's owner_module cross-check.
+        """
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        pkg = tmp_path / "taskq"
+        pkg.mkdir()
+        (pkg / "cli.py").write_text("import taskq.config\n")
+        (pkg / "config.py").write_text("X = 1\n")
+
+        sab_json = {
+            "layers": [
+                {"name": "entry", "modules": [
+                    {"name": "taskq.cli", "implemented_in": "taskq/cli.py"},
+                ], "allowed_dependencies": []},
+                {"name": "foundation", "modules": [
+                    {"name": "taskq.config", "implemented_in": "taskq/config.py"},
+                ], "allowed_dependencies": []},
+            ],
+            "dependencies": {"entry": [], "foundation": []},
+        }
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True, (
+            "entry -> foundation import must be flagged as an architecture "
+            f"violation (got: {result})"
+        )
+        assert any(
+            "taskq.config" in i.description and "not an allowed dependency" in i.description
+            for i in result.drift_items
+        )
+
+    def test_check3_layer_to_modules_normalizes_dotted_only_entry_unchanged(self, tmp_path):
+        """A plain dotted-string SAB module entry must still normalize to
+        the same dotted form it already was (no-op through
+        normalize_sab_module_to_dotted) — this pins the specific behavior
+        Fix 13 touches (the layer_to_modules construction), independent of
+        the separate, pre-existing `source_layer = sab_files.get(rel)`
+        exact-string-match limitation documented in Part F of the plan
+        (that lookup only succeeds when a dict-shaped implemented_in path
+        happens to equal the file's project-relative path — a dotted-only
+        entry can never satisfy it without a pkg_dir alias, which is out of
+        this fix's scope). Uses detect_sab_drift with a dict-shaped entry
+        whose implemented_in exactly matches the real file path, then
+        confirms adding a dotted-only sibling entry for the same violation
+        path doesn't change the outcome — i.e. layer_to_modules treats both
+        shapes identically once normalized."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        pkg = tmp_path / "taskq"
+        pkg.mkdir()
+        (pkg / "cli.py").write_text("import taskq.config\n")
+        (pkg / "config.py").write_text("X = 1\n")
+
+        sab_json = {
+            "layers": [
+                {"name": "entry", "modules": [
+                    {"name": "taskq.cli", "implemented_in": "taskq/cli.py"},
+                ], "allowed_dependencies": []},
+                {"name": "foundation", "modules": ["taskq.config"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"entry": [], "foundation": []},
+        }
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True
+        assert any(
+            "taskq.config" in i.description and "not an allowed dependency" in i.description
+            for i in result.drift_items
+        )

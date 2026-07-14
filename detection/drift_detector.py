@@ -551,7 +551,10 @@ class DriftDetector:
         # Read package_dir from setup.cfg to handle src/-layout projects
         # (Bug #v2.11 fix: SAB uses "taskq.cli", file is at "src/taskq/cli.py")
         pkg_dir = self._read_package_dir()
-        from core.quality_gate.sab_amender import sab_module_candidate
+        from core.quality_gate.sab_amender import (
+            normalize_sab_module_to_dotted,
+            sab_module_candidate,
+        )
 
         # ── Build SAB file registry ───────────────────────────────────────
         sab_files: dict[str, str] = {}  # relative_path → layer_name
@@ -697,20 +700,22 @@ class DriftDetector:
             layer_name = layer.get("name", "")
             mods: set[str] = set()
             for mod in layer.get("modules", []):
-                # Normalize: strip .py and trailing / so matching works against dotted imports.
-                # Round 6 station 1: dict-shaped entries reach here too (this loop
-                # has no isinstance guard at all, unlike Check 1/Check 2 above) —
-                # unwrap via the shared primitive first or `.rstrip` crashes outright.
-                # (Named mod_candidate, not candidate — Check 1 above already binds
-                # `candidate: str` as a path_variants loop var in this same function
-                # scope; reusing the name would conflict under mypy.)
-                mod_candidate = sab_module_candidate(mod)
-                if not isinstance(mod_candidate, str):
-                    continue
-                clean = mod_candidate.rstrip("/")
-                if clean.endswith(".py"):
-                    clean = clean[:-3]
-                mods.add(clean)
+                # Normalize to dotted form so matching works against dotted
+                # imports. 2026-07-15: the prior inline unwrap (dict-unwrap
+                # via sab_module_candidate + manual rstrip("/")/.py-strip)
+                # never stripped the src_dir/"src/" path prefix, so a
+                # dict-shaped entry declaring `implemented_in:
+                # "src/taskq/cli.py"` normalized to "src/taskq/cli" instead
+                # of "taskq.cli" — _resolve_import_layer() then never
+                # matched it against a real `import taskq.cli`, silently
+                # skipping the architecture-violation check entirely for
+                # every dict-shaped module (not a false BLOCK — a false
+                # PASS with zero warning). normalize_sab_module_to_dotted()
+                # is the same SSOT already used by SEC-R6's owner_module
+                # cross-check and cli/gate_cmds.py's SAB-alignment gate.
+                dotted = normalize_sab_module_to_dotted(mod)
+                if dotted:
+                    mods.add(dotted)
             layer_to_modules[layer_name] = mods
 
         for py_file in self.project_path.rglob("*.py"):

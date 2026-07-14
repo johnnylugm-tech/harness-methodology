@@ -322,6 +322,32 @@ def test_threat_missing_mitigation_blocks(tmp_path):
     assert any(e.rule_id == "SEC-R5" and "mitigation" in e.message for e in errs)
 
 
+def test_threat_missing_owner_module_blocks(tmp_path):
+    """Regression: owner_module was the only threats[] field with no
+    required-and-non-empty check in R5 — R6's `if owner_module and ...`
+    short-circuit meant an omitted owner_module silently skipped every
+    check, even though the module docstring lists it as required."""
+    _w(ProjectLayout(tmp_path).sad_path,
+       "# SAD\n\n" + _sec_block(_sec_yaml(threats=[
+           {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+            "description": "d", "mitigation": "m",
+            "verified_by": "test_x"},  # owner_module omitted entirely
+       ])))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert any(e.rule_id == "SEC-R5" and "owner_module" in e.message for e in errs)
+
+
+def test_threat_blank_owner_module_blocks(tmp_path):
+    _w(ProjectLayout(tmp_path).sad_path,
+       "# SAD\n\n" + _sec_block(_sec_yaml(threats=[
+           {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+            "description": "d", "mitigation": "m", "owner_module": "",
+            "verified_by": "test_x"},
+       ])))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert any(e.rule_id == "SEC-R5" and "owner_module" in e.message for e in errs)
+
+
 def test_threat_bad_verified_by_format_blocks(tmp_path):
     _w(ProjectLayout(tmp_path).sad_path,
        "# SAD\n\n" + _sec_block(_sec_yaml(threats=[
@@ -547,6 +573,50 @@ def test_sab_security_nfr_referenced_passes(tmp_path):
        ])))
     errs = _errors(check_security_design(tmp_path, phase=3))
     assert not any(e.rule_id == "SEC-R7" for e in errs)
+
+
+def test_r7_normalizes_unpadded_nfr_id(tmp_path):
+    """Regression: SRS.md `### NFR-02` vs SAD.md `nfr: NFR-2` (legal unpadded
+    shorthand) — extract_nfr_ids_from_srs() always zero-pads, but before this
+    fix neither threat.nfr nor the SAB nfr_traceability key were normalized
+    before comparison, so identical requirements written with different
+    padding produced two false SEC-R7 BLOCKs. Same normalization-asymmetry
+    bug class as SEC-R6's SAB module comparison
+    (test_r6_normalizes_implemented_in_path_to_dotted)."""
+    layout = ProjectLayout(tmp_path)
+    _w(layout.srs_path, "### NFR-02\n")
+    _w(layout.sad_path,
+       _sab_block(_sab_yaml(modules=["pkg.mod"], nfr_traceability={
+           "NFR-2": {"type": "security", "target": "x", "module": "pkg.mod"},
+       })) + "\n" + _sec_block(_sec_yaml(threats=[
+           {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+            "description": "d", "mitigation": "m", "owner_module": "pkg.mod",
+            "verified_by": "test_x", "nfr": "NFR-2"},
+       ])))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert not any(e.rule_id == "SEC-R7" for e in errs), (
+        "R7 must normalize NFR IDs before comparing threat.nfr / SAB "
+        "nfr_traceability keys against SRS.md's zero-padded set"
+    )
+
+
+def test_r7_still_blocks_nonexistent_nfr_after_normalization(tmp_path):
+    """Counterexample: an NFR that genuinely doesn't exist in SRS.md must
+    still BLOCK after normalization — guards against an over-correction
+    that silently accepts any numeric NFR reference."""
+    layout = ProjectLayout(tmp_path)
+    _w(layout.srs_path, "### NFR-05\n")
+    _w(layout.sad_path,
+       _sab_block(_sab_yaml(modules=["pkg.mod"])) + "\n"
+       + _sec_block(_sec_yaml(threats=[
+           {"id": "T-01", "boundary": "TB-01", "category": "tampering",
+            "description": "d", "mitigation": "m", "owner_module": "pkg.mod",
+            "verified_by": "test_x", "nfr": "NFR-99"},
+       ])))
+    errs = _errors(check_security_design(tmp_path, phase=3))
+    assert any(
+        e.rule_id == "SEC-R7" and "NFR-99" in e.message for e in errs
+    ), "nonexistent NFR must still BLOCK after the normalization fix"
 
 
 # ── R8: verified_by test existence (phase >= 5 only) ────────────────────────

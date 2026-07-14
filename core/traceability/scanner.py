@@ -23,6 +23,7 @@ from core.utils.lang_patterns import (
     project_language,
 )
 from core.utils.project_layout import ProjectLayout
+from core.quality_gate.parsers.nfr_id_pattern import normalize_nfr_id
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +182,8 @@ def extract_nfr_ids_from_srs(srs_path: Optional[Path]) -> Set[str]:
     if not srs_path or not srs_path.exists():
         return set()
     text = srs_path.read_text(encoding="utf-8", errors="replace")
-    return {f"NFR-{int(m.group(1)):02d}" for m in NFR_PATTERN.finditer(text)}
+    ids = (normalize_nfr_id(f"NFR-{m.group(1)}") for m in NFR_PATTERN.finditer(text))
+    return {i for i in ids if i}
 
 
 def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
