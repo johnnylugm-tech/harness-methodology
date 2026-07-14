@@ -5,9 +5,11 @@ by workflowgen-generated output, this is the proof the migration didn't
 silently change what the workflow DOES: not byte-equality (the generator
 is explicitly allowed to simplify/consolidate prose — see
 docs/WORKFLOW_ALIGNMENT_AUDIT.md's "not a full-fidelity diff" note), but
-three structural assertions against the file as it existed immediately
-BEFORE migration (read via `git show <pinned-sha>:<path>`, not a hardcoded
-literal snapshot — the pinned commit is the actual historical record):
+three structural assertions comparing the file as it existed immediately
+BEFORE migration against the file as it existed immediately AFTER the
+equivalence-only migration commit (both read via `git show <sha>:<path>` —
+actual historical commits, not hardcoded literal snapshots, and not
+`generate(phase)` against live HEAD):
 
   (a) meta.phases titles — same set, same order
   (b) agent() label set — same set (a rename requires an explicit mapping
@@ -15,10 +17,18 @@ literal snapshot — the pinned commit is the actual historical record):
   (c) harness_cli.py command set — same set (scripts/workflow_audit/
       extract.py's precision rules — see that module's docstring)
 
-tests/test_workflow_plan_alignment.py's KNOWN_GAPS registry is
-UNCHANGED by an equivalence-only migration (per the Round 11 plan: "遷移
-不修 gap") — a gap present before migration is still present after, just
-now living in generated code instead of hand-maintained code.
+Both ends are pinned to fixed commits, not `generate(phase)`, because this
+test's job is to prove a SPECIFIC migration commit was equivalence-only —
+a historical fact, permanently true once proven. It deliberately does NOT
+re-check that property against every later commit: the Round 11 plan's
+two-commit discipline ("遷移不修 gap") means the very next commit after a
+migration is often a deliberate gap-fix (e.g. station2b added ORCH-POST/
+ENV-CHECK commands+labels that never existed in either the pre-migration
+file or the equivalence-locked migration) — comparing against live HEAD
+would make this test permanently red the moment any phase's known gaps
+start closing. Drift in the generator's current output is instead caught
+by tests/test_workflowgen_golden.py (mechanical) and plan-conformance by
+tests/test_workflow_plan_alignment.py (semantic, shrinks as gaps close).
 """
 from __future__ import annotations
 
@@ -32,19 +42,19 @@ from scripts.workflow_audit.extract import (
     extract_js_subcommands,
     known_subcommands,
 )
-from scripts.workflowgen.generate_workflows import generate
 
-# One entry per migrated phase: the commit SHA immediately BEFORE that
-# phase's workflowgen migration landed, and the path the pre-migration
-# content lived at (always .claude/workflows/<file> — paths don't move).
-_PRE_MIGRATION_REF = {
-    5: ("805f1d3fb3cb", ".claude/workflows/phase5-verification.js"),
-    7: ("805f1d3fb3cb", ".claude/workflows/phase7-risk.js"),
-    8: ("8a071fb4127ee363aaf604625d1e71e7684edba4", ".claude/workflows/phase8-config.js"),
+# {phase: (pre_migration_sha, post_migration_sha, path)}. post_migration_sha
+# is the commit where this phase's workflowgen migration landed as an
+# equivalence-only change (no gap-fixing mixed in — that's always a
+# separate, later commit). Paths don't move across migration.
+_MIGRATION: dict[int, tuple[str, str, str]] = {
+    5: ("805f1d3fb3cb", "581c6360e1ee", ".claude/workflows/phase5-verification.js"),
+    7: ("805f1d3fb3cb", "581c6360e1ee", ".claude/workflows/phase7-risk.js"),
+    8: ("8a071fb4127ee363aaf604625d1e71e7684edba4", "805f1d3fb3cb", ".claude/workflows/phase8-config.js"),
 }
 
 # Label renames introduced by a migration: {phase: {old_label: new_label}}.
-# Empty for phase5/7/8 — the generator reuses every original label verbatim.
+# Empty for phase5/7/8 — each generator reused every original label verbatim.
 _LABEL_RENAMES: dict[int, dict[str, str]] = {}
 
 
@@ -60,27 +70,29 @@ def _subcommands():
     return known_subcommands()
 
 
-def test_pre_migration_refs_are_readable():
-    """Sanity: the pinned commit/path pairs must actually resolve — a typo
+def test_migration_refs_are_readable():
+    """Sanity: every pinned commit/path pair must actually resolve — a typo
     here would make every other test in this file vacuously trivial."""
-    for phase, (sha, path) in _PRE_MIGRATION_REF.items():
-        text = _read_at_commit(sha, path)
-        assert text.strip(), f"phase{phase}: {sha}:{path} resolved to empty content"
+    for phase, (pre_sha, post_sha, path) in _MIGRATION.items():
+        before = _read_at_commit(pre_sha, path)
+        after = _read_at_commit(post_sha, path)
+        assert before.strip(), f"phase{phase}: pre-migration {pre_sha}:{path} resolved to empty content"
+        assert after.strip(), f"phase{phase}: post-migration {post_sha}:{path} resolved to empty content"
 
 
-@pytest.mark.parametrize("phase", sorted(_PRE_MIGRATION_REF))
+@pytest.mark.parametrize("phase", sorted(_MIGRATION))
 def test_meta_phases_unchanged(phase):
-    sha, path = _PRE_MIGRATION_REF[phase]
-    before = extract_js_phases(_read_at_commit(sha, path))
-    after = extract_js_phases(generate(phase))
+    pre_sha, post_sha, path = _MIGRATION[phase]
+    before = extract_js_phases(_read_at_commit(pre_sha, path))
+    after = extract_js_phases(_read_at_commit(post_sha, path))
     assert after == before
 
 
-@pytest.mark.parametrize("phase", sorted(_PRE_MIGRATION_REF))
+@pytest.mark.parametrize("phase", sorted(_MIGRATION))
 def test_agent_labels_unchanged_modulo_renames(phase):
-    sha, path = _PRE_MIGRATION_REF[phase]
-    before = set(extract_js_agent_labels(_read_at_commit(sha, path)))
-    after = set(extract_js_agent_labels(generate(phase)))
+    pre_sha, post_sha, path = _MIGRATION[phase]
+    before = set(extract_js_agent_labels(_read_at_commit(pre_sha, path)))
+    after = set(extract_js_agent_labels(_read_at_commit(post_sha, path)))
     renames = _LABEL_RENAMES.get(phase, {})
     before_renamed = {renames.get(label, label) for label in before}
     assert after == before_renamed, (
@@ -89,10 +101,10 @@ def test_agent_labels_unchanged_modulo_renames(phase):
     )
 
 
-@pytest.mark.parametrize("phase", sorted(_PRE_MIGRATION_REF))
+@pytest.mark.parametrize("phase", sorted(_MIGRATION))
 def test_cli_commands_unchanged(phase):
     subs = _subcommands()
-    sha, path = _PRE_MIGRATION_REF[phase]
-    before = extract_js_subcommands(_read_at_commit(sha, path), subs)
-    after = extract_js_subcommands(generate(phase), subs)
+    pre_sha, post_sha, path = _MIGRATION[phase]
+    before = extract_js_subcommands(_read_at_commit(pre_sha, path), subs)
+    after = extract_js_subcommands(_read_at_commit(post_sha, path), subs)
     assert after == before

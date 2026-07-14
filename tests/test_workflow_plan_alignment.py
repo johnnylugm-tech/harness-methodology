@@ -84,20 +84,10 @@ _ENV_CHECK_REASON = (
     "changed), or whether skipping it is a live gap that must be closed."
 )
 
-_ORCH_POST_REASON = (
-    "plan's ORCH-POST step runs `spec-coverage-check --project . "
-    "--threshold 40.0 --fr-id {FR-ID}` then `amend-sab --project .` "
-    "immediately after each FR's GATE1-DELTA PASS; the JS's per-FR delta "
-    "phase does neither. Needs adding when this file is migrated."
-)
 
 KNOWN_GAPS: dict[int, dict[str, str]] = {
     3: {"ENV-CHECK": _ENV_CHECK_REASON},
     4: {"ENV-CHECK": _ENV_CHECK_REASON},
-    5: {
-        "ENV-CHECK": _ENV_CHECK_REASON,
-        "ORCH-POST": _ORCH_POST_REASON,
-    },
     6: {
         "B-DISPATCH": (
             "plan's B-DISPATCH marker instructs `harness_cli.py dispatch "
@@ -117,8 +107,6 @@ KNOWN_GAPS: dict[int, dict[str, str]] = {
         ),
     },
     7: {
-        "ENV-CHECK": _ENV_CHECK_REASON,
-        "ORCH-POST": _ORCH_POST_REASON,
         "TDD-PRECHECK": (
             "the plan's TDD-PRECHECK marker lists `spec-coverage-check "
             "--threshold 90.0` as one of advance-phase's OWN enforced "
@@ -133,8 +121,6 @@ KNOWN_GAPS: dict[int, dict[str, str]] = {
         ),
     },
     8: {
-        "ENV-CHECK": _ENV_CHECK_REASON,
-        "ORCH-POST": _ORCH_POST_REASON,
         "TDD-PRECHECK": (
             "same shape as phase7's TDD-PRECHECK entry — advance-phase "
             "enforces spec-coverage-check --threshold 90.0 internally "

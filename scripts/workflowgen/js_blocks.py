@@ -207,21 +207,32 @@ def render_entry_preflight(
 def render_env_check(phase: int) -> str:
     return (
         render_phase_header("Env Check")
-        + "log('run-env-check (root-cause fix: CLI exit code reflects ready flag)')\n"
+        + "log('run-env-check + finalize-env-check (root-cause fix: CLI exit code reflects ready flag)')\n"
         + "// Bug #127 root-cause fix (2026-06-27): `cmd_run_env_check` now returns\n"
         + "// exit 0 when ready=true and 1 when ready=false (previously always 0).\n"
         + "// Workflows check `$?` directly with no LLM orchestrator agent in the loop.\n"
         + "// 2026-07-02 paraphrase incident (phase3): the agent rewrote ENV_CHECK_RC=0\n"
         + "// as \"RC=0\" and the regex gate false-negatived a READY environment. Schema\n"
         + "// transport is paraphrase-proof.\n"
+        + "// Round 11 station2b (plan ENV-CHECK marker): run-env-check's exit code\n"
+        + "// (Bug #127) only reflects the agent's self-reported `ready` boolean, not\n"
+        + "// result-schema completeness — a `{\"ready\": true}` response missing\n"
+        + "// checked_at / env_vars.required / cli_tools.required /\n"
+        + "// infra_services.required would pass run-env-check alone but fail\n"
+        + "// finalize-env-check's schema check (HarnessBridge.finalize_env_check,\n"
+        + "// cli/gate_cmds.py) — a real anti-fabrication gap, not redundant with\n"
+        + "// Bug #127's fix. Chain both: `&&` runs finalize only after run-env-check\n"
+        + "// succeeds; the trailing `; echo RC=$?` captures whichever of the two is\n"
+        + "// authoritative (run-env-check's own failure code if it failed first,\n"
+        + "// otherwise finalize-env-check's).\n"
         + "const envReport = await agent(\n"
-        + "  'You MUST use the Bash tool. Run exactly this ONE command (single line, the `;` keeps $? bound to run-env-check):\\n'\n"
-        + f"  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase {phase} --project ' + REPO + '; echo \"RC=$?\"\\n'\n"
+        + "  'You MUST use the Bash tool. Run exactly this ONE command (single line):\\n'\n"
+        + f"  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase {phase} --project ' + REPO + ' && ' + PY + ' ' + REPO + '/harness_cli.py finalize-env-check --phase {phase} --project ' + REPO + '; echo \"RC=$?\"\\n'\n"
         + "  + 'Then report via the StructuredOutput tool: rc = the exact numeric exit code echoed on the final RC= line.',\n"
         + "  { label: 'env-check', phase: 'Env Check', agentType: 'general-purpose', schema: RC_SCHEMA },\n"
         + ")\n"
         + "if (!(envReport && envReport.rc === 0)) {\n"
-        + f"  return {{ error: 'Phase {phase} env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }}\n"
+        + f"  return {{ error: 'Phase {phase} env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check/finalize-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }}\n"
         + "}\n"
     )
 
@@ -344,6 +355,23 @@ def render_per_fr_delta(
         if use_fr_titles else
         f"    'YOU ARE THE {verifier_role} for ' + frId + '. Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
     )
+
+    def _orch_post(indent: str, fr_expr: str) -> str:
+        # ORCH-POST (plan marker, every FR-loop phase — 3/4/5/7/8): fire-and-
+        # report, no verdict gate — mirrors Artifacts Commit's style. The 40%
+        # threshold is an early-warning floor, not a blocking gate like Gate
+        # 3/4's ≥80/90%, so a low score here doesn't fail the phase.
+        return (
+            f"{indent}await agent(\n"
+            f"{indent}  'Run EXACTLY these two commands via the Bash tool, in order:\\n'\n"
+            f"{indent}  + '`' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + {fr_expr} + '`\\n'\n"
+            f"{indent}  + '`' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\\n\\n'\n"
+            f"{indent}  + 'Report the verbatim stdout/stderr of both commands.\\n\\n'\n"
+            f"{indent}  + 'SCOPE RULES:\\n- ONLY the two commands above.\\n- DO NOT modify harness/.',\n"
+            f"{indent}  {{ label: 'orch-post-' + {fr_expr}, phase: 'Per-FR Delta', agentType: 'general-purpose' }},\n"
+            f"{indent})\n"
+        )
+
     return (
         render_phase_header("Per-FR Delta")
         + "const gate1Pass = []\n"
@@ -378,6 +406,7 @@ def render_per_fr_delta(
         + "  for (const fr of fastPassed) {\n"
         + "    gate1Pass.push(fr)\n"
         + f"    log('  ' + fr + ' GATE1-DELTA fast-path PASS [manifest qc + p{phase} timestamp] — full DELTA skipped')\n"
+        + _orch_post("    ", "fr")
         + "  }\n"
         + "  deltaTodo = frIds.filter((f) => !fastPassed.includes(f))\n"
         + "} else {\n"
@@ -418,8 +447,10 @@ def render_per_fr_delta(
         + "    { label: 'gate1-verify-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + "  )\n"
         + "  const passed = !!(verdict && verdict.pass === true)\n"
-        + "  if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]') }\n"
-        + "  else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
+        + "  if (passed) {\n"
+        + "    gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')\n"
+        + _orch_post("    ", "frId")
+        + "  } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
         + "}\n"
         + "if (gate1Fail.length) {\n"
         + f"  return {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }}\n"
