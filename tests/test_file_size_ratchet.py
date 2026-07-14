@@ -177,6 +177,15 @@ _LINE_CEILING: dict[str, int] = {
     # now documents the same Sync-phase post-advance push as blocks.py.
     "scripts/plangen/phase_tasks.py": 1141,
     "core/quality_gate/mutation_enforcer.py": 967,
+    # 2026-07-14: new god file — Round 11 station3: workflowgen's
+    # phase_specs.py mirrors plangen/phase_tasks.py's shape (one
+    # generate_phaseN() + its phase-specific custom renderers per migrated
+    # phase). Station1/2 (phase5/7/8) stayed under the threshold; station3
+    # adds phase3 (full TDD chain, own Load FRs/Milestones/Sync — no shared
+    # counterpart) and phase4 (Test Plan/Coverage/Bug Hunt), pushing it over.
+    # Expected to keep growing through station4 (phase6/1/2) — same
+    # trajectory as phase_tasks.py above, bumped each time growth lands.
+    "scripts/workflowgen/phase_specs.py": 1173,
 }
 
 

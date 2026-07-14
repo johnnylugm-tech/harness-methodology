@@ -104,6 +104,12 @@ const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
 log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 """
 
+HUNT_MODEL_BLOCK = """\
+// Bug hunt should use a DIFFERENT model from the developer (minimise same-source bias).
+const HUNT_MODEL = (args && typeof args === 'object' && typeof args.huntModel === 'string') ? args.huntModel : 'claude-opus-4-8'
+log('HUNT_MODEL = ' + HUNT_MODEL)
+"""
+
 _SCHEMA_DEFS: dict[str, str] = {
     "VERDICT_SCHEMA": """\
 const VERDICT_SCHEMA = {
@@ -129,6 +135,16 @@ const CTX_SCHEMA = {
   },
   required: ['fr_ids', 'fr_count'],
 }""",
+    "CTX_SCHEMA_WITH_TITLES": """\
+const CTX_SCHEMA = {
+  type: 'object',
+  properties: {
+    fr_ids: { type: 'array', items: { type: 'string' } },
+    fr_count: { type: 'integer' },
+    fr_titles: { type: 'object', additionalProperties: { type: 'string' } },
+  },
+  required: ['fr_ids', 'fr_count'],
+}""",
     "DELTA_FAST_SCHEMA": """\
 const DELTA_FAST_SCHEMA = {
   type: 'object',
@@ -143,6 +159,22 @@ const PHASE_SCHEMA = {
   type: 'object',
   properties: { current_phase: { type: 'integer', description: 'current_phase value read from state.json' } },
   required: ['current_phase'],
+}""",
+    "GATE_VERIFY_SCHEMA": """\
+const GATE_VERIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    manifest_qc: { type: 'boolean', description: 'gate_results.<gate>.quality_complete is exactly true' },
+    d4_rc: { type: 'integer', description: 'exit code of spec-coverage-check' },
+    detail: { type: 'string' },
+  },
+  required: ['manifest_qc', 'd4_rc'],
+}""",
+    "FR_LIST_SCHEMA": """\
+const FR_LIST_SCHEMA = {
+  type: 'object',
+  properties: { fr_ids_done: { type: 'array', items: { type: 'string' } } },
+  required: ['fr_ids_done'],
 }""",
 }
 
@@ -207,32 +239,21 @@ def render_entry_preflight(
 def render_env_check(phase: int) -> str:
     return (
         render_phase_header("Env Check")
-        + "log('run-env-check + finalize-env-check (root-cause fix: CLI exit code reflects ready flag)')\n"
+        + "log('run-env-check (root-cause fix: CLI exit code reflects ready flag)')\n"
         + "// Bug #127 root-cause fix (2026-06-27): `cmd_run_env_check` now returns\n"
         + "// exit 0 when ready=true and 1 when ready=false (previously always 0).\n"
         + "// Workflows check `$?` directly with no LLM orchestrator agent in the loop.\n"
         + "// 2026-07-02 paraphrase incident (phase3): the agent rewrote ENV_CHECK_RC=0\n"
         + "// as \"RC=0\" and the regex gate false-negatived a READY environment. Schema\n"
         + "// transport is paraphrase-proof.\n"
-        + "// Round 11 station2b (plan ENV-CHECK marker): run-env-check's exit code\n"
-        + "// (Bug #127) only reflects the agent's self-reported `ready` boolean, not\n"
-        + "// result-schema completeness — a `{\"ready\": true}` response missing\n"
-        + "// checked_at / env_vars.required / cli_tools.required /\n"
-        + "// infra_services.required would pass run-env-check alone but fail\n"
-        + "// finalize-env-check's schema check (HarnessBridge.finalize_env_check,\n"
-        + "// cli/gate_cmds.py) — a real anti-fabrication gap, not redundant with\n"
-        + "// Bug #127's fix. Chain both: `&&` runs finalize only after run-env-check\n"
-        + "// succeeds; the trailing `; echo RC=$?` captures whichever of the two is\n"
-        + "// authoritative (run-env-check's own failure code if it failed first,\n"
-        + "// otherwise finalize-env-check's).\n"
         + "const envReport = await agent(\n"
-        + "  'You MUST use the Bash tool. Run exactly this ONE command (single line):\\n'\n"
-        + f"  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase {phase} --project ' + REPO + ' && ' + PY + ' ' + REPO + '/harness_cli.py finalize-env-check --phase {phase} --project ' + REPO + '; echo \"RC=$?\"\\n'\n"
+        + "  'You MUST use the Bash tool. Run exactly this ONE command (single line, the `;` keeps $? bound to run-env-check):\\n'\n"
+        + f"  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase {phase} --project ' + REPO + '; echo \"RC=$?\"\\n'\n"
         + "  + 'Then report via the StructuredOutput tool: rc = the exact numeric exit code echoed on the final RC= line.',\n"
         + "  { label: 'env-check', phase: 'Env Check', agentType: 'general-purpose', schema: RC_SCHEMA },\n"
         + ")\n"
         + "if (!(envReport && envReport.rc === 0)) {\n"
-        + f"  return {{ error: 'Phase {phase} env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check/finalize-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }}\n"
+        + f"  return {{ error: 'Phase {phase} env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }}\n"
         + "}\n"
     )
 
@@ -342,6 +363,7 @@ def render_per_fr_delta(
     forbidden_note: str,
     verifier_role: str = "VERIFIER",
     use_fr_titles: bool = False,
+    mid_milestone_step: str = "",
 ) -> str:
     """GATE1-DELTA fast-path (one batched agent classifies all FRs; unchanged
     FRs short-circuit inside the harness CLI) then a full per-FR loop for the
@@ -349,7 +371,12 @@ def render_per_fr_delta(
     agent-self-reported) Gate 1 manifest check. `use_fr_titles` interpolates
     the frTitle lookup built by render_load_frs(include_fr_titles=True) into
     the per-FR verifier's opening line — callers must keep the two flags in
-    sync (frTitle is undefined otherwise)."""
+    sync (frTitle is undefined otherwise). `mid_milestone_step` is a raw JS
+    block (phase4's p4-mid push at ≥50% FRs Gate 1 PASS) inserted after the
+    full-loop's PASS/FAIL branch, mirroring where phase4's own code places
+    it — NOT inside the fast-path loop above (phase4's original doesn't
+    check it there either, an existing gap preserved as-is, not introduced
+    by this migration)."""
     role_line = (
         f"    'YOU ARE THE {verifier_role} for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
         if use_fr_titles else
@@ -451,6 +478,7 @@ def render_per_fr_delta(
         + "    gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')\n"
         + _orch_post("    ", "frId")
         + "  } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
+        + mid_milestone_step
         + "}\n"
         + "if (gate1Fail.length) {\n"
         + f"  return {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }}\n"
@@ -510,6 +538,8 @@ def render_advance_loop(
     scope_extra: str = "",
     only_extra: str = "",
     log_msg: str | None = None,
+    on_pass_extra: str = "",
+    advance_step_override: str | None = None,
 ) -> str:
     """The advance-phase retry loop (round-based, manifest-integrity-guarded
     each round — 2026-07-02 audit finding: advance-phase enforces more
@@ -520,10 +550,20 @@ def render_advance_loop(
     advance-phase within the same numbered step list; `only_extra` names
     those same precheck commands in the closing "ONLY ..." scope line (kept
     as a separate param rather than derived from precheck_steps — the two
-    texts don't share a machine-extractable command token).
+    texts don't share a machine-extractable command token). `on_pass_extra`
+    is a raw JS block inserted right after the PASS log line, before break —
+    phase4 uses this for its post-advance `git add -A` clean-up commit
+    (advance-phase only commits its own target paths, leaving other
+    post-advance edits uncommitted); no other migrated phase needs it.
+    `advance_step_override` replaces the auto-appended synchronous
+    advance-phase step text with a caller-supplied alternative — phase3
+    backgrounds advance-phase via nohup/poll (its own `ruff+mypy+pytest
+    --cov-fail-under=100` internal cost is non-trivial at project scale),
+    unlike every other migrated phase's plain synchronous call.
     """
     steps = list(precheck_steps or [])
     steps.append(
+        advance_step_override if advance_step_override is not None else
         f"advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed {phase} --project ' + REPO + '`\\n'\n"
         + "    + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints \"[BLOCKED] ...\", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round."
     )
@@ -583,7 +623,11 @@ def render_advance_loop(
         + "    { label: 'advance-verify-r' + round, phase: 'Advance', agentType: 'general-purpose', schema: PHASE_SCHEMA },\n"
         + "  )\n"
         + f"  advancePass = !!(advV && advV.current_phase >= {next_phase})\n"
-        + "  if (advancePass) { log('  Advance PASS [harness-verified: state.json current_phase=' + advV.current_phase + ']'); break }\n"
+        + "  if (advancePass) {\n"
+        + "    log('  Advance PASS [harness-verified: state.json current_phase=' + advV.current_phase + ']')\n"
+        + on_pass_extra
+        + "    break\n"
+        + "  }\n"
         + "  log('  Advance not yet PASS [state.json current_phase=' + (advV ? advV.current_phase : '?') + '] — retry round ' + (round + 1))\n"
         + "}\n"
         + "\n"
@@ -637,4 +681,78 @@ def render_sync_verified() -> str:
         "if (!/SYNC:\\s*PASS/.test(String(syncReport ?? ''))) {\n"
         "  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }\n"
         "}\n"
+    )
+
+
+def render_gate_loop(
+    *,
+    gate_num: int,
+    phase: int,
+    log_msg: str,
+    prompt_steps: list[str],
+    pass_line_desc: str,
+    scope_rules: str,
+    d4_threshold: float,
+    on_fail_error_msg: str,
+    include_manifest_integrity: bool = True,
+    deferred_fixes_step: str = "",
+) -> str:
+    """The Gate-2 (phase3) / Gate-3 (phase4) evaluation round loop — both
+    share this skeleton (round loop, orchestrator agent, session-limit
+    detection, harness-verified manifest-qc + D4 verdict check, retry) but
+    differ enough in real content (dims/thresholds/fix-hints — supplied via
+    `prompt_steps`/`scope_rules`/`pass_line_desc` since that prose doesn't
+    repeat between gates; `include_manifest_integrity` — gate2 re-checks
+    each round, gate3 doesn't; `deferred_fixes_step` — gate3 writes
+    deferred_fixes.md on exhausted-retries FAIL, gate2 doesn't) that this
+    function takes them as explicit parameters rather than guessing a false
+    common prose.
+    """
+    steps_text = "".join(f"    + '{s}\\n'\n" for s in prompt_steps)
+    integrity_block = (
+        f"  const g{gate_num}Integrity = await checkManifestIntegrity('Gate {gate_num}', 'g{gate_num}-integrity-r' + round)\n"
+        f"  if (!g{gate_num}Integrity.ok) {{\n"
+        f"    return {{ error: 'Gate {gate_num} round ' + round + ': quality_manifest.json corrupted mid-run', detail: g{gate_num}Integrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first — a corrupted manifest may already be committed)', note: 'Corruption appeared AFTER the entry integrity check. Inspect the previous round\\'s agent transcript for the writer before restoring.' }}\n"
+        f"  }}\n"
+    ) if include_manifest_integrity else ""
+    return (
+        render_phase_header(f"Gate {gate_num}")
+        + f"log('{log_msg}')\n"
+        + f"let gate{gate_num}Pass = false, gate{gate_num}Report = '', gate{gate_num}Blocked = false\n"
+        + "for (let round = 1; round <= 3; round++) {\n"
+        + f"  log('  Gate {gate_num} round ' + round + '/3')\n"
+        + integrity_block
+        + f"  gate{gate_num}Report = await agent(\n"
+        + f"    'YOU ARE THE GATE-{gate_num} ORCHESTRATOR (Phase {phase} exit). ROUND ' + round + '.\\n'\n"
+        + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + "    + 'Steps:\\n'\n"
+        + steps_text
+        + f"    + 'finalize-gate (G{gate_num}c) writes HANDOVER.md + pushes on PASS. Report final line: \"GATE{gate_num}: PASS\" ({pass_line_desc}) or \"GATE{gate_num}: FAIL — <failing dims>\".\\n\\n'\n"
+        + f"    + 'SCOPE RULES:\\n{scope_rules}',\n"
+        + f"    {{ label: 'gate{gate_num}-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose' }},\n"
+        + "  )\n"
+        + f"  if (gate{gate_num}Report === null || gate{gate_num}Report === undefined || (typeof gate{gate_num}Report === 'string' && gate{gate_num}Report.length < 10)) {{\n"
+        + f"    gate{gate_num}Blocked = true\n"
+        + f"    log('  Gate {gate_num} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
+        + "    break\n"
+        + "  }\n"
+        + f"  const gate{gate_num}VerifyCmd = PY + ' -c \"import json; g=(json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')).get(\\'gate_results\\',{{}}) or {{}}).get(\\'gate{gate_num}\\') or {{}}; print(json.dumps({{\\'qc\\': (isinstance(g,dict) and g.get(\\'quality_complete\\') is True), \\'score\\': (g.get(\\'score\\') if isinstance(g,dict) else None)}}))\"'\n"
+        + f"  const g{gate_num}v = await agent(\n"
+        + "    'Run these TWO commands via the Bash tool, in order:\\n'\n"
+        + f"    + '1. `' + gate{gate_num}VerifyCmd + '` — stdout is a single JSON line with qc + score.\\n'\n"
+        + f"    + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {d4_threshold}; echo \"RC=$?\"`\\n'\n"
+        + "    + 'Then report via the StructuredOutput tool: manifest_qc = the exact qc boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\\'s final RC= line; detail = qc/score/RC in one line.',\n"
+        + f"    {{ label: 'gate{gate_num}-verify-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA }},\n"
+        + "  )\n"
+        + f"  gate{gate_num}Pass = !!(g{gate_num}v && g{gate_num}v.manifest_qc === true && g{gate_num}v.d4_rc === 0)\n"
+        + f"  if (gate{gate_num}Pass) {{ log('  Gate {gate_num} PASS [harness-verified: manifest qc=true, D4 rc=0]'); break }}\n"
+        + f"  log('  Gate {gate_num} not yet PASS [' + (g{gate_num}v ? String(g{gate_num}v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))\n"
+        + "}\n"
+        + f"if (gate{gate_num}Blocked) {{\n"
+        + f"  return {{ session_limit_blocked: true, gate: {gate_num}, message: 'Agent hit session/rate limit during Gate {gate_num} evaluation. Resume after quota reset — GUARD checks will skip completed FRs.' }}\n"
+        + "}\n"
+        + f"if (!gate{gate_num}Pass) {{\n"
+        + deferred_fixes_step
+        + f"  return {{ error: '{on_fail_error_msg}', raw: String(gate{gate_num}Report ?? '').slice(-600) }}\n"
+        + "}\n"
     )
