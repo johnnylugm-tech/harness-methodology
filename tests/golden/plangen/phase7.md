@@ -175,6 +175,9 @@ Each FR gets a Gate 1 risk-aware re-evaluation (CHECKPOINT). No harness run-gate
   ```
   > **Note**: `advance-phase` will automatically check for harness submodule drift.
   > If it prints a warning that you are behind `origin/main`, it is non-blocking and for your information only.
+  > **Sync**: `advance-phase` only commits the handover locally. The workflow orchestrator
+  > for this phase runs a separate `git push origin main` immediately after to publish
+  > that commit to origin.
 
   > **Auto-trigger on P7→P8 advance** (harness commits `4738542` + `51bd4a8`):
   > When `advance-phase --completed 7` runs, the framework automatically invokes

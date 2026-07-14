@@ -191,6 +191,9 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P
   ```
   > **Note**: `advance-phase` will automatically check for harness submodule drift.
   > If it prints a warning that you are behind `origin/main`, it is non-blocking and for your information only.
+  > **Sync**: `advance-phase` only commits the handover locally. The workflow orchestrator
+  > for this phase runs a separate `git push origin main` immediately after to publish
+  > that commit to origin.
 - Confirm `HANDOVER.md` reflects Phase 6 entry (`P6-entry` checkpoint, correct plan path)
 - Open `phase6_plan.md` and follow from the top.
 - If session crashes during Phase 6: read `HANDOVER.md` or run `generate-next-plan`

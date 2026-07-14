@@ -161,6 +161,10 @@ Each FR gets a Gate 1 config-aware re-evaluation (CHECKPOINT). No harness run-ga
   ```
   > Phase 9 is re-entrant and never exits; work is ticket-driven
   > (`cr-open` / `cr-close`, see phase9_plan.md).
+  > **Sync**: `advance-phase` only commits the handover locally. The workflow
+  > orchestrator for this phase runs a separate `git push origin main` immediately
+  > after to publish that commit to origin, and also confirms any pending Gate 4
+  > `harness-v*` tag has been pushed.
 
 ### Phase 8 Deliverables
 - `CONFIG_RECORDS.md` - Configuration records

@@ -1039,6 +1039,10 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
         "  ```",
         "  > Phase 9 is re-entrant and never exits; work is ticket-driven",
         "  > (`cr-open` / `cr-close`, see phase9_plan.md).",
+        "  > **Sync**: `advance-phase` only commits the handover locally. The workflow",
+        "  > orchestrator for this phase runs a separate `git push origin main` immediately",
+        "  > after to publish that commit to origin, and also confirms any pending Gate 4",
+        "  > `harness-v*` tag has been pushed.",
         "",
     ])
 

@@ -121,7 +121,11 @@ _LINE_CEILING: dict[str, int] = {
     # _fr_carryforward_steps — added for parity; also dropped the invalid
     # `--phase` arg from its check-test-mirrors-spec line (same argparse bug
     # independently found in phase3-implementation.js).
-    "scripts/plangen/blocks.py": 1679,
+    # 2026-07-14: +3 lines — _phase_advance_step now documents the Sync-phase
+    # post-advance `git push origin main` (all 8 workflow JS files already do
+    # this; the generated plan prose never described it — SSOT fix, generator
+    # source, not the 8 generated phaseN_plan.md files by hand).
+    "scripts/plangen/blocks.py": 1682,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
@@ -162,7 +166,10 @@ _LINE_CEILING: dict[str, int] = {
     # dims-count text (previously hardcoded "16"/"15" strings that drifted
     # from the yaml-derived enabled-dim count) now reads gate_meta[gate][1]
     # via two local `_g3_dims`/`_g4_dims` variables instead.
-    "scripts/plangen/phase_tasks.py": 1137,
+    # 2026-07-14: +4 lines — generate_phase8_tasks' P8→P9 block (phase 8 has
+    # its own hand-written advance text, not the shared _phase_advance_step)
+    # now documents the same Sync-phase post-advance push as blocks.py.
+    "scripts/plangen/phase_tasks.py": 1141,
     "core/quality_gate/mutation_enforcer.py": 967,
 }
 
