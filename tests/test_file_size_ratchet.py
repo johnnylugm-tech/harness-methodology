@@ -133,7 +133,12 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-13: +11 lines — Round 10 站3: preflight_artifact_consistency
     # now also runs check_security_design (SAD.md §6 STRIDE-lite threat
     # model completeness).
-    "core/phase_hooks.py": 1594,
+    # 2026-07-14: +3 lines — preflight_fr_spec_consistency now imports
+    # core.quality_gate.parsers.SRS_SUBSECTION_PREFIX instead of a
+    # locally-duplicated regex fragment (same SSOT fix as spec_alignment.py /
+    # artifact_parsers.py / spec_coverage.py for the subsection-numbered
+    # FR-heading bug class).
+    "core/phase_hooks.py": 1597,
     # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
     # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
     # (broken) Path(__file__).parent arithmetic.

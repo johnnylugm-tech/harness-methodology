@@ -97,3 +97,45 @@ def test_blocks_when_test_spec_missing_but_sad_has_frs(tmp_path):
     assert result["passed"] is False
     assert result.get("skipped") is False
     assert result.get("missing_spec") is True
+
+
+def test_srs_subsection_numbered_test_spec_headers_aligned(tmp_path):
+    """TEST_SPEC.md authored with TOC-numbered subsection headers
+    (`### 2.1 FR-01` — same natural authoring pattern documented in
+    spec_alignment.py / artifact_parsers.py for SRS.md) must not
+    false-positive every FR as a sad_only orphan."""
+    arch = tmp_path / "02-architecture"
+    arch.mkdir()
+    (arch / "SAD.md").write_text(
+        "# SAD\n\n## FR-01: alpha\n## FR-02: beta\n## FR-03: gamma\n"
+    )
+    (arch / "TEST_SPEC.md").write_text(
+        "# TEST_SPEC\n\n"
+        "### 2.1 FR-01 alpha\ntest_alpha\n\n"
+        "### 2.2 FR-02 beta\ntest_beta\n\n"
+        "### 2.3 FR-03 gamma\ntest_gamma\n"
+    )
+    h = _phase_hooks(tmp_path, phase=5)
+    result = h.preflight_fr_spec_consistency()
+    assert result["passed"] is True
+    assert result["sad_only"] == []
+    assert result["spec_only"] == []
+
+
+def test_srs_subsection_numbered_dropped_still_blocks(tmp_path):
+    """Subsection-numbered TEST_SPEC.md, FR-02 genuinely missing — must
+    still block (the prefix tolerance must not silently pass a real gap)."""
+    arch = tmp_path / "02-architecture"
+    arch.mkdir()
+    (arch / "SAD.md").write_text(
+        "# SAD\n\n## FR-01: alpha\n## FR-02: beta\n## FR-03: gamma\n"
+    )
+    (arch / "TEST_SPEC.md").write_text(
+        "# TEST_SPEC\n\n"
+        "### 2.1 FR-01 alpha\ntest_alpha\n\n"
+        "### 2.3 FR-03 gamma\ntest_gamma\n"
+    )
+    h = _phase_hooks(tmp_path, phase=5)
+    result = h.preflight_fr_spec_consistency()
+    assert result["passed"] is False
+    assert "FR-02" in result["sad_only"]

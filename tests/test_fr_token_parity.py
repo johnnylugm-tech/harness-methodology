@@ -27,10 +27,14 @@ Registry maintenance rule: module-level or class-level compiled patterns
 whose purpose is extracting FR ids from prose/markdown belong here. Inline
 (non-constant) regexes are outside the registry and were verified manually
 this round: cross_artifact.py:140 `(?<![A-Za-z])FR-`, spec_coverage.py
-`^#{2,3}\s+(FR-...)` and `\bFR-\d+\b`, phase_cmds.py:1937 `\bFR-\d+\b`,
-phase_hooks.py `\bFR-(\d+)\b` / `^#{1,6}\s*FR-` — all anchored or
+`^#{2,3}\s+(?:SRS_SUBSECTION_PREFIX)?(FR-...)` and `\bFR-\d+\b`,
+phase_cmds.py:1937 `\bFR-\d+\b`, phase_hooks.py `\bFR-(\d+)\b` /
+`^#{1,6}\s*(?:SRS_SUBSECTION_PREFIX)?FR-` — all anchored or
 boundary-protected (there is no word boundary between `N` and `F`, so
-`\bFR` cannot match inside `NFR`).
+`\bFR` cannot match inside `NFR`; the optional SRS_SUBSECTION_PREFIX
+(2026-07-14, core.quality_gate.parsers.fr_id_pattern) only ever consumes a
+leading digit sequence, never an `N`, so it cannot open a path into `NFR-`
+either).
 """
 from __future__ import annotations
 

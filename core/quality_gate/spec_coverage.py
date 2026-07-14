@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 from core.utils.project_layout import ProjectLayout
+from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
 
 def _get_test_directories(project: Path) -> list[Path]:
     """Return all valid test directories (resolving symlinks and canonical layout)."""
@@ -117,7 +118,9 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
 
         # Detect FR section headers: ## FR-XX: ... or ### FR-XX: ...
         # Accept both H2 and H3 levels so docs and concrete specs can use either.
-        fr_match = re.match(r"^#{2,3}\s+(FR-\d+)[:\s]", stripped)
+        # SRS_SUBSECTION_PREFIX tolerates TOC-numbered subsections like
+        # `### 2.1 FR-01` (see spec_alignment.py for the same bug class).
+        fr_match = re.match(r"^#{2,3}\s+" + SRS_SUBSECTION_PREFIX + r"(FR-\d+)[:\s]", stripped)
         if fr_match:
             current_fr = fr_match.group(1)
             in_table = False
@@ -128,7 +131,7 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
         # bleeding into the next section. Tags items under a normalised slug so
         # they're traceable but won't be confused with real FR-IDs (which follow
         # the FR-\d+ pattern).
-        if re.match(r"^#{2,3}\s+\S", stripped) and not re.match(r"^#{2,3}\s+(FR-\d+)[:\s]", stripped):
+        if re.match(r"^#{2,3}\s+\S", stripped) and not re.match(r"^#{2,3}\s+" + SRS_SUBSECTION_PREFIX + r"(FR-\d+)[:\s]", stripped):
             h_text = re.sub(r"^#{2,3}\s+", "", stripped).strip()
             current_fr = re.sub(r"\W+", "_", h_text.lower()).rstrip("_")[:30]
             in_table = False

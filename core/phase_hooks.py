@@ -661,6 +661,7 @@ class PhaseHooks:
         `_run_spec_coverage_check`).
         """
         import re
+        from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
         print("\n[PRE-FLIGHT] FR Spec Consistency")
         sad_path = self._layout.sad_path
         spec_path = self._layout.test_spec_path
@@ -695,9 +696,11 @@ class PhaseHooks:
 
         try:
             spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
-            # Match `### FR-XX` headings (per derive_test_cases.md convention)
+            # Match `### FR-XX` headings (per derive_test_cases.md convention).
+            # SRS_SUBSECTION_PREFIX tolerates TOC-numbered subsections like
+            # `### 2.1 FR-01` (see spec_alignment.py for the same bug class).
             spec_frs = {f"FR-{int(m):02d}" for m in
-                        re.findall(r"^#{1,6}\s*FR-(\d+)\b",
+                        re.findall(r"^#{1,6}\s*" + SRS_SUBSECTION_PREFIX + r"FR-(\d+)\b",
                                    spec_text, re.MULTILINE)}
         except OSError as e:
             print(f"   TEST_SPEC read error: {e}", file=sys.stderr)

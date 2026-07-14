@@ -27,6 +27,16 @@ except ImportError as exc:
         "Refusing to silently fall back to a hand-duplicated NFR list, "
         "which would re-introduce the very drift this module is meant to prevent."
     ) from exc
+
+try:
+    from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
+except ImportError as exc:
+    raise ImportError(
+        "generate_full_plan requires the harness tree on PYTHONPATH "
+        "(could not import core.quality_gate.parsers.SRS_SUBSECTION_PREFIX). "
+        "Refusing to silently fall back to a hand-duplicated regex fragment, "
+        "which would re-introduce the very drift this module is meant to prevent."
+    ) from exc
 _NFR_TYPES_CHECK = (
     "All NFR `type` values from legal values "
     f"({'/'.join(_ALL_NFR_TYPES)})?"
@@ -160,15 +170,15 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
     #   –           — en-dash (some editors auto-convert em-dash)
     #   -           — hyphen (CLI / quick-write fallback)
     #
-    # Optional `(?:\d+(?:\.\d+)*\.?\s+)?` prefix accepts an SRS subsection
-    # number between the heading hashes and FR-NN — e.g. `### 3.1 FR-01` is
-    # the natural form when an SRS uses §3 Functional Requirements / §3.1 FR-01
-    # / §3.2 FR-02 TOC numbering. Without this prefix the same lookbehind
-    # false-positives a structurally complete SRS (such as this repo's own
+    # SRS_SUBSECTION_PREFIX accepts an SRS subsection number between the
+    # heading hashes and FR-NN — e.g. `### 3.1 FR-01` is the natural form
+    # when an SRS uses §3 Functional Requirements / §3.1 FR-01 / §3.2 FR-02
+    # TOC numbering. Without this prefix the same lookbehind false-positives
+    # a structurally complete SRS (such as this repo's own
     # 01-requirements/SRS.md) as having zero FR sections.
     fr_pattern = re.compile(
-        r'(#{2,3}\s*(?:\d+(?:\.\d+)*\.?\s+)?FR-(\d+)[\s:—–-][^\n]+\n\n)(.*?)'
-        r'(?=\n---\n|\n#{2,3}\s*(?:\d+(?:\.\d+)*\.?\s+)?FR-\d+|$)',
+        r'(#{2,3}\s*' + SRS_SUBSECTION_PREFIX + r'FR-(\d+)[\s:—–-][^\n]+\n\n)(.*?)'
+        r'(?=\n---\n|\n#{2,3}\s*' + SRS_SUBSECTION_PREFIX + r'FR-\d+|$)',
         re.DOTALL,
     )
 
