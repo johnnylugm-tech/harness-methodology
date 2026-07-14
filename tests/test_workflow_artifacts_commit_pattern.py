@@ -8,6 +8,15 @@ Pattern invariants:
   - `meta.phases` array includes `{ title: 'Artifacts Commit' }`
   - The git command uses an explicit path allowlist (NOT `git add -A`)
   - Uses `|| true` for idempotency on the no-op case
+
+Round 11 station0 fix: REPO used to default to a sibling `integration-test`
+checkout's `.claude/workflows/` — a path that has never existed (the actual
+consumed copy lives at `integration-test/harness/.claude/workflows/`, via
+the git submodule). skipif made that silently invisible: all 9 tests in
+this file have been skipping since the day this file was written. The
+workflow JS files are THIS repo's own build artifacts (`.claude/workflows/`
+at the harness-methodology root) — that is the correct default, with no
+skip needed since they always exist here.
 """
 
 from __future__ import annotations
@@ -18,12 +27,12 @@ from pathlib import Path
 import pytest
 
 
-REPO = Path(os.environ.get("INTEGRATION_TEST_DIR", Path(__file__).resolve().parent.parent.parent / "integration-test"))
+REPO = Path(os.environ.get("INTEGRATION_TEST_DIR", Path(__file__).resolve().parent.parent))
 WORKFLOWS = REPO / ".claude" / "workflows"
 
 pytestmark = pytest.mark.skipif(
     not WORKFLOWS.exists(),
-    reason="integration-test repository not found, skipping workflow pattern tests"
+    reason="workflows directory not found (INTEGRATION_TEST_DIR override points elsewhere?), skipping workflow pattern tests"
 )
 
 # Per-phase expected artifact paths and commit message fragments
