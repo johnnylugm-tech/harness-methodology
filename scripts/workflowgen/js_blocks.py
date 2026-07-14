@@ -264,7 +264,11 @@ def render_manifest_integrity_phase(phase: int) -> str:
     )
 
 
-def render_load_frs(phase: int) -> str:
+def render_load_frs(phase: int, *, include_fr_titles: bool = False) -> str:
+    fr_title_block = (
+        "const frTitle = {}\n"
+        "if (Array.isArray(ctx.fr_details)) for (const f of ctx.fr_details) frTitle[f.id || f.fr_id] = f.title || f.name || ''\n"
+    ) if include_fr_titles else ""
     return (
         render_phase_header("Load FRs")
         + f"log('load-context --phase {phase} → fr_ids')\n"
@@ -316,6 +320,7 @@ def render_load_frs(phase: int) -> str:
         + "let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids\n"
         + "  : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])\n"
         + "if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }\n"
+        + fr_title_block
         + "log('  fr_ids = ' + JSON.stringify(frIds))\n"
     )
 
@@ -325,11 +330,20 @@ def render_per_fr_delta(
     phase: int,
     forbidden_note: str,
     verifier_role: str = "VERIFIER",
+    use_fr_titles: bool = False,
 ) -> str:
     """GATE1-DELTA fast-path (one batched agent classifies all FRs; unchanged
     FRs short-circuit inside the harness CLI) then a full per-FR loop for the
     FRs that didn't fast-pass, each backed by the harness-verified (not
-    agent-self-reported) Gate 1 manifest check."""
+    agent-self-reported) Gate 1 manifest check. `use_fr_titles` interpolates
+    the frTitle lookup built by render_load_frs(include_fr_titles=True) into
+    the per-FR verifier's opening line — callers must keep the two flags in
+    sync (frTitle is undefined otherwise)."""
+    role_line = (
+        f"    'YOU ARE THE {verifier_role} for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
+        if use_fr_titles else
+        f"    'YOU ARE THE {verifier_role} for ' + frId + '. Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
+    )
     return (
         render_phase_header("Per-FR Delta")
         + "const gate1Pass = []\n"
@@ -372,7 +386,7 @@ def render_per_fr_delta(
         + "for (const frId of deltaTodo) {\n"
         + "  log('  === ' + frId + ' — GATE1-DELTA ===')\n"
         + "  const frReport = await agent(\n"
-        + f"    'YOU ARE THE {verifier_role} for ' + frId + '. Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
+        + role_line
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
         + "    + '1. GATE1-DELTA — long-running when code changed (harness runs up to 3 internal CODE-FIX rounds plus, on FAIL, a full TDD-RED→GREEN→IMPROVE→GATE1 chain — can silently block well past 180s). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\\n'\n"
@@ -428,6 +442,126 @@ def render_artifacts_commit(*, paths: list[str], commit_msg: str, phase: int) ->
     )
 
 
+def render_milestone(
+    *,
+    phase: int,
+    milestone_type: str,
+    guard_grep: str,
+    label: str,
+    extra_note: str = "",
+) -> str:
+    """A single push-milestone call, guarded so a re-run after an already-
+    pushed milestone short-circuits instead of re-pushing."""
+    return (
+        render_phase_header("Milestone")
+        + f"log('push-milestone {milestone_type}{extra_note}')\n"
+        + "const milestoneReport = await agent(\n"
+        + f"  'YOU ARE THE P{phase} MILESTONE PUSHER.\\n'\n"
+        + "  + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + f"  + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep=\"{guard_grep}\" -1`. If exists, report \"MILESTONE: PASS (already pushed)\" and stop.\\n'\n"
+        + f"  + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type {milestone_type} --project ' + REPO + '`\\n'\n"
+        + "  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\\n\\n'\n"
+        + "  + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\\n\\n'\n"
+        + f"  + 'SCOPE RULES:\\n- DO NOT run advance-phase.\\n- ONLY push-milestone {milestone_type}.',\n"
+        + f"  {{ label: '{label}', phase: 'Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA }},\n"
+        + ")\n"
+        + "if (!(milestoneReport && milestoneReport.pass === true)) {\n"
+        + f"  return {{ error: 'Phase {phase} {milestone_type} milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' }}\n"
+        + "}\n"
+    )
+
+
+def render_advance_loop(
+    *,
+    phase: int,
+    next_phase: int,
+    precheck_steps: list[str] | None = None,
+    scope_extra: str = "",
+    only_extra: str = "",
+    log_msg: str | None = None,
+) -> str:
+    """The advance-phase retry loop (round-based, manifest-integrity-guarded
+    each round — 2026-07-02 audit finding: advance-phase enforces more
+    independent checks than any prompt can safely enumerate ahead of time,
+    so the robust design reads advance-phase's own [BLOCKED] output each
+    round rather than guessing). `precheck_steps` are optional proactive
+    checks (e.g. P5's D4-GAP spec-coverage warning) that run BEFORE
+    advance-phase within the same numbered step list; `only_extra` names
+    those same precheck commands in the closing "ONLY ..." scope line (kept
+    as a separate param rather than derived from precheck_steps — the two
+    texts don't share a machine-extractable command token).
+    """
+    steps = list(precheck_steps or [])
+    steps.append(
+        f"advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed {phase} --project ' + REPO + '`\\n'\n"
+        + "    + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints \"[BLOCKED] ...\", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round."
+    )
+    steps.append(
+        f"Read ' + REPO + '/.methodology/state.json; confirm current_phase = {next_phase} (advance-phase atomically writes state.json when complete)."
+    )
+    last = len(steps)
+    newline = "\\n"
+    numbered = "".join(
+        f"    + '{i}. {s}\\n{newline if i == last else ''}'\n"
+        for i, s in enumerate(steps, start=1)
+    )
+    log_line = log_msg if log_msg is not None else f"advance-phase --completed {phase}"
+    return (
+        render_phase_header("Advance")
+        + f"log('{log_line}')\n"
+        + "// Round loop (2026-07-02 audit finding, ported from phase3): advance-phase\n"
+        + "// enforces more independent checks than any single prompt can safely\n"
+        + "// enumerate, and a static checklist goes stale the moment harness adds or\n"
+        + "// changes one. advance-phase is idempotent (preflight runs before any\n"
+        + "// FSM/state write), so the robust fix is an outer retry loop where the\n"
+        + "// agent reads advance-phase's own [BLOCKED] output each round instead of\n"
+        + "// guessing in advance.\n"
+        + "let advancePass = false, advanceReport = ''\n"
+        + "const ADVANCE_MAX_ROUNDS = 5\n"
+        + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
+        + "  log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
+        + "  // Last-line integrity guard: the phase-exit push commits .methodology/\n"
+        + "  // wholesale — block here so mid-run corruption never reaches git history\n"
+        + "  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).\n"
+        + "  // Re-check every round — a fix attempt in a prior round could reintroduce it.\n"
+        + "  const advIntegrity = await checkManifestIntegrity('Advance', 'advance-integrity-r' + round)\n"
+        + "  if (!advIntegrity.ok) {\n"
+        + "    return { error: 'Advance round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the phase-exit push.' }\n"
+        + "  }\n"
+        + "  advanceReport = await agent(\n"
+        + f"    'YOU ARE THE PHASE-{phase} EXIT ORCHESTRATOR. Advance to Phase {next_phase}. ROUND ' + round + '.\\n'\n"
+        + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + "    + 'Steps:\\n'\n"
+        + f"    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo \"current_phase=$PHASE\"; [ \"$PHASE\" -ge {next_phase} ]`. If Phase {next_phase} is confirmed, report \"ADVANCE: PASS (already advanced)\" and stop.\\n'\n"
+        + numbered
+        + f"    + 'Report final line: \"ADVANCE: PASS|FAIL — <details>\". If still FAIL after exhausting this round\\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_{next_phase}_PLAN: ' + REPO + '/.methodology/phase{next_phase}_plan.md\\n\\n'\n"
+        + f"    + 'SCOPE RULES:\\n{scope_extra}- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY {only_extra}advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
+        + "    { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },\n"
+        + "  )\n"
+        + "  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {\n"
+        + "    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
+        + f"    return {{ session_limit_blocked: true, phase: {phase}, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }}\n"
+        + "  }\n"
+        + "  // AUTHORITATIVE Advance verdict: advance-phase atomically writes\n"
+        + f"  // state.json current_phase={next_phase} on success. Read it via a schema proxy —\n"
+        + "  // the orchestrator's prose \"ADVANCE: PASS\" is narrative only.\n"
+        + "  const advVerifyCmd = PY + ' -c \"import json; print(json.dumps({\\'current_phase\\': int(json.load(open(\\'' + REPO + '/.methodology/state.json\\')).get(\\'current_phase\\') or 0)}))\"'\n"
+        + "  const advV = await agent(\n"
+        + "    'Run EXACTLY this command via the Bash tool (stdout is a single JSON line):\\n`' + advVerifyCmd + '`\\n'\n"
+        + "    + 'Then report via the StructuredOutput tool: current_phase = the exact integer from that JSON.',\n"
+        + "    { label: 'advance-verify-r' + round, phase: 'Advance', agentType: 'general-purpose', schema: PHASE_SCHEMA },\n"
+        + "  )\n"
+        + f"  advancePass = !!(advV && advV.current_phase >= {next_phase})\n"
+        + "  if (advancePass) { log('  Advance PASS [harness-verified: state.json current_phase=' + advV.current_phase + ']'); break }\n"
+        + "  log('  Advance not yet PASS [state.json current_phase=' + (advV ? advV.current_phase : '?') + '] — retry round ' + (round + 1))\n"
+        + "}\n"
+        + "\n"
+        + "if (!advancePass) {\n"
+        + f"  return {{ error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase {next_phase} is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }}\n"
+        + "}\n"
+    )
+
+
 def render_sync(*, extra_lines: list[str] | None = None) -> str:
     extra = "".join(f"  + '{line}\\n'\n" for line in (extra_lines or []))
     return (
@@ -442,4 +576,34 @@ def render_sync(*, extra_lines: list[str] | None = None) -> str:
         + "  + 'SCOPE RULES: ONLY push. DO NOT re-run advance-phase.',\n"
         + "  { label: 'sync-push', phase: 'Sync', agentType: 'general-purpose' },\n"
         + ")\n"
+    )
+
+
+def render_sync_verified() -> str:
+    """The Bug A fix (2026-07-07) Sync variant: a bare `git push` plus a
+    plain-text PASS/FAIL regex verdict check that early-returns an error on
+    FAIL. Real control-flow difference from render_sync() (which fires the
+    agent unconditionally with no verdict check) — not just prose — so it is
+    its own function rather than another render_sync() toggle. No phase-
+    specific content (P5/P7 share this text byte-for-byte); unlike every
+    other phase box this one also has no boxed `// Phase: Sync` divider
+    comment in the original files, so it does not call render_phase_header().
+    """
+    return (
+        "// Bug A fix (2026-07-07): advance-phase intentionally commits the handover\n"
+        "// locally without pushing (harness/cli/phase_cmds.py: \"next milestone push\n"
+        "// publishes to origin\"). This workflow ends right after Advance with no\n"
+        "// next-phase push queued, so the handover commit was left stranded on\n"
+        "// local until whatever runs next happened to push it. Publish it now.\n"
+        "phase('Sync')\n"
+        "log('git push origin main (publish advance handover commit)')\n"
+        "const syncReport = await agent(\n"
+        "  'Run EXACTLY this command via Bash:\\n'\n"
+        "  + 'git -C ' + REPO + ' push origin main\\n\\n'\n"
+        "  + 'Report final outcome as plain text: \"SYNC: PASS\" or \"SYNC: FAIL — <one-line reason>\".',\n"
+        "  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },\n"
+        ")\n"
+        "if (!/SYNC:\\s*PASS/.test(String(syncReport ?? ''))) {\n"
+        "  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }\n"
+        "}\n"
     )

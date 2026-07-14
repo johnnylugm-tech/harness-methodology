@@ -6,14 +6,14 @@ phase's own unique content (verbatim business logic that genuinely differs
 per phase — Config Docs / Archive / Final Push have no shared counterpart
 because no other phase does what they do) into the final JS source text.
 
-Only phase 8 is implemented in this station (Round 11 station1 pilot).
-Stations 2-4 add generate_phase5/7/3/4/6/1/2 following the same shape.
+Phases 5, 7, 8 are implemented (Round 11 stations 1-2). Station 3-4 add
+generate_phase3/4/6/1/2 following the same shape.
 """
 from __future__ import annotations
 
 from . import js_blocks as B
 
-_HEADER = """\
+_HEADER_8 = """\
 // Phase 8 — Configuration Management (faithful to .methodology/phase8_plan.md v2.12.0)
 //
 // GENERATED FILE — do not hand-edit. Source of truth:
@@ -37,22 +37,75 @@ _HEADER = """\
 // schema proxy agents reading harness artifacts (manifest qc, git log, rc).
 """
 
-_META_PHASES = [
+_HEADER_5 = """\
+// Phase 5 — Verification & Delivery (faithful to .methodology/phase5_plan.md v2.12.0)
+//
+// GENERATED FILE — do not hand-edit. Source of truth:
+// scripts/workflowgen/phase_specs.py::generate_phase5() (+ js_blocks.py for
+// the blocks shared across phase workflow files). Regenerate with:
+//   python3 scripts/workflowgen/generate_workflows.py --write --phase 5
+//
+// Structure: FR-loop型, NO harness run-gate (P5 cleared by Gate 3 at P4 exit).
+// Per-FR GATE1-DELTA re-eval (auto-triggers full TDD on code change), then
+// generate BASELINE.md + VERIFICATION_REPORT.md (BASELINE.md is a blocking
+// audit-phase C1 deliverable with a 7-H2-section depth check; the earlier
+// "merged into VERIFICATION_REPORT" note came from a generate_full_plan.py
+// copy-paste error, fixed harness-side), p5-baseline milestone push, advance
+// (advance-phase still enforces TDD-PRECHECK + D4 ≥80%, and Gate 4 next phase
+// needs ≥90% so we warn-check here).
+//
+// Playbook lessons: NO import/fs/process, Bash CLI, SCOPE RULES,
+// PY = .venv/bin/python, scriptPath launch.
+// v4 (2026-07-02): gate verdicts use FLAT schema: (playbook §5.2 rev) — regex
+// over LLM prose was the root cause of the #126/#134/#135/#136/ENV_CHECK_RC
+// bug class. Heavy orchestrators keep prose narrative; verdicts come from
+// schema proxy agents reading harness artifacts (manifest qc, state.json, rc).
+"""
+
+_HEADER_7 = """\
+// Phase 7 — Risk Management (faithful to .methodology/phase7_plan.md v2.12.0)
+//
+// GENERATED FILE — do not hand-edit. Source of truth:
+// scripts/workflowgen/phase_specs.py::generate_phase7() (+ js_blocks.py for
+// the blocks shared across phase workflow files). Regenerate with:
+//   python3 scripts/workflowgen/generate_workflows.py --write --phase 7
+//
+// Structure: FR-loop型, NO harness run-gate (P7 cleared by Gate 4). Per-FR
+// GATE1-DELTA re-eval, then generate the 3 risk deliverables, p7 milestone
+// push, advance (TDD-PRECHECK + D4 ≥90% enforced by advance-phase).
+//
+// Playbook lessons: NO import/fs/process, Bash CLI, SCOPE RULES,
+// PY = .venv/bin/python, scriptPath launch.
+// v4 (2026-07-02): gate verdicts use FLAT schema: (playbook §5.2 rev) — regex
+// over LLM prose was the root cause of the #126/#134/#135/#136/ENV_CHECK_RC
+// bug class. Heavy orchestrators keep prose narrative; verdicts come from
+// schema proxy agents reading harness artifacts (manifest qc, state.json, rc).
+"""
+
+_META_PHASES_8 = [
     "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
     "Per-FR Delta", "Config Docs", "Artifacts Commit", "Archive",
     "Final Push", "Sync",
 ]
 
+_META_PHASES_5 = [
+    "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+    "Per-FR Delta", "Verification Docs", "Artifacts Commit", "Milestone",
+    "Advance", "Sync",
+]
 
-def _render_meta() -> str:
-    lines = ["export const meta = {", "  name: 'phase8-config',"]
-    lines.append(
-        "  description: 'Phase 8 Config — per-FR GATE1-DELTA + "
-        "CONFIG_RECORDS/RELEASE_CHECKLIST + archive + p8 push "
-        "(phase8_plan.md v2.12.0)',"
-    )
+_META_PHASES_7 = [
+    "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+    "Per-FR Delta", "Risk Docs", "Artifacts Commit", "Milestone",
+    "Advance", "Sync",
+]
+
+
+def _render_meta(*, name: str, description: str, phases: list[str]) -> str:
+    lines = ["export const meta = {", f"  name: '{name}',"]
+    lines.append(f"  description: '{description}',")
     lines.append("  phases: [")
-    lines.extend(f"    {{ title: '{t}' }}," for t in _META_PHASES)
+    lines.extend(f"    {{ title: '{t}' }}," for t in phases)
     lines.append("  ],")
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -83,6 +136,55 @@ def _render_config_docs() -> str:
         + ")\n"
         + "if (!(docsReport && docsReport.pass === true)) {\n"
         + "  return { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "}\n"
+    )
+
+
+def _render_verification_docs() -> str:
+    return (
+        B.render_phase_header("Verification Docs")
+        + "// BASELINE.md is a blocking audit-phase C1 deliverable (advance-phase runs the\n"
+        + "// audit) and its depth check (C5) counts H2 sections — 7 required per\n"
+        + "// harness/templates/BASELINE.md. VERIFICATION_REPORT.md is asserted by\n"
+        + "// validate-handoff on the P5→P6 edge.\n"
+        + "log('Generate BASELINE.md + VERIFICATION_REPORT.md; re-run integration + security')\n"
+        + "const docsReport = await agent(\n"
+        + "  'YOU ARE THE P5 VERIFICATION AUTHOR. Generate the verification deliverables.\\n'\n"
+        + "  + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + "  + 'Steps:\\n'\n"
+        + "  + '1. BASELINE: write ' + REPO + '/05-verification/BASELINE.md (system state snapshot). Follow ' + REPO + '/harness/templates/BASELINE.md — EXACTLY 7 `## ` sections (Baseline Overview, Functional Baseline, Quality Baseline, Performance Baseline, Known Issues, Change Log, Acceptance Sign-off); audit-phase counts H2 headings and warns below 7. Fill with real data: current version, test results summary, coverage %, Gate 3 composite score, the 03-development/src/ module list; Change Log from `git -C ' + REPO + ' log --oneline -10`.\\n'\n"
+        + "  + '2. VERIFICATION_REPORT: run `' + PY + ' ' + REPO + '/harness_cli.py generate-verification-report --project ' + REPO + '` FIRST — it deterministically generates ' + REPO + '/05-verification/VERIFICATION_REPORT.md from quality_manifest.json (Gate 1/3 results) + SRS.md acceptance criteria, with the correct FR certification precedence (UNKNOWN → FAIL → Conditional PASS → PASS). Then Read the generated file and APPEND richer evidence narrative on top (do not rewrite the generated sections). Must be NON-trivial (validate-handoff checks this). Reference 04-testing/TEST_RESULTS.md. **NOTE**: Mutation testing is gated per-FR at Gate 1 (P3 exit) — DO NOT re-run mutmut here; reference the mutation score from Gate 1 artifacts if needed.\\n'\n"
+        + "  + '3. Re-run integration tests: `' + PY + ' -m pytest ' + REPO + '/tests/integration/ -q` (skip gracefully if dir absent).\\n'\n"
+        + "  + '4. Confirm performance NFRs: review benchmark entries in 04-testing/TEST_RESULTS.md.\\n'\n"
+        + "  + '5. Security clean: `bandit -r ' + REPO + '/03-development/src/ -ll` + `gitleaks detect --source ' + REPO + '`.\\n\\n'\n"
+        + "  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if BOTH BASELINE.md (7 H2 sections) and VERIFICATION_REPORT.md were written and all re-run checks succeeded; reason = one-line summary.\\n\\n'\n"
+        + "  + 'SCOPE RULES:\\n- DO NOT run advance-phase / push-milestone.\\n- DO NOT modify harness/.\\n- DO NOT re-implement FRs (only document verification + re-run existing checks).\\n- ONLY generate BASELINE.md + VERIFICATION_REPORT.md + re-run checks.',\n"
+        + "  { label: 'verification-docs', phase: 'Verification Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
+        + ")\n"
+        + "if (!(docsReport && docsReport.pass === true)) {\n"
+        + "  return { error: 'Phase 5 verification docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "}\n"
+    )
+
+
+def _render_risk_docs() -> str:
+    return (
+        B.render_phase_header("Risk Docs")
+        + "log('Generate the 3 risk deliverables under 07-risk/')\n"
+        + "const docsReport = await agent(\n"
+        + "  'YOU ARE THE P7 RISK AUTHOR. Generate the risk deliverables.\\n'\n"
+        + "  + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + "  + 'Steps (create 07-risk/ if missing):\\n'\n"
+        + "  + '1. RISK_REGISTER: write ' + REPO + '/07-risk/RISK_REGISTER.md. Review open issues from Gate 3/4, .methodology/deferred_fixes.md, .sessi-work/issue_registry.json. For each risk: ID, name, likelihood (1–5), impact (1–5), category, mitigation approach. Seed from SPEC.md §9 risk matrix (R1 concurrent write / R2 subprocess hang / R3 breaker deadlock / R4 stale cache).\\n'\n"
+        + "  + '2. RISK_MITIGATION_PLANS: write ' + REPO + '/07-risk/RISK_MITIGATION_PLANS.md. For HIGH risks (likelihood × impact ≥ 9): formal mitigation plan with owner + deadline.\\n'\n"
+        + "  + '3. RISK_STATUS_REPORT: write ' + REPO + '/07-risk/RISK_STATUS_REPORT.md. Summary of all risks, current status, mitigation owner, target date.\\n\\n'\n"
+        + "  + 'All 3 must be NON-trivial (validate-handoff checks presence + well-formedness).\\n'\n"
+        + "  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if all 3 docs were written; reason = one-line summary.\\n\\n'\n"
+        + "  + 'SCOPE RULES:\\n- DO NOT run advance-phase / push-milestone.\\n- DO NOT modify harness/.\\n- DO NOT re-implement FRs.\\n- ONLY generate the 3 risk docs.',\n"
+        + "  { label: 'risk-docs', phase: 'Risk Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
+        + ")\n"
+        + "if (!(docsReport && docsReport.pass === true)) {\n"
+        + "  return { error: 'Phase 7 risk docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
         + "}\n"
     )
 
@@ -167,9 +269,17 @@ def _render_final_push() -> str:
 
 def generate_phase8() -> str:
     parts = [
-        _HEADER,
+        _HEADER_8,
         "",
-        _render_meta(),
+        _render_meta(
+            name="phase8-config",
+            description=(
+                "Phase 8 Config — per-FR GATE1-DELTA + "
+                "CONFIG_RECORDS/RELEASE_CHECKLIST + archive + p8 push "
+                "(phase8_plan.md v2.12.0)"
+            ),
+            phases=_META_PHASES_8,
+        ),
         "",
         B.RESOLVE_REPO_BLOCK,
         "",
@@ -210,6 +320,144 @@ def generate_phase8() -> str:
             "  p8_push_status: p8Ok ? 'PASS' : 'unknown',\n"
             "  artifacts: ['08-config/CONFIG_RECORDS.md', '08-config/RELEASE_CHECKLIST.md', '.methodology-archive/', 'HANDOVER.md'],\n"
             "  notes: 'Phase 8 complete per phase8_plan.md v2.12.0. Full P1→P8 pipeline complete → Phase 9 (Maintenance, CR-driven steady state).',\n"
+            "}\n"
+        ),
+    ]
+    return "\n".join(p for p in parts if p is not None)
+
+
+def generate_phase5() -> str:
+    parts = [
+        _HEADER_5,
+        "",
+        _render_meta(
+            name="phase5-verification",
+            description=(
+                "Phase 5 Verification — per-FR GATE1-DELTA + "
+                "BASELINE/VERIFICATION_REPORT + p5-baseline push "
+                "(phase5_plan.md v2.12.0)"
+            ),
+            phases=_META_PHASES_5,
+        ),
+        "",
+        B.RESOLVE_REPO_BLOCK,
+        "",
+        B.WRITE_SCOPE_BLOCK,
+        "",
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "CTX_SCHEMA", "DELTA_FAST_SCHEMA", "PHASE_SCHEMA"]),
+        B.render_entry_preflight(
+            phase=5, gate_num=3, gate_owner_phase=4, prev_phase=4,
+            extra_note=(
+                "- DO NOT generate BASELINE/VERIFICATION docs or run TDD steps.\\n"
+                "- DO NOT run advance-phase/push-milestone.\\n"
+            ),
+        ),
+        B.render_env_check(phase=5),
+        B.render_manifest_integrity_phase(phase=5),
+        B.render_load_frs(phase=5, include_fr_titles=True),
+        B.render_per_fr_delta(
+            phase=5,
+            forbidden_note="- DO NOT run advance-phase / push-milestone / generate BASELINE docs.\\n",
+            verifier_role="VERIFIER",
+            use_fr_titles=True,
+        ),
+        _render_verification_docs(),
+        B.render_artifacts_commit(
+            paths=["05-verification", ".methodology"],
+            commit_msg="chore(p5): baseline + verification-report artifacts",
+            phase=5,
+        ),
+        B.render_milestone(
+            phase=5, milestone_type="p5-baseline", guard_grep="P5): BASELINE.md",
+            label="milestone-baseline",
+            extra_note=" (after VERIFICATION_REPORT.md generated)",
+        ),
+        B.render_advance_loop(
+            phase=5, next_phase=6,
+            precheck_steps=[
+                "D4-GAP: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. Gate 4 (next phase) needs ≥90% but advance only needs 80% — if below 90%, ADD missing test implementations NOW to avoid a Gate 4 surprise.",
+            ],
+            scope_extra="- DO NOT re-do P5 docs.\\n",
+            only_extra="spec-coverage-check + ",
+            log_msg="D4 90% gap warning + advance-phase --completed 5 (TDD-PRECHECK enforced)",
+        ),
+        B.render_sync_verified(),
+        (
+            "\nlog('Phase 5 workflow complete. Open .methodology/phase6_plan.md to continue.')\n"
+            "return {\n"
+            "  phase: 5,\n"
+            "  fr_count: frIds.length,\n"
+            "  gate1_pass: gate1Pass,\n"
+            "  advance_status: 'PASS',\n"
+            "  artifacts: ['05-verification/BASELINE.md', '05-verification/VERIFICATION_REPORT.md', 'HANDOVER.md'],\n"
+            "  notes: 'Phase 5 complete per phase5_plan.md v2.12.0. Phase 6 (Quality Assurance) ready. Reminder: Gate 4 needs spec-coverage ≥90%.',\n"
+            "}\n"
+        ),
+    ]
+    return "\n".join(p for p in parts if p is not None)
+
+
+def generate_phase7() -> str:
+    parts = [
+        _HEADER_7,
+        "",
+        _render_meta(
+            name="phase7-risk",
+            description=(
+                "Phase 7 Risk — per-FR GATE1-DELTA + "
+                "RISK_REGISTER/MITIGATION/STATUS + p7 push "
+                "(phase7_plan.md v2.12.0)"
+            ),
+            phases=_META_PHASES_7,
+        ),
+        "",
+        B.RESOLVE_REPO_BLOCK,
+        "",
+        B.WRITE_SCOPE_BLOCK,
+        "",
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "CTX_SCHEMA", "DELTA_FAST_SCHEMA", "PHASE_SCHEMA"]),
+        B.render_entry_preflight(
+            phase=7, gate_num=4, gate_owner_phase=6, prev_phase=6,
+            extra_note=(
+                "- DO NOT generate risk docs or run TDD steps.\\n"
+                "- DO NOT run advance-phase/push-milestone.\\n"
+            ),
+        ),
+        B.render_env_check(phase=7),
+        B.render_manifest_integrity_phase(phase=7),
+        B.render_load_frs(phase=7, include_fr_titles=True),
+        B.render_per_fr_delta(
+            phase=7,
+            forbidden_note="- DO NOT run advance-phase / push-milestone / generate risk docs.\\n",
+            verifier_role="RISK-AWARE VERIFIER",
+            use_fr_titles=True,
+        ),
+        _render_risk_docs(),
+        B.render_artifacts_commit(
+            paths=["07-risk", ".methodology"],
+            commit_msg="chore(p7): risk-register artifacts",
+            phase=7,
+        ),
+        B.render_milestone(
+            phase=7, milestone_type="p7", guard_grep="P7",
+            label="milestone-p7",
+            extra_note=" (after risk register complete)",
+        ),
+        B.render_advance_loop(
+            phase=7, next_phase=8,
+            scope_extra="- DO NOT re-do P7 docs.\\n",
+            log_msg="advance-phase --completed 7 (TDD-PRECHECK + D4 90% enforced)",
+        ),
+        B.render_sync_verified(),
+        (
+            "\nlog('Phase 7 workflow complete. Open .methodology/phase8_plan.md to continue.')\n"
+            "return {\n"
+            "  phase: 7,\n"
+            "  fr_count: frIds.length,\n"
+            "  gate1_pass: gate1Pass,\n"
+            "  advance_status: 'PASS',\n"
+            "  artifacts: ['07-risk/RISK_REGISTER.md', '07-risk/RISK_MITIGATION_PLANS.md', '07-risk/RISK_STATUS_REPORT.md', 'HANDOVER.md'],\n"
+            "  notes: 'Phase 7 complete per phase7_plan.md v2.12.0. Phase 8 (Configuration Management) ready.',\n"
             "}\n"
         ),
     ]

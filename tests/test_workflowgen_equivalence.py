@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
 from scripts.workflow_audit.extract import (
     extract_js_agent_labels,
     extract_js_phases,
@@ -36,11 +38,13 @@ from scripts.workflowgen.generate_workflows import generate
 # phase's workflowgen migration landed, and the path the pre-migration
 # content lived at (always .claude/workflows/<file> — paths don't move).
 _PRE_MIGRATION_REF = {
+    5: ("805f1d3fb3cb", ".claude/workflows/phase5-verification.js"),
+    7: ("805f1d3fb3cb", ".claude/workflows/phase7-risk.js"),
     8: ("8a071fb4127ee363aaf604625d1e71e7684edba4", ".claude/workflows/phase8-config.js"),
 }
 
 # Label renames introduced by a migration: {phase: {old_label: new_label}}.
-# Empty for phase8 — the generator reuses every original label verbatim.
+# Empty for phase5/7/8 — the generator reuses every original label verbatim.
 _LABEL_RENAMES: dict[int, dict[str, str]] = {}
 
 
@@ -64,28 +68,31 @@ def test_pre_migration_refs_are_readable():
         assert text.strip(), f"phase{phase}: {sha}:{path} resolved to empty content"
 
 
-def test_phase8_meta_phases_unchanged():
-    sha, path = _PRE_MIGRATION_REF[8]
+@pytest.mark.parametrize("phase", sorted(_PRE_MIGRATION_REF))
+def test_meta_phases_unchanged(phase):
+    sha, path = _PRE_MIGRATION_REF[phase]
     before = extract_js_phases(_read_at_commit(sha, path))
-    after = extract_js_phases(generate(8))
+    after = extract_js_phases(generate(phase))
     assert after == before
 
 
-def test_phase8_agent_labels_unchanged_modulo_renames():
-    sha, path = _PRE_MIGRATION_REF[8]
+@pytest.mark.parametrize("phase", sorted(_PRE_MIGRATION_REF))
+def test_agent_labels_unchanged_modulo_renames(phase):
+    sha, path = _PRE_MIGRATION_REF[phase]
     before = set(extract_js_agent_labels(_read_at_commit(sha, path)))
-    after = set(extract_js_agent_labels(generate(8)))
-    renames = _LABEL_RENAMES.get(8, {})
+    after = set(extract_js_agent_labels(generate(phase)))
+    renames = _LABEL_RENAMES.get(phase, {})
     before_renamed = {renames.get(label, label) for label in before}
     assert after == before_renamed, (
-        f"label set changed with no rename entry: "
+        f"phase{phase}: label set changed with no rename entry: "
         f"before-only={before_renamed - after}, after-only={after - before_renamed}"
     )
 
 
-def test_phase8_cli_commands_unchanged():
+@pytest.mark.parametrize("phase", sorted(_PRE_MIGRATION_REF))
+def test_cli_commands_unchanged(phase):
     subs = _subcommands()
-    sha, path = _PRE_MIGRATION_REF[8]
+    sha, path = _PRE_MIGRATION_REF[phase]
     before = extract_js_subcommands(_read_at_commit(sha, path), subs)
-    after = extract_js_subcommands(generate(8), subs)
+    after = extract_js_subcommands(generate(phase), subs)
     assert after == before

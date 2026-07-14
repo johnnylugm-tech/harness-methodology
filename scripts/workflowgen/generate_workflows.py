@@ -24,6 +24,8 @@ WORKFLOWS_DIR = REPO_ROOT / ".claude" / "workflows"
 # workflowgen appear here; un-migrated phases are untouched hand-maintained
 # files (see docs/WORKFLOW_ALIGNMENT_AUDIT.md for migration status).
 GENERATORS = {
+    5: (phase_specs.generate_phase5, "phase5-verification.js"),
+    7: (phase_specs.generate_phase7, "phase7-risk.js"),
     8: (phase_specs.generate_phase8, "phase8-config.js"),
 }
 
