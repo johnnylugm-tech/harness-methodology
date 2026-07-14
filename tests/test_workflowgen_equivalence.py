@@ -48,6 +48,8 @@ from scripts.workflow_audit.extract import (
 # equivalence-only change (no gap-fixing mixed in — that's always a
 # separate, later commit). Paths don't move across migration.
 _MIGRATION: dict[int, tuple[str, str, str]] = {
+    3: ("5acc9a33357f", "840d637fbcd6", ".claude/workflows/phase3-implementation.js"),
+    4: ("5acc9a33357f", "840d637fbcd6", ".claude/workflows/phase4-testing.js"),
     5: ("805f1d3fb3cb", "581c6360e1ee", ".claude/workflows/phase5-verification.js"),
     7: ("805f1d3fb3cb", "581c6360e1ee", ".claude/workflows/phase7-risk.js"),
     8: ("8a071fb4127ee363aaf604625d1e71e7684edba4", "805f1d3fb3cb", ".claude/workflows/phase8-config.js"),

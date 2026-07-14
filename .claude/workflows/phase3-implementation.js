@@ -174,21 +174,32 @@ if (!(preflightReport && preflightReport.pass === true)) {
 // ══════════════════════════════════════════════════════════════════════════
 
 phase('Env Check')
-log('run-env-check (root-cause fix: CLI exit code reflects ready flag)')
+log('run-env-check + finalize-env-check (root-cause fix: CLI exit code reflects ready flag)')
 // Bug #127 root-cause fix (2026-06-27): `cmd_run_env_check` now returns
 // exit 0 when ready=true and 1 when ready=false (previously always 0).
 // Workflows check `$?` directly with no LLM orchestrator agent in the loop.
 // 2026-07-02 paraphrase incident (phase3): the agent rewrote ENV_CHECK_RC=0
 // as "RC=0" and the regex gate false-negatived a READY environment. Schema
 // transport is paraphrase-proof.
+// Round 11 station2b (plan ENV-CHECK marker): run-env-check's exit code
+// (Bug #127) only reflects the agent's self-reported `ready` boolean, not
+// result-schema completeness — a `{"ready": true}` response missing
+// checked_at / env_vars.required / cli_tools.required /
+// infra_services.required would pass run-env-check alone but fail
+// finalize-env-check's schema check (HarnessBridge.finalize_env_check,
+// cli/gate_cmds.py) — a real anti-fabrication gap, not redundant with
+// Bug #127's fix. Chain both: `&&` runs finalize only after run-env-check
+// succeeds; the trailing `; echo RC=$?` captures whichever of the two is
+// authoritative (run-env-check's own failure code if it failed first,
+// otherwise finalize-env-check's).
 const envReport = await agent(
-  'You MUST use the Bash tool. Run exactly this ONE command (single line, the `;` keeps $? bound to run-env-check):\n'
-  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase 3 --project ' + REPO + '; echo "RC=$?"\n'
+  'You MUST use the Bash tool. Run exactly this ONE command (single line):\n'
+  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase 3 --project ' + REPO + ' && ' + PY + ' ' + REPO + '/harness_cli.py finalize-env-check --phase 3 --project ' + REPO + '; echo "RC=$?"\n'
   + 'Then report via the StructuredOutput tool: rc = the exact numeric exit code echoed on the final RC= line.',
   { label: 'env-check', phase: 'Env Check', agentType: 'general-purpose', schema: RC_SCHEMA },
 )
 if (!(envReport && envReport.rc === 0)) {
-  return { error: 'Phase 3 env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }
+  return { error: 'Phase 3 env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check/finalize-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }
 }
 
 

@@ -509,7 +509,10 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     { label: 'advance-verify-r' + round, phase: 'Advance', agentType: 'general-purpose', schema: PHASE_SCHEMA },
   )
   advancePass = !!(advV && advV.current_phase >= 6)
-  if (advancePass) { log('  Advance PASS [harness-verified: state.json current_phase=' + advV.current_phase + ']'); break }
+  if (advancePass) {
+    log('  Advance PASS [harness-verified: state.json current_phase=' + advV.current_phase + ']')
+    break
+  }
   log('  Advance not yet PASS [state.json current_phase=' + (advV ? advV.current_phase : '?') + '] — retry round ' + (round + 1))
 }
 

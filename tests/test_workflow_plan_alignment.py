@@ -71,23 +71,7 @@ JS_FILES: dict[int, str] = {
     8: "phase8-config.js",
 }
 
-_ENV_CHECK_REASON = (
-    "JS calls run-env-check and reads its own process exit code directly "
-    "(comment: 'root-cause fix: CLI exit code reflects ready flag', "
-    "Bug #127 / commit 17d6d53) but never calls finalize-env-check, which "
-    "the plan's ENV-CHECK marker explicitly instructs as a second step and "
-    "which performs anti-fabrication sentinel + staleness validation "
-    "(cli/gate_cmds.py::cmd_finalize_env_check). Needs investigation when "
-    "this file is migrated: confirm whether Bug #127's fix made "
-    "finalize-env-check's validation redundant (then the plan's own "
-    "wording is stale and should be flagged to the user, not silently "
-    "changed), or whether skipping it is a live gap that must be closed."
-)
-
-
 KNOWN_GAPS: dict[int, dict[str, str]] = {
-    3: {"ENV-CHECK": _ENV_CHECK_REASON},
-    4: {"ENV-CHECK": _ENV_CHECK_REASON},
     6: {
         "B-DISPATCH": (
             "plan's B-DISPATCH marker instructs `harness_cli.py dispatch "
