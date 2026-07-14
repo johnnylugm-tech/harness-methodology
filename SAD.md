@@ -2666,6 +2666,23 @@ python3 scripts/rotate_decision_logs.py [--project .] [--retention-days 30] [--d
 
 ---
 
+### §3.40 — `scripts/workflowgen/` — Workflow JS Generator (render-from-SSOT)
+
+**Responsibility**: Generates the 8 phase Claude Code Workflow scripts (`.claude/workflows/phaseN-*.js`) from a single Python source, mirroring `scripts/plangen`'s architecture. Before this module existed, the 8 files were hand-maintained with shared logic (`resolveRepo()`, the A/B review machine, verdict schemas) copy-pasted across every file — the Claude Code Workflow runtime forbids `import`/`require`/`fs.*`/`process.*` in shipped scripts (docs/WORKFLOW_PLAYBOOK.md §4), so cross-file sharing at the JS level is architecturally impossible; a bug fix (`58f8b2f`, submodule-worktree exclusion in `resolveRepo()`) required 8 separate edits. `workflowgen` moves the shared logic to Python, where normal function reuse applies, and generates the constrained, self-contained JS as a build step.
+
+**Package layout**:
+
+| Module | Role |
+|---|---|
+| `js_blocks.py` | Shared JS block renderers — `resolveRepo`/budget-guard/verdict schemas/`checkManifestIntegrity`/the A-B review machine (`render_generic_ab_loop`, `render_build_b_prompt`, `render_persist_approval`, …)/`render_rule_prose` (re-exports `scripts.plangen.blocks._load_rule`, keeping `@rule`-tagged prompt text single-sourced with the plan generator) |
+| `phase_specs.py` | One `generate_phaseN()` per phase — declarative step sequences, milestone type, artifacts allowlist; genuine per-phase differences (e.g. phase1's `runSubTask` vs phase2's `abLoop` — confirmed non-unifiable by full diff, see module comments) are kept as phase-local verbatim blocks rather than forced into a shared parameter surface |
+| `js_src/*.mjs` | Pure JS helper functions (`balancedJsonAt`, `extractLastJson`, `parseAgentJson`) as real `.mjs` source, directly testable with `node --test`; `export` is stripped at generation time when inlined into a phase file |
+| `generate_workflows.py` | Facade: `--write` renders all migrated phases to `.claude/workflows/`, `--check` diffs generator output against the on-disk files (exit 1 on drift) |
+
+**Verification model**: harness-methodology cannot execute a Claude Code Workflow run itself (that requires the Workflow tool's runtime, exercised from the integration-test consumer side). Three layers substitute: (1) `tests/test_workflowgen_golden.py` — byte-equal lock between generator output and the committed `.claude/workflows/*.js`, so a hand-edit or silent generator drift both fail loudly; (2) `tests/test_workflow_js_conventions.py` — playbook §4 runtime-construct lint (`scripts/workflow_audit/js_lint.py`) plus a `node --check` syntax gate; (3) `tests/test_workflow_plan_alignment.py` / `tests/test_workflowgen_equivalence.py` — the generated JS's command set and `phase()`/`agent()` structure stay aligned with the corresponding `phaseN_plan.md` and with each migration's pre-image. See docs/WORKFLOW_ALIGNMENT_AUDIT.md and docs/WORKFLOW_PLAYBOOK.md §13 for the full migration record and the submodule consumption/hand-patch-prohibition (HR-17) rules.
+
+---
+
 ## 7. Runtime Prerequisites & Dependencies
 
 ### 7.1 SSI — Embedded Evaluation Engine

@@ -217,3 +217,19 @@
 - test: tests/test_security_design.py::test_verified_by_test_missing_at_phase_5_blocks
   bug: "unenforced red-team checklist class (Round 10 gap-analysis, Gap 4 'Security Red Team 淪為口號'): templates/SRS.md's Security Red Team checklist had zero production consumers — a project could list red-team test names in prose and nothing ever verified they were written before shipping. check_security_design's R8 closes this for its structural replacement (SAD.md §6 threats[].verified_by): from Phase 5, a declared verified_by test name absent from the test suite is a blocking error, not an aspirational example list nobody enforces"
   fixed_in: "Round 10 站1/站3 (check_security_design R8 + preflight/check-artifact-consistency wiring)"
+
+- test: tests/test_workflow_plan_alignment.py::test_plan_commands_have_js_coverage
+  bug: "Round 11 workflow↔plan alignment class: a workflow JS file silently dropping a harness_cli.py command its corresponding phaseN_plan.md instructs (or a newly-added plan step never reaching the JS) went completely unchecked before this meta-test existed — the only prior signal was a human diffing 8 hand-maintained JS files against plangen's generated prose by eye. The KNOWN_GAPS/RUNTIME_ONLY registries make every surviving gap an explicit, reasoned exception instead of a silent one"
+  fixed_in: "Round 11 站0 (scripts/workflow_audit/extract.py + plan-alignment registries)"
+
+- test: tests/test_workflowgen_golden.py::test_generated_output_matches_golden
+  bug: "generated-artifact drift class: .claude/workflows/*.js became workflowgen output (SSOT moved to scripts/workflowgen/) during Round 11 — a hand-edit landing directly on a generated .js file (the exact 'patch the submodule copy' shape HR-17 forbids and this migration exists to end) would silently diverge from the generator, undetected until the next regeneration silently overwrote it"
+  fixed_in: "Round 11 站1-4 (workflowgen migration, golden byte-equal harness)"
+
+- test: tests/test_workflow_js_conventions.py::test_no_banned_runtime_constructs
+  bug: "playbook §4 runtime-constraint regression class: scripts/workflowgen/ generating a construct the Claude Code Workflow runtime hard-rejects (import()/require()/fs.*/path.*/process.*/Date.now()/Math.random()/argless new Date()/inline schema object) would only surface as a hard failure at workflow launch time in integration-test — far downstream of this repo's own CI feedback loop"
+  fixed_in: "Round 11 站5 (js_lint.py comment/string-aware scanner + conventions test)"
+
+- test: tests/test_workflow_artifacts_commit_pattern.py::TestWorkflowArtifactsCommitPattern::test_phase4_has_artifacts_commit_phase
+  bug: "dead-guard-by-stale-path class: all 9 tests in this file silently skipped since the day it was written — its REPO default pointed at a sibling integration-test checkout's .claude/workflows/, a path that has never existed (the real consumed copy lives one level deeper, under the git submodule). pytest.mark.skipif made the missing path invisible instead of failing — the same shape as the 667-guard-deletion class this registry exists to prevent"
+  fixed_in: "Round 11 站0 (REPO default retargeted to this repo's own .claude/workflows/)"
