@@ -10,6 +10,10 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from harness.git_strategy import GitStrategy
 
 from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate import gate1_evidence
