@@ -687,21 +687,130 @@ class TestSabDriftDetection:
             for i in result.drift_items
         )
 
+    def test_check3_catches_violation_with_dotted_only_sab_entry(self, tmp_path):
+        """Regression (Fix 15, 2026-07-15): a plain dotted-string SAB module
+        entry (no dict wrapper, no path form at all — e.g. "taskq.config")
+        must be caught by Check 3, not just dict-shaped entries.
+
+        Before Fix 15, `source_layer = sab_files.get(rel)` compared the raw
+        SAB declaration string against the file's filesystem-relative path
+        by EXACT match. A dotted-only entry's key ("taskq.config") could
+        never equal a filesystem rel path ("taskq/config.py") — Check 3 was
+        silently a no-op for this shape. Confirmed via direct debugging while
+        building Fix 13's regression tests (see Part F of the plan): this
+        was NOT a Fix 13 regression, it was a pre-existing, broader defect.
+        Fix 15 resolves both the source file's own path and the import
+        target through the same normalize_sab_module_to_dotted() +
+        _resolve_import_layer() pair, closing this gap.
+        """
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        pkg = tmp_path / "taskq"
+        pkg.mkdir()
+        (pkg / "cli.py").write_text("import taskq.config\n")
+        (pkg / "config.py").write_text("X = 1\n")
+
+        sab_json = {
+            "layers": [
+                {"name": "entry", "modules": ["taskq.cli"], "allowed_dependencies": []},
+                {"name": "foundation", "modules": ["taskq.config"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"entry": [], "foundation": []},
+        }
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True, (
+            "entry -> foundation import via dotted-only SAB entries must be "
+            f"flagged as an architecture violation (got: {result})"
+        )
+        assert any(
+            "taskq.config" in i.description and "not an allowed dependency" in i.description
+            for i in result.drift_items
+        )
+
+    def test_check3_catches_violation_with_dev_dir_src_prefix(self, tmp_path):
+        """Regression (Fix 15): the real taskq-project layout — files under
+        03-development/src/, SAB entries declared relative to the
+        development dir (e.g. "src/taskq/cli.py" or bare "taskq.config")
+        — must resolve correctly. This is the combination that was
+        completely broken before Fix 15 (confirmed via direct debugging:
+        `sab_files.get(rel)` compared "03-development/src/taskq/cli.py"
+        against SAB's "src/taskq/cli.py" key — never equal)."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        dev_pkg = tmp_path / "03-development" / "src" / "taskq"
+        dev_pkg.mkdir(parents=True)
+        (dev_pkg / "cli.py").write_text("import taskq.config\n")
+        (dev_pkg / "config.py").write_text("X = 1\n")
+
+        sab_json = {
+            "layers": [
+                {"name": "entry", "modules": [
+                    {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+                ], "allowed_dependencies": []},
+                {"name": "foundation", "modules": ["taskq.config"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"entry": [], "foundation": []},
+        }
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert result.has_drift is True, (
+            "entry -> foundation import must be flagged even with the "
+            f"03-development/src/ project layout (got: {result})"
+        )
+        assert any(
+            "taskq.config" in i.description and "not an allowed dependency" in i.description
+            for i in result.drift_items
+        )
+
+    def test_check3_unregistered_file_still_skipped(self, tmp_path):
+        """Negative control (Fix 15): a file not declared in any SAB layer
+        must NOT produce a Check 3 drift item — it stays exclusively Check
+        2's responsibility ("unregistered file"). Guards against Fix 15's
+        more permissive source_layer resolution (parent/child dotted-path
+        matching via _resolve_import_layer) accidentally start claiming
+        files that were never meant to be layer members."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        pkg = tmp_path / "taskq"
+        pkg.mkdir()
+        (pkg / "cli.py").write_text("import taskq.config\n")
+        (pkg / "config.py").write_text("X = 1\n")
+        (pkg / "scratch.py").write_text("import os\n")  # not in SAB at all
+
+        sab_json = {
+            "layers": [
+                {"name": "entry", "modules": ["taskq.cli"], "allowed_dependencies": []},
+                {"name": "foundation", "modules": ["taskq.config"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"entry": [], "foundation": []},
+        }
+        (method_dir / "SAB.json").write_text(json.dumps(sab_json))
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert not any(
+            "scratch" in i.description and "not an allowed dependency" in i.description
+            for i in result.drift_items
+        ), f"unregistered file must not be claimed by Check 3 (got: {result})"
+
     def test_check3_layer_to_modules_normalizes_dotted_only_entry_unchanged(self, tmp_path):
         """A plain dotted-string SAB module entry must still normalize to
         the same dotted form it already was (no-op through
         normalize_sab_module_to_dotted) — this pins the specific behavior
-        Fix 13 touches (the layer_to_modules construction), independent of
-        the separate, pre-existing `source_layer = sab_files.get(rel)`
-        exact-string-match limitation documented in Part F of the plan
-        (that lookup only succeeds when a dict-shaped implemented_in path
-        happens to equal the file's project-relative path — a dotted-only
-        entry can never satisfy it without a pkg_dir alias, which is out of
-        this fix's scope). Uses detect_sab_drift with a dict-shaped entry
-        whose implemented_in exactly matches the real file path, then
-        confirms adding a dotted-only sibling entry for the same violation
-        path doesn't change the outcome — i.e. layer_to_modules treats both
-        shapes identically once normalized."""
+        Fix 13 touches (the layer_to_modules construction). Uses
+        detect_sab_drift with a dict-shaped entry whose implemented_in
+        exactly matches the real file path, then confirms adding a
+        dotted-only sibling entry for the same violation path doesn't
+        change the outcome — i.e. layer_to_modules treats both shapes
+        identically once normalized. (Fix 15 additionally closes the
+        source_layer lookup gap this test's docstring used to describe as
+        out-of-scope — see test_check3_catches_violation_with_dotted_only_sab_entry
+        above for the now-fixed pure-dotted-only case.)"""
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir()
         pkg = tmp_path / "taskq"

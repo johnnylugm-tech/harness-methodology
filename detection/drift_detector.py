@@ -729,9 +729,27 @@ class DriftDetector:
                 continue
             if rel.startswith("archive/"):
                 continue
-            source_layer = sab_files.get(rel)
+            # 2026-07-15: `sab_files.get(rel)` used to look up the file's own
+            # layer by exact string match — but sab_files' keys are raw SAB
+            # declarations (dotted or path, with or without a src_dir prefix)
+            # while `rel` is always a project-relative filesystem path, so an
+            # exact match essentially never succeeded (dotted-only entries,
+            # or dict-shaped entries whose implemented_in carries a
+            # "03-development/src/" prefix, never matched — Check 3 was
+            # silently a no-op for realistic src-layout projects). Resolve
+            # the file's own dotted module path through the same
+            # normalize_sab_module_to_dotted() + _resolve_import_layer() pair
+            # already used for the *target* side of the import below — a
+            # file's own module path and the modules it imports are the same
+            # kind of thing (a project-relative Python location needing
+            # dotted normalization), so both sides should resolve identically.
+            dotted_rel = normalize_sab_module_to_dotted(rel)
+            source_layer = (
+                self._resolve_import_layer(dotted_rel, layer_to_modules)
+                if dotted_rel else None
+            )
             if source_layer is None:
-                continue  # already flagged in Check 2
+                continue  # not registered in any SAB layer — already flagged in Check 2
 
             allowed = set(allowed_deps.get(source_layer, []))
             try:
