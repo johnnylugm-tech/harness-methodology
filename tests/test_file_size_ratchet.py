@@ -128,7 +128,7 @@ _LINE_CEILING: dict[str, int] = {
     # Wraps the dispatch in a bounded (2-attempt) plain re-dispatch loop
     # (identical prompt, no failure classification — unlike GATE1's
     # CODE-FIX/LINT-FIX routing) plus the new _STEP_RETRY_ATTEMPTS constant.
-    "cli/fr_cmds.py": 2319,
+    "cli/fr_cmds.py": 2397,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
@@ -185,7 +185,7 @@ _LINE_CEILING: dict[str, int] = {
     # new cmd_check_manifest_integrity + its subparser registration, a thin
     # CLI wrapper around PhaseHooks.preflight_manifest_integrity() so
     # workflow JS stops reimplementing (and getting wrong) this check inline.
-    "cli/check_cmds.py": 1466,
+    "cli/check_cmds.py": 1486,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,
@@ -224,7 +224,7 @@ _LINE_CEILING: dict[str, int] = {
     # to the existing single-test-file rule — three prompt/template gaps
     # found by re-verifying the prior session's inference-only "5-layer"
     # analysis against the actual code.
-    "scripts/workflowgen/phase_specs.py": 2933,
+    "scripts/workflowgen/phase_specs.py": 2939,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

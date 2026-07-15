@@ -520,6 +520,22 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                         tool_snapshot=tool_snapshot,
                     )
                     fix_step_name = "TEST-FIX"
+                elif failure_class == "ISOLATION_LIKELY":
+                    # v2.13.0 (FR-05 P3 2026-07-16 lesson): the snapshot shows a
+                    # test_shape bug (stdlib-shadow AttributeError or subprocess
+                    # ModuleNotFoundError) but pytest's summary line still reports
+                    # `21 passed` — so the simple `tests_failed > 0` branch above
+                    # never triggers. Route to TEST-FIX anyway so the sub-agent
+                    # sees the stderr signal and can rewrite the failing test.
+                    print(f"[run-fr-step] {fr_id} ISOLATION_LIKELY failure "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching TEST-FIX (test_shape bug: "
+                          f"stdlib-shadow or subprocess env propagation)")
+                    fix_prompt = _build_fr_step_prompt(
+                        "TEST-FIX", fr_id, phase, project, srs_path,
+                        tool_snapshot=tool_snapshot,
+                    )
+                    fix_step_name = "TEST-FIX"
                 elif failure_class == "INFRA_SKIP":
                     print(f"[run-fr-step] {fr_id} INFRA_SKIP failure "
                           f"(round {fix_round}/{max_fix_rounds})"
@@ -1334,6 +1350,9 @@ def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) 
     Returns one of:
       "ENV"             — ModuleNotFoundError / ImportError (environment not set up)
       "ISOLATION"       — tests fail due to auth/HMAC short-circuit, not missing feature
+      "ISOLATION_LIKELY" — v2.13.0: subprocess / ModuleNotFoundError / stdlib-shadow
+                           AttributeError visible in stderr even though pytest summary
+                           reports tests passed (test_shape bug masquerading as coverage)
       "PATCH_OBJECT"    — AttributeError: obj has no attribute 'method' (stub missing)
       "LOW_COVERAGE"    — all tests pass but test_coverage dim failing (coverage < threshold)
       "MISSING_FEATURE" — AssertionError / genuine logic failure (CODE-FIX can help)
@@ -1345,11 +1364,35 @@ def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) 
     if "no module named" in s or "modulenotfounderror" in s or "importerror" in s:
         return "ENV"
     if "attributeerror" in s and "has no attribute" in s:
+        # Heuristic: `AttributeError: 'str' object has no attribute 'loads'`
+        # or `AttributeError: module 'X' has no attribute 'Y'` indicates the test
+        # shadows a stdlib module name with a string (v2.13.0 — FR-05 P3 lesson).
+        # These are TEST_WRITING bugs, not stub-missing bugs. Route to TEST-FIX
+        # via the ISOLATION_LIKELY class so the dispatch surfaces the issue even
+        # when pytest summary still says `21 passed`.
+        if ("'str' object has no attribute" in s
+                or "module 'json'" in s or "module 'os'" in s
+                or "module 'time'" in s or "module 'subprocess'" in s
+                or "module 'pathlib'" in s or "module 'asyncio'" in s
+                or "module 'logging'" in s or "module 'typing'" in s):
+            return "ISOLATION_LIKELY"
         return "PATCH_OBJECT"
     # Isolation: infrastructure intercepts before feature logic — all tests return 401/auth
     if ("status_code=401" in s or "source='auth'" in s
             or 'source="auth"' in s or "401 unauthorized" in s):
         return "ISOLATION"
+    # v2.13.0 ISOLATION_LIKELY: subprocess failure pattern (N-series tests with
+    # Generic foreign-project-name detector (v2.13.0 — FR-05 P3 lesson):
+    # a subprocess-launched child can't import its own package because
+    # pytest's `pythonpath = ...` setting does NOT propagate to child envs.
+    # Pytest summary may show `4 failed` or `21 passed` depending on whether
+    # the children were collected at all; the subprocess returncode!=0 / exit 1
+    # with `ModuleNotFoundError: No module named '<project_name>'` is the signal.
+    # We match a generic "No module named '<single-word-or-dotted>'" pattern
+    # + the keyword "subprocess" co-occurring in stderr.
+    if ("modulenotfounderror" in s and "subprocess" in s
+            and "no module named" in s):
+        return "ISOLATION_LIKELY"
     # Compute shared flags early — referenced by INFRA_SKIP, LINT, and LOW_COVERAGE checks.
     _test_cov_failing = (
         failing_dims is not None
@@ -1711,6 +1754,41 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"  directly above that test explaining what the GREEN agent must implement:\n"
             f"  # GREEN TODO: <ClassName> must have <method_name>(self, *args) -> <return_type>\n"
             f"  Do NOT add stubs to source files yourself — GREEN does that.\n\n"
+            f"[INTEGRATION FR GUIDELINES — applies when this FR exercises CLI / subprocess / cross-process state]\n"
+            f"(v2.13.0 — covers FR-05 P3 2026-07-16 lesson. Skip this block if your FR is\n"
+            f"purely a library function; read it if test_file ever calls `subprocess.run`,\n"
+            f"`cli.main(...)`, or exercises a stateful fixture like breaker/cache/store.)\n\n"
+            f"- When using `subprocess.run([sys.executable, \"-m\", \"<your_package>\", ...])`:\n"
+            f"  * Always propagate PYTHONPATH to the child env (pytest's `pythonpath = ...`\n"
+            f"    in setup.cfg does NOT propagate to child processes):\n"
+            f"        env = os.environ.copy()\n"
+            f"        env[\"<PROJECT_HOME_VAR>\"] = str(child_home)\n"
+            f"        src_root = Path(__file__).resolve().parent.parent / 'src'\n"
+            f"        env['PYTHONPATH'] = str(src_root) + os.pathsep + env.get('PYTHONPATH','')\n"
+            f"  * Decide in-process vs out-of-process explicitly; add a comment naming the choice.\n"
+            f"- When one test function exercises multiple scenarios (e.g. exit code 0/1/2/3/4):\n"
+            f"  * Split into N separate test functions, one per scenario. The TEST_SPEC may\n"
+            f"    list N scenarios as ONE Inputs row when the prose AC enumerates them; you\n"
+            f"    MUST translate that into N test_frNN_MM_* functions, each testing one\n"
+            f"    scenario in isolation.\n"
+            f"  * Use function-scoped fixtures (not module-scoped) so per-case state cannot\n"
+            f"    leak (e.g. breaker.json OPEN from case 3 must not affect case 5).\n"
+            f"  * NEVER rely on `monkeypatch` ordering to override earlier state mutations.\n"
+            f"- Sub-assertion local-variable names must NOT shadow stdlib modules:\n"
+            f"  FORBIDDEN as a local name in your test: json, os, sys, time, subprocess,\n"
+            f"  pathlib, asyncio, typing, logging, path, file, id, type, dict, list, set,\n"
+            f"  tuple, str, int, bool, bytes. If a TEST_SPEC sub-assertion predicate uses\n"
+            f"  one of these (e.g. `json == \"true\"`), RENAME your local (e.g. `json_flag`)\n"
+            f"  but preserve the rule_id comment intact. The check-test-spec-consistency\n"
+            f"  gate would have rejected the spec already; if you see a collision here,\n"
+            f"  use a domain-specific synonym.\n"
+            f"- When TEST_SPEC Inputs + SRS.md prose AC seem inconsistent (e.g. AC says\n"
+            f"  \"5 of which 3 done\" but Inputs lists 5 identical commands), DO NOT invent\n"
+            f"  impossible assertions. Add `# SPEC_AMBIGUITY: <one-line>` comment in the\n"
+            f"  test, prefer the prose AC's scenario, and write the test to construct it\n"
+            f"  mechanically (e.g. mix success+failure commands to produce the desired\n"
+            f"  distribution). If you truly cannot construct the scenario, write the test\n"
+            f"  against the SIMPLER invariant (>= 1 instead of == 3) and note the deviation.\n\n"
             f"[FR REQUIREMENTS]\n"
             f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
             f"[TASK]\n"

@@ -320,6 +320,26 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
               + (f" [{fr_filter}]" if fr_filter else "") + ".")
         return 0
 
+    # v2.13.0 (covers FR-05 P3 2026-07-16 lesson): sub-assertion predicate
+    # LHS identifier must not shadow a Python stdlib top-level module/builtin.
+    # The TDD-RED agent that mirrors a predicate as `json = "true"` shadows
+    # `import json` and crashes `json.loads(...)` with AttributeError.
+    from core.quality_gate.spec_assertion_naming import (
+        scan_stdlib_name_collisions,
+    )
+    naming_violations = list(scan_stdlib_name_collisions(parsed))
+    if naming_violations:
+        total_naming = len(naming_violations)
+        print(f"\n[FAIL] TEST_SPEC.md has {total_naming} sub-assertion naming "
+              "collision(s) (v2.13.0 — stdlib shadow risk):")
+        for fr_id, rule_id, predicate, suggested in naming_violations:
+            print(f"  • {fr_id} sub-assertion {rule_id!r}: predicate {predicate!r} "
+                  f"shadows stdlib; rename LHS to {suggested!r}")
+        print("\n[BLOCKED] Fix the predicate(s) above in TEST_SPEC.md before P3 "
+              "TDD-RED can run safely (the GREEN step would silently produce "
+              "AttributeError when the test file imports the shadowed module).")
+        return 1
+
     total_err = total_review = 0
     for fr_id, (cases, assertions) in sorted(parsed.items()):
         for v in check_test_spec_consistency(cases, assertions):
