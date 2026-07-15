@@ -68,8 +68,8 @@ validator needs the marker.
 ### test_coverage (Tier 1)
 ```bash
 # python — C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
-coverage run -m pytest && coverage report --format=json \
-  || PYTHONPATH=. coverage run -m pytest && coverage report --format=json \
+coverage run -m pytest && coverage json -o - \
+  || PYTHONPATH=. coverage run -m pytest && coverage json -o - \
   || PYTHONPATH=. python3 -m pytest --cov=. --cov-report=term-missing
 
 # javascript / typescript (vitest):

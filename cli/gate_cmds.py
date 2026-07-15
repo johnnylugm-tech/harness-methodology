@@ -762,9 +762,9 @@ def _print_fr_scoped_overrides_py(
         include_flag = ",".join(src_files)
         cov_cmd = (
             f"  coverage run -m pytest {test_file} "
-            f"&& coverage report --include=\"{include_flag}\" --format=json \\\n"
+            f"&& coverage json --include=\"{include_flag}\" -o - \\\n"
             f"    || PYTHONPATH=. coverage run -m pytest {test_file} "
-            f"&& coverage report --include=\"{include_flag}\" --format=json \\\n"
+            f"&& coverage json --include=\"{include_flag}\" -o - \\\n"
             f"    || PYTHONPATH=. python3 -m pytest {test_file} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
@@ -773,9 +773,9 @@ def _print_fr_scoped_overrides_py(
         # Fallback: test file absent or no imports matched — use full src dir
         cov_cmd = (
             f"  coverage run --source={src_dir} -m pytest {test_file} "
-            f"&& coverage report --format=json \\\n"
+            f"&& coverage json -o - \\\n"
             f"    || PYTHONPATH=. coverage run --source={src_dir} -m pytest {test_file} "
-            f"&& coverage report --format=json \\\n"
+            f"&& coverage json -o - \\\n"
             f"    || PYTHONPATH=. python3 -m pytest {test_file} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
