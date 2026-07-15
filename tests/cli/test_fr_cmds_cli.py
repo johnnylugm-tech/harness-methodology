@@ -322,6 +322,178 @@ class TestRunFrStep:
         assert dispatched.get("fr_id") == "FR-01"
         assert dispatched.get("phase_sop_override") == ""
 
+    # ── Fix H-H (P3 2026-07-15 round 4): bounded plain retry for non-GATE1
+    # commit-required steps' first dispatch — production evidence (sessions_
+    # spawn.log) showed TDD-RED/GREEN/IMPROVE/MIRROR/amend-sab/ORCH-POST had
+    # ZERO retry on any dispatch ERROR, unlike GATE1's own fix-round loop,
+    # permanently killing an FR's progress for the whole run on a single
+    # transient failure. ──────────────────────────────────────────────────
+
+    def test_step_retries_transient_execution_error_then_succeeds(self, tmp_path, monkeypatch):
+        """TDD-RED: attempt 1 returns a plain (non-structural, non-
+        REGRESSION_GUARD) ERROR — e.g. Fix H-A's empty-commit catch — attempt
+        2 (identical prompt) succeeds. run-fr-step must proceed normally
+        instead of giving up after the first failure."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+        # Fresh tmp_path git repo has no commit matching "test(RED): failing
+        # test for FR-01" → _fr_step_already_done naturally returns False
+        # (same real-public-behavior trick used elsewhere in this file, see
+        # test_resume_fr_phase_prints_resolved_project_not_dot above).
+
+        calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                calls.append(kwargs)
+                if len(calls) == 1:
+                    return {
+                        "status": "ERROR",
+                        "output": "Commit-required step 'TDD-RED' returned"
+                                  " empty commit (status='<unset>')",
+                        "error_class": "EXECUTION_ERROR",
+                    }
+                return {"status": "complete", "output": '{"status": "DONE", "commit": "abc123"}'}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        # Downstream of the retry (dirty-tree guard + git push) calls real
+        # subprocess.run — stub it to always report a clean/successful git
+        # state so this test isolates the retry loop itself, matching the
+        # established pattern in test_dispatch_called_when_not_done above.
+        import subprocess as _sp
+        class _FakeResult:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        monkeypatch.setattr(_sp, "run", lambda cmd, **kw: _FakeResult())
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=2,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert len(calls) == 2
+        assert rc == 0
+
+    def test_step_gives_up_after_exhausting_retries(self, tmp_path, monkeypatch):
+        """Both attempts return the same plain ERROR → run-fr-step returns 1
+        after exactly _STEP_RETRY_ATTEMPTS (2) tries — bounded, not an
+        unbounded retry loop (that was the 2026-07-12 5.4h stall bug class)."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
+        calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                calls.append(kwargs)
+                return {
+                    "status": "ERROR",
+                    "output": "Commit-required step 'TDD-RED' returned"
+                              " empty commit (status='<unset>')",
+                    "error_class": "EXECUTION_ERROR",
+                }
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=2,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert len(calls) == 2
+        assert rc == 1
+
+    def test_step_does_not_retry_regression_guard(self, tmp_path, monkeypatch):
+        """REGRESSION_GUARD is a hard reject and must NOT be retried, even on
+        a step that is otherwise eligible for the H-H bounded retry."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
+        calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                calls.append(kwargs)
+                return {
+                    "status": "REGRESSION_GUARD",
+                    "output": "suspicious destructive edit",
+                    "regression_flags": {"src/foo.py": ["lines_removed>50"]},
+                }
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=2,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert len(calls) == 1
+        assert rc == 1
+
+    def test_step_does_not_retry_exhausted_structural_signature(self, tmp_path, monkeypatch):
+        """A connector-disabled (STRUCTURAL) failure must NOT be retried at
+        this layer — Fix H-G already retried it 3x at the transport layer
+        inside AgentSpawner.spawn(); retrying again here would only delay
+        the (correct) structural abort, not change the outcome."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
+        _connector_disabled_output = (
+            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
+            "or another auth source is set and takes precedence over your "
+            "claude.ai login · Unset it to load your organization's connectors"
+        )
+        calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                calls.append(kwargs)
+                return {
+                    "status": "ERROR",
+                    "output": _connector_disabled_output,
+                    "error_class": "STRUCTURAL",
+                }
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=2,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert len(calls) == 1
+        assert rc == DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
+
     def test_extract_srs_fr_section_returns_correct_fr(self, tmp_path):
         """_extract_srs_fr_section returns only the target FR's content."""
         srs = tmp_path / "SRS.md"

@@ -304,21 +304,44 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     except Exception:
         _pre_step_sha = ""
 
-    result = spawner.spawn(
-        role="developer",
-        prompt=prompt,
-        context={"phase": phase, "fr_id": fr_id, "step": step},
-        phase=phase,
-        fr_id=fr_id,
-        phase_sop_override="",
-        task_timeout=_fr_timeout,
-        max_turns=_max_turns(step),
-        mcp_config=phase_ctx["mcp_config"],
-        setting_sources=phase_ctx["setting_sources"],
-        permission_mode=_pmode,
-    )
+    # Fix H-H (P3 2026-07-15 round 4): TDD-RED/GREEN/IMPROVE/MIRROR/amend-sab/
+    # ORCH-POST (_COMMIT_REQUIRED_STEPS minus GATE1/GATE1-DELTA) previously had
+    # zero retry on this first dispatch — see _STEP_RETRY_ATTEMPTS docstring.
+    # Bounded plain re-dispatch (identical prompt, no failure classification)
+    # before falling through to the unchanged error-handling block below.
+    # REGRESSION_GUARD (hard reject) and an already-exhausted STRUCTURAL
+    # signature (Fix H-G already retried that 3x at the transport layer) are
+    # never retried here — both fall straight through on attempt 1.
+    result: dict = {}
+    _status: str | None = None
+    for _step_attempt in range(1, _STEP_RETRY_ATTEMPTS + 1):
+        result = spawner.spawn(
+            role="developer",
+            prompt=prompt,
+            context={"phase": phase, "fr_id": fr_id, "step": step},
+            phase=phase,
+            fr_id=fr_id,
+            phase_sop_override="",
+            task_timeout=_fr_timeout,
+            max_turns=_max_turns(step),
+            mcp_config=phase_ctx["mcp_config"],
+            setting_sources=phase_ctx["setting_sources"],
+            permission_mode=_pmode,
+        )
+        _status = result.get("status")
+        _step_retryable = (
+            step in _COMMIT_REQUIRED_STEPS
+            and step not in ("GATE1", "GATE1-DELTA")
+            and _status in _DISPATCH_ERROR_STATUSES
+            and _status != "REGRESSION_GUARD"
+            and not _is_connector_disabled_failure(result.get("output", ""))
+        )
+        if not _step_retryable or _step_attempt == _STEP_RETRY_ATTEMPTS:
+            break
+        print(f"[run-fr-step] {fr_id} {step}: sub-agent {_status} "
+              f"(attempt {_step_attempt}/{_STEP_RETRY_ATTEMPTS}) — "
+              f"retrying with identical prompt")
 
-    _status = result.get("status")
     if _status in _DISPATCH_ERROR_STATUSES:
         # GATE1/GATE1-DELTA: ERROR or TIMEOUT means sub-agent exhausted
         # turns before writing gate1_result.json. Treat as GATE1 FAIL so
@@ -952,6 +975,19 @@ _DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({
 # Distinct from BLOCKED (2) / commit-dirty (6) / GHOST_DETECTED (22): means
 # "do not retry — the environment itself is broken."
 DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE = 23
+
+# Fix H-H (P3 2026-07-15 round 4): the first dispatch for TDD-RED/TDD-GREEN/
+# TDD-IMPROVE/MIRROR/amend-sab/ORCH-POST (_COMMIT_REQUIRED_STEPS minus
+# GATE1/GATE1-DELTA, which already get the richer fix-round retry loop below)
+# had ZERO retry on any dispatch ERROR — a single transient failure (or a
+# Fix H-A no-op catch) permanently killed that FR's progress for the whole
+# run. Production sessions_spawn.log evidence (see Fix H-G) shows these
+# failures are frequently transient. This is a PLAIN re-dispatch of the
+# identical step prompt (no failure classification / specialized fixer —
+# unlike GATE1's CODE-FIX/LINT-FIX/COVERAGE-FIX routing, which depends on
+# tool_snapshot/failing_dims signals these steps never produce) — 2 total
+# attempts, i.e. 1 retry.
+_STEP_RETRY_ATTEMPTS = 2
 
 
 def _is_connector_disabled_failure(output: str) -> bool:

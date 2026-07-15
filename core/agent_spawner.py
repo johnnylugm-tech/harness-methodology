@@ -60,6 +60,18 @@ _STRUCTURAL_FAILURE_SIGNATURES = (
     "claude.ai connectors are disabled",
 )
 
+# Fix H-G (P3 2026-07-15 round 4): production sessions_spawn.log evidence
+# (362 dispatches, 7 STRUCTURAL occurrences) shows the "every retry fails
+# identically" premise above is only true ~20% of the time — 4/5 traceable
+# same-FR next-dispatches succeeded within the same run/env. The signature
+# detection itself stays correct; only the zero-retry reaction was wrong.
+# Bounded (not unbounded — that was the 2026-07-12 5.4h stall bug) retry
+# absorbs the transient case while still aborting via
+# _abort_dispatch_structurally_broken() if the signature survives every
+# attempt (identical behavior to today when the env is genuinely dead).
+_STRUCTURAL_RETRY_ATTEMPTS = 3  # total attempts, i.e. up to 2 retries
+_STRUCTURAL_RETRY_BACKOFF_SECONDS = 5
+
 
 # Inner-JSON semantic no-op signatures (P3 2026-07-15 FR-03 TDD-RED):
 # A sub-agent may exit 0 yet return JSON whose `status` field indicates
@@ -300,35 +312,53 @@ class AgentSpawner:
         # spawn actually took". Previously reconstruction required
         # timestamp-diffing consecutive records — fragile when timestamps
         # coincidentally overlap (multi-process parallel writers).
-        _spawn_started_at = time.monotonic()
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=task_timeout,
-                cwd=str(self.project_path.resolve()) if self.project_path else None,
-                env=_child_env(),
-            )
-        except subprocess.TimeoutExpired:
+        #
+        # Fix H-G (P3 2026-07-15 round 4): subprocess.run is wrapped in a
+        # bounded retry loop for the STRUCTURAL failure class only (see
+        # _STRUCTURAL_RETRY_ATTEMPTS docstring above) — production evidence
+        # showed this transient signature self-resolves on retry within the
+        # same run/env most of the time. Every attempt is logged
+        # individually (dispatch_attempt) so sessions_spawn.log keeps its
+        # "one line per subprocess.run" observability granularity. Any
+        # other error class, or a REGRESSION_GUARD upgrade, breaks
+        # immediately without retrying — unchanged from pre-H-G behavior.
+        error_result: dict[str, Any] | None = None
+        proc: subprocess.CompletedProcess[str] | None = None
+        _spawn_duration: float = 0.0
+        _attempt: int = 1
+        for _attempt in range(1, _STRUCTURAL_RETRY_ATTEMPTS + 1):
+            _spawn_started_at = time.monotonic()
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=task_timeout,
+                    cwd=str(self.project_path.resolve()) if self.project_path else None,
+                    env=_child_env(),
+                )
+            except subprocess.TimeoutExpired:
+                _spawn_duration = time.monotonic() - _spawn_started_at
+                timeout_result: dict[str, Any] = {
+                    "output": f"Agent timed out after {task_timeout}s",
+                    "status": "TIMEOUT",
+                }
+                post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
+                regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
+                self._log_dispatch(
+                    role, prompt, timeout_result, phase, fr_id,
+                    regression_flags=regression_flags,
+                    duration_seconds=round(_spawn_duration, 3),
+                    retry_round=retry_round,
+                    dispatch_attempt=_attempt,
+                )
+                if regression_flags:
+                    timeout_result = {**timeout_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
+                return timeout_result
             _spawn_duration = time.monotonic() - _spawn_started_at
-            timeout_result: dict[str, Any] = {
-                "output": f"Agent timed out after {task_timeout}s",
-                "status": "TIMEOUT",
-            }
-            post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
-            regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
-            self._log_dispatch(
-                role, prompt, timeout_result, phase, fr_id,
-                regression_flags=regression_flags,
-                duration_seconds=round(_spawn_duration, 3),
-                retry_round=retry_round,
-            )
-            if regression_flags:
-                timeout_result = {**timeout_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
-            return timeout_result
-        _spawn_duration = time.monotonic() - _spawn_started_at
-        if proc.returncode != 0:
+            if proc.returncode == 0:
+                error_result = None
+                break
             _err_output = proc.stderr or proc.stdout
             error_result = {
                 "output": _err_output,
@@ -343,10 +373,18 @@ class AgentSpawner:
                 regression_flags=regression_flags,
                 duration_seconds=round(_spawn_duration, 3),
                 retry_round=retry_round,
+                dispatch_attempt=_attempt,
             )
             if regression_flags:
                 error_result = {**error_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
+                break  # hard reject — not a transient signature, never retry
+            if (error_result["error_class"] != "STRUCTURAL"
+                    or _attempt == _STRUCTURAL_RETRY_ATTEMPTS):
+                break
+            time.sleep(_STRUCTURAL_RETRY_BACKOFF_SECONDS)
+        if error_result is not None:
             return error_result
+        assert proc is not None  # loop always runs >=1 time; error_result is None only after a successful proc
         try:
             data = json.loads(proc.stdout)
             # Inner-JSON semantic validator (P3 2026-07-15 FR-03 FR-03 TDD-RED):
@@ -366,6 +404,7 @@ class AgentSpawner:
                     regression_flags=regression_flags,
                     duration_seconds=round(_spawn_duration, 3),
                     retry_round=retry_round,
+                    dispatch_attempt=_attempt,
                 )
                 return _inner_err
             result = {
@@ -401,6 +440,7 @@ class AgentSpawner:
             regression_flags=regression_flags,
             duration_seconds=round(_spawn_duration, 3),
             retry_round=retry_round,
+            dispatch_attempt=_attempt,
         )
         return parsed
 
@@ -408,7 +448,8 @@ class AgentSpawner:
                       phase: int, fr_id: str | None,
                       regression_flags: dict | None = None,
                       duration_seconds: float | None = None,
-                      retry_round: int | None = None) -> None:
+                      retry_round: int | None = None,
+                      dispatch_attempt: int | None = None) -> None:
         """Auto-record agent dispatch to .methodology/sessions_spawn.log as a
         non-blocking debug trail. (The HR-10 entry-count audit that consumed this
         log was removed — it was agent-writable / not tamper-evident. This stays as
@@ -444,6 +485,12 @@ class AgentSpawner:
                 _extra["duration_seconds"] = round(duration_seconds, 3)
             if retry_round is not None:
                 _extra["retry_round"] = retry_round
+            # Fix H-G (2026-07-15 round 4): which subprocess.run attempt
+            # (1-based) produced this entry, within the bounded STRUCTURAL
+            # retry loop in spawn(). Distinct from retry_round (fix-loop
+            # iteration, a different concept) — unset outside that loop.
+            if dispatch_attempt is not None:
+                _extra["dispatch_attempt"] = dispatch_attempt
             logger.log_spawn(
                 role=role, task=task[:200], session_id=session_id,
                 status=result.get("status", "SPAWNED"),

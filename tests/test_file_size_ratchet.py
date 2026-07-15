@@ -119,7 +119,16 @@ _LINE_CEILING: dict[str, int] = {
     # (the single caller that knows its current round) now passes
     # `retry_round=fix_round` to spawner.spawn() so sessions_spawn.log
     # entries identify which fix iteration produced them.
-    "cli/fr_cmds.py": 2283,
+    # 2026-07-15: +36 lines — Fix H-H (P3 2026-07-15 round 4): the first
+    # dispatch for TDD-RED/GREEN/IMPROVE/MIRROR/amend-sab/ORCH-POST (all
+    # _COMMIT_REQUIRED_STEPS except GATE1/GATE1-DELTA, which already had
+    # their own fix-round retry loop) previously had zero retry on any
+    # dispatch ERROR — production sessions_spawn.log evidence showed this
+    # permanently killed an FR's progress on a single transient failure.
+    # Wraps the dispatch in a bounded (2-attempt) plain re-dispatch loop
+    # (identical prompt, no failure classification — unlike GATE1's
+    # CODE-FIX/LINT-FIX routing) plus the new _STEP_RETRY_ATTEMPTS constant.
+    "cli/fr_cmds.py": 2319,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`

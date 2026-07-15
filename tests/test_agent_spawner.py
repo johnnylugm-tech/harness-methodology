@@ -1049,3 +1049,137 @@ class TestCalculateLogicalRemoval:
         assert "retry_round" not in spawn_entry
         # duration_seconds is always populated (we always measure) — but only
         # the explicitly-optional retry_round is what we omit-by-default here.
+
+
+class TestStructuralRetry:
+    """Fix H-G (P3 2026-07-15 round 4): bounded retry for STRUCTURAL
+    failures inside spawn() itself. Production sessions_spawn.log evidence
+    (362 dispatches, 7 STRUCTURAL occurrences, 4/5 traceable same-FR next-
+    dispatches succeeding) showed the pre-H-G "detect once, abort forever"
+    reaction was based on a false premise — the signature is transient most
+    of the time within the same run/env."""
+
+    def _make_proc(self, returncode=0, stdout="", stderr=""):
+        p = MagicMock()
+        p.returncode = returncode
+        p.stdout = stdout
+        p.stderr = stderr
+        return p
+
+    _STRUCTURAL_STDERR = (
+        "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
+        "or another auth source is set and takes precedence over your "
+        "claude.ai login · Unset it to load your organization's connectors\n"
+    )
+
+    def test_spawn_retries_structural_failure_and_recovers(self, tmp_path):
+        """2 STRUCTURAL failures followed by a success must still return
+        complete — matches the FR-02 GATE1 production case (2026-07-15
+        09:47-09:49) where the very next dispatch succeeded 87s later."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        claude_calls = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git":
+                return MagicMock(returncode=0, stdout="")
+            claude_calls[0] += 1
+            if claude_calls[0] < 3:
+                return self._make_proc(returncode=1, stderr=self._STRUCTURAL_STDERR)
+            return self._make_proc(returncode=0, stdout=json.dumps({
+                "result": "done", "session_id": "x",
+                "status": "complete", "commit": "abc123",
+            }))
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                with patch("core.agent_spawner.time.sleep"):
+                    result = spawner.spawn(
+                        role="developer", prompt="Task",
+                        context={"step": "TDD-RED"}, model="claude", fr_id="FR-03",
+                    )
+        assert result["status"] == "complete"
+        assert claude_calls[0] == 3
+
+    def test_spawn_exhausts_structural_retries_and_reports_error(self, tmp_path):
+        """All attempts STRUCTURAL → spawn() still returns ERROR/STRUCTURAL
+        after exactly _STRUCTURAL_RETRY_ATTEMPTS tries — the 2026-07-12
+        5.4h-stall protection (abort on a genuinely dead env) is preserved,
+        just with a higher (bounded) confirmation threshold than before."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        claude_calls = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git":
+                return MagicMock(returncode=0, stdout="")
+            claude_calls[0] += 1
+            return self._make_proc(returncode=1, stderr=self._STRUCTURAL_STDERR)
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                with patch("core.agent_spawner.time.sleep"):
+                    result = spawner.spawn(
+                        role="developer", prompt="Task",
+                        context={"step": "TDD-RED"}, model="claude", fr_id="FR-05",
+                    )
+        assert result["status"] == "ERROR"
+        assert result["error_class"] == "STRUCTURAL"
+        assert claude_calls[0] == 3
+
+    def test_spawn_does_not_retry_non_structural_error(self, tmp_path):
+        """A plain (non-STRUCTURAL) dispatch error must NOT be retried at
+        the transport layer — that class of failure is Fix H-H's job at the
+        step-dispatch layer in fr_cmds.py, not AgentSpawner.spawn()'s."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        claude_calls = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git":
+                return MagicMock(returncode=0, stdout="")
+            claude_calls[0] += 1
+            return self._make_proc(returncode=1, stderr="some unrelated tool crash")
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"step": "TDD-RED"}, model="claude", fr_id="FR-01",
+                )
+        assert result["status"] == "ERROR"
+        assert result["error_class"] != "STRUCTURAL"
+        assert claude_calls[0] == 1
+
+    def test_spawn_logs_dispatch_attempt_per_retry(self, tmp_path):
+        """Each attempt in the retry loop writes its own sessions_spawn.log
+        entry (dispatch_attempt=1, 2, 3, ...) so operators can see the retry
+        sequence instead of one entry silently overwriting the timeline."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        claude_calls = [0]
+
+        def side_effect(cmd, **kw):
+            if cmd[0] == "git":
+                return MagicMock(returncode=0, stdout="")
+            claude_calls[0] += 1
+            if claude_calls[0] < 2:
+                return self._make_proc(returncode=1, stderr=self._STRUCTURAL_STDERR)
+            return self._make_proc(returncode=0, stdout=json.dumps({
+                "result": "done", "session_id": "x",
+                "status": "complete", "commit": "abc123",
+            }))
+
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+                with patch("core.agent_spawner.time.sleep"):
+                    spawner.spawn(
+                        role="developer", prompt="Task",
+                        context={"step": "TDD-RED"}, model="claude", fr_id="FR-03",
+                    )
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        # attempt 1 (STRUCTURAL failure) + attempt 2 (success) each get their
+        # own log line, tagged with which attempt produced them.
+        assert [e.get("dispatch_attempt") for e in entries] == [1, 2]
+        assert entries[0]["status"] == "ERROR"
+        assert entries[1]["status"] == "complete"
