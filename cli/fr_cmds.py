@@ -17,7 +17,10 @@ import sys
 from pathlib import Path
 
 from cli import gate_cmds
-from core.agent_spawner import is_structurally_broken
+from core.agent_spawner import (
+    _COMMIT_REQUIRED_STEPS,
+    is_structurally_broken,
+)
 from core.canonical_form import fr_num_str
 from core.harness_config import get_timeout, get_value
 from core.pre_flight import check_cli_tools
@@ -732,8 +735,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     if step in ("GATE1", "GATE1-DELTA") and not _fr_step_already_done(step, fr_id, project, phase=phase):
         gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
 
-    # 5. Verify commit exists (non-fatal warning for TDD-IMPROVE / CODE-FIX)
-    if step not in ("TDD-IMPROVE", "CODE-FIX") and not _fr_step_already_done(step, fr_id, project, phase=phase):
+    # 5. Verify commit exists (non-fatal warning — defense-in-depth below
+    # AgentSpawner._validate_inner_json which already ERRORs no-op results).
+    # Uses the commit-required SSOT so this list stays in sync with the
+    # validator and the dirty-tree guard below.
+    if step in _COMMIT_REQUIRED_STEPS and not _fr_step_already_done(step, fr_id, project, phase=phase):
         print(f"[run-fr-step] {fr_id} {step}: WARNING — expected commit not found in git log")
 
 
@@ -743,8 +749,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # (cascade bug — e.g. FR-02 GREEN blocked → orphan executor.py/store.py
     # staged into FR-03 RED commit). Only check steps that are expected to
     # produce a commit (skip CODE-FIX/COVERAGE-FIX which fix code for the
-    # next GATE1 round to commit).
-    if step in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA"):
+    # next GATE1 round to commit). Same SSOT as line 739.
+    if step in _COMMIT_REQUIRED_STEPS:
         dirty = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True, text=True, cwd=str(project),
