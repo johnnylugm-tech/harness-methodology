@@ -395,13 +395,29 @@ for (const frId of frIds) {
     // GateBlockedError (e.g. spec-coverage short, or a dimension below threshold), which
     // silently advances a FR that the harness actually blocked. Verify against the
     // harness's own record so a blocked gate is never counted as passed.
-    const verifyCmd = PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate1\',{}).get(\'' + frId + '\',{}) or {}; print(\'GATE1_VERIFIED_PASS\' if g.get(\'quality_complete\') is True else \'GATE1_VERIFIED_FAIL score=\'+str(g.get(\'score\')))"'
-    const verdict = await agent(
-      'Run EXACTLY this command via the Bash tool:\n`' + verifyCmd + '`\n'
-      + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is GATE1_VERIFIED_PASS; reason = the verbatim stdout.',
-      { label: 'gate1-verify-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
-    )
-    const passed = !!(verdict && verdict.pass === true)
+    // v2.13.2 (FR-05 P3 2026-07-16 lesson): the previous design routed the
+    // deterministic Python one-liner through a sub-agent that could itself
+    // hallucinate pass:false (wf_53d055ce-d0b verify agent reported
+    // `pass:false, reason=GATE1_VERIFIED_FAIL score=91.81` despite manifest
+    // FR-05.quality_complete=true). The Python script is deterministic;
+    // spawnSync the workflow itself — no LLM in the verify loop. Keeps the
+    // AUTHORITATIVE manifest read (the WHOLE point of this step) without
+    // the LLM-recursion risk that broke wf_53d055ce-d0b.
+    const verifyResult = spawnSync(PY, [
+      '-c',
+      'import json,sys\n'
+      + 'p=' + JSON.stringify(REPO + '/.methodology/quality_manifest.json') + '\n'
+      + 'g=(json.load(open(p)).get("gate_results",{}) or {}).get("gate1",{}) or {}\n'
+      + 'fr=g.get(' + JSON.stringify(frId) + ',{}) or {}\n'
+      + 'qc=fr.get("quality_complete") is True\n'
+      + 'sc=fr.get("score")\n'
+      + 'print("GATE1_VERIFIED_PASS" if qc else "GATE1_VERIFIED_FAIL score=" + str(sc))\n'
+      + 'sys.exit(0 if qc else 1)\n',
+    ], { encoding: 'utf-8', timeout: 30 })
+    const verifyOut = String(verifyResult.stdout || '').trim()
+    const verifyErr = String(verifyResult.stderr || '').trim()
+    const passed = verifyResult.status === 0 && verifyOut.startsWith('GATE1_VERIFIED_PASS')
+    if (verifyErr) { log('  ' + frId + ' verify stderr: ' + verifyErr.slice(0, 200)) }
     if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }
     else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
   }

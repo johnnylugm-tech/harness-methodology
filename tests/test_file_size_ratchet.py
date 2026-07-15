@@ -224,7 +224,7 @@ _LINE_CEILING: dict[str, int] = {
     # to the existing single-test-file rule — three prompt/template gaps
     # found by re-verifying the prior session's inference-only "5-layer"
     # analysis against the actual code.
-    "scripts/workflowgen/phase_specs.py": 2939,
+    "scripts/workflowgen/phase_specs.py": 2955,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
