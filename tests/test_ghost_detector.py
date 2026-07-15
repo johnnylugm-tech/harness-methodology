@@ -177,14 +177,47 @@ class TestDetectGhostChanges:
         assert result["total_added"] > 0
 
     def test_tdd_red_skip(self, tmp_path: Path) -> None:
-        """TDD-RED step is skipped by ghost detection (test-only step)."""
+        """TDD-RED with HEAD unchanged (no commit at all) → ghost (P3 2026-07-15 FR-03 case).
+
+        Previously TDD-RED was unconditionally skipped (the 'RED only adds
+        test files' assumption). When a sub-agent finishes TDD-RED with
+        empty commit + no test file (P3 2026-07-15 FR-03 actually observed),
+        a per-FR slot is silently wasted. TDD-RED now lives in
+        _CODE_PRODUCING_STEPS so zero-commit runs trip the no-commit
+        ghost detector; tests below cover the substantive-test-file and
+        non-code-only-diffs cases.
+        """
         _init_git_repo(tmp_path)
         pre_sha = _capture_head(tmp_path)
-        # TDD-RED returns not-ghost regardless of changes.
+        # No commit at all → HEAD didn't move → ghost (was: skipped).
         result = detect_ghost_changes(
             tmp_path, pre_sha, "TDD-RED", "FR-01", "wrote test",
         )
+        assert result["ghost_detected"] is True
+        assert "HEAD did not move" in result["reason"]
+
+    def test_tdd_red_with_new_test_file_not_ghost(self, tmp_path: Path) -> None:
+        """TDD-RED with new per-FR test file in diff → not ghost (positive control)."""
+        _init_git_repo(tmp_path)
+        (tmp_path / "tests").mkdir()
+        pre_sha = _capture_head(tmp_path)
+        _commit_file(tmp_path, "tests/test_fr03.py", (
+            "def test_fr03_submit():\n    assert True\n"
+        ))
+        result = detect_ghost_changes(
+            tmp_path, pre_sha, "TDD-RED", "FR-03", "wrote per-FR test",
+        )
         assert result["ghost_detected"] is False
+
+    def test_tdd_red_with_only_docs_change_ghost(self, tmp_path: Path) -> None:
+        """TDD-RED whose only diff is non-code files → ghost (caught by code_files empty)."""
+        _init_git_repo(tmp_path)
+        pre_sha = _capture_head(tmp_path)
+        _commit_file(tmp_path, "NOTES.md", "fr-03 notes\n")
+        result = detect_ghost_changes(
+            tmp_path, pre_sha, "TDD-RED", "FR-03", "just doc updates",
+        )
+        assert result["ghost_detected"] is True
 
     def test_tdd_green_source_required(self, tmp_path: Path) -> None:
         """TDD-GREEN with only test file changes → ghost (needs source changes)."""

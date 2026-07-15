@@ -25,11 +25,21 @@ GHOST_DETECTED_EXIT_CODE = 22
 # Directory under .sessi-work/ for ghost paper-trail records.
 GHOST_PAPER_TRAIL_DIR = ".sessi-work/ghost_detected"
 
-# Steps that are expected to produce source code changes. Steps not in this set
-# (TDD-RED, GATE1, GATE1-DELTA) are skipped by ghost detection — RED only adds
-# test files, GATE1 writes manifest/gate results.
+# Steps that are expected to produce source-code changes. Steps not in this
+# set (GATE1, GATE1-DELTA) are skipped by ghost detection — they write
+# manifest/gate results, not source.
+#
+# 2026-07-15 (Fix H-D, P3 FR-03 follow-up): TDD-RED is added here too.
+# Previously TDD-RED was unconditionally skipped on the assumption that
+# "RED only adds test files". The actual P3 2026-07-15 FR-03 case showed
+# a sub-agent can complete TDD-RED with empty commit + no test file
+# (the no-op escaped at the validator layer; agent_spawner catches it now).
+# Putting TDD-RED in this set means: zero-commit TDD-RED is ghost-detected
+# (line 101-113) AND a TDD-RED whose diff has only non-code files is
+# ghost-detected (line 131-147). The standard substantive-change check at
+# the bottom passes TDD-RED whose only diff is a new substantive test file.
 _CODE_PRODUCING_STEPS = frozenset({
-    "TDD-GREEN", "TDD-IMPROVE",
+    "TDD-RED", "TDD-GREEN", "TDD-IMPROVE",
     "CODE-FIX", "COVERAGE-FIX", "LINT-FIX", "TEST-FIX", "INFRA-FIX",
 })
 
@@ -80,8 +90,10 @@ def detect_ghost_changes(
             "actual_summary": "unknown (no pre-step SHA)",
         }
 
-    # ── Step-aware skip: steps that are not expected to produce source changes ──
-    if step_upper in ("TDD-RED", "GATE1", "GATE1-DELTA"):
+    # ── Step-aware skip: only evaluation/recording steps don't produce source ──
+    # TDD-RED is NOT skipped here — see _CODE_PRODUCING_STEPS for the
+    # rationale (added in Fix H-D, 2026-07-15).
+    if step_upper in ("GATE1", "GATE1-DELTA"):
         return {
             "ghost_detected": False,
             "reason": f"step {step_upper} is not expected to produce source changes",
