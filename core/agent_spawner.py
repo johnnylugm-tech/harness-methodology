@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from typing import Any, Optional
 
 from pathlib import Path
@@ -212,6 +213,7 @@ class AgentSpawner:
         mcp_config: str | None = None,
         setting_sources: str = "",
         permission_mode: str = "acceptEdits",
+        retry_round: int | None = None,
     ) -> dict:
         """
         Spawn an agent with a specific role and prompt.
@@ -293,6 +295,12 @@ class AgentSpawner:
         pre_sha = self._git_head_sha(self.project_path)
         pre_diff = self._git_diff_numstat(self.project_path)
 
+        # P3 2026-07-15 (Fix H-F): wallclock duration measured around the
+        # subprocess.run() so sessions_spawn.log can surface "how long each
+        # spawn actually took". Previously reconstruction required
+        # timestamp-diffing consecutive records — fragile when timestamps
+        # coincidentally overlap (multi-process parallel writers).
+        _spawn_started_at = time.monotonic()
         try:
             proc = subprocess.run(
                 cmd,
@@ -303,6 +311,7 @@ class AgentSpawner:
                 env=_child_env(),
             )
         except subprocess.TimeoutExpired:
+            _spawn_duration = time.monotonic() - _spawn_started_at
             timeout_result: dict[str, Any] = {
                 "output": f"Agent timed out after {task_timeout}s",
                 "status": "TIMEOUT",
@@ -312,10 +321,13 @@ class AgentSpawner:
             self._log_dispatch(
                 role, prompt, timeout_result, phase, fr_id,
                 regression_flags=regression_flags,
+                duration_seconds=round(_spawn_duration, 3),
+                retry_round=retry_round,
             )
             if regression_flags:
                 timeout_result = {**timeout_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
             return timeout_result
+        _spawn_duration = time.monotonic() - _spawn_started_at
         if proc.returncode != 0:
             _err_output = proc.stderr or proc.stdout
             error_result = {
@@ -329,6 +341,8 @@ class AgentSpawner:
             self._log_dispatch(
                 role, prompt, error_result, phase, fr_id,
                 regression_flags=regression_flags,
+                duration_seconds=round(_spawn_duration, 3),
+                retry_round=retry_round,
             )
             if regression_flags:
                 error_result = {**error_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
@@ -350,6 +364,8 @@ class AgentSpawner:
                 self._log_dispatch(
                     role, prompt, _inner_err, phase, fr_id,
                     regression_flags=regression_flags,
+                    duration_seconds=round(_spawn_duration, 3),
+                    retry_round=retry_round,
                 )
                 return _inner_err
             result = {
@@ -383,12 +399,16 @@ class AgentSpawner:
         self._log_dispatch(
             role, prompt, parsed, phase, fr_id,
             regression_flags=regression_flags,
+            duration_seconds=round(_spawn_duration, 3),
+            retry_round=retry_round,
         )
         return parsed
 
     def _log_dispatch(self, role: str, task: str, result: dict,
                       phase: int, fr_id: str | None,
-                      regression_flags: dict | None = None) -> None:
+                      regression_flags: dict | None = None,
+                      duration_seconds: float | None = None,
+                      retry_round: int | None = None) -> None:
         """Auto-record agent dispatch to .methodology/sessions_spawn.log as a
         non-blocking debug trail. (The HR-10 entry-count audit that consumed this
         log was removed — it was agent-writable / not tamper-evident. This stays as
@@ -413,6 +433,17 @@ class AgentSpawner:
             _extra: dict[str, Any] = {}
             if result.get("error_class"):
                 _extra["error_class"] = result["error_class"]
+            # Fix H-F (2026-07-15): duration_seconds + retry_round are
+            # structured observability added so log readers don't need to
+            # timestamp-diff consecutive entries to reconstruct per-spawn
+            # timing or to identify which fix-loop iteration produced a
+            # given entry. Both are optional — unset means "not measured"
+            # / "not in a fix loop" — and the logger skips them via its
+            # normal kwargs path.
+            if duration_seconds is not None:
+                _extra["duration_seconds"] = round(duration_seconds, 3)
+            if retry_round is not None:
+                _extra["retry_round"] = retry_round
             logger.log_spawn(
                 role=role, task=task[:200], session_id=session_id,
                 status=result.get("status", "SPAWNED"),

@@ -559,6 +559,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     max_turns=_max_turns(fix_step_name),
                     mcp_config=phase_ctx["mcp_config"],
                     setting_sources=phase_ctx["setting_sources"],
+                    retry_round=fix_round,  # Fix H-F: surface iteration in sessions_spawn.log
                 )
                 if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
                     _fix_output = fix_result.get('output', '')

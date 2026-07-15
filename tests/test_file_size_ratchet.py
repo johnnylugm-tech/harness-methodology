@@ -115,7 +115,11 @@ _LINE_CEILING: dict[str, int] = {
     # replace 2 inline commit-required lists in run-fr-step (lines 738-739 +
     # 750-751) so they stay in sync with the validator. Net: a single SSOT
     # defines "steps that must produce a commit" and every consumer reads it.
-    "cli/fr_cmds.py": 2282,
+    # 2026-07-15: +1 line — Fix H-F: the fix-loop dispatch in run-fr-step
+    # (the single caller that knows its current round) now passes
+    # `retry_round=fix_round` to spawner.spawn() so sessions_spawn.log
+    # entries identify which fix iteration produced them.
+    "cli/fr_cmds.py": 2283,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`

@@ -967,3 +967,85 @@ class TestCalculateLogicalRemoval:
             result = spawner._calculate_logical_removal("src/foo.py", "deadbeef")
 
         assert result is None
+
+    # ── Fix H-F (2026-07-15): duration_seconds + retry_round in sessions_spawn.log ─
+
+    def test_spawn_writes_duration_seconds_to_log(self, tmp_path, monkeypatch):
+        """spawn() records wallclock duration around subprocess.run()."""
+        # Point project_path so _log_dispatch persists to tmp_path/.methodology/.
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "done", "session_id": "x",
+            "status": "complete", "commit": "abcd",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        # sessions_spawn.log should now have one JSONL entry with
+        # duration_seconds populated.
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        assert log_path.exists(), "sessions_spawn.log should be created"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        assert len(entries) >= 1
+        spawn_entry = entries[-1]
+        assert "duration_seconds" in spawn_entry
+        assert isinstance(spawn_entry["duration_seconds"], (int, float))
+        assert spawn_entry["duration_seconds"] >= 0
+
+    def test_spawn_writes_retry_round_to_log(self, tmp_path):
+        """spawn(retry_round=N) surfaces the iteration number in sessions_spawn.log."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "done", "session_id": "x",
+            "status": "complete", "commit": "abcd",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                    retry_round=3,
+                )
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        assert spawn_entry["retry_round"] == 3
+
+    def test_spawn_omits_optional_fields_when_not_provided(self, tmp_path):
+        """Without duration_seconds/retry_round the log entry omits both
+        (backward-compat — pre-Fix-H-F log parsers don't see new fields)."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "done", "session_id": "x",
+            "status": "complete", "commit": "abcd",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        assert "retry_round" not in spawn_entry
+        # duration_seconds is always populated (we always measure) — but only
+        # the explicitly-optional retry_round is what we omit-by-default here.
