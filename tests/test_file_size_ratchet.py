@@ -104,7 +104,13 @@ _LINE_CEILING: dict[str, int] = {
     # test_fr05.py surviving a mid-flight reset, chose "review, don't
     # overwrite", and never ran the commit step) — step 1 now says explicitly
     # that an existing-but-uncommitted file still requires completing step 5.
-    "cli/fr_cmds.py": 2271,
+    # 2026-07-15: +5 lines — Fix H-B (defense-in-depth for H-A): _DISPATCH_ERROR_STATUSES
+    # gains two inner-JSON semantic no-op signatures ("AWAITING_CONFIRMATION",
+    # "NOTHING_TO_DO") so direct callers that reflect an inner-agent status
+    # string are caught even if AgentSpawner._validate_inner_json is bypassed
+    # (cf. P3 2026-07-15 FR-03 TDD-RED where transport exit 0 + status="AWAITING_CONFIRMATION"
+    # silently passed every per-FR slot at the cost of one wasted FR).
+    "cli/fr_cmds.py": 2276,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`

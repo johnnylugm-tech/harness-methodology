@@ -933,7 +933,14 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 # --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4c) ---
 
 # Statuses that indicate an agent dispatch failure (all others treated as success).
-_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({"REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD"})
+# P3 2026-07-15 FR-03: include the inner-JSON semantic no-op signatures here as
+# defense-in-depth — AgentSpawner._validate_inner_json already converts them to
+# ERROR, but a direct caller passing through these strings (e.g. an outer
+# workflow agent reflecting inner status) should also be caught.
+_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({
+    "REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD",
+    "AWAITING_CONFIRMATION", "NOTHING_TO_DO",
+})
 
 # Distinct from BLOCKED (2) / commit-dirty (6) / GHOST_DETECTED (22): means
 # "do not retry — the environment itself is broken."

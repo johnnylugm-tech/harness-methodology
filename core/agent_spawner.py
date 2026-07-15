@@ -60,10 +60,79 @@ _STRUCTURAL_FAILURE_SIGNATURES = (
 )
 
 
+# Inner-JSON semantic no-op signatures (P3 2026-07-15 FR-03 TDD-RED):
+# A sub-agent may exit 0 yet return JSON whose `status` field indicates
+# no real progress was made (e.g. agent waits for a human confirmation
+# that never arrives, or decides nothing in scope applies). Without this
+# check, spawn() reports "complete" and the outer workflow's per-FR slot
+# is silently wasted — the per-FR RED→GREEN→IMPROVE chain never advances
+# but appears healthy in sessions_spawn.log. This registry applies to
+# every call site of spawn() regardless of step.
+_INNER_NOOP_SIGNATURES: frozenset[str] = frozenset({
+    "AWAITING_CONFIRMATION",
+    "NOTHING_TO_DO",
+})
+
+# Steps that MUST produce a non-empty commit to be considered done.
+# Centralised here so cli/fr_cmds.py's 5 inline commit-required lists
+# stay in sync. LINT-FIX / CODE-FIX / COVERAGE-FIX do NOT appear
+# because they only modify code for the next GATE round to commit.
+_COMMIT_REQUIRED_STEPS: frozenset[str] = frozenset({
+    "TDD-RED", "TDD-GREEN", "TDD-IMPROVE",
+    "MIRROR", "amend-sab", "ORCH-POST",
+    "GATE1", "GATE1-DELTA",
+})
+
+
 def is_structurally_broken(output: str) -> bool:
     """True when a dispatch failure is deterministic — retrying cannot succeed."""
     text = output or ""
     return any(sig in text for sig in _STRUCTURAL_FAILURE_SIGNATURES)
+
+
+def _validate_inner_json(data: dict, step: str | None) -> dict | None:
+    """Re-classify an inner-JSON complete result as ERROR when it's a semantic no-op.
+
+    Args:
+        data: The parsed JSON object emitted by `claude -p --output-format json`.
+        step: The FR step passed via spawn()'s context={"step": ...}; may be None.
+            Used to gate commit-presence check to known commit-required steps.
+
+    Returns:
+        None when the inner JSON represents legitimate progress (caller continues).
+        An ERROR-shaped dict (with status="ERROR", error_class="EXECUTION_ERROR",
+        plus a human-readable "output" describing why) when validation fails.
+        The caller should treat this dict as if spawn() had returned it directly.
+
+    The shape mirrors the proc.returncode != 0 branch in spawn() so fr_cmds.py's
+    _DISPATCH_ERROR_STATUSES check (line 319) catches both transport and
+    semantic failures uniformly.
+    """
+    inner_status = (data.get("status") or "").upper()
+    if inner_status in _INNER_NOOP_SIGNATURES:
+        summary = data.get("summary", "") or data.get("result", "")
+        return {
+            "output": (
+                f"Sub-agent exited 0 with semantic no-op status "
+                f"{inner_status!r}: {summary!r}"
+            ),
+            "status": "ERROR",
+            "error_class": "EXECUTION_ERROR",
+            "inner_status": inner_status,
+        }
+    if step and step in _COMMIT_REQUIRED_STEPS:
+        commit = (data.get("commit") or "").strip()
+        if not commit:
+            return {
+                "output": (
+                    f"Commit-required step {step!r} returned empty commit"
+                    f" (status={inner_status or '<unset>'!r})"
+                ),
+                "status": "ERROR",
+                "error_class": "EXECUTION_ERROR",
+                "inner_status": inner_status,
+            }
+    return None
 
 
 def _classify_dispatch_error(output: str) -> str:
@@ -266,10 +335,28 @@ class AgentSpawner:
             return error_result
         try:
             data = json.loads(proc.stdout)
+            # Inner-JSON semantic validator (P3 2026-07-15 FR-03 FR-03 TDD-RED):
+            # A sub-agent may exit 0 with no real progress (e.g.
+            # {"status":"AWAITING_CONFIRMATION","commit":""}). Without this
+            # re-classification, spawn() reports complete and silently wastes
+            # the per-FR slot. See _validate_inner_json() for the rule set.
+            _inner_err = _validate_inner_json(data, context.get("step"))
+            if _inner_err is not None:
+                # Mirror the ERROR shape produced by proc.returncode != 0
+                # so callers see a consistent dict regardless of failure mode.
+                _inner_err["exit_code"] = 0  # transport success, semantic fail
+                post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
+                regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
+                self._log_dispatch(
+                    role, prompt, _inner_err, phase, fr_id,
+                    regression_flags=regression_flags,
+                )
+                return _inner_err
             result = {
                 "output": data.get("result", ""),
                 "status": "complete",
                 "session_id": data.get("session_id", ""),
+                "commit": (data.get("commit") or "").strip(),
             }
         except (json.JSONDecodeError, AttributeError):
             import sys

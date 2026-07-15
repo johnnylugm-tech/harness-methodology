@@ -202,6 +202,135 @@ class TestAgentSpawner:
                 cmd = mock_run.call_args[0][0]
                 assert '{"mcpServers":{}}' in cmd
 
+    # ── Inner-JSON semantic validator (P3 2026-07-15 FR-03) ─────────────
+    # Bug class: sub-agent exits 0 with semantic no-op JSON
+    # ({"status":"AWAITING_CONFIRMATION","commit":""}) — transport success
+    # but no real progress. spawn() used to return status="complete" and
+    # silently wasted the per-FR slot. Validator must re-classify as ERROR.
+
+    def test_spawn_inner_json_awaiting_confirmation_returns_error(self):
+        """Inner JSON status=AWAITING_CONFIRMATION → ERROR (P3 FR-03 case)."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "等待老闆確認執行計畫",
+            "session_id": "00c21a73-99e5-4195-9111-8f616d334f4e",
+            "status": "AWAITING_CONFIRMATION",
+            "commit": "",
+            "summary": "等待老闆確認",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task", context={"step": "TDD-RED"},
+                    model="claude",
+                )
+        assert result["status"] == "ERROR"
+        assert "AWAITING_CONFIRMATION" in result["output"]
+        assert result.get("exit_code") == 0
+
+    def test_spawn_inner_json_nothing_to_do_returns_error(self):
+        """Inner JSON status=NOTHING_TO_DO → ERROR (conservative default)."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "", "session_id": "x",
+            "status": "NOTHING_TO_DO", "commit": "",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task", context={"step": "TDD-RED"},
+                    model="claude",
+                )
+        assert result["status"] == "ERROR"
+
+    def test_spawn_commit_required_step_with_empty_commit_returns_error(self):
+        """TDD-RED step with empty commit + status='complete' → still ERROR.
+
+        Sub-agent may report done when not. The validator catches this
+        by checking commit presence on commit-required steps.
+        """
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "step done",
+            "session_id": "x",
+            "status": "complete",
+            "commit": "",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"step": "TDD-RED"}, model="claude",
+                )
+        assert result["status"] == "ERROR"
+        assert "empty commit" in result["output"]
+
+    def test_spawn_commit_required_step_with_real_commit_passes(self):
+        """TDD-RED step with non-empty commit + status='complete' → 'complete'."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "step done",
+            "session_id": "x",
+            "status": "complete",
+            "commit": "abcd1234",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"step": "TDD-RED"}, model="claude",
+                )
+        assert result["status"] == "complete"
+        assert result.get("commit") == "abcd1234"
+
+    def test_spawn_non_commit_required_step_with_empty_commit_passes(self):
+        """LINT-FIX has no commit requirement — empty commit is fine."""
+        from core.agent_spawner import _COMMIT_REQUIRED_STEPS
+        assert "LINT-FIX" not in _COMMIT_REQUIRED_STEPS
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "lint fixed",
+            "session_id": "x",
+            "status": "complete",
+            "commit": "",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"step": "LINT-FIX"}, model="claude",
+                )
+        assert result["status"] == "complete"
+
+    def test_spawn_inner_json_complete_without_step_context_passes(self):
+        """When context={'step': None}, commit-required check is skipped."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "done",
+            "session_id": "x",
+            "status": "complete",
+            "commit": "",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        assert result["status"] == "complete"
+
 
 class TestGitHeadSha:
     """Unit tests for AgentSpawner._git_head_sha."""
