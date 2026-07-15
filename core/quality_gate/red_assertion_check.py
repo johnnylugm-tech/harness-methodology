@@ -398,17 +398,33 @@ def _canonical_predicate(text: str) -> str | None:
       - `not a`   vs `(not a)`                     (both ≡ ¬a)
       - `a > 0`   vs `a>0`                         (same)
 
-    This helper produces a canonical form by:
-    1. Parsing with `ast.parse(text.strip(), mode="eval")`
-    2. Normalizing operator spacing (single space around binary ops)
-    3. Stripping redundant parens that `ast.unparse` adds
-    4. Re-dumping via `ast.unparse`
+    Bug Fix R6 (2026-07-15): TEST_SPEC predicates use STRING literals
+    (e.g. `failure_count == "3"`) while Python tests use native literals
+    (e.g. `failure_count == 3`). `ast.unparse(ast.Constant("3"))` returns
+    `"'3'"` (quoted) but `ast.unparse(ast.Constant(3))` returns `"3"`
+    (unquoted) — the canonical forms differ, causing substring match to
+    fail even when the predicates are semantically equivalent.
+
+    Fix: normalise every `ast.Constant` to its str() value BEFORE
+    `ast.unparse` (str is the canonical common type — Python source form
+    of `"3"` and source form of `3` both unparse to `"'3'"` once values
+    are coerced to str). Concretely:
+      - `ast.Constant(3)`  → `ast.Constant("3")` → unparse → `"'3'"`
+      - `ast.Constant("3")` → unchanged          → unparse → `"'3'"`
+    Both sides now produce `failure_count == '3'` after canonicalisation.
 
     Returns None on syntax error (callers should fall back to
     `_normalize_predicate` or skip).
     """
     try:
         tree = ast.parse(text.strip(), mode="eval").body
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and not isinstance(node.value, str):
+                # Coerce non-string literals to their str() form so both sides
+                # of the comparison produce the SAME canonical string. This is
+                # safe because the comparison is symbolic (sub-string match),
+                # not semantic — we only need both sides to render the same.
+                node.value = str(node.value)
         return ast.unparse(tree)
     except SyntaxError:
         return None
@@ -638,6 +654,44 @@ def _collect_ifs(stmts: list, uses: list) -> None:
             _collect_ifs(st.orelse, uses)  # elif chain
 
 
+def _collect_bare_asserts(stmts: list, uses: list) -> None:
+    """Bug Fix R5 (2026-07-15): collect assertions OUTSIDE any if-trigger.
+
+    The MIRROR gate historically required every assertion to live under an
+    `if`-trigger block (the canonical harness TDD shape). But Python tests
+    written in a more direct style (`assert x == 3` at the top of a test
+    function) are equally valid TDD and are commonly written by hand before
+    GREEN arrives. The previous behaviour silently dropped those assertions,
+    returning zero sub-uses for the FR — every spec sub-assertion then fired
+    `assertion_missing`, BLOCKING the gate even though the test was correct.
+
+    Fix: walk the test function body for `ast.Assert` nodes that are NOT
+    inside an `ast.If` (those are recorded by `_collect_ifs` with the
+    proper trigger_var, so we must not double-count). Recurse into
+    loop/with/try bodies to catch bare asserts nested there, but skip
+    `ast.If` blocks entirely (their contents are owned by `_collect_ifs`).
+
+    Each assertion is recorded once. Bare assertions get trigger_var
+    `"<bare>"` and an empty trigger set so the downstream MIRROR comparison
+    surfaces a `trigger_mismatch` (visible to humans) instead of an
+    `assertion_missing` (silently-blocking false positive).
+    """
+    for st in stmts:
+        if isinstance(st, ast.Assert):
+            pred = _canonical_predicate(ast.unparse(st.test))
+            if pred is not None:
+                uses.append(_SubUse("<bare>", frozenset(), frozenset({pred})))
+        elif isinstance(st, ast.If):
+            # Owned by `_collect_ifs` — do NOT recurse to avoid double-count.
+            pass
+        elif isinstance(st, (ast.For, ast.While, ast.With, ast.Try)):
+            # Recurse into loop/with/try bodies for nested bare asserts.
+            for field in ("body", "orelse", "finalbody", "handlers"):
+                block = getattr(st, field, None)
+                if block:
+                    _collect_bare_asserts(block, uses)
+
+
 def _trigger_var_name(test_node: ast.AST) -> str | None:
     """Extract the variable name from a Compare node, regardless of side."""
     if isinstance(test_node, ast.Compare):
@@ -654,6 +708,10 @@ def _extract_sub_assertions(tree: ast.AST) -> list:
     for fn in ast.walk(tree):
         if isinstance(fn, ast.FunctionDef) and fn.name.startswith("test_"):
             _collect_ifs(fn.body, uses)
+            # Bug Fix R5 (2026-07-15): also walk for bare top-level asserts
+            # that don't sit under an if-trigger. These are equally valid
+            # TDD-RED shape; previous behaviour silently dropped them.
+            _collect_bare_asserts(fn.body, uses)
     return uses
 
 

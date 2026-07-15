@@ -977,3 +977,130 @@ class TestCmdReadFile:
         rc = harness_cli.cmd_read_file(args)
         assert rc == 0
         assert out_content.read_text(encoding="utf-8") == "Hello Content"
+
+
+# =============================================================================
+# cmd_amend_sab (Bug Fix R3: phantom_modules integration)
+# =============================================================================
+
+class TestCmdAmendSabPhantom:
+    """Bug Fix R3 (2026-07-15): amend-sab must surface phantom modules.
+
+    Previously, `cmd_amend_sab` only handled the FORWARD direction
+    (src → SAB). The reverse direction (SAB → src: phantom modules
+    registered in SAB but missing from implementation) was not surfaced
+    until Phase 4 preflight — too late to amend.
+
+    Fix: every amend-sab invocation now also runs `phantom_modules()`
+    and prints a `[amend-sab] PHANTOM:` block listing them. `--strict`
+    flag makes it exit non-zero so pipelines can fail-fast.
+    """
+
+    def _make_project(self, tmp_path: Path, sab_modules: list[dict], src_files: list[str]):
+        """Set up a tmp project with SAB + src tree."""
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir()
+        src_dir = tmp_path / "03-development" / "src"
+        src_dir.mkdir(parents=True)
+        for f in src_files:
+            target = src_dir / f
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("# stub\n", encoding="utf-8")
+        sab = {
+            "version": "1.0",
+            "phase": 2,
+            "project": "test",
+            "layers": [
+                {"name": "engine", "modules": sab_modules, "allowed_dependencies": []},
+            ],
+            "dependencies": {},
+            "fr_module_traceability": {},
+        }
+        (methodology / "SAB.json").write_text(json.dumps(sab, indent=2), encoding="utf-8")
+        return tmp_path
+
+    def test_phantom_block_printed_when_src_missing_module(self, tmp_path, capsys):
+        from cli.project_cmds import cmd_amend_sab
+
+        # SAB registers `taskq.breaker` but src only has `taskq.cli`
+        self._make_project(
+            tmp_path,
+            sab_modules=[
+                {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+                {"name": "taskq.breaker", "implemented_in": "src/taskq/breaker.py"},
+            ],
+            src_files=["taskq/cli.py"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), src_dir="03-development/src",
+            dry_run=False, strict=False,
+        )
+        rc = cmd_amend_sab(args)
+        # Without --strict: exit 0 (informational), but PHANTOM block printed
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "PHANTOM" in captured.out
+        assert "taskq.breaker" in captured.out
+
+    def test_strict_flag_exits_nonzero_on_phantom(self, tmp_path, capsys):
+        from cli.project_cmds import cmd_amend_sab
+
+        self._make_project(
+            tmp_path,
+            sab_modules=[
+                {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+                {"name": "taskq.breaker", "implemented_in": "src/taskq/breaker.py"},
+            ],
+            src_files=["taskq/cli.py"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), src_dir="03-development/src",
+            dry_run=False, strict=True,
+        )
+        rc = cmd_amend_sab(args)
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "PHANTOM" in captured.out
+        assert "--strict" in captured.err
+
+    def test_no_phantom_block_when_all_modules_implemented(self, tmp_path, capsys):
+        from cli.project_cmds import cmd_amend_sab
+
+        self._make_project(
+            tmp_path,
+            sab_modules=[
+                {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+            ],
+            src_files=["taskq/cli.py"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), src_dir="03-development/src",
+            dry_run=False, strict=False,
+        )
+        rc = cmd_amend_sab(args)
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "PHANTOM" not in captured.out
+
+    def test_dry_run_reports_phantom_too(self, tmp_path, capsys):
+        """Bug Fix R3: phantom check runs on dry-run too — operators need
+        to see drift without writing SAB.json."""
+        from cli.project_cmds import cmd_amend_sab
+
+        self._make_project(
+            tmp_path,
+            sab_modules=[
+                {"name": "taskq.cli", "implemented_in": "src/taskq/cli.py"},
+                {"name": "taskq.breaker", "implemented_in": "src/taskq/breaker.py"},
+            ],
+            src_files=["taskq/cli.py"],
+        )
+        args = argparse.Namespace(
+            project=str(tmp_path), src_dir="03-development/src",
+            dry_run=True, strict=False,
+        )
+        rc = cmd_amend_sab(args)
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "PHANTOM" in captured.out
+        assert "taskq.breaker" in captured.out

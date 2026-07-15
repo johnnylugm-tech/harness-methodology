@@ -842,11 +842,34 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
 
     Idempotent: re-running adds nothing on the second call.
     Returns 0 on success (including no-op), 1 on hard failure.
+
+    Bug Fix R3 (2026-07-15): also surface the REVERSE direction —
+    phantom_modules() detects modules SAB registers but src lacks. P2
+    architecture planning often pre-registers modules (e.g. `taskq.breaker`)
+    before P3 implementation catches up; without this warning, planning-
+    vs-implementation drift goes undetected until Phase 4 preflight, when
+    amend-sab is no longer reachable. Print a `[amend-sab] PHANTOM:` block
+    listing phantom modules and exit non-zero when `--strict` is set so
+    pipeline scripts can fail-fast.
     """
     project = Path(args.project).resolve()
+    strict = getattr(args, "strict", False)
     try:
-        from core.quality_gate.sab_amender import amend_sab
+        from core.quality_gate.sab_amender import (
+            amend_sab,
+            discover_modules,
+            phantom_modules,
+        )
         added = amend_sab(project, src_dir=args.src_dir, dry_run=args.dry_run)
+        # Reverse direction: SAB claims modules the codebase lacks.
+        sab_path = project / ".methodology" / "SAB.json"
+        phantoms: list[str] = []
+        if sab_path.exists():
+            from core.quality_gate.sab_amender import _safe_load
+            sab_dict = _safe_load(sab_path)
+            if isinstance(sab_dict, dict):
+                discovered = discover_modules(project, args.src_dir)
+                phantoms = phantom_modules(sab_dict, discovered, args.src_dir)
     except Exception as exc:
         print(f"[amend-sab] failed: {exc}", file=sys.stderr)
         return 1
@@ -857,7 +880,14 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
             for m in added:
                 print(f"  + {m}")
         else:
-            print("[amend-sab] dry-run: SAB is already in sync.")
+            print("[amend-sab] dry-run: SAB is already in sync (new modules).")
+        if phantoms:
+            print(f"[amend-sab] dry-run: {len(phantoms)} PHANTOM module(s) "
+                  f"(SAB registers but src lacks):")
+            for m in phantoms:
+                print(f"  ! {m}")
+        else:
+            print("[amend-sab] dry-run: no phantom modules detected.")
         return 0
 
     if added:
@@ -866,7 +896,20 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
             print(f"  + {m}")
         print("  Review layer assignment, then commit SAB.json before re-running run-gate.")
     else:
-        print("[amend-sab] SAB already in sync with 03-development/src/.")
+        print("[amend-sab] SAB already in sync with 03-development/src/ (new modules).")
+
+    # Phantom (reverse) direction is ALWAYS informational + fail-fast on --strict.
+    if phantoms:
+        print(f"\n[amend-sab] PHANTOM: {len(phantoms)} module(s) registered in "
+              f"SAB but NOT implemented in src (planning vs implementation drift):")
+        for m in phantoms:
+            print(f"  ! {m}")
+        print("  The GREEN step for the owning FR must create these files, "
+              "or run `extract_sab_from_sad` to re-derive SAB from SAD.md.")
+        if strict:
+            print("[amend-sab] --strict set: exiting non-zero.", file=sys.stderr)
+            return 1
+
     return 0
 
 
@@ -1836,6 +1879,9 @@ def register(sub) -> None:
                     help="Source directory to scan (default: 03-development/src)")
     asab.add_argument("--dry-run", action="store_true",
                     help="List modules that would be added without writing SAB.json")
+    asab.add_argument("--strict", action="store_true",
+                    help="Exit non-zero if PHANTOM modules are detected "
+                         "(SAB registers modules that src does not implement)")
     asab.set_defaults(func=cmd_amend_sab)
 
     # audit-structure

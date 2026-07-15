@@ -134,7 +134,7 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
     # clarifying it must run BEFORE advance-phase for a phase-scoped C10
     # result (no workflow JS ever calls it automatically).
-    "cli/project_cmds.py": 1870,
+    "cli/project_cmds.py": 1920,  # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

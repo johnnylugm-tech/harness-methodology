@@ -243,3 +243,99 @@ class TestCanonicalPredicate:
         a = _canonical_predicate("x > 0")
         b = _canonical_predicate("x < 0")
         assert a != b
+
+
+class TestR5_BareAssertsExtracted:
+    """Bug Fix R5 (2026-07-15): bare top-level asserts must be visible to MIRROR.
+
+    Previously, `_collect_ifs` only walked `if`-trigger blocks, so a test
+    that wrote `assert x == 3` at the top of a test function (valid TDD-RED)
+    was silently dropped — `_extract_sub_assertions` returned [], every spec
+    sub-assertion then fired `assertion_missing`, and the gate BLOCKED
+    even though the test was correct. Fix: `_collect_bare_asserts` walker
+    records bare asserts under trigger_var "<bare>".
+    """
+
+    def test_bare_asserts_are_collected(self):
+        from core.quality_gate.red_assertion_check import _extract_sub_assertions
+        import ast
+        src = (
+            "def test_foo():\n"
+            "    assert x == 3\n"
+            "    assert y == 'value'\n"
+        )
+        uses = _extract_sub_assertions(ast.parse(src))
+        # Two bare asserts → two _SubUse records, both with var="<bare>"
+        bare_uses = [u for u in uses if u.var == "<bare>"]
+        assert len(bare_uses) == 2
+        all_asserts = set()
+        for u in bare_uses:
+            all_asserts |= u.asserts
+        # R6: literals are coerced to str() form so both sides align
+        assert "x == '3'" in all_asserts
+        assert "y == 'value'" in all_asserts
+
+    def test_bare_and_if_wrapped_combined(self):
+        """A test with both shapes should record both."""
+        from core.quality_gate.red_assertion_check import _extract_sub_assertions
+        import ast
+        # trigger var must be an ast.Name (not Attribute) for _collect_ifs
+        # to recognise it — that's a separate harness constraint, not R5.
+        src = (
+            "def test_mix():\n"
+            "    assert top == 1\n"
+            "    if failure_count == 3:\n"
+            "        assert opened_at is not None\n"
+        )
+        uses = _extract_sub_assertions(ast.parse(src))
+        # One bare ("top == 1") plus one if-wrapped (trigger=failure_count)
+        bare = [u for u in uses if u.var == "<bare>"]
+        triggered = [u for u in uses if u.var != "<bare>"]
+        assert len(bare) == 1
+        assert len(triggered) == 1
+        assert "top == '1'" in next(iter(bare)).asserts
+
+    def test_no_asserts_returns_empty(self):
+        from core.quality_gate.red_assertion_check import _extract_sub_assertions
+        import ast
+        src = "def test_empty():\n    pass\n"
+        uses = _extract_sub_assertions(ast.parse(src))
+        assert uses == []
+
+
+class TestR6_LiteralNormalization:
+    """Bug Fix R6 (2026-07-15): TEST_SPEC string literals vs Python native
+    literals must canonicalise to the SAME string for substring match.
+
+    `_canonical_predicate` now coerces every non-string `ast.Constant.value`
+    to its `str()` form BEFORE `ast.unparse`, so:
+      - test-side `failure_count == 3`   → canonical `failure_count == '3'`
+      - spec-side `failure_count == "3"` → canonical `failure_count == '3'`
+    Both align; substring match works.
+    """
+
+    def test_int_vs_string_literal_align(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        # Spec source: `failure_count == "3"` (quoted string)
+        spec = _canonical_predicate('failure_count == "3"')
+        # Test source: `failure_count == 3` (int literal)
+        test = _canonical_predicate("failure_count == 3")
+        assert spec == test
+        assert spec == "failure_count == '3'"
+
+    def test_float_vs_string_literal_align(self):
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        assert _canonical_predicate('x == "0.1"') == _canonical_predicate("x == 0.1")
+
+    def test_string_literal_unchanged(self):
+        """Already-string literals pass through unchanged."""
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        result = _canonical_predicate('name == "taskq"')
+        assert result == "name == 'taskq'"
+
+    def test_already_string_in_canonical_form_unchanged(self):
+        """Idempotency: re-canonicalising an already-canonical form is no-op."""
+        from core.quality_gate.red_assertion_check import _canonical_predicate
+        once = _canonical_predicate('x == "3"')
+        twice = _canonical_predicate(once)
+        assert once == twice
