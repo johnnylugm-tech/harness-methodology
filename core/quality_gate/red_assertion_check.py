@@ -825,14 +825,59 @@ def check_test_mirrors_spec(
                 message=(f"TEST_SPEC sub-assertion {sa.rule_id!r} predicate {sa.predicate!r} "
                          f"is not implemented by any test assertion")))
             continue
-        for m in matches:
-            spec_trigger = {_as_str(cases_by_id[cid].inputs.get(m.var))
-                            for cid in sa.applies_to if cid in cases_by_id}
+
+        # Bug Fix R5-followup (2026-07-15): per-match trigger alignment
+        # was unsatisfiable when two sub-assertions shared the same
+        # predicate but had disjoint applies_to scopes (FR01-happy-cmd-
+        # nonempty vs FR01-whitespace-raw-nonempty both predicate
+        # `len(command) > 0` but scope to cases [1,2,8,9] vs [4]).
+        # The loop iterated every match (across all scopes) and demanded
+        # every match's trigger equal THIS sa's spec_trigger — mathema-
+        # tically impossible when scopes differ.
+        #
+        # Fix: scope-align matches first, then check trigger equality
+        # only within this sa's own scope. Bare assertions (trigger_var
+        # == "<bare>") are excluded from trigger scope checks entirely
+        # — they cannot be trigger-scoped because they have no
+        # triggering input variable — and are reported via a separate
+        # bare_assert check_type when no scoped match exists.
+        scoped_matches = [m for m in matches if m.var != "<bare>"]
+        bare_matches = [m for m in matches if m.var == "<bare>"]
+        spec_trigger_set = {_as_str(cases_by_id[cid].inputs.get(scoped_matches[0].var))
+                            for cid in sa.applies_to if cid in cases_by_id} if scoped_matches else set()
+        # Only consider matches whose trigger overlaps with this sa's
+        # applies_to scope (i.e., the match's trigger value IS one of
+        # the case inputs this sa governs).
+        aligned = [m for m in scoped_matches
+                   if m.trigger and (m.trigger & spec_trigger_set)]
+        if not aligned:
+            # No scoped match for this sa. If bare matches exist,
+            # surface them as bare_assert (different check_type so
+            # downstream can distinguish "no scope" from "wrong scope").
+            # Otherwise fall back to the historical assertion_missing
+            # path.
+            if bare_matches and not scoped_matches:
+                # Bare matches exist but no scoped match — record as a
+                # bare assertion presence (informational; not a hard
+                # block because bare asserts cannot be trigger-scoped
+                # by construction).
+                violations.append(Violation(
+                    check_type="bare_assert", rule_id=sa.rule_id, severity="warning",
+                    message=(f"TEST_SPEC sub-assertion {sa.rule_id!r} is only satisfied "
+                             f"by a bare (non-if-triggered) assertion; trigger scope cannot "
+                             f"be verified against applies_to={sa.applies_to}")))
+            else:
+                violations.append(Violation(
+                    check_type="assertion_missing", rule_id=sa.rule_id, severity="error",
+                    message=(f"TEST_SPEC sub-assertion {sa.rule_id!r} predicate {sa.predicate!r} "
+                             f"has no scoped match in applies_to={sa.applies_to}")))
+            continue
+        for m in aligned:
             test_trigger = {_as_str(v) for v in m.trigger}
-            if test_trigger != spec_trigger:
+            if test_trigger != spec_trigger_set:
                 violations.append(Violation(
                     check_type="trigger_mismatch", rule_id=sa.rule_id, severity="error",
                     message=(f"sub-assertion {sa.rule_id!r} predicate {sa.predicate!r}: test applies it to "
-                             f"{sorted(test_trigger)} but TEST_SPEC applies_to maps to {sorted(spec_trigger)}"),
-                    extra={"test_trigger": sorted(test_trigger), "spec_trigger": sorted(spec_trigger)}))
+                             f"{sorted(test_trigger)} but TEST_SPEC applies_to maps to {sorted(spec_trigger_set)}"),
+                    extra={"test_trigger": sorted(test_trigger), "spec_trigger": sorted(spec_trigger_set)}))
     return violations

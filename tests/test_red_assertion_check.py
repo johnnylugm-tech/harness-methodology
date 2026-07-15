@@ -303,6 +303,135 @@ class TestR5_BareAssertsExtracted:
         assert uses == []
 
 
+class TestR5Followup_ScopeAlignedTrigger:
+    """Bug Fix R5-followup (2026-07-15): per-match trigger alignment in
+    `check_test_mirrors_spec` was unsatisfiable when two spec sub-assertions
+    shared the same predicate but had disjoint `applies_to` scopes (the
+    FR-01 real-world repro: `FR01-happy-cmd-nonempty` predicate
+    `len(command) > 0` scope [1,2,8,9] vs `FR01-whitespace-raw-nonempty`
+    same predicate scope [4]).
+
+    Pre-fix: the loop iterated every match (across all scopes) and demanded
+    every match's trigger equal THIS sa's `spec_trigger` — mathematically
+    impossible when scopes differ. Result: 2 unsatisfiable trigger_mismatch
+    violations BLOCKING the gate forever.
+
+    Post-fix: scope-align matches first (only count matches whose trigger
+    value IS one of this sa's applies_to case inputs), then check trigger
+    equality only within that scope. Bare asserts (trigger_var == "<bare>")
+    are excluded from scope checks and surfaced via the new `bare_assert`
+    check_type (severity warning, not error) when no scoped match exists.
+
+    These tests use a hand-built in-memory spec rather than the live
+    TEST_SPEC.md so the regression pin is self-contained and survives any
+    future spec rewrites.
+    """
+
+    def _spec(self):
+        """FR-01-shaped spec with the shared-predicate conflict."""
+        from core.quality_gate.red_assertion_check import SpecCase, SubAssertion
+        cases = [
+            SpecCase(case_id=1, inputs={"command": "echo hi"}),
+            SpecCase(case_id=2, inputs={"command": "echo hi"}),
+            SpecCase(case_id=3, inputs={"command": ""}),
+            SpecCase(case_id=4, inputs={"command": "   "}),
+        ]
+        asserts = [
+            # Two sub-assertions share predicate `len(command) > 0` with
+            # disjoint scopes [1,2] and [4]. Pre-fix this was unsatisfiable.
+            SubAssertion(rule_id="happy-nonempty", predicate="len(command) > 0",
+                         applies_to=[1, 2]),
+            SubAssertion(rule_id="ws-raw-nonempty", predicate="len(command) > 0",
+                         applies_to=[4]),
+        ]
+        return cases, asserts
+
+    def test_shared_predicate_disjoint_scopes_passes(self):
+        """Test with correct if-triggers per case: 0 violations."""
+        from core.quality_gate.red_assertion_check import check_test_mirrors_spec
+        cases, asserts = self._spec()
+        test_src = (
+            "def test_h1(command):\n"
+            "    if command == 'echo hi':\n"
+            "        assert len(command) > 0\n"
+            "def test_ws(command):\n"
+            "    if command == '   ':\n"
+            "        assert len(command) > 0\n"
+        )
+        violations = check_test_mirrors_spec(test_src, cases, asserts)
+        assert violations == [], (
+            f"Expected 0 violations with scope-aligned if-triggers, got "
+            f"{[(v.check_type, v.rule_id) for v in violations]}")
+
+    def test_shared_predicate_wrong_scope_reports_trigger_mismatch(self):
+        """If a test triggers on the WRONG case for a given sa, surface it."""
+        from core.quality_gate.red_assertion_check import check_test_mirrors_spec
+        cases, asserts = self._spec()
+        # Only ws-trigger exists; happy sa lacks scope-aligned match
+        test_src = (
+            "def test_ws(command):\n"
+            "    if command == '   ':\n"
+            "        assert len(command) > 0\n"
+        )
+        violations = check_test_mirrors_spec(test_src, cases, asserts)
+        # happy-nonempty should fire (no scoped match in [1,2])
+        rule_violations = [v for v in violations if v.rule_id == "happy-nonempty"]
+        assert any(v.check_type in ("assertion_missing", "bare_assert") for v in rule_violations), (
+            f"Expected happy-nonempty violation (no scoped match), got "
+            f"{[(v.check_type, v.rule_id) for v in violations]}")
+        # ws-raw-nonempty should NOT fire (scope-aligned match exists)
+        assert not any(v.rule_id == "ws-raw-nonempty" for v in violations), (
+            f"ws-raw-nonempty should pass with scope-aligned match, got "
+            f"{[(v.check_type, v.rule_id) for v in violations]}")
+
+    def test_bare_assert_only_emits_bare_assert_warning(self):
+        """Bare-assert-only tests surface as `bare_assert` (warning), not
+        `trigger_mismatch` (error). Pre-fix this fired `trigger_mismatch`
+        because `<bare>` was treated as a var name with `inputs.get(...)`
+        returning None."""
+        from core.quality_gate.red_assertion_check import check_test_mirrors_spec
+        cases, asserts = self._spec()
+        # Bare assert (no if-trigger) — pre-fix this was trigger_mismatch
+        test_src = (
+            "def test_bare(command):\n"
+            "    assert len(command) > 0\n"
+        )
+        violations = check_test_mirrors_spec(test_src, cases, asserts)
+        # No trigger_mismatch should be emitted (the regression)
+        trigger_mismatches = [v for v in violations if v.check_type == "trigger_mismatch"]
+        assert trigger_mismatches == [], (
+            f"Bare asserts must NOT emit trigger_mismatch (regression). Got: "
+            f"{[(v.check_type, v.rule_id) for v in trigger_mismatches]}")
+        # bare_assert warnings OR assertion_missing acceptable
+        for v in violations:
+            assert v.check_type in ("bare_assert", "assertion_missing"), (
+                f"Unexpected check_type {v.check_type} for bare-assert-only test")
+
+    def test_pre_fix_regression_pins_down_mathematical_impossibility(self):
+        """Pin down the exact 2-violation symptom the sub-agent reported on
+        2026-07-15: a mathematically correct test with scope-aligned
+        if-triggers produced 2 trigger_mismatch violations before the fix.
+        This test asserts the post-fix count is 0 (fix works) AND the
+        structural property (no trigger_mismatch for shared predicate)."""
+        from core.quality_gate.red_assertion_check import check_test_mirrors_spec
+        cases, asserts = self._spec()
+        # Mirrors the agent's "數學最優 probe" exactly
+        test_src = (
+            "def test_h1(command):\n"
+            "    if command == 'echo hi':\n"
+            "        assert len(command) > 0\n"
+            "def test_ws(command):\n"
+            "    if command == '   ':\n"
+            "        assert len(command) > 0\n"
+        )
+        violations = check_test_mirrors_spec(test_src, cases, asserts)
+        # The regression: shared predicate `len(command) > 0` across two
+        # disjoint scopes must NOT produce any trigger_mismatch
+        assert not any(v.check_type == "trigger_mismatch" for v in violations), (
+            f"Shared-predicate cross-scope trigger_mismatch regression. "
+            f"Got: {[(v.check_type, v.rule_id) for v in violations]}")
+
+
 class TestR6_LiteralNormalization:
     """Bug Fix R6 (2026-07-15): TEST_SPEC string literals vs Python native
     literals must canonicalise to the SAME string for substring match.
