@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from harness.harness_bridge import GateBlockedError
 
 from cli import _shared
+from cli._shared import gate_result_paths
 from core import claude_md
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path
 from core.canonical_form import canonical_form
@@ -328,11 +329,7 @@ def cmd_gate4_tag(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
 
     # Locate gate4_result.json
-    candidates = [
-        project / ".sessi-work" / "gate4_result.json",
-        project / ".methodology" / "gate4_result.json",
-        project / "gate4_result.json",
-    ]
+    candidates = gate_result_paths(project, 4)
     g4_path = next((p for p in candidates if p.exists()), None)
     if g4_path is None:
         print("[ERROR] gate4_result.json not found. Run finalize-gate --gate 4 first.")
@@ -1831,10 +1828,32 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         _gp_json["quality_complete"] = result.quality_complete
                         _gp_json["verdict"] = "PASS" if result.quality_complete else "FAIL"
                         _gp_json["passed"] = result.quality_complete
-                        _gp_dst.write_text(
-                            json.dumps(_gp_json, indent=2, ensure_ascii=False),
-                            encoding="utf-8",
-                        )
+                        _payload = json.dumps(_gp_json, indent=2, ensure_ascii=False)
+                        _gp_dst.write_text(_payload, encoding="utf-8")
+                        # Fix H-E (2026-07-15): also write the per-FR canonical
+                        # history at .methodology/gate_results/gate{N}/{fr_id}.json
+                        # so per-FR audit/debug can inspect a specific FR's gate
+                        # verdict without overwriting the previous FR's history.
+                        # Best-effort: a write failure here must NOT cascade into
+                        # the latest-alias write above (which has its own try/except).
+                        if fr_id:
+                            try:
+                                _gp_per_fr = (
+                                    project_path
+                                    / ".methodology"
+                                    / "gate_results"
+                                    / f"gate{args.gate}"
+                                    / f"{fr_id}.json"
+                                )
+                                _gp_per_fr.parent.mkdir(parents=True, exist_ok=True)
+                                _gp_per_fr.write_text(_payload, encoding="utf-8")
+                                print(
+                                    f"  per-fr          : {_gp_per_fr.relative_to(project_path)}"
+                                )
+                            except OSError as _gp_pf_err:
+                                print(
+                                    f"  [WARN] Could not persist per-FR gate result: {_gp_pf_err}"
+                                )
                     except json.JSONDecodeError:
                         # Malformed source — fall back to verbatim copy
                         _gp_dst.write_text(_gp_src.read_text(encoding="utf-8"), encoding="utf-8")

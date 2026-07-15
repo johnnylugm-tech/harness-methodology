@@ -174,6 +174,35 @@ def _generate_stage_pass(
     except OSError as exc:
         print(f"  [WARN] Could not write STAGE_PASS.md: {exc}")
 
+def gate_result_paths(
+    project: Path, gate: int, fr_id: str | None = None
+) -> list[Path]:
+    """Return prioritised candidate paths for a gate{N}_result.json lookup.
+
+    Fix H-E (2026-07-15): per-FR canonical history lands at
+    ``.methodology/gate_results/gate{N}/{fr_id}.json``. Existing readers
+    continue to find their previous single-file result via the
+    backward-compat alias at ``.methodology/gate{N}_result.json``. Order
+    matches existing reader semantics (fresh ``.sessi-work`` write first
+    for in-flight runs, .methodology second, per-FR third for the new
+    authoritative location, project root last as bare fallback):
+      1. .sessi-work/gate{N}_result.json (fresh in-flight write)
+      2. .methodology/gate{N}_result.json (backward-compat alias)
+      3. .methodology/gate_results/gate{N}/{fr_id}.json (per-FR canonical, if fr_id)
+      4. ./{N}_result.json (project-root fallback)
+    """
+    candidates: list[Path] = [
+        project / ".sessi-work" / f"gate{gate}_result.json",
+        project / ".methodology" / f"gate{gate}_result.json",
+    ]
+    if fr_id:
+        candidates.append(
+            project / ".methodology" / "gate_results" / f"gate{gate}" / f"{fr_id}.json"
+        )
+    candidates.append(project / f"gate{gate}_result.json")
+    return candidates
+
+
 def _run_phase_auditor(project: Path, completed_phase: int) -> int:
     """Run PhaseAuditor (local mode) — replaced deprecated phase_end_audit.py (v2.5.0).
 

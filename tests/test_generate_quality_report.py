@@ -2,6 +2,7 @@ import json
 from scripts.generate_quality_report import (
     _find_latest_gate_result, _build_dimension_table, generate_quality_report,
 )
+from cli._shared import gate_result_paths
 
 def test_l1_find_latest_gate_result_methodology_fallback(tmp_path):
     """Test L1: .methodology/ directory fallback in _find_latest_gate_result."""
@@ -117,3 +118,35 @@ def test_end_to_end_only_manifest_validated_waiver_renders_pass(tmp_path):
     report = (tmp_path / "06-quality" / "QUALITY_REPORT.md").read_text(encoding="utf-8")
     assert "| Security | 0/100 | ✗ FAIL |" in report
     assert "| Architecture | 0/100 | ✓ PASS (DA-waiver) |" in report
+
+
+# ── Fix H-E (2026-07-15): per-FR canonical gate{N}_result.json paths ─────────
+
+def test_gate_result_paths_without_fr_id(tmp_path):
+    """Without fr_id, candidates list omits the per-FR path."""
+    paths = gate_result_paths(tmp_path, 1)
+    assert paths == [
+        tmp_path / ".sessi-work" / "gate1_result.json",
+        tmp_path / ".methodology" / "gate1_result.json",
+        tmp_path / "gate1_result.json",
+    ]
+
+
+def test_gate_result_paths_with_fr_id(tmp_path):
+    """With fr_id, candidates list inserts the per-FR canonical path."""
+    paths = gate_result_paths(tmp_path, 1, fr_id="FR-03")
+    per_fr = tmp_path / ".methodology" / "gate_results" / "gate1" / "FR-03.json"
+    assert per_fr in paths
+    # Order: sessi-work -> methodology latest -> per-FR canonical -> project root
+    assert paths.index(per_fr) == 2
+
+
+def test_gate_result_paths_per_fr_returned_first_when_only_present(tmp_path):
+    """When only the per-FR file exists (latest alias deleted), the helper
+    still locates it via the candidate chain so readers can pick it up."""
+    (tmp_path / ".methodology" / "gate_results" / "gate1").mkdir(parents=True)
+    per_fr = tmp_path / ".methodology" / "gate_results" / "gate1" / "FR-03.json"
+    per_fr.write_text(json.dumps({"composite_score": 80, "passed": True}))
+    paths = gate_result_paths(tmp_path, 1, fr_id="FR-03")
+    resolved = next((p for p in paths if p.exists()), None)
+    assert resolved == per_fr
