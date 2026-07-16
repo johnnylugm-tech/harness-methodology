@@ -375,3 +375,41 @@ def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa
     from harness.git_strategy import GitStrategy
     no_git = getattr(args, "no_git", False) or getattr(args, "dry_run", False)
     return GitStrategy(project=project, enabled=not no_git)
+
+
+def ensure_fresh_attestation(project: Path) -> None:
+    """Self-heal a stale trace attestation before a tool-internal commit.
+
+    Round 12 站2b. finalize-gate / push-checkpoint / push-milestone all
+    commit via GitStrategy, which fires the target repo's
+    prepare-commit-msg hook — and that hook rejects on a stale
+    .methodology/trace/attestation.json. Until now the workaround was
+    orchestrated in WORKFLOW PROMPTS (a "TRACE-PRECHECK" step telling the
+    gate/push agent to regen + commit the attestation first):
+    integration-test accumulated 37 ritual "trace: regen attestation
+    before Gate N" commits, and every run re-bet on LLM compliance.
+
+    The tool now heals itself: same freshness probe the hook uses
+    (cli.phase_cmds._trace_dirty_state), same regen the ritual performed
+    (scripts.build_trace_attestation). No staging needed — GitStrategy's
+    _commit stages with `git add -A`, so the refreshed file rides the
+    very commit that would otherwise have been rejected.
+
+    Never raises: on failure the hook still enforces, and its BLOCK
+    message remains the agent-visible fallback path.
+    """
+    try:
+        from cli.phase_cmds import _trace_dirty_state
+        state = _trace_dirty_state(project)
+        if state.get("passed", True):
+            return
+        from scripts.build_trace_attestation import (
+            build_attestation,
+            write_attestation,
+        )
+        write_attestation(project, build_attestation(project))
+        print("  [attestation] auto-refreshed "
+              f"(was stale: {str(state.get('reason', ''))[:120]}) — "
+              "rides the next commit; no agent-side TRACE-PRECHECK needed")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"  [attestation] WARN self-heal failed (hook still enforces): {exc}")

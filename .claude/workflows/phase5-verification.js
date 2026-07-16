@@ -369,13 +369,20 @@ for (const frId of deltaTodo) {
   // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A
   // sub-agent can report PASS even when finalize-gate raised GateBlockedError,
   // silently advancing a FR the harness actually blocked (2026-06-30 incident).
-  const verifyCmd = PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate1\',{}).get(\'' + frId + '\',{}) or {}; print(\'GATE1_VERIFIED_PASS\' if g.get(\'quality_complete\') is True else \'GATE1_VERIFIED_FAIL score=\'+str(g.get(\'score\')))"'
+  // Round 12 站2a: the deterministic read lives in the standalone helper
+  // (`harness/scripts/verify_gate1_qc.py`, v2.13.3 pattern — cef32c4 deferred
+  // this exact P4/P5/P7/P8 migration). The LLM is a string carrier only:
+  // the verdict is derived from the echoed deterministic stdout, and the
+  // LLM's own `pass` boolean is IGNORED — wf_53d055ce-d0b showed an agent
+  // hallucinating pass:false against a PASS manifest; Python's printed
+  // bytes cannot be flipped by a wrong boolean.
   const verdict = await agent(
-    'Run EXACTLY this command via the Bash tool:\n`' + verifyCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is GATE1_VERIFIED_PASS; reason = the verbatim stdout.',
+    'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
+    + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + frId + ' --project ' + REPO + '\n'
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly "GATE1_VERIFIED_PASS"; reason = the verbatim stdout (do NOT paraphrase, summarize, or prepend commentary).',
     { label: 'gate1-verify-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  const passed = !!(verdict && verdict.pass === true)
+  const passed = String((verdict && verdict.reason) || '').trim().startsWith('GATE1_VERIFIED_PASS')
   if (passed) {
     gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')
     await agent(

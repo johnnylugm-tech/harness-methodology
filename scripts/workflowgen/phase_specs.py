@@ -569,7 +569,12 @@ def _render_per_fr_tdd() -> str:
         + "      { label: 'gate1-verify-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: VERDICT_SCHEMA }\n"
         + "    )\n"
         + "    const verifyOut = String((verifyResult && verifyResult.reason) || '').trim()\n"
-        + "    const passed = !!(verifyResult && verifyResult.pass === true) && verifyOut.startsWith('GATE1_VERIFIED_PASS')\n"
+        + "    // Round 12 站2a: verdict from the deterministic stdout ONLY — the AND\n"
+        + "    // on verifyResult.pass contradicted the comment above (v2.13.3 shipped\n"
+        + "    // \"the LLM's pass field is ignored\" in prose while the code still let a\n"
+        + "    // hallucinated pass:false veto a PASS manifest, the exact\n"
+        + "    // wf_53d055ce-d0b incident this step exists to prevent).\n"
+        + "    const passed = verifyOut.startsWith('GATE1_VERIFIED_PASS')\n"
         + "    if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }\n"
         + "    else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
         + "  }\n"
@@ -960,7 +965,6 @@ def generate_phase7() -> str:
 
 
 _GATE3_STEPS = [
-    "0. TRACE-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write 2>&1 | tail -4`. If output contains \"wrote canonical\", commit immediately: `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m \"trace: regen attestation before Gate 3\"`. Prevents trace_dirt from blocking finalize-gate.",
     "1. G3a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 3 --phase 4 --project ' + REPO + '` (CRG recon runs inside automatically). Read the printed evaluation prompt.",
     (
         "2. G3b: Evaluate ALL Gate 3 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate3_result.json.\\n"
@@ -971,7 +975,6 @@ _GATE3_STEPS = [
     ),
     (
         "3. G3c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + '`.\\n"
-        "   - If blocked by traceability: `build-trace-attestation --project ' + REPO + ' --write` + commit attestation.json, re-run finalize."
     ),
     "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0`. FAIL → add missing tests, re-run.",
 ]
@@ -1125,7 +1128,6 @@ def generate_phase4() -> str:
 
 
 _GATE2_STEPS = [
-    "0. TRACE-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write 2>&1 | tail -4`. If output contains \"wrote canonical\", commit immediately: `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m \"trace: regen attestation before Gate 2\"`. Prevents trace_dirt from blocking finalize-gate.",
     "1. G2a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 2 --phase 3 --project ' + REPO + '` — read the printed evaluation prompt.",
     (
         "2. G2b: Evaluate ALL Gate 2 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate2_result.json.\\n"
@@ -1139,7 +1141,6 @@ _GATE2_STEPS = [
         "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 2 --phase 3 --project ' + REPO + ' > /tmp/gate2_finalize_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\\n"
         "   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → report \"GATE2: TIMEOUT\" and stop — do not kill the PID.\\n"
         "   c. Once DONE: `cat /tmp/gate2_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\\n"
-        "   - If blocked by traceability: `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write` then `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m \"trace: regen attestation\"`, re-run the G2c backgrounded procedure (a/b/c)."
     ),
     "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0`. FAIL → add missing test implementations, re-run.",
 ]
@@ -1231,7 +1232,6 @@ def generate_phase3() -> str:
 # ---------------------------------------------------------------------------
 
 _GATE4_STEPS = [
-    "0. TRACE-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write 2>&1 | tail -4`. If output contains \"wrote canonical\", commit immediately: `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m \"trace: regen attestation before Gate 4\"`. Prevents trace_dirt from blocking finalize-gate.",
     "1. G4a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 4 --phase 6 --project ' + REPO + '` (CRG recon runs inside). Read the printed prompt.",
     (
         "2. A3 DA CHALLENGE (artifact-backed — finalize-gate validates this BEFORE scoring): for EACH Tier 3 dim (architecture, readability, error_handling, documentation, performance), dispatch a Claude sub-agent (you have the Agent tool) with a CHALLENGER persona that critiques the design/score, then record its critique + your defence. Dispatch each challenger SYNCHRONOUSLY — call the Agent tool and wait for its return before the next; do NOT run challengers in the background and busy-poll with `sleep`/`cat *.output` (that blows the per-agent wall-clock budget and stalls the round). Write into .sessi-work/gate4_result.json:\\n"
@@ -1247,7 +1247,6 @@ _GATE4_STEPS = [
     ),
     (
         "4. G4c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 4 --phase 6 --project ' + REPO + '` (writes QUALITY_REPORT.md + HANDOVER.md + pushes on PASS).\\n"
-        "   - If blocked by traceability: build-trace-attestation --write + commit, re-run finalize."
     ),
     "5. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. FAIL → add tests, re-run.",
 ]
@@ -1271,7 +1270,7 @@ def _render_phase6_entry_preflight() -> str:
         + "  + 'Steps:\\n'\n"
         + "  + '1. ENTRY-CHECK: run EXACTLY this bash command to verify Gate 3 status (do NOT rely on reading the file yourself — use the command output):\\n`' + PY + ' -c \"import json; m=json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')); g3=(m.get(\\'gate_results\\',{}) or {}).get(\\'gate3\\',{}) or {}; print(\\'GATE_VERIFIED\\' if isinstance(g3,dict) and g3.get(\\'quality_complete\\') is True else \\'GATE_MISSING\\')\"`\\nIf GATE_MISSING → FAIL (return to Phase 4).\\n'\n"
         + "  + '2. D4-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. Gate 4 blocks at 90% — if below, ADD missing test implementations NOW. Do NOT proceed until this passes.\\n'\n"
-        + "  + '3. PREFLIGHT: `' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 6 --project ' + REPO + '`. FAIL → fix (reliability lint / config liveness / attestation), re-run (max 3).\\n'\n"
+        + "  + '3. PREFLIGHT: `' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 6 --project ' + REPO + '`. FAIL → fix, re-run (max 3). Also fix if reported: reliability lint (subprocess timeout / mkstemp / TOCTOU / sleep-in-async), config liveness (env keys absent from .env.example), attestation missing/mismatch (build-trace-attestation --write + commit; re-run until \"Attestation: clean\").\\n'\n"
         + "  + '4. HANDOFF: `' + PY + ' ' + REPO + '/harness_cli.py validate-handoff --from-phase 5 --project ' + REPO + '`. Must exit 0.\\n'\n"
         + "  + '5. PREFLIGHT-CI: confirm `' + REPO + '/.github/workflows/harness_quality_gate.yml` (CI workflow) + `' + REPO + '/.git/hooks/prepare-commit-msg` (git hook) both exist; confirm state.json current_phase=6. If stale: `init-project --phase 6 --project ' + REPO + ' --overwrite`.\\n'\n"
         + "  + '6. PHASE-CONTEXT (load-context): `mkdir -p ' + REPO + '/.sessi-work && ' + PY + ' ' + REPO + '/harness_cli.py load-context --phase 6 --project ' + REPO + ' --json > ' + REPO + '/.sessi-work/phase6_ctx.json`.\\n\\n'\n"
@@ -1969,7 +1968,6 @@ def _render_phase2_push() -> str:
         + "  pushReport = await agent(\n"
         + "    'YOU ARE THE PHASE-2 PUSH ORCHESTRATOR.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
-        + "    + 'Step 0 (TRACE-PRECHECK, ALWAYS run before Step 1): `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write 2>&1 | tail -4`. If output contains \"wrote canonical\", commit immediately: `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m \"trace: regen attestation before Phase 2 push\"`. Prevents _trace_dirty_state / cmd_pre_commit_check from blocking the push on SAD.md mtime drift. Mirror phase3/4/6 TRACE-PRECHECK pattern.\\n'\n"
         + "    + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py push-checkpoint --phase 2 --project ' + REPO + '`\\n'\n"
         + "    + '  - If blocked by a hook error: reword commit message to start with `chore(harness):` (documented bypass; NOT --no-verify), re-run. Retry until success.\\n'\n"
         + "    + 'Step 2: Read ' + REPO + '/HANDOVER.md and confirm it exists.\\n'\n"

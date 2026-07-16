@@ -101,6 +101,12 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         except Exception as _state_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not write push-checkpoint sentinel to state.json: {_state_err}")
 
+    # Round 12 站2b: heal a stale attestation BEFORE the checkpoint commit
+    # fires the prepare-commit-msg hook — replaces the prompt-side
+    # TRACE-PRECHECK ritual (P2's SAD.md is always newer than the
+    # attestation right after generation, so this fired on every P2 push).
+    _shared.ensure_fresh_attestation(project)
+
     if phase == 1:
         ok = git.commit_and_push_p1(
             fr_ids=fr_ids,
@@ -281,6 +287,11 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                 atomic_write_json(state_path, _sd)
         except Exception as _revert_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not revert stale milestone audit fields: {_revert_err}")
+
+    # Round 12 站2b: heal a stale attestation BEFORE the milestone commit
+    # fires the prepare-commit-msg hook (see _shared.ensure_fresh_attestation
+    # — replaces the prompt-side TRACE-PRECHECK ritual).
+    _shared.ensure_fresh_attestation(project)
 
     if milestone_type == "p3-mid":
         fr_done = args.fr_done

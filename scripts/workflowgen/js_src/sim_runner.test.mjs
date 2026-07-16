@@ -115,20 +115,33 @@ for (const name of PHASE_FILES) {
   })
 }
 
-// ---- 3. hallucinated schema verdict (P3 GATE1 verify) ----------------------
-// Pins CURRENT behavior after v2.13.3 (cef32c4): the deterministic helper
-// prints GATE1_VERIFIED_PASS, but the workflow still ANDs the LLM's schema
-// `pass` boolean — a hallucinated pass:false therefore still blocks the FR
-// (the exact wf_53d055ce-d0b incident shape). Residual hallucination surface,
-// recorded in docs/CONVERGENCE_AUDIT (Round 12 站2 candidate: derive the
-// verdict from the echoed stdout alone).
-test('phase3 GATE1 verify: hallucinated pass:false still blocks despite deterministic PASS stdout (pinned current behavior)', async () => {
+// ---- 3. hallucinated schema verdict (GATE1 verify) --------------------------
+// Round 12 站2a: the verdict is derived from the echoed deterministic stdout
+// ONLY. A hallucinated schema pass:false can no longer veto a PASS manifest
+// (wf_53d055ce-d0b incident shape — v2.13.3's prose claimed this but its code
+// still ANDed the boolean; the sim pinned that contradiction and 站2a fixed
+// it). Covers phase3 (TDD loop) and phase5 (render_per_fr_delta family, the
+// P4/P5/P7/P8 shared renderer).
+for (const name of ['phase3-implementation.js', 'phase5-verification.js']) {
+  test(`${name} GATE1 verify: hallucinated pass:false is ignored — deterministic PASS stdout wins`, async () => {
+    const overrides = [
+      { match: /^gate1-verify-/, respond: { pass: false, reason: 'GATE1_VERIFIED_PASS' } },
+      ...happyOverrides(),
+    ]
+    const { result } = await runWorkflow(WF(name), makeHappyResponder(overrides))
+    assert.equal(result.error, undefined,
+      `FR must pass on the deterministic stdout (got: ${JSON.stringify(result).slice(0, 200)})`)
+  })
+}
+
+// Inverse guard: a hallucinated pass:true cannot rescue a FAIL stdout.
+test('phase3 GATE1 verify: hallucinated pass:true cannot rescue a deterministic FAIL stdout', async () => {
   const overrides = [
-    { match: /^gate1-verify-/, respond: { pass: false, reason: 'GATE1_VERIFIED_PASS' } },
+    { match: /^gate1-verify-/, respond: { pass: true, reason: 'GATE1_VERIFIED_FAIL score=71.4' } },
     ...happyOverrides(),
   ]
   const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
-  assert.ok(result.error, 'FR must be treated as failed under the AND-gate')
+  assert.ok(result.error, 'FR must fail on the deterministic FAIL stdout')
   assert.match(result.error, /Gate 1/i)
 })
 

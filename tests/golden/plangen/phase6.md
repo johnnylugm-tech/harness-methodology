@@ -147,9 +147,9 @@ Agent B peer review of the QA deliverables (HR-01) — both are required to exit
   > See `harness/harness/ssi/prompts/evaluate_dimension.md` §Orchestrator Pattern False Positive.
   > **traceability** is also framework-owned: the harness calls `compute_trace_dimension()`
   > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability
-  > score in gate_result.json. If the gate is blocked by traceability, fix gaps then run:
-  > `python3 harness_cli.py build-trace-attestation --project . --write`
-  > `git add .methodology/trace/attestation.json && git commit -m 'trace: regen attestation'`
+  > score in gate_result.json. If the gate is blocked by traceability, fix the named
+  > gaps and re-run finalize-gate — it refreshes a stale attestation itself before
+  > committing (no manual build-trace-attestation + commit step needed).
 
 - **G4c** Finalize Gate 4:
   ```bash

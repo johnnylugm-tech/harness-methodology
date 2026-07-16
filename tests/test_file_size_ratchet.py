@@ -283,7 +283,12 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-16: +8 lines — Round 12 站1: render_per_fr_delta gains the
     # pre_loop_state parameter (phase4's p4Mid declarations, dropped by the
     # station-3a migration — sim testbed catch) + docstring documenting it.
-    "scripts/workflowgen/js_blocks.py": 1322,
+    # 2026-07-16: +7 lines — Round 12 站2a: render_per_fr_delta's GATE1
+    # verify swaps the inline python one-liner for the verify_gate1_qc.py
+    # helper dispatch (v2.13.3 pattern, cef32c4's deferred P4/P5/P7/P8
+    # migration) with the verdict derived from echoed canonical stdout
+    # only; the delta is the comment documenting the hallucination class.
+    "scripts/workflowgen/js_blocks.py": 1329,
 }
 
 

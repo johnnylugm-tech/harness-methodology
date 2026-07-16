@@ -862,7 +862,6 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   pushReport = await agent(
     'YOU ARE THE PHASE-2 PUSH ORCHESTRATOR.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-    + 'Step 0 (TRACE-PRECHECK, ALWAYS run before Step 1): `' + PY + ' ' + REPO + '/harness_cli.py build-trace-attestation --project ' + REPO + ' --write 2>&1 | tail -4`. If output contains "wrote canonical", commit immediately: `git -C ' + REPO + ' add .methodology/trace/attestation.json && git -C ' + REPO + ' commit -m "trace: regen attestation before Phase 2 push"`. Prevents _trace_dirty_state / cmd_pre_commit_check from blocking the push on SAD.md mtime drift. Mirror phase3/4/6 TRACE-PRECHECK pattern.\n'
     + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py push-checkpoint --phase 2 --project ' + REPO + '`\n'
     + '  - If blocked by a hook error: reword commit message to start with `chore(harness):` (documented bypass; NOT --no-verify), re-run. Retry until success.\n'
     + 'Step 2: Read ' + REPO + '/HANDOVER.md and confirm it exists.\n'

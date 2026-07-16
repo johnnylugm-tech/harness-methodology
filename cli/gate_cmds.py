@@ -2095,6 +2095,10 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         git = _shared._make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()
+        # Round 12 站2b: heal a stale attestation BEFORE the gate commit
+        # fires the prepare-commit-msg hook — replaces the prompt-side
+        # TRACE-PRECHECK ritual (37 ritual commits on integration-test).
+        _shared.ensure_fresh_attestation(Path(args.project).resolve())
         # Bug fix (P8 E2E 2026-07-04): write last_milestone_command for gate 4
         # to state.json BEFORE commit_and_push_gate so the audit field lands in
         # the pushed commit. Previously this block was inside the else AFTER

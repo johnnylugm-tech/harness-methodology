@@ -176,9 +176,9 @@ python3 harness_cli.py load-context --phase 3 --project . --json \
   > (Auto-fix engine is NOT wired — fixes require manual code changes or targeted tools.)
   > **traceability** is framework-owned: the harness calls `compute_trace_dimension()`
   > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability
-  > score in gate_result.json. If the gate is blocked by traceability, fix gaps then run:
-  > `python3 harness_cli.py build-trace-attestation --project . --write`
-  > `git add .methodology/trace/attestation.json && git commit -m 'trace: regen attestation'`
+  > score in gate_result.json. If the gate is blocked by traceability, fix the named
+  > gaps and re-run finalize-gate — it refreshes a stale attestation itself before
+  > committing (no manual build-trace-attestation + commit step needed).
 
 - **G2c** Finalize Gate 2:
   ```bash
