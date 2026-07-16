@@ -1037,6 +1037,14 @@ def generate_phase4() -> str:
             forbidden_note="- DO NOT run run-gate / bug-hunt / advance-phase / push-milestone.\\n",
             verifier_role="TEST VERIFIER",
             use_fr_titles=True,
+            # Round 12 站1: restored verbatim from the pre-migration file
+            # (840d637^ lines 303-304) — the station-3a migration dropped
+            # these declarations while keeping the mid_milestone_step that
+            # reads them; first sim-testbed run caught the ReferenceError.
+            pre_loop_state=(
+                "let p4MidPushed = false\n"
+                "const p4MidThreshold = Math.ceil(frIds.length / 2)  // PUSH ⑤ trigger: ≥50% FRs Gate 1 PASS\n"
+            ),
             mid_milestone_step=(
                 "\n"
                 "  // PUSH ⑤ p4-mid — fire once when ≥50% FRs have Gate 1 PASS (but not yet all done).\n"
@@ -1455,7 +1463,15 @@ def generate_phase6() -> str:
         ),
         "",
         B.RESOLVE_REPO_BLOCK + B.REPO_LOG_LINE,
-        B.render_persist_approval(
+        # Round 12 站1: MAX_OUTER_ATTEMPTS declaration — the station-4 A/B
+        # unification injected the shared persistApproval body (which reads
+        # this file-level constant, declared in phase1/phase2's own specs)
+        # into phase6 WITHOUT the declaration; phase6's pre-migration
+        # writeApprovalJson used a local `const MAX = 3` instead. First sim
+        # testbed run caught the ReferenceError at the first approval write
+        # (after peer review already passed — the most expensive spot).
+        "const MAX_OUTER_ATTEMPTS = 3\n"
+        + B.render_persist_approval(
             synthesize_reason=False, use_schema_verdict=True,
             label_prefix="write-approval", phase_label="Peer Review",
         ) + "const MAX_OUTER_ATTEMPTS_PEER = 3  // peer-review dispatch retry at orchestrator level\n"
@@ -2383,7 +2399,7 @@ def _render_phase1_preflight() -> str:
         "  log('  attempt ' + pfAttempt + ' did not PASS — retry')\n"
         "}\n"
         "if (!(typeof preflightReport === 'string' && /PREFLIGHT:\\s*PASS/.test(preflightReport))) {\n"
-        "  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: preflightReport.slice(-800) }\n"
+        "  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) }\n"
         "}\n"
     )
 
@@ -2793,7 +2809,7 @@ def _render_phase1_constitution_check() -> str:
         "  log('  attempt ' + cAttempt + ' did not PASS — retry')\n"
         "}\n"
         "if (!/CONSTITUTION:\\s*PASS/.test(constitutionResult)) {\n"
-        "  return { error: 'Constitution check did not PASS in 5 attempts', raw: constitutionResult.slice(-800) }\n"
+        "  return { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) }\n"
         "}\n"
     )
 
@@ -2872,7 +2888,7 @@ def _render_phase1_push() -> str:
         "  log('  attempt ' + pAttempt + ' did not PASS — read error + retry')\n"
         "}\n"
         "if (!/PUSH:\\s*PASS/.test(pushResult)) {\n"
-        "  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: pushResult.slice(-800) }\n"
+        "  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) }\n"
         "}\n"
     )
 

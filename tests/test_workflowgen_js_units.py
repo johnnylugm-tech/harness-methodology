@@ -23,7 +23,14 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_node_test_suite_passes():
-    test_files = sorted(str(p) for p in JS_SRC_DIR.glob("*.test.mjs"))
+    # sim_runner.test.mjs is excluded: it is the whole-file simulation
+    # testbed with its own dedicated bridge (tests/test_workflow_sim.py,
+    # 120s budget) — including it here would run it twice per pytest pass
+    # and couple this snappy pure-function suite to the sim's growth.
+    test_files = sorted(
+        str(p) for p in JS_SRC_DIR.glob("*.test.mjs")
+        if p.name != "sim_runner.test.mjs"
+    )
     assert test_files, f"no *.test.mjs files found under {JS_SRC_DIR}"
     result = subprocess.run(
         ["node", "--test", *test_files],

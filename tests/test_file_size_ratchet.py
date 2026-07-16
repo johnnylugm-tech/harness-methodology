@@ -257,7 +257,15 @@ _LINE_CEILING: dict[str, int] = {
     # phase3-implementation.js too. Verified: regenerated
     # tests/golden/workflowgen/phase3.js == hand-edited phase3-implementation.js
     # (diff = 0 lines).
-    "scripts/workflowgen/phase_specs.py": 2957,
+    # 2026-07-16: +16 lines — Round 12 站1: three sim-testbed-caught fixes
+    # at the generator source: phase4 pre_loop_state (p4MidPushed/
+    # p4MidThreshold declarations dropped by the station-3a migration),
+    # phase6 MAX_OUTER_ATTEMPTS declaration (dropped by station-4's A/B
+    # unification), and String(x ?? '') null guards on phase1's three
+    # agent-return .slice(-800) error paths (session-limit null crashed
+    # instead of returning {error}). Comments explaining each restoration
+    # account for most of the delta.
+    "scripts/workflowgen/phase_specs.py": 2973,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
@@ -272,7 +280,10 @@ _LINE_CEILING: dict[str, int] = {
     # blocks.py's own _load_rule SSOT instead of phase1's original JS
     # hand-duplicating that prose — see phase_specs.py's srsAPrompt/
     # srsBChecklist for the 3 call sites this replaced).
-    "scripts/workflowgen/js_blocks.py": 1314,
+    # 2026-07-16: +8 lines — Round 12 站1: render_per_fr_delta gains the
+    # pre_loop_state parameter (phase4's p4Mid declarations, dropped by the
+    # station-3a migration — sim testbed catch) + docstring documenting it.
+    "scripts/workflowgen/js_blocks.py": 1322,
 }
 
 

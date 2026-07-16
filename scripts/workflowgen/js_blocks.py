@@ -404,6 +404,7 @@ def render_per_fr_delta(
     verifier_role: str = "VERIFIER",
     use_fr_titles: bool = False,
     mid_milestone_step: str = "",
+    pre_loop_state: str = "",
 ) -> str:
     """GATE1-DELTA fast-path (one batched agent classifies all FRs; unchanged
     FRs short-circuit inside the harness CLI) then a full per-FR loop for the
@@ -416,7 +417,13 @@ def render_per_fr_delta(
     full-loop's PASS/FAIL branch, mirroring where phase4's own code places
     it — NOT inside the fast-path loop above (phase4's original doesn't
     check it there either, an existing gap preserved as-is, not introduced
-    by this migration)."""
+    by this migration). `pre_loop_state` is a raw JS block emitted right
+    after the gate1Pass/gate1Fail declarations — phase4 uses it for the
+    p4MidPushed/p4MidThreshold state that mid_milestone_step reads (Round
+    12 站1: the sim testbed's first run caught that the station-3a
+    migration dropped these two declarations — the pre-migration file had
+    them at Load-FRs exit; a live ReferenceError the equivalence pins
+    (phases/labels/CLI-command sets) could not see)."""
     role_line = (
         f"    'YOU ARE THE {verifier_role} for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
         if use_fr_titles else
@@ -443,6 +450,7 @@ def render_per_fr_delta(
         render_phase_header("Per-FR Delta")
         + "const gate1Pass = []\n"
         + "const gate1Fail = []\n"
+        + pre_loop_state
         + "// DELTA fast-path: probe every FR's GATE1-DELTA through the harness CLI in ONE\n"
         + "// agent — unchanged-code FRs pass immediately inside the CLI, so N already-PASS\n"
         + "// FRs cost 1 spawn instead of 2N (delta + verify). Verdict authority is manifest\n"

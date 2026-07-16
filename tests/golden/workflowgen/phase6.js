@@ -71,6 +71,7 @@ let REPO = await resolveRepo()
 const PY = REPO + '/.venv/bin/python'
 log('REPO = ' + REPO + ' | PY = ' + PY)
 
+const MAX_OUTER_ATTEMPTS = 3
 // ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----
 // v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-
 // phase PASS) + workflow JS outer-level try/catch retry.

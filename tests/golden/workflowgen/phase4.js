@@ -331,6 +331,8 @@ log('  fr_ids = ' + JSON.stringify(frIds))
 phase('Per-FR Delta')
 const gate1Pass = []
 const gate1Fail = []
+let p4MidPushed = false
+const p4MidThreshold = Math.ceil(frIds.length / 2)  // PUSH ⑤ trigger: ≥50% FRs Gate 1 PASS
 // DELTA fast-path: probe every FR's GATE1-DELTA through the harness CLI in ONE
 // agent — unchanged-code FRs pass immediately inside the CLI, so N already-PASS
 // FRs cost 1 spawn instead of 2N (delta + verify). Verdict authority is manifest

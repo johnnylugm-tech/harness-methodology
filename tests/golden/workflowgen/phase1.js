@@ -672,7 +672,7 @@ for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
   log('  attempt ' + pfAttempt + ' did not PASS — retry')
 }
 if (!(typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport))) {
-  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: preflightReport.slice(-800) }
+  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) }
 }
 
 
@@ -1054,7 +1054,7 @@ for (let cAttempt = 1; cAttempt <= 5; cAttempt++) {
   log('  attempt ' + cAttempt + ' did not PASS — retry')
 }
 if (!/CONSTITUTION:\s*PASS/.test(constitutionResult)) {
-  return { error: 'Constitution check did not PASS in 5 attempts', raw: constitutionResult.slice(-800) }
+  return { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) }
 }
 
 
@@ -1121,7 +1121,7 @@ for (let pAttempt = 1; pAttempt <= 5; pAttempt++) {
   log('  attempt ' + pAttempt + ' did not PASS — read error + retry')
 }
 if (!/PUSH:\s*PASS/.test(pushResult)) {
-  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: pushResult.slice(-800) }
+  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) }
 }
 
 
