@@ -145,6 +145,21 @@ test('phase3 GATE1 verify: hallucinated pass:true cannot rescue a deterministic 
   assert.match(result.error, /Gate 1/i)
 })
 
+// ---- 3b. [HARNESS-BUG] banner (Round 13 站0 crash boundary) ----------------
+// A sub-agent whose GATE1 log contains harness_cli.py's new [HARNESS-BUG]
+// banner (core/errors.py — an uncaught exception in harness code, NOT a
+// project quality problem) must abort the FR loop with harness_bug_detected,
+// not fall through to the deterministic-verdict read as an ordinary FAIL.
+test('phase3 TDD loop: [HARNESS-BUG] banner in the GATE1 log aborts the FR loop (not a code-quality FAIL)', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: 'FR-01 GATE1: FAIL — harness-methodology bug detected, escalate to human (see [HARNESS-BUG] message and its crash bundle path)' },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.equal(result.harness_bug_detected, true, JSON.stringify(result).slice(0, 200))
+  assert.match(result.message, /harness-methodology itself crashed/)
+})
+
 // ---- 4. garbage B response crashes the A/B machine (pinned weakness) -------
 // parseAgentJson THROWS on JSON-less text; runSubTask's fallback
 // `sbrResult.b2 || parseAgentJson(bResult, ...)` therefore escapes as a

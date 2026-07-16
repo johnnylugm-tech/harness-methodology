@@ -350,6 +350,7 @@ for (const frId of frIds) {
       + '   - FAIL → fix failing dims (ruff check . --fix; add tests for coverage; fix pyright errors), repeat the GATE1 invocation procedure (a/b/c). Max 3 rounds.\n'
       + '   - Still failing after 3 → report FAIL.\n'
       + '   - Structurally-broken dispatch [FATAL]: if the log contains "[FATAL]" (e.g. "claude.ai connectors are disabled" or any other structurally-broken-dispatch signature), STOP IMMEDIATELY — do NOT unset/modify any environment variables yourself, do NOT retry the GATE1 invocation procedure. The message\'s suggested fix is for a human operator to run OUTSIDE this session, not something you can act on. Report "' + frId + ' GATE1: FAIL — structurally broken dispatch environment, escalate to human (see [FATAL] message)" and stop this FR\'s TDD chain.\n'
+      + '   - Harness bug [HARNESS-BUG]: if the log contains "[HARNESS-BUG]", harness-methodology itself crashed — this is NOT a problem with your code or tests. STOP IMMEDIATELY, do NOT retry, do NOT modify any project code to work around it. Report "' + frId + ' GATE1: FAIL — harness-methodology bug detected, escalate to human (see [HARNESS-BUG] message and its crash bundle path)" and stop this FR\'s TDD chain.\n'
       + '   - Architecture Amendment Protocol [BLOCKED]: if the log contains "Unregistered modules detected: {…}", DO NOT hand-edit SAB.json by hand. Run `' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '` to register the new modules (idempotent, scans 03-development/src/), `git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m "amend: register SAB modules (' + frId + ')"`, then repeat the GATE1 invocation procedure (a/b/c). Max 1 amend round per FR.\n'
       + '   run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-phase --phase 3 --project ' + REPO + '`.\n'
       + '7. ORCH-POST (after GATE1 PASS, per phase3_plan.md [ORCH-POST]):\n'
@@ -387,6 +388,17 @@ for (const frId of frIds) {
     if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
       log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
       return { dispatch_structurally_broken: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
+    }
+    // L1.6 (Round 13 站0): detect a [HARNESS-BUG] banner (core/errors.py's crash
+    // boundary — harness_cli.py's main() converting an uncaught exception into this
+    // signal instead of a bare traceback) surfaced via the sub-agent reading its own
+    // GATE1 log. Unlike the structurally-broken-dispatch signature above (a known,
+    // human-actionable env-var cause), this means harness-methodology itself crashed —
+    // the FR loop cannot proceed until a human fixes the harness bug, and treating it
+    // as a code-quality GATE1 FAIL would send CODE-FIX at a defect that isn't there.
+    if (/\[HARNESS-BUG\]/.test(frReportText)) {
+      log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
+      return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
     }
     // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes
     // gate_results.gate1[fr].quality_complete on every finalize-gate, pass OR fail) —

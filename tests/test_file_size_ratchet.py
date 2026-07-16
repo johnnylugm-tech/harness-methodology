@@ -290,7 +290,13 @@ _LINE_CEILING: dict[str, int] = {
     # agent-return .slice(-800) error paths (session-limit null crashed
     # instead of returning {error}). Comments explaining each restoration
     # account for most of the delta.
-    "scripts/workflowgen/phase_specs.py": 2973,
+    # 2026-07-17: +11 lines — Round 13 站0: phase3's _render_per_fr_tdd
+    # L1.5 [FATAL] detection gains a sibling L1.6 check for the new
+    # [HARNESS-BUG] crash-boundary banner (core/errors.py) — a harness
+    # self-crash surfaced in the GATE1 log must abort the FR loop instead
+    # of being misread as a code-quality FAIL, mirroring the existing
+    # structurally-broken-dispatch handling one block above it.
+    "scripts/workflowgen/phase_specs.py": 2984,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

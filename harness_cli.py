@@ -36,18 +36,41 @@ Available gates:
     Gate 3  P4 phase-exit      (score_gate: 80, 14 dims, full CRG)
     Gate 4  P6 full-project    (score_gate: 85, 14 dims)
 
-Exit codes:
+Exit codes (single source of truth: cli/exit_codes.py's REGISTRY — this
+section must match it exactly, enforced by tests/test_exit_code_registry.py):
     0   All phases complete
     1   Hard failure (investigate error)
     2   run-gap-analysis: critical gaps detected (distinct from hard error)
     5   Gate 4 prerequisites block (A2/A3/A5 schema, B2 score files)
     6   finalize-gate: gate passed but git commit did not land (manifest rolled back) — fix and re-run
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
+    9   advance-phase: 100% coverage required on 03-development/src not met
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
+    12  advance-phase precondition block — phase_truth_passed missing OR SAB
+        architecture violation (see printed message)
+    13  advance-phase: Agent B approvals incomplete for this phase
+    14  advance-phase: live pytest --cov could not run, or coverage below
+        the manifest's recorded threshold
+    15  advance-phase: next phase's plan file not found — run generate-next-plan first
     16  (retired 減法 T3 — constitution keyword scoring is on-demand only)
+    17  advance-phase precondition block — finalize-gate not called for a
+        required gate OR unresolved deferred_fixes.md items
+    18  advance-phase precondition block — ruff linting failure OR
+        submodule safety violation
+    19  sync-harness: SubmoduleSyncError, OR advance-phase: mypy
+        type-safety failure
+    20  advance-phase: gitleaks secrets scan failed or timed out
     21  Scope violation: untracked diagnostic script(s) at repo root; move to
         .sessi-work/tmp or delete, then re-run advance-phase
+    22  GHOST_DETECTED — agent claimed work but made no substantive code
+        change (see .sessi-work/ghost_detected/)
+    23  Sub-agent dispatch is structurally broken (e.g. claude.ai connectors
+        disabled) — not a retryable failure
+    24  run-phase: spawn-substrate preflight probe FAILED
+    70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
+        code (see core/errors.py); not a project quality failure
+    130 Interrupted (Ctrl-C)
 """
 from __future__ import annotations
 
@@ -264,6 +287,62 @@ def build_parser() -> argparse.ArgumentParser:
 
     return p
 
+
+def _dispatch(args: argparse.Namespace, argv: list[str]) -> int:
+    """Call the parsed subcommand's handler, converting any exception that
+    escapes it into the appropriate top-level exit code (Round 13 站0 crash
+    boundary — see docs/ERROR_HANDLING.md). Split out from main() so tests
+    can drive it without going through sys.argv/argparse.
+
+    Before this, an unhandled exception anywhere under args.func(args) hit
+    Python's default handler: a raw traceback + exit 1 — indistinguishable
+    from a normal "hard failure" (also exit 1). A sub-agent piping this
+    command's output would see neither a recognizable signal nor guidance,
+    and (per this round's diagnosis) has in the past mis-treated the
+    surrounding failure as a project quality problem to "fix" rather than
+    a harness bug to report.
+    """
+    import traceback
+
+    from core.errors import format_harness_bug_banner, write_crash_bundle
+    from cli.exit_codes import EX_HARNESS_BUG, EX_KEYBOARD_INTERRUPT, EX_FAIL
+
+    try:
+        return args.func(args)
+    except KeyboardInterrupt:
+        print("\n[INTERRUPTED]", file=sys.stderr)
+        return EX_KEYBOARD_INTERRUPT
+    except _leaked_control_flow_exceptions() as exc:
+        # These are meant to be caught close to their raise site (e.g.
+        # cli/gate_cmds.py catches GateBlockedError around finalize-gate).
+        # Reaching here means some call path forgot to catch one — surface
+        # it visibly instead of a bare traceback, but keep exit 1 (it IS a
+        # real block, just one that leaked past its intended catch site).
+        print(
+            f"\n[WARN] {type(exc).__name__} leaked to top-level (a catch site "
+            f"is missing) — treating as a hard failure:\n{exc}",
+            file=sys.stderr,
+        )
+        return EX_FAIL
+    except Exception as exc:  # noqa: BLE001 -- this IS the crash boundary
+        bundle_path = write_crash_bundle(exc, argv)
+        print("\n" + format_harness_bug_banner(exc, bundle_path), file=sys.stderr)
+        print(
+            "\n" + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+            file=sys.stderr,
+        )
+        return EX_HARNESS_BUG
+
+
+def _leaked_control_flow_exceptions() -> tuple[type[BaseException], ...]:
+    """Lazy import to avoid adding these modules to harness_cli.py's
+    already-large top-level import block for a path that (by design) is
+    rarely hit."""
+    from harness.harness_bridge import GateBlockedError, PreflightBlockedError
+    from core.phase_hooks import KillSwitchBlockedError
+    return (GateBlockedError, PreflightBlockedError, KillSwitchBlockedError)
+
+
 def main() -> int:
     """Main entry point for the CLI."""
     # Load .env from CWD first (covers `cd project && python harness_cli.py`).
@@ -283,7 +362,7 @@ def main() -> int:
 
     parser = build_parser()
     args = parser.parse_args()
-    return args.func(args)
+    return _dispatch(args, sys.argv[1:])
 
 
 if __name__ == "__main__":
