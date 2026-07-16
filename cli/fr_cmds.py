@@ -1258,17 +1258,32 @@ def _parse_gate_output(out: str) -> tuple[bool, list, str]:
 
 
 def _resolve_phase3_context(project: Path) -> dict:
-    """Resolve MCP config and CLAUDE.md settings for Phase 3+ sub-agents.
+    """Resolve MCP config and settings isolation for Phase 3+ sub-agents.
 
-    Auto-detects whether code-review-graph MCP tools and project CLAUDE.md
-    are available, returning appropriate values for AgentSpawner.spawn().
-    Gracefully degrades: if nothing is found, returns current defaults
-    (no MCP, no CLAUDE.md).
+    Auto-detects whether code-review-graph MCP tools are available.
+    setting_sources is ALWAYS "" (Round 12 站0d): a live probe matrix
+    (2026-07-16, per-value claude -p runs asking whether a distinctive
+    user-CLAUDE.md token is in context) measured:
+
+        ""        → no CLAUDE.md memory loads
+        "user"    → user CLAUDE.md loads
+        "project" → project CLAUDE.md AND user global CLAUDE.md BOTH load
+        "local"   → no user CLAUDE.md
+
+    The previous behaviour (return "project" when the project has a
+    CLAUDE.md) therefore shipped the user's interactive-collaboration
+    protocol ("wait for confirmation before acting", "ask one question
+    when unsure") into every headless sub-agent — production agents on
+    the 2026-07-16 P3 run stalled awaiting an approval that cannot come
+    (600s timeouts, "pytest/ruff and commit require approval" replies).
+    Step prompts are self-contained (need-to-know packing in
+    _build_prompt), so dropping project CLAUDE.md costs nothing; the
+    isolation is the point.
 
     Returns:
         dict with keys:
             mcp_config: str | None  -- relative path to .mcp.json, or None
-            setting_sources: str    -- "project" or ""
+            setting_sources: str    -- always "" (isolation; see above)
     """
     import shutil as _shutil
     result: dict[str, str | None] = {"mcp_config": None, "setting_sources": ""}
@@ -1279,10 +1294,6 @@ def _resolve_phase3_context(project: Path) -> dict:
             if (project / candidate).exists():
                 result["mcp_config"] = candidate
                 break
-
-    # CLAUDE.md: load if it exists at project root
-    if (project / "CLAUDE.md").exists():
-        result["setting_sources"] = "project"
 
     return result
 
@@ -1798,8 +1809,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"uncommitted file is exactly the state this step must resolve, not something to leave as-is.\n"
             f"2. Every test function name MUST match the TEST SPEC names listed above exactly.\n"
             f"3. The tests MUST FAIL — do NOT implement the feature yet.\n"
-            f"4. Run `pytest {test_file} -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.\n"
-            f"5. Commit: `git add {test_file} && git commit -m \"test(RED): failing test for {fr_id}\"`\n\n"
+            f"4. Run `python3 -m pytest {test_file} -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.\n"
+            f"5. Commit: `git add {test_file} && git commit -m 'test(RED): failing test for {fr_id}'`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "test_file": "{test_file}", '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -1833,9 +1844,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"[TASK]\n"
             f"1. Scan test file per [IMPLEMENTATION CONTRACT] above before writing any code.\n"
             f"2. Create/edit source files in `{src_dir}/` to make `{test_file}` pass.\n"
-            f"3. Run `pytest {test_file} -q` — all tests must pass.\n"
+            f"3. Run `python3 -m pytest {test_file} -q` — all tests must pass.\n"
             f"4. Docstrings must include `[{fr_id}]` tag + `Citations:` with line numbers (HR-15).\n"
-            f"5. Commit: `git add {src_dir}/ && git commit -m \"feat({fr_id}): GREEN\"`\n\n"
+            f"5. Commit: `git add {src_dir}/ && git commit -m 'feat({fr_id}): GREEN'`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "files_changed": [...], '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -1855,10 +1866,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"[TEST INVARIANTS — {test_file} (first 1500 chars)]\n"
             f"{test_content or f'(read from {test_file})'}\n\n"
             f"[TASK]\n"
-            f"1. Run `pytest {test_file} -q` first — confirm all pass before any changes.\n"
+            f"1. Run `python3 -m pytest {test_file} -q` first — confirm all pass before any changes.\n"
             f"2. Refactor source code in `{src_dir}/` for clarity, remove duplication, improve naming.\n"
-            f"3. Re-run `pytest {test_file} -q` — must still pass.\n"
-            f"4. If changes made: `git commit -m \"refactor({fr_id}): IMPROVE\"`\n"
+            f"3. Re-run `python3 -m pytest {test_file} -q` — must still pass.\n"
+            f"4. If changes made: `git commit -m 'refactor({fr_id}): IMPROVE'`\n"
             f"5. If no refactor needed: no commit required.\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "refactored": true/false, '
             f'"commit": "<hash or null>", "summary": "<under 50 chars>"}}'
@@ -2002,10 +2013,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"   @pytest.fixture(autouse=True)\n"
             f"   def _bypass_infra(monkeypatch):\n"
             f"       monkeypatch.setattr(InfraClass, 'verify', lambda *a, **kw: True)\n"
-            f"3. Run `pytest {test_file} -q` — tests must now fail for the RIGHT reason "
+            f"3. Run `python3 -m pytest {test_file} -q` — tests must now fail for the RIGHT reason "
             f"(AssertionError or NameError from missing feature, NOT 401/auth error).\n"
             f"4. Commit: `git add {test_file} tests/conftest.py && "
-            f"git commit -m \"test({fr_id}): fix test isolation — add autouse infra mock\"`\n\n"
+            f"git commit -m 'test({fr_id}): fix test isolation — add autouse infra mock'`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "fixture_added": true, '
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -2036,11 +2047,11 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         if _cf_src_files:
             _cf_include = ",".join(_cf_src_files)
             _cov_check_cmd = (
-                f'coverage run -m pytest {test_file} -q '
-                f'&& coverage report --include="{_cf_include}" -m'
+                f'python3 -m coverage run -m pytest {test_file} -q '
+                f'&& python3 -m coverage report --include="{_cf_include}" -m'
             )
         else:
-            _cov_check_cmd = f"pytest {test_file} --cov={src_dir} --cov-report=term-missing -q"
+            _cov_check_cmd = f"python3 -m pytest {test_file} --cov={src_dir} --cov-report=term-missing -q"
         return (
             f"You are a coverage fixer for {fr_id}.\n\n"
             f"[FORBIDDEN — read first]\n"
@@ -2066,7 +2077,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"`{_cov_check_cmd}`\n"
             f"5. Commit both `{test_file}` and any source changes from ESCAPE HATCH:\n"
             f"   `git add {src_dir}/ {test_file} && "
-            f"git commit -m \"test({fr_id}): add coverage tests and pragma exclusions\"`\n\n"
+            f"git commit -m 'test({fr_id}): add coverage tests and pragma exclusions'`\n\n"
             f"[ESCAPE HATCH — pragma: no cover]\n"
             f"If after adding all reasonable tests coverage is still < 80%, you MAY annotate "
             f"lines in `{src_dir}/` with `# pragma: no cover` ONLY for lines that are "
@@ -2107,7 +2118,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"{tool_snapshot or '(not available)'}\n\n"
             f"[TASK]\n"
             f"1. Identify which tests are skipped and WHY (read the skip condition: "
-            f"`pytest {test_file} -v --collect-only 2>&1 | grep -i skip`).\n"
+            f"`python3 -m pytest {test_file} -v --collect-only 2>&1 | grep -i skip`).\n"
             f"2. For each skipped test, choose ONE approach:\n"
             f"   a. ADD a parallel mock-based test that exercises the same logic without "
             f"real infra (e.g. monkeypatch Redis/Docker client). Keep the original skip "
@@ -2115,9 +2126,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"   b. If the skipped code path is genuinely untestable without the real service "
             f"AND the source branch is an infrastructure-only fallback: annotate with "
             f"`# pragma: no cover` + reason comment in `{src_dir}/`.\n"
-            f"3. Run `pytest {test_file} -q` to verify no new failures are introduced.\n"
+            f"3. Run `python3 -m pytest {test_file} -q` to verify no new failures are introduced.\n"
             f"4. Commit: `git add {src_dir}/ {test_file} && "
-            f"git commit -m \"test({fr_id}): add mock tests for infra-skipped paths\"`\n\n"
+            f"git commit -m 'test({fr_id}): add mock tests for infra-skipped paths'`\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "mocks_added": <count>, '
             f'"pragmas_added": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
@@ -2133,21 +2144,21 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"(document why if you use noqa)\n\n"
             f"[SITUATION]\n"
             f"Gate 1 linting dimension is FAILING. Fix ALL ruff violations in `{src_dir}/` "
-            f"so `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` exits 0.\n\n"
+            f"so `python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` exits 0.\n\n"
             f"[ACTUAL TOOL OUTPUT — from pre-run]\n"
             f"{tool_snapshot or '(not available)'}\n\n"
             f"[TASK]\n"
-            f"1. Run `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1` to see the full violation list.\n"
+            f"1. Run `python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1` to see the full violation list.\n"
             f"2. For N-series violations (naming conventions — N801, N802, N806, N816 etc.):\n"
             f"   - Rename constants/variables to follow PEP 8 naming (UPPER_CASE for module "
             f"constants, UpperCase for classes, lower_case for functions/variables).\n"
             f"   - Update ALL references to each renamed symbol (use `grep -rn '<old_name>'` "
             f"to find them, then rename systematically).\n"
             f"3. For E/W-series violations: fix in-place per ruff's suggestion.\n"
-            f"4. Re-run `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` — it MUST exit 0 before you commit.\n"
-            f"5. Run `pytest {test_file} -q` to confirm no tests broken by renames.\n"
+            f"4. Re-run `python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` — it MUST exit 0 before you commit.\n"
+            f"5. Run `python3 -m pytest {test_file} -q` to confirm no tests broken by renames.\n"
             f"6. Commit: `git add {src_dir}/ && "
-            f"git commit -m \"fix({fr_id}): resolve ruff linting violations\"`\n\n"
+            f"git commit -m 'fix({fr_id}): resolve ruff linting violations'`\n\n"
             f"[NOTE] If BOTH linting AND test_coverage were failing, this session fixes "
             f"linting ONLY. The meta-loop will address coverage in the next round.\n\n"
             f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "violations_fixed": <count>, '
@@ -2163,16 +2174,16 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"You are a code fixer. Gate 1 for {fr_id} could not complete "
                 f"(sub-agent timeout or error — no gate1_result.json was written).\n\n"
                 f"[TASK — diagnostic mode]\n"
-                f"1. Run `pytest tests/ -q` to identify failing / missing tests.\n"
-                f"2. Run `ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` to identify lint errors.\n"
+                f"1. Run `python3 -m pytest tests/ -q` to identify failing / missing tests.\n"
+                f"2. Run `python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` to identify lint errors.\n"
                 f"3. Based on actual results:\n"
                 f"   a. If tests are failing or missing → add/fix tests in `{test_file}` "
                 f"AND fix source code in `{src_dir}/` as needed.\n"
                 f"   b. If lint errors → fix source code only.\n"
-                f"4. Run `pytest tests/ -q` to confirm all tests pass.\n"
+                f"4. Run `python3 -m pytest tests/ -q` to confirm all tests pass.\n"
                 f"5. Commit all changed files: "
                 f"`git add {src_dir}/ {test_file} && "
-                f"git commit -m \"fix({fr_id}): address Gate1 failures\"`\n\n"
+                f"git commit -m 'fix({fr_id}): address Gate1 failures'`\n\n"
                 f"[FORBIDDEN]\n"
                 f"- Deleting or modifying existing passing tests\n"
                 f"- app/infrastructure/ paths\n\n"
@@ -2215,7 +2226,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 parts.append(
                     f"PRESENT but failing ({len(present_spec)} tests) — these tests exist in `{test_file}`:\n"
                     + "\n".join(f"  - {fn}" for fn in present_spec)
-                    + "\n  → Run `pytest {test_file} -v` and fix each failing test.\n\n"
+                    + "\n  → Run `python3 -m pytest {test_file} -v` and fix each failing test.\n\n"
                 )
 
             if not spec_test_names:
@@ -2246,7 +2257,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"   b. For tests that exist but FAIL: fix source code or the failing assertion."
             )
             n += 1
-        task_lines.append(f"{n}. Run `pytest tests/ -q` to confirm ALL tests pass.")
+        task_lines.append(f"{n}. Run `python3 -m pytest tests/ -q` to confirm ALL tests pass.")
         n += 1
         git_paths = " ".join(filter(None, [
             f"{src_dir}/" if _src_failing else "",
@@ -2254,7 +2265,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         ]))
         task_lines.append(
             f"{n}. Commit: `git add {git_paths} && "
-            f"git commit -m \"fix({fr_id}): address Gate1 failing dims\"`"
+            f"git commit -m 'fix({fr_id}): address Gate1 failing dims'`"
         )
 
         # ── FORBIDDEN ────────────────────────────────────────────────────

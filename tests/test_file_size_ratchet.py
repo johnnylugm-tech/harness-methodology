@@ -60,7 +60,13 @@ _LINE_CEILING: dict[str, int] = {
     # are detected, matching the fix already applied at spec_alignment.py /
     # phase_hooks.py / spec_coverage.py / artifact_parsers.py; the fail-fast
     # error message's regex literal was updated to match.
-    "cli/phase_cmds.py": 2587,
+    # 2026-07-16: +93 lines — Round 12 站0b: _run_substrate_probe (spawn-
+    # substrate preflight at run-phase entry for PER_FR_GATE1_PHASES, with
+    # 6h success cache + --skip-substrate-probe escape hatch). One 90s
+    # probe replaces the 2026-07-16 failure mode where the per-FR loop
+    # burned 140 dispatches / ~2.5h on FR-01 discovering spawned agents
+    # could not execute pytest/git.
+    "cli/phase_cmds.py": 2680,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -128,13 +134,30 @@ _LINE_CEILING: dict[str, int] = {
     # Wraps the dispatch in a bounded (2-attempt) plain re-dispatch loop
     # (identical prompt, no failure classification — unlike GATE1's
     # CODE-FIX/LINT-FIX routing) plus the new _STEP_RETRY_ATTEMPTS constant.
-    "cli/fr_cmds.py": 2397,
+    # 2026-07-16: +11 lines — Round 12 站0a/0d: dispatch-prompt commands
+    # switched to allowlist-compatible `python3 -m` module forms (guarded by
+    # tests/test_dispatch_prompt_command_forms.py), and
+    # _resolve_phase3_context's docstring now records the measured
+    # --setting-sources semantics matrix ("project" also loads the USER's
+    # global CLAUDE.md — the leak that stalled headless agents on
+    # 2026-07-16) with setting_sources pinned to "".
+    "cli/fr_cmds.py": 2408,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
     # clarifying it must run BEFORE advance-phase for a phase-scoped C10
     # result (no workflow JS ever calls it automatically).
     "cli/project_cmds.py": 1920,  # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
+    # 2026-07-16: Round 12 站0 — agent_spawner crossed the unlisted-file
+    # threshold (900) with three additions: _extract_dispatch_error /
+    # _denoise_cli_stderr (站0c error-capture denoise — closes the 76×
+    # banner-only observability black hole), _UNATTENDED_PREAMBLE +
+    # --append-system-prompt (站0d isolation against the measured
+    # setting-sources user-CLAUDE.md leak), and preflight_substrate()
+    # (站0b probe). All three are dispatch-substrate concerns that belong
+    # with spawn(); splitting them out would separate the probe from the
+    # substrate it measures.
+    "core/agent_spawner.py": 940,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

@@ -752,19 +752,19 @@ def _print_fr_scoped_overrides_py(
             f"Infrastructure/config FRs are exempt from coverage measurement.\n"
             f"  Set tool_evidence = 'non-code FR: {fr_id} declared in fr_non_code'\n\n"
             f"linting — lint only the FR source directory:\n"
-            f"  ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
+            f"  python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
             f"type_safety — type-check only the FR source directory:\n"
-            f"  pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
+            f"  python3 -m pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
         )
         return
 
     if src_files:
         include_flag = ",".join(src_files)
         cov_cmd = (
-            f"  coverage run -m pytest {test_file} "
-            f"&& coverage json --include=\"{include_flag}\" -o - \\\n"
-            f"    || PYTHONPATH=. coverage run -m pytest {test_file} "
-            f"&& coverage json --include=\"{include_flag}\" -o - \\\n"
+            f"  python3 -m coverage run -m pytest {test_file} "
+            f"&& python3 -m coverage json --include=\"{include_flag}\" -o - \\\n"
+            f"    || PYTHONPATH=. python3 -m coverage run -m pytest {test_file} "
+            f"&& python3 -m coverage json --include=\"{include_flag}\" -o - \\\n"
             f"    || PYTHONPATH=. python3 -m pytest {test_file} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
@@ -772,10 +772,10 @@ def _print_fr_scoped_overrides_py(
     else:
         # Fallback: test file absent or no imports matched — use full src dir
         cov_cmd = (
-            f"  coverage run --source={src_dir} -m pytest {test_file} "
-            f"&& coverage json -o - \\\n"
-            f"    || PYTHONPATH=. coverage run --source={src_dir} -m pytest {test_file} "
-            f"&& coverage json -o - \\\n"
+            f"  python3 -m coverage run --source={src_dir} -m pytest {test_file} "
+            f"&& python3 -m coverage json -o - \\\n"
+            f"    || PYTHONPATH=. python3 -m coverage run --source={src_dir} -m pytest {test_file} "
+            f"&& python3 -m coverage json -o - \\\n"
             f"    || PYTHONPATH=. python3 -m pytest {test_file} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
@@ -789,9 +789,9 @@ def _print_fr_scoped_overrides_py(
         f"{cov_cmd}\n"
         f"{cov_note}\n\n"
         f"linting — lint only the FR source directory:\n"
-        f"  ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
+        f"  python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
         f"type_safety — type-check only the FR source directory:\n"
-        f"  pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
+        f"  python3 -m pyright {src_dir}/ --outputjson 2>&1 | head -200\n"
     )
 
 def _print_fr_scoped_overrides_js(

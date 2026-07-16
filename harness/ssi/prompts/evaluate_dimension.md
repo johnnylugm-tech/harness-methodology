@@ -44,7 +44,7 @@ Run all tools for this dimension. Save raw output:
 ### linting (Tier 1)
 ```bash
 # python:
-ruff check . --output-format json --exit-zero 2>&1 | head -200
+python3 -m ruff check . --output-format json --exit-zero 2>&1 | head -200
 # javascript / typescript:
 npx --no-install eslint . -f json 2>&1 | head -200
 ```
@@ -54,7 +54,7 @@ array items; eslint: sum `errorCount + warningCount` across file results.
 ### type_safety (Tier 1)
 ```bash
 # python:
-pyright src/ --outputjson 2>&1 | head -200
+python3 -m pyright src/ --outputjson 2>&1 | head -200
 # typescript:
 npx --no-install tsc --noEmit --pretty false 2>&1; echo "tsc exit=$?"
 # javascript (JSDoc types via checkJs — tsconfig.checkjs.json from init-project):
@@ -68,8 +68,8 @@ validator needs the marker.
 ### test_coverage (Tier 1)
 ```bash
 # python — C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
-coverage run -m pytest && coverage json -o - \
-  || PYTHONPATH=. coverage run -m pytest && coverage json -o - \
+python3 -m coverage run -m pytest && python3 -m coverage json -o - \
+  || PYTHONPATH=. python3 -m coverage run -m pytest && python3 -m coverage json -o - \
   || PYTHONPATH=. python3 -m pytest --cov=. --cov-report=term-missing
 
 # javascript / typescript (vitest):
@@ -141,7 +141,7 @@ python3 -c "from harness.tool_runners import run_tool; print(run_tool('js-assert
 ### security (Tier 2)
 ```bash
 # python:
-bandit -r src/ -f json --exit-zero 2>&1 | head -300
+python3 -m bandit -r src/ -f json --exit-zero 2>&1 | head -300
 # javascript / typescript — vendored ruleset only (reproducible scores; never remote packs):
 semgrep scan --config harness/toolchains/semgrep_rules/js_security.yaml --json --metrics=off --quiet 2>&1 | head -300
 ```
@@ -150,7 +150,7 @@ semgrep scan --config harness/toolchains/semgrep_rules/js_security.yaml --json -
 ### secrets_scanning (Tier 1)
 ```bash
 gitleaks detect --source . --report-format json
-detect-secrets scan . --baseline .secrets.baseline
+python3 -m detect_secrets scan . --baseline .secrets.baseline
 ```
 
 ### license_compliance (Tier 1)
@@ -337,7 +337,7 @@ The harness `finalize-gate` will bypass the architecture score threshold when
 
 ```bash
 # python:
-radon mi src/ -j 2>&1 | head -100
+python3 -m radon mi src/ -j 2>&1 | head -100
 # javascript / typescript — framework tree-sitter MI (radon-compatible output):
 python3 -c "from harness.tool_runners import run_tool; print(run_tool('js-mi', '.')[0])"
 ```
@@ -406,7 +406,7 @@ scan independently, so a fabricated score is blocked.
 benchmark suite and scores real mean latencies:
 ```bash
 # python:
-pytest 03-development/tests --benchmark-only --benchmark-disable-gc --benchmark-columns mean,max --tb no -q
+python3 -m pytest 03-development/tests --benchmark-only --benchmark-disable-gc --benchmark-columns mean,max --tb no -q
 # javascript / typescript — normalized tinybench contract (template from init-project):
 node benchmarks/run.mjs
 ```

@@ -454,20 +454,26 @@ class TestRunFrStep:
         assert rc == 1
 
     def test_step_does_not_retry_exhausted_structural_signature(self, tmp_path, monkeypatch):
-        """A connector-disabled (STRUCTURAL) failure must NOT be retried at
-        this layer — Fix H-G already retried it 3x at the transport layer
-        inside AgentSpawner.spawn(); retrying again here would only delay
-        the (correct) structural abort, not change the outcome."""
+        """A STRUCTURAL failure must NOT be retried at this layer — Fix H-G
+        already retried it 3x at the transport layer inside
+        AgentSpawner.spawn(); retrying again here would only delay the
+        (correct) structural abort, not change the outcome.
+
+        Round 12 站0c: the production registry is empty (the connectors
+        banner was disproven as a failure cause), so the mechanism is
+        driven by a synthetic signature injected into the real registry."""
         import sys
         import types
         import harness_cli
 
+        import core.agent_spawner as _real_spawner_mod
+
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
-        _connector_disabled_output = (
-            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
-            "or another auth source is set and takes precedence over your "
-            "claude.ai login · Unset it to load your organization's connectors"
+        _synthetic_output = "SYNTHETIC_STRUCTURAL_BREAKAGE: env permanently dead"
+        monkeypatch.setattr(
+            _real_spawner_mod, "_STRUCTURAL_FAILURE_SIGNATURES",
+            ("SYNTHETIC_STRUCTURAL_BREAKAGE",),
         )
         calls: list[dict] = []
 
@@ -478,7 +484,7 @@ class TestRunFrStep:
                 calls.append(kwargs)
                 return {
                     "status": "ERROR",
-                    "output": _connector_disabled_output,
+                    "output": _synthetic_output,
                     "error_class": "STRUCTURAL",
                 }
 
@@ -680,8 +686,8 @@ class TestRunFrStep:
 
         prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
         scoped_cmd = (
-            'coverage run -m pytest tests/test_fr01.py -q '
-            '&& coverage report --include="03-development/src/taskq/storage/store.py" -m'
+            'python3 -m coverage run -m pytest tests/test_fr01.py -q '
+            '&& python3 -m coverage report --include="03-development/src/taskq/storage/store.py" -m'
         )
         assert scoped_cmd in prompt
         assert "--cov=03-development/src --cov-report=term-missing -q" not in prompt
@@ -864,15 +870,19 @@ class TestRunFrStep:
         rc = harness_cli.cmd_run_fr_step(args)
         assert rc == 2  # BLOCKED
 
-    def test_gate1_fails_fast_on_connector_disabled(self, tmp_path, monkeypatch):
+    def test_gate1_fails_fast_on_structural_signature(self, tmp_path, monkeypatch):
         """Regression (P3 2026-07-12 FR-04 abort): when a spawned fix sub-agent
-        can't start because claude.ai connectors are disabled (an
-        ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN-style env var takes precedence),
-        every retry reproduces the identical, deterministic failure — there is
-        no number of CODE-FIX/LINT-FIX/COVERAGE-FIX rounds that can ever
-        succeed. run-fr-step must detect this signature and abort immediately
-        with DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE instead of exhausting
-        max_fix_rounds (previously: a silent multi-hour retry loop).
+        hits a deterministic-breakage signature, every retry reproduces the
+        identical failure — no number of CODE-FIX/LINT-FIX/COVERAGE-FIX
+        rounds can ever succeed. run-fr-step must detect this and abort
+        immediately with DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE instead of
+        exhausting max_fix_rounds (previously: a silent multi-hour retry loop).
+
+        Round 12 站0c: the original driving signature (the connectors
+        banner) was disproven as a failure cause and the production
+        registry is now empty, so a synthetic signature drives the
+        mechanism (see test_banner_only_failure_is_not_structural_abort
+        for the semantic flip).
 
         Uses a real (fresh) git repo with no finalize-gate sentinel rather than
         patching the private `_fr_step_already_done` — on a fresh tmp_path,
@@ -883,13 +893,15 @@ class TestRunFrStep:
         import types
         import harness_cli
 
+        import core.agent_spawner as _real_spawner_mod
+
         _setup_preflight_fixtures(tmp_path, step="GATE1")
 
         _gate_fail_output = '{"status": "DONE", "pass": false, "failing_dims": ["D1"], "gate_score": 0.2}'
-        _connector_disabled_output = (
-            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
-            "or another auth source is set and takes precedence over your "
-            "claude.ai login · Unset it to load your organization's connectors"
+        _synthetic_output = "SYNTHETIC_STRUCTURAL_BREAKAGE: env permanently dead"
+        monkeypatch.setattr(
+            _real_spawner_mod, "_STRUCTURAL_FAILURE_SIGNATURES",
+            ("SYNTHETIC_STRUCTURAL_BREAKAGE",),
         )
         spawn_calls: list[dict] = []
 
@@ -903,7 +915,7 @@ class TestRunFrStep:
                     return {"status": "complete", "output": _gate_fail_output}
                 # Every fix-dispatch attempt (CODE-FIX/LINT-FIX/etc.) fails
                 # identically because the environment itself is broken.
-                return {"status": "FAILED", "output": _connector_disabled_output}
+                return {"status": "FAILED", "output": _synthetic_output}
 
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
@@ -920,8 +932,8 @@ class TestRunFrStep:
         # point is to not retry a structurally-broken environment.
         assert len(spawn_calls) == 2
 
-    def test_first_dispatch_fails_fast_on_connector_disabled(self, tmp_path, monkeypatch):
-        """FIX-O regression (P3 2026-07-13 FR-01 abort): the connector-disabled
+    def test_first_dispatch_fails_fast_on_structural_signature(self, tmp_path, monkeypatch):
+        """FIX-O regression (P3 2026-07-13 FR-01 abort): a structural
         signature must be caught on the FIRST dispatch of a step too, not only
         inside the GATE1 fix-loop's retry dispatches. Before this fix, a
         TDD-RED/TDD-GREEN/TDD-IMPROVE (or GATE1's very first, pre-fix-loop)
@@ -929,17 +941,20 @@ class TestRunFrStep:
         `else: ... return 1` branch — no [FATAL] diagnostic, no distinct exit
         code, no env-var hint — even though the two other dispatch sites in
         this same function (fix-loop CODE-FIX/LINT-FIX/COVERAGE-FIX, and
-        GATE1's post-fix-round re-dispatch) already special-case it."""
+        GATE1's post-fix-round re-dispatch) already special-case it.
+        (Round 12 站0c: synthetic signature — production registry is empty.)"""
         import sys
         import types
         import harness_cli
 
+        import core.agent_spawner as _real_spawner_mod
+
         _setup_preflight_fixtures(tmp_path, step="TDD-RED")
 
-        _connector_disabled_output = (
-            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
-            "or another auth source is set and takes precedence over your "
-            "claude.ai login · Unset it to load your organization's connectors"
+        _synthetic_output = "SYNTHETIC_STRUCTURAL_BREAKAGE: env permanently dead"
+        monkeypatch.setattr(
+            _real_spawner_mod, "_STRUCTURAL_FAILURE_SIGNATURES",
+            ("SYNTHETIC_STRUCTURAL_BREAKAGE",),
         )
         spawn_calls: list[dict] = []
 
@@ -948,7 +963,7 @@ class TestRunFrStep:
                 pass
             def spawn(self, **kwargs):
                 spawn_calls.append(kwargs)
-                return {"status": "FAILED", "output": _connector_disabled_output}
+                return {"status": "FAILED", "output": _synthetic_output}
 
         fake_mod = types.ModuleType("core.agent_spawner")
         fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
@@ -962,6 +977,51 @@ class TestRunFrStep:
         assert rc == DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
         # Single dispatch, no retry — TDD-RED has no fix-loop to enter.
         assert len(spawn_calls) == 1
+
+    def test_banner_only_failure_is_not_structural_abort(self, tmp_path, monkeypatch):
+        """Round 12 站0c semantic flip: the connectors banner alone must NOT
+        trigger the structural fast-abort any more. Production evidence
+        (2026-07-16 P3 run: 76/461 sessions_spawn.log entries carried the
+        banner as their ONLY error output, while Fix H-G's own data showed
+        4/5 next-dispatches succeed with the banner present) disproved the
+        fatal-env theory — the banner is startup noise, and treating it as
+        deterministic breakage aborted pipelines that would have recovered.
+        A banner-only failure now takes the ordinary error path (retry per
+        Fix H-H, then plain non-zero exit — NOT exit 23)."""
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+
+        _banner_output = (
+            "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
+            "or another auth source is set and takes precedence over your "
+            "claude.ai login · Unset it to load your organization's connectors"
+        )
+        spawn_calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                spawn_calls.append(kwargs)
+                return {"status": "FAILED", "output": _banner_output}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=30, max_fix_rounds=3,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc != DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
+        assert rc == 1
+        # Ordinary error path: Fix H-H's bounded step retry runs (2 attempts),
+        # instead of the old single-dispatch structural abort.
+        assert len(spawn_calls) == 2
 
     def test_resume_fr_phase_carryforward_uses_gate1_delta(self, tmp_path, monkeypatch):
         """resume-fr-phase emits GATE1-DELTA for carry-forward phases when code unchanged."""

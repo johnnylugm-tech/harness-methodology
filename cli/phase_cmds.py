@@ -1228,6 +1228,79 @@ def _advance_fsm(project: Path, completed_phase: int,
 
 # --- advance/handoff cluster (moved verbatim from harness_cli.py, S4g) ---
 
+_SUBSTRATE_PROBE_CACHE = ".sessi-work/substrate_probe_ok.json"
+_SUBSTRATE_PROBE_TTL_SECONDS = 6 * 3600  # one workflow run calls run-phase 2×
+
+
+def _run_substrate_probe(project: Path, phase: int) -> int:
+    """Spawn-substrate preflight (Round 12 站0b). 0 = OK / cached-OK.
+
+    On failure prints the three-surface diagnosis (which probe command was
+    blocked, the effective permission_mode/setting_sources, and the agent
+    output tail) and returns non-zero so run-phase FATALs before any
+    per-FR dispatch loop starts. A success is cached for
+    _SUBSTRATE_PROBE_TTL_SECONDS so the workflow's second run-phase call
+    in the same run does not pay for a second probe.
+    """
+    import time as _time
+
+    from cli.fr_cmds import _resolve_phase3_context
+    from core.agent_spawner import AgentSpawner
+
+    cache_path = project / _SUBSTRATE_PROBE_CACHE
+    try:
+        cached = json.loads(cache_path.read_text())
+        if (cached.get("ok") is True
+                and _time.time() - float(cached.get("ts", 0)) < _SUBSTRATE_PROBE_TTL_SECONDS):
+            print("\n[SUBSTRATE PROBE] cached OK "
+                  f"({int(_time.time() - float(cached['ts']))}s ago) — skipping")
+            return 0
+    except (OSError, ValueError, TypeError):
+        pass
+
+    phase_ctx = _resolve_phase3_context(project)
+    pmode = get_value(project, "permission_mode")
+    print("\n[SUBSTRATE PROBE] verifying spawned sub-agents can execute "
+          "python3/pytest + git (≤90s) ...")
+    spawner = AgentSpawner(project_path=project)
+    probe = spawner.preflight_substrate(
+        phase=phase,
+        mcp_config=phase_ctx["mcp_config"],
+        setting_sources=phase_ctx["setting_sources"] or "",
+        permission_mode=pmode,
+    )
+    if probe["ok"]:
+        print("[SUBSTRATE PROBE] OK — pytest/git/canary all executed")
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({"ok": True, "ts": _time.time()}))
+        except OSError:
+            pass
+        return 0
+    print(
+        "\n[FATAL] run-phase: spawn-substrate probe FAILED — sub-agents "
+        "dispatched in this environment cannot do pipeline work. NOT "
+        "entering the per-FR loop (this exact condition wasted 140 "
+        "dispatches / ~2.5h on 2026-07-16).\n"
+        f"  probe spawn status : {probe['status']}\n"
+        f"  python3 -m pytest  : {'OK' if probe['pytest_ok'] else 'BLOCKED/missing'}\n"
+        f"  git commit --dry-run: {'OK' if probe['git_ok'] else 'BLOCKED/missing'}\n"
+        f"  canary echo        : {'OK' if probe['canary_ok'] else 'BLOCKED/missing'}\n"
+        f"  permission_mode    : {probe['permission_mode']}\n"
+        f"  setting_sources    : {probe['setting_sources']!r}\n"
+        "  Common causes: Bash tool permission wall in the spawned session "
+        "(check .claude/settings.local.json allowlist — `python3 *` and "
+        "`git commit -m ' *` entries cover the pipeline's command forms), "
+        "an OS sandbox wrapping the nested claude CLI, or a stale/broken "
+        "claude installation.\n"
+        "  Agent output tail:\n    "
+        + probe["detail"][-600:].replace("\n", "\n    ")
+        + "\n  Re-run after fixing, or bypass once with --skip-substrate-probe.",
+        file=sys.stderr,
+    )
+    return 24
+
+
 def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     """Run preflight checks for a phase.
 
@@ -1281,6 +1354,21 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
             "  See SKILL.md / harness/ssi/prompts/evaluate_dimension.md for install commands."
         )
         return 1
+
+    # ── Round 12 站0b: spawn-substrate preflight probe ───────────────────
+    # Governance preflight above proves the ARTIFACTS are ready; it says
+    # nothing about whether a spawned `claude -p` sub-agent can actually
+    # execute pytest / git commit in this environment. The 2026-07-16 P3
+    # run burned ~2.5h and 140 dispatches on FR-01 discovering it could
+    # not (agents stalled on permission walls → 600s timeouts → empty
+    # commits). One 90s probe here surfaces that before the per-FR loop.
+    # Probe parameters mirror run-fr-step's real dispatch parameters
+    # (same _resolve_phase3_context + values.permission_mode chain) so it
+    # measures the substrate the pipeline will actually use.
+    if args.phase in PER_FR_GATE1_PHASES and not getattr(args, "skip_substrate_probe", False):
+        _probe_rc = _run_substrate_probe(project, args.phase)
+        if _probe_rc != 0:
+            return _probe_rc
 
     # Phase 3+: point to LLM-driven env check (project-aware, reads SAD.md + SRS.md).
     # preflight_all() validates governance artifacts but does not check runtime
@@ -2528,6 +2616,11 @@ def register(sub) -> None:
     rp = sub.add_parser("run-phase", help="Run preflight checks before entering a phase")
     rp.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     rp.add_argument("--project", default=".", help="Project root (default: .)")
+    rp.add_argument("--skip-substrate-probe", action="store_true",
+                    dest="skip_substrate_probe",
+                    help="Skip the spawn-substrate preflight probe (Round 12 站0b). "
+                         "Escape hatch for a broken/false-positive probe — the "
+                         "per-FR loop then runs unprotected against permission walls.")
     rp.set_defaults(func=cmd_run_phase)
 
     # pre-commit-check (git commit hook only — FSM + BVS order + kill-switch + trace freshness)

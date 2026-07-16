@@ -2266,3 +2266,79 @@ class TestAdvanceFsmPreservesExistingStateFields:
         sd = json.loads(state_path.read_text(encoding="utf-8"))
         assert sd["current_phase"] == 2
         assert sd["state"] == "INIT"
+
+
+class TestRunSubstrateProbe:
+    """Round 12 站0b: run-phase's spawn-substrate preflight wiring.
+    _run_substrate_probe must FATAL (rc 24) before the per-FR loop when the
+    probe fails, pass through (rc 0) when it succeeds, and honour the
+    success cache so the workflow's second run-phase call in the same run
+    does not pay for a second probe."""
+
+    def _fake_probe(self, ok: bool):
+        return {
+            "ok": ok, "pytest_ok": ok, "git_ok": ok, "canary_ok": ok,
+            "permission_mode": "bypassPermissions", "setting_sources": "",
+            "status": "complete" if ok else "TIMEOUT",
+            "detail": "pytest 8.4.2" if ok else "Agent timed out after 90s",
+        }
+
+    def test_probe_ok_returns_zero_and_writes_cache(self, tmp_path, monkeypatch):
+        from cli.phase_cmds import _run_substrate_probe
+        _probe_result = self._fake_probe(True)
+        monkeypatch.setattr(
+            "core.agent_spawner.AgentSpawner.preflight_substrate",
+            lambda self, **kw: _probe_result,
+        )
+        rc = _run_substrate_probe(tmp_path, 3)
+        assert rc == 0
+        cache = tmp_path / ".sessi-work" / "substrate_probe_ok.json"
+        assert cache.exists()
+        assert json.loads(cache.read_text())["ok"] is True
+
+    def test_probe_fail_returns_fatal_24(self, tmp_path, monkeypatch, capsys):
+        from cli.phase_cmds import _run_substrate_probe
+        _probe_result = self._fake_probe(False)
+        monkeypatch.setattr(
+            "core.agent_spawner.AgentSpawner.preflight_substrate",
+            lambda self, **kw: _probe_result,
+        )
+        rc = _run_substrate_probe(tmp_path, 3)
+        assert rc == 24
+        err = capsys.readouterr().err
+        assert "[FATAL]" in err
+        assert "python3 -m pytest" in err
+        assert "permission_mode" in err
+        # no success cache on failure
+        assert not (tmp_path / ".sessi-work" / "substrate_probe_ok.json").exists()
+
+    def test_fresh_cache_skips_probe_entirely(self, tmp_path, monkeypatch):
+        import time as _time
+
+        from cli.phase_cmds import _run_substrate_probe
+        cache = tmp_path / ".sessi-work" / "substrate_probe_ok.json"
+        cache.parent.mkdir(parents=True)
+        cache.write_text(json.dumps({"ok": True, "ts": _time.time()}))
+
+        def _boom(self, **kw):
+            raise AssertionError("probe must not spawn when cache is fresh")
+
+        monkeypatch.setattr(
+            "core.agent_spawner.AgentSpawner.preflight_substrate", _boom)
+        assert _run_substrate_probe(tmp_path, 3) == 0
+
+    def test_stale_cache_reprobes(self, tmp_path, monkeypatch):
+        import time as _time
+
+        from cli.phase_cmds import _run_substrate_probe
+        cache = tmp_path / ".sessi-work" / "substrate_probe_ok.json"
+        cache.parent.mkdir(parents=True)
+        cache.write_text(json.dumps({"ok": True, "ts": _time.time() - 7 * 3600}))
+        _probe_result = self._fake_probe(True)
+        called = []
+        monkeypatch.setattr(
+            "core.agent_spawner.AgentSpawner.preflight_substrate",
+            lambda self, **kw: (called.append(1), _probe_result)[1],
+        )
+        assert _run_substrate_probe(tmp_path, 3) == 0
+        assert called == [1]

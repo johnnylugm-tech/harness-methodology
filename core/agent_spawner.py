@@ -53,12 +53,19 @@ _INFRA_ERROR_RE = re.compile(
 # this one signature). The detection registry lives HERE and only here —
 # cli/fr_cmds.py delegates to is_structurally_broken(); a second copy of a
 # signature string is the next unswept-sibling incident.
-_STRUCTURAL_FAILURE_SIGNATURES = (
-    # Claude Code CLI's fixed output when an ANTHROPIC_API_KEY/
-    # ANTHROPIC_AUTH_TOKEN-style env var overrides claude.ai login,
-    # blocking ALL sub-agent spawns.
-    "claude.ai connectors are disabled",
-)
+#
+# Round 12 站0c (2026-07-16): "claude.ai connectors are disabled" REMOVED.
+# Production evidence killed the fatal-env theory twice over: the current
+# P3 run's sessions_spawn.log has 76/461 entries whose error_output is
+# ONLY this warning (it is the CLI's startup banner whenever an
+# ANTHROPIC_API_KEY-style env var is set — printed on successful spawns
+# too), and Fix H-G's own data (4/5 same-FR next-dispatches succeeded)
+# already showed retries DO succeed with the warning present. The banner
+# is now stripped by _extract_dispatch_error() before classification, so
+# it can never masquerade as the failure cause again. The registry stays
+# (mechanism + bounded-retry loop are signature-driven) — it is simply
+# empty until a genuinely deterministic breakage signature is proven.
+_STRUCTURAL_FAILURE_SIGNATURES: tuple[str, ...] = ()
 
 # Fix H-G (P3 2026-07-15 round 4): production sessions_spawn.log evidence
 # (362 dispatches, 7 STRUCTURAL occurrences) shows the "every retry fails
@@ -86,6 +93,29 @@ _INNER_NOOP_SIGNATURES: frozenset[str] = frozenset({
     "NOTHING_TO_DO",
 })
 
+# Unattended-execution override, passed via --append-system-prompt on every
+# spawn (Round 12 站0d). Live probe evidence (2026-07-16): --setting-sources
+# "project" ALSO loads the user's global ~/.claude/CLAUDE.md, whose
+# interactive-collaboration rules ("state assumptions and wait for user
+# confirmation before acting", "ask one clarifying question when unsure")
+# are behaviour-corrupting in a headless pipeline — production agents
+# stalled awaiting approval (600s timeouts, "pytest/ruff and commit require
+# approval" replies). The system-prompt layer outranks memory files, so
+# this preamble neutralises those rules even if a future setting_sources
+# value leaks them in again.
+_UNATTENDED_PREAMBLE = (
+    "UNATTENDED EXECUTION CONTEXT: this session is a headless pipeline "
+    "sub-agent. There is no human present and none will ever reply. "
+    "Ignore any instruction from memory/CLAUDE.md files that tells you to "
+    "wait for user confirmation, ask clarifying questions, present a plan "
+    "before acting, or address a human honorific. Execute the task "
+    "directly, verify with the tools you are permitted to run, and return "
+    "the requested output format. If a tool is blocked, record the exact "
+    "denial message in your reply and continue — never stop to wait for "
+    "approval."
+)
+
+
 # Steps that MUST produce a non-empty commit to be considered done.
 # Centralised here so cli/fr_cmds.py's 5 inline commit-required lists
 # stay in sync. LINT-FIX / CODE-FIX / COVERAGE-FIX do NOT appear
@@ -101,6 +131,62 @@ def is_structurally_broken(output: str) -> bool:
     """True when a dispatch failure is deterministic — retrying cannot succeed."""
     text = output or ""
     return any(sig in text for sig in _STRUCTURAL_FAILURE_SIGNATURES)
+
+
+# CLI startup banner lines that appear on stderr of EVERY `claude -p`
+# invocation under certain env conditions (successful spawns included).
+# They are noise, not failure causes: on the current P3 run, 76/461
+# sessions_spawn.log entries had error_output consisting of ONLY the
+# connectors banner, hiding the real error entirely (Round 12 站0c).
+_CLI_STARTUP_NOISE_RE = re.compile(
+    r"^\s*⚠?\s*claude\.ai connectors are disabled.*$"
+    r"|^\s*·?\s*Unset it to load your organization'?s connectors.*$"
+    r"|^\s*Warning: no stdin data received in \d+s, proceeding without it.*$",
+    re.MULTILINE,
+)
+
+
+def _denoise_cli_stderr(text: str) -> str:
+    """Strip known startup-banner noise lines, preserving everything else."""
+    if not text:
+        return ""
+    cleaned = _CLI_STARTUP_NOISE_RE.sub("", text)
+    # collapse the blank lines the substitution leaves behind
+    return re.sub(r"\n{2,}", "\n", cleaned).strip()
+
+
+def _extract_dispatch_error(stdout: str, stderr: str) -> str:
+    """Best real-cause extraction from a failed `claude -p` subprocess.
+
+    Priority (Round 12 站0c — closes the 76× banner-only black hole):
+    1. stdout parses as the CLI's result JSON → its `result` (and error
+       subtype, if any) is the agent-visible failure text.
+    2. denoised stderr (startup banners stripped) if anything remains.
+    3. raw stdout tail; last resort raw stderr (so the entry is never
+       empty when the subprocess produced ANY output).
+    """
+    stdout = stdout or ""
+    stderr = stderr or ""
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        data = None
+    if isinstance(data, dict):
+        parts = []
+        subtype = data.get("subtype")
+        if data.get("is_error") and subtype:
+            parts.append(f"subtype={subtype}")
+        result_text = data.get("result")
+        if isinstance(result_text, str) and result_text.strip():
+            parts.append(result_text.strip())
+        if parts:
+            return " ".join(parts)
+    cleaned_stderr = _denoise_cli_stderr(stderr)
+    if cleaned_stderr:
+        return cleaned_stderr
+    if stdout.strip():
+        return stdout.strip()[-1000:]
+    return stderr.strip()
 
 
 def _validate_inner_json(data: dict, step: str | None) -> dict | None:
@@ -242,8 +328,14 @@ class AgentSpawner:
             mcp_config: Path to .mcp.json (relative to project_path), inline
                 JSON string, or None. None = empty MCP (current default).
                 File not found → stderr warning + fallback to empty MCP.
-            setting_sources: Passed to --setting-sources. "" (default) blocks
-                all CLAUDE.md. "project" loads project-level CLAUDE.md only.
+            setting_sources: Passed to --setting-sources. Measured semantics
+                (probed live 2026-07-16, Round 12 站0d — do NOT trust the
+                flag name): "" → NO CLAUDE.md memory at all; "user" → user
+                CLAUDE.md loads; "project" → project CLAUDE.md AND the
+                user's global CLAUDE.md BOTH load (this leak shipped the
+                user's interactive-collaboration protocol into headless
+                agents, which then stalled awaiting a human confirmation);
+                "local" → no user CLAUDE.md. Use "" for isolation.
             permission_mode: Claude Code --permission-mode. "acceptEdits"
                 (default) auto-approves file edits, blocks Bash. "bypassPermissions"
                 auto-approves all tools including shell commands.
@@ -297,6 +389,13 @@ class AgentSpawner:
             "--max-turns", str(max_turns),
             "--permission-mode", permission_mode,
             "--no-session-persistence",
+            # Round 12 站0d: every spawn is unattended by definition. The
+            # system-prompt layer outranks any CLAUDE.md memory that leaks
+            # in via setting_sources (measured: "project" also loads the
+            # USER's global CLAUDE.md — interactive rules like "wait for
+            # user confirmation before acting" deadlocked headless agents
+            # on the 2026-07-16 P3 run).
+            "--append-system-prompt", _UNATTENDED_PREAMBLE,
         ]
 
         # Sub-agent regression guard: snapshot pre-spawn diff so we can
@@ -359,7 +458,11 @@ class AgentSpawner:
             if proc.returncode == 0:
                 error_result = None
                 break
-            _err_output = proc.stderr or proc.stdout
+            # Round 12 站0c: extract the real cause (result-JSON first,
+            # denoised stderr second) instead of raw `stderr or stdout` —
+            # the CLI startup banner used to fill the first 500 chars and
+            # bury the actual error for 76/461 production entries.
+            _err_output = _extract_dispatch_error(proc.stdout, proc.stderr)
             error_result = {
                 "output": _err_output,
                 "status": "ERROR",
@@ -443,6 +546,104 @@ class AgentSpawner:
             dispatch_attempt=_attempt,
         )
         return parsed
+
+    def preflight_substrate(
+        self,
+        *,
+        phase: int = 0,
+        mcp_config: str | None = None,
+        setting_sources: str = "",
+        permission_mode: str = "acceptEdits",
+        task_timeout: int = 90,
+    ) -> dict:
+        """One cheap probe spawn proving the substrate can actually work
+        BEFORE a per-FR pipeline burns hours discovering it cannot.
+
+        Round 12 站0b. Production evidence (2026-07-16 P3 run): agents were
+        dispatched into an environment where the Bash tool was permission-
+        blocked — they stalled awaiting an approval that never comes in a
+        headless session (600s timeouts, "Commit-required step returned
+        empty commit" ×62, fixers replying "pytest/ruff and commit require
+        approval"). A 60-second probe at run-phase entry would have
+        surfaced that in one dispatch instead of 140.
+
+        The probe MUST be spawned with the same mcp_config /
+        setting_sources / permission_mode the real pipeline dispatches
+        use — it is measuring THAT substrate, not an idealized one.
+
+        Detection is marker-based on the agent's echoed command output:
+        the canary marker is assembled at probe runtime by python3 itself
+        (the prompt only ever contains the two halves), so a stalled or
+        hallucinating agent that merely echoes the prompt back cannot
+        produce it. This raises the bar; it does not make hallucination
+        impossible (same acknowledged trade-off as verify_gate1_qc.py).
+
+        Returns:
+            dict with keys ok / pytest_ok / git_ok / canary_ok /
+            permission_mode / setting_sources / detail (agent output tail).
+        """
+        proj = str(self.project_path.resolve()) if self.project_path else "."
+        canary_head, canary_tail = "PREFLIGHT_SUBSTRATE_", "CANARY_OK"
+        prompt = (
+            "You are an unattended environment probe in a headless pipeline. "
+            "There is NO human: never ask for permission or confirmation.\n"
+            "Run these THREE commands via the Bash tool, in order, and paste "
+            "each command's complete output verbatim in your reply. If a "
+            "command is blocked or denied, paste the exact denial message "
+            "instead and continue with the next command.\n"
+            "1. `python3 -m pytest --version`\n"
+            f"2. `git -C {proj} commit -m 'preflight-probe' --dry-run` "
+            "(exit code 0 or 1 are both fine — this only tests that git "
+            "executes; --dry-run commits nothing)\n"
+            f"3. `python3 -c 'print(\"{canary_head}\" + \"{canary_tail}\")'`\n"
+            "Reply with plain text only: the three outputs, nothing else."
+        )
+        result = self.spawn(
+            role="preflight-probe",
+            prompt=prompt,
+            context={"phase": phase, "step": "PREFLIGHT"},
+            phase=phase,
+            task_timeout=task_timeout,
+            max_turns=6,
+            persona_override="",
+            phase_sop_override="",
+            mcp_config=mcp_config,
+            setting_sources=setting_sources,
+            permission_mode=permission_mode,
+        )
+        output = str(result.get("output") or "")
+        pytest_ok = bool(re.search(r"pytest\s+\d+\.\d+", output))
+        # `git commit --dry-run` prints repo-status text on every outcome;
+        # any of these markers proves git executed (vs. a permission wall).
+        git_ok = any(m in output for m in (
+            "On branch", "nothing to commit", "no changes added",
+            "nothing added to commit", "Changes to be committed",
+            "Changes not staged", "Untracked files", "HEAD detached",
+        ))
+        canary_ok = (canary_head + canary_tail) in output
+        ok = (result.get("status") == "complete"
+              and pytest_ok and git_ok and canary_ok)
+        summary = {
+            "output": (
+                f"pytest_ok={pytest_ok} git_ok={git_ok} canary_ok={canary_ok} "
+                f"permission_mode={permission_mode} "
+                f"setting_sources={setting_sources!r} | {output[-300:]}"
+            ),
+            "status": "PREFLIGHT_OK" if ok else "PREFLIGHT_FAIL",
+            "exit_code": result.get("exit_code"),
+        }
+        self._log_dispatch("preflight-probe", "substrate preflight probe",
+                           summary, phase, None)
+        return {
+            "ok": ok,
+            "pytest_ok": pytest_ok,
+            "git_ok": git_ok,
+            "canary_ok": canary_ok,
+            "permission_mode": permission_mode,
+            "setting_sources": setting_sources,
+            "status": result.get("status"),
+            "detail": output[-1500:],
+        }
 
     def _log_dispatch(self, role: str, task: str, result: dict,
                       phase: int, fr_id: str | None,

@@ -9,8 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core.agent_spawner import (
+    _UNATTENDED_PREAMBLE,
     AgentSpawner,
     _classify_dispatch_error,
+    _denoise_cli_stderr,
+    _extract_dispatch_error,
     is_structurally_broken,
 )
 
@@ -829,15 +832,32 @@ class TestClassifyDispatchError:
     def test_execution_defaults(self, output):
         assert _classify_dispatch_error(output) == "EXECUTION_ERROR"
 
-    def test_structural_signature_wins_over_infra(self):
-        """The connectors-disabled output is deterministic breakage — it must
-        classify STRUCTURAL (do not retry), not merely INFRA_ERROR, even
-        though _INFRA_ERROR_RE's `connector` substring also matches it."""
+    def test_connectors_banner_is_not_structural(self):
+        """Round 12 站0c semantic flip: the connectors banner is startup
+        noise, not deterministic breakage. Production evidence — 76/461
+        entries on the 2026-07-16 P3 run carried the banner as their ONLY
+        error output while spawns kept succeeding around them, and Fix
+        H-G's own data (4/5 next-dispatches succeed) already contradicted
+        the fatal-env theory. The banner must no longer classify
+        STRUCTURAL; if it ever reaches the classifier raw (it is normally
+        stripped by _extract_dispatch_error first), the `connector`
+        substring in _INFRA_ERROR_RE classifies it INFRA_ERROR."""
         output = (
             "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
             "or another auth source is set and takes precedence over your "
             "claude.ai login"
         )
+        assert is_structurally_broken(output) is False
+        assert _classify_dispatch_error(output) == "INFRA_ERROR"
+
+    def test_structural_mechanism_wins_over_infra(self, monkeypatch):
+        """The registry-driven mechanism is intact (registry is just empty
+        in production): a registered signature must classify STRUCTURAL
+        even when _INFRA_ERROR_RE would also match the text."""
+        import core.agent_spawner as mod
+        monkeypatch.setattr(mod, "_STRUCTURAL_FAILURE_SIGNATURES",
+                            ("SYNTHETIC_STRUCTURAL_BREAKAGE",))
+        output = "SYNTHETIC_STRUCTURAL_BREAKAGE: connection refused (401)"
         assert is_structurally_broken(output) is True
         assert _classify_dispatch_error(output) == "STRUCTURAL"
 
@@ -1066,16 +1086,22 @@ class TestStructuralRetry:
         p.stderr = stderr
         return p
 
-    _STRUCTURAL_STDERR = (
-        "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY "
-        "or another auth source is set and takes precedence over your "
-        "claude.ai login · Unset it to load your organization's connectors\n"
-    )
+    # Round 12 站0c: the connectors banner was retired from the production
+    # registry (it is startup noise — see TestClassifyDispatchError), so the
+    # bounded-retry MECHANISM is driven by a synthetic signature injected
+    # into the real registry via the _structural_signature fixture pattern.
+    _SYNTHETIC_STDERR = "SYNTHETIC_STRUCTURAL_BREAKAGE: env permanently dead\n"
 
-    def test_spawn_retries_structural_failure_and_recovers(self, tmp_path):
+    def _register_synthetic_signature(self, monkeypatch):
+        import core.agent_spawner as mod
+        monkeypatch.setattr(mod, "_STRUCTURAL_FAILURE_SIGNATURES",
+                            ("SYNTHETIC_STRUCTURAL_BREAKAGE",))
+
+    def test_spawn_retries_structural_failure_and_recovers(self, tmp_path, monkeypatch):
         """2 STRUCTURAL failures followed by a success must still return
         complete — matches the FR-02 GATE1 production case (2026-07-15
         09:47-09:49) where the very next dispatch succeeded 87s later."""
+        self._register_synthetic_signature(monkeypatch)
         spawner = AgentSpawner(project_path=tmp_path)
         claude_calls = [0]
 
@@ -1084,7 +1110,7 @@ class TestStructuralRetry:
                 return MagicMock(returncode=0, stdout="")
             claude_calls[0] += 1
             if claude_calls[0] < 3:
-                return self._make_proc(returncode=1, stderr=self._STRUCTURAL_STDERR)
+                return self._make_proc(returncode=1, stderr=self._SYNTHETIC_STDERR)
             return self._make_proc(returncode=0, stdout=json.dumps({
                 "result": "done", "session_id": "x",
                 "status": "complete", "commit": "abc123",
@@ -1100,11 +1126,12 @@ class TestStructuralRetry:
         assert result["status"] == "complete"
         assert claude_calls[0] == 3
 
-    def test_spawn_exhausts_structural_retries_and_reports_error(self, tmp_path):
+    def test_spawn_exhausts_structural_retries_and_reports_error(self, tmp_path, monkeypatch):
         """All attempts STRUCTURAL → spawn() still returns ERROR/STRUCTURAL
         after exactly _STRUCTURAL_RETRY_ATTEMPTS tries — the 2026-07-12
         5.4h-stall protection (abort on a genuinely dead env) is preserved,
         just with a higher (bounded) confirmation threshold than before."""
+        self._register_synthetic_signature(monkeypatch)
         spawner = AgentSpawner(project_path=tmp_path)
         claude_calls = [0]
 
@@ -1112,7 +1139,7 @@ class TestStructuralRetry:
             if cmd[0] == "git":
                 return MagicMock(returncode=0, stdout="")
             claude_calls[0] += 1
-            return self._make_proc(returncode=1, stderr=self._STRUCTURAL_STDERR)
+            return self._make_proc(returncode=1, stderr=self._SYNTHETIC_STDERR)
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
@@ -1148,10 +1175,11 @@ class TestStructuralRetry:
         assert result["error_class"] != "STRUCTURAL"
         assert claude_calls[0] == 1
 
-    def test_spawn_logs_dispatch_attempt_per_retry(self, tmp_path):
+    def test_spawn_logs_dispatch_attempt_per_retry(self, tmp_path, monkeypatch):
         """Each attempt in the retry loop writes its own sessions_spawn.log
         entry (dispatch_attempt=1, 2, 3, ...) so operators can see the retry
         sequence instead of one entry silently overwriting the timeline."""
+        self._register_synthetic_signature(monkeypatch)
         spawner = AgentSpawner(project_path=tmp_path)
         claude_calls = [0]
 
@@ -1160,7 +1188,7 @@ class TestStructuralRetry:
                 return MagicMock(returncode=0, stdout="")
             claude_calls[0] += 1
             if claude_calls[0] < 2:
-                return self._make_proc(returncode=1, stderr=self._STRUCTURAL_STDERR)
+                return self._make_proc(returncode=1, stderr=self._SYNTHETIC_STDERR)
             return self._make_proc(returncode=0, stdout=json.dumps({
                 "result": "done", "session_id": "x",
                 "status": "complete", "commit": "abc123",
@@ -1183,3 +1211,168 @@ class TestStructuralRetry:
         assert [e.get("dispatch_attempt") for e in entries] == [1, 2]
         assert entries[0]["status"] == "ERROR"
         assert entries[1]["status"] == "complete"
+
+
+_BANNER = (
+    "⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or "
+    "another auth source is set and takes precedence over your claude.ai "
+    "login · Unset it to load your organization's connectors"
+)
+
+
+class TestDenoiseAndExtract:
+    """Round 12 站0c: error-capture denoise. On the 2026-07-16 P3 run,
+    76/461 sessions_spawn.log entries had error_output consisting of ONLY
+    the CLI startup banner — the real failure cause was invisible because
+    `stderr or stdout` put the banner (always first on stderr) into the
+    truncated log field."""
+
+    def test_denoise_strips_banner_keeps_real_error(self):
+        stderr = _BANNER + "\nTraceback: something real broke\n"
+        cleaned = _denoise_cli_stderr(stderr)
+        assert "connectors are disabled" not in cleaned
+        assert "Traceback: something real broke" in cleaned
+
+    def test_denoise_banner_only_becomes_empty(self):
+        assert _denoise_cli_stderr(_BANNER + "\n") == ""
+
+    def test_denoise_strips_stdin_warning(self):
+        stderr = ("Warning: no stdin data received in 3s, proceeding without it\n"
+                  "actual error here\n")
+        assert _denoise_cli_stderr(stderr) == "actual error here"
+
+    def test_extract_prefers_result_json_error(self):
+        stdout = json.dumps({
+            "type": "result", "subtype": "error_max_turns", "is_error": True,
+            "result": "Agent exceeded max turns while running pytest",
+        })
+        extracted = _extract_dispatch_error(stdout, _BANNER)
+        assert "error_max_turns" in extracted
+        assert "exceeded max turns" in extracted
+        assert "connectors are disabled" not in extracted
+
+    def test_extract_falls_back_to_denoised_stderr(self):
+        stderr = _BANNER + "\nENOENT: claude binary corrupted\n"
+        extracted = _extract_dispatch_error("not json {", stderr)
+        assert extracted == "ENOENT: claude binary corrupted"
+
+    def test_extract_banner_only_falls_through_to_stdout(self):
+        """Banner-only stderr must not shadow a non-JSON stdout payload."""
+        extracted = _extract_dispatch_error("plain stdout failure text", _BANNER)
+        assert extracted == "plain stdout failure text"
+
+    def test_extract_never_empty_when_output_exists(self):
+        """Worst case (banner-only stderr, empty stdout): raw stderr is
+        still returned so the log entry is not blank."""
+        extracted = _extract_dispatch_error("", _BANNER)
+        assert extracted  # non-empty
+        assert "connectors" in extracted
+
+
+class TestUnattendedPreamble:
+    """Round 12 站0d: every spawn appends the unattended-execution override
+    at the system-prompt layer. Live probe matrix (2026-07-16) showed
+    --setting-sources 'project' ALSO loads the user's global CLAUDE.md,
+    whose interactive rules stalled headless agents awaiting confirmation."""
+
+    def test_spawn_cmd_carries_append_system_prompt(self):
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+                spawner.spawn(role="developer", prompt="Task", context={},
+                              model="claude")
+                cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--append-system-prompt")
+        assert cmd[idx + 1] == _UNATTENDED_PREAMBLE
+
+    def test_preamble_neutralises_wait_for_confirmation_rules(self):
+        assert "wait for user confirmation" in _UNATTENDED_PREAMBLE
+        assert "never stop to wait for approval" in _UNATTENDED_PREAMBLE
+
+
+class TestPreflightSubstrate:
+    """Round 12 站0b: the substrate probe. One 90s spawn proving pytest/git
+    execute in the spawned environment, instead of a per-FR loop burning
+    140 dispatches discovering they don't (2026-07-16 FR-01)."""
+
+    def _spawn_result(self, output, status="complete"):
+        return {"output": output, "status": status, "session_id": "p",
+                "commit": ""}
+
+    _GOOD_OUTPUT = (
+        "pytest 8.4.2\n"
+        "On branch main\nnothing to commit, working tree clean\n"
+        "PREFLIGHT_SUBSTRATE_CANARY_OK\n"
+    )
+
+    def test_probe_ok_on_full_marker_set(self, tmp_path):
+        spawner = AgentSpawner(project_path=tmp_path)
+        with patch.object(AgentSpawner, "spawn",
+                          return_value=self._spawn_result(self._GOOD_OUTPUT)) as mock_spawn:
+            probe = spawner.preflight_substrate(permission_mode="bypassPermissions")
+        assert probe["ok"] is True
+        assert probe["pytest_ok"] and probe["git_ok"] and probe["canary_ok"]
+        # probe must be spawned with the pipeline's own substrate params
+        assert mock_spawn.call_args.kwargs["permission_mode"] == "bypassPermissions"
+        assert mock_spawn.call_args.kwargs["persona_override"] == ""
+
+    def test_probe_fails_when_canary_missing(self, tmp_path):
+        """An agent that merely echoes the prompt back cannot produce the
+        joined canary marker (prompt only contains the two halves)."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        output = "pytest 8.4.2\nOn branch main\n(I would run the canary but...)"
+        with patch.object(AgentSpawner, "spawn",
+                          return_value=self._spawn_result(output)):
+            probe = spawner.preflight_substrate()
+        assert probe["ok"] is False
+        assert probe["canary_ok"] is False
+
+    def test_probe_fails_on_permission_wall(self, tmp_path):
+        """The production failure shape: agent replies that tools are
+        blocked — no marker can be present."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        output = "Sandbox blocked shell execution; pytest/ruff require approval"
+        with patch.object(AgentSpawner, "spawn",
+                          return_value=self._spawn_result(output)):
+            probe = spawner.preflight_substrate()
+        assert probe["ok"] is False
+        assert probe["pytest_ok"] is False
+        assert probe["git_ok"] is False
+
+    def test_probe_fails_on_spawn_timeout(self, tmp_path):
+        spawner = AgentSpawner(project_path=tmp_path)
+        with patch.object(AgentSpawner, "spawn",
+                          return_value={"output": "Agent timed out after 90s",
+                                        "status": "TIMEOUT"}):
+            probe = spawner.preflight_substrate()
+        assert probe["ok"] is False
+        assert probe["status"] == "TIMEOUT"
+
+    def test_probe_writes_preflight_log_entry(self, tmp_path):
+        spawner = AgentSpawner(project_path=tmp_path)
+        with patch.object(AgentSpawner, "spawn",
+                          return_value=self._spawn_result(self._GOOD_OUTPUT)):
+            spawner.preflight_substrate()
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [json.loads(line) for line in log_path.read_text().splitlines()
+                   if line.strip()]
+        assert entries[-1]["status"] == "PREFLIGHT_OK"
+        assert entries[-1]["role"] == "preflight-probe"
+
+    def test_probe_prompt_never_contains_joined_canary(self, tmp_path):
+        """Anti-echo property: the joined marker must not appear in the
+        prompt itself, or a prompt-echoing agent would pass the check."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        captured: dict = {}
+
+        def fake_spawn(**kwargs):
+            captured["prompt"] = kwargs["prompt"]
+            return self._spawn_result("")
+
+        with patch.object(AgentSpawner, "spawn", side_effect=fake_spawn):
+            spawner.preflight_substrate()
+        assert "PREFLIGHT_SUBSTRATE_CANARY_OK" not in captured["prompt"]
+        assert "PREFLIGHT_SUBSTRATE_" in captured["prompt"]
