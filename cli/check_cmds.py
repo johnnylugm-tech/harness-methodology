@@ -363,15 +363,15 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
         inv = yaml.safe_load(inventory_path.read_text(encoding="utf-8"))
         test_spec_text = spec_path.read_text(encoding="utf-8")
         
-        deferred_match = re.search(r"(?i)^#{1,4}\s+.*Deferred.*?(?=\n#{1,4}\s+|$)", test_spec_text, re.MULTILINE | re.DOTALL)
-        deferred_text = deferred_match.group(0) if deferred_match else ""
+        deferred_match = re.search(r"(?i)^#{1,4}\s+[^\n]*Deferred[^\n]*\n(.*?)(?=\n#{1,4}\s+|$)", test_spec_text, re.MULTILINE | re.DOTALL)
+        deferred_text = deferred_match.group(1) if deferred_match else ""
 
         missing_nfrs = []
         tests = inv.get("test_inventory", {}).get("tests", [])
         for tc in tests:
             if tc.get("nfr") and tc.get("layer") in ("unit", "static"):
                 fn_name = tc.get("function_name", "")
-                if fn_name and fn_name not in deferred_text:
+                if fn_name and not re.search(fr'\b{re.escape(fn_name)}\b', deferred_text):
                     missing_nfrs.append(f"{tc['nfr']} ({fn_name}) - layer: {tc['layer']}")
                     
         if missing_nfrs:
