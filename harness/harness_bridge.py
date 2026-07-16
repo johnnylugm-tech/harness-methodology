@@ -669,6 +669,59 @@ def _crg_enrich_gate_findings(
     return dims, _score_overridden
 
 
+# Round 12 站3b — infra-failure signatures inside a dimension's evidence.
+# When run-gate's PRECONDITIONS block (SAB phantom/unregistered modules,
+# manifest corruption), the gate evaluator agent used to follow its STOP
+# RULE and record score=0 with the BLOCK text as tool_evidence — turning
+# an infrastructure failure into a fake quality-zero that entered the
+# manifest and steered CODE-FIX agents at healthy code (2026-07-16 P3:
+# three dimensions uniformly zeroed by a taskq.storage.store phantom
+# block; the fixer only escaped by re-diagnosing from scratch).
+_INFRA_FAIL_EVIDENCE_SIGNATURES = (
+    "[BLOCKED] run-gate",
+    "Architecture Amendment Protocol",
+    "Unregistered modules detected",
+    "phantom module",
+    "Phantom modules",
+)
+
+
+def _check_infra_fail_pollution(raw: dict) -> list[str]:
+    """Round 12 站3b: INFRA_FAIL ≠ quality failure.
+
+    A zero score whose evidence carries a run-gate PRECONDITION-block
+    signature is not a measurement — the tool never ran. Writing it into
+    the manifest as a quality zero poisons scoring history and dispatches
+    code fixers at a non-code problem. Detect and reject the result
+    outright so finalize-gate FATALs with an infra diagnosis instead.
+    """
+    entries: list[tuple[str, float | None, str]] = []
+    breakdown = raw.get("breakdown")
+    if isinstance(breakdown, dict):
+        for dim, row in breakdown.items():
+            if isinstance(row, dict):
+                _ev = " ".join(str(row.get(k, "")) for k in ("tool_evidence", "evidence"))
+                entries.append((str(dim), row.get("score"), _ev))
+    for row in raw.get("dimensions", []) or []:
+        if isinstance(row, dict):
+            _ev = " ".join(str(row.get(k, "")) for k in ("tool_evidence", "evidence"))
+            entries.append((str(row.get("name", "?")), row.get("score"), _ev))
+    violations: list[str] = []
+    for dim, score, evidence in entries:
+        if not evidence:
+            continue
+        matched = [sig for sig in _INFRA_FAIL_EVIDENCE_SIGNATURES if sig in evidence]
+        if matched and (score in (0, 0.0, None)):
+            violations.append(
+                f"dimension {dim!r}: score={score} with run-gate PRECONDITION-block "
+                f"evidence ({matched[0]!r}) — this is an INFRA failure, not a quality "
+                f"measurement. Do NOT dispatch code fixes for it. Fix the precondition "
+                f"run-gate reported (SAB phantom/unregistered module, manifest state), "
+                f"re-run run-gate until its preconditions pass, then re-evaluate."
+            )
+    return violations
+
+
 def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
     """S3: Verify tool execution evidence in gate result JSON.
 
@@ -1988,6 +2041,32 @@ class HarnessBridge:
                     ),
                 },
             ) from exc
+
+        # ── Round 12 站3b: INFRA_FAIL ≠ quality failure ──────────────────────
+        # Reject zero scores whose evidence carries a run-gate PRECONDITION-
+        # block signature BEFORE any of them can enter the manifest as fake
+        # quality zeros (2026-07-16 phantom-module incident: 3 dims zeroed,
+        # CODE-FIX dispatched at healthy code). The BLOCK message is the
+        # navigation: fix the precondition, not the source.
+        _infra_violations = _check_infra_fail_pollution(raw)
+        if _infra_violations:
+            print("\n[INFRA_FAIL] gate result rejected — infrastructure failure "
+                  "recorded as quality zero(s); NOT a code-quality verdict:")
+            for _v in _infra_violations:
+                print(f"  - {_v}")
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=len(_infra_violations),
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details={"infra_fail": _infra_violations},
+            )
 
         # ── S3: Tool execution evidence enforcement ──────────────────────────
         # For dimensions with requires_tool_execution:true in the gate YAML,

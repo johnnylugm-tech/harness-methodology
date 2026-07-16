@@ -468,3 +468,86 @@ class TestR6_LiteralNormalization:
         once = _canonical_predicate('x == "3"')
         twice = _canonical_predicate(once)
         assert once == twice
+
+
+class TestSpecUnsatisfiableProbe:
+    """Round 12 站3a — checker self-doubt. The R5 incident (2026-07-15)
+    proved a checker tightening can be mathematically unsolvable for
+    correct code; the pipeline then hard-BLOCKed until an emergency
+    harness fix. These tests pin the satisfiability probe: provably
+    unsolvable spec constraints downgrade to a `spec_unsatisfiable`
+    WARNING naming the spec defect, instead of BLOCK-grade errors
+    demanding the impossible from the test file."""
+
+    def _run(self, cases, assertions, test_src="def test_x():\n    pass\n"):
+        return check_test_mirrors_spec(test_src, cases, assertions)
+
+    def test_empty_trigger_scope_missing_case_ids(self):
+        """applies_to points at case ids absent from the case table —
+        spec_trigger_set is empty, no test can ever scope-align."""
+        cases = [SpecCase(1, {"command": "echo hi"})]
+        sa = SubAssertion("fr01-ghost-scope", "len(command) > 0", [7, 9])
+        violations = self._run(cases, [sa])
+        unsat = [v for v in violations if v.check_type == "spec_unsatisfiable"]
+        assert len(unsat) == 1
+        assert unsat[0].severity == "warning"
+        assert "case ids missing" in unsat[0].message
+        # The BLOCK-grade path must be suppressed for this sa.
+        assert not [v for v in violations
+                    if v.check_type in ("assertion_missing", "trigger_mismatch")
+                    and v.rule_id == "fr01-ghost-scope"]
+
+    def test_output_shaped_predicate_never_flagged(self):
+        """A predicate over an OUTPUT variable (`len(result) == 5` — free
+        variable absent from case inputs) has an unknowable trigger
+        variable spec-side. The probe must skip it entirely: flagging it
+        would be a false "unsatisfiable" (the FR03 fixture in
+        test_mirror_check.py is satisfiable and stays green)."""
+        cases = [SpecCase(1, {"text_input": "。？！!?"})]
+        sa1 = SubAssertion("fr03-count-a", "len(result) == 5", [1])
+        sa2 = SubAssertion("fr03-count-b", "len(result) == 5", [1])
+        violations = self._run(cases, [sa1, sa2])
+        assert not [v for v in violations if v.check_type == "spec_unsatisfiable"]
+
+    def test_degenerate_overlap_shared_predicate(self):
+        """Two sas share a predicate; scopes map to OVERLAPPING unequal
+        trigger-value sets — one assertion cannot equal both sets, and two
+        assertions each align into the other's scope and mismatch there.
+        R5's residual unsolvable form."""
+        cases = [
+            SpecCase(1, {"command": "a"}),
+            SpecCase(2, {"command": "b"}),
+            SpecCase(3, {"command": "b"}),  # value collision with case 2
+            SpecCase(4, {"command": "c"}),
+        ]
+        sa1 = SubAssertion("fr01-happy", "len(command) > 0", [1, 2])   # {a, b}
+        sa2 = SubAssertion("fr01-edge", "len(command) > 0", [3, 4])    # {b, c}
+        violations = self._run(cases, [sa1, sa2])
+        unsat = [v for v in violations if v.check_type == "spec_unsatisfiable"]
+        assert len(unsat) == 1
+        assert "OVERLAPPING, unequal" in unsat[0].message
+        assert not [v for v in violations
+                    if v.check_type in ("assertion_missing", "trigger_mismatch")]
+
+    def test_disjoint_scopes_stay_satisfiable(self):
+        """R5-followup's fixed form (disjoint scopes) is SATISFIABLE and
+        must NOT be flagged unsatisfiable — the probe only fires on
+        provable impossibility, never on solvable strictness."""
+        cases = [
+            SpecCase(1, {"command": "a"}),
+            SpecCase(4, {"command": "z"}),
+        ]
+        sa1 = SubAssertion("fr01-happy", "len(command) > 0", [1])
+        sa2 = SubAssertion("fr01-ws", "len(command) > 0", [4])
+        violations = self._run(cases, [sa1, sa2])
+        assert not [v for v in violations if v.check_type == "spec_unsatisfiable"]
+
+    def test_satisfiable_spec_keeps_block_grade_errors(self):
+        """The probe must not weaken enforcement for solvable specs: a
+        normal missing assertion still reports assertion_missing."""
+        cases = [SpecCase(1, {"command": "a"})]
+        sa = SubAssertion("fr01-normal", "len(command) > 0", [1])
+        violations = self._run(cases, [sa])
+        missing = [v for v in violations if v.check_type == "assertion_missing"]
+        assert len(missing) == 1
+        assert missing[0].severity == "error"

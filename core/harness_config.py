@@ -177,6 +177,18 @@ _VALUE_DEFAULTS: dict[str, Any] = {
     # Phase Truth pytest run cap in seconds (SG-5; floor 30 enforced by the
     # consumer). Migrated from enforcement.json's phase_truth.pytest_timeout_seconds.
     "phase_truth_pytest_timeout": 300,
+    # Round 12 站3c — per-checker enforcement level overlay,
+    # e.g. {"spec_unsatisfiable": "block"}. Values: "block" | "warn".
+    # Policy (docs/CONFIGURATION.md): EXISTING checkers keep their
+    # hard-coded block behavior (zero behavior change — this dict cannot
+    # weaken them; only checkers that explicitly consult
+    # get_checker_enforcement participate). NEW checkers and NEW
+    # tightenings of existing ones ship consulting this overlay with
+    # default "warn", and are promoted to "block" only after one E2E run
+    # with zero false kills — the R5 incident (a tightening that was
+    # mathematically unsatisfiable for correct code, hard-BLOCKing the
+    # pipeline for hours) is the reason graduation exists.
+    "checker_enforcement": {},
 }
 
 
@@ -193,6 +205,11 @@ def _valid_value(key: str, v: Any) -> bool:
             isinstance(k, str)
             and isinstance(n, int) and not isinstance(n, bool) and n >= 1
             for k, n in v.items()
+        )
+    if key == "checker_enforcement":
+        return isinstance(v, dict) and all(
+            isinstance(k, str) and lv in ("block", "warn")
+            for k, lv in v.items()
         )
     return False
 
@@ -227,6 +244,24 @@ def get_value(project: "str | Path", key: str) -> Any:
 def _copy_default(default: Any) -> Any:
     """Never hand out the registry's own mutable dict."""
     return dict(default) if isinstance(default, dict) else default
+
+
+def get_checker_enforcement(project: "str | Path", checker: str,
+                            default: str = "warn") -> str:
+    """Round 12 站3c — enforcement level for one quality-gate checker.
+
+    Reads the ``values.checker_enforcement`` overlay; falls back to
+    ``default``. GRADUATION POLICY (the R5 lesson mechanized): checkers
+    that consult this function ship with default="warn" and are promoted
+    to "block" only after one E2E run with zero false kills — a checker
+    false positive deadlocks the pipeline and forces an emergency harness
+    fix, which is asymmetrically worse than one run of advisory noise.
+    Existing hard-coded-block checkers do NOT consult this function and
+    are therefore unaffected (no weakening path by config).
+    """
+    overlay = get_value(project, "checker_enforcement")
+    level = overlay.get(checker, default) if isinstance(overlay, dict) else default
+    return level if level in ("block", "warn") else default
 
 
 def value_is_configured(project: "str | Path", key: str) -> bool:

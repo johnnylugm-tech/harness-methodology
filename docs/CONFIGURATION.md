@@ -56,6 +56,7 @@ an explicit CLI flag is long-standing run-fr-step behavior, locked by
 | `step_max_turns` | `{}` | per-step overlay onto run-fr-step's `_STEP_MAX_TURNS` (`TDD-RED`, `TDD-GREEN`, `TDD-IMPROVE`, `GATE1`, `GATE1-DELTA`, `CODE-FIX`, `TEST-FIX`, `INFRA-FIX`, `LINT-FIX`, `COVERAGE-FIX`); unknown steps WARN. |
 | `phase_truth_threshold` | `90.0` | HR-11 Phase Truth score floor (migrated from enforcement.json `hr_overrides.HR-11_phase_truth_threshold`, which still works as a legacy fallback with a migration nudge). |
 | `phase_truth_pytest_timeout` | `300` | Phase Truth pytest cap in seconds, floor 30 (migrated from enforcement.json `phase_truth.pytest_timeout_seconds`, same legacy fallback). |
+| `checker_enforcement` | `{}` | Round 12 站3c per-checker enforcement overlay, e.g. `{"spec_unsatisfiable": "block"}`; values `block`/`warn`. Graduation policy: checkers consulting `get_checker_enforcement` ship at `warn` and are promoted to `block` only after one E2E run with zero false kills (the R5 unsatisfiable-tightening incident is why). Existing hard-coded-block checkers do not consult this overlay — it cannot weaken them. Current participants: `spec_unsatisfiable` (check-test-mirrors-spec). |
 
 ## Top-level CRG calibration
 

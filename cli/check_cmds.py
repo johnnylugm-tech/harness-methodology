@@ -560,6 +560,21 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
             violations = check_test_mirrors_spec(test_source, cases, assertions, fr_id=fr_id)
         errs = [v for v in violations if v.severity == "error"]
         reviews = [v for v in violations if v.severity == "info"]
+        # Round 12 站3a+3c: spec_unsatisfiable ships as a WARNING (the spec
+        # itself demands the impossible — R5 incident class; blocking would
+        # deadlock the pipeline against a constraint no test can meet).
+        # Operators may graduate it to "block" via
+        # values.checker_enforcement = {"spec_unsatisfiable": "block"}
+        # after an E2E run shows zero false kills.
+        unsat = [v for v in violations if v.check_type == "spec_unsatisfiable"]
+        if unsat:
+            from core.harness_config import get_checker_enforcement
+            _level = get_checker_enforcement(project, "spec_unsatisfiable")
+            for v in unsat:
+                print(f"[{'FAIL' if _level == 'block' else 'UNSATISFIABLE'}] "
+                      f"{fr_id} ({test_file.name}): {v.message}")
+            if _level == "block":
+                all_errs.extend(unsat)
         for v in errs:
             print(f"[FAIL] {fr_id} ({test_file.name}) {v.check_type}: {v.message}")
         for v in reviews:

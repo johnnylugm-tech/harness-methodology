@@ -29,7 +29,12 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-12: +31 lines — env-check prompt teaches optional_missing vs
     # required distinction (fix false fabrication flag on vars with baked-in
     # config defaults). Example uses generic DATABASE_URL, not project-specific.
-    "harness/harness_bridge.py": 2963,
+    # 2026-07-16: +79 lines — Round 12 站3b: _check_infra_fail_pollution
+    # (+ finalize_gate interception before S3) rejects zero scores whose
+    # evidence carries a run-gate PRECONDITION-block signature — the
+    # 2026-07-16 phantom-module incident wrote 3 fake quality zeros into
+    # the manifest and dispatched CODE-FIX at healthy code.
+    "harness/harness_bridge.py": 3042,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
@@ -141,12 +146,21 @@ _LINE_CEILING: dict[str, int] = {
     # --setting-sources semantics matrix ("project" also loads the USER's
     # global CLAUDE.md — the leak that stalled headless agents on
     # 2026-07-16) with setting_sources pinned to "".
-    "cli/fr_cmds.py": 2408,
+    # 2026-07-16: +6 lines — Round 12 站3b: GATE1 evaluator STOP RULE
+    # gains the INFRA_BLOCKED branch (run-gate precondition block → do NOT
+    # write zeros; report the verbatim BLOCK) ahead of the per-tool
+    # score=0 rule.
+    "cli/fr_cmds.py": 2414,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
     # clarifying it must run BEFORE advance-phase for a phase-scoped C10
     # result (no workflow JS ever calls it automatically).
+    # 2026-07-16: Round 12 站3a — red_assertion_check crossed the
+    # unlisted threshold (900) adding _unsatisfiable_spec_rule_ids: the
+    # satisfiability probe that downgrades provably-impossible spec
+    # constraints to spec_unsatisfiable warnings (R5 incident mechanized).
+    "core/quality_gate/red_assertion_check.py": 1000,
     "cli/project_cmds.py": 1920,  # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
     # 2026-07-16: Round 12 站0 — agent_spawner crossed the unlisted-file
     # threshold (900) with three additions: _extract_dispatch_error /
@@ -208,7 +222,10 @@ _LINE_CEILING: dict[str, int] = {
     # new cmd_check_manifest_integrity + its subparser registration, a thin
     # CLI wrapper around PhaseHooks.preflight_manifest_integrity() so
     # workflow JS stops reimplementing (and getting wrong) this check inline.
-    "cli/check_cmds.py": 1486,
+    # 2026-07-16: +15 lines — Round 12 站3c: check-test-mirrors-spec
+    # consults values.checker_enforcement for spec_unsatisfiable
+    # (default warn; operator-promotable to block after a clean E2E run).
+    "cli/check_cmds.py": 1501,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,

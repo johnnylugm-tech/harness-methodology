@@ -764,6 +764,100 @@ def check_test_mirrors_spec_js(
     return violations
 
 
+def _unsatisfiable_spec_rule_ids(
+    spec_assertions: list, cases_by_id: dict, violations: list
+) -> set:
+    """Round 12 站3a — satisfiability probe over the TEST_SPEC's own
+    sub-assertion constraints. Appends `spec_unsatisfiable` WARNING
+    Violations (with a spec-side fix diagnosis) and returns the rule_ids
+    to exempt from BLOCK-grade per-sa checks.
+
+    Two provably-unsolvable forms are detected, both spec-side defects no
+    test file can ever satisfy:
+
+    (1) EMPTY TRIGGER SCOPE — an sa whose applies_to case ids are ALL
+        absent from the case table. spec_trigger_set can only ever be
+        empty, so no if-triggered assertion can scope-align: the sa is
+        condemned to assertion_missing forever.
+
+    (2) DEGENERATE INPUT OVERLAP — two sas share a predicate whose single
+        free variable IS a case-input variable, and their applies_to
+        scopes map to trigger-value sets that OVERLAP without being
+        equal. One assertion cannot equal both sets; two separate
+        assertions each aligned to its own sa ALSO fail, because each
+        overlaps the other sa's scope and gets flagged trigger_mismatch
+        there (R5's disjoint form was fixed by scope-alignment; the
+        overlap form is the residual impossibility — the spec needs
+        distinct input values per scope, or merged sas).
+
+    Conservative by construction: multi-variable predicates are skipped,
+    and OUTPUT-shaped predicates (free variable not present in the case
+    inputs, e.g. `len(result) == 5` — trigger alignment happens on a
+    test-side INPUT variable the spec cannot name) are skipped for form
+    (2). The probe must only ever fire on provable impossibility; a
+    false "unsatisfiable" would recreate the R5 asymmetry in reverse.
+    """
+    unsat: set = set()
+    by_norm: dict = {}
+    trigger_sets: dict = {}
+
+    for sa in spec_assertions:
+        norm = _canonical_predicate(sa.predicate) or _normalize_predicate(sa.predicate)
+        if norm is None:
+            continue
+        known_cids = [cid for cid in sa.applies_to if cid in cases_by_id]
+        if sa.applies_to and not known_cids:
+            unsat.add(sa.rule_id)
+            violations.append(Violation(
+                check_type="spec_unsatisfiable", rule_id=sa.rule_id,
+                severity="warning",
+                message=(
+                    f"TEST_SPEC sub-assertion {sa.rule_id!r} is unsatisfiable by ANY test: "
+                    f"applies_to={sa.applies_to} — case ids missing from the case table, so "
+                    f"no trigger scope can ever align. Fix the SPEC (correct applies_to); "
+                    f"no test change can pass this."
+                )))
+            continue
+        free = _free_variables(sa.predicate)
+        if len(free) != 1:
+            continue
+        var = next(iter(free))
+        # Output-shaped predicate: the free variable is not a case input,
+        # so the trigger variable is unknowable spec-side — skip (2).
+        if not any(var in cases_by_id[cid].inputs for cid in known_cids):
+            continue
+        values = {_as_str(cases_by_id[cid].inputs.get(var))
+                  for cid in known_cids
+                  if cases_by_id[cid].inputs.get(var) is not None}
+        if not values:
+            continue
+        trigger_sets[sa.rule_id] = values
+        by_norm.setdefault(norm, []).append(sa)
+
+    for norm, sas in by_norm.items():
+        if len(sas) < 2:
+            continue
+        for i, a in enumerate(sas):
+            for b in sas[i + 1:]:
+                if a.rule_id in unsat or b.rule_id in unsat:
+                    continue
+                sa_vals, sb_vals = trigger_sets[a.rule_id], trigger_sets[b.rule_id]
+                if sa_vals != sb_vals and (sa_vals & sb_vals):
+                    unsat.update({a.rule_id, b.rule_id})
+                    violations.append(Violation(
+                        check_type="spec_unsatisfiable", rule_id=a.rule_id,
+                        severity="warning",
+                        message=(
+                            f"TEST_SPEC sub-assertions {a.rule_id!r} and {b.rule_id!r} share predicate "
+                            f"{a.predicate!r} but their applies_to scopes map to OVERLAPPING, unequal "
+                            f"trigger-value sets ({sorted(sa_vals & sb_vals)} shared) — no combination of "
+                            f"test assertions can satisfy both (each candidate aligns into the other's "
+                            f"scope and mismatches there). Fix the SPEC: give the scopes distinct input "
+                            f"values, or merge the two sub-assertions."
+                        )))
+    return unsat
+
+
 def check_test_mirrors_spec(
     test_source: str, spec_cases: list, spec_assertions: list, fr_id: str | None = None
 ) -> list:
@@ -810,6 +904,22 @@ def check_test_mirrors_spec(
                             f"parametrize signature in the test file"))
 
     # 2. Sub-assertion predicate + trigger alignment.
+    #
+    # Round 12 站3a — checker self-doubt: before emitting BLOCK-grade
+    # violations, probe whether the spec's own constraint set is even
+    # SATISFIABLE by some legal test file. The R5 incident (2026-07-15)
+    # proved a checker tightening can be mathematically unsolvable for
+    # correct code (shared predicate + disjoint applies_to scopes made the
+    # per-match trigger-equality demand impossible); the pipeline then
+    # hard-BLOCKed for hours until an emergency harness fix. The disjoint
+    # form was fixed directly (R5-followup); this probe mechanizes the
+    # LESSON for the residual unsolvable forms, downgrading them to a
+    # diagnostic `spec_unsatisfiable` WARNING that names the spec defect
+    # instead of blocking the pipeline against an impossible demand.
+    _unsat_rule_ids = _unsatisfiable_spec_rule_ids(
+        spec_assertions, cases_by_id, violations
+    )
+
     for sa in spec_assertions:
         # Bug #27 fix: use _canonical_predicate for set-membership
         # comparison. Both spec and test sides go through the same
@@ -817,6 +927,10 @@ def check_test_mirrors_spec(
         # semantically equivalent predicates match.
         norm = _canonical_predicate(sa.predicate) or _normalize_predicate(sa.predicate)
         if norm is None:
+            continue
+        if sa.rule_id in _unsat_rule_ids:
+            # Already reported as spec_unsatisfiable (warning + diagnosis);
+            # emitting the per-sa error too would re-create the R5 deadlock.
             continue
         matches = [s for s in subs if norm in s.asserts]
         if not matches:
