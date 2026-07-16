@@ -375,7 +375,7 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
                     missing_nfrs.append(f"{tc['nfr']} ({fn_name}) - layer: {tc['layer']}")
                     
         if missing_nfrs:
-            print(f"\n[FAIL] TEST_SPEC.md is missing Unit/Static NFRs in the 'Deferred to Downstream Phases' table:")
+            print("\n[FAIL] TEST_SPEC.md is missing Unit/Static NFRs in the 'Deferred to Downstream Phases' table:")
             for m in missing_nfrs[:5]:
                 print(f"  • {m}")
             if len(missing_nfrs) > 5:
