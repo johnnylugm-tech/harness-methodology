@@ -354,6 +354,36 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
         print(f"\n[BLOCKED] TEST_SPEC.md self-consistency: {total_err} contradiction(s) — "
               "P3 must not implement an unsatisfiable spec. Fix TEST_SPEC.md (P2).")
         return 1
+
+    # NFR Layering Hard Rule
+    import yaml
+    import re
+    inventory_path = project / "TEST_INVENTORY.yaml"
+    if inventory_path.exists():
+        inv = yaml.safe_load(inventory_path.read_text(encoding="utf-8"))
+        test_spec_text = spec_path.read_text(encoding="utf-8")
+        
+        deferred_match = re.search(r"(?i)^#{1,4}\s+.*Deferred.*?(?=\n#{1,4}\s+|$)", test_spec_text, re.MULTILINE | re.DOTALL)
+        deferred_text = deferred_match.group(0) if deferred_match else ""
+
+        missing_nfrs = []
+        tests = inv.get("test_inventory", {}).get("tests", [])
+        for tc in tests:
+            if tc.get("nfr") and tc.get("layer") in ("unit", "static"):
+                fn_name = tc.get("function_name", "")
+                if fn_name and fn_name not in deferred_text:
+                    missing_nfrs.append(f"{tc['nfr']} ({fn_name}) - layer: {tc['layer']}")
+                    
+        if missing_nfrs:
+            print(f"\n[FAIL] TEST_SPEC.md is missing Unit/Static NFRs in the 'Deferred to Downstream Phases' table:")
+            for m in missing_nfrs[:5]:
+                print(f"  • {m}")
+            if len(missing_nfrs) > 5:
+                print(f"  ... and {len(missing_nfrs) - 5} more.")
+            print("\n[BLOCKED] You MUST isolate all Unit/Static NFRs in a section titled 'Deferred to Downstream Phases'.")
+            print("          Do NOT place them in the Integration table. Create the Deferred table if it does not exist.")
+            return 1
+
     print("[check-test-spec-consistency] OK — 0 contradictions"
           + (f"; {total_review} needs-review (P2 Agent B sign-off)" if total_review else "") + ".")
     return 0
