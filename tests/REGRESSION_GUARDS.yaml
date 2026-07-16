@@ -233,3 +233,19 @@
 - test: tests/test_workflow_artifacts_commit_pattern.py::TestWorkflowArtifactsCommitPattern::test_phase4_has_artifacts_commit_phase
   bug: "dead-guard-by-stale-path class: all 9 tests in this file silently skipped since the day it was written — its REPO default pointed at a sibling integration-test checkout's .claude/workflows/, a path that has never existed (the real consumed copy lives one level deeper, under the git submodule). pytest.mark.skipif made the missing path invisible instead of failing — the same shape as the 667-guard-deletion class this registry exists to prevent"
   fixed_in: "Round 11 站0 (REPO default retargeted to this repo's own .claude/workflows/)"
+
+- test: tests/test_agent_spawner.py::TestPreflightSubstrate::test_probe_fails_on_permission_wall
+  bug: "spawn-substrate blindness class (Round 12 站0b, 2026-07-16 P3 run): the pipeline dispatched agents into an environment where the Bash tool was permission-blocked — they stalled awaiting an approval that cannot come in a headless session, producing 600s timeouts and 62 'Commit-required step returned empty commit' errors; FR-01 alone burned 140 dispatches / ~2.5h before a human intervened. Nothing verified the spawned execution substrate before entering the per-FR loop"
+  fixed_in: "Round 12 站0b (AgentSpawner.preflight_substrate + run-phase _run_substrate_probe wiring, FATAL exit 24 before any per-FR dispatch)"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "dynamic-workflow substrate coverage gap (named as root cause by commit cef32c4 itself): the 8 generated .claude/workflows/*.js files only ever executed inside live E2E runs — v2.13.2 shipped a spawnSync call the runtime sandbox cannot service and crashed every P3 run at its first per-FR verify. The sim testbed's own first run then caught 3 more latent crashes the equivalence pins could not see (phase4 p4MidPushed / phase6 MAX_OUTER_ATTEMPTS ReferenceErrors, phase1 null .slice TypeErrors)"
+  fixed_in: "Round 12 站1 (scripts/workflowgen/js_src/sim_runner.mjs + 23-scenario suite + pass-count floor)"
+
+- test: tests/test_red_assertion_check.py::TestSpecUnsatisfiableProbe::test_degenerate_overlap_shared_predicate
+  bug: "unsatisfiable-checker-tightening class (R5 incident, 2026-07-15): red_assertion_check's per-match trigger-alignment demand was mathematically impossible for correct code (shared predicate + disjoint applies_to), hard-BLOCKing the pipeline until an emergency harness fix. R5-followup fixed that specific form; this guard pins the MECHANISM — the satisfiability probe that downgrades the residual provably-impossible forms (overlapping-unequal trigger scopes, ghost case ids) to spec_unsatisfiable warnings naming the spec defect instead of blocking against the impossible"
+  fixed_in: "Round 12 站3a (red_assertion_check._unsatisfiable_spec_rule_ids)"
+
+- test: tests/test_infra_fail_separation.py::TestInfraFailPollution::test_phantom_block_zero_is_rejected
+  bug: "infra-failure-as-quality-zero class (2026-07-16 P3 phantom incident): run-gate's SAB phantom-module PRECONDITION block fired before any dimension tool ran; the gate evaluator followed its STOP RULE and recorded score=0 for three dimensions with the BLOCK text as tool_evidence — fake quality zeros entered the manifest and CODE-FIX agents were dispatched at healthy code while the actual defect was architectural bookkeeping"
+  fixed_in: "Round 12 站3b (harness_bridge._check_infra_fail_pollution + finalize-gate interception + GATE1 STOP RULE INFRA_BLOCKED branch)"
