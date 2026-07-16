@@ -59,6 +59,12 @@ _GITIGNORE_ENTRIES: list[str] = [
     # tree that had to be swept by manual chore(e2e-collect) commits.
     # (gate_timestamps.jsonl stays tracked — it is functional FR-gate state.)
     ".methodology/sessions_spawn.log",
+    # Lock-file sibling of the entry above, same reasoning: the logging path
+    # creates it alongside sessions_spawn.log, but the exact-filename pattern
+    # above never matched it, leaving it as a second permanently-dirty file
+    # (surfaced as a false "commit did not land" signal in run-fr-step's
+    # dirty-tree guard, P3 2026-07-17).
+    ".methodology/sessions_spawn.log.lock",
     ".harness/traces/",
     # Python venv / tool caches (avoid GH001 large-file rejections in pipeline mode)
     ".venv/",

@@ -150,7 +150,11 @@ _LINE_CEILING: dict[str, int] = {
     # gains the INFRA_BLOCKED branch (run-gate precondition block → do NOT
     # write zeros; report the verbatim BLOCK) ahead of the per-tool
     # score=0 rule.
-    "cli/fr_cmds.py": 2414,
+    # 2026-07-17: +16 lines — Fix: GATE1's record_gate_timestamp() append to
+    # gate_timestamps.jsonl is now landed with a scoped commit immediately,
+    # instead of being left dirty for the very next dirty-tree guard to
+    # misreport as "commit did not land" (FR-01 GATE1 false-FAIL repro).
+    "cli/fr_cmds.py": 2430,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
@@ -228,7 +232,11 @@ _LINE_CEILING: dict[str, int] = {
     "cli/check_cmds.py": 1531,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
-    "harness/git_strategy.py": 1292,
+    # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry
+    # (same rationale as the sessions_spawn.log entry two lines above: the
+    # lock-file sibling was missing from the pattern, surfacing as a second
+    # permanently-dirty file in run-fr-step's dirty-tree guard).
+    "harness/git_strategy.py": 1297,
     # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
     # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
     # the SAB block's own authoring-guidance shape.

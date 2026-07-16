@@ -774,6 +774,22 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # whether a new record is actually needed.
     if step in ("GATE1", "GATE1-DELTA") and not _fr_step_already_done(step, fr_id, project, phase=phase):
         gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
+        # Bug fix (P3 2026-07-17): the append above modifies a TRACKED file
+        # (.methodology/gate_timestamps.jsonl) and nothing committed it before
+        # the dirty-tree guard below runs — so this write alone always tripped
+        # its own guard, misreporting a genuine GATE1 PASS as "commit did not
+        # land" and routing it into a pointless CODE-FIX retry (which finds no
+        # real defect and dies on `error_max_turns`). gate_cmds.py's
+        # finalize-gate does the equivalent append (line ~2043) immediately
+        # before its own commit for exactly this reason — mirror that here.
+        # Scoped to this one file only (not `git add -A`): the dirty-tree
+        # guard must still catch a genuinely orphaned sub-agent commit.
+        _gt_path = project / ".methodology" / "gate_timestamps.jsonl"
+        subprocess.run(["git", "add", str(_gt_path)], cwd=str(project), capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"chore: record gate1 evidence ({fr_id})", "--", str(_gt_path)],
+            cwd=str(project), capture_output=True, text=True,
+        )
 
     # 5. Verify commit exists (non-fatal warning — defense-in-depth below
     # AgentSpawner._validate_inner_json which already ERRORs no-op results).

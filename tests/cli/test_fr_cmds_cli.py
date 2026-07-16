@@ -870,6 +870,53 @@ class TestRunFrStep:
         rc = harness_cli.cmd_run_fr_step(args)
         assert rc == 2  # BLOCKED
 
+    def test_gate1_pass_does_not_trip_own_dirty_tree_guard(self, tmp_path, monkeypatch):
+        """Regression (P3 2026-07-17 FR-01 GATE1 false-FAIL): a genuine GATE1
+        PASS was misreported as "commit did not land" because the orchestrator's
+        own record_gate_timestamp() append to gate_timestamps.jsonl (a tracked
+        file) was never committed before the dirty-tree guard ran two lines
+        later — so the guard always saw its own sibling code's write as proof
+        the sub-agent's commit had failed, and routed a clean PASS into a
+        pointless CODE-FIX retry. run-fr-step must return 0 here, not 6."""
+        import subprocess as _sp
+        import sys
+        import types
+        import harness_cli
+
+        _setup_preflight_fixtures(tmp_path, step="GATE1")
+        # Baseline commit so the guard only ever sees dirt introduced by the
+        # step under test, not the fixture setup itself.
+        _sp.run(["git", "add", "-A"], cwd=str(tmp_path), check=False)
+        _sp.run(["git", "commit", "-q", "-m", "fixture baseline"], cwd=str(tmp_path), check=False)
+
+        # No finalize-gate sentinel / quality_complete written → naturally
+        # not-already-done, so record_gate_timestamp() fires (real public
+        # behavior, not a patched private helper).
+        _pass_output = '{"status": "DONE", "pass": true, "gate_score": 95.0}'
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                return {"status": "complete", "output": _pass_output}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="GATE1", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=2, no_push=True,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 0, "genuine GATE1 PASS must not be blocked by the orchestrator's own bookkeeping write"
+
+        dirty = _sp.run(
+            ["git", "status", "--porcelain"], cwd=str(tmp_path),
+            capture_output=True, text=True,
+        ).stdout.strip()
+        assert dirty == "", f"gate_timestamps.jsonl write must be committed, not left dirty: {dirty!r}"
+
     def test_gate1_fails_fast_on_structural_signature(self, tmp_path, monkeypatch):
         """Regression (P3 2026-07-12 FR-04 abort): when a spawned fix sub-agent
         hits a deterministic-breakage signature, every retry reproduces the
