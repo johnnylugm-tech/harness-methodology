@@ -179,3 +179,51 @@ above and locking every `RUNTIME_ONLY` entry with its accident-numbered
 justification into the generator itself. Station 5 adopts the playbook,
 adds a runtime-convention lint (import/fs/process bans, 512KB cap,
 meta-first-statement), and registers the guards.
+
+## Dispatch determinism registry (Round 12, station 2c)
+
+Every `agent()` dispatch in the 8 generated files is classified in
+`tests/test_workflow_dispatch_registry.py` (the machine-checked SSOT — a
+new dispatch label fails CI until classified; this section is the
+human-readable rendering). Three classes:
+
+- **carrier** — the agent runs a FIXED command and transports its output;
+  the LLM contributes no judgment. Carriers cannot be "sunk" further: the
+  dynamic-workflow runtime has no direct exec API (playbook §4), so a Bash
+  sub-agent is the only bridge from workflow JS to a deterministic tool.
+  The carrier IS the sunk form — what matters is the verdict anchor.
+- **judgment** — the LLM output is the actual work product (authoring
+  deliverables, fixing code, scoring gate dimensions, reviewing).
+- **mixed** — fixed command skeleton plus fix-on-BLOCKED reaction loops.
+
+And three verdict anchors, strongest → weakest:
+
+| anchor | meaning | hallucination cost |
+|---|---|---|
+| `js-regex` | JS regex/startsWith on a CANONICAL string printed by a deterministic tool | must rewrite echoed stdout |
+| `schema` | AJV-validated StructuredOutput transcription of tool output | mistype a field (Bug #122 class) |
+| `text-token` | JS regex on the LLM's OWN prose (`/SYNC:\s*PASS/` …) | just write the token |
+
+Station-2 changes moved the highest-traffic verdicts up this ladder:
+
+- `gate1-verify-*` (P3 TDD loop + the P4/P5/P7/P8 `render_per_fr_delta`
+  family) now dispatches `harness/scripts/verify_gate1_qc.py` and derives
+  the verdict from the echoed canonical stdout ONLY — the LLM's schema
+  `pass` boolean is ignored. v2.13.3's prose claimed this while its code
+  still ANDed the boolean; the sim testbed pinned the contradiction and
+  station 2a closed it (wf_53d055ce-d0b hallucination class).
+- The TRACE-PRECHECK ritual (agent-side attestation regen+commit before
+  Gate 2/3/4 and the P2 push — 37 ritual commits on integration-test) is
+  DELETED from all prompts: `finalize-gate`, `push-checkpoint`, and
+  `push-milestone` now self-heal a stale attestation before their own
+  commit (`cli/_shared.ensure_fresh_attestation`, same freshness probe
+  the prepare-commit-msg hook uses).
+
+Remaining `text-token` rows are hardening candidates, in priority order
+(traffic × blast radius): `sync*` (a git-log proxy carrier would be
+canonical), P1/P2 `preflight*`/`constitution*`/`forward-ref-check`
+(prose-token gates on fix loops), `push-*`/`milestone-*`/`advance*`
+(mitigated — their authoritative verdicts already come from the paired
+`*-verify-r` carriers; the prose token only steers retry pacing).
+`aci-post-sab` is a grandfathered carrier-on-prose exception, asserted
+as exactly-one in the registry test.
