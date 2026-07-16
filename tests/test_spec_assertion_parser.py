@@ -159,3 +159,29 @@ def test_cli_reports_clean_failure_on_malformed_row(tmp_path):
 
     rc = cmd_check_test_spec_consistency(argparse.Namespace(project=str(tmp_path), fr_id=None))
     assert rc == 1  # clean [FAIL]/[BLOCKED] exit, not an unhandled traceback
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Escaped-pipe bug (P3 2026-07-17): a cell holding a literal '|' must be
+# written `\|` per markdown table syntax. The parser used to split on every
+# '|' unconditionally, shifting every later column in the row — this is the
+# real FR-01 TEST_SPEC.md case-7 incident (`command="echo hi \| wc"`).
+# ─────────────────────────────────────────────────────────────────────────────
+
+ESCAPED_PIPE_SCHEMA = """
+### FR-01: injection blacklist
+
+| # | parametrize id | Inputs | Type |
+|---|---|---|---|
+| 7 | pipe | command="echo hi \\| wc"; name="" | validation |
+| 8 | ampersand | command="echo hi &"; name="" | validation |
+"""
+
+
+def test_escaped_pipe_in_cell_not_treated_as_column_separator():
+    cases, _ = SpecAssertionParser.parse(ESCAPED_PIPE_SCHEMA)["FR-01"]
+    by_id = {c.case_id: c for c in cases}
+    assert by_id[7].inputs["command"] == "echo hi | wc"
+    assert by_id[7].inputs["name"] == ""
+    # Case 8 must not be shifted/corrupted by case 7's escaped pipe.
+    assert by_id[8].inputs["command"] == "echo hi &"

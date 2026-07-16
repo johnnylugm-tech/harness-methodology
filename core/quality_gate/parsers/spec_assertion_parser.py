@@ -38,6 +38,17 @@ class MalformedTableRowError(ValueError):
 _FR_HEADER = re.compile(r"^###\s+((?:N?FR)-\d+)\b")
 _INPUT_KV = re.compile(r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"')
 
+_ESCAPED_PIPE = "\x00ESC_PIPE\x00"
+
+
+def _split_row_cells(line: str) -> list:
+    """Split a markdown table row on '|', honoring the '\\|' escape for a
+    literal pipe inside a cell (standard markdown table syntax). Without
+    this, a cell like `command="echo hi \\| wc"` splits into two cells at
+    the escaped pipe, shifting every later column in the row."""
+    protected = line.replace("\\|", _ESCAPED_PIPE)
+    return [c.strip().replace(_ESCAPED_PIPE, "|") for c in protected.strip("|").split("|")]
+
 
 def _is_separator(cells: list) -> bool:
     return bool(cells) and all(set(c) <= set("-: ") for c in cells if c != "")
@@ -111,7 +122,7 @@ class SpecAssertionParser:
             s = line.strip()
             if not (s.startswith("|") and s.endswith("|")):
                 continue
-            cells = [c.strip() for c in s.strip("|").split("|")]
+            cells = _split_row_cells(s)
             low = s.lower()
             if all(sub in low for sub in header_substrings):
                 rows = []
@@ -124,7 +135,7 @@ class SpecAssertionParser:
                             f"line {j + 1}: table row starts with '|' but does not "
                             f"end with '|' (truncated cell?): {t[:80]!r}"
                         )
-                    rc = [c.strip() for c in t.strip("|").split("|")]
+                    rc = _split_row_cells(t)
                     if _is_separator(rc):
                         continue
                     rows.append(rc)
