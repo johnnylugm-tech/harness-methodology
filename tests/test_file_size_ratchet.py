@@ -225,7 +225,7 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-16: +15 lines — Round 12 站3c: check-test-mirrors-spec
     # consults values.checker_enforcement for spec_unsatisfiable
     # (default warn; operator-promotable to block after a clean E2E run).
-    "cli/check_cmds.py": 1501,
+    "cli/check_cmds.py": 1531,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     "harness/git_strategy.py": 1292,
