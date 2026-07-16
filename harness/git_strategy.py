@@ -1122,14 +1122,13 @@ class GitStrategy:
         return True
 
     def _commit_and_push(self, message: str, skip_hooks: bool = False) -> bool:
-        """Commit then push, with ancestor-direction pre-flight.
+        """Ancestor-direction pre-flight (BEFORE commit), then commit, then push.
 
-        Pre-flight (added in fix commit ...): detect whether the local HEAD
-        is ahead / behind / diverged from the upstream tracking ref BEFORE
-        invoking `git push`.  Without this, ``git push`` silently fails
-        when origin has commits local lacks (replay / baseline re-run
-        scenarios), and the only signal is a bare ``[git WARN]`` line
-        with no actionable hint for the operator.
+        Checked before `_commit()` (2026-07-16 fix): checking after used to
+        let every REFUSE leave an orphan commit behind (callers only revert
+        working-tree files like state.json/HANDOVER.md, never the commit
+        object) — a 5-retry push loop left 5 orphan commits. Checking first
+        means a doomed push never becomes a commit.
 
         Behavior matrix:
 
@@ -1148,42 +1147,42 @@ class GitStrategy:
         STILL reported via the existing ``r.stderr[:200]`` path — this
         only short-circuits the silently-broken non-fast-forward case.
         """
+        if self.push:
+            # Checked before committing so a refused push never leaves an
+            # orphan commit (see docstring).
+            direction = self._detect_push_ancestor_direction()
+            if direction == "behind":
+                ahead_count = self._run_git(
+                    "rev-list", "--count", "HEAD..@{u}"
+                )
+                n_raw = (ahead_count.stdout or "").strip()
+                n = n_raw if n_raw.isdigit() else "?"
+                print(
+                    f"  [git REFUSE] upstream is ahead of local HEAD by {n} "
+                    f"commit(s). Refusing to push (would clobber upstream history).\n"
+                    f"  Common cause: replay / baseline-re-run where local was "
+                    f"rewound (e.g. `git reset` to an old SHA) and upstream moved "
+                    f"forward during the replay window.\n"
+                    f"  To reconcile, run ONE of:\n"
+                    f"    git fetch origin <branch> && "
+                    f"git rebase origin/<branch>    # linear history (preferred)\n"
+                    f"    git fetch origin <branch> && "
+                    f"git merge --no-ff origin/<branch>   # preserves both lines\n"
+                    f"  Then re-run the failing phase / push-checkpoint command."
+                )
+                return False
+            if direction == "diverged":
+                print(
+                    "  [git REFUSE] local HEAD and upstream have diverged "
+                    "(neither is ancestor of the other). Refusing to push;\n"
+                    "  resolve manually with `git rebase` or `git merge --no-ff`."
+                )
+                return False
         if not self._commit(message, skip_hooks=skip_hooks):
             return False
         if not self.push:
             print("  [git] push skipped (push=False)")
             return True
-        # Pre-flight: ancestor direction between local HEAD and upstream.
-        # Cheap when 'ahead' (a single rev-parse + merge-base); the fetch
-        # only round-trips to origin when an upstream is configured.
-        direction = self._detect_push_ancestor_direction()
-        if direction == "behind":
-            ahead_count = self._run_git(
-                "rev-list", "--count", "HEAD..@{u}"
-            )
-            n_raw = (ahead_count.stdout or "").strip()
-            n = n_raw if n_raw.isdigit() else "?"
-            print(
-                f"  [git REFUSE] upstream is ahead of local HEAD by {n} "
-                f"commit(s). Refusing to push (would clobber upstream history).\n"
-                f"  Common cause: replay / baseline-re-run where local was "
-                f"rewound (e.g. `git reset` to an old SHA) and upstream moved "
-                f"forward during the replay window.\n"
-                f"  To reconcile, run ONE of:\n"
-                f"    git fetch origin <branch> && "
-                f"git rebase origin/<branch>    # linear history (preferred)\n"
-                f"    git fetch origin <branch> && "
-                f"git merge --no-ff origin/<branch>   # preserves both lines\n"
-                f"  Then re-run the failing phase / push-checkpoint command."
-            )
-            return False
-        if direction == "diverged":
-            print(
-                "  [git REFUSE] local HEAD and upstream have diverged "
-                "(neither is ancestor of the other). Refusing to push;\n"
-                "  resolve manually with `git rebase` or `git merge --no-ff`."
-            )
-            return False
         # direction is 'ahead' or 'no-remote' — safe to attempt the push.
         r = self._run_git("push")
         if r.returncode != 0:

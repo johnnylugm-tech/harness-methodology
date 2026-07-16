@@ -189,6 +189,24 @@ class TestCommitAndPushAncestorGuards:
         assert result is True
         assert len(push_calls) == 1
 
+    def test_behind_never_calls_commit(self, gs):
+        """The regression this fix targets: REFUSE must happen before any
+        commit is created, so no orphan commit is left on local main
+        (found 2026-07-16: a 5-retry push loop left 5 orphan commits)."""
+        gs._commit = MagicMock(return_value=True)
+        gs._detect_push_ancestor_direction = MagicMock(return_value="behind")
+        result = gs._commit_and_push("msg")
+        assert result is False
+        gs._commit.assert_not_called()
+
+    def test_diverged_never_calls_commit(self, gs):
+        """Same regression, diverged branch."""
+        gs._commit = MagicMock(return_value=True)
+        gs._detect_push_ancestor_direction = MagicMock(return_value="diverged")
+        result = gs._commit_and_push("msg")
+        assert result is False
+        gs._commit.assert_not_called()
+
     def test_push_disabled_short_circuits(self, gs):
         """When push=False (CI runs with --no-push), the ancestor
         check is preserved only when push would actually happen —
