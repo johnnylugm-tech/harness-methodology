@@ -224,7 +224,17 @@ _LINE_CEILING: dict[str, int] = {
     # to the existing single-test-file rule — three prompt/template gaps
     # found by re-verifying the prior session's inference-only "5-layer"
     # analysis against the actual code.
-    "scripts/workflowgen/phase_specs.py": 2955,
+    # 2026-07-16: +2 lines — Bug A (v2.13.3 follow-up to v2.13.2 spawnSync):
+    # the v2.13.2 GATE1-verify block (lines 548-572) is replaced by an
+    # `await agent()` Bash dispatch into `harness/scripts/verify_gate1_qc.py`.
+    # +2 comes from two added explanatory comment lines ("//" + "//\n") in
+    # the JS literal explaining why spawnSync doesn't work in the workflow
+    # runtime sandbox and how the LLM-as-string-carrier substitute preserves
+    # the AUTHORITATIVE manifest read. Net JS shape is +2 lines in
+    # phase3-implementation.js too. Verified: regenerated
+    # tests/golden/workflowgen/phase3.js == hand-edited phase3-implementation.js
+    # (diff = 0 lines).
+    "scripts/workflowgen/phase_specs.py": 2957,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

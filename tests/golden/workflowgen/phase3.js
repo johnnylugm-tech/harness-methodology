@@ -395,29 +395,31 @@ for (const frId of frIds) {
     // GateBlockedError (e.g. spec-coverage short, or a dimension below threshold), which
     // silently advances a FR that the harness actually blocked. Verify against the
     // harness's own record so a blocked gate is never counted as passed.
-    // v2.13.2 (FR-05 P3 2026-07-16 lesson): the previous design routed the
-    // deterministic Python one-liner through a sub-agent that could itself
-    // hallucinate pass:false (wf_53d055ce-d0b verify agent reported
-    // `pass:false, reason=GATE1_VERIFIED_FAIL score=91.81` despite manifest
-    // FR-05.quality_complete=true). The Python script is deterministic;
-    // spawnSync the workflow itself — no LLM in the verify loop. Keeps the
-    // AUTHORITATIVE manifest read (the WHOLE point of this step) without
-    // the LLM-recursion risk that broke wf_53d055ce-d0b.
-    const verifyResult = spawnSync(PY, [
-      '-c',
-      'import json,sys\n'
-      + 'p=' + JSON.stringify(REPO + '/.methodology/quality_manifest.json') + '\n'
-      + 'g=(json.load(open(p)).get("gate_results",{}) or {}).get("gate1",{}) or {}\n'
-      + 'fr=g.get(' + JSON.stringify(frId) + ',{}) or {}\n'
-      + 'qc=fr.get("quality_complete") is True\n'
-      + 'sc=fr.get("score")\n'
-      + 'print("GATE1_VERIFIED_PASS" if qc else "GATE1_VERIFIED_FAIL score=" + str(sc))\n'
-      + 'sys.exit(0 if qc else 1)\n',
-    ], { encoding: 'utf-8', timeout: 30 })
-    const verifyOut = String(verifyResult.stdout || '').trim()
-    const verifyErr = String(verifyResult.stderr || '').trim()
-    const passed = verifyResult.status === 0 && verifyOut.startsWith('GATE1_VERIFIED_PASS')
-    if (verifyErr) { log('  ' + frId + ' verify stderr: ' + verifyErr.slice(0, 200)) }
+    // v2.13.3 (P3 2026-07-16 follow-up to v2.13.2): the v2.13.2 design used
+    // `spawnSync` to invoke a deterministic Python verifier synchronously
+    // from the workflow. The intent was right (avoid LLM-hallucinated
+    // verify verdicts — see wf_53d055ce-d0b where the LLM reported
+    // `pass:false, reason=GATE1_VERIFIED_FAIL score=91.81` despite
+    // `quality_complete=True`), but the dynamic-workflow runtime sandbox
+    // does not expose Node.js `child_process.spawnSync` — the call
+    // ReferenceErrors at this site (`spawnSync is not defined`).
+    //
+    // The deterministic manifest read is moved to a stand-alone script
+    // (`harness/scripts/verify_gate1_qc.py`) which the Bash sub-agent
+    // invokes. The LLM is now a string carrier: the prompt requires it to
+    // echo the literal Python stdout (Python's print is deterministic —
+    // same input, same bytes), and workflow JS regex-parses the echoed
+    // string to derive `passed`. The LLM's own `pass` field is ignored.
+    // Same AUTHORITATIVE manifest read (the whole point of this verify
+    // step) is preserved; only the execution substrate changes.
+    const verifyResult = await agent(
+      'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
+      + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + frId + ' --project ' + REPO + '\n'
+      + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly "GATE1_VERIFIED_PASS"; reason = the verbatim stdout (do NOT paraphrase, summarize, or prepend commentary).',
+      { label: 'gate1-verify-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: VERDICT_SCHEMA }
+    )
+    const verifyOut = String((verifyResult && verifyResult.reason) || '').trim()
+    const passed = !!(verifyResult && verifyResult.pass === true) && verifyOut.startsWith('GATE1_VERIFIED_PASS')
     if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }
     else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
   }
