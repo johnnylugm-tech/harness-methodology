@@ -6,6 +6,21 @@
 >
 > 本賬本只存**判定**與 **re-open 條件**,不複製論證全文——論證與實測數字的單一真相來源(SSOT)
 > 是各自的詳細出處文件;在此重複會製造雙源漂移,兩處各改一半就對不上。
+>
+> 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
+> 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
+
+## Round 16(2026-07-18)— 外部檢索自主盤點(2025-2026 論文/大廠白皮書/熱門 OSS)
+
+老闆指示盤點框架弱點時加入外部觀點,本輪檢索學術論文/技術白皮書/GitHub 熱門實作,逐條與框架現況對賬。
+
+| # | 主張/發現 | 判定 | 一句證據 | Re-open condition |
+|---|------|------|----------|---|
+| R16-1 | [OpenHands SDK](https://arxiv.org/html/2511.03690v1) 式 event-sourced state + deterministic replay + immutable config 是生產級參考架構,應全面改寫 | **拒 — 等價大爆炸改寫,需求已覆蓋** | `state.json` + 各類 JSONL(spawn/degradation/trajectory)+ `FileSnapshot`(R5 B0)已提供結構化持久化與回滾;全面改寫是為了架構美學而非解決實測痛點 | state 損毀/回放需求成為實測重複痛點時 |
+| R16-2 | [AGENTS.md 標準](https://agents.md/) 應 scaffold 到每個目標專案 | **拒 — SSOT 衝突且外部證據反向** | `CLAUDE.md` 已是本框架的單一事實來源;雙檔並存=雙源漂移。[ETH 實證(arXiv 2602.11988)](https://arxiv.org/pdf/2602.11988):LLM 生成的 context files 在 5/8 設定**降低**任務成功率、成本 +20-23% | 目標專案引入非 Claude coding agent(需要跨工具通用格式)時 |
+| R16-3 | LLM-judge 應 rubric 化、去 holistic 化以降低評分變異數 | **已建成(already-built)** | `harness/ssi/prompts/evaluate_dimension.md`:`score = tool_score` for every dimension and tier,LLM 不計算不調整數值;14 維度皆確定性工具公式(ruff/pyright/coverage/bandit+semgrep),score.py R4/R8 機器攔截造假;B-review 有 schema 驗證 + `b_gap_validator` 確定性反幻覺降級。範圍限定 gate 評分鏈,不涵蓋 bug-hunt/peer-review 等其他 LLM 判斷面 | 若未來要把此判定擴大到 bug-hunt/peer-review,需針對那些面向另行查證 |
+| R16-4 | [MAST(arXiv 2503.13657,NeurIPS 2025 spotlight)](https://arxiv.org/abs/2503.13657) 14-failure-mode/3-類分類法 vs 本框架 3 粗桶(`STRUCTURAL/INFRA_ERROR/EXECUTION_ERROR`) | **採納** | 45.65% era-mixed 失敗率(R15 附帶發現)懸置無法細分;`run-report` 只做 `error_class_counts` Counter,不再深入 | 本輪(站2-3)交付 `core/failure_modes.py` 確定性 MAST 對齊分類器 |
+| R16-5 | 乾淨 E2E 基線量測(細分類失效分布/收斂指標實測) | **延後 R17** | [Google Agent Quality whitepaper](https://vanducng.dev/2026/01/13/Google-Agent-Quality-Evaluation-Whitepaper-Summary/) outside-in 原則:先分類器就緒,乾淨資料才有意義;R12 收斂指標、R14 成本信封、R15 re-open 條件全部等此取數 | 老闆核准 dispatch 預算並排入 R17 |
 
 ## Round 15(2026-07-17)— Gap 報告 #2:觀測性/可維護性四主張
 
