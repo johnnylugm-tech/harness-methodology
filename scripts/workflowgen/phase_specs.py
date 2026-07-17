@@ -12,6 +12,7 @@ generate_phase6/1/2 following the same shape.
 from __future__ import annotations
 
 from . import js_blocks as B
+from .spec_shared import _render_meta
 
 _HEADER_8 = """\
 // Phase 8 — Configuration Management (faithful to .methodology/phase8_plan.md v2.12.0)
@@ -182,16 +183,6 @@ _META_PHASES_4 = [
     "Load FRs", "Per-FR Delta", "Coverage", "Bug Hunt", "Artifacts Commit",
     "Gate 3", "Advance", "Sync",
 ]
-
-
-def _render_meta(*, name: str, description: str, phases: list[str]) -> str:
-    lines = ["export const meta = {", f"  name: '{name}',"]
-    lines.append(f"  description: '{description}',")
-    lines.append("  phases: [")
-    lines.extend(f"    {{ title: '{t}' }}," for t in phases)
-    lines.append("  ],")
-    lines.append("}")
-    return "\n".join(lines) + "\n"
 
 
 def _render_config_docs() -> str:
