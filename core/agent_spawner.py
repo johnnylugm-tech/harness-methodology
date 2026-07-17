@@ -285,6 +285,35 @@ def _load_phase_sop(phase: int) -> str:
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
+# Round 14 站0: fields already present in the `claude -p --output-format
+# json` envelope (confirmed live 2026-07-17 against installed claude 2.1.206)
+# that were parsed then discarded — only `result`/`session_id`/`commit` were
+# ever read. `duration_ms` is deliberately excluded: it duplicates the
+# wallclock already measured independently via time.monotonic() (Fix H-F's
+# duration_seconds).
+_ENVELOPE_TOP_KEYS = ("total_cost_usd", "num_turns", "duration_api_ms")
+_ENVELOPE_USAGE_KEYS = (
+    "input_tokens", "output_tokens",
+    "cache_read_input_tokens", "cache_creation_input_tokens",
+)
+
+
+def _extract_envelope_metrics(data: dict) -> dict[str, Any]:
+    """Pull cost/turn/token fields out of a parsed claude -p envelope.
+
+    Defensive against CLI version drift: only keys actually present are
+    included, so an older/newer envelope shape never crashes this and never
+    pads sessions_spawn.log entries with null-noise.
+    """
+    metrics: dict[str, Any] = {k: data[k] for k in _ENVELOPE_TOP_KEYS if k in data}
+    usage = data.get("usage")
+    if isinstance(usage, dict):
+        usage_metrics = {k: usage[k] for k in _ENVELOPE_USAGE_KEYS if k in usage}
+        if usage_metrics:
+            metrics["usage"] = usage_metrics
+    return metrics
+
+
 class AgentSpawner:
     """
     Spawns developer and reviewer agents via the Claude Code headless CLI.
@@ -425,6 +454,12 @@ class AgentSpawner:
         proc: subprocess.CompletedProcess[str] | None = None
         _spawn_duration: float = 0.0
         _attempt: int = 1
+        # Round 14 站0: set once the envelope JSON actually parses (below),
+        # covers both the semantic-no-op (_inner_err) and the normal-success
+        # branches — a wasted turn still incurred real cost/tokens. Stays
+        # None for transport failures (timeout/non-zero exit/non-JSON
+        # stdout), where no envelope was ever produced.
+        _envelope: dict[str, Any] | None = None
         for _attempt in range(1, _STRUCTURAL_RETRY_ATTEMPTS + 1):
             _spawn_started_at = time.monotonic()
             try:
@@ -490,6 +525,9 @@ class AgentSpawner:
         assert proc is not None  # loop always runs >=1 time; error_result is None only after a successful proc
         try:
             data = json.loads(proc.stdout)
+            # Round 14 站0: the envelope is real the moment transport JSON
+            # parses — even a semantic no-op below incurred real cost/tokens.
+            _envelope = _extract_envelope_metrics(data)
             # Inner-JSON semantic validator (P3 2026-07-15 FR-03 FR-03 TDD-RED):
             # A sub-agent may exit 0 with no real progress (e.g.
             # {"status":"AWAITING_CONFIRMATION","commit":""}). Without this
@@ -508,6 +546,7 @@ class AgentSpawner:
                     duration_seconds=round(_spawn_duration, 3),
                     retry_round=retry_round,
                     dispatch_attempt=_attempt,
+                    envelope=_envelope,
                 )
                 return _inner_err
             result = {
@@ -544,6 +583,7 @@ class AgentSpawner:
             duration_seconds=round(_spawn_duration, 3),
             retry_round=retry_round,
             dispatch_attempt=_attempt,
+            envelope=_envelope,
         )
         return parsed
 
@@ -650,7 +690,8 @@ class AgentSpawner:
                       regression_flags: dict | None = None,
                       duration_seconds: float | None = None,
                       retry_round: int | None = None,
-                      dispatch_attempt: int | None = None) -> None:
+                      dispatch_attempt: int | None = None,
+                      envelope: dict[str, Any] | None = None) -> None:
         """Auto-record agent dispatch to .methodology/sessions_spawn.log as a
         non-blocking debug trail. (The HR-10 entry-count audit that consumed this
         log was removed — it was agent-writable / not tamper-evident. This stays as
@@ -692,6 +733,13 @@ class AgentSpawner:
             # iteration, a different concept) — unset outside that loop.
             if dispatch_attempt is not None:
                 _extra["dispatch_attempt"] = dispatch_attempt
+            # Round 14 站0: cost/turns/token fields lifted straight out of
+            # the claude -p envelope (see _extract_envelope_metrics) —
+            # previously parsed then discarded. Only present when the
+            # dispatch produced a real envelope (never on transport
+            # timeout/non-zero-exit/non-JSON-stdout failures).
+            if envelope:
+                _extra.update(envelope)
             logger.log_spawn(
                 role=role, task=task[:200], session_id=session_id,
                 status=result.get("status", "SPAWNED"),

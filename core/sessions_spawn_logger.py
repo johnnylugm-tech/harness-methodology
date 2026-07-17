@@ -78,6 +78,15 @@ class SessionsSpawnLogger:
                 session_id="" with no clue why spawn failed.
             exit_code: int | None — subprocess returncode on non-zero exit.
                 None for complete / SPAWNED / PENDING.
+            total_cost_usd, num_turns, duration_api_ms: float/int | None —
+                lifted directly from the claude -p --output-format json
+                envelope (Round 14 站0). Only present when that envelope was
+                actually produced — absent on TIMEOUT / non-zero-exit /
+                non-JSON-stdout entries, and absent entirely on log lines
+                written before this station.
+            usage: dict | None — envelope's token counts (input_tokens,
+                output_tokens, cache_read_input_tokens,
+                cache_creation_input_tokens), same presence rule as above.
 
         Guarded by cross-process file lock (SG-3): parallel log_spawn +
         log_update calls cannot interleave and lose entries.

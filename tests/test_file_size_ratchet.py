@@ -194,7 +194,13 @@ _LINE_CEILING: dict[str, int] = {
     # (站0b probe). All three are dispatch-substrate concerns that belong
     # with spawn(); splitting them out would separate the probe from the
     # substrate it measures.
-    "core/agent_spawner.py": 940,
+    # 2026-07-17: +46 lines — Round 14 站0: claude -p envelope cost/turns/
+    # usage fields (total_cost_usd, num_turns, duration_api_ms, usage
+    # sub-keys) were parsed then discarded — _extract_envelope_metrics +
+    # its two module constants, plus the _envelope threading through
+    # spawn()'s three post-JSON-parse _log_dispatch call sites and
+    # _log_dispatch's own new parameter, are the capture.
+    "core/agent_spawner.py": 986,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

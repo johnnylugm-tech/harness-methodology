@@ -1070,6 +1070,159 @@ class TestCalculateLogicalRemoval:
         # duration_seconds is always populated (we always measure) — but only
         # the explicitly-optional retry_round is what we omit-by-default here.
 
+    # ── Round 14 站0: claude envelope cost/turns/usage in sessions_spawn.log ─
+
+    def test_spawn_writes_envelope_metrics_to_log(self, tmp_path):
+        """A full envelope (cost/turns/duration_api_ms/usage) surfaces as
+        flat fields in the spawn log entry, keyed exactly as claude -p emits
+        them (confirmed live 2026-07-17 against installed claude 2.1.206)."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "done", "session_id": "x", "commit": "abcd",
+            "total_cost_usd": 0.0123,
+            "num_turns": 4,
+            "duration_api_ms": 5678,
+            "duration_ms": 9999,  # deliberately NOT captured (duplicates duration_seconds)
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 10,
+                "cache_creation_input_tokens": 5,
+                "server_tool_use": {"web_search_requests": 0},  # not in our allowlist
+            },
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        assert spawn_entry["total_cost_usd"] == 0.0123
+        assert spawn_entry["num_turns"] == 4
+        assert spawn_entry["duration_api_ms"] == 5678
+        assert "duration_ms" not in spawn_entry
+        assert spawn_entry["usage"] == {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_read_input_tokens": 10,
+            "cache_creation_input_tokens": 5,
+        }
+
+    def test_spawn_omits_envelope_fields_when_absent(self, tmp_path):
+        """An envelope missing cost/turns/usage entirely (older/incompatible
+        claude CLI version) must not crash and must not pad the log entry
+        with nulls."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "done", "session_id": "x", "commit": "abcd",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        for key in ("total_cost_usd", "num_turns", "duration_api_ms", "usage"):
+            assert key not in spawn_entry
+
+    def test_spawn_envelope_absent_on_error_path(self, tmp_path):
+        """A non-zero exit never produced an envelope — no cost/turns/usage
+        fields, regardless of what the (unused) stdout happens to contain."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+        mock_proc.stderr = "some real failure"
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        assert result["status"] == "ERROR"
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        for key in ("total_cost_usd", "num_turns", "duration_api_ms", "usage"):
+            assert key not in spawn_entry
+
+    def test_spawn_envelope_captured_on_semantic_noop(self, tmp_path):
+        """A semantic no-op (_validate_inner_json rejects it) still parsed a
+        real envelope — the wasted turn incurred real cost, so it must still
+        be captured (not just the final-success branch)."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "awaiting", "session_id": "x", "commit": "",
+            "status": "AWAITING_CONFIRMATION",
+            "total_cost_usd": 0.005,
+            "num_turns": 1,
+            "duration_api_ms": 200,
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3, "step": "run-fr-step"}, model="claude",
+                )
+        assert result["status"] == "ERROR"
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        assert spawn_entry["total_cost_usd"] == 0.005
+        assert spawn_entry["usage"] == {"input_tokens": 10, "output_tokens": 2}
+
+
+class TestExtractEnvelopeMetrics:
+    """Unit tests for the module-level _extract_envelope_metrics helper —
+    isolated from spawn()'s subprocess plumbing."""
+
+    def test_extracts_present_top_level_keys(self):
+        from core.agent_spawner import _extract_envelope_metrics
+        metrics = _extract_envelope_metrics({
+            "total_cost_usd": 1.5, "num_turns": 3, "duration_api_ms": 42,
+            "result": "ignored", "session_id": "ignored",
+        })
+        assert metrics == {"total_cost_usd": 1.5, "num_turns": 3, "duration_api_ms": 42}
+
+    def test_empty_dict_yields_empty_metrics(self):
+        from core.agent_spawner import _extract_envelope_metrics
+        assert _extract_envelope_metrics({}) == {}
+
+    def test_usage_present_but_no_known_subkeys_omits_usage_entirely(self):
+        from core.agent_spawner import _extract_envelope_metrics
+        metrics = _extract_envelope_metrics({"usage": {"server_tool_use": {}}})
+        assert "usage" not in metrics
+
+    def test_usage_non_dict_is_ignored(self):
+        from core.agent_spawner import _extract_envelope_metrics
+        metrics = _extract_envelope_metrics({"usage": "not-a-dict"})
+        assert "usage" not in metrics
+
 
 class TestStructuralRetry:
     """Fix H-G (P3 2026-07-15 round 4): bounded retry for STRUCTURAL
