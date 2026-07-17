@@ -32,6 +32,7 @@ from core.quality_gate.ghost_detector import (
     write_ghost_paper_trail,
 )
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 from harness import tool_checks
 
@@ -221,15 +222,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # Example manifest entry:
     #   {"fr_config": {"FR-19": {"timeout": 1200, "max_fix_rounds": 5,
     #                             "code_fix_max_turns": 90}}}
-    _fr_conf: dict = {}
-    _fr_manifest_path = project / ".methodology" / "quality_manifest.json"
-    try:
-        _fr_conf = (
-            json.loads(_fr_manifest_path.read_text(encoding="utf-8"))
-            .get("fr_config", {}).get(fr_id, {})
-        )
-    except (OSError, json.JSONDecodeError, AttributeError):
-        pass
+    _fr_conf = load_quality_manifest(project, lenient=True).get("fr_config", {}).get(fr_id, {})
     _fr_timeout = _fr_conf.get("timeout", getattr(args, "timeout", None))
     if _fr_timeout is None:
         _fr_timeout = get_timeout("fr_step", project)
@@ -685,17 +678,13 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     elif fix_step_name == "COVERAGE-FIX":
                         # Read min_coverage from manifest (default 80.0,
                         # same default _check_gate1_live_coverage uses).
-                        _cov_min = 80.0
+                        _mfst = load_quality_manifest(Path(str(project)), lenient=True)
                         try:
-                            _mfst = json.loads(
-                                (Path(str(project)) / ".methodology"
-                                 / "quality_manifest.json").read_text(
-                                    encoding="utf-8"))
                             _cov_min = float(
                                 (_mfst.get("quality_targets") or {})
                                 .get("min_coverage", 80.0))
-                        except (OSError, ValueError, json.JSONDecodeError):
-                            pass
+                        except (ValueError, TypeError):
+                            _cov_min = 80.0
                         try:
                             _live_cov = gate1_evidence.validate_fr_coverage_immediate(
                                 Path(str(project)))
@@ -929,16 +918,9 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
     """
     phase = args.phase
     project = Path(args.project).resolve()
-    manifest_path = project / ".methodology" / "quality_manifest.json"
     progress_path = project / ".methodology" / "fr_progress.json"
 
-    fr_ids: list[str] = []
-    if manifest_path.exists():
-        try:
-            fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
-        except Exception as exc:
-            print(f"[WARN] resume-fr-phase: quality_manifest.json unreadable, "
-                  f"falling back to fr_progress.json: {exc}", file=sys.stderr)
+    fr_ids: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
     if not fr_ids and progress_path.exists():
         try:
             data = json.loads(progress_path.read_text(encoding="utf-8"))
@@ -1207,13 +1189,13 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
         errors.append("✗ .methodology/quality_manifest.json not found (run run-phase first)")
     else:
         try:
-            m = json.loads(manifest_path.read_text(encoding="utf-8"))
+            m = load_quality_manifest(project)
             registered = m.get("fr_ids", [])
             if fr_id and fr_id not in registered:
                 errors.append(
                     f"✗ FR-ID {fr_id} not in quality_manifest.json fr_ids ({', '.join(registered)})"
                 )
-        except Exception as exc:
+        except StateCorruptError as exc:
             print(f"[WARN] run-fr-step precheck: quality_manifest.json malformed: {exc}", file=sys.stderr)
             errors.append("✗ quality_manifest.json is malformed JSON")
 
@@ -1596,13 +1578,7 @@ def _fr_step_lineage_boundary(project: Path, phase: int | None) -> str | None:
     """
     if phase is None or phase < 2:
         return None
-    state_path = project / ".methodology" / "state.json"
-    if not state_path.exists():
-        return None
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    state = load_state(project, lenient=True)
     entry = state.get("phase_completed", {}).get(str(phase - 1))
     if not isinstance(entry, dict):
         return None
@@ -1665,17 +1641,16 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
     # 80.28 vs min_coverage 80) while the real per-dimension gate (test_coverage
     # scoring 42) still fails, silently skipping re-evaluation forever.
     if step.upper() in ("GATE1", "GATE1-DELTA"):
-        _manifest_path = project / ".methodology" / "quality_manifest.json"
-        try:
-            _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
-            _qc = (
-                _manifest.get("gate_results", {})
-                .get("gate1", {}).get(fr_id, {}).get("quality_complete")
-            )
-            if _qc is not True:
-                return False   # commit exists but quality_complete not True → re-run
-        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
-            return False       # manifest unreadable → re-run to be safe
+        _manifest = load_quality_manifest(project, lenient=True)
+        _qc = (
+            _manifest.get("gate_results", {})
+            .get("gate1", {}).get(fr_id, {}).get("quality_complete")
+        )
+        if _qc is not True:
+            # Also fires when the manifest is missing/corrupt (lenient
+            # degrades to {} → .get() chain resolves to None here) —
+            # re-run to be safe is the same fallback either way.
+            return False   # commit exists but quality_complete not True → re-run
 
     # GATE1-DELTA: code-change detection (not just commit-pattern check)
     if step.upper() == "GATE1-DELTA":
@@ -2171,13 +2146,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         # (0% coverage each), making an 80% whole-tree target unsatisfiable
         # from this FR's own test file alone (P3 2026-07-12: FR-01/FR-02 both
         # BLOCKED after 2 no-progress rounds chasing the wrong denominator).
-        _cf_manifest: dict = {}
-        try:
-            _cf_manifest = json.loads(
-                (project / ".methodology" / "quality_manifest.json").read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError, ValueError, AttributeError):
-            pass
+        _cf_manifest = load_quality_manifest(project, lenient=True)
         _cf_src_files = resolve_fr_scoped_src_files(
             str(project), fr_id, test_file, src_dir, _cf_manifest
         )

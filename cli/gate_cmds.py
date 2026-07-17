@@ -35,6 +35,7 @@ from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
 from core.quality_gate.cov_utils import _fr_source_files_from_imports  # noqa: F401  (re-export: tests/cli/test_gate_cmds_cli.py imports it from here)
 from core.quality_gate.spec_coverage import _get_test_directories, _git_test_patterns
+from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.script_loader import load_harness_script
 from harness import tool_checks
 from core.utils.project_layout import ProjectLayout
@@ -905,13 +906,16 @@ def _filter_phantoms_for_fr(project: str, fr_id: str, phantoms: set[str]) -> set
     Ownership lookup reuses `fr_module_traceability` — the same manifest
     field `_print_fr_scoped_overrides_py`/`_js` already use for per-FR
     scoping — and `_normalize_sab_module_to_dotted` so ownership keys and
-    the phantom set being filtered agree on format. Manifest unreadable →
-    stay conservative and return `phantoms` unfiltered (original behavior).
+    the phantom set being filtered agree on format. Manifest missing OR
+    unreadable → stay conservative and return `phantoms` unfiltered
+    (original behavior) — a manifest that legitimately parses to {} is NOT
+    the same case and falls through to real (empty) ownership data below.
     """
-    manifest_path = Path(project) / ".methodology" / "quality_manifest.json"
+    if not ProjectLayout(project).quality_manifest_path.exists():
+        return phantoms
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
+        manifest = load_quality_manifest(project)
+    except StateCorruptError:
         return phantoms
 
     gate1_results = manifest.get("gate_results", {}).get("gate1", {})
@@ -1046,27 +1050,19 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
     # ── Delta-check: skip re-evaluation if FR code unchanged ────────────
     if delta and fr_id:
         project_path = Path(args.project).resolve()
-        manifest_path = project_path / ".methodology" / "quality_manifest.json"
-        if manifest_path.exists():
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                prev_score = (
-                    manifest.get("gate_results", {})
-                    .get("gate1", {})
-                    .get(fr_id, {})
-                    .get("score")
-                )
-            except Exception as exc:
-                print(f"[WARN] run-gate DELTA-CHECK: quality_manifest.json unreadable, "
-                      f"falling back to full re-evaluation for {fr_id}: {exc}", file=sys.stderr)
-                prev_score = None
-
-            if prev_score is not None:
-                print(f"\n{'='*60}")
-                print(f"DELTA-CHECK: {fr_id} — reusing previous Gate 1 score ({prev_score})")
-                print("  (No code changes detected or delta-mode active)")
-                print(f"{'='*60}")
-                return 0
+        manifest = load_quality_manifest(project_path, lenient=True)
+        prev_score = (
+            manifest.get("gate_results", {})
+            .get("gate1", {})
+            .get(fr_id, {})
+            .get("score")
+        )
+        if prev_score is not None:
+            print(f"\n{'='*60}")
+            print(f"DELTA-CHECK: {fr_id} — reusing previous Gate 1 score ({prev_score})")
+            print("  (No code changes detected or delta-mode active)")
+            print(f"{'='*60}")
+            return 0
 
     from harness.harness_bridge import HarnessBridge
 
@@ -2129,11 +2125,11 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         _prev_g4_milestone_command = None
         _wrote_g4_milestone_state = False
         if args.gate == 4:
-            _state_path = Path(args.project).resolve() / ".methodology" / "state.json"
+            _state_path = project_path / ".methodology" / "state.json"
             if _state_path.exists():
                 try:
-                    with file_lock(state_lock_path(Path(args.project).resolve())):
-                        _sd = json.loads(_state_path.read_text(encoding="utf-8"))
+                    with file_lock(state_lock_path(project_path)):
+                        _sd = load_state(project_path)
                         _prev_g4_milestone_command = _sd.get("last_milestone_command")
                         _sd["last_milestone_command"] = (
                             f"finalize-gate --gate 4 --phase {args.phase}"
@@ -2229,18 +2225,11 @@ def _update_state_checkpoint(
     state_path = project / ".methodology" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     with file_lock(state_lock_path(project)):
-        existing: dict = {}
-        if state_path.exists():
-            try:
-                existing = json.loads(state_path.read_text(encoding="utf-8"))
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                from core.degradation_ledger import record_degradation
-                record_degradation(
-                    project, "gate_cmds._update_state_checkpoint",
-                    "state.json unreadable — overwriting with a fresh object "
-                    "(any fields other than last_gate/last_fr/last_update are lost)",
-                    why=str(exc),
-                )
+        # lenient=True: unreadable state.json overwrites with a fresh object
+        # (any fields other than last_gate/last_fr/last_update are lost) —
+        # recorded on the degradation ledger, same trade-off this site
+        # already made by hand before core/state_io.py existed.
+        existing = load_state(project, lenient=True)
         # Track Gate 1 score for inter-FR variance check (D2 extension)
         if gate_num == 1 and fr_id and gate_score is not None and phase is not None:
             gate1_evidence.record_gate1_score(project, phase, fr_id, gate_score)
