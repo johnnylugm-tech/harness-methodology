@@ -111,6 +111,9 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
     _manifest = out_dir / "quality_manifest.json"
     if _manifest.is_file():
         try:
+            # state-io-exempt: out_dir honors --output-dir and may differ from
+            # <project>/.methodology — core/state_io.py's API is hard-wired to
+            # the ProjectLayout-derived path, so it can't serve this probe.
             json.loads(_manifest.read_text(encoding="utf-8"))
             _manifest_usable = True
         except (OSError, json.JSONDecodeError):
@@ -458,16 +461,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             try:
                 from harness.harness_bridge import HarnessBridge
                 # Reuse fr_ids from current manifest, fall back to SRS.md scan
-                _mf_path = project / ".methodology" / "quality_manifest.json"
-                _fr_ids: list[str] = []
-                if _mf_path.exists():
-                    try:
-                        _fr_ids = json.loads(
-                            _mf_path.read_text(encoding="utf-8")
-                        ).get("fr_ids", [])
-                    except Exception as exc:  # pylint: disable=broad-exception-caught
-                        print(f"  [P2→P3] quality_manifest.json unreadable, "
-                              f"falling back to SRS.md FR scan: {exc}", file=sys.stderr)
+                _fr_ids: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
                 if not _fr_ids:
                     # Fallback: scan SRS.md for FR markers. Match "### FR-XX" headers
                     # (separator can be `:`, `—`, `-`, `|`, or whitespace after the

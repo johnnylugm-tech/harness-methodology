@@ -54,13 +54,7 @@ def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
     if not frs:
         # Auto-detect FR IDs from quality_manifest.json so tests that create
         # FRs via the manifest don't need to pass them explicitly.
-        _mp = project / ".methodology" / "quality_manifest.json"
-        if _mp.exists():
-            try:
-                _mf = json.loads(_mp.read_text(encoding="utf-8"))
-                frs = list(_mf.get("fr_ids", []))
-            except (json.JSONDecodeError, OSError):
-                pass
+        frs = list(load_quality_manifest(project, lenient=True).get("fr_ids", []))
     for _frid in frs:
         _sf = _finalize_sentinel_path(project, 1, _frid, phase=phase)
         _sf.parent.mkdir(parents=True, exist_ok=True)

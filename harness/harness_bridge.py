@@ -3020,7 +3020,14 @@ class HarnessBridge:
         p = Path(project_root) / ".methodology" / "quality_manifest.json"
         if not p.exists():
             return
-        manifest = json.loads(p.read_text(encoding="utf-8"))
+        # Round 14 站2d: was an uncaught json.loads — a corrupt manifest raised
+        # JSONDecodeError straight through this gate-result write, which the
+        # crash boundary then misclassified as [HARNESS-BUG]. StateCorruptError
+        # is deliberately left uncaught here too (this write can't proceed
+        # without knowing the manifest's true prior content) but now surfaces
+        # correctly as [FATAL] exit 26.
+        from core.state_io import load_quality_manifest
+        manifest = load_quality_manifest(project_root)
         key = f"gate{gate_num}"
         payload: dict[str, Any] = {
             "score": result.score, "quality_complete": result.quality_complete,

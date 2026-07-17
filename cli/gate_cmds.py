@@ -1120,12 +1120,7 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
         _src_dir = "03-development/src"
 
         # Load quality_manifest for per-FR overrides (scope + non-code flag).
-        _manifest_data: dict = {}
-        _manifest_path_g = Path(project) / ".methodology" / "quality_manifest.json"
-        try:
-            _manifest_data = json.loads(_manifest_path_g.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass
+        _manifest_data = load_quality_manifest(project, lenient=True)
 
         # Issue 3 (generalized): non-code FRs (Docker Compose, SQL, YAML) have
         # no scoreable source. When scope is empty and the FR is declared
@@ -1717,7 +1712,7 @@ def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -
     if not _mfst.exists():
         return
     try:
-        _mfst_json = json.loads(_mfst.read_text(encoding="utf-8"))
+        _mfst_json = load_quality_manifest(project_path)
         _gr = _mfst_json.get("gate_results", {}) or {}
         if gate == 1:
             _actual_fr = fr_id or "unknown"
@@ -1738,7 +1733,7 @@ def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -
                     print(f"  [DIAG] Hook rejection details:\n{_diag_text[:2000]}")
                 except OSError:
                     pass
-    except (OSError, json.JSONDecodeError) as _mf_err:
+    except (OSError, StateCorruptError) as _mf_err:
         print(f"  [WARN] Could not roll back quality_manifest.json after commit failure: {_mf_err}")
 
 def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
@@ -1881,7 +1876,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         _mfst = project_path / ".methodology" / "quality_manifest.json"
         if _mfst.exists():
             try:
-                _mfst_json = json.loads(_mfst.read_text(encoding="utf-8"))
+                _mfst_json = load_quality_manifest(project_path)
                 _mfst_gr = _mfst_json.setdefault("gate_results", {})
                 _gr_key = f"gate{args.gate}"
                 if args.gate == 1 and fr_id:
@@ -1918,7 +1913,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 atomic_write_json(_mfst, _mfst_json)
                 print(f"  manifest        : quality_manifest.json {_gr_key} patched "
                       f"(score={round(result.score, 2)}, qc={result.quality_complete})")
-            except (OSError, json.JSONDecodeError) as _mf_err:
+            except (OSError, StateCorruptError) as _mf_err:
                 print(f"  [WARN] Could not patch quality_manifest.json gate_results: {_mf_err}")
 
         # ── Structural post-flight for phase-exit gates (gate ≥ 2) ──────────
@@ -2162,10 +2157,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             if _wrote_g4_milestone_state:
                 try:
                     with file_lock(state_lock_path(project_path)):
-                        _sd = json.loads(
-                            (project_path / ".methodology" / "state.json")
-                            .read_text(encoding="utf-8")
-                        )
+                        _sd = load_state(project_path)
                         if _prev_g4_milestone_command is None:
                             _sd.pop("last_milestone_command", None)
                         else:

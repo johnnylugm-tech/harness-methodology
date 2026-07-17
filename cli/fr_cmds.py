@@ -398,16 +398,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         # False regardless of evaluation score. Detect this and run
         # finalize-gate directly so the manifest stays in sync.
         if _status not in {"ERROR", "TIMEOUT"}:
-            _mf_qc = False
-            try:
-                _mf_path = project / ".methodology" / "quality_manifest.json"
-                if _mf_path.exists():
-                    _mf_json = json.loads(_mf_path.read_text(encoding="utf-8"))
-                    _fr_entry = (_mf_json.get("gate_results", {})
-                                 .get("gate1", {}).get(fr_id, {}))
-                    _mf_qc = bool(_fr_entry.get("quality_complete", False))
-            except (OSError, json.JSONDecodeError):
-                pass
+            _mf_json = load_quality_manifest(project, lenient=True)
+            _fr_entry = (_mf_json.get("gate_results", {})
+                         .get("gate1", {}).get(fr_id, {}))
+            _mf_qc = bool(_fr_entry.get("quality_complete", False))
             _sub_reported_pass = (
                 isinstance(result.get("output", ""), str)
                 and "GATE1: PASS" in result["output"]
@@ -706,8 +700,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                             try:
                                 _mfst_path = Path(str(project)) / ".methodology" \
                                     / "quality_manifest.json"
-                                _mfst = json.loads(
-                                    _mfst_path.read_text(encoding="utf-8"))
+                                _mfst = load_quality_manifest(Path(str(project)))
                                 _gr = _mfst.setdefault(
                                     "gate_results", {})
                                 _g1 = _gr.setdefault("gate1", {})
@@ -733,7 +726,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                                       f"gate1.{fr_id}.quality_complete=True "
                                       f"(score={_live_cov:.1f})")
                             except (OSError, ValueError,
-                                    json.JSONDecodeError) as _mfst_exc:
+                                    StateCorruptError) as _mfst_exc:
                                 print("  [run-fr-step] COVERAGE-FIX inline "
                                       "fallback: manifest stamp failed "
                                       f"({_mfst_exc}) — continuing GATE1 "

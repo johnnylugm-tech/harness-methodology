@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from core.phase_topology import VALID_PHASES
+from core.state_io import load_state
 from core.utils.project_layout import ProjectLayout
 from core.utils.project_layout import phase_artifacts as _phase_artifacts
 
@@ -217,15 +218,8 @@ class PhaseTruthVerifier:
 
     def _js_runner_argv(self, *, coverage: bool) -> list:
         """vitest/jest argv for test (or coverage) runs — npx --no-install only."""
-        runner = "vitest"
-        try:
-            state = json.loads(
-                (ProjectLayout(self.project_root).state_json_path)
-                .read_text(encoding="utf-8")
-            )
-            runner = state.get("test_runner") or "vitest"
-        except (OSError, json.JSONDecodeError):
-            pass
+        state = load_state(self.project_root, lenient=True)
+        runner = state.get("test_runner") or "vitest"
         if runner == "jest":
             argv = ["npx", "--no-install", "jest", "--ci"]
             if coverage:
