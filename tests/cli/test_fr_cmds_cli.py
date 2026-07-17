@@ -793,7 +793,7 @@ class TestRunFrStep:
         by 14+ other call sites across the harness (phase_cmds.py,
         harness_bridge.py, spec_alignment.py, ...). Must find the real
         01-requirements/SRS.md with no --srs given."""
-        from cli import fr_cmds as _frm
+        import cli.fr_cmds as _frm
 
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
@@ -1911,7 +1911,7 @@ class TestFrStepPreflightSrsPath:
 
     def test_explicit_absolute_srs_path_accepted(self, tmp_path):
         import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
-        from cli import fr_cmds as _frm
+        import cli.fr_cmds as _frm
         # SRS.md at a non-default absolute path — no default lookup should occur.
         srs_dir = tmp_path / "custom-docs"
         srs_dir.mkdir()
@@ -1923,7 +1923,7 @@ class TestFrStepPreflightSrsPath:
 
     def test_explicit_srs_path_missing_adds_error(self, tmp_path):
         import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
-        from cli import fr_cmds as _frm
+        import cli.fr_cmds as _frm
         self._make_manifest(tmp_path)
         nonexistent = tmp_path / "no-such.md"
         ok, errors = _frm._fr_step_preflight("TDD-RED", tmp_path, "FR-01", srs_path=nonexistent)
@@ -1932,7 +1932,7 @@ class TestFrStepPreflightSrsPath:
 
     def test_relative_srs_str_resolved_against_project(self, tmp_path):
         import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
-        from cli import fr_cmds as _frm
+        import cli.fr_cmds as _frm
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "SRS.md").write_text("### FR-01: Feature\n\n---\n", encoding="utf-8")
         self._make_manifest(tmp_path)
@@ -1948,7 +1948,7 @@ class TestFrStepPreflightSrsPath:
         class as the GATE1 sub-agent prompt (see _build_fr_step_prompt
         regression test)."""
         import harness_cli  # noqa: F401  entry-first load order (cli-first crashes until S5)
-        from cli import fr_cmds as _frm
+        import cli.fr_cmds as _frm
 
         assert tmp_path != Path.cwd()
         self._make_manifest(tmp_path)

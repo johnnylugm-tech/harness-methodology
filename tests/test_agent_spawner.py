@@ -926,7 +926,7 @@ class TestStructuralSignatureSingleSource:
     def test_fr_cmds_delegates_instead_of_owning_a_signature_copy(self):
         import inspect
 
-        from cli import fr_cmds
+        import cli.fr_cmds as fr_cmds
 
         fr_source = inspect.getsource(fr_cmds)
         assert "_CONNECTOR_DISABLED_SIGNATURE" not in fr_source, (
