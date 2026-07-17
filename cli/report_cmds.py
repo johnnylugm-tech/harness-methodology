@@ -105,6 +105,26 @@ def _spawn_log_report(project: Path) -> dict:
     }
 
 
+def _failure_modes_report(project: Path) -> dict:
+    """Round 16 站3: reclassify the same spawn-log entries _spawn_log_report
+    reads against core.failure_modes' MAST-aligned rules. Independent read
+    (each run-report section is self-contained, same as every other section
+    here) — not a derivative of _spawn_log_report's output."""
+    from core.failure_modes import summarize
+    from core.sessions_spawn_logger import SessionsSpawnLogger
+    entries = _read_jsonl(project / SessionsSpawnLogger.LOG_FILENAME)
+    if not entries:
+        return {"available": False}
+    summary = summarize(entries)
+    timestamps = [e["timestamp"] for e in entries if isinstance(e.get("timestamp"), str)]
+    return {
+        "available": True,
+        **summary,
+        "first_timestamp": timestamps[0] if timestamps else None,
+        "last_timestamp": timestamps[-1] if timestamps else None,
+    }
+
+
 def _degradation_report(project: Path) -> dict:
     from core.degradation_ledger import LEDGER_RELPATH
     entries = _read_jsonl(project / LEDGER_RELPATH)
@@ -165,11 +185,12 @@ def _trajectory_report(project: Path, *, line_cap: int = _TRAJECTORY_LINE_CAP) -
 
 
 def build_report(project: Path) -> dict:
-    """Pure aggregation — no printing, no argparse. Each of the four
+    """Pure aggregation — no printing, no argparse. Each of the five
     sections is independently optional (see module docstring)."""
     return {
         "project": str(project),
         "spawn_log": _spawn_log_report(project),
+        "failure_modes": _failure_modes_report(project),
         "degradations": _degradation_report(project),
         "crash_bundles": _crash_report(project),
         "trajectory": _trajectory_report(project),
@@ -211,6 +232,27 @@ def _render_human(report: dict) -> str:
         lines.append(
             f"  duration: avg {dur if dur is not None else 'n/a'}s wallclock, "
             f"avg {api_dur if api_dur is not None else 'n/a'}ms API"
+        )
+
+    fm = report["failure_modes"]
+    lines.append("")
+    lines.append("## Failure modes (MAST-aligned, docs/OBSERVABILITY.md)")
+    if not fm["available"]:
+        lines.append("  n/a — log not found or empty")
+    else:
+        lines.append(f"  total: {fm['total']}")
+        lines.append(f"  by mode: {fm['mode_counts']}")
+        lines.append(f"  by MAST category: {fm['category_counts']}")
+        lines.append(
+            f"  unclassified: {fm['unclassified_count']} "
+            f"({fm['unclassified_pct']}%)"
+        )
+        lines.append(f"  span: {fm['first_timestamp']} .. {fm['last_timestamp']}")
+        lines.append(
+            "  NOTE: a log spanning multiple rounds/eras mixes different "
+            "code versions — counts are not evidence of the CURRENT "
+            "failure distribution (see docs/PROPOSAL_ADJUDICATIONS.md's "
+            "Round 15 entry)."
         )
 
     dg = report["degradations"]
@@ -269,8 +311,9 @@ def register(sub) -> None:
     rr = sub.add_parser(
         "run-report",
         help="Read-only aggregation of run artifacts: spawn dispatches "
-             "(cost/tokens/failure rate/dispatches-per-FR), degradations, "
-             "crash bundles, agent-trajectory span wall-times",
+             "(cost/tokens/failure rate/dispatches-per-FR), MAST-aligned "
+             "failure modes, degradations, crash bundles, agent-trajectory "
+             "span wall-times",
     )
     rr.add_argument("--project", default=".", help="Project root (default: .)")
     rr.add_argument("--json", action="store_true", help="Machine-readable JSON output")
