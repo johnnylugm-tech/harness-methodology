@@ -9,14 +9,13 @@ re-exports the cmd_* names, so `from harness_cli import cmd_x` works.
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from cli import _shared
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path
 from core.phase_topology import ENTRY_GATE_MAP
+from core.state_io import load_quality_manifest, load_state
 
 
 def cmd_push_checkpoint(args: argparse.Namespace) -> int:
@@ -87,7 +86,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
             return 1
         try:
             with file_lock(state_lock_path(project)):
-                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _state_data = load_state(project)
                 _prev_last_push_checkpoint = _state_data.get("last_push_checkpoint")
                 _prev_last_push_checkpoint_phase = _state_data.get("last_push_checkpoint_phase")
                 _prev_phase_completed_entry = _state_data.get("phase_completed", {}).get(str(phase))
@@ -124,7 +123,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     if not ok and _wrote_checkpoint_state:
         try:
             with file_lock(state_lock_path(project)):
-                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _state_data = load_state(project)
                 if _prev_last_push_checkpoint is None:
                     _state_data.pop("last_push_checkpoint", None)
                 else:
@@ -207,14 +206,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     ok = False
     # Auto-populate fr_ids from manifest when not provided
     if not fr_ids:
-        manifest_path = project / ".methodology" / "quality_manifest.json"
-        if manifest_path.exists():
-            try:
-                _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
-                fr_ids = _mf.get("fr_ids", [])
-            except Exception as _mf_err:  # pylint: disable=broad-exception-caught
-                print(f"[WARN] push-milestone: quality_manifest.json unreadable, "
-                      f"fr_ids stays empty: {_mf_err}", file=sys.stderr)
+        fr_ids = load_quality_manifest(project, lenient=True).get("fr_ids", [])
 
     # Entry-gate evidence BEFORE any side effect (E2E round 2 C-1/C-2:
     # p5-baseline and p7 pushed fake milestones with no gate evidence; even
@@ -227,14 +219,8 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     }
     _required_gate = _MILESTONE_ENTRY_GATES.get(milestone_type)
     if _required_gate is not None:
-        _gate_rec: dict = {}
-        try:
-            _mf_gate = json.loads(
-                (project / ".methodology" / "quality_manifest.json").read_text(encoding="utf-8")
-            )
-            _gate_rec = (_mf_gate.get("gate_results") or {}).get(f"gate{_required_gate}") or {}
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            _gate_rec = {}
+        _mf_gate = load_quality_manifest(project, lenient=True)
+        _gate_rec = (_mf_gate.get("gate_results") or {}).get(f"gate{_required_gate}") or {}
         if not _gate_rec.get("quality_complete"):
             print(
                 f"[BLOCKED] push-milestone --type {milestone_type}: entry gate "
@@ -260,7 +246,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
     if state_path.exists():
         try:
             with file_lock(state_lock_path(project)):
-                _state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                _state_data = load_state(project)
                 _prev_last_milestone_command = _state_data.get("last_milestone_command")
                 _prev_last_milestone_at = _state_data.get("last_milestone_at")
                 _state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
@@ -277,7 +263,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             return
         try:
             with file_lock(state_lock_path(project)):
-                _sd = json.loads(state_path.read_text(encoding="utf-8"))
+                _sd = load_state(project)
                 if _prev_last_milestone_command is None:
                     _sd.pop("last_milestone_command", None)
                 else:
