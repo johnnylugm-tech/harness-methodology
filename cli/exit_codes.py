@@ -50,6 +50,7 @@ EX_SCOPE_VIOLATION = 21
 EX_GHOST_DETECTED = 22
 EX_DISPATCH_STRUCTURALLY_BROKEN = 23
 EX_SUBSTRATE_PREFLIGHT_FAIL = 24
+EX_FR_STEP_INFRA_ABORT = 25
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -79,6 +80,7 @@ REGISTRY: dict[int, str] = {
     EX_GHOST_DETECTED: "GHOST_DETECTED — agent claimed work but made no substantive code change (see .sessi-work/ghost_detected/)",
     EX_DISPATCH_STRUCTURALLY_BROKEN: "Sub-agent dispatch is structurally broken (e.g. claude.ai connectors disabled) — not a retryable failure",
     EX_SUBSTRATE_PREFLIGHT_FAIL: "run-phase: spawn-substrate preflight probe FAILED — sub-agents cannot run pytest/git in this environment",
+    EX_FR_STEP_INFRA_ABORT: "run-fr-step: a [HARNESS-BUG] banner or INFRA_FAIL precondition-block signature was found in the sub-agent's GATE1 output — aborted before dispatching a fix agent at a problem no code change can resolve",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
     EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
 }

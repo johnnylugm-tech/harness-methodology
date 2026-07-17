@@ -68,6 +68,8 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     23  Sub-agent dispatch is structurally broken (e.g. claude.ai connectors
         disabled) — not a retryable failure
     24  run-phase: spawn-substrate preflight probe FAILED
+    25  run-fr-step: [HARNESS-BUG]/INFRA_FAIL signature found in sub-agent
+        output — aborted before dispatching a fix agent
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

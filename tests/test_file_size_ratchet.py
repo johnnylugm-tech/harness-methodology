@@ -78,7 +78,9 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +23 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 12 previously-unlogged broad excepts now print a [WARN]
     # (2 via core.degradation_ledger for the state.json-corruption cases).
-    "cli/phase_cmds.py": 2703,
+    # 2026-07-17: +12 lines — Round 13 站2c: 8 agent-facing [BLOCKED] messages
+    # gained a "Fix:"/re-run remediation line (blocked-message-contract scan).
+    "cli/phase_cmds.py": 2715,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -164,7 +166,11 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +11 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 10 previously-unlogged broad excepts now print a [WARN]
     # diagnostic (or, for the CRG-search/git-sha sites, a one-line reason).
-    "cli/fr_cmds.py": 2441,
+    # 2026-07-17: +74 lines — Round 13 站2a/2b: _classify_infra_or_harness_bug
+    # + _abort_dispatch_infra_or_harness_bug (HARNESS_BUG/INFRA short-circuit
+    # in the fix-round loop — do not dispatch CODE-FIX at a problem no code
+    # change can resolve) + the UNKNOWN-exhausted hint at loop exhaustion.
+    "cli/fr_cmds.py": 2515,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`

@@ -1730,7 +1730,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             print("  [WARN] PhaseTruthVerifier not available — skipping HR-11 check")
         except Exception as e:
             print(f"\n  [BLOCKED] Phase Truth check failed with unexpected error: {e}")
-            print("  Please resolve this engineering exception before advancing.")
+            print(
+                "  Fix: investigate the exception above, then re-run:\n"
+                f"    python harness_cli.py advance-phase --completed-phase "
+                f"{completed_phase} --project {project}"
+            )
             return 11
 
 
@@ -1830,10 +1834,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 print(f"\n[BLOCKED] Agent B approvals incomplete for Phase {completed_phase}:")
                 print(report_ab)
                 print(
-                    "\n  Each deliverable needs "
+                    "\n  Fix: each deliverable needs "
                     ".methodology/agent_b_approvals/<id>.json "
                     "with review_status=APPROVE and "
-                    "docs_embedded containing the required source documents."
+                    "docs_embedded containing the required source documents, "
+                    "then re-run advance-phase."
                 )
                 return 13
             print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
@@ -1859,10 +1864,14 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 )
             except subprocess.TimeoutExpired:
                 print("\n[BLOCKED] Secrets Scanning (gitleaks) timed out.")
+                print("  Fix: re-run `gitleaks detect --source .` manually to "
+                      "see where it hangs, then re-run advance-phase.")
                 return 20
             if _gl_r.returncode != 0:
                 print("\n[BLOCKED] Secrets Scanning (gitleaks) failure.")
                 print("  Hardcoded secrets detected in the codebase/docs.")
+                print("  Fix: remove the secret(s) `gitleaks detect --source .` "
+                      "flagged (or add a documented allowlist entry), then re-run.")
                 return 20
         else:
             print("  [WARN] gitleaks not installed. Skipping secrets scanning.")
@@ -1904,7 +1913,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             )
             if r.returncode != 0:
                 print("\n[BLOCKED] TDD test/coverage failure.")
-                print("  100% coverage on 03-development/src required.")
+                print("  Fix: 100% coverage on 03-development/src required.")
                 print("  For genuinely untestable lines add: # pragma: no cover")
                 # P3-A: Python < 3.11 async coverage hint
                 if sys.version_info < (3, 11):  # type: ignore[reportUnreachable]
@@ -1920,7 +1929,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         sc_rc, sc_pct = spec_coverage._run_spec_coverage_check(project, sc_thresh, verbose=True)
         if sc_rc != 0:
             print(f"\n[BLOCKED] spec-coverage {sc_pct:.1f}% < threshold {sc_thresh:.0f}%.")
-            print("  Implement missing test cases from TEST_SPEC.md in tests/.")
+            print("  Fix: implement missing test cases from TEST_SPEC.md in tests/, then re-run.")
             return 10
 
     # ── P2-A: SAB consistency pre-check (MEDIUM violations block advance) ────
@@ -1975,6 +1984,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     _sub_safe, _sub_diag = check_submodule_safety(project / "harness")
     if not _sub_safe:
         print(f"\n[BLOCKED] {_sub_diag}")
+        print("  Fix: commit or stash the uncommitted harness/ submodule changes "
+              "above (do NOT run `git submodule update --remote` while they're "
+              "pending — it would silently clobber them), then re-run advance-phase.")
         return 18
 
     # ── Submodule drift advisory (non-blocking) ──────────────────────

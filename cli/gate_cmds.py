@@ -260,7 +260,7 @@ def cmd_finalize_env_check(args: argparse.Namespace) -> int:
     if not sf.exists():
         print(
             f"\n[BLOCKED] Sentinel not found: {sf.relative_to(project)}\n"
-            f"  run-env-check must be called before finalize-env-check.\n"
+            f"  Fix: `run-env-check` must be called before finalize-env-check.\n"
             f"  Writing env_check_result.json directly is not permitted."
         )
         return 1
@@ -1001,7 +1001,7 @@ def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = 
             print(
                 f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
                 f"Unregistered modules detected: {unregistered}\n"
-                f"You must create an Amendment PR to update SAB.json and SAD.md "
+                f"Fix: you must create an Amendment PR to update SAB.json and SAD.md "
                 f"before Gate 1 evaluation can proceed."
             )
             return 1
@@ -1017,7 +1017,7 @@ def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = 
             print(
                 f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
                 f"Phantom modules declared in SAB.json but not implemented in codebase: {sorted(phantoms)}\n"
-                f"You must either:\n"
+                f"Fix: you must either:\n"
                 f"  (a) implement them in 03-development/src/<module>.py, OR\n"
                 f"  (b) amend SAB.json to remove them from the layer's modules list\n"
                 f"      (and sync the SAD.md sections that reference the removed modules — "
@@ -1278,7 +1278,8 @@ def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) ->
         _w_problem = _validate_da_evidence(_dim, g)
         if _w_problem:
             print(
-                f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' requires DA evidence — {_w_problem}",
+                f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' requires DA evidence.\n"
+                f"  Fix: {_w_problem}",
                 file=sys.stderr,
             )
             blocked = True
@@ -1339,7 +1340,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
         if not devil_advocate:
             print(
                 "\n[BLOCKED] Gate 4 (A3): 'devil_advocate' field missing from gate4_result.json.\n"
-                "  For each Tier 3 dimension, add devil_advocate: {dim: true/false}.\n"
+                "  Fix: for each Tier 3 dimension, add devil_advocate: {dim: true/false}.\n"
                 f"  Required dims: {sorted(_TIER3_DIMS)}",
                 file=sys.stderr,
             )
@@ -1425,7 +1426,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
         print(
             f"\n[BLOCKED] Gate 4 (B2): Per-dimension score directory not found.\n"
             f"  Expected: {scores_dir}\n"
-            "  Write individual <dim>.json files for each evaluated dimension.",
+            "  Fix: write individual <dim>.json files for each evaluated dimension.",
             file=sys.stderr,
         )
         blocked = True
@@ -1434,7 +1435,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
         if not score_files:
             print(
                 f"\n[BLOCKED] Gate 4 (B2): No per-dimension score files found in {scores_dir}.\n"
-                "  Write <dim>.json (e.g. architecture.json, linting.json) for each evaluated dimension.",
+                "  Fix: write <dim>.json (e.g. architecture.json, linting.json) for each evaluated dimension.",
                 file=sys.stderr,
             )
             blocked = True
@@ -1596,6 +1597,7 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
         )
         if _sc1_code != 0:
             print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] {_sc1_pct:.1f}% < 40% threshold")
+            print("  Fix: add test cases for this FR's uncovered TEST_SPEC.md sections, then re-run.")
             return 1
 
     return None
@@ -1618,6 +1620,7 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
         )
         if _sc_code != 0:
             print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
+            print("  Fix: add test cases for the uncovered TEST_SPEC.md sections, then re-run.")
             return 1
 
     # ── I-6: PR 4 closed-loop trace dimension (Gates 2-4) ───────────
@@ -1687,12 +1690,16 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
                     f"\n[BLOCKED] Gate {args.gate} trace dimension "
                     f"merged {_t_merged:.1f}% < threshold "
                     f"(4a={_trace['threshold_4a']}%, "
-                    f"4b={_trace['threshold_4b']:.1f}%)"
+                    f"4b={_trace['threshold_4b']:.1f}%)\n"
+                    f"  Fix: close the FR→code→test (4a) or TEST_SPEC→test (4b) "
+                    f"traceability gap, whichever is lower, then re-run."
                 )
                 return 1
         except Exception as e:
             # Framework-side error: fail-closed at G2+ (don't silently pass)
-            print(f"\n[BLOCKED] compute_trace_dimension raised: {e}",
+            print(f"\n[BLOCKED] compute_trace_dimension raised: {e}\n"
+                  f"  Fix: investigate the exception above (likely a malformed "
+                  f"TRACEABILITY_MATRIX.md or missing SAD.md) before re-running.",
                   file=sys.stderr)
             return 1
 
@@ -1951,6 +1958,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 # Blocking only for Gate 4 (final gate); earlier gates warn only.
                 if args.gate >= 4:
                     print(f"[BLOCKED] Post-flight error: {_pf_exc}")
+                    print(f"  Fix: investigate the exception above, then re-run:\n"
+                          f"    python harness_cli.py finalize-gate --gate {args.gate} "
+                          f"--phase {args.phase} --project {project}")
                     return 5
                 print(f"[WARN] Post-flight hooks error (non-blocking): {_pf_exc}")
 
@@ -2036,6 +2046,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                 print(f"  [HR-11] Phase Truth = {truth_result['total_score']:.0f}% ≥ 90% ✓")
             except ImportError:
                 print("  [BLOCKED] PhaseTruthVerifier unavailable — cannot verify Phase Truth")
+                print("  Fix: check the harness/ submodule is present and importable, then re-run finalize-gate.")
                 return 11
             except Exception as _pte:
                 print(f"  [WARN] Phase Truth check error: {_pte}")

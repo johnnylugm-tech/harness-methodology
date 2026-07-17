@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from cli import gate_cmds
+from cli.exit_codes import EX_FR_STEP_INFRA_ABORT
 from core.agent_spawner import (
     _COMMIT_REQUIRED_STEPS,
     is_structurally_broken,
@@ -475,9 +476,18 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         prev_snapshot_sig: str = ""
         no_progress_count: int = 0
 
+        _last_failure_class: str | None = None
         for fix_round in range(1, max_fix_rounds + 1):
             if gate_pass or _fr_step_already_done(step, fr_id, project, phase=phase):
                 break
+
+            # ── Round 13 站2a: HARNESS_BUG/INFRA short-circuit — takes priority
+            # over the S3 check below (retrying GATE1 does not help either).
+            _infra_check = _classify_infra_or_harness_bug(result.get("output", ""))
+            if _infra_check:
+                return _abort_dispatch_infra_or_harness_bug(
+                    fr_id, step, phase, project, *_infra_check
+                )
 
             # ── S3 short-circuit: evaluation JSON was malformed, not code error ──
             # tool_evidence_missing means the sub-agent fabricated scores.
@@ -507,6 +517,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
                 # ── A: classify failure → route to the correct fixer ─────────────
                 failure_class = _classify_snapshot_failure(tool_snapshot, failing_dims=failing_dims)
+                _last_failure_class = failure_class
 
                 if failure_class == "ENV":
                     print(f"[run-fr-step] {fr_id} ENV error — human intervention required\n"
@@ -758,6 +769,17 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         else:
             print(f"[run-fr-step] {fr_id} GATE1 BLOCKED after {max_fix_rounds} CODE-FIX rounds"
                   " — human intervention required")
+            if _last_failure_class == "UNKNOWN":
+                # Round 13 站2b: UNKNOWN still falls through to CODE-FIX (unchanged
+                # behavior) but exhausting every round without ever classifying the
+                # failure is itself a signal worth surfacing — it may not be a
+                # quality problem at all.
+                print(
+                    "  [run-fr-step] Every round's failure classified as UNKNOWN — "
+                    "this may not be a quality problem. Check "
+                    ".sessi-work/degradations.jsonl and .sessi-work/crash/ for a "
+                    "harness-side cause before re-running CODE-FIX."
+                )
             return 2  # BLOCKED
 
     # P0-B: record gate timestamp so advance-phase _check_gate1_live_coverage
@@ -1051,6 +1073,58 @@ def _abort_dispatch_structurally_broken(fr_id: str, step: str, phase: int, proje
         file=sys.stderr,
     )
     return DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
+
+
+def _classify_infra_or_harness_bug(out: str) -> "tuple[str, str] | None":
+    """Round 13 站2a: detect a [HARNESS-BUG] banner (core/errors.py's crash
+    boundary) or an R12 INFRA_FAIL precondition-block signature
+    (harness.harness_bridge._INFRA_FAIL_EVIDENCE_SIGNATURES — phantom/
+    unregistered-module run-gate blocks) in a sub-agent's raw dispatch
+    output. Returns (class, evidence) where class is "HARNESS_BUG" or
+    "INFRA", or None if neither is present.
+
+    Distinct from `_extract_block_reason`'s S3/S4 tool_evidence_missing
+    scan (cheap to fix — just retry GATE1): these two are NOT code-fixable
+    at all — the fix round must abort instead of dispatching CODE-FIX/
+    COVERAGE-FIX at a problem no code change can resolve.
+    """
+    if not out:
+        return None
+    if "[HARNESS-BUG]" in out:
+        for line in out.splitlines():
+            if "[HARNESS-BUG]" in line:
+                return "HARNESS_BUG", line.strip()
+        return "HARNESS_BUG", "[HARNESS-BUG] banner present"
+    from harness.harness_bridge import _INFRA_FAIL_EVIDENCE_SIGNATURES
+    for sig in _INFRA_FAIL_EVIDENCE_SIGNATURES:
+        if sig in out:
+            return "INFRA", sig
+    return None
+
+
+def _abort_dispatch_infra_or_harness_bug(
+    fr_id: str, step: str, phase: int, project: Path, cls: str, evidence: str
+) -> int:
+    """FATAL diagnostic + abort code for a HARNESS_BUG/INFRA hit — mirrors
+    _abort_dispatch_structurally_broken's shape. Not dispatching CODE-FIX/
+    COVERAGE-FIX: this is not a code-quality problem, and retrying GATE1
+    (the S3 short-circuit's response to a different, code-fixable class of
+    parse failure) would not resolve it either."""
+    kind = ("a bug in harness-methodology itself" if cls == "HARNESS_BUG"
+            else "an infrastructure precondition failure (the tool never ran)")
+    print(
+        f"\n[FATAL] {fr_id} {step}: {cls} detected in sub-agent output — {kind}, "
+        f"not a code-quality problem. Not dispatching a fix agent.\n"
+        f"  Evidence: {evidence}\n"
+        "  Escalate to a human operator; re-run after the underlying issue "
+        "is fixed:\n"
+        f"    python harness_cli.py resume-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --project {project}",
+        file=sys.stderr,
+    )
+    return EX_FR_STEP_INFRA_ABORT
+
+
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
 # GATE1 needs more turns: 5-step workflow (run-gate → evaluate → write result.json
 # → finalize-gate → report) plus multi-dimension assessment on brownfield codebases.
