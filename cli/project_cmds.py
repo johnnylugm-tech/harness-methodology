@@ -20,6 +20,7 @@ from typing import Any
 from core import claude_md
 from core.atomic_io import atomic_write_json
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
+from core.state_io import load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
 from harness import tool_checks
@@ -218,11 +219,7 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         # destroying phase progress.  --overwrite is intentionally scoped to
         # templates / CI workflow / harness_cli.py wrapper, not FSM state.
         print(f"   SKIP: {state_path} already exists (FSM state is never reset by init-project; delete it manually to reinitialize)")
-        try:
-            _existing_state = json.loads(state_path.read_text(encoding="utf-8"))
-            _existing_lang = _existing_state.get("language", "python")
-        except (json.JSONDecodeError, OSError):
-            _existing_lang = "python"
+        _existing_lang = load_state(project, lenient=True).get("language", "python")
         if _existing_lang != language:
             print(
                 f"   WARNING: persisted language '{_existing_lang}' differs from "
@@ -396,14 +393,16 @@ def cmd_status(args: argparse.Namespace) -> int:
     json_out = getattr(args, "json", False)
     full = getattr(args, "full", False)
 
-    # Gather state
+    # Gather state (strict: these reads were previously unguarded entirely —
+    # a corrupt file raised an uncaught JSONDecodeError, misclassified
+    # [HARNESS-BUG] by the crash boundary. Now [FATAL] exit 26.)
     state = {}
     if state_path.exists():
-        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state = load_state(project)
 
     manifest = {}
     if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = load_quality_manifest(project)
 
     current_phase = state.get("current_phase", 0)
     fr_ids = manifest.get("fr_ids", [])
@@ -586,23 +585,13 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     phase = args.phase
 
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    state_path = project / ".methodology" / "state.json"
-
     # fr_ids and gate_results from manifest
-    fr_ids: list = []
-    gate_results: dict = {}
     fr_id_source: str = ""  # diagnostics: where did fr_ids come from?
-    if manifest_path.exists():
-        try:
-            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
-            fr_ids = manifest.get("fr_ids", [])
-            gate_results = manifest.get("gate_results", {})
-            if fr_ids:
-                fr_id_source = "quality_manifest.json"
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            print(f"[WARN] load-context: quality_manifest.json unreadable, "
-                  f"falling back to PROJECT_BRIEF.md: {exc}", file=sys.stderr)
+    manifest = load_quality_manifest(project, lenient=True)
+    fr_ids: list = manifest.get("fr_ids", [])
+    gate_results: dict = manifest.get("gate_results", {})
+    if fr_ids:
+        fr_id_source = "quality_manifest.json"
 
     # P1 fallback (bug #2 fix): when quality_manifest.json is missing or empty
     # (the chicken-and-egg case at P1 entry, before P2 generates the manifest),
@@ -659,14 +648,7 @@ def cmd_load_context(args: argparse.Namespace) -> int:
                       f"failed, fr_ids stays empty: {exc}", file=sys.stderr)
 
     # current_phase from state.json
-    current_phase = 0
-    if state_path.exists():
-        try:
-            state = _json.loads(state_path.read_text(encoding="utf-8"))
-            current_phase = state.get("current_phase", 0)
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            print(f"[WARN] load-context: state.json unreadable, current_phase "
-                  f"stays 0: {exc}", file=sys.stderr)
+    current_phase = load_state(project, lenient=True).get("current_phase", 0)
 
     # fr_details from SRS.md (optional)
     fr_details: dict = {}
@@ -1014,13 +996,8 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
 
     # Read current phase from state.json — only audit up to this phase.
-    try:
-        _state = _json.loads((project / ".methodology" / "state.json").read_text())
-        current_phase = int(_state.get("current_phase", 8))
-    except Exception as exc:
-        print(f"[WARN] audit-structure: state.json unreadable, auditing all "
-              f"phases: {exc}", file=sys.stderr)
-        current_phase = 8  # if state unreadable, check all phases
+    # (missing or corrupt both fall back to auditing all phases)
+    current_phase = int(load_state(project, lenient=True).get("current_phase", 8))
 
     # Canonical phase directory names, filtered to the audited range
     phase_dirs = {k: v for k, v in PHASE_DIRS.items() if k <= current_phase}
