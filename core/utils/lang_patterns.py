@@ -14,10 +14,11 @@ Conventions:
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Iterator, Union
+
+from core.state_io import load_state
 
 DEFAULT_LANGUAGE = "python"
 
@@ -85,10 +86,5 @@ def iter_source_files(root: Path, language: str) -> Iterator[Path]:
 
 def project_language(project_root: Union[str, Path]) -> str:
     """Persisted language from .methodology/state.json; pre-v2.8 → python."""
-    state_path = Path(project_root) / ".methodology" / "state.json"
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        lang = data.get("language") if isinstance(data, dict) else None
-        return lang if isinstance(lang, str) and lang else DEFAULT_LANGUAGE
-    except (OSError, json.JSONDecodeError):
-        return DEFAULT_LANGUAGE
+    lang = load_state(project_root, lenient=True).get("language")
+    return lang if isinstance(lang, str) and lang else DEFAULT_LANGUAGE

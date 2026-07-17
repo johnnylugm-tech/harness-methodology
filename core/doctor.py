@@ -23,6 +23,7 @@ from core.errors import CRASH_DIR_RELPATH
 from core.fsm.fsm import VALID_FSM_STATES
 from core.phase_topology import VALID_PHASES
 from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
+from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 
 _CLAUDE_BLOCK_PHASE = re.compile(r"Phase:\s*\*\*(\d+)")
@@ -57,8 +58,8 @@ def run_doctor(project_root: Path) -> list[Finding]:
                                 "state.json missing from .methodology/"))
     else:
         try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            state = load_state(project)
+        except StateCorruptError as exc:
             state = None
             findings.append(Finding("state", "ERROR",
                                     f"state.json parse failure: {exc}"))
@@ -98,8 +99,8 @@ def run_doctor(project_root: Path) -> list[Finding]:
     manifest_path = layout.quality_manifest_path
     if manifest_path.is_file():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            manifest = load_quality_manifest(project)
+        except StateCorruptError as exc:
             manifest = None
             findings.append(Finding("manifest", "ERROR",
                                     f"quality_manifest.json parse failure: {exc}"))
@@ -221,8 +222,8 @@ def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]
     if not manifest_path.is_file():
         return []
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        manifest = load_quality_manifest(project)
+    except StateCorruptError:
         return []  # check 3 already reports the parse failure
     if not isinstance(manifest, dict):
         return []

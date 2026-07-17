@@ -429,17 +429,12 @@ class AutoFixEngine:
 
     def _check_integrity(self) -> float:
         """Read integrity score from .methodology/ state or kill_switch."""
+        from core.state_io import load_state
+        state = load_state(self.project_root, lenient=True)
         try:
-            from core.utils.project_layout import ProjectLayout
-            state_path = ProjectLayout(self.project_root).state_json_path
-            if state_path.exists():
-                import json
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-                return float(state.get("integrity", 100.0))
-        except Exception as exc:
-            print(f"[WARN] auto_fix: could not read integrity score from state.json, "
-                  f"defaulting to 100.0: {exc}", file=sys.stderr)
-        return 100.0
+            return float(state.get("integrity", 100.0))
+        except (ValueError, TypeError):
+            return 100.0
 
     @staticmethod
     def _files_for_context(context: FixContext) -> List[Path]:
