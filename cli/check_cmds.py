@@ -19,6 +19,7 @@ from core.phase_topology import VALID_PHASES
 from core.quality_gate import agent_b_approvals
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.quality_gate.spec_coverage import _run_spec_coverage_check
+from core.state_io import load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 
 
@@ -51,17 +52,13 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
 
     # 1. Declared high-risk modules (machine-readable owner declaration)
     declared: list[dict] = []
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        for entry in manifest.get("high_risk_modules", []):
-            if isinstance(entry, str):
-                declared.append({"path": entry, "risk": ""})
-            elif isinstance(entry, dict) and entry.get("path"):
-                declared.append({"path": entry["path"],
-                                 "risk": entry.get("risk", "")})
-    except (OSError, json.JSONDecodeError):
-        pass
+    manifest = load_quality_manifest(project, lenient=True)
+    for entry in manifest.get("high_risk_modules", []):
+        if isinstance(entry, str):
+            declared.append({"path": entry, "risk": ""})
+        elif isinstance(entry, dict) and entry.get("path"):
+            declared.append({"path": entry["path"],
+                             "risk": entry.get("risk", "")})
     sources["declared"] = len(declared)
 
     # 2. CRG hub risk map (critical/high hubs)
@@ -485,15 +482,8 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     )
     from core.quality_gate.security_design import check_security_design
 
-    current_phase = None
-    state_path = project / ".methodology" / "state.json"
-    if state_path.exists():
-        try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            phase_val = state.get("current_phase")
-            current_phase = phase_val if isinstance(phase_val, int) else None
-        except (OSError, json.JSONDecodeError):
-            pass
+    phase_val = load_state(project, lenient=True).get("current_phase")
+    current_phase = phase_val if isinstance(phase_val, int) else None
 
     violations = (check_forward_refs(project)
                   + check_module_fr_coverage(project)
@@ -1166,21 +1156,7 @@ def _resolve_deliverable_ids(
         return PHASE_DELIVERABLES[phase]
     if fr_ids:
         return fr_ids
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    if manifest_path.exists():
-        try:
-            return json.loads(
-                manifest_path.read_text(encoding="utf-8")
-            ).get("fr_ids", [])
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            from core.degradation_ledger import record_degradation
-            record_degradation(
-                project, "check_cmds._resolve_deliverable_ids",
-                "quality_manifest.json unreadable — treating as zero deliverable IDs "
-                "(Agent B approval check is silently skipped for this phase)",
-                why=str(exc),
-            )
-    return []
+    return load_quality_manifest(project, lenient=True).get("fr_ids", [])
 
 def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:
     """Run M3 gap analysis. Returns gap report dict; warns on failure."""

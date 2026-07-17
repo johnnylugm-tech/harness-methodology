@@ -15,6 +15,8 @@ import re
 import sys
 from pathlib import Path
 
+from core.state_io import StateCorruptError, load_quality_manifest
+
 
 def _cr_next_steps(cr: dict) -> str:
     """Type-specific guidance printed after cr-open / cr-update."""
@@ -172,9 +174,9 @@ def cmd_cr_close(args: argparse.Namespace) -> int:
     gate1: dict = {}
     if manifest_path.exists():
         try:
-            _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+            _mf = load_quality_manifest(project)
             gate1 = (_mf.get("gate_results") or {}).get("gate1") or {}
-        except (json.JSONDecodeError, OSError) as exc:
+        except StateCorruptError as exc:
             problems.append(f"quality_manifest.json unreadable: {exc}")
     else:
         problems.append("quality_manifest.json not found — cannot verify Gate 1 results")

@@ -21,6 +21,7 @@ from core.quality_gate.gate1_evidence import (  # noqa: F401  (re-export, see be
     _finalize_sentinel_path,
     _sentinel_path,
 )
+from core.state_io import load_quality_manifest, load_state
 from core.utils.script_loader import load_harness_script
 
 # _sentinel_path / _finalize_sentinel_path now live in
@@ -100,14 +101,8 @@ def _generate_stage_pass(
     """
     from datetime import datetime, timezone as _tz
 
-    gate_data: dict = {}
-    manifest_path = project_path / ".methodology" / "quality_manifest.json"
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            gate_data = manifest.get("gate_results", {}).get(f"gate{gate_num}", {}) or {}
-        except (json.JSONDecodeError, OSError):
-            pass
+    manifest = load_quality_manifest(project_path, lenient=True)
+    gate_data: dict = manifest.get("gate_results", {}).get(f"gate{gate_num}", {}) or {}
 
     # Detect per-FR Gate 1 structure: dict values are dicts (FR records), not scalars.
     # Flat Gate 2/3/4 has top-level "score" + "quality_complete" scalars.
@@ -142,15 +137,7 @@ def _generate_stage_pass(
         # when no code changes). Fall back to state.json.phase_truth_passed,
         # which is set by advance-phase verify_phase_truth on success.
         score = "N/A"
-        qc = False
-        state_path = project_path / ".methodology" / "state.json"
-        if state_path.exists():
-            try:
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-                if state.get("phase_truth_passed") is True:
-                    qc = True
-            except (json.JSONDecodeError, OSError):
-                pass
+        qc = load_state(project_path, lenient=True).get("phase_truth_passed") is True
 
     out_dir = project_path / "00-summary"
     out_dir.mkdir(parents=True, exist_ok=True)
