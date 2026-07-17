@@ -2,10 +2,16 @@
 
 Extracted verbatim from harness_cli.py (方案六 family 1/7). harness_cli
 re-exports these names, so tests and callers are unaffected.
+
+crash-triage (Round 13 站3) also lives here: it groups and optionally files
+CR-BUGs for the crash bundles core/errors.py's top-level boundary writes —
+closely related to the CR lifecycle above (its job is opening tickets), so
+it shares this module rather than starting a new one.
 """
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -245,6 +251,136 @@ def cmd_cr_close(args: argparse.Namespace) -> int:
     return 0
 
 
+def harness_repo_root() -> Path:
+    """Where THIS installed copy of harness-methodology lives. crash-triage
+    --open-cr always files CR-BUGs here — never at --project — since the bug
+    being triaged is in harness's own code regardless of which project
+    triggered the crash. A public function (not a private-prefixed one) so
+    tests can redirect it without patching a private symbol (see
+    tests/test_patch_discipline.py)."""
+    return Path(__file__).resolve().parent.parent
+
+
+_TB_FRAME_RE = re.compile(r'^\s*File "(.+?)", line (\d+), in (\S+)\s*$')
+
+
+def _load_crash_bundles(project: Path) -> list[tuple[Path, dict]]:
+    """All readable crash bundles under `project`'s .sessi-work/crash/, oldest
+    first. Unreadable files are a real (if minor) loss of triage coverage —
+    recorded on the degradation ledger rather than silently skipped."""
+    from core.degradation_ledger import record_degradation
+    from core.errors import CRASH_DIR_RELPATH
+    crash_dir = project / CRASH_DIR_RELPATH
+    if not crash_dir.is_dir():
+        return []
+    out: list[tuple[Path, dict]] = []
+    for p in sorted(crash_dir.glob("crash_*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            record_degradation(project, "crash-triage",
+                               f"skipped unreadable bundle {p.name}", why=str(exc))
+            continue
+        if isinstance(data, dict):
+            out.append((p, data))
+    return out
+
+
+def _crash_signature(bundle: dict) -> str:
+    """Group bundles by their deepest traceback frame (file:line) + exception
+    class — the same underlying bug reproduces the same signature across
+    repeated crashes, even though timestamp/pid differ every time."""
+    tb = bundle.get("traceback", "") or ""
+    last_file, last_line = "?", "?"
+    for line in tb.splitlines():
+        m = _TB_FRAME_RE.match(line)
+        if m:
+            last_file, last_line = m.group(1), m.group(2)
+    exc_type = bundle.get("exc_type", "UnknownError")
+    return f"{last_file}:{last_line}:{exc_type}"
+
+
+def _triaged_marker(bundle_path: Path) -> Path:
+    return bundle_path.with_name(bundle_path.name + ".triaged")
+
+
+def _existing_cr_for_group(entries: list[tuple[Path, dict]]) -> "str | None":
+    """A signature already filed shows its CR id in any sibling's marker —
+    checking every entry (not just the newest) makes re-runs idempotent
+    even when a later occurrence of a known bug arrives before an earlier
+    one finishes being marked."""
+    for path, _ in entries:
+        marker = _triaged_marker(path)
+        if marker.is_file():
+            cr_id = marker.read_text(encoding="utf-8").strip()
+            if cr_id:
+                return cr_id
+    return None
+
+
+def cmd_crash_triage(args: argparse.Namespace) -> int:
+    """Group harness-methodology's own crash bundles by cause; optionally
+    file each unfiled cause as a CR-BUG in harness's own maintenance queue.
+
+    Deliberate-trigger only: production runs never call this — only an
+    explicit `crash-triage --open-cr` invocation writes to the harness
+    repo's .methodology/change_requests/ (see docs/ERROR_HANDLING.md).
+    """
+    from core.errors import CRASH_DIR_RELPATH
+    project = Path(args.project).resolve()
+    bundles = _load_crash_bundles(project)
+    if not bundles:
+        print(f"[crash-triage] no crash bundles found under {project / CRASH_DIR_RELPATH}")
+        return 0
+
+    groups: dict[str, list[tuple[Path, dict]]] = {}
+    for path, data in bundles:
+        groups.setdefault(_crash_signature(data), []).append((path, data))
+
+    print(f"{'COUNT':<6} {'FIRST':<17} {'LAST':<17} {'CR':<8} SIGNATURE")
+    for sig, entries in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        entries.sort(key=lambda pe: pe[1].get("timestamp", ""))
+        first_ts = entries[0][1].get("timestamp", "?")
+        last_ts = entries[-1][1].get("timestamp", "?")
+        filed = _existing_cr_for_group(entries) or "—"
+        print(f"{len(entries):<6} {first_ts:<17} {last_ts:<17} {filed:<8} {sig}")
+
+    if not args.open_cr:
+        return 0
+
+    from core.maintenance import CRManager, CRValidationError
+    harness_root = harness_repo_root()
+    mgr = CRManager(harness_root)
+    opened, failed = 0, 0
+    for sig, entries in groups.items():
+        entries.sort(key=lambda pe: pe[1].get("timestamp", ""))
+        cr_id = _existing_cr_for_group(entries)
+        if cr_id is None:
+            newest = entries[-1][1]
+            description = (
+                f"Auto-detected harness-methodology crash ({len(entries)} occurrence(s)).\n"
+                f"Signature: {sig}\n\n"
+                f"Repro: {newest.get('repro_command', '?')}\n\n"
+                f"{newest.get('maintenance_prompt', '')}"
+            )
+            try:
+                cr = mgr.create("bug", f"harness crash: {sig}", description)
+            except CRValidationError as exc:
+                print(f"[crash-triage] failed to open CR for {sig}: {exc}", file=sys.stderr)
+                failed += 1
+                continue
+            cr_id = cr["id"]
+            opened += 1
+            print(f"[crash-triage] opened {cr_id} for signature: {sig}")
+        for path, _ in entries:
+            marker = _triaged_marker(path)
+            if not marker.exists():
+                marker.write_text(cr_id, encoding="utf-8")
+    print(f"[crash-triage] {opened} new CR(s) opened in "
+          f"{harness_root}/.methodology/change_requests/")
+    return 1 if failed else 0
+
+
 def register(sub) -> None:
     """Wire the Phase 9 CR parsers onto the main subparser action."""
     cro = sub.add_parser(
@@ -294,3 +430,15 @@ def register(sub) -> None:
                      help="Skip trace-attestation check (docs-only CR that touched no traceability inputs)")
     crc.add_argument("--project", default=".", help="Project root (default: .)")
     crc.set_defaults(func=cmd_cr_close)
+
+    ct = sub.add_parser(
+        "crash-triage",
+        help="Group harness-methodology's own crash bundles (.sessi-work/crash/) by "
+             "cause; --open-cr files each unfiled cause as a CR-BUG",
+    )
+    ct.add_argument("--project", default=".", help="Project root (default: .)")
+    ct.add_argument("--open-cr", action="store_true", dest="open_cr",
+                    help="File each unfiled signature as a CR-BUG in the harness "
+                         "repo's own .methodology/change_requests/ (deliberate-"
+                         "trigger only — never runs automatically)")
+    ct.set_defaults(func=cmd_crash_triage)

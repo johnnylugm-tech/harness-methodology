@@ -19,6 +19,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.errors import CRASH_DIR_RELPATH
 from core.fsm.fsm import VALID_FSM_STATES
 from core.phase_topology import VALID_PHASES
 from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
@@ -153,6 +154,13 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # WARN so a zombie setting can't masquerade as a working knob.
     findings.extend(_check_enforcement_zombie_keys(layout))
 
+    # 9. unfiled harness crash bundles (Round 13 站3): core/errors.py's
+    # top-level crash boundary writes one of these when harness-methodology
+    # itself crashes. A bundle sitting untriaged means nobody has looked at
+    # a confirmed harness bug yet — WARN (not ERROR: this is a maintenance
+    # backlog item, not a state inconsistency blocking the current run).
+    findings.extend(_check_crash_bundles(project))
+
     return findings
 
 
@@ -188,6 +196,24 @@ def _check_enforcement_zombie_keys(layout: ProjectLayout) -> list[Finding]:
                     f"as legacy fallbacks — migrate them to harness_config.json "
                     f"values.phase_truth_threshold / values.phase_truth_pytest_timeout "
                     f"and delete this file")]
+
+
+def _check_crash_bundles(project: Path) -> list[Finding]:
+    crash_dir = project / CRASH_DIR_RELPATH
+    if not crash_dir.is_dir():
+        return []
+    untriaged = [
+        p for p in sorted(crash_dir.glob("crash_*.json"))
+        if not p.with_name(p.name + ".triaged").exists()
+    ]
+    if not untriaged:
+        return []
+    return [Finding(
+        "crash-bundles", "WARN",
+        f"{len(untriaged)} untriaged harness-methodology crash bundle(s) in "
+        f"{CRASH_DIR_RELPATH}/ — harness-methodology crashed on its own bug at "
+        f"least once. Triage: harness_cli.py crash-triage --project {project} "
+        f"(add --open-cr to file a CR-BUG ticket in the harness repo)")]
 
 
 def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]:

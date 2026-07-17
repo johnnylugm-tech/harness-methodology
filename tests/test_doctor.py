@@ -344,3 +344,53 @@ class TestEnforcementZombieKeys:
         self._write_enforcement(project, "{not json")
         found = self._findings(project)
         assert len(found) == 1 and found[0].severity == "WARN"
+
+
+class TestCrashBundles:
+    """Check 9 (Round 13 站3): core/errors.py's top-level crash boundary
+    writes a bundle when harness-methodology crashes on its own bug. One
+    sitting untriaged means nobody has looked at a confirmed harness bug
+    yet — WARN (maintenance backlog item, not a state inconsistency that
+    should block the current run)."""
+
+    def _findings(self, project):
+        return [f for f in run_doctor(project) if f.check == "crash-bundles"]
+
+    def _write_bundle(self, project, name="crash_1.json", triaged=False):
+        crash_dir = project / ".sessi-work" / "crash"
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        (crash_dir / name).write_text("{}", encoding="utf-8")
+        if triaged:
+            (crash_dir / (name + ".triaged")).write_text("CR-01", encoding="utf-8")
+
+    def test_untriaged_bundle_warns(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_bundle(project)
+        found = self._findings(project)
+        assert len(found) == 1 and found[0].severity == "WARN"
+        assert "crash-triage" in found[0].message
+
+    def test_triaged_bundle_is_silent(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_bundle(project, triaged=True)
+        assert self._findings(project) == []
+
+    def test_no_crash_dir_is_silent(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        assert self._findings(project) == []
+
+    def test_count_reflects_multiple_untriaged(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_bundle(project, name="crash_1.json")
+        self._write_bundle(project, name="crash_2.json")
+        found = self._findings(project)
+        assert len(found) == 1
+        assert "2 untriaged" in found[0].message
+
+    def test_mixed_triaged_and_untriaged_counts_only_untriaged(self, tmp_path):
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_bundle(project, name="crash_1.json", triaged=True)
+        self._write_bundle(project, name="crash_2.json")
+        found = self._findings(project)
+        assert len(found) == 1
+        assert "1 untriaged" in found[0].message

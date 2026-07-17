@@ -1234,18 +1234,6 @@ class GateBlockedError(Exception):
         super().__init__(msg)
 
 
-class PreflightBlockedError(Exception):
-    """Raised when preflight validation fails before gate evaluation (Item 9)."""
-
-    def __init__(self, preflight_result: dict):
-        self.preflight_result = preflight_result
-        failing = [
-            k for k, v in preflight_result.get("details", {}).items()
-            if isinstance(v, dict) and not v.get("passed", False)
-        ]
-        super().__init__(f"Preflight BLOCKED — failing checks: {failing}")
-
-
 @dataclass
 class GateContext:
     """

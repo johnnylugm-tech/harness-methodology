@@ -204,6 +204,7 @@ from cli.cr_cmds import (  # noqa: E402, F401
     cmd_cr_open,
     cmd_cr_status,
     cmd_cr_update,
+    cmd_crash_triage,
 )
 
 
@@ -340,9 +341,9 @@ def _leaked_control_flow_exceptions() -> tuple[type[BaseException], ...]:
     """Lazy import to avoid adding these modules to harness_cli.py's
     already-large top-level import block for a path that (by design) is
     rarely hit."""
-    from harness.harness_bridge import GateBlockedError, PreflightBlockedError
+    from harness.harness_bridge import GateBlockedError
     from core.phase_hooks import KillSwitchBlockedError
-    return (GateBlockedError, PreflightBlockedError, KillSwitchBlockedError)
+    return (GateBlockedError, KillSwitchBlockedError)
 
 
 def main() -> int:
