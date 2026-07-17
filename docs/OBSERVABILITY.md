@@ -134,6 +134,58 @@ one command: `run-report --json` and read
 volume, cost, or per-Gate wall-time should start from this command's
 output, not a fresh manual pass over the raw log.
 
+## Failure modes (MAST-aligned)
+
+Round 16 station2 added `core/failure_modes.py`, a deterministic classifier
+that reclassifies `sessions_spawn.log` entries against the 3-category shape
+from ["Why Do Multi-Agent LLM Systems Fail?"](https://arxiv.org/abs/2503.13657)
+(MAST, arXiv:2503.13657, NeurIPS 2025 spotlight — 14 failure modes across
+specification / inter-agent misalignment / task verification), plus a 4th
+INFRA bucket of our own for environment/network/model failures MAST doesn't
+cover (it studies MAS reasoning failures, not infrastructure outages). This
+replaces the previous 3-crude-bucket view (`error_class` alone:
+`STRUCTURAL`/`INFRA_ERROR`/`EXECUTION_ERROR`) with named, individually-tested
+modes.
+
+Signal → mode → MAST category map (station-2a reconnaissance found real,
+grounded signal for these six only — see `core/failure_modes.py`'s module
+docstring and this station's commit message for the field-by-field trace):
+
+| Signal (spawn-log entry field) | mode_id | MAST category |
+|---|---|---|
+| `regression_flags` non-empty (destructive edit / XX-mutator-marker) | `destructive_edit_or_mutator_marker` | specification |
+| `inner_status` in `{AWAITING_CONFIRMATION, NOTHING_TO_DO}` | `semantic_noop_termination` | specification |
+| `output` starts with `"Commit-required step"` | `commit_required_step_no_commit` | specification |
+| `error_class == "STRUCTURAL"` | `structural_env_breakage` | infra |
+| `error_class == "INFRA_ERROR"` | `infra_error_transient` | infra |
+| `status == "TIMEOUT"` | `dispatch_timeout` | infra |
+| (no rule matches) | `UNCLASSIFIED` | — |
+
+**Honest gap, not an oversight**: `inter_agent` and `verification` currently
+have zero rules. B-review's `escalation_action`
+(`approve`/`retry`/`escalate_human` — `core/review_schema_validator.py`) is
+never persisted onto a spawn-log entry, and gate PASS/FAIL verdicts live in
+per-gate result files, not per-dispatch records — there is no artifact today
+to classify against for either category. `tests/test_failure_modes.py`'s
+`test_inter_agent_and_verification_have_no_rules_yet` pins this fact so a
+future round that adds such a rule does so deliberately. **Re-open
+condition**: once escalation outcomes or gate verdicts are persisted
+per-dispatch (a logging change, not a classifier change), extend
+`FAILURE_MODE_RULES` with the corresponding rules.
+
+`UNCLASSIFIED` is a floor, not a bug: any entry matching no rule keeps its
+original `error_class`/`status` for human triage rather than being force-fit
+into the nearest bucket or silently dropped. `core.failure_modes.summarize()`
+reports `unclassified_pct` alongside the mode/category counts — a high
+percentage means the ruleset's coverage is thin for that dataset, not that
+the classifier is malfunctioning.
+
+The MAST paper's own reported category split (specification 41.77% /
+inter-agent 36.94% / verification 21.30%) is a statistic about its own study
+population, not a prediction about this framework's failure distribution —
+do not read this framework's future `summarize()` output against those
+percentages as a target or baseline.
+
 ## What this round deliberately did not build
 
 - A global structured (JSON) logger, or a `print`→`logging` migration.
