@@ -698,8 +698,9 @@ def _load_fr_ids(project_root: Path) -> list:
                 if frs and isinstance(frs[0], dict):
                     return [f.get("id", f.get("fr_id", "FR-UNKNOWN")) for f in frs]
                 return frs
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] auto_fix strategies: quality_manifest.json unreadable, "
+                  f"falling back to placeholder FR ids: {exc}", file=sys.stderr)
     return ["FR-001", "FR-002", "FR-003"]
 
 

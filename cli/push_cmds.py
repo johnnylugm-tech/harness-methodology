@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -211,8 +212,9 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             try:
                 _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
                 fr_ids = _mf.get("fr_ids", [])
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+            except Exception as _mf_err:  # pylint: disable=broad-exception-caught
+                print(f"[WARN] push-milestone: quality_manifest.json unreadable, "
+                      f"fr_ids stays empty: {_mf_err}", file=sys.stderr)
 
     # Entry-gate evidence BEFORE any side effect (E2E round 2 C-1/C-2:
     # p5-baseline and p7 pushed fake milestones with no gate evidence; even

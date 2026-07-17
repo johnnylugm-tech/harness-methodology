@@ -1,4 +1,5 @@
 import ast
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -63,7 +64,8 @@ def extract_minimal_viable_context(
                 mvc_text += "\n--- CRG Minimal Context (Dependencies & Rules) ---\n"
                 import json
                 mvc_text += json.dumps(crg_data, indent=2) + "\n"
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] segment_slicing: CRG minimal-context lookup failed, "
+                  f"proceeding without it: {exc}", file=sys.stderr)
 
     return mvc_text, target_node.name

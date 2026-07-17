@@ -61,8 +61,9 @@ def read_package_dir(project_path: Path) -> Optional[str]:
                         val = line[1:].strip()
                         if val:
                             return val
-        except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught  # nosec B110
+            print(f"[WARN] drift_detector: setup.cfg src-layout probe failed for "
+                  f"{candidate}: {exc}", file=sys.stderr)
 
     import re
     for candidate in (ProjectLayout(project_path).phase3_development_dir / "pyproject.toml",
@@ -74,8 +75,9 @@ def read_package_dir(project_path: Path) -> Optional[str]:
             m = re.search(r'where\s*=\s*\[\s*"([^"]+)"\s*\]', text)
             if m:
                 return m.group(1)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] drift_detector: pyproject.toml src-layout probe failed "
+                  f"for {candidate}: {exc}", file=sys.stderr)
 
     # Fallback: config-file declaration (setuptools-style `[options] package_dir`
     # or PEP 621 `where=[...]`) is absent — a project declaring src-layout via
@@ -94,8 +96,9 @@ def read_package_dir(project_path: Path) -> Optional[str]:
         active_src = ProjectLayout(resolved_project).active_src_dir
         if active_src.is_dir():
             return str(active_src.relative_to(resolved_project))
-    except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
-        pass
+    except Exception as exc:  # pylint: disable=broad-exception-caught  # nosec B110
+        print(f"[WARN] drift_detector: ProjectLayout src-layout fallback failed "
+              f"for {project_path}: {exc}", file=sys.stderr)
 
     return None
 
@@ -310,8 +313,9 @@ class DriftDetector:
                 current_phase = json.loads(
                     self.state_path.read_text(encoding="utf-8")
                 ).get("current_phase", 0)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[WARN] drift_detector: state.json unreadable, "
+                      f"current_phase stays unknown: {exc}", file=sys.stderr)
         sad_path = self._find_file(["02-architecture/SAD.md"])
         if not sad_path:
             return DriftResult(
@@ -338,7 +342,9 @@ class DriftDetector:
         # prefix depth.
         try:
             active_src_dir = ProjectLayout(self.project_path).active_src_dir
-        except Exception:  # pylint: disable=broad-exception-caught  # nosec B110
+        except Exception as exc:  # pylint: disable=broad-exception-caught  # nosec B110
+            print(f"[WARN] drift_detector: active_src_dir resolution failed, "
+                  f"falling back to fixed-depth basename search: {exc}", file=sys.stderr)
             active_src_dir = None
 
         for fr_num, rel_path in mappings:
@@ -754,7 +760,9 @@ class DriftDetector:
             allowed = set(allowed_deps.get(source_layer, []))
             try:
                 py_text = py_file.read_text(encoding="utf-8", errors="replace")
-            except Exception:
+            except Exception as exc:
+                print(f"[WARN] drift_detector: could not read {py_file}, "
+                      f"excluded from dependency-layer check: {exc}", file=sys.stderr)
                 continue
 
             scanner = ASTDependencyScanner(rel)
@@ -825,16 +833,24 @@ class DriftDetector:
         if sab_json.exists():
             try:
                 return json.loads(sab_json.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[WARN] drift_detector: SAB.json unreadable, falling back "
+                      f"to SAD.md parse: {exc}", file=sys.stderr)
         # Fallback: try parsing from SAD.md
         try:
             from scripts.generate_sab import parse_sad
             sad_path = self._find_file(["02-architecture/SAD.md"])
             if sad_path:
                 return parse_sad(str(sad_path))
-        except Exception:
-            pass
+        except Exception as exc:
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                self.project_path, "drift_detector._load_sab_baseline",
+                "both SAB.json and SAD.md §5 parse failed — drift detection runs "
+                "against an EMPTY architecture baseline this call (every module "
+                "will appear unregistered)",
+                why=str(exc),
+            )
         return {}
 
     def detect_all(self) -> Dict[str, DriftResult]:

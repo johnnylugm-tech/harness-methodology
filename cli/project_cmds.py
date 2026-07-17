@@ -444,16 +444,18 @@ def cmd_status(args: argparse.Namespace) -> int:
             m = re.search(r"(\d+) tests? collected", r.stdout + r.stderr)
             if m:
                 test_count = int(m.group(1))
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] effort: pytest --collect-only failed, test_count stays "
+                  f"unknown: {exc}", file=sys.stderr)
         try:
             r = subprocess.run([sys.executable, "-m", "pytest", "--cov=.", "--cov-report=term", "--tb=no", "-q"],
                              cwd=project, capture_output=True, text=True, timeout=120)
             m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout + r.stderr)
             if m:
                 coverage_pct = int(m.group(1))
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] effort: pytest --cov failed, coverage_pct stays "
+                  f"unknown: {exc}", file=sys.stderr)
 
     # Auto-fix rounds
     auto_fix_rounds_used = 0
@@ -557,8 +559,9 @@ def cmd_status(args: argparse.Namespace) -> int:
                         f"{_gs.get('total_edges','?')} edges · "
                         f"updated {(_gs.get('last_updated') or '')[:10]}"
                     )
-                except Exception:
-                    pass  # MCP not available in this subprocess context
+                except Exception as exc:
+                    print(f"  [WARN] doctor: CRG MCP graph-stats unavailable in this "
+                          f"subprocess context: {exc}", file=sys.stderr)
             else:
                 print(f"  status    : unavailable — {crg_status.get('reason', 'unknown')}")
         except (json.JSONDecodeError, OSError):
@@ -597,8 +600,9 @@ def cmd_load_context(args: argparse.Namespace) -> int:
             gate_results = manifest.get("gate_results", {})
             if fr_ids:
                 fr_id_source = "quality_manifest.json"
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] load-context: quality_manifest.json unreadable, "
+                  f"falling back to PROJECT_BRIEF.md: {exc}", file=sys.stderr)
 
     # P1 fallback (bug #2 fix): when quality_manifest.json is missing or empty
     # (the chicken-and-egg case at P1 entry, before P2 generates the manifest),
@@ -650,8 +654,9 @@ def cmd_load_context(args: argparse.Namespace) -> int:
                                 f"PROJECT_BRIEF.md::canonical_spec → "
                                 f"{_spec_rel} (P1 fallback, quality_manifest.json not yet generated)"
                             )
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                print(f"[WARN] load-context: PROJECT_BRIEF.md P1 fallback parse "
+                      f"failed, fr_ids stays empty: {exc}", file=sys.stderr)
 
     # current_phase from state.json
     current_phase = 0
@@ -659,8 +664,9 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         try:
             state = _json.loads(state_path.read_text(encoding="utf-8"))
             current_phase = state.get("current_phase", 0)
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] load-context: state.json unreadable, current_phase "
+                  f"stays 0: {exc}", file=sys.stderr)
 
     # fr_details from SRS.md (optional)
     fr_details: dict = {}
@@ -676,8 +682,9 @@ def cmd_load_context(args: argparse.Namespace) -> int:
                 "desc": fr.get("desc", ""),
                 "acceptance": fr.get("requirements", []),
             }
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] load-context: SRS.md fr_details parse failed, "
+              f"fr_details stays empty: {exc}", file=sys.stderr)
 
     # modules from SAD.md (optional)
     modules: dict = {}
@@ -685,8 +692,9 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         # Round 5 建議2站2: same load_harness_script migration as above.
         parse_sad_modules = load_harness_script("generate_full_plan.py").parse_sad_modules
         modules = parse_sad_modules(project)
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] load-context: SAD.md modules parse failed, "
+              f"modules stays empty: {exc}", file=sys.stderr)
 
     result = {
         "phase": phase,
@@ -705,7 +713,8 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         from core.lessons import format_lessons_block, recall_lessons
         result["lessons"] = format_lessons_block(
             recall_lessons(project, fr_ids=fr_ids, limit=5))
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] load-context: cross-run lessons recall failed: {exc}", file=sys.stderr)
         result["lessons"] = ""
 
     # Sentinel warning: existing artifacts still in template state?
@@ -1008,7 +1017,9 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
     try:
         _state = _json.loads((project / ".methodology" / "state.json").read_text())
         current_phase = int(_state.get("current_phase", 8))
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] audit-structure: state.json unreadable, auditing all "
+              f"phases: {exc}", file=sys.stderr)
         current_phase = 8  # if state unreadable, check all phases
 
     # Canonical phase directory names, filtered to the audited range
@@ -1130,6 +1141,7 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
             "missing_links": chain_result.get("missing_links", []),
         }
     except Exception as exc:
+        print(f"[WARN] audit-structure: ASPICE traceability chain check failed: {exc}", file=sys.stderr)
         aspice_passed = False
         aspice_detail = {"error": str(exc)}
     results["dimensions"]["aspice_chain"] = {
@@ -1364,8 +1376,9 @@ def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool =
                 "{PROJECT_NAME}", project.name
             )
             claude_dst.write_text(raw, encoding="utf-8")
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] init-project: CLAUDE.md {{PROJECT_NAME}} substitution "
+                  f"failed, template copied verbatim: {exc}", file=sys.stderr)
         copied += 1
     else:
         missing += 1
@@ -1491,8 +1504,9 @@ def _setup_branch_protection(project: Path) -> int:
                 import json as _json
                 data = _json.loads(rv.stdout)
                 owner, repo = data["owner"]["login"], data["name"]
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] audit-phase: `gh repo view` owner/repo fallback "
+                  f"failed: {exc}", file=sys.stderr)
 
     if not owner or not repo:
         print("   ERROR: Could not parse GitHub owner/repo from remote URL.")

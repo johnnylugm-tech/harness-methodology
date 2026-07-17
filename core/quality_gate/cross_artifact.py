@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 from core.phase_topology import VALID_PHASES
@@ -66,7 +67,8 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
 
         try:
             content = fpath.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] cross_artifact: could not read {fpath}, skipping it: {exc}", file=sys.stderr)
             continue
 
         # Find H1 heading (# Title)

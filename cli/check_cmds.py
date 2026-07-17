@@ -693,8 +693,8 @@ def cmd_generate_verification_report(args: argparse.Namespace) -> int:
         for line in text.splitlines():
             if "FRs Gate 1 PASS" in line or "Pass rate" in line:
                 print(f"  {line.strip()}")
-    except Exception:  # non-fatal
-        pass
+    except Exception as exc:  # non-fatal
+        print(f"[WARN] generate-verification-report: could not echo summary lines: {exc}", file=sys.stderr)
     return 0
 
 
@@ -1172,8 +1172,14 @@ def _resolve_deliverable_ids(
             return json.loads(
                 manifest_path.read_text(encoding="utf-8")
             ).get("fr_ids", [])
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                project, "check_cmds._resolve_deliverable_ids",
+                "quality_manifest.json unreadable — treating as zero deliverable IDs "
+                "(Agent B approval check is silently skipped for this phase)",
+                why=str(exc),
+            )
     return []
 
 def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.md") -> dict:

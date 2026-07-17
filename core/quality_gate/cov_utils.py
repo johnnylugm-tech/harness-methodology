@@ -19,8 +19,9 @@ def read_coveragerc_source(project_root: Path) -> str:
             src = parser.get("run", "source", fallback=".").strip()
             if src:
                 return src
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(f"read_coveragerc_source: .coveragerc unreadable, "
+                          f"defaulting source to '.': {exc}")
     return "."
 
 

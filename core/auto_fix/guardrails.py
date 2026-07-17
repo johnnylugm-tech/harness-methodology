@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -51,8 +52,9 @@ def pre_fix_safety_check(
             impact = crg_bridge.check_pre_fix_safety(str(project_root))
             if not impact.get("safe", True):
                 risks.append(f"CRG impact: {impact.get('message', 'unsafe')}")
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] auto_fix guardrails: CRG pre-fix safety check failed, "
+                  f"proceeding without it: {exc}", file=sys.stderr)
 
     safe = len(risks) == 0
     message = "Safety check passed" if safe else f"Safety check failed: {'; '.join(risks)}"
@@ -156,8 +158,14 @@ def rollback_if_unsafe(
         try:
             fp.write_text(original_content, encoding="utf-8")
             rolled_back += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                project_root, "auto_fix.guardrails.rollback_if_unsafe",
+                f"could not restore {fp} to its pre-fix content — file is left "
+                f"in its (unsafe) post-fix state",
+                why=str(exc),
+            )
     return rolled_back
 
 

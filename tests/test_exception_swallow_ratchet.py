@@ -17,6 +17,16 @@ Unlike ``test_patch_discipline.py``'s ceiling dict or
 allowlist**. The fix is always available and always free: add one log
 line. A handler that deliberately fails open (e.g. treating a parse error
 as "assume worst case") still deserves a visible trace for when it fires.
+
+Round 13 站1 (老闆's "容錯了，但進入不預期的處理方式導致難以debug"
+diagnosis): a repo-wide AST audit found 90 more unlogged broad excepts the
+original return-success-shape check couldn't see — 53 handlers whose body
+is just ``pass``, 8 ending in ``continue`` (skip this loop item, silently),
+and 29 that assign some fallback value(s) and fall through to whatever
+comes next with no return at all. All three are the identical Round-5
+failure mode one level removed: the handler fires, nothing gets logged,
+and the only trace is the eventual absence of whatever the try block was
+supposed to do. Extended here (still zero allowlist, still a one-line fix).
 """
 
 from __future__ import annotations
@@ -89,6 +99,42 @@ def _is_broad_except(handler: ast.ExceptHandler) -> bool:
     return False
 
 
+def _ends_in_return_success(body: list[ast.stmt]) -> bool:
+    last = body[-1]
+    return (
+        isinstance(last, ast.Return)
+        and last.value is not None
+        and _is_success_shaped(last.value)
+    )
+
+
+def _ends_in_continue(body: list[ast.stmt]) -> bool:
+    """Round 13 站1: a broad except ending in `continue` (inside a loop)
+    silently skips the current item exactly the way an unlogged `return`
+    silently skips the current call — same invisible-failure shape, one
+    loop-iteration narrower."""
+    return isinstance(body[-1], ast.Continue)
+
+
+def _is_silent_fallthrough(body: list[ast.stmt]) -> bool:
+    """Round 13 站1: every statement in the handler is a plain assignment/
+    expression/pass — no return, raise, continue, or break — so control
+    simply falls through to whatever comes after the try/except with no
+    visible trace that the except fired. Covers both a lone `pass` and a
+    multi-statement "set some default(s) and carry on" handler; the
+    ratchet's docstring's Round 5 finding (9 incidents, all a broad except
+    returning a success-looking value with nothing logged) is the same
+    failure mode one level up — this is the version where the handler
+    doesn't even return, it just quietly sets up state for what follows."""
+    return all(
+        isinstance(s, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Expr, ast.Pass))
+        for s in body
+    )
+
+
+_FAIL_OPEN_SHAPES = (_ends_in_return_success, _ends_in_continue, _is_silent_fallthrough)
+
+
 def _scan_source(source: str, filename: str = "<probe>") -> list[int]:
     """Return line numbers of broad excepts that silently fail open."""
     try:
@@ -102,14 +148,10 @@ def _scan_source(source: str, filename: str = "<probe>") -> list[int]:
         for handler in node.handlers:
             if not _is_broad_except(handler) or not handler.body:
                 continue
-            last = handler.body[-1]
-            if not (isinstance(last, ast.Return) and last.value is not None):
-                continue
-            if not _is_success_shaped(last.value):
-                continue
             if _has_log_or_raise(handler.body):
                 continue
-            hits.append(handler.lineno)
+            if any(shape(handler.body) for shape in _FAIL_OPEN_SHAPES):
+                hits.append(handler.lineno)
     return hits
 
 
@@ -131,10 +173,12 @@ def test_no_silent_fail_open():
                 rel = path.relative_to(REPO).as_posix()
                 violations.append(f"{rel}:{lineno}")
     assert not violations, (
-        "broad `except` returns a success-shaped value "
-        f"({', '.join(_SUCCESS_SHAPES)}) with no log/print/raise in the "
-        "handler — add one diagnostic line (or fix the underlying bug if "
-        "the swallow is wrong, not just unlogged):\n  "
+        "broad `except` fails open with no log/print/raise in the handler — "
+        f"either returns a success-shaped value ({', '.join(_SUCCESS_SHAPES)}), "
+        "ends in `continue`, or is a silent pass/fallthrough (assigns a "
+        "fallback and carries on with no return at all) — add one "
+        "diagnostic line (or fix the underlying bug if the swallow is "
+        "wrong, not just unlogged):\n  "
         + "\n  ".join(violations)
     )
 
@@ -249,5 +293,120 @@ def test_scanner_ignores_false_first_tuple_element():
         "        risky()\n"
         "    except Exception as exc:\n"
         "        return False, str(exc)\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_flags_unlogged_pass_only():
+    """Round 13 站1: a broad except whose entire handler body is `pass`
+    silently swallows the exception with no return and no trace."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception:\n"
+        "        pass\n"
+    )
+    assert _scan_source(probe) == [4]
+
+
+def test_scanner_ignores_logged_pass_only():
+    """Negative: a log call before `pass` clears it."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception as exc:\n"
+        "        logger.warning('cleanup failed: %s', exc)\n"
+        "        pass\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_flags_unlogged_continue():
+    """Round 13 站1: a broad except ending in `continue` (inside a loop)
+    silently skips the current item — same invisible failure, one loop
+    iteration narrower than a silent return."""
+    probe = (
+        "def f(items):\n"
+        "    for item in items:\n"
+        "        try:\n"
+        "            risky(item)\n"
+        "        except Exception:\n"
+        "            continue\n"
+    )
+    assert _scan_source(probe) == [5]
+
+
+def test_scanner_ignores_logged_continue():
+    """Negative: a log call before `continue` clears it."""
+    probe = (
+        "def f(items):\n"
+        "    for item in items:\n"
+        "        try:\n"
+        "            risky(item)\n"
+        "        except Exception as exc:\n"
+        "            print(f'skipping {item}: {exc}')\n"
+        "            continue\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_flags_unlogged_silent_fallthrough():
+    """Round 13 站1: a broad except that assigns a fallback value and falls
+    through (no return, no raise) with nothing logged — the exact shape of
+    the 29 default-assignment sites the repo-wide audit found."""
+    probe = (
+        "def f():\n"
+        "    result = None\n"
+        "    try:\n"
+        "        result = risky()\n"
+        "    except Exception:\n"
+        "        result = DEFAULT\n"
+        "    return result\n"
+    )
+    assert _scan_source(probe) == [5]
+
+
+def test_scanner_ignores_logged_silent_fallthrough():
+    """Negative: a log call before the fallback assignment clears it."""
+    probe = (
+        "def f():\n"
+        "    result = None\n"
+        "    try:\n"
+        "        result = risky()\n"
+        "    except Exception as exc:\n"
+        "        print(f'using default: {exc}')\n"
+        "        result = DEFAULT\n"
+        "    return result\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_ignores_fallthrough_with_raise():
+    """Negative: a handler that re-raises is not a silent fallthrough even
+    though its other statements are plain assignments."""
+    probe = (
+        "def f():\n"
+        "    try:\n"
+        "        risky()\n"
+        "    except Exception as exc:\n"
+        "        note = str(exc)\n"
+        "        raise RuntimeError(note) from exc\n"
+    )
+    assert _scan_source(probe) == []
+
+
+def test_scanner_ignores_fallthrough_with_break():
+    """Negative: `break` is deliberately out of scope — it exits the loop
+    entirely (a visible change in the caller's control flow the same way
+    an early return is), not a silently-skip-and-continue shape."""
+    probe = (
+        "def f(items):\n"
+        "    for item in items:\n"
+        "        try:\n"
+        "            risky(item)\n"
+        "        except Exception:\n"
+        "            break\n"
     )
     assert _scan_source(probe) == []

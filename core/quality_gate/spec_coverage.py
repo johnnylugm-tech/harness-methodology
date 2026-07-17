@@ -9,6 +9,7 @@ names for its own callers and for existing monkeypatch targets.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 from core.utils.project_layout import ProjectLayout
@@ -351,8 +352,9 @@ def _collect_shared_test_files(project: Path, base: str,
         for line in r.stdout.splitlines():
             if line.endswith(".py") and line not in existing:
                 existing.append(line)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[WARN] spec_coverage: git ls-files for {base}/conftest.py+helpers/ "
+              f"failed, shared test files may be undercounted: {exc}", file=sys.stderr)
 
 
 def _git_test_patterns(project: Path, num: str, num_raw: str) -> list[str]:

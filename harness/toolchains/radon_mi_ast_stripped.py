@@ -60,9 +60,9 @@ def main():
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.write_text(stripped, encoding="utf-8")
                 has_files = True
-            except Exception:
-                # Silently ignore files that can't be parsed or read
-                pass
+            except Exception as exc:
+                print(f"[WARN] radon_mi_ast_stripped: could not parse/strip "
+                      f"{original_path}, excluded from MI calculation: {exc}", file=sys.stderr)
                 
         if not has_files:
             print("{}")

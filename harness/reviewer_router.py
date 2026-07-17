@@ -200,7 +200,12 @@ class ReviewerRouter:
             full_prompt = self._build_prompt(
                 role, prompt, phase, fr_id=fr_id,
             )
-        except Exception:
+        except Exception as exc:
+            _log.warning(
+                "_build_prompt failed (role=%s, phase=%s, fr_id=%s); falling back "
+                "to the raw prompt (no schema footer — REJECT risk rises): %s",
+                role, phase, fr_id, exc,
+            )
             full_prompt = prompt
 
         try:

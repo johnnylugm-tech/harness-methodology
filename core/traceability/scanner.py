@@ -14,6 +14,7 @@ regex constants).
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from core.utils.lang_patterns import (
@@ -97,7 +98,9 @@ def scan_fr_annotations(
             continue
         try:
             text = src_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] traceability scanner: could not read {src_file}, "
+                  f"skipping it: {exc}", file=sys.stderr)
             continue
         found = set()
         for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', text, re.IGNORECASE):
@@ -137,7 +140,9 @@ def scan_test_fr_coverage(
             fr_to_tests.setdefault(fr_id, []).append(rel)
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] traceability scanner: could not read {test_file}, "
+                  f"skipping it: {exc}", file=sys.stderr)
             continue
         for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', text, re.IGNORECASE):
             for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
@@ -199,7 +204,9 @@ def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
     for test_file in iter_test_files(tests_dir, project_language(project)):
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] traceability scanner: could not read {test_file}, "
+                  f"skipping it: {exc}", file=sys.stderr)
             continue
         rel = str(test_file.relative_to(project))
         for m in NFR_PATTERN.finditer(text):

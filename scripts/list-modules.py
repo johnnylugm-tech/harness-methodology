@@ -133,6 +133,7 @@ def validate_skill_md_frontmatter() -> list[str]:
                     f"does not match 'harness-methodology'"
                 )
     except Exception as e:
+        print(f"[WARN] list-modules: SKILL.md frontmatter parse error: {e}", file=sys.stderr)
         errors.append(f"SKILL.md frontmatter parse error: {e}")
     return errors
 

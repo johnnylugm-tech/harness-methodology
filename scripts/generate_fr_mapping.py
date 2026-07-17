@@ -63,7 +63,9 @@ def scan_for_fr_tags(project: Path) -> dict:
                 for fr_id in fr_ids:
                     if rel_path not in fr_files[fr_id]:
                         fr_files[fr_id].append(rel_path)
-            except Exception:  # nosec B112
+            except Exception as exc:  # nosec B112
+                print(f"[WARN] generate_fr_mapping: could not read/scan {py_file}, "
+                      f"skipping it: {exc}", file=sys.stderr)
                 continue
     return dict(fr_files)
 

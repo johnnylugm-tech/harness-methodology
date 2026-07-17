@@ -46,7 +46,8 @@ def cmd_run_gate(args: argparse.Namespace) -> int:
     try:
         from core.observability import init_tracer
         _tracer = init_tracer(Path(getattr(args, "project", ".")).resolve())
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] run-gate: OTEL tracer init failed, proceeding without tracing: {exc}", file=sys.stderr)
         _tracer = None
     if _tracer is None:
         return _cmd_run_gate_impl(args)
@@ -68,7 +69,8 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
     try:
         from core.observability import init_tracer
         _tracer = init_tracer(Path(getattr(args, "project", ".")).resolve())
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] finalize-gate: OTEL tracer init failed, proceeding without tracing: {exc}", file=sys.stderr)
         _tracer = None
     if _tracer is None:
         return _cmd_finalize_gate_impl(args)
@@ -511,8 +513,9 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                                     if _cand.exists():
                                         _found = True
                                         break
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            print(f"[WARN] tool-check: venv-Python semantic-name probe for "
+                                  f"'{name}' failed: {exc}", file=sys.stderr)
                 if not _found:
                     # Python package fallback: "import <name>" via the current interpreter.
                     # src-layout projects (e.g. 03-development/src/taskq) are importable
@@ -526,8 +529,10 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                             _import_env["PYTHONPATH"] = os.pathsep.join(
                                 p for p in (str(_src_dir), _import_env.get("PYTHONPATH", "")) if p
                             )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        print(f"[WARN] tool-check: could not resolve active_src_dir for "
+                              f"PYTHONPATH (import probe for '{name}' may miss src-layout "
+                              f"packages): {exc}", file=sys.stderr)
                     # Bug #129: try the project venv's python too — whether a
                     # plugin-only package (e.g. pytest-cov) verifies must not
                     # depend on which interpreter happens to run harness_cli.
@@ -561,8 +566,9 @@ def _verify_env_check_claims(project: Path) -> "list[str]":
                     )
                     if _r.returncode == 0:
                         return _raw_name, True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"[WARN] tool-check: import probe for '{_pkg}' via "
+                          f"{_interp} failed: {exc}", file=sys.stderr)
             return _raw_name, False
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -1050,7 +1056,9 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
                     .get(fr_id, {})
                     .get("score")
                 )
-            except Exception:
+            except Exception as exc:
+                print(f"[WARN] run-gate DELTA-CHECK: quality_manifest.json unreadable, "
+                      f"falling back to full re-evaluation for {fr_id}: {exc}", file=sys.stderr)
                 prev_score = None
 
             if prev_score is not None:
@@ -1444,8 +1452,9 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                             stale_files.append(
                                 f"{sf.name} (round={_sf_round!r}, expected {_b2_round})"
                             )
-                    except Exception:
-                        pass  # unparseable files are caught by score.py R1 later
+                    except Exception as exc:
+                        print(f"[WARN] Gate 4 (B2) stale-round check: {sf.name} unparseable "
+                              f"(caught separately by score.py R1): {exc}", file=sys.stderr)
                 if stale_files:
                     print(
                         f"\n[BLOCKED] Gate 4 (B2): Stale score files detected in {scores_dir}:\n"
@@ -2191,8 +2200,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             from core.lessons import record_gate_block
             record_gate_block(project_path, gate_num=args.gate, phase=args.phase,
                               fr_id=fr_id, result=e.result)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _lessons_exc:  # noqa: BLE001
+            print(f"[WARN] finalize-gate: could not record cross-run failure "
+                  f"memory for this block: {_lessons_exc}", file=sys.stderr)
         return 1
 
 def _update_state_checkpoint(
@@ -2212,8 +2222,14 @@ def _update_state_checkpoint(
         if state_path.exists():
             try:
                 existing = json.loads(state_path.read_text(encoding="utf-8"))
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                from core.degradation_ledger import record_degradation
+                record_degradation(
+                    project, "gate_cmds._update_state_checkpoint",
+                    "state.json unreadable — overwriting with a fresh object "
+                    "(any fields other than last_gate/last_fr/last_update are lost)",
+                    why=str(exc),
+                )
         # Track Gate 1 score for inter-FR variance check (D2 extension)
         if gate_num == 1 and fr_id and gate_score is not None and phase is not None:
             gate1_evidence.record_gate1_score(project, phase, fr_id, gate_score)
@@ -2353,8 +2369,8 @@ def _format_block_diagnostic(
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text("\n".join(report_lines), encoding="utf-8")
         lines.append(f"  Full report → {report_path}")
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
+    except Exception as _write_exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] finalize-gate: could not write last_block.md: {_write_exc}", file=sys.stderr)
 
     return "\n".join(lines)
 

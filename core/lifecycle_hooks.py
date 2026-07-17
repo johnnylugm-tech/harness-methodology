@@ -122,6 +122,7 @@ class HookRunner:
             success = False
             output = f"Timeout after {hook.timeout_seconds}s"
         except Exception as e:
+            logger.warning("Hook %s raised %s: %s", hook.name, type(e).__name__, e)
             success = False
             output = str(e)
 

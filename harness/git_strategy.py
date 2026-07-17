@@ -36,6 +36,7 @@ import math as _math
 import os
 import re as _re
 import subprocess  # nosec B404
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -998,7 +999,8 @@ class GitStrategy:
                 try:
                     lines = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
                     items.append(f"`{name}` ✅ ({lines}L)")
-                except Exception:  # pylint: disable=broad-exception-caught
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    print(f"[WARN] git_strategy: could not count lines in {name}: {exc}", file=sys.stderr)
                     items.append(f"`{name}` ✅")
             else:
                 items.append(f"~~`{name}`~~ ❌ missing")

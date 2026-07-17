@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import enum
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
@@ -272,6 +273,8 @@ class PhaseArtifactRegistry:
                     # of one per phase.
                     advisory_warnings.extend(result.advisory_warnings)
         except Exception as exc:
+            print(f"[WARN] phase_artifact_enforcer: verify_phase_chain({current_phase}) "
+                  f"crashed: {exc}", file=sys.stderr)
             missing.append(f"CRASH: verify_phase_chain({current_phase}) — {type(exc).__name__}: {exc}")
 
         return {

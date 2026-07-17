@@ -270,6 +270,7 @@ class IntegratedStagePassGenerator:
             evidence["coverage_passed"] = result.returncode == 0
             evidence["coverage_output"] = result.stdout[-2000:] if result.stdout else ""
         except Exception as e:
+            print(f"[WARN] stage_pass_generator: pytest-cov run failed: {e}")
             evidence["coverage_error"] = str(e)
         
         self.results["test_evidence"] = evidence

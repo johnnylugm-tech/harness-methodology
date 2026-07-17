@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 __all__ = [
@@ -51,8 +52,9 @@ def build_claude_md_auto_section(project_path: Path) -> str:
                     manifest = data
                 else:
                     state = data
-            except Exception:  # pylint: disable=broad-exception-caught
-                pass
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                print(f"[WARN] CLAUDE.md auto-section: {fpath} unreadable, "
+                      f"treating {store_key} as empty: {exc}", file=sys.stderr)
 
     current_phase = state.get("current_phase", 1)
     phase_name = PHASE_NAMES.get(current_phase, f"Phase {current_phase}")

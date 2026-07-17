@@ -7,6 +7,7 @@ substantive APPROVE (anti-rubber-stamp minimum reason length).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 __all__ = ["MIN_REVIEW_REASON_CHARS", "REQUIRED_EMBEDDED_DOCS", "verify_agent_b_approvals_core"]
@@ -48,6 +49,7 @@ def verify_agent_b_approvals_core(
         try:
             data = json.loads(approval_file.read_text(encoding="utf-8"))
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] agent_b_approvals: {did} approval file JSON parse error: {exc}", file=sys.stderr)
             errors.append(f"{did}: JSON parse error — {exc}")
             continue
         status = data.get("review_status", "")

@@ -34,7 +34,11 @@ _LINE_CEILING: dict[str, int] = {
     # evidence carries a run-gate PRECONDITION-block signature — the
     # 2026-07-16 phantom-module incident wrote 3 fake quality zeros into
     # the manifest and dispatched CODE-FIX at healthy code.
-    "harness/harness_bridge.py": 3042,
+    # 2026-07-17: +11 lines — Round 13 站1: exception-swallow ratchet paydown —
+    # SAD.md §5 parse failure now records a degradation entry (SAB baseline
+    # consequence is significant enough for the persistent ledger, not just a
+    # print) + _trigger_hooks failure now logs via the file's own local logger.
+    "harness/harness_bridge.py": 3053,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
@@ -71,7 +75,10 @@ _LINE_CEILING: dict[str, int] = {
     # probe replaces the 2026-07-16 failure mode where the per-FR loop
     # burned 140 dispatches / ~2.5h on FR-01 discovering spawned agents
     # could not execute pytest/git.
-    "cli/phase_cmds.py": 2680,
+    # 2026-07-17: +23 lines — Round 13 站1: exception-swallow ratchet
+    # paydown — 12 previously-unlogged broad excepts now print a [WARN]
+    # (2 via core.degradation_ledger for the state.json-corruption cases).
+    "cli/phase_cmds.py": 2703,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -154,7 +161,10 @@ _LINE_CEILING: dict[str, int] = {
     # gate_timestamps.jsonl is now landed with a scoped commit immediately,
     # instead of being left dirty for the very next dirty-tree guard to
     # misreport as "commit did not land" (FR-01 GATE1 false-FAIL repro).
-    "cli/fr_cmds.py": 2430,
+    # 2026-07-17: +11 lines — Round 13 站1: exception-swallow ratchet
+    # paydown — 10 previously-unlogged broad excepts now print a [WARN]
+    # diagnostic (or, for the CRG-search/git-sha sites, a one-line reason).
+    "cli/fr_cmds.py": 2441,
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
@@ -165,7 +175,10 @@ _LINE_CEILING: dict[str, int] = {
     # satisfiability probe that downgrades provably-impossible spec
     # constraints to spec_unsatisfiable warnings (R5 incident mechanized).
     "core/quality_gate/red_assertion_check.py": 1000,
-    "cli/project_cmds.py": 1920,  # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
+    # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
+    # paydown — 13 previously-unlogged broad excepts now print a [WARN]
+    # diagnostic.
+    "cli/project_cmds.py": 1930,  # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
     # 2026-07-16: Round 12 站0 — agent_spawner crossed the unlisted-file
     # threshold (900) with three additions: _extract_dispatch_error /
     # _denoise_cli_stderr (站0c error-capture denoise — closes the 76×
@@ -213,7 +226,10 @@ _LINE_CEILING: dict[str, int] = {
     # locally-duplicated regex fragment (same SSOT fix as spec_alignment.py /
     # artifact_parsers.py / spec_coverage.py for the subsection-numbered
     # FR-heading bug class).
-    "core/phase_hooks.py": 1597,
+    # 2026-07-17: +1 line — Round 13 站1: exception-swallow ratchet paydown —
+    # the attestation-check except now prints its error instead of silently
+    # discarding it.
+    "core/phase_hooks.py": 1598,
     # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
     # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
     # (broken) Path(__file__).parent arithmetic.
@@ -229,14 +245,19 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-16: +15 lines — Round 12 站3c: check-test-mirrors-spec
     # consults values.checker_enforcement for spec_unsatisfiable
     # (default warn; operator-promotable to block after a clean E2E run).
-    "cli/check_cmds.py": 1531,
+    # 2026-07-17: +6 lines — Round 13 站1: exception-swallow ratchet paydown —
+    # 2 previously-unlogged broad excepts now print a [WARN] diagnostic.
+    "cli/check_cmds.py": 1537,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry
     # (same rationale as the sessions_spawn.log entry two lines above: the
     # lock-file sibling was missing from the pattern, surfacing as a second
     # permanently-dirty file in run-fr-step's dirty-tree guard).
-    "harness/git_strategy.py": 1297,
+    # 2026-07-17: +2 lines — Round 13 站1: exception-swallow ratchet paydown —
+    # the artifact line-count except now prints its error before falling
+    # back to the no-linecount checklist item.
+    "harness/git_strategy.py": 1299,
     # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
     # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
     # the SAB block's own authoring-guidance shape.

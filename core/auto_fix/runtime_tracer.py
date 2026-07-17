@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,8 @@ def pytest_exception_interact(node: Any, call: Any, report: Any) -> None:
                 if len(rep) > 500:
                     rep = rep[:500] + "... [truncated]"
                 locals_dict[k] = rep
-            except Exception:
+            except Exception as exc:
+                print(f"[WARN] runtime_tracer: repr() failed for local '{k}': {exc}", file=sys.stderr)
                 locals_dict[k] = "<unreprable>"
 
         trace_data.append({

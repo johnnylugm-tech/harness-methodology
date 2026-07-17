@@ -9,6 +9,7 @@ Usage:
     result = checker.run()
 """
 
+import sys
 from typing import Dict, List
 from pathlib import Path
 
@@ -313,6 +314,7 @@ def compute_trace_dimension(project, gate: int) -> dict:
         _sc_code, sc_pct = _run_spec_coverage_check(project_path, threshold_4b)  # noqa: F841
         result["4b_test_spec_pct"] = sc_pct
     except Exception as e:
+        print(f"[WARN] spec_tracking_checker 4b (TEST_SPEC → test): {e}", file=sys.stderr)
         result["4b_test_spec_pct"] = 0.0
         result["error"] = (result["error"] or "") + f" 4b: {e}"
 
@@ -347,6 +349,7 @@ def compute_trace_dimension(project, gate: int) -> dict:
             # dimension to 0.0, here we additionally force passed=False to
             # guarantee the gate fails, since the merged_pct guard (min of the
             # three) would otherwise still pass if 4a/4b happened to be high.
+            print(f"[WARN] spec_tracking_checker 4c (NFR → test): {e}", file=sys.stderr)
             nfr_pct = 0.0
             result["passed"] = False
             result["error"] = (result["error"] or "") + f" 4c: {e}"

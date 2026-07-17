@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from core.auto_fix.error_class import ErrorClass
 
 import ast
+import sys
 import time
 from dataclasses import dataclass, field, replace
 from enum import Enum
@@ -176,8 +177,9 @@ class AutoFixEngine:
             )
             if _r.returncode == 0:
                 _pre_fix_head = _r.stdout.strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] auto_fix: pre-fix HEAD snapshot failed, CRG drift "
+                  f"comparison will be skipped: {exc}", file=sys.stderr)
 
         # Pre-fix safety
         from core.auto_fix.guardrails import pre_fix_safety_check
@@ -202,8 +204,9 @@ class AutoFixEngine:
             if isinstance(fp, Path) and fp.suffix == ".py" and fp.exists():
                 try:
                     pre_fix_content_map[fp] = fp.read_text(encoding="utf-8")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"[WARN] auto_fix: pre-fix backup of {fp} failed "
+                          f"(rollback for this file will not be possible): {exc}", file=sys.stderr)
 
         error_line = context.details.get("line")
         if error_line and files:
@@ -263,8 +266,10 @@ class AutoFixEngine:
                                     if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)):
                                         fp_allowed_node = node.name
                                         break
-                            except Exception:
-                                pass  # keep fp_allowed_node as original allowed_node
+                            except Exception as exc:
+                                print(f"[WARN] auto_fix: could not extract top-level node "
+                                      f"name from {fp}, using original allowed_node: {exc}",
+                                      file=sys.stderr)
                         post_content = fp.read_text(encoding="utf-8")
                         is_safe = ast_mutation_guard(
                             file_path=fp,
@@ -279,6 +284,8 @@ class AutoFixEngine:
                             fp.write_text(pre_content, encoding="utf-8")
                             escalation_override = EscalationCondition.HR14_INTEGRITY
                     except Exception as e:
+                        print(f"[WARN] auto_fix: ast_mutation_guard verification "
+                              f"errored for {fp}, blocking and rolling back: {e}", file=sys.stderr)
                         success = False
                         action_taken = f"Blocked by ast_mutation_guard error: {e}"
                         conf = 0.0
@@ -313,7 +320,8 @@ class AutoFixEngine:
                         str(self.project_root), base=base_ref,
                     )
                     drift["crg_drift_detected"] = crg_drifted
-                except Exception:
+                except Exception as exc:
+                    print(f"[WARN] auto_fix: CRG post-fix drift check failed: {exc}", file=sys.stderr)
                     drift["crg_drift_detected"] = None
             result.post_fix_drift = drift
 
@@ -408,7 +416,9 @@ class AutoFixEngine:
         try:
             _, _, max_rounds, _, _ = self.classify(context)
             return max_rounds
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] auto_fix: classify() failed while resolving max_rounds, "
+                  f"defaulting to 3: {exc}", file=sys.stderr)
             return 3
 
     def _is_phase_timed_out(self) -> bool:
@@ -426,8 +436,9 @@ class AutoFixEngine:
                 import json
                 state = json.loads(state_path.read_text(encoding="utf-8"))
                 return float(state.get("integrity", 100.0))
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] auto_fix: could not read integrity score from state.json, "
+                  f"defaulting to 100.0: {exc}", file=sys.stderr)
         return 100.0
 
     @staticmethod

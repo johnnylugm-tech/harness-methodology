@@ -159,7 +159,8 @@ def cmd_run_phase(args: argparse.Namespace) -> int:
     try:
         from core.observability import init_tracer
         _tracer = init_tracer(Path(args.project).resolve())
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] run-phase: OTEL tracer init failed, proceeding without tracing: {exc}", file=sys.stderr)
         _tracer = None
     if _tracer is None:
         return _cmd_run_phase_impl(args)
@@ -328,8 +329,12 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(
+                f"  [WARN] Could not read quality_manifest.json for state.json "
+                f"gate/FR tracking: {exc} — proceeding with empty manifest.",
+                file=sys.stderr,
+            )
 
     gate_results = manifest.get("gate_results", {})
     for gn in (4, 3, 2, 1):
@@ -472,8 +477,9 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         _fr_ids = json.loads(
                             _mf_path.read_text(encoding="utf-8")
                         ).get("fr_ids", [])
-                    except Exception:  # pylint: disable=broad-exception-caught
-                        pass
+                    except Exception as exc:  # pylint: disable=broad-exception-caught
+                        print(f"  [P2→P3] quality_manifest.json unreadable, "
+                              f"falling back to SRS.md FR scan: {exc}", file=sys.stderr)
                 if not _fr_ids:
                     # Fallback: scan SRS.md for FR markers. Match "### FR-XX" headers
                     # (separator can be `:`, `—`, `-`, `|`, or whitespace after the
@@ -736,8 +742,9 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
             current_phase = phase_hint or int(state.get("current_phase", 3))
             last_gate = state.get("last_gate")
             last_fr = state.get("last_fr")
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"  [WARN] generate-next-plan: state.json unreadable, "
+                  f"using phase_hint/defaults: {exc}", file=sys.stderr)
 
     print(f"\nPhase      : {current_phase} ({phase_name(current_phase, default='?')})")
 
@@ -983,8 +990,9 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
             current_phase = json.loads(
                 state_path.read_text(encoding="utf-8")
             ).get("current_phase", 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] pre-commit-check: state.json unreadable, defaulting to "
+                  f"phase 1 (strict traceability enforcement): {exc}", file=sys.stderr)
     strict_trace = current_phase < 3  # P1/P2: hard-block; P3+: warn-only
 
     # SAD.md (canonical locations)
@@ -1154,7 +1162,14 @@ def _advance_fsm(project: Path, completed_phase: int,
         if state_path.exists():
             try:
                 state_data = json.loads(state_path.read_text())
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                from core.degradation_ledger import record_degradation
+                record_degradation(
+                    project, "phase_cmds._advance_fsm",
+                    "state.json unreadable — treating FSM state as fresh (INIT) "
+                    "and overwriting the file's other fields",
+                    why=str(exc),
+                )
                 state_data = {}
             else:
                 try:
@@ -1390,8 +1405,9 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
         if manifest_path.exists():
             try:
                 fr_ids = json.loads(manifest_path.read_text()).get("fr_ids", [])
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[WARN] run-phase next-steps: quality_manifest.json unreadable, "
+                      f"cannot list per-FR Gate 1 commands: {exc}", file=sys.stderr)
         if fr_ids:
             print(f"        Per-FR Gate 1 ({len(fr_ids)} FRs): {', '.join(fr_ids)}")
             for fr_id in fr_ids:
@@ -1479,8 +1495,9 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
                                         f"agent_b_approvals check failed for P{prev} "
                                         "deliverables (run push-checkpoint)"
                                     )}
-                except Exception:  # pylint: disable=broad-exception-caught
-                    pass
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    print(f"[WARN] Human1 (P{prev}) gate: shallow-clone fallback check "
+                          f"failed: {exc}", file=sys.stderr)
                 return {"passed": False, "gate": f"Human1 (P{prev})",
                         "reason": f"phase_completed[{prev}].sha={entry['sha'][:8]} "
                                   "is not an ancestor of HEAD — branch may have been "
@@ -1666,8 +1683,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                     # always find nothing and defeat the exemption.
                     if not gate1_evidence.fr_code_changed_since_last_gate1(_frid, project):
                         continue
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(f"[WARN] advance-phase: DELTA auto-skip check for {_frid} "
+                          f"failed, treating as changed (finalize still required): {exc}",
+                          file=sys.stderr)
                 _missing_fr_finalize.append(_frid)
                 _ = None  # appease pyright
         if _missing_fr_finalize:
@@ -2196,8 +2215,9 @@ def _validate_handoff_p6_to_p7(project: Path) -> list[str]:
                     "(gate_results.gate4.quality_complete is not True). "
                     "Re-run Phase 6 Gate 4 evaluation."
                 )
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass  # malformed JSON is a separate concern; don't block handoff
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] P6→P7 handoff: quality_manifest.json malformed "
+                  f"(not blocking handoff — separate concern): {exc}", file=sys.stderr)
     else:
         errors.append("quality_manifest.json missing; run `finalize-gate --gate 4 --phase 6` first.")
     return errors
@@ -2343,7 +2363,9 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
                 not gate1_evidence.fr_code_changed_since_last_gate1(fr, project)
                 for fr in fr_ids_manifest
             )
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] advance-phase Gate 1 coverage: DELTA-unchanged check failed, "
+                  f"forcing a full live coverage run: {exc}", file=sys.stderr)
             _all_unchanged = False
         if _all_unchanged:
             print(
@@ -2430,8 +2452,9 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
                 _s = (_d or {}).get("scores", {}).get("gate_score")
                 if _s is not None:
                     _scores.append(float(_s))
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[WARN] SG-1 fabrication check: {_sf} unparseable, "
+                      f"excluded from stddev sample: {exc}", file=sys.stderr)
 
         # SG-1: stricter fabrication detection. The previous check fired only
         # when ALL scores were identical (one decimal of variation defeated it,

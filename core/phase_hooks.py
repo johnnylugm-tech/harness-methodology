@@ -507,6 +507,7 @@ class PhaseHooks:
             att_status = {0: "clean", 1: "mismatch", 2: "missing",
                           3: "schema-error"}.get(att_code, "unknown")
         except Exception as e:
+            print(f"   Attestation check error: {e}")
             att_status = "error"
             att_msg = str(e)
 

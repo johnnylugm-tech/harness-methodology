@@ -189,6 +189,7 @@ def cmd_cr_close(args: argparse.Namespace) -> int:
                 problems.append(
                     f"trace attestation not clean (exit {att_code}): {att_msg}")
         except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] cr-close: trace attestation verify failed to run: {exc}", file=sys.stderr)
             problems.append(f"trace attestation verify failed to run: {exc}")
 
     # 4. drift (HIGH+ blocks)
@@ -204,6 +205,7 @@ def cmd_cr_close(args: argparse.Namespace) -> int:
                     f"{check_name} drift: {len(high)} HIGH+ item(s), e.g. "
                     f"{high[0].location}: {high[0].description}")
     except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] cr-close: drift detection failed to run: {exc}", file=sys.stderr)
         problems.append(f"drift detection failed to run: {exc}")
 
     if problems:

@@ -267,8 +267,14 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
     if scores_file.exists():
         try:
             scores = json.loads(scores_file.read_text(encoding="utf-8"))
-        except Exception:  # pylint: disable=broad-exception-caught
-            pass
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                project, "gate1_evidence.record_gate1_score",
+                f"{GATE1_SCORES_FILE} unreadable — inter-FR variance history for "
+                "all other phases/FRs is discarded, starting fresh",
+                why=str(exc),
+            )
     scores.setdefault(str(phase), {})[fr_id] = score
     # Prune stale phases — keep current and previous only
     stale = [k for k in list(scores.keys()) if int(k) < phase - 1]
@@ -276,8 +282,14 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
         del scores[k]
     try:
         atomic_write_json(scores_file, scores)
-    except Exception:  # pylint: disable=broad-exception-caught
-        pass
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        from core.degradation_ledger import record_degradation
+        record_degradation(
+            project, "gate1_evidence.record_gate1_score",
+            f"{GATE1_SCORES_FILE} write failed — this Gate 1 score for "
+            f"{fr_id} (phase {phase}) will not be available to future variance checks",
+            why=str(exc),
+        )
 
 
 # --- Gate-1 change detection + live coverage (moved from harness_cli, S4e) ---
@@ -406,8 +418,9 @@ def fr_code_changed_since_last_gate1(fr_id: str, project: Path, phase: int | Non
                             # Overlap check
                             if start_line <= fr_end and end_line >= fr_start:
                                 return True
-                    except Exception:
-                        pass
+                    except Exception as hunk_exc:
+                        print(f"[WARN] git diff hunk-header parse failed for {fr_id} "
+                              f"(line {line!r}), skipping this hunk: {hunk_exc}", file=sys.stderr)
         except Exception as exc:
             # On parse error, fail safe
             print(f"[WARN] git diff hunk parse failed for {fr_id}: {exc}")

@@ -301,7 +301,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # _git_head_sha.
     try:
         _pre_step_sha = AgentSpawner._git_head_sha(project) or ""
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] run-fr-step: could not read pre-dispatch HEAD sha "
+              f"(ghost-detection diff will compare against empty): {exc}", file=sys.stderr)
         _pre_step_sha = ""
 
     # Fix H-H (P3 2026-07-15 round 4): TDD-RED/GREEN/IMPROVE/MIRROR/amend-sab/
@@ -625,8 +627,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                                 )
                                 if _tr.returncode == 0:
                                     _did = True
-                            except Exception:
-                                pass
+                            except Exception as _tool_err:
+                                print(f"  [WARN] run-fr-step: LINT-FIX inline fallback "
+                                      f"attempt '{' '.join([_tool_cmd] + _fix_flow)}' "
+                                      f"could not run: {_tool_err}", file=sys.stderr)
                         if _did:
                             print("  [run-fr-step] LINT-FIX inline fallback "
                                   "applied (ruff) — continuing with GATE1")
@@ -880,14 +884,15 @@ def cmd_resume_fr_phase(args: argparse.Namespace) -> int:
     if manifest_path.exists():
         try:
             fr_ids = json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] resume-fr-phase: quality_manifest.json unreadable, "
+                  f"falling back to fr_progress.json: {exc}", file=sys.stderr)
     if not fr_ids and progress_path.exists():
         try:
             data = json.loads(progress_path.read_text(encoding="utf-8"))
             fr_ids = list(data.get("frs", {}).keys())
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[WARN] resume-fr-phase: fr_progress.json unreadable: {exc}", file=sys.stderr)
 
     if not fr_ids:
         print("[resume-fr-phase] No FR list found — check .methodology/quality_manifest.json")
@@ -1104,7 +1109,8 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
                 errors.append(
                     f"✗ FR-ID {fr_id} not in quality_manifest.json fr_ids ({', '.join(registered)})"
                 )
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] run-fr-step precheck: quality_manifest.json malformed: {exc}", file=sys.stderr)
             errors.append("✗ quality_manifest.json is malformed JSON")
 
     # ── 4. TEST_SPEC.md (required for TDD-RED — test names come from here) ───
@@ -1124,7 +1130,8 @@ def _fr_step_preflight(step: str, project: Path, fr_id: str | None, srs_path: "P
                         f"✗ 02-architecture/TEST_SPEC.md has no section for {fr_id}"
                         " (run derive_test_cases.md skill first)"
                     )
-            except Exception:
+            except Exception as exc:
+                print(f"[WARN] run-fr-step precheck: TEST_SPEC.md unreadable: {exc}", file=sys.stderr)
                 errors.append("✗ 02-architecture/TEST_SPEC.md exists but is unreadable")
 
     # ── 5. Tool checks (step-aware) ───────────────────────────────────────────
@@ -1349,7 +1356,9 @@ def _capture_tool_snapshot(
             )
             if _ruff_r.returncode != 127:
                 break
-        except Exception:
+        except Exception as exc:
+            print(f"[WARN] _capture_tool_snapshot: ruff invocation "
+                  f"'{' '.join(_ruff_cmd)}' failed: {exc}", file=sys.stderr)
             _ruff_r = None
     if _ruff_r and (_ruff_r.stdout.strip() or _ruff_r.stderr.strip()):
         lines.append(f"ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 (exit {_ruff_r.returncode}):")
@@ -1366,8 +1375,9 @@ def _capture_tool_snapshot(
             lines.append(f"pytest {test_file} -v --tb=short (exit {r.returncode}):")
             # Tail: most useful failures are at the end
             lines.append(output[-800:])
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[WARN] _capture_tool_snapshot: pytest capture failed — "
+              f"CODE-FIX prompt will get a shorter/empty snapshot: {exc}", file=sys.stderr)
     return "\n".join(lines)[:2000]
 
 
@@ -1584,8 +1594,8 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
             try:
                 if f"[{fr_id}]" in py_file.read_text(encoding="utf-8"):
                     return True
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[WARN] docstring-reference scan: could not read {py_file}: {exc}", file=sys.stderr)
         return False
     return True
 
@@ -1755,8 +1765,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                     )
                     + "\n\n"
                 )
-        except Exception:
-            pass  # graceful: CRG not available or no match
+        except Exception as exc:
+            print(f"[WARN] TDD-RED prompt: CRG semantic search unavailable "
+                  f"(prompt proceeds without related-code context): {exc}", file=sys.stderr)
 
         return (
             f"You are a TDD developer. Your ONLY task: write failing pytest tests for {fr_id}.\n\n"

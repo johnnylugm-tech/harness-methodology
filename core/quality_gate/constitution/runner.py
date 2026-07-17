@@ -243,7 +243,8 @@ def missing_keywords(
     for fp in _scannable_files(Path(docs_path), phase, check_type):
         try:
             parts.append(fp.read_text(encoding="utf-8").lower())
-        except Exception:
+        except Exception as exc:
+            warnings.warn(f"constitution keyword scan: could not read {fp}, skipping it: {exc}")
             continue
     blob = "\n".join(parts)
     return [kw for kw in keywords if kw.lower() not in blob]

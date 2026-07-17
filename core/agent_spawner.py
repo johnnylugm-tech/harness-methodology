@@ -851,8 +851,9 @@ class AgentSpawner:
                         logical_removed = self._calculate_logical_removal(path, pre_sha)
                         if logical_removed is not None and logical_removed <= 50:
                             continue  # Actual code logic removed is within safe limits
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        print(f"[WARN] ghost-detection: logical-removal probe failed "
+                              f"for {path}, treating as a suspect removal: {exc}")
                 suspect_lines_removed.append((path, net_removed))
             # Look for XX...XX mutator markers left in source — this is
             # the exact pattern TDD-IMPROVE introduced in Bug #39.

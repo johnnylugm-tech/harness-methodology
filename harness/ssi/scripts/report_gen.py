@@ -347,7 +347,8 @@ def render_evidence(repo_path: Path, rounds: list) -> str:
             stderr=subprocess.DEVNULL,
             timeout=5,
         ).decode()
-    except Exception:
+    except Exception as exc:
+        print(f"[WARN] report_gen: git log unavailable: {exc}", file=sys.stderr)
         out = "_git log unavailable_"
     return (
         f"""## 7. Evidence Trail

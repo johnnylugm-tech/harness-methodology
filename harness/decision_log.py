@@ -4,6 +4,7 @@
 from __future__ import annotations
 import os
 import re
+import sys
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -77,6 +78,6 @@ class DecisionLogWriter:
                     yaml.safe_load(f.read_text()) if _YAML  # pyright: ignore[reportOptionalMemberAccess]
                     else __import__('json').loads(f.read_text())
                 )
-            except Exception:  # nosec B110
-                pass
+            except Exception as exc:  # nosec B110
+                print(f"[WARN] decision_log: entry unreadable/malformed, skipping it: {exc}", file=sys.stderr)
         return entries

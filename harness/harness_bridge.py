@@ -2798,7 +2798,16 @@ class HarnessBridge:
         try:
             from scripts.generate_sab import parse_sad
             sab = parse_sad(sad_path)
-        except Exception:
+        except Exception as exc:
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                Path(project_root) if project_root else Path.cwd(),
+                "harness_bridge.generate_quality_manifest",
+                f"SAD.md §5 parse failed ({sad_path}) — SAB baseline from SAD.md "
+                "starts empty; downstream reconciliation against SAB.json is the "
+                "only source of architecture-constraint data this round",
+                why=str(exc),
+            )
             sab = {}
 
         # Bug H-A fix: reconcile with .methodology/SAB.json as canonical
@@ -2927,8 +2936,10 @@ class HarnessBridge:
                     _logging.getLogger(__name__).warning(
                         "Required hook '%s' failed: %s", r.hook.name, r.output
                     )
-        except Exception:
-            pass  # hooks are non-fatal
+        except Exception as exc:
+            _logging.getLogger(__name__).warning(
+                "_trigger_hooks(%s) failed: %s", event_name, exc
+            )
 
     def _variance_check_log(
         self, ctx: "GateContext", dims: list["DimResult"],

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -343,6 +344,8 @@ def check_test_spec_consistency(
                         message=f"sub-assertion {a.rule_id!r} predicate {a.predicate!r} rejected: {exc}"))
                     continue
                 except Exception as exc:
+                    print(f"[WARN] red_assertion_check: predicate evaluation crashed for "
+                          f"{a.rule_id!r}: {exc.__class__.__name__}: {exc}", file=sys.stderr)
                     violations.append(Violation(
                         check_type="malformed_predicate", rule_id=a.rule_id, severity="error",
                         message=f"sub-assertion {a.rule_id!r} predicate {a.predicate!r} evaluation failed: {exc.__class__.__name__}: {exc}"))
