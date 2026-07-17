@@ -58,16 +58,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR.parent))
 
-# Import the existing framework validator (authoritative)
-try:
-    from core.review_schema_validator import EscalationAction, enforce_escalation, validate_b_output
-except ImportError:
-    # Allow running from harness/ root or scripts/ dir
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from core.review_schema_validator import EscalationAction, enforce_escalation, validate_b_output
-
-from scripts.b_gap_validator import validate_b2_response
+from core.review_schema_validator import EscalationAction, enforce_escalation, validate_b_output  # noqa: E402
+from scripts.b_gap_validator import validate_b2_response  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
