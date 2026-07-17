@@ -486,6 +486,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         no_progress_count: int = 0
 
         _last_failure_class: str | None = None
+        fix_round = 0  # stays 0 if max_fix_rounds <= 0 and the loop body never runs
         for fix_round in range(1, max_fix_rounds + 1):
             if gate_pass or _fr_step_already_done(step, fr_id, project, phase=phase):
                 break
@@ -770,8 +771,23 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
             if not gate_pass:
                 gate_pass = _fr_step_already_done(step, fr_id, project, phase=phase)
-        else:
-            print(f"[run-fr-step] {fr_id} GATE1 BLOCKED after {max_fix_rounds} CODE-FIX rounds"
+
+        # Bug fix (P3 2026-07-17): this used to be the for-loop's `else:`
+        # clause, which Python only runs when the loop completes WITHOUT
+        # hitting `break`. Three break sites inside the loop above (gate_pass
+        # success, ENV-classified failure, and a fix-dispatch itself erroring
+        # — e.g. CODE-FIX hitting error_max_turns) all `break` for reasons
+        # OTHER than success, but `break` silently skipped this block too —
+        # so an ENV error or a fix-dispatch error fell through to the
+        # post-loop success path (record gate timestamp, push, print ✅) even
+        # though GATE1 never actually passed. Checking `gate_pass` directly
+        # after the loop, instead of relying on for/else, catches every
+        # early-exit reason uniformly — it also fixes the latent case where
+        # GATE1 only passes on the very last allowed round: the loop then
+        # ends by exhausting `range()` (no break), which for/else also
+        # treated as "never passed".
+        if not gate_pass and not _fr_step_already_done(step, fr_id, project, phase=phase):
+            print(f"[run-fr-step] {fr_id} GATE1 BLOCKED at round {fix_round}/{max_fix_rounds}"
                   " — human intervention required")
             if _last_failure_class == "UNKNOWN":
                 # Round 13 站2b: UNKNOWN still falls through to CODE-FIX (unchanged

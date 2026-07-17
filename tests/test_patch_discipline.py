@@ -47,6 +47,10 @@ _FORMS = (
 # patching core.agent_spawner._STRUCTURAL_FAILURE_SIGNATURES — the registry
 # IS the seam (module-level tuple read at call time); a public setter for a
 # test-only injection point would be worse than the patch.
+# 2026-07-17 (+1 fr_cmds): test_gate1_blocked_when_codefix_dispatch_errors_not_
+# phantom_pass reuses the same monkeypatch.setattr("cli.fr_cmds._fr_step_
+# already_done", ...) seam test_gate1_blocked_after_max_rounds already uses —
+# one more instance of an already-accepted pattern, not a new coupling.
 _PRIVATE_PATCH_CEILING: dict[str, int] = {
     "tests/test_harness_bridge.py": 66,
     "tests/cli/test_gate_cmds_cli.py": 58,
@@ -56,7 +60,7 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     "tests/test_handover_generator_injection.py": 18,
     "tests/cli/test_push_cmds_cli.py": 17,
     "tests/test_crg_integration_fallback.py": 15,
-    "tests/cli/test_fr_cmds_cli.py": 17,
+    "tests/cli/test_fr_cmds_cli.py": 18,
     "tests/test_crg_bridge.py": 12,
     "tests/test_gate_trace_dimension.py": 12,
     "tests/test_reviewer_router_extended.py": 11,

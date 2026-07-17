@@ -870,6 +870,77 @@ class TestRunFrStep:
         rc = harness_cli.cmd_run_fr_step(args)
         assert rc == 2  # BLOCKED
 
+    def test_gate1_blocked_when_codefix_dispatch_errors_not_phantom_pass(self, tmp_path, monkeypatch):
+        """Regression (P3 2026-07-17 FR-01 GATE1 phantom-PASS): the fix-round
+        `for...else` loop only runs its `else:` (BLOCKED + return 2) when the
+        loop completes WITHOUT hitting `break`. But when the CODE-FIX
+        sub-agent's own dispatch fails (e.g. burns through max_turns without
+        producing a fix — status in _DISPATCH_ERROR_STATUSES), the loop
+        `break`s immediately, which silently skips the `else:` clause too —
+        the function then fell straight through to the post-loop
+        record-timestamp/push/print-success path even though GATE1 never
+        actually passed. Production evidence: this exact sequence
+        (`CODE-FIX failed: subtype=error_max_turns` immediately followed by
+        `✅ FR-01 GATE1 complete + pushed to GitHub`, with no intervening
+        "BLOCKED after N CODE-FIX rounds" message) was captured verbatim in
+        the P3 health-check rerun transcript. run-fr-step must return 2
+        (BLOCKED), never 0, whenever a fix-dispatch error leaves gate_pass
+        False."""
+        import sys
+        import types
+        import harness_cli
+
+        import subprocess as _sp
+
+        _setup_preflight_fixtures(tmp_path, step="GATE1")
+        # Baseline commit so the guard only ever sees dirt introduced by the
+        # step under test — mirrors test_gate1_pass_does_not_trip_own_dirty_tree_guard.
+        # Without this, .methodology/ starts wholly untracked and `git status
+        # --porcelain` renders it as a single "?? .methodology/" line; the
+        # moment gate_timestamps.jsonl becomes the first tracked file inside
+        # it, that one line splits into N per-file lines, which the pre/post
+        # dirty-tree diff would misread as "new" dirt unrelated to the bug
+        # this test targets.
+        _sp.run(["git", "add", "-A"], cwd=str(tmp_path), check=False)
+        _sp.run(["git", "commit", "-q", "-m", "fixture baseline"], cwd=str(tmp_path), check=False)
+
+        monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda s, f, p, phase=None: False)
+
+        _gate_fail_output = '{"status": "DONE", "pass": false, "failing_dims": ["D1"], "gate_score": 0.2}'
+        spawn_calls: list[dict] = []
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+            def spawn(self, **kwargs):
+                spawn_calls.append(kwargs)
+                if len(spawn_calls) == 1:
+                    # Initial GATE1 dispatch: gate fails, triggers a fix round.
+                    return {"status": "complete", "output": _gate_fail_output}
+                # The fix-dispatch (CODE-FIX) sub-agent itself fails to
+                # dispatch — the exact failure mode observed in production
+                # (error_max_turns), distinct from the fix producing a bad
+                # fix. `status` must be a member of _DISPATCH_ERROR_STATUSES.
+                return {"status": "ERROR", "output": "subtype=error_max_turns"}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="GATE1", project=str(tmp_path),
+            srs=None, timeout=60, max_turns=5, max_fix_rounds=3, no_push=True,
+        )
+        rc = harness_cli.cmd_run_fr_step(args)
+        assert rc == 2, (
+            "CODE-FIX dispatch failure must BLOCK, not silently fall through "
+            "to the post-loop success path (phantom PASS)"
+        )
+        # Exactly 2 spawns: initial GATE1 dispatch + the one fix-dispatch
+        # attempt. The dispatch-error break must stop retrying immediately
+        # (no GATE1 re-dispatch, no further fix rounds).
+        assert len(spawn_calls) == 2
+
     def test_gate1_pass_does_not_trip_own_dirty_tree_guard(self, tmp_path, monkeypatch):
         """Regression (P3 2026-07-17 FR-01 GATE1 false-FAIL): a genuine GATE1
         PASS was misreported as "commit did not land" because the orchestrator's
