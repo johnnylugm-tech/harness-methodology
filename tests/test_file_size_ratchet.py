@@ -204,7 +204,13 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-18: +45 lines — GATE1/GATE1-DELTA evaluation blocked empty commit
     # fix (pass=false/commit=null is a normal fail, not an ERROR) and the
     # sub-agent --allowedTools Bash,Read,Edit,Write fix for upstream bug 37442.
-    "core/agent_spawner.py": 1031,
+    # 2026-07-18 (Fix H-2): +53 lines — _extract_inner_result_json: the CLI
+    # envelope's "result" field is a free-text string, not the sub-agent's
+    # own JSON reply; _validate_inner_json and spawn()'s success-path
+    # "commit" field were both reading status/commit/pass straight off the
+    # envelope (always absent there), so this new helper unwraps it first —
+    # see the function's own docstring for the sessions_spawn.log evidence.
+    "core/agent_spawner.py": 1084,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,
