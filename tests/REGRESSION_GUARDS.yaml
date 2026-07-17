@@ -249,3 +249,19 @@
 - test: tests/test_infra_fail_separation.py::TestInfraFailPollution::test_phantom_block_zero_is_rejected
   bug: "infra-failure-as-quality-zero class (2026-07-16 P3 phantom incident): run-gate's SAB phantom-module PRECONDITION block fired before any dimension tool ran; the gate evaluator followed its STOP RULE and recorded score=0 for three dimensions with the BLOCK text as tool_evidence — fake quality zeros entered the manifest and CODE-FIX agents were dispatched at healthy code while the actual defect was architectural bookkeeping"
   fixed_in: "Round 12 站3b (harness_bridge._check_infra_fail_pollution + finalize-gate interception + GATE1 STOP RULE INFRA_BLOCKED branch)"
+
+- test: tests/test_errors_crash_boundary.py::test_dispatch_generic_exception_returns_70_with_harness_bug_banner
+  bug: "no-crash-boundary class (Round 13 診斷 W1): harness_cli.py's main() called args.func(args) with no top-level exception handler — an uncaught harness bug produced a bare traceback and Python's default exit 1, indistinguishable from the documented 'hard failure' meaning of that same code. A harness bug then leaked into the pipeline disguised as whichever other failure class happened to be nearby (a GATE1 FAIL an agent tried to code-fix, a BLOCK it tried to satisfy) instead of being recognized as harness's own bug"
+  fixed_in: "Round 13 站0 (harness_cli._dispatch + core/errors.py crash bundle + [HARNESS-BUG] banner + exit 70)"
+
+- test: tests/test_exception_swallow_ratchet.py::test_scanner_flags_unlogged_continue
+  bug: "exception-swallow ratchet blind spot, second extension (Round 13 診斷 W2): the Round 5/7 ratchet only recognised a broad except ending in a success-shaped return. A repo-wide AST audit for this round found 90 more unlogged broad excepts of two further shapes — a handler ending in `continue` (silently skips the current loop item) and a handler whose every statement is assignment/expression/pass (silently falls through with no return at all) — both fixed reactively across ~30 files with no structural test until this ratchet extension"
+  fixed_in: "Round 13 站1 (test_exception_swallow_ratchet._ends_in_continue / ._is_silent_fallthrough + 90-site paydown)"
+
+- test: tests/test_fr_step_infra_routing.py::test_classify_detects_harness_bug_banner
+  bug: "optimistic failure-routing class (Round 13 診斷 W3, bda76da incident): run-fr-step's fix-round loop had no way to recognise 'the harness itself is broken' or 'an infrastructure precondition failed' as distinct from 'the code has a quality problem' — every failure that wasn't a recognised ENV/ISOLATION/LINT/COVERAGE signature fell through to CODE-FIX by default, so a harness bookkeeping bug produced a false GATE1 FAIL that CODE-FIX agents burned their whole turn budget trying to fix a defect that didn't exist"
+  fixed_in: "Round 13 站2 (cli/fr_cmds._classify_infra_or_harness_bug + _abort_dispatch_infra_or_harness_bug, checked before the existing S3 short-circuit)"
+
+- test: tests/test_blocked_message_contract.py::test_all_blocked_messages_in_hot_paths_carry_a_remediation_element
+  bug: "one-sided agent contract class (Round 13 診斷 W4): workflow JS is explicitly taught to read a [BLOCKED] message as the fix instruction itself and act on it verbatim (js_blocks.py/phase_specs.py), but nothing on the CLI side ever verified a [BLOCKED] print actually carried something to act on — 21 sites across cli/phase_cmds.py and cli/gate_cmds.py's agent-facing hot paths (advance-phase/finalize-gate/run-fr-step/push-checkpoint/push-milestone) had no remediation element at all before this scan existed"
+  fixed_in: "Round 13 站2 (AST-based [BLOCKED]-remediation scanner + 21-site paydown)"

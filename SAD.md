@@ -2687,6 +2687,76 @@ python3 scripts/rotate_decision_logs.py [--project .] [--retention-days 30] [--d
 
 ---
 
+### §3.41 — `core/errors.py` — Top-Level Crash Boundary (Round 13 站0)
+
+**Responsibility**: Gives an uncaught exception in harness-methodology's own
+code a distinct, machine-readable exit path instead of a bare traceback
+indistinguishable from exit 1's documented "hard failure" meaning. Wired
+into `harness_cli.py`'s `_dispatch()` (not called directly by individual
+`cli/*.py` commands): `write_crash_bundle(exc, argv)` writes
+`.sessi-work/crash/crash_<timestamp>_<pid>.json` (full traceback, argv, cwd,
+harness's own git SHA, a ready-to-run repro command, a ready-to-paste
+maintenance prompt) and never raises a second exception on its own failure;
+`format_harness_bug_banner(exc, bundle_path)` renders the `[HARNESS-BUG]`
+banner printed to stderr, teaching the same escalate semantics workflow JS
+already has for `[FATAL]` (stop, do not retry, do not modify project code).
+See docs/ERROR_HANDLING.md for the full block/degrade/warn taxonomy this
+fits into, and `cli/exit_codes.py` for the exit-code registry (`70` for this
+path).
+
+---
+
+### §3.42 — `core/degradation_ledger.py` — Graceful-Degradation Ledger (Round 13 站1)
+
+**Responsibility**: A visible trail for the "best-effort, fall back to a
+default" paths that previously left no trace beyond a one-off stdout print
+(if any). `record_degradation(project, component, what, why="")` prints a
+`[DEGRADED] <component>: <what>` line to stderr (once per
+`(component, what)` pair per process — same dedup pattern as
+`harness_config.py`'s `_warned_unknown`) and unconditionally appends a JSON
+record to `<project>/.sessi-work/degradations.jsonl`; a failure to write the
+ledger itself only prints a `[WARN]`, never escalating past the degradation
+it was trying to record. Used at the sites where a fallback has a REAL
+downstream consequence (state.json corruption discarding tracked history, a
+SAB baseline parse failure leaving architecture-constraint data empty) —
+not for the ~100 sites where a plain print already matches the file's own
+established local convention. Paired with
+`tests/test_exception_swallow_ratchet.py`'s extended AST scan (three
+fail-open shapes: unlogged `pass`-only handlers, handlers ending in
+`continue`, and silent-fallthrough handlers with no log/print/raise) — the
+ratchet finds the silent sites, this module gives them somewhere to write.
+
+---
+
+### §3.43 — Crash Triage & Deliberate Self-Repair Loop (Round 13 站3)
+
+**Responsibility**: Closes the loop `core/errors.py` opened — crash bundles
+were being written but nothing read them back. `cli/cr_cmds.py`'s
+`crash-triage` subcommand groups `.sessi-work/crash/*.json` bundles by
+signature (deepest traceback frame's `file:line` + exception class — the
+same underlying bug reproduces the same signature across repeated crashes)
+and prints a count/first-seen/last-seen/CR table. `--open-cr` files each
+*unfiled* signature as a CR-BUG via `core.maintenance.CRManager`, always
+targeting **harness's own** `.methodology/change_requests/`
+(`cli.cr_cmds.harness_repo_root()`, deliberately a public function so tests
+can redirect it without patching a private symbol) rather than the target
+project's — the bug is in harness's code regardless of which project's run
+triggered it. Deliberate-trigger only: a production run never calls
+`--open-cr` automatically. Every bundle in a filed signature's group gets a
+`.triaged` sidecar (not just the newest), so re-running `--open-cr` is
+idempotent and a bundle that arrives later for an already-filed signature
+reuses the existing CR instead of opening a duplicate. `core/doctor.py`'s
+check 9 (`_check_crash_bundles`) WARNs when an untriaged bundle is sitting
+in `.sessi-work/crash/`. This is the "nice-to-have automatic bug
+self-repair" evaluated for this round, implemented in its safe form:
+automatic capture and triage, with the actual code fix left to a reviewed,
+human-in-the-loop maintenance session — auto-patching harness's own code in
+production would fight its own guards/ratchets and break the trust chain a
+fixed, reviewed harness version gives you. See docs/ERROR_HANDLING.md for
+the full write-up.
+
+---
+
 ## 7. Runtime Prerequisites & Dependencies
 
 ### 7.1 SSI — Embedded Evaluation Engine

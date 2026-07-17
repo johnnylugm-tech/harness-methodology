@@ -1708,7 +1708,7 @@ def _report_recommendations(criticals: list, warnings: list) -> list[str]:
     offset = len(criticals) + 1
     for i, f in enumerate(warnings, offset):
         t = f.title.lstrip('\u26a0\ufe0f ')
-        lines.append(f"{i}. **[WARNING]** {t}")
+        lines.append(f"{i}. **[WARN]** {t}")
     lines.append("")
     return lines
 
