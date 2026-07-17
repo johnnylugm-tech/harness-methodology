@@ -170,7 +170,8 @@ _LINE_CEILING: dict[str, int] = {
     # + _abort_dispatch_infra_or_harness_bug (HARNESS_BUG/INFRA short-circuit
     # in the fix-round loop — do not dispatch CODE-FIX at a problem no code
     # change can resolve) + the UNKNOWN-exhausted hint at loop exhaustion.
-    "cli/fr_cmds.py": 2545,  # 2026-07-17: +30 lines — dirty-tree guard bug fix: pre-step `git status --porcelain` baseline (set, captured under the same `step in _COMMIT_REQUIRED_STEPS` gate as the post-step guard) + the guard itself swapped from whole-tree strip to sorted(post - pre) diff + extended comment block. Mirrors the pre-dispatch _pre_step_sha + detect_ghost_changes idiom below for working-tree granularity instead of commit-level.
+    "cli/fr_cmds.py": 2600,  # 2026-07-18: +55 lines — Fix 1a: TDD-RED subprocess coverage ceiling warning in INTEGRATION FR GUIDELINES (~22 lines) + Fix 1b: COVERAGE-FIX subprocess detection with in-process test guidance (~28 lines) + Fix 2: dynamic threshold overrides from quality_manifest gate_score_overrides (~5 lines)
+    # 2026-07-17: +30 lines — dirty-tree guard bug fix: pre-step `git status --porcelain` baseline (set, captured under the same `step in _COMMIT_REQUIRED_STEPS` gate as the post-step guard) + the guard itself swapped from whole-tree strip to sorted(post - pre) diff + extended comment block. Mirrors the pre-dispatch _pre_step_sha + detect_ghost_changes idiom below for working-tree granularity instead of commit-level.
     # 2026-07-12: +3 lines — Round 5 建議2站2: same load_harness_script
     # migration for the parse_srs_fr_sections/parse_sad_modules call sites.
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`

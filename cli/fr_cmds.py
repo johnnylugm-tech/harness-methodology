@@ -1914,7 +1914,31 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"  test, prefer the prose AC's scenario, and write the test to construct it\n"
             f"  mechanically (e.g. mix success+failure commands to produce the desired\n"
             f"  distribution). If you truly cannot construct the scenario, write the test\n"
-            f"  against the SIMPLER invariant (>= 1 instead of == 3) and note the deviation.\n\n"
+            f"  against the SIMPLER invariant (>= 1 instead of == 3) and note the deviation.\n"
+            f"- SUBPROCESS COVERAGE CEILING — critical for GATE1 test_coverage:\n"
+            f"  * pytest-cov CANNOT measure coverage of code running inside a subprocess.\n"
+            f"    If your test uses `subprocess.run([sys.executable, \"-m\", \"<pkg>\", ...])`,\n"
+            f"    the CLI entry-point modules (cli.py, __main__.py, config.py) will show 0%\n"
+            f"    coverage — no matter how many subprocess tests you write.\n"
+            f"  * To achieve >= 80% GATE1 test_coverage, you MUST include in-process tests\n"
+            f"    that call the CLI handler functions directly (e.g. `cli.main([\"submit\", cmd])`\n"
+            f"    or `cli.submit_command(args, cfg)`), capturing stdout via\n"
+            f"    `contextlib.redirect_stdout` + `io.StringIO`.\n"
+            f"  * Keep your subprocess acceptance tests — they verify the REAL user-facing\n"
+            f"    entry point. Add in-process unit tests for the INTERNAL logic as a separate\n"
+            f"    test class/functions in the same file. Both test types coexist.\n"
+            f"  * The in-process tests must exercise the SAME validation paths (empty/too-long/\n"
+            f"    injection-blacklist/name-duplicate) as the subprocess tests, just via the\n"
+            f"    Python API instead of subprocess.run.\n"
+            f"  * Example in-process pattern (NOT replacing, ADDING to existing subprocess tests):\n"
+            f"      import io, contextlib\n"
+            f"      from <your_pkg> import cli\n"
+            f"      def test_frNN_MM_happy_inprocess(tmp_path):\n"
+            f"          buf = io.StringIO()\n"
+            f"          with contextlib.redirect_stdout(buf):\n"
+            f"              exit_code = cli.main(['submit', 'echo hi'])\n"
+            f"          assert exit_code == 0\n"
+            f"          assert re.match(r'^[0-9a-f]{{8}}$', buf.getvalue().strip())\n\n"
             f"[FR REQUIREMENTS]\n"
             f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
             f"[TASK]\n"
@@ -2040,6 +2064,15 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"  All required tests MUST exist and pass — partial coverage = partial score.\n\n"
             )
 
+        # ── Effective thresholds (yaml defaults + quality_manifest overrides floor) ──
+        # gate_score_overrides is a floor — only raise, never lower.  This matches
+        # harness_bridge.py:2224-2229: threshold = max(yaml_threshold, override).
+        _gate_manifest = load_quality_manifest(project, lenient=True)
+        _gate_overrides = _gate_manifest.get("gate_score_overrides", {})
+        _lint_thresh = max(90.0, float(_gate_overrides.get("linting", 0)))
+        _type_thresh = max(85.0, float(_gate_overrides.get("type_safety", 0)))
+        _cov_thresh = max(80.0, float(_gate_overrides.get("test_coverage", 0)))
+
         return (
             f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"
             f"{spec_section}"
@@ -2077,10 +2110,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f'     "quality_complete": true,            // true if overall_score >= 80\n'
             f'     "rounds_used": 1,\n'
             f'     "breakdown": {{\n'
-            f'       "linting":       {{"score": <0-100>, "threshold": 90, "tool_evidence": "<first 500 chars of ruff stdout>"}},\n'
-            f'       "type_safety":   {{"score": <0-100>, "threshold": 85, "tool_evidence": "<first 500 chars of pyright stdout>"}},\n'
+            f'       "linting":       {{"score": <0-100>, "threshold": {_lint_thresh:.0f}, "tool_evidence": "<first 500 chars of ruff stdout>"}},\n'
+            f'       "type_safety":   {{"score": <0-100>, "threshold": {_type_thresh:.0f}, "tool_evidence": "<first 500 chars of pyright stdout>"}},\n'
             f'       "test_coverage": {{\n'
-            f'           "score": <0-100>, "threshold": 80,\n'
+            f'           "score": <0-100>, "threshold": {_cov_thresh:.0f},\n'
             f'           "tests_passed": <int>,   // REQUIRED: count from pytest summary line\n'
             f'           "tests_failed": <int>,   // REQUIRED: must be 0 — any failed test blocks the gate\n'
             f'           "tests_skipped": <int>,  // REQUIRED: count skipped tests\n'
@@ -2167,12 +2200,43 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             )
         else:
             _cov_check_cmd = f"python3 -m pytest {test_file} --cov={src_dir} --cov-report=term-missing -q"
+
+        # Detect subprocess-only test files — adding more subprocess tests
+        # will never raise coverage on cli.py/__main__.py/config.py because
+        # pytest-cov cannot trace code inside child processes.
+        _cf_sp_warning = ""
+        _tf_path = project / test_file
+        if _tf_path.exists():
+            _cf_test_text = _tf_path.read_text(encoding="utf-8")[:4000]
+            if 'subprocess.run' in _cf_test_text:
+                _cf_sp_warning = (
+                    f"\n[SUBPROCESS COVERAGE CEILING — READ THIS FIRST]\n"
+                    f"Your test file `{test_file}` drives the CLI via `subprocess.run`.\n"
+                    f"pytest-cov CANNOT measure coverage inside subprocesses — the CLI\n"
+                    f"entry-point modules (e.g. cli.py, __main__.py, config.py) will stay\n"
+                    f"at 0% no matter how many subprocess tests you add.\n"
+                    f"Adding MORE subprocess tests will NOT raise coverage — it wastes rounds.\n\n"
+                    f"INSTEAD, you MUST add in-process unit tests that call the CLI functions\n"
+                    f"directly. Pattern (ADD alongside existing subprocess tests, do NOT replace):\n"
+                    f"  import io, contextlib\n"
+                    f"  from <your_pkg> import cli\n"
+                    f"  buf = io.StringIO()\n"
+                    f"  with contextlib.redirect_stdout(buf):\n"
+                    f"      exit_code = cli.main(['submit', 'echo hi'])\n"
+                    f"  output = buf.getvalue()\n\n"
+                    f"Add in-process tests for the SAME validation paths (empty/too-long/\n"
+                    f"injection-blacklist/name-duplicate/atomic-write) covered by the existing\n"
+                    f"subprocess tests. Keep both — subprocess tests verify the real CLI entry\n"
+                    f"point; in-process tests provide measurable coverage for the internal logic.\n\n"
+                )
+
         return (
             f"You are a coverage fixer for {fr_id}.\n\n"
             f"[FORBIDDEN — read first]\n"
             f"- Deleting or xfail-marking existing tests\n"
             f"- Adding `# pragma: no cover` to lines that CAN be tested (only use it as a "
             f"last resort for genuinely untestable lines — see ESCAPE HATCH below)\n\n"
+            f"{_cf_sp_warning}"
             f"[SITUATION]\n"
             f"All Gate 1 tests currently PASS, but the test_coverage dimension is FAILING.\n"
             f"Coverage is below the 80% threshold. Two possible root causes:\n"
