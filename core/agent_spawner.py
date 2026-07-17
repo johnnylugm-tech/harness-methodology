@@ -417,6 +417,24 @@ class AgentSpawner:
             *mcp_args,
             "--max-turns", str(max_turns),
             "--permission-mode", permission_mode,
+            # Fix G (2026-07-18): --permission-mode alone is not reliable for
+            # a headless spawn — anthropics/claude-code#37442 ("Subagents
+            # don't inherit bypassPermissions mode from parent session",
+            # closed Not Planned) documents that nested spawns can still hit
+            # a tool-approval prompt even under bypassPermissions, and there
+            # is no human to answer it (Round 12 站0b already caught the
+            # symptom of this: preflight_substrate()'s docstring records the
+            # 2026-07-16 P3 run stalling on exactly this — "pytest/ruff and
+            # commit require approval" — but only added an early-warning
+            # probe, not a fix). The Claude Code docs' own guidance for
+            # headless mode is to pair permission-mode with --allowedTools
+            # as the reliable belt-and-suspenders: "Other shell commands...
+            # still need an --allowedTools entry or a permissions.allow
+            # rule, otherwise the run aborts when one is attempted."  This
+            # does not widen what a bypassPermissions-dispatched sub-agent
+            # is already trusted to do — it only makes that trust reliably
+            # honored.
+            "--allowedTools", "Bash,Read,Edit,Write",
             "--no-session-persistence",
             # Round 12 站0d: every spawn is unattended by definition. The
             # system-prompt layer outranks any CLAUDE.md memory that leaks
