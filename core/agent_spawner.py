@@ -208,11 +208,57 @@ def _extract_dispatch_error(stdout: str, stderr: str) -> str:
     return stderr.strip()
 
 
+def _extract_inner_result_json(text: str) -> dict:
+    """Extract the sub-agent's own structured reply from its free-text final
+    message (the ``claude -p --output-format json`` envelope's ``result``
+    field — a plain string, NOT already a nested JSON object).
+
+    Fix H-2 (2026-07-18): ``_validate_inner_json`` was reading ``status`` /
+    ``commit`` / ``pass`` directly off the CLI envelope (``type`` / ``subtype``
+    / ``result`` / ``session_id`` / ``usage`` — see the CLI's own
+    ``--output-format json`` docs), which never carries those keys — the
+    sub-agent's own JSON reply (the one every dispatch prompt's
+    "[OUTPUT FORMAT] Return JSON: {...}" instructs it to produce) lives
+    INSIDE the envelope's ``result`` string, often wrapped in a markdown
+    code fence or preceded by prose/thinking. Confirmed via
+    sessions_spawn.log: 130 historical "Gate 1 evaluator" entries recorded
+    a status='complete' verdict before this envelope/inner-JSON confusion
+    was introduced (100% of dispatches since have registered as ERROR
+    instead, because the envelope literally never has these fields).
+    ``fr_cmds.py``'s own ``_extract_review_json``/``_extract_agent_output_json``
+    already solve this exact unwrapping problem for other call sites — this
+    mirrors that scan-every-'{'-with-raw_decode approach so it works whether
+    the reply is plain JSON, JSON in a code fence, or JSON after prose.
+    Returns {} (not None) so callers can safely chain ``.get(...)`` on a
+    missing/malformed reply — matching the "safe default" every other
+    branch already assumed of the (mistakenly) envelope-only data.
+    """
+    text = text or ""
+    decoder = json.JSONDecoder()
+    last_match: dict | None = None
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and "status" in obj:
+            last_match = obj  # prefer the LAST match — the final verdict
+            # wins over any JSON the agent may have quoted earlier (e.g. an
+            # example from the prompt, or a prior round's result).
+    return last_match or {}
+
+
 def _validate_inner_json(data: dict, step: str | None) -> dict | None:
     """Re-classify an inner-JSON complete result as ERROR when it's a semantic no-op.
 
     Args:
-        data: The parsed JSON object emitted by `claude -p --output-format json`.
+        data: The parsed CLI envelope emitted by `claude -p --output-format
+            json` — has `result` (the sub-agent's free-text reply, as a
+            string), `session_id`, `usage`, etc. The sub-agent's OWN
+            structured reply is extracted from `data["result"]` via
+            `_extract_inner_result_json` before any field is read.
         step: The FR step passed via spawn()'s context={"step": ...}; may be None.
             Used to gate commit-presence check to known commit-required steps.
 
@@ -226,9 +272,10 @@ def _validate_inner_json(data: dict, step: str | None) -> dict | None:
     _DISPATCH_ERROR_STATUSES check (line 319) catches both transport and
     semantic failures uniformly.
     """
-    inner_status = (data.get("status") or "").upper()
+    inner = _extract_inner_result_json(data.get("result") or "")
+    inner_status = (inner.get("status") or "").upper()
     if inner_status in _INNER_NOOP_SIGNATURES:
-        summary = data.get("summary", "") or data.get("result", "")
+        summary = inner.get("summary", "") or data.get("result", "")
         return {
             "output": (
                 f"Sub-agent exited 0 with semantic no-op status "
@@ -239,7 +286,7 @@ def _validate_inner_json(data: dict, step: str | None) -> dict | None:
             "inner_status": inner_status,
         }
     if step and step in _COMMIT_REQUIRED_STEPS:
-        commit = (data.get("commit") or "").strip()
+        commit = (inner.get("commit") or "").strip()
         # Fix H: a GATE1/GATE1-DELTA verdict of pass=false is a legitimate
         # BLOCKED/FAIL result — finalize-gate only commits on pass, so
         # commit=null is expected there, not a no-op. Only require the
@@ -247,7 +294,7 @@ def _validate_inner_json(data: dict, step: str | None) -> dict | None:
         # verdict with no commit IS suspicious — keep that check) or when
         # it never gave an explicit pass=false verdict at all (missing/
         # malformed output stays on the safe, stricter default).
-        is_gate_blocked = step in _GATE_EVAL_STEPS and data.get("pass") is False
+        is_gate_blocked = step in _GATE_EVAL_STEPS and inner.get("pass") is False
         if not commit and not is_gate_blocked:
             return {
                 "output": (
@@ -598,7 +645,13 @@ class AgentSpawner:
                 "output": data.get("result", ""),
                 "status": "complete",
                 "session_id": data.get("session_id", ""),
-                "commit": (data.get("commit") or "").strip(),
+                # Fix H-2: the sub-agent's own "commit" field lives inside
+                # data["result"] (its free-text reply), not on the envelope
+                # itself — see _extract_inner_result_json's docstring.
+                "commit": (
+                    _extract_inner_result_json(data.get("result") or "")
+                    .get("commit") or ""
+                ).strip(),
             }
         except (json.JSONDecodeError, AttributeError):
             import sys

@@ -217,11 +217,12 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "等待老闆確認執行計畫",
+            "result": json.dumps({
+                "status": "AWAITING_CONFIRMATION",
+                "commit": "",
+                "summary": "等待老闆確認",
+            }),
             "session_id": "00c21a73-99e5-4195-9111-8f616d334f4e",
-            "status": "AWAITING_CONFIRMATION",
-            "commit": "",
-            "summary": "等待老闆確認",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
@@ -239,8 +240,8 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "", "session_id": "x",
-            "status": "NOTHING_TO_DO", "commit": "",
+            "result": json.dumps({"status": "NOTHING_TO_DO", "commit": ""}),
+            "session_id": "x",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
@@ -260,10 +261,8 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "step done",
+            "result": json.dumps({"status": "complete", "commit": ""}),
             "session_id": "x",
-            "status": "complete",
-            "commit": "",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
@@ -280,10 +279,8 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "step done",
+            "result": json.dumps({"status": "complete", "commit": "abcd1234"}),
             "session_id": "x",
-            "status": "complete",
-            "commit": "abcd1234",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
@@ -303,13 +300,14 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "step done",
+            "result": json.dumps({
+                "status": "DONE",
+                "pass": False,
+                "failing_dims": ["test_coverage"],
+                "commit": None,
+                "summary": "GATE1 BLOCKED: test_coverage 64 < 90",
+            }),
             "session_id": "x",
-            "status": "DONE",
-            "pass": False,
-            "failing_dims": ["test_coverage"],
-            "commit": None,
-            "summary": "GATE1 BLOCKED: test_coverage 64 < 90",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
@@ -327,13 +325,14 @@ class TestAgentSpawner:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "step done",
+            "result": json.dumps({
+                "status": "DONE",
+                "pass": True,
+                "failing_dims": [],
+                "commit": "",
+                "summary": "GATE1 PASS",
+            }),
             "session_id": "x",
-            "status": "DONE",
-            "pass": True,
-            "failing_dims": [],
-            "commit": "",
-            "summary": "GATE1 PASS",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
             with patch("subprocess.run", return_value=mock_proc):
@@ -1223,8 +1222,8 @@ class TestCalculateLogicalRemoval:
         mock_proc = MagicMock()
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({
-            "result": "awaiting", "session_id": "x", "commit": "",
-            "status": "AWAITING_CONFIRMATION",
+            "result": json.dumps({"status": "AWAITING_CONFIRMATION", "commit": ""}),
+            "session_id": "x",
             "total_cost_usd": 0.005,
             "num_turns": 1,
             "duration_api_ms": 200,
@@ -1315,8 +1314,8 @@ class TestStructuralRetry:
             if claude_calls[0] < 3:
                 return self._make_proc(returncode=1, stderr=self._SYNTHETIC_STDERR)
             return self._make_proc(returncode=0, stdout=json.dumps({
-                "result": "done", "session_id": "x",
-                "status": "complete", "commit": "abc123",
+                "result": json.dumps({"status": "complete", "commit": "abc123"}),
+                "session_id": "x",
             }))
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
@@ -1393,8 +1392,8 @@ class TestStructuralRetry:
             if claude_calls[0] < 2:
                 return self._make_proc(returncode=1, stderr=self._SYNTHETIC_STDERR)
             return self._make_proc(returncode=0, stdout=json.dumps({
-                "result": "done", "session_id": "x",
-                "status": "complete", "commit": "abc123",
+                "result": json.dumps({"status": "complete", "commit": "abc123"}),
+                "session_id": "x",
             }))
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
