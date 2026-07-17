@@ -63,25 +63,26 @@ def _categorize_commits(commits: list[str]) -> dict[str, list[str]]:
 
 def _get_latest_gate_score(project: Path) -> dict[str, Any]:
     """Extract latest gate score from quality_manifest.json."""
+    from core.state_io import StateCorruptError, load_quality_manifest
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if not manifest_path.exists():
         return {"score": "N/A", "gate": "N/A", "error": "manifest not found"}
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        manifest = load_quality_manifest(project)
+    except StateCorruptError as exc:
         # Bug M20 fix: previously a malformed manifest returned silent
         # N/A. Now the failure cause is included so release notes can
         # surface that the gate score is not actually known.
+        if isinstance(exc.original, json.JSONDecodeError):
+            return {
+                "score": "N/A",
+                "gate": "N/A",
+                "error": f"malformed manifest JSON: {exc.original}",
+            }
         return {
             "score": "N/A",
             "gate": "N/A",
-            "error": f"malformed manifest JSON: {exc}",
-        }
-    except OSError as exc:
-        return {
-            "score": "N/A",
-            "gate": "N/A",
-            "error": f"manifest read error: {exc}",
+            "error": f"manifest read error: {exc.original}",
         }
     gate_results = manifest.get("gate_results", {})
     # Find highest completed gate

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Set
+from core.state_io import StateCorruptError, load_state
 from core.utils.project_layout import phase_artifacts, ProjectLayout
 
 
@@ -310,10 +311,8 @@ class DriftDetector:
         current_phase = None
         if self.state_path.exists():
             try:
-                current_phase = json.loads(
-                    self.state_path.read_text(encoding="utf-8")
-                ).get("current_phase", 0)
-            except Exception as exc:
+                current_phase = load_state(self.project_path).get("current_phase", 0)
+            except StateCorruptError as exc:
                 print(f"[WARN] drift_detector: state.json unreadable, "
                       f"current_phase stays unknown: {exc}", file=sys.stderr)
         sad_path = self._find_file(["02-architecture/SAD.md"])
@@ -461,8 +460,8 @@ class DriftDetector:
                                )])
 
         try:
-            state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except Exception:  # pragma: no cover
+            state = load_state(self.project_path)
+        except StateCorruptError:  # pragma: no cover
             return DriftResult(drift_type="phase", has_drift=False, score=1.0)
 
         current_phase = state.get("current_phase", 0)
@@ -513,9 +512,7 @@ class DriftDetector:
         """
         if self.state_path.exists():
             try:
-                current_phase = json.loads(
-                    self.state_path.read_text(encoding="utf-8")
-                ).get("current_phase", 0)
+                current_phase = load_state(self.project_path).get("current_phase", 0)
                 if current_phase < 3:
                     return DriftResult(
                         drift_type="sab", has_drift=False, checked=0, drifted=0, score=1.0,
@@ -528,7 +525,7 @@ class DriftDetector:
                             ),
                         )],
                     )
-            except Exception as exc:  # pragma: no cover
+            except StateCorruptError as exc:  # pragma: no cover
                 print(
                     f"[WARN] drift_detector: could not read current_phase from state.json: {exc}",
                     file=sys.stderr,

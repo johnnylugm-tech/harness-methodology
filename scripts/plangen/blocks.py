@@ -1669,14 +1669,5 @@ def _checkpoint_index(fr_ids: List[str], phase: int) -> List[str]:
 
 def _load_manifest_fr_ids(repo_path: Path) -> List[str]:
     """Try to read fr_ids from quality_manifest.json. Falls back to empty list."""
-    import json
-    manifest_path = repo_path / ".methodology" / "quality_manifest.json"
-    if manifest_path.exists():
-        try:
-            return json.loads(manifest_path.read_text(encoding="utf-8")).get("fr_ids", [])
-        except Exception:  # pylint: disable=broad-exception-caught
-            import logging
-            logging.getLogger(__name__).warning(
-                "Failed to parse quality_manifest.json for FR IDs", exc_info=True
-            )
-    return []
+    from core.state_io import load_quality_manifest
+    return load_quality_manifest(repo_path, lenient=True).get("fr_ids", [])
