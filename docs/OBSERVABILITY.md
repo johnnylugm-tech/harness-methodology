@@ -153,3 +153,9 @@ output, not a fresh manual pass over the raw log.
   installed, optional-guarded, and (as of this round) has its first real
   reader, so tearing it out would cost a dependency/documentation pass to
   undo something now providing value.
+
+A second Gap Analysis Report (Round 15) re-raised the `print`-interception
+and `traceparent`-propagation ideas verbatim; both were re-verified and
+re-declined as repeat proposals with unmet re-open conditions — see
+`docs/PROPOSAL_ADJUDICATIONS.md` for the adjudication ledger any future
+report should check first.
