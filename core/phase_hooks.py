@@ -26,6 +26,7 @@ from typing import Optional, Dict, List, Any
 from kill_switch import KillSwitch
 from kill_switch.models import MonitorConfig
 from core.atomic_io import atomic_write_json  # Bug #104 fix
+from core.state_io import StateCorruptError, load_quality_manifest, load_state
 
 
 class KillSwitchBlockedError(RuntimeError):
@@ -286,8 +287,8 @@ class PhaseHooks:
                 return {"passed": True, "state": "RUNNING", "message": "Auto-initialized for P1"}
             return {"passed": False, "state": "UNKNOWN", "message": "state.json not found"}
         try:
-            state = json.loads(self.state_path.read_text())
-        except (json.JSONDecodeError, OSError) as e:
+            state = load_state(self.project_path)
+        except StateCorruptError as e:
             return {"passed": False, "state": "CORRUPT",
                     "message": f"state.json is corrupt: {e}"}
         current_state = state.get("state", "UNKNOWN")
@@ -1108,8 +1109,8 @@ class PhaseHooks:
                     "reason": "quality_manifest.json not yet created"}
 
         try:
-            mf = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            mf = load_quality_manifest(self.project_path)
+        except StateCorruptError as exc:
             print(f"  [BLOCKED] quality_manifest.json is unreadable: {exc}")
             print("  Recovery: git checkout HEAD -- .methodology/quality_manifest.json")
             return {"passed": False, "blocked": True,
@@ -1137,16 +1138,13 @@ class PhaseHooks:
         # artifacts, instead of blocking on emptiness alone.
         if self.phase is not None and self.phase >= 3 and not gate1:
             evidence: list[str] = []
-            try:
-                _st = json.loads(self.state_path.read_text(encoding="utf-8"))
-                if _st.get("last_gate") or _st.get("last_fr"):
-                    evidence.append(
-                        f"state.json last_gate={_st.get('last_gate')!r} "
-                        f"last_fr={_st.get('last_fr')!r}")
-            except (OSError, json.JSONDecodeError, AttributeError):
-                # AttributeError: state.json parsed but isn't a dict (e.g. a
-                # list) — treat like unreadable/unparseable, no evidence.
-                pass
+            # lenient: unreadable or non-dict state.json (state_io.py checks
+            # both) degrades to {} — same "no evidence" outcome as before.
+            _st = load_state(self.project_path, lenient=True)
+            if _st.get("last_gate") or _st.get("last_fr"):
+                evidence.append(
+                    f"state.json last_gate={_st.get('last_gate')!r} "
+                    f"last_fr={_st.get('last_fr')!r}")
             _md = self._layout.methodology_dir
             # Treat a file as evidence only when its contents actually
             # describe Gate 1 work. An empty placeholder file (post-reset,
@@ -1391,7 +1389,7 @@ class PhaseHooks:
             return {"updated": False, "reason": "execution_failed"}
         if not self.state_path.exists():
             return {"updated": False, "reason": "no_state"}
-        state = json.loads(self.state_path.read_text())
+        state = load_state(self.project_path)
         old_phase = state.get("current_phase", 0)
         if self.phase and self.phase > old_phase:
             state["current_phase"] = self.phase
