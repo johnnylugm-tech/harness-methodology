@@ -35,6 +35,7 @@ from core.quality_gate.ghost_detector import scan_phase_ghost_trails
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.quality_gate import spec_coverage
 from core.quality_gate.spec_coverage import _parse_inventory_fallback, _parse_test_spec
+from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from harness import tool_checks
 from core.harness_config import get_timeout, get_value
 from core.phase_topology import (
@@ -250,91 +251,78 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     #   3. current <  completed  → skip attempt — BLOCKED (prevent phase skips)
     state_path = project / ".methodology" / "state.json"
     if state_path.exists():
+        # B4 (CV-2): hold the state lock for the read so a concurrent
+        # advance-phase process cannot write between our read and the check.
+        with file_lock(state_lock_path(project)):
+            _state = load_state(project, lenient=True)
         try:
-            # B4 (CV-2): hold the state lock for the read so a concurrent
-            # advance-phase process cannot write between our read and the check.
-            with file_lock(state_lock_path(project)):
-                _state = json.loads(state_path.read_text(encoding="utf-8"))
             _current = int(_state.get("current_phase", 0))
+        except (ValueError, TypeError):
+            _current = 0
 
-            if _current and _current > args.completed_phase:
-                # Re-verify mode: Phase N was already advanced past. Re-run
-                # exit checks so the user can fix document quality at the
-                # correct phase boundary without hacking state.json.
-                # Does NOT change current_phase or write state.
-                print(
-                    f"\n[RE-VERIFY] Phase {args.completed_phase} already advanced "
-                    f"(current_phase={_current}). Re-running exit checks…"
-                )
-                rc = _advance_prechecks(project, args.completed_phase)
-                if rc != 0:
-                    print(
-                        f"\n[BLOCKED] Phase {args.completed_phase} exit checks "
-                        f"failed (code={rc}). Fix issues above, then re-run:\n"
-                        f"    python3 harness_cli.py advance-phase "
-                        f"--completed {args.completed_phase} --project {project}"
-                    )
-                    return rc
-                print(
-                    f"\n[RE-VERIFY] Phase {args.completed_phase} exit checks "
-                    f"re-verified ✓ (already at Phase {_current})"
-                )
-                return 0
-
-            if _current and _current < args.completed_phase:
-                # Skip attempt: agent tried to jump ahead
-                print(
-                    f"\n[BLOCKED] advance-phase: --completed={args.completed_phase} "
-                    f"is ahead of state.json::current_phase={_current}.\n"
-                    f"  This prevents accidental phase skips. To advance, use:\n"
-                    f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}",
-                    file=sys.stderr,
-                )
-                return 2
-            # Check phase_truth_passed for phases with exit gates
-            if args.completed_phase in EXIT_GATE_MAP:
-                _req_gate = EXIT_GATE_MAP[args.completed_phase]
-                _passed = _state.get("phase_truth_passed")
-                _last_gate = _state.get("last_gate")
-                # P5-BUG-02 defense: Ensure both phase_truth_passed and the last_gate match the exit gate
-                if not _passed or _last_gate != _req_gate:
-                    print(
-                        f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "
-                        f"in state.json for Phase {args.completed_phase}.\n"
-                        f"  Run: python harness_cli.py finalize-gate "
-                        f"--gate {EXIT_GATE_MAP[args.completed_phase]} "
-                        f"--phase {args.completed_phase} --project {project}\n"
-                        f"  and ensure Phase Truth ≥ 90% before advancing.",
-                        file=sys.stderr,
-                    )
-                    # Exit 12 = phase_truth_passed missing in state.json.
-                    # Distinct from exit 11 (Phase Truth score < 90%) so pipeline
-                    # automation and humans can apply the correct remediation:
-                    #   11 → re-run Phase Truth until score ≥ 90%
-                    #   12 → run finalize-gate for the exit gate of this phase
-                    return 12
-        except (ValueError, OSError, json.JSONDecodeError) as exc:
+        if _current and _current > args.completed_phase:
+            # Re-verify mode: Phase N was already advanced past. Re-run
+            # exit checks so the user can fix document quality at the
+            # correct phase boundary without hacking state.json.
+            # Does NOT change current_phase or write state.
             print(
-                f"  [WARN] Could not read state.json::current_phase for validation: {exc} — proceeding.",
+                f"\n[RE-VERIFY] Phase {args.completed_phase} already advanced "
+                f"(current_phase={_current}). Re-running exit checks…"
+            )
+            rc = _advance_prechecks(project, args.completed_phase)
+            if rc != 0:
+                print(
+                    f"\n[BLOCKED] Phase {args.completed_phase} exit checks "
+                    f"failed (code={rc}). Fix issues above, then re-run:\n"
+                    f"    python3 harness_cli.py advance-phase "
+                    f"--completed {args.completed_phase} --project {project}"
+                )
+                return rc
+            print(
+                f"\n[RE-VERIFY] Phase {args.completed_phase} exit checks "
+                f"re-verified ✓ (already at Phase {_current})"
+            )
+            return 0
+
+        if _current and _current < args.completed_phase:
+            # Skip attempt: agent tried to jump ahead
+            print(
+                f"\n[BLOCKED] advance-phase: --completed={args.completed_phase} "
+                f"is ahead of state.json::current_phase={_current}.\n"
+                f"  This prevents accidental phase skips. To advance, use:\n"
+                f"    python3 harness_cli.py advance-phase --completed {_current} --project {project}",
                 file=sys.stderr,
             )
+            return 2
+        # Check phase_truth_passed for phases with exit gates
+        if args.completed_phase in EXIT_GATE_MAP:
+            _req_gate = EXIT_GATE_MAP[args.completed_phase]
+            _passed = _state.get("phase_truth_passed")
+            _last_gate = _state.get("last_gate")
+            # P5-BUG-02 defense: Ensure both phase_truth_passed and the last_gate match the exit gate
+            if not _passed or _last_gate != _req_gate:
+                print(
+                    f"\n[BLOCKED] advance-phase: phase_truth_passed not recorded "
+                    f"in state.json for Phase {args.completed_phase}.\n"
+                    f"  Run: python harness_cli.py finalize-gate "
+                    f"--gate {EXIT_GATE_MAP[args.completed_phase]} "
+                    f"--phase {args.completed_phase} --project {project}\n"
+                    f"  and ensure Phase Truth ≥ 90% before advancing.",
+                    file=sys.stderr,
+                )
+                # Exit 12 = phase_truth_passed missing in state.json.
+                # Distinct from exit 11 (Phase Truth score < 90%) so pipeline
+                # automation and humans can apply the correct remediation:
+                #   11 → re-run Phase Truth until score ≥ 90%
+                #   12 → run finalize-gate for the exit gate of this phase
+                return 12
 
     next_phase = args.completed_phase + 1
 
     # Look up gate/FR state from quality_manifest.json for accurate state.json
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    manifest = {}
+    manifest = load_quality_manifest(project, lenient=True)
     last_gate_num = None
     last_fr_id = None
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            print(
-                f"  [WARN] Could not read quality_manifest.json for state.json "
-                f"gate/FR tracking: {exc} — proceeding with empty manifest.",
-                file=sys.stderr,
-            )
 
     gate_results = manifest.get("gate_results", {})
     for gn in (4, 3, 2, 1):
@@ -732,19 +720,17 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
     print(f"{'='*W}")
 
     # ── Read state.json ──────────────────────────────────────────────────────
-    state_path = project / ".methodology" / "state.json"
     current_phase: int = phase_hint or 3
     last_gate: int | None = None
     last_fr: str | None = None
-    if state_path.exists():
+    state = load_state(project, lenient=True)
+    if state:
         try:
-            state = json.loads(state_path.read_text(encoding="utf-8"))
             current_phase = phase_hint or int(state.get("current_phase", 3))
-            last_gate = state.get("last_gate")
-            last_fr = state.get("last_fr")
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            print(f"  [WARN] generate-next-plan: state.json unreadable, "
-                  f"using phase_hint/defaults: {exc}", file=sys.stderr)
+        except (ValueError, TypeError):
+            pass
+        last_gate = state.get("last_gate")
+        last_fr = state.get("last_fr")
 
     print(f"\nPhase      : {current_phase} ({phase_name(current_phase, default='?')})")
 
@@ -770,7 +756,10 @@ def cmd_generate_next_plan(args: argparse.Namespace) -> int:
         print(f"\n{'='*W}")
         return 0
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Strict (not lenient): this read was previously unguarded entirely — a
+    # corrupt manifest raised an uncaught JSONDecodeError, which the crash
+    # boundary misclassified as [HARNESS-BUG]. Now it's [FATAL] exit 26.
+    manifest = load_quality_manifest(project)
     fr_ids: list[str] = manifest.get("fr_ids", [])
     gate_results: dict = manifest.get("gate_results", {})
     gate1_results: dict = gate_results.get("gate1", {})
@@ -983,16 +972,7 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
     # and GATE1 commit (see P3 health-check 2026-07-10: FR-02/03 commits
     # blocked by prepare-commit-msg hook). Full preflight (run-phase) still
     # enforces attestation at push time.
-    current_phase = 1
-    state_path = project_path / ".methodology" / "state.json"
-    if state_path.exists():
-        try:
-            current_phase = json.loads(
-                state_path.read_text(encoding="utf-8")
-            ).get("current_phase", 1)
-        except Exception as exc:
-            print(f"[WARN] pre-commit-check: state.json unreadable, defaulting to "
-                  f"phase 1 (strict traceability enforcement): {exc}", file=sys.stderr)
+    current_phase = load_state(project_path, lenient=True).get("current_phase", 1)
     strict_trace = current_phase < 3  # P1/P2: hard-block; P3+: warn-only
 
     # SAD.md (canonical locations)
@@ -1161,8 +1141,8 @@ def _advance_fsm(project: Path, completed_phase: int,
         state_data: dict = {}
         if state_path.exists():
             try:
-                state_data = json.loads(state_path.read_text())
-            except Exception as exc:  # pylint: disable=broad-exception-caught
+                state_data = load_state(project)
+            except StateCorruptError as exc:
                 from core.degradation_ledger import record_degradation
                 record_degradation(
                     project, "phase_cmds._advance_fsm",
@@ -1400,14 +1380,7 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
 
     print("[INFO] Next steps:")
     if args.phase in PER_FR_GATE1_PHASES:
-        manifest_path = project / ".methodology" / "quality_manifest.json"
-        fr_ids = []
-        if manifest_path.exists():
-            try:
-                fr_ids = json.loads(manifest_path.read_text()).get("fr_ids", [])
-            except Exception as exc:
-                print(f"[WARN] run-phase next-steps: quality_manifest.json unreadable, "
-                      f"cannot list per-FR Gate 1 commands: {exc}", file=sys.stderr)
+        fr_ids = load_quality_manifest(project, lenient=True).get("fr_ids", [])
         if fr_ids:
             print(f"        Per-FR Gate 1 ({len(fr_ids)} FRs): {', '.join(fr_ids)}")
             for fr_id in fr_ids:
@@ -1449,8 +1422,8 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
         # that would risk a false positive matching a commit message text alone.
         if state_path.exists():
             try:
-                state = json.loads(state_path.read_text())
-            except Exception as exc:  # pylint: disable=broad-exception-caught
+                state = load_state(project)
+            except StateCorruptError as exc:
                 return {"passed": False, "gate": f"Human1 (P{prev})",
                         "reason": f"state.json unreadable: {exc}"}
             entry = state.get("phase_completed", {}).get(str(prev))
@@ -1527,7 +1500,7 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
                 "reason": "quality_manifest.json not found"}
 
     try:
-        manifest = json.loads(manifest_path.read_text())
+        manifest = load_quality_manifest(project)
         gates = manifest.get("gate_results", {})
         prev_gate = ENTRY_GATE_MAP.get(phase)
         if prev_gate:
@@ -1608,12 +1581,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             _state_path = project / ".methodology" / "state.json"
             try:
                 with file_lock(state_lock_path(_state_path.parent.parent)):
-                    _state: dict = {}
-                    if _state_path.exists():
-                        try:
-                            _state = json.loads(_state_path.read_text(encoding="utf-8"))
-                        except (json.JSONDecodeError, OSError):
-                            pass
+                    _state = load_state(project, lenient=True)
                     _state["test_inventory_checksum"] = _cksum
                     atomic_write_json(_state_path, _state)
                     print(f"  [D4] TEST_INVENTORY.yaml checksum: {_cksum[:12]}...")
@@ -1656,15 +1624,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 f"Gate {_exit_gate} (phase-exit) — expected {_fs.name}"
             )
     # Gate 1 per-FR check: every FR must have a finalized Gate 1 sentinel
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    _fr_ids_for_finalize: list[str] = []
-    if manifest_path.exists():
-        try:
-            _fr_ids_for_finalize = json.loads(
-                manifest_path.read_text(encoding="utf-8")
-            ).get("fr_ids", [])
-        except (json.JSONDecodeError, OSError):
-            pass
+    _fr_ids_for_finalize: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
     if completed_phase >= 3 and _fr_ids_for_finalize:
         _missing_fr_finalize: list[str] = []
         for _frid in _fr_ids_for_finalize:
@@ -2181,7 +2141,7 @@ def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if manifest_path.exists():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = load_quality_manifest(project)
             gate_results = manifest.get("gate_results") or {}
             gate3 = gate_results.get("gate3") or {}
             if not gate3.get("quality_complete"):
@@ -2190,7 +2150,7 @@ def _validate_handoff_p4_to_p5(project: Path) -> list[str]:
                     "(gate_results.gate3.quality_complete is not True). "
                     "Re-run Phase 4 Gate 3 evaluation."
                 )
-        except (json.JSONDecodeError, OSError):
+        except StateCorruptError:
             pass  # unparseable manifest is a separate concern; don't double-fail here
     return errors
 
@@ -2217,8 +2177,7 @@ def _validate_handoff_p6_to_p7(project: Path) -> list[str]:
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if manifest_path.exists():
         try:
-            import json as _json
-            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = load_quality_manifest(project)
             gate_results = manifest.get("gate_results") or {}
             gate4 = gate_results.get("gate4") or {}
             if not gate4.get("quality_complete"):
@@ -2227,7 +2186,7 @@ def _validate_handoff_p6_to_p7(project: Path) -> list[str]:
                     "(gate_results.gate4.quality_complete is not True). "
                     "Re-run Phase 6 Gate 4 evaluation."
                 )
-        except Exception as exc:  # pylint: disable=broad-exception-caught
+        except StateCorruptError as exc:
             print(f"[WARN] P6→P7 handoff: quality_manifest.json malformed "
                   f"(not blocking handoff — separate concern): {exc}", file=sys.stderr)
     else:
@@ -2295,14 +2254,7 @@ def _validate_handoff(project: Path, from_phase: int) -> list[str]:
 
 def _resolve_fr_ids_from_manifest(project: Path) -> list[str]:
     """Resolve FR IDs from .methodology/quality_manifest.json (fr_ids field)."""
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    if not manifest_path.exists():
-        return []
-    try:
-        _mf = json.loads(manifest_path.read_text(encoding="utf-8"))
-        return list(_mf.get("fr_ids") or [])
-    except (json.JSONDecodeError, OSError):
-        return []
+    return list(load_quality_manifest(project, lenient=True).get("fr_ids") or [])
 
 def _check_deferred_fixes_resolved(project: Path) -> int:
     """Hard-block advance if deferred_fixes.md has unresolved items (Stage 5).
@@ -2347,13 +2299,7 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
         0  — all FRs pass live coverage (or manifest absent → non-FR project)
         14 — one or more FRs missing, failing, or below min_coverage
     """
-    manifest_path = project / ".methodology" / "quality_manifest.json"
-    manifest: dict = {}
-    if manifest_path.exists():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
+    manifest = load_quality_manifest(project, lenient=True)
     fr_ids_manifest: list[str] = manifest.get("fr_ids", [])
     if not fr_ids_manifest:
         return 0  # Non-FR project or unreadable manifest — skip
