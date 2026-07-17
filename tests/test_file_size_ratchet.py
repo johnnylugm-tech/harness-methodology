@@ -201,7 +201,10 @@ _LINE_CEILING: dict[str, int] = {
     # its two module constants, plus the _envelope threading through
     # spawn()'s three post-JSON-parse _log_dispatch call sites and
     # _log_dispatch's own new parameter, are the capture.
-    "core/agent_spawner.py": 986,
+    # 2026-07-18: +45 lines — GATE1/GATE1-DELTA evaluation blocked empty commit
+    # fix (pass=false/commit=null is a normal fail, not an ERROR) and the
+    # sub-agent --allowedTools Bash,Read,Edit,Write fix for upstream bug 37442.
+    "core/agent_spawner.py": 1031,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,
