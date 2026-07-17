@@ -126,6 +126,25 @@ _COMMIT_REQUIRED_STEPS: frozenset[str] = frozenset({
     "GATE1", "GATE1-DELTA",
 })
 
+# Fix H (2026-07-18): GATE1 / GATE1-DELTA are EVALUATION steps, not
+# code-mutating ones — a real production bug (traced via sessions_spawn.log
+# + GitHub anthropics/claude-code#37442 investigation) showed this original
+# _COMMIT_REQUIRED_STEPS membership (added by e6f8b90, 2026-07-15, to catch
+# a genuinely no-op TDD-RED) over-generalised: e6f8b90 explicitly reasoned
+# LINT-FIX/CODE-FIX/COVERAGE-FIX out of the set because "they only modify
+# code for the next GATE round to commit" — the same reasoning applies to
+# GATE1/GATE1-DELTA's own dispatch, which only produces a commit when
+# finalize-gate PASSES; a BLOCKED/FAIL verdict with commit=null is the
+# correct, expected shape (confirmed against 130 historical
+# "Gate 1 evaluator" sessions_spawn.log entries, many with pass=false,
+# commit=null, status=complete — never previously misclassified as ERROR).
+# Since e6f8b90 landed, every GATE1 round that did not pass on the first
+# try got silently re-classified as a dispatch ERROR, routing it into a
+# pointless CODE-FIX retry (no code defect exists to fix) instead of the
+# normal FAIL-with-real-score path — this was the primary reason FR-01
+# GATE1 stopped converging across many rounds.
+_GATE_EVAL_STEPS: frozenset[str] = frozenset({"GATE1", "GATE1-DELTA"})
+
 
 def is_structurally_broken(output: str) -> bool:
     """True when a dispatch failure is deterministic — retrying cannot succeed."""
@@ -221,7 +240,15 @@ def _validate_inner_json(data: dict, step: str | None) -> dict | None:
         }
     if step and step in _COMMIT_REQUIRED_STEPS:
         commit = (data.get("commit") or "").strip()
-        if not commit:
+        # Fix H: a GATE1/GATE1-DELTA verdict of pass=false is a legitimate
+        # BLOCKED/FAIL result — finalize-gate only commits on pass, so
+        # commit=null is expected there, not a no-op. Only require the
+        # commit when the sub-agent itself claims pass=true (a PASS
+        # verdict with no commit IS suspicious — keep that check) or when
+        # it never gave an explicit pass=false verdict at all (missing/
+        # malformed output stays on the safe, stricter default).
+        is_gate_blocked = step in _GATE_EVAL_STEPS and data.get("pass") is False
+        if not commit and not is_gate_blocked:
             return {
                 "output": (
                     f"Commit-required step {step!r} returned empty commit"

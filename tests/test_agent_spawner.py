@@ -294,6 +294,56 @@ class TestAgentSpawner:
         assert result["status"] == "complete"
         assert result.get("commit") == "abcd1234"
 
+    def test_spawn_gate1_blocked_with_empty_commit_passes(self):
+        """Fix H regression: GATE1 pass=false + commit=null is a legitimate
+        BLOCKED verdict (finalize-gate only commits on pass), not a no-op —
+        must NOT be reclassified as ERROR (e6f8b90 2026-07-15 over-generalised
+        commit-required to GATE1/GATE1-DELTA and broke exactly this case)."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "step done",
+            "session_id": "x",
+            "status": "DONE",
+            "pass": False,
+            "failing_dims": ["test_coverage"],
+            "commit": None,
+            "summary": "GATE1 BLOCKED: test_coverage 64 < 90",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"step": "GATE1"}, model="claude",
+                )
+        assert result["status"] == "complete"
+
+    def test_spawn_gate1_pass_with_empty_commit_still_errors(self):
+        """Fix H must not weaken the original no-op protection: a GATE1
+        verdict claiming pass=true with no commit is still suspicious
+        (finalize-gate should have committed) and stays an ERROR."""
+        spawner = AgentSpawner()
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({
+            "result": "step done",
+            "session_id": "x",
+            "status": "DONE",
+            "pass": True,
+            "failing_dims": [],
+            "commit": "",
+            "summary": "GATE1 PASS",
+        })
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"step": "GATE1"}, model="claude",
+                )
+        assert result["status"] == "ERROR"
+        assert "empty commit" in result["output"]
+
     def test_spawn_non_commit_required_step_with_empty_commit_passes(self):
         """LINT-FIX has no commit requirement — empty commit is fine."""
         from core.agent_spawner import _COMMIT_REQUIRED_STEPS
