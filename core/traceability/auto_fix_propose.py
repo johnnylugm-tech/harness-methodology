@@ -185,14 +185,8 @@ def propose_fixes(rt, report: dict, project: Path) -> str:  # noqa: ARG001 (rt a
     language = project_language(project)
     test_runner = None
     if language in ("javascript", "typescript"):
-        import json as _json
-        try:
-            _state = _json.loads(
-                (project / ".methodology" / "state.json").read_text(encoding="utf-8")
-            )
-            test_runner = _state.get("test_runner")
-        except (OSError, _json.JSONDecodeError):
-            pass
+        from core.state_io import load_state
+        test_runner = load_state(project, lenient=True).get("test_runner")
 
     layout = ProjectLayout(project)
     sad_section_for_fr: Dict[str, str] = {}

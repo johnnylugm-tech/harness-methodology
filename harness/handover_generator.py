@@ -22,7 +22,6 @@ Example::
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import shlex
@@ -35,6 +34,7 @@ _log = logging.getLogger(__name__)
 # Hard import by design: a soft fallback literal here is exactly what caused
 # the P8→9 crash (a stale range(1, 9) copy while the pipeline grew a phase).
 from core.phase_topology import VALID_PHASES  # noqa: E402
+from core.state_io import StateCorruptError, load_state  # noqa: E402
 
 try:
     from core.atomic_io import atomic_write_text  # type: ignore[import-not-found]
@@ -144,32 +144,32 @@ class HandoverGenerator:
         pipeline runs instead of silently masked.
         """
         state_path = self.project / ".methodology" / "state.json"
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-            parts = [
-                f"phase={data.get('current_phase', '?')}",
-                f"state={data.get('state', '?')}",
-            ]
-            last_gate = data.get("last_gate")
-            last_fr = data.get("last_fr")
-            if last_gate is not None:
-                parts.append(f"last_gate={last_gate}")
-            if last_fr is not None:
-                parts.append(f"last_fr={last_fr}")
-            return " ".join(parts)
-        except FileNotFoundError:
+        if not state_path.exists():
             # Legitimate "no state yet" — no log noise.
             return ""
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+        try:
+            data = load_state(self.project)
+        except StateCorruptError as exc:
             # Corruption / encoding error — surface as WARNING so the
             # operator can investigate instead of silently treating the
             # project as "fresh" and re-running completed gates.
             _log.warning(
                 "state.json at %s is corrupt (%s: %s); "
                 "rendering HANDOVER.md without state snapshot.",
-                state_path, type(exc).__name__, exc,
+                state_path, type(exc.original).__name__, exc.original,
             )
             return ""
+        parts = [
+            f"phase={data.get('current_phase', '?')}",
+            f"state={data.get('state', '?')}",
+        ]
+        last_gate = data.get("last_gate")
+        last_fr = data.get("last_fr")
+        if last_gate is not None:
+            parts.append(f"last_gate={last_gate}")
+        if last_fr is not None:
+            parts.append(f"last_fr={last_fr}")
+        return " ".join(parts)
 
     # ------------------------------------------------------------------
     # Public API

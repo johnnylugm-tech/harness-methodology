@@ -294,14 +294,15 @@ def _score_security(project: Path, timeout: int = 60, **_kw) -> tuple[Optional[f
 
 def _score_traceability(project: Path, **_kw) -> tuple[Optional[float], str]:
     """C7: FR coverage from quality_manifest.json."""
+    from core.state_io import StateCorruptError, load_quality_manifest
     from core.utils.project_layout import ProjectLayout
     manifest_path = ProjectLayout(project).quality_manifest_path
     if not manifest_path.exists():
         return 50.0, "quality_manifest.json not found (partial credit)"
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        manifest = load_quality_manifest(project)
+    except StateCorruptError:
         return None, "quality_manifest.json is not valid JSON"
 
     fr_ids: list = manifest.get("fr_ids", [])

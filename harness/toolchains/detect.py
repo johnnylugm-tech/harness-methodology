@@ -86,14 +86,8 @@ def detect_test_runner(project_root: Union[str, Path]) -> Optional[str]:
 
 
 def _read_state(project_root: Union[str, Path]) -> dict:
-    state_path = Path(project_root) / ".methodology" / "state.json"
-    if not state_path.exists():
-        return {}
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
-        return {}
+    from core.state_io import load_state
+    return load_state(project_root, lenient=True)
 
 
 def get_project_language(project_root: Union[str, Path]) -> str:

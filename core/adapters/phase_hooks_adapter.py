@@ -36,7 +36,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List, Optional
 
 
@@ -212,16 +211,8 @@ class PhaseHooksAdapter:
 
     def get_current_phase(self) -> Optional[int]:
         """Read current phase from state.json."""
-        from core.utils.project_layout import ProjectLayout
-        state_path = ProjectLayout(self.project_path).state_json_path
-        if not state_path.exists():
-            return None
-        try:
-            state = json.loads(state_path.read_text())
-            return state.get("current_phase")
-        except Exception as exc:
-            print(f"[WARN] get_current_phase: could not read {state_path}: {exc}")
-            return None
+        from core.state_io import load_state
+        return load_state(self.project_path, lenient=True).get("current_phase")
 
     def get_monitoring_events(self) -> List[Dict[str, Any]]:
         """Return all monitoring events recorded by PhaseHooks."""

@@ -1615,11 +1615,12 @@ class HarnessBridge:
 
     def _load_manifest_sab(self, project_root: str) -> dict:
         """Read SAB-derived fields from quality_manifest.json. Returns empty dict on failure."""
+        from core.state_io import StateCorruptError, load_quality_manifest
         manifest_path = Path(project_root) / ".methodology" / "quality_manifest.json"
         if not manifest_path.exists():
             return {}
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = load_quality_manifest(project_root)
             return {
                 "nfr_dimension_mapping":    manifest.get("nfr_dimension_mapping", {}),
                 "nfr_traceability":         manifest.get("nfr_traceability", {}),
@@ -1630,7 +1631,7 @@ class HarnessBridge:
                 "architecture_constraints": manifest.get("architecture_constraints", []),
                 "high_risk_modules":        manifest.get("high_risk_modules", []),
             }
-        except Exception as exc:
+        except StateCorruptError as exc:
             # Manifest is corrupt / unreadable — surface as a
             # WARNING so a real SAB outage is visible in logs, but
             # return {} so the gate can still proceed with default
@@ -1641,7 +1642,7 @@ class HarnessBridge:
             _logging.getLogger(__name__).warning(
                 "_load_manifest_sab: manifest parse/read failed (%s: %s); "
                 "SAB-derived gate_score_overrides are DISABLED for this gate.",
-                type(exc).__name__, exc,
+                type(exc.original).__name__, exc.original,
             )
             return {}
 

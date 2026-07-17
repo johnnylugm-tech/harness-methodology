@@ -687,18 +687,18 @@ STRATEGY_REGISTRY: Dict[str, Callable] = {
 
 
 def _load_fr_ids(project_root: Path) -> list:
-    import json
+    from core.state_io import StateCorruptError, load_quality_manifest
     from core.utils.project_layout import ProjectLayout
     manifest_path = ProjectLayout(project_root).quality_manifest_path
     if manifest_path.exists():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = load_quality_manifest(project_root)
             frs = manifest.get("functional_requirements", manifest.get("frs", []))
             if isinstance(frs, list):
                 if frs and isinstance(frs[0], dict):
                     return [f.get("id", f.get("fr_id", "FR-UNKNOWN")) for f in frs]
                 return frs
-        except Exception as exc:
+        except StateCorruptError as exc:
             print(f"[WARN] auto_fix strategies: quality_manifest.json unreadable, "
                   f"falling back to placeholder FR ids: {exc}", file=sys.stderr)
     return ["FR-001", "FR-002", "FR-003"]
