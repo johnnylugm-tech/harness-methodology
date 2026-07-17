@@ -2757,6 +2757,58 @@ the full write-up.
 
 ---
 
+### §3.44 — `core/state_io.py` — State/Manifest Read Convergence (Round 14 站2)
+
+**Responsibility**: Single entry point for reading `.methodology/state.json`
+and `quality_manifest.json`, replacing ~75 previously uncoordinated raw
+read sites across `cli/`/`core/`/`harness/`/`scripts/`/`detection/` that
+disagreed on what "unreadable" means. `load_state(project, *,
+lenient=False)` / `load_quality_manifest(project, *, lenient=False)`: a
+missing file returns `{}` (the common early-phase case, both modes); an
+existing-but-corrupt file raises `StateCorruptError` (carrying the path
+and original exception) unless `lenient=True`, in which case it degrades
+to `{}` and records why via `core.degradation_ledger.record_degradation`
+(§3.42). `harness_cli.py`'s `_dispatch()` crash boundary (§3.41) catches
+`StateCorruptError` specifically and reports `[FATAL]` exit 26 with a
+concrete fix instruction (`git restore` the file, or run `doctor`) —
+before this round, an uncaught `json.JSONDecodeError` from one of the old
+raw-read sites was classified as `[HARNESS-BUG]` exit 70, wrongly
+attributing project data corruption to a bug in harness's own code. A
+handful of call sites are intentionally NOT converged — an arbitrary
+(non-project-rooted) path parameter, a standalone subprocess script with
+no `sys.path` bootstrap, or a GitHub-API-backed content abstraction this
+Path-based API can't serve — each documented at its own site and
+enumerated in `tests/test_state_io_conventions.py`'s exemption list. That
+test is an AST-based (not text/regex) scan for any NEW raw
+`json.loads`/`json.load` call on a state/manifest-derived path, mirroring
+`tests/test_exception_swallow_ratchet.py`'s approach; a
+`# state-io-exempt: <reason>` inline comment handles the rare
+legitimately-incompatible one-off site without needing a whole-file
+exemption.
+
+### §3.45 — `cli/report_cmds.py` — `run-report` (Round 14 站1)
+
+**Responsibility**: Read-only aggregation of the run artifacts several
+other components already write but nothing previously read back
+together — `.methodology/sessions_spawn.log` (dispatch counts, failure
+rate, per-FR cost/token/dispatch totals), `.sessi-work/degradations.jsonl`
+(§3.42), `.sessi-work/crash/*.json` (§3.43), and
+`.harness/traces/agent_trajectory.jsonl` (OTEL spans from
+`core/observability.py`, previously zero consumers — this command is the
+first). Each of the four sources is independently optional; a missing or
+empty artifact reports `available: false` for that section rather than
+crashing or padding output with null-filled noise. `--json` emits the
+same structure machine-readably. Directly answers the kind of question a
+convergence audit (Round 12) previously had to compute by hand from a raw
+log — see `docs/OBSERVABILITY.md` for the full run-artifact map, field
+tables, and the deliberate non-decisions (no structured-logger migration,
+no cross-process trace propagation, no OTLP collector) this round made
+after verifying a Gap Analysis Report's claims against the actual
+codebase rather than applying its generic-backend-service prescriptions
+as-is.
+
+---
+
 ## 7. Runtime Prerequisites & Dependencies
 
 ### 7.1 SSI — Embedded Evaluation Engine

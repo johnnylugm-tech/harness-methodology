@@ -24,7 +24,7 @@ shape: a failure that wasn't the class it was treated as.
 | Level | Marker | Meaning | Exit code | Channel | Agent action |
 |---|---|---|---|---|---|
 | **BLOCK** | `[BLOCKED]` | A real, fixable quality/precondition failure — bad code, a missing artifact, an unmet gate | most of `cli/exit_codes.py`'s `REGISTRY` (the oldest, largest category — see that file, not a hand-copied list here) | stdout (the agent-facing protocol surface) | Read the message as the fix instruction and act on it verbatim. `tests/test_blocked_message_contract.py` guarantees every `[BLOCKED]` on the four agent-facing hot paths (advance-phase / finalize-gate / run-fr-step / push-checkpoint / push-milestone) carries a concrete remediation element. |
-| **FATAL** | `[FATAL]` | The environment/substrate is broken — a tool can't run, dispatch is structurally broken, a spawned agent can't execute pytest/git. No code change fixes this | `23` dispatch structurally broken, `24` substrate preflight failed, `25` FR-step infra/harness-bug abort (new this round) | stdout | STOP. Do not retry, do not attempt a code fix. Escalate to a human. |
+| **FATAL** | `[FATAL]` | The environment/substrate is broken — a tool can't run, dispatch is structurally broken, a spawned agent can't execute pytest/git, or a project data file exists but isn't readable. No code change fixes this | `23` dispatch structurally broken, `24` substrate preflight failed, `25` FR-step infra/harness-bug abort, `26` `.methodology/state.json`/`quality_manifest.json` corrupt (Round 14 — see `core/state_io.py`'s `StateCorruptError`) | stdout | STOP. Do not retry, do not attempt a code fix. Escalate to a human. Exit `26` specifically: `git restore` the corrupt file if it's tracked, or run `harness_cli.py doctor` — this is project data corruption, not a code defect. |
 | **HARNESS-BUG** | `[HARNESS-BUG]` | harness-methodology's own code crashed — an uncaught exception reached the top level. Not a problem with the target project at all | `70` | **stderr only** — must never look like a project-quality signal on the agent-facing stdout channel | STOP. Do not retry, do not modify project code. Report the banner verbatim. A crash bundle is waiting in `.sessi-work/crash/` for `crash-triage`. |
 | **DEGRADE** | `[DEGRADED]` | A fallback fired that changes downstream behavior (discarded tracked history, an empty baseline, a silently-skipped record) — but the run can legitimately continue | none (the run's own exit code is unaffected) | stderr + appended to `.sessi-work/degradations.jsonl` | Continue. If a downstream result looks off, check the ledger first — it names exactly what changed and why. |
 | **WARN** | `[WARN]` | Worth a human's attention but changes nothing about how the run proceeds | none | stderr for new code (see note below) | No action required to proceed. |
@@ -72,6 +72,44 @@ line was added*, not a universal rule enforced retroactively.
 If BLOCK vs. DEGRADE is unclear: ask "can the reader of this message do
 something about it right now?" Yes → BLOCK, with the instruction. No, but
 they should know it happened → DEGRADE.
+
+## Raise vs. return an error-dict (Round 14)
+
+Two different signaling mechanisms coexist in this codebase; new code
+should pick based on where the boundary sits, not by copying whichever
+one the nearest function happens to use:
+
+- **Across a process boundary** (a CLI command's own success/failure, or
+  a spawned sub-agent's outcome) — an **exit code** plus the marker+
+  message on stdout is the contract. This is what `cli/exit_codes.py`'s
+  `REGISTRY` and the five-level taxonomy above are for.
+- **Between functions within one process, when the failure is
+  exceptional** — prefer a narrow, specific exception type
+  (`StateCorruptError`, `GateBlockedError`, `KillSwitchBlockedError`,
+  etc.) over a generic one. The caller decides whether to catch it, let
+  it propagate to the crash boundary, or convert it into one of the five
+  levels above. Catching `Exception` broadly just to inspect a string
+  message is exactly the shape `tests/test_exception_swallow_ratchet.py`
+  exists to catch.
+- **`{"error": ...}`-shaped dicts** are not one universal convention —
+  each is the established return shape of a specific existing family,
+  and that family's own callers already know how to read it:
+  `core/agent_spawner.py`'s sub-agent dispatch envelope;
+  `core/phase_hooks.py`'s `PhaseHooks` check methods, which always pair
+  `"error"` with the method's own primary signal (typically `"passed"`)
+  because the caller needs a pass/fail decision even when the check
+  itself partially failed; and a couple of small, self-contained
+  integration helpers (e.g. `harness/ssi/scripts/crg_integration.py`).
+  New code extending one of these families should match its existing
+  shape. New code that isn't extending one of them should raise instead
+  of inventing a fourth error-dict convention.
+
+This is descriptive, not a new enforced rule — none of the existing
+exception hierarchy, error-dict sites, or `except` blocks are being
+rewritten this round (see "what this round deliberately did not do"
+below). This section exists so the *next* piece of new code has a
+documented default to reach for, instead of guessing from whichever
+nearby function it happens to be editing.
 
 ## The exception-swallow ratchet — silence is never free
 
@@ -177,3 +215,8 @@ was never the only signal a caller has.
   (Round 13 站3). Left in place: fixing it wasn't part of this round's
   scope, and it's inert (a flag nothing reads cannot change behavior),
   but it's a known loose end for a future pass.
+- (Round 14) No unification of the several existing `{"error": ...}`-dict
+  conventions (`agent_spawner`'s dispatch envelope, `phase_hooks`'s check
+  methods, `crg_integration.py`'s helpers) into one shape — each already
+  has callers that know its specific fields; merging them would touch
+  every call site for a stylistic gain with no behavior change.

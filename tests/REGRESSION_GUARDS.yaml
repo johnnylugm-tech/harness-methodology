@@ -265,3 +265,19 @@
 - test: tests/test_blocked_message_contract.py::test_all_blocked_messages_in_hot_paths_carry_a_remediation_element
   bug: "one-sided agent contract class (Round 13 診斷 W4): workflow JS is explicitly taught to read a [BLOCKED] message as the fix instruction itself and act on it verbatim (js_blocks.py/phase_specs.py), but nothing on the CLI side ever verified a [BLOCKED] print actually carried something to act on — 21 sites across cli/phase_cmds.py and cli/gate_cmds.py's agent-facing hot paths (advance-phase/finalize-gate/run-fr-step/push-checkpoint/push-milestone) had no remediation element at all before this scan existed"
   fixed_in: "Round 13 站2 (AST-based [BLOCKED]-remediation scanner + 21-site paydown)"
+
+- test: tests/test_agent_spawner.py::TestCalculateLogicalRemoval::test_spawn_writes_envelope_metrics_to_log
+  bug: "silently-discarded cost/usage data class (Round 14 Gap-report claim 1c, verified true): agent_spawner.py's spawn() already parsed the full `claude -p --output-format json` envelope but only ever read result/session_id/status out of it — total_cost_usd, num_turns, duration_api_ms, and the usage token breakdown were computed by the claude subprocess on every single dispatch and thrown away immediately after, leaving R12-style convergence audits (dispatches/cost/token totals) with no data source but a manual grep of raw prompts"
+  fixed_in: "Round 14 站0 (agent_spawner._extract_envelope_metrics + sessions_spawn.log field capture, envelope schema confirmed live against installed claude 2.1.206)"
+
+- test: tests/test_run_report.py::TestSpawnLogReport::test_zero_envelope_entries_yields_none_not_zero
+  bug: "silent-zero-cost misread class: sessions_spawn.log entries written before Round 14 站0 have no total_cost_usd/usage fields at all — a naive sum() over a log mixing old and new entries would report a real $0.00/0-token total for a project with substantial spend, indistinguishable from an actually-free run. run-report's aggregation reports cost/token sums as null (not 0) when zero entries carry the field, and always prints the coverage denominator (cost_entries_with_data / cost_entries_total) alongside any real total"
+  fixed_in: "Round 14 站1 (cli/report_cmds._spawn_log_report's None-vs-zero cost/token aggregation)"
+
+- test: tests/test_errors_crash_boundary.py::test_dispatch_state_corrupt_error_returns_26_with_fatal_not_harness_bug
+  bug: "corrupt-project-data misclassification class (Round 14 Gap-report claim 2a, verified true — an active bug, not just a design gap): before core/state_io.py existed, a corrupt .methodology/state.json or quality_manifest.json hit an uncaught json.JSONDecodeError at whichever raw-read call site found it first, which the Round 13 crash boundary then reported as [HARNESS-BUG] exit 70 — telling the operator harness's own code has a bug and to never modify project code, when the actual problem was project data corruption with an obvious fix (git restore the file)"
+  fixed_in: "Round 14 站2a/2b (core/state_io.StateCorruptError + harness_cli._dispatch's dedicated except branch, EX_STATE_CORRUPT=26)"
+
+- test: tests/test_state_io_conventions.py::test_no_raw_state_or_manifest_json_parse
+  bug: "read-site convergence regression class: station 2c's own grep-based migration (literal state_path/manifest_path variable-name patterns) missed 16 real state.json/quality_manifest.json read sites across cli/core/harness on its first pass — different local variable names (_mp, _mf_path, _mfst_path) and a ProjectLayout(...).state_json_path property-access chain the grep couldn't see. An AST-based, name-agnostic scan run as a sanity probe against the 'complete' migration caught all 16 before this test was even finalized; without a permanent guard, any FUTURE raw read reintroducing the pre-Round-14 missing/corrupt confusion would go undetected the same way"
+  fixed_in: "Round 14 站2d (tests/test_state_io_conventions.py AST taint-tracking scanner + 16-site paydown)"
