@@ -206,6 +206,7 @@ from cli.cr_cmds import (  # noqa: E402, F401
     cmd_cr_update,
     cmd_crash_triage,
 )
+from cli.report_cmds import cmd_run_report  # noqa: E402, F401
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -238,6 +239,10 @@ def build_parser() -> argparse.ArgumentParser:
     # ── Phase 9 Maintenance: Change Request lifecycle (cli/cr_cmds.py) ─────
     from cli.cr_cmds import register as _register_cr_cmds
     _register_cr_cmds(sub)
+
+    # ── Round 14 站1: run-report (cli/report_cmds.py) ───────────────────────
+    from cli.report_cmds import register as _register_report_cmds
+    _register_report_cmds(sub)
 
 
     from cli.gate_cmds import register as _register_gate_cmds

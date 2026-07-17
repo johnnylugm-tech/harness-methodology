@@ -300,7 +300,10 @@ def _crash_signature(bundle: dict) -> str:
     return f"{last_file}:{last_line}:{exc_type}"
 
 
-def _triaged_marker(bundle_path: Path) -> Path:
+def triaged_marker(bundle_path: Path) -> Path:
+    """Sidecar path that marks a crash bundle as filed. Public (Round 14
+    站1): cli/report_cmds.py imports this to count untriaged bundles without
+    duplicating the naming rule."""
     return bundle_path.with_name(bundle_path.name + ".triaged")
 
 
@@ -310,7 +313,7 @@ def _existing_cr_for_group(entries: list[tuple[Path, dict]]) -> "str | None":
     even when a later occurrence of a known bug arrives before an earlier
     one finishes being marked."""
     for path, _ in entries:
-        marker = _triaged_marker(path)
+        marker = triaged_marker(path)
         if marker.is_file():
             cr_id = marker.read_text(encoding="utf-8").strip()
             if cr_id:
@@ -373,7 +376,7 @@ def cmd_crash_triage(args: argparse.Namespace) -> int:
             opened += 1
             print(f"[crash-triage] opened {cr_id} for signature: {sig}")
         for path, _ in entries:
-            marker = _triaged_marker(path)
+            marker = triaged_marker(path)
             if not marker.exists():
                 marker.write_text(cr_id, encoding="utf-8")
     print(f"[crash-triage] {opened} new CR(s) opened in "
