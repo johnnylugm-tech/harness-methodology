@@ -282,54 +282,18 @@ _LINE_CEILING: dict[str, int] = {
     # now documents the same Sync-phase post-advance push as blocks.py.
     "scripts/plangen/phase_tasks.py": 1141,
     "core/quality_gate/mutation_enforcer.py": 967,
-    # 2026-07-14: new god file — Round 11 station3: workflowgen's
-    # phase_specs.py mirrors plangen/phase_tasks.py's shape (one
-    # generate_phaseN() + its phase-specific custom renderers per migrated
-    # phase). Station1/2 (phase5/7/8) stayed under the threshold; station3
-    # adds phase3 (full TDD chain, own Load FRs/Milestones/Sync — no shared
-    # counterpart) and phase4 (Test Plan/Coverage/Bug Hunt), pushing it over.
-    # 2026-07-15: +1763 lines — Round 11 station4 adds phase6 (Gate 4/Release
-    # Docs/Peer Review/Tag & Advance) and the largest remaining files, phase2
-    # (3 serial A/B sub-tasks + SAB Generation + holistic Peer Review) and
-    # phase1 (4 serial A/B sub-tasks + Load Legal Artifacts + Forward Ref
-    # Check + a dedicated runPeerReview) — all now workflowgen-generated, so
-    # all 8 phases' declarative specs live here. Per-phase custom renderers
-    # (buildAPrompt/buildBDocs/checklist text) are genuinely one-off business
-    # prose with no cross-phase counterpart; kept verbatim rather than forced
-    # into a false shared abstraction (see js_blocks.py's own note below on
-    # phase1's runSubTask vs phase2's abLoop for the same judgment call).
-    # 2026-07-15: +1 line — Fix 6/7/8 (agent-format-drift bug class): SEC
-    # checklist gains a verified_by single-name reminder, the SRS prompt
-    # gains a canonical `### FR-XX:` heading example, and the Phase 3 FR-dev
-    # prompt gains an explicit "don't share files across FRs" contrast next
-    # to the existing single-test-file rule — three prompt/template gaps
-    # found by re-verifying the prior session's inference-only "5-layer"
-    # analysis against the actual code.
-    # 2026-07-16: +2 lines — Bug A (v2.13.3 follow-up to v2.13.2 spawnSync):
-    # the v2.13.2 GATE1-verify block (lines 548-572) is replaced by an
-    # `await agent()` Bash dispatch into `harness/scripts/verify_gate1_qc.py`.
-    # +2 comes from two added explanatory comment lines ("//" + "//\n") in
-    # the JS literal explaining why spawnSync doesn't work in the workflow
-    # runtime sandbox and how the LLM-as-string-carrier substitute preserves
-    # the AUTHORITATIVE manifest read. Net JS shape is +2 lines in
-    # phase3-implementation.js too. Verified: regenerated
-    # tests/golden/workflowgen/phase3.js == hand-edited phase3-implementation.js
-    # (diff = 0 lines).
-    # 2026-07-16: +16 lines — Round 12 站1: three sim-testbed-caught fixes
-    # at the generator source: phase4 pre_loop_state (p4MidPushed/
-    # p4MidThreshold declarations dropped by the station-3a migration),
-    # phase6 MAX_OUTER_ATTEMPTS declaration (dropped by station-4's A/B
-    # unification), and String(x ?? '') null guards on phase1's three
-    # agent-return .slice(-800) error paths (session-limit null crashed
-    # instead of returning {error}). Comments explaining each restoration
-    # account for most of the delta.
-    # 2026-07-17: +11 lines — Round 13 站0: phase3's _render_per_fr_tdd
-    # L1.5 [FATAL] detection gains a sibling L1.6 check for the new
-    # [HARNESS-BUG] crash-boundary banner (core/errors.py) — a harness
-    # self-crash surfaced in the GATE1 log must abort the FR loop instead
-    # of being misread as a code-quality FAIL, mirroring the existing
-    # structurally-broken-dispatch handling one block above it.
-    "scripts/workflowgen/phase_specs.py": 2985,  # 2026-07-17: +1 line — TDD-IMPROVE prompt addendum (single-line inline warning) preventing sub-agents from asserting ANOTHER FR's stub `_err(f"'<name>' is not yet implemented...")` literal text in coverage-filling tests. Phase3-only (`_render_per_fr_tdd` is phase3-exclusive; phase4/5/7/8 use js_blocks.render_per_fr_delta() instead — verified).
+    # 2026-07-17: new god file — Round 15 station5: phase_specs.py (formerly
+    # 2985 lines, see git history for its full growth log) was split one
+    # module per phase (spec_phase1.py .. spec_phase8.py, spec_shared.py for
+    # the one cross-phase renderer); phase_specs.py itself is now a ~20-line
+    # facade re-exporting generate_phase1..generate_phase8, well under the
+    # threshold and removed from this table. Phase 1 (4 serial A/B sub-tasks
+    # + Load Legal Artifacts + Forward Ref Check + a dedicated runPeerReview)
+    # is the largest single-phase family and the only one landing over the
+    # threshold post-split — kept as one file (not split further) to match
+    # every other phase's one-phase-one-file shape; see spec_phase1.py's own
+    # module docstring.
+    "scripts/workflowgen/spec_phase1.py": 917,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
