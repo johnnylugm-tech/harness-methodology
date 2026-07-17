@@ -163,3 +163,37 @@ def test_dispatch_generic_exception_bundle_write_failure_does_not_mask_original_
 @pytest.mark.parametrize("code", [0, 1, 2, 5, 6, 8, 10, 11, 12, 14, 17, 18, 19, 20, 21, 22, 23, 24])
 def test_dispatch_preserves_every_known_exit_code(code):
     assert harness_cli._dispatch(_ns(lambda a, c=code: c), []) == code
+
+
+# ---- Round 14 站2: StateCorruptError must never misclassify as [HARNESS-BUG] --
+
+def test_dispatch_state_corrupt_error_returns_26_with_fatal_not_harness_bug(tmp_path, capsys):
+    """This is the regression the whole station exists for: before
+    core/state_io.py + this dispatch branch, a corrupt state.json read at
+    a bare `json.loads(...)` site raised an uncaught JSONDecodeError that
+    fell into the generic Exception branch below — reporting
+    [HARNESS-BUG] exit 70 (project data corruption misclassified as
+    harness's own bug) instead of [FATAL] exit 26."""
+    from core.state_io import StateCorruptError
+
+    def raiser(a):
+        raise StateCorruptError(tmp_path / ".methodology" / "state.json", ValueError("bad json"))
+    rc = harness_cli._dispatch(_ns(raiser), ["status", "--project", str(tmp_path)])
+    assert rc == 26
+    captured = capsys.readouterr()
+    assert "[FATAL]" in captured.out
+    assert "[HARNESS-BUG]" not in captured.out
+    assert "[HARNESS-BUG]" not in captured.err
+    bundle_dir = tmp_path / ".sessi-work" / "crash"
+    assert not bundle_dir.exists(), "a StateCorruptError must never write a crash bundle"
+
+
+def test_dispatch_state_corrupt_error_message_reaches_stdout(tmp_path, capsys):
+    """FATAL is agent-facing protocol-surface output (stdout), unlike
+    HARNESS-BUG which is deliberately stderr-only — see docs/ERROR_HANDLING.md."""
+    from core.state_io import StateCorruptError
+
+    def raiser(a):
+        raise StateCorruptError(tmp_path / "quality_manifest.json", ValueError("truncated"))
+    harness_cli._dispatch(_ns(raiser), [])
+    assert "quality_manifest.json" in capsys.readouterr().out

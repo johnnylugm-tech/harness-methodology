@@ -70,6 +70,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     24  run-phase: spawn-substrate preflight probe FAILED
     25  run-fr-step: [HARNESS-BUG]/INFRA_FAIL signature found in sub-agent
         output — aborted before dispatching a fix agent
+    26  [FATAL] .methodology/state.json or quality_manifest.json exists but
+        is not readable/parseable JSON — project data corruption, NOT a
+        harness-methodology bug (see core/state_io.py's StateCorruptError)
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)
@@ -313,7 +316,8 @@ def _dispatch(args: argparse.Namespace, argv: list[str]) -> int:
     import traceback
 
     from core.errors import format_harness_bug_banner, write_crash_bundle
-    from cli.exit_codes import EX_HARNESS_BUG, EX_KEYBOARD_INTERRUPT, EX_FAIL
+    from core.state_io import StateCorruptError
+    from cli.exit_codes import EX_HARNESS_BUG, EX_KEYBOARD_INTERRUPT, EX_FAIL, EX_STATE_CORRUPT
 
     try:
         return args.func(args)
@@ -332,6 +336,15 @@ def _dispatch(args: argparse.Namespace, argv: list[str]) -> int:
             file=sys.stderr,
         )
         return EX_FAIL
+    except StateCorruptError as exc:
+        # Round 14 站2: project data corruption (state.json / quality_
+        # manifest.json unreadable) is NOT harness's own bug — it must
+        # never fall into the generic Exception branch below, which prints
+        # [HARNESS-BUG] and tells the reader "not your fault, don't touch
+        # project code". Corrupt PROJECT data is exactly a project problem;
+        # FATAL on stdout (this round's own taxonomy) is the correct level.
+        print(f"\n[FATAL] {exc}")
+        return EX_STATE_CORRUPT
     except Exception as exc:  # noqa: BLE001 -- this IS the crash boundary
         bundle_path = write_crash_bundle(exc, argv)
         print("\n" + format_harness_bug_banner(exc, bundle_path), file=sys.stderr)
