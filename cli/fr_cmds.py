@@ -307,6 +307,28 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
               f"(ghost-detection diff will compare against empty): {exc}", file=sys.stderr)
         _pre_step_sha = ""
 
+    # ── Dirty-tree guard baseline: capture pre-step `git status --porcelain` ──
+    # The post-step dirty-tree guard (below) only blocks on directory lines
+    # NEWLY introduced by this step, not on pre-existing unrelated dirt.
+    # Compare raw porcelain lines (XY-prefixed, e.g. " M foo.py" vs "M  foo.py")
+    # — same path with different XY encodes a staged↔unstaged transition that
+    # is the exact signal the guard exists to catch. Only captured for steps
+    # in _COMMIT_REQUIRED_STEPS (the guard itself only checks those).
+    _pre_step_dirty: set[str] = set()
+    if step in _COMMIT_REQUIRED_STEPS:
+        try:
+            _pre_step_dirty = set(
+                subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    capture_output=True, text=True, cwd=str(project),
+                ).stdout.splitlines()
+            )
+        except Exception as exc:
+            print(f"[WARN] run-fr-step: could not capture pre-step dirty-tree "
+                  f"baseline (guard will fall back to whole-tree check): {exc}",
+                  file=sys.stderr)
+            _pre_step_dirty = set()
+
     # Fix H-H (P3 2026-07-15 round 4): TDD-RED/GREEN/IMPROVE/MIRROR/amend-sab/
     # ORCH-POST (_COMMIT_REQUIRED_STEPS minus GATE1/GATE1-DELTA) previously had
     # zero retry on this first dispatch — see _STEP_RETRY_ATTEMPTS docstring.
@@ -832,12 +854,20 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # staged into FR-03 RED commit). Only check steps that are expected to
     # produce a commit (skip CODE-FIX/COVERAGE-FIX which fix code for the
     # next GATE1 round to commit). Same SSOT as line 739.
+    #
+    # Scoped via pre/post diff (see pre-step snapshot captured above): pre-
+    # existing dirt unrelated to this FR's step must NOT trip the guard —
+    # only directory lines NEWLY introduced by this step count.
     if step in _COMMIT_REQUIRED_STEPS:
-        dirty = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True, cwd=str(project),
-        ).stdout.strip()
-        if dirty:
+        _post_step_dirty = set(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True, text=True, cwd=str(project),
+            ).stdout.splitlines()
+        )
+        new_dirty = sorted(_post_step_dirty - _pre_step_dirty)
+        if new_dirty:
+            dirty = "\n".join(new_dirty)
             print(
                 f"\n[BLOCKED] {fr_id} {step}: commit did not land — "
                 f"working tree still dirty after step.\n"
@@ -846,7 +876,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 f"  Fix the hook-reported error, then re-run:\n"
                 f"    python harness_cli.py resume-fr-step --phase {phase} "
                 f"--fr-id {fr_id} --project {project}\n"
-                f"  Dirty files:\n{dirty[:2000]}",
+                f"  New dirty files (introduced during this step):\n{dirty[:2000]}",
                 file=sys.stderr,
             )
             return 6  # Same exit code as finalize-gate commit-failed

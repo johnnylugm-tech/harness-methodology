@@ -1415,11 +1415,21 @@ class TestRunFrStep:
         # --grep` inside _fr_step_already_done) sees empty stdout and
         # naturally reports "not done" — real subprocess behavior, not an
         # implementation-detail patch (tests/test_patch_discipline.py).
+        #
+        # Pre/post diff (fr_cmds.py: dirty-tree guard baseline): the 1st
+        # `status --porcelain` call captures pre-step baseline (clean),
+        # the 2nd call observes a NEW dirty entry introduced by THIS step.
+        # This simulates the realistic block trigger (guard only fires on
+        # NEW dirt), not "everything dirty from start" — a regression fix.
+        _porcelain_calls = {"n": 0}
         def _fake_run(cmd, **_):
             class _Res:
                 returncode = 0
-                stdout = "M somefile.py\n" if "status" in cmd and "--porcelain" in cmd else ""
+                stdout = ""
                 stderr = ""
+            if "status" in cmd and "--porcelain" in cmd:
+                _porcelain_calls["n"] += 1
+                _Res.stdout = "" if _porcelain_calls["n"] == 1 else "M somefile.py\n"
             return _Res()
         monkeypatch.setattr(_sp, "run", _fake_run)
 
