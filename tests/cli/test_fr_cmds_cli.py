@@ -2062,7 +2062,6 @@ class TestRunFrStepAmendSab:
         """`cmd_run_fr_step(amend-sab)` must call `cmd_amend_sab` and MUST NOT
         invoke AgentSpawner.spawn (proves no LLM dispatch)."""
         from harness_cli import cmd_run_fr_step
-        from cli import fr_cmds
         from cli import project_cmds
 
         # Stub cmd_amend_sab so we can capture the call without running the
@@ -2122,7 +2121,6 @@ class TestRunFrStepAmendSab:
         """End-to-end: invoke the real `cmd_amend_sab` (via delegation) with a
         src tree containing 2 unregistered `.py` files. SAB.json must gain both."""
         from harness_cli import cmd_run_fr_step
-        from cli import fr_cmds
 
         # Real cmd_amend_sab, no stubbing — this verifies the delegation
         # wiring actually reaches the real implementation.
@@ -2154,7 +2152,6 @@ class TestRunFrStepAmendSab:
         """Re-running `amend-sab` against an aligned tree must be a no-op
         (SAB.json diff = 0 after second invocation)."""
         from harness_cli import cmd_run_fr_step
-        from cli import fr_cmds
 
         # No `_fr_step_already_done` mock — AMEND-SAB is not in
         # _FR_STEP_COMMIT_PATTERNS (see test_amend_sab_writes_sab_for_unregistered_modules).
