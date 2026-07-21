@@ -853,12 +853,12 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
     _log_dispatch's swallowing pattern so a logging failure cannot break
     dispatch.
     """
-    rc, outcome = _cmd_amend_sab_impl(args)
-    _log_amend_sab_outcome(args, rc, outcome)
+    rc, outcome, project = _cmd_amend_sab_impl(args)
+    _log_amend_sab_outcome(args, rc, outcome, project)
     return rc
 
 
-def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str]:
+def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str, Path]:
     """Inner implementation of cmd_amend_sab, returning (rc, outcome_tag)
     so cmd_amend_sab can wrap with logging without losing the original
     exit-code / failure-mode signals.
@@ -883,7 +883,7 @@ def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str]:
                 phantoms = phantom_modules(sab_dict, discovered, args.src_dir)
     except Exception as exc:
         print(f"[amend-sab] failed: {exc}", file=sys.stderr)
-        return 1, "exception"
+        return 1, "exception", project
 
     if args.dry_run:
         if added:
@@ -899,7 +899,7 @@ def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str]:
                 print(f"  ! {m}")
         else:
             print("[amend-sab] dry-run: no phantom modules detected.")
-        return 0, "dry_run"
+        return 0, "dry_run", project
 
     if added:
         print(f"[amend-sab] Added {len(added)} module(s) to .methodology/SAB.json:")
@@ -919,12 +919,12 @@ def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str]:
               "or run `extract_sab_from_sad` to re-derive SAB from SAD.md.")
         if strict:
             print("[amend-sab] --strict set: exiting non-zero.", file=sys.stderr)
-            return 1, "phantom_strict"
+            return 1, "phantom_strict", project
 
-    return 0, "completed"
+    return 0, "completed", project
 
 
-def _log_amend_sab_outcome(args: argparse.Namespace, rc: int, outcome: str) -> None:
+def _log_amend_sab_outcome(args: argparse.Namespace, rc: int, outcome: str, project: Path) -> None:
     """Append one entry to `.methodology/sessions_spawn.log` for every
     amend-sab invocation. Logging at the mutation site covers ALL
     callers (the `run-fr-step` dispatch delegation, the standalone
@@ -941,7 +941,6 @@ def _log_amend_sab_outcome(args: argparse.Namespace, rc: int, outcome: str) -> N
     `core/agent_spawner._log_dispatch` lines 850-852 — a logging failure
     MUST NOT break the dispatch itself.
     """
-    project = Path(getattr(args, "project", ".") or ".").resolve()
     try:
         SessionsSpawnLogger(project).log_spawn(
             role="tool:amend-sab",
