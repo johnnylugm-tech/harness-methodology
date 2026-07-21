@@ -2270,7 +2270,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"{_pragma_guidance}\n"
             f"`if __name__ == \"__main__\":` blocks are NOT a valid pragma target. If this "
             f"project has a dedicated entry-point module (`<pkg>/__main__.py`), exclude THAT "
-            f"file at the file level via setup.cfg's `[tool:coverage] omit`, and DELETE any "
+            f"file at the file level via setup.cfg's `[coverage:run] omit`, and DELETE any "
             f"duplicate guard found elsewhere — do not pragma it. If no dedicated entry-point "
             f"module exists, extract one; that is an architecture fix, not a coverage "
             f"suppression.\n"
