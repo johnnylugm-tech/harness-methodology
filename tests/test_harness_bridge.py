@@ -1560,6 +1560,36 @@ class TestPrepareGateSpecScan:
             "be capped by numerator/denominator asymmetry"
         )
 
+    def test_language_aware_scan_matches_js_test_title(self, tmp_path):
+        """Regression (fix/spec-cap-list-set-mismatch, 2nd bug): the spec-cap
+        scan used to hardcode a Python-only `*.py` rglob for `def test_*`, so
+        ANY JS/TS project matched zero test functions and test_coverage was
+        silently floored toward 0% for every FR with a declared spec test.
+        Sets .methodology/state.json language=javascript and provides only a
+        .test.js file (no .py file at all) — the pre-fix code could not find
+        this under any circumstance; the fix's project_language() +
+        _scan_test_functions(..., language) path must find it."""
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_widget_renders"],
+            test_files={},
+        )
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True, exist_ok=True)
+        (methodology / "state.json").write_text(
+            json.dumps({"language": "javascript"}), encoding="utf-8"
+        )
+        js_test_dir = tmp_path / "03-development" / "tests"
+        (js_test_dir / "widget.test.js").write_text(
+            "test('test_widget_renders', () => { expect(true).toBe(true); });\n",
+            encoding="utf-8",
+        )
+        ctx = self._scan(tmp_path)
+        assert ctx._existing_spec_count == 1, (
+            "language-aware scan must find test_widget_renders in a .test.js "
+            f"file when project_language=javascript; existing_count={ctx._existing_spec_count}"
+        )
+
     def test_async_def_matches(self, tmp_path):
         """'async def test_fn(...)' must be found the same as sync 'def test_fn'."""
         self._make_project(
