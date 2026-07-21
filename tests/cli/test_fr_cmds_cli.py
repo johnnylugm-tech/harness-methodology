@@ -2093,6 +2093,136 @@ class TestComputeFrSpecDataParameterized:
             f"async def must be detected by the function scanner; got {result['spec_cov_pct']}"
         )
 
+    def test_section_boundary_stops_at_non_fr_heading(self, tmp_path):
+        """A trailing non-FR heading (e.g. '### NFR Integration (...)') must
+        NOT leak its test rows into the preceding FR's spec_test_names.
+        Pre-fix, the local `_extract_test_spec_names` parser only reset
+        `current_fr` on a `### FR-XX` heading, so any other heading level
+        left `current_fr` stuck — every row after it (including unrelated
+        NFR sections) was wrongly counted against the last-seen FR (Bug Fix
+        Spec-Cov-Section-Boundary, 2026-07-21)."""
+        arch = tmp_path / "02-architecture"
+        arch.mkdir(parents=True)
+        (arch / "TEST_SPEC.md").write_text(
+            "### FR-01: Lexicon\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_fr_01_lookup` | Functional |\n"
+            "\n"
+            "### NFR Integration (Integration-tier NFR cases only)\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_nfr03_recovery` | Functional |\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_fr01.py").write_text(
+            "def test_fr_01_lookup(x):\n    pass\n", encoding="utf-8",
+        )
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert result["spec_test_names"] == ["test_fr_01_lookup"], (
+            f"NFR Integration section's test_nfr03_recovery must NOT leak "
+            f"into FR-01's spec_test_names; got {result['spec_test_names']}"
+        )
+        assert result["spec_cov_pct"] == 100
+        assert result["missing_spec_count"] == 0
+
+    def test_duplicate_parametrize_rows_do_not_inflate_missing_count(self, tmp_path):
+        """TEST_SPEC.md's v2.13.0 'Multi-scenario expansion' rule
+        deliberately repeats the SAME function name across N parametrize
+        rows (one row per scenario, all sharing one canonical test
+        function). All N rows must count as covered if the function
+        exists — not collapse to 1-covered/(N-1)-missing via asymmetric
+        set/list dedup (Bug Fix Spec-Cov-Asymmetric-Dedup, 2026-07-21)."""
+        arch = tmp_path / "02-architecture"
+        arch.mkdir(parents=True)
+        rows = "\n".join(
+            f"| {i + 1} | `test_fr_01_exit_code_map` | Functional |" for i in range(5)
+        )
+        (arch / "TEST_SPEC.md").write_text(
+            "### FR-01: Lexicon\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            f"{rows}\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_fr01.py").write_text(
+            "def test_fr_01_exit_code_map():\n    pass\n", encoding="utf-8",
+        )
+        result = _compute_fr_spec_data(tmp_path, "FR-01", "tests/test_fr01.py")
+        assert len(result["spec_test_names"]) == 5
+        assert result["spec_cov_pct"] == 100, (
+            f"5 duplicate parametrize rows sharing one existing function "
+            f"must all count as covered; got "
+            f"spec_cov_pct={result['spec_cov_pct']}"
+        )
+        assert result["missing_spec_count"] == 0, (
+            f"asymmetric set/list dedup would wrongly report 4 'missing'; "
+            f"got missing_spec_count={result['missing_spec_count']}"
+        )
+
+    def test_fr05_real_test_spec_section_and_dedup_combined(self, tmp_path):
+        """Combined regression using the real FR-05 shape that triggered
+        both bugs in production: 6 standalone cases + 5 duplicate
+        parametrize rows (11 total), followed by an '### NFR Integration'
+        section. Pre-fix this computed spec_test_names=16 (11 real + 5
+        leaked NFR rows) and spec_cov_pct=75 (12 unique covered / 16
+        inflated denominator) even though every FR-05 test existed and
+        `cli.py` had 100% line coverage — the exact false-BLOCKED loop
+        FR-05's GATE1 hit for 7 rounds before a lucky sub-agent override.
+        Post-fix: spec_test_names=11, spec_cov_pct=100."""
+        arch = tmp_path / "02-architecture"
+        arch.mkdir(parents=True)
+        exit_code_rows = "\n".join(
+            f"| {i + 7} | `test_fr05_07_exit_code_map` | integration |"
+            for i in range(5)
+        )
+        (arch / "TEST_SPEC.md").write_text(
+            "### FR-05: CLI Integration\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_fr05_01_status_all_fields` | happy_path |\n"
+            "| 2 | `test_fr05_02_status_json` | happy_path |\n"
+            "| 3 | `test_fr05_03_list_happy` | happy_path |\n"
+            "| 4 | `test_fr05_04_list_filter_done` | happy_path |\n"
+            "| 5 | `test_fr05_05_clear` | happy_path |\n"
+            "| 6 | `test_fr05_06_unknown_task_id` | validation |\n"
+            f"{exit_code_rows}\n"
+            "\n"
+            "### NFR Integration (Integration-tier NFR cases only)\n\n"
+            "| # | Test Function | Type |\n"
+            "|---|--------------|------|\n"
+            "| 1 | `test_nfr03_02_recovery_within_cooldown` | integration |\n"
+            "| 2 | `test_nfr08_01_four_process_concurrent` | integration |\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_fr05.py").write_text(
+            "def test_fr05_01_status_all_fields(): pass\n"
+            "def test_fr05_02_status_json(): pass\n"
+            "def test_fr05_03_list_happy(): pass\n"
+            "def test_fr05_04_list_filter_done(): pass\n"
+            "def test_fr05_05_clear(): pass\n"
+            "def test_fr05_06_unknown_task_id(): pass\n"
+            "def test_fr05_07_exit_code_map(): pass\n",
+            encoding="utf-8",
+        )
+        result = _compute_fr_spec_data(tmp_path, "FR-05", "tests/test_fr05.py")
+        assert len(result["spec_test_names"]) == 11, (
+            f"expected 11 rows (6 standalone + 5 parametrize), NOT leaking "
+            f"the 2 NFR Integration rows; got "
+            f"{len(result['spec_test_names'])}"
+        )
+        assert result["spec_cov_pct"] == 100, (
+            f"all 11 rows map to functions that exist; got "
+            f"{result['spec_cov_pct']}"
+        )
+        assert result["missing_spec_count"] == 0
+
 
 class TestRunToolDispatcher:
     """Bug #110: harness_cli run-tool subcommand dispatches to tool_runners.run_tool."""
