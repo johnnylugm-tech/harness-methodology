@@ -1661,6 +1661,36 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
 
     Returns True if the step can be safely skipped (crash recovery / no-change).
     """
+    # Bug Fix Idempotency-Cascade (2026-07-21): if GATE1 sentinel + manifest
+    # quality_complete=true exist for THIS phase, the TDD-RED/GREEN/IMPROVE
+    # prerequisites are transitively done. Without this shortcut, FRs whose
+    # GREEN/IMPROVE commits pre-date the phase boundary commit (e.g. FR-02's
+    # GREEN commits 6a0b272/71cb187/e6e2fee are ancestors of e91cc23) are
+    # mis-classified as "not done" because
+    # `git log --grep <pattern> <boundary>..HEAD` is empty AND the docstring
+    # scan (multi-tag) may also fail — compounding to false-negative
+    # re-dispatch on every resume-fr-phase.
+    #
+    # Reuses `load_quality_manifest` (imported at line 35) — same lenient=True,
+    # same JSON key path (`gate_results.gate1.<fr_id>.quality_complete`) as
+    # the GATE1 idempotency check at lines 1695-1707 below, so the cascade
+    # reads the SAME source of truth.
+    #
+    # Deliberately excludes GATE1 / GATE1-DELTA from the cascade — those
+    # branches have their own sentinel + quality_complete logic below.
+    if step.upper() in ("TDD-RED", "TDD-GREEN", "TDD-IMPROVE") and phase is not None:
+        _cascade_sentinel = gate1_evidence._finalize_sentinel_path(
+            project, 1, fr_id, phase=phase,
+        )
+        if _cascade_sentinel.exists():
+            _cascade_manifest = load_quality_manifest(project, lenient=True)
+            _cascade_qc = (
+                _cascade_manifest.get("gate_results", {})
+                .get("gate1", {}).get(fr_id, {}).get("quality_complete")
+            )
+            if _cascade_qc is True:
+                return True
+
     import subprocess as _sp
     tmpl = _FR_STEP_COMMIT_PATTERNS.get(step.upper(), "")
     if not tmpl:
@@ -1680,6 +1710,23 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
             cmd.append(f"{boundary}..HEAD")
         r = _sp.run(cmd, capture_output=True, text=True, cwd=str(project))
         committed = bool(r.stdout.strip())
+    # Review fix (2026-07-21): an earlier version of this change relaxed
+    # this to only early-return for GATE1/GATE1-DELTA, letting TDD-RED/
+    # TDD-GREEN fall through to the artifact heuristic below with NO
+    # commit evidence at all. That let a leftover, uncommitted artifact
+    # (e.g. a test file written by a dispatch that crashed before its
+    # commit landed) get silently marked "already done" — reproduced:
+    # `_fr_step_already_done("TDD-RED", fr_id, project, phase=3)` with an
+    # empty `git log --grep` AND an on-disk `test_frXX.py` returned True.
+    # The GATE1 cascade above already closes the phase-boundary gap this
+    # was meant to fix (FR-02's GREEN commits pre-dating the boundary):
+    # once GATE1 has genuinely PASSED for this FR/phase, the cascade
+    # short-circuits TDD-RED/GREEN/IMPROVE via the sentinel + manifest
+    # quality_complete signal — no commit-grep relaxation is needed, and
+    # unlike a raw unscoped-grep fallback it can't reintroduce the stale
+    # reset-away-lineage bug `_fr_step_lineage_boundary` exists to prevent
+    # (2026-07-11 repro documented on that function). So: commit evidence
+    # remains a hard requirement for every step here, TDD included.
     if not committed:
         return False
 
@@ -1726,12 +1773,41 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
             if num_str in py_file.name:
                 return True
             try:
-                if f"[{fr_id}]" in py_file.read_text(encoding="utf-8"):
-                    return True
-            except Exception as exc:
+                text = py_file.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
                 print(f"[WARN] docstring-reference scan: could not read {py_file}: {exc}", file=sys.stderr)
+                continue
+            # Match fr_id as an exact, comma-separated member of any
+            # `[...]` bracket block (handles both the single-tag
+            # `[FR-02]` convention and the multi-tag `[FR-02, FR-03,
+            # FR-04]` docstring IMPROVE-refactor produces when it
+            # consolidates modules into one shared file — Bug Fix
+            # Multi-Tag-Docstring, 2026-07-21). Anchored to bracket
+            # contents (not a whole-file substring search) so an
+            # unrelated comment like "# see FR-03, FR-09" cannot
+            # false-positive match — every match must be an exact tag,
+            # not a coincidental substring anywhere in the file.
+            for _tag_block in re.findall(r"\[([^\]]*)\]", text):
+                if fr_id in {t.strip() for t in _tag_block.split(",")}:
+                    return True
         return False
-    return True
+    # TDD-IMPROVE / AMEND-SAB / GATE1: commit-grep success is sufficient
+    # to mark the step done. GATE1 phase-scoping was already verified
+    # at line 1700-1738 above; TDD-IMPROVE / AMEND-SAB rely solely on
+    # the commit pattern (added by PR #18 for AMEND-SAB).
+    #
+    # `committed` is True only when the commit grep (line 1695-1712) hit
+    # a matching commit. Without this guard, AMEND-SAB's first call
+    # (before any amend-sab commit lands) would short-circuit True and
+    # the dispatch would NEVER invoke cmd_amend_sab — defeating the
+    # whole purpose of the dispatch.
+    if committed and step.upper() in ("TDD-IMPROVE", "AMEND-SAB", "GATE1"):
+        return True
+    # Unknown step (MIRROR, ORCH-POST, ...): the commit grep at line
+    # 1695-1712 is the only authoritative signal. If a future PR adds
+    # their dict keys, the corresponding branch above should be added
+    # here. Until then, conservative default is False.
+    return False
 
 
 
