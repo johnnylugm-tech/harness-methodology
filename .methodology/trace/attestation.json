@@ -1,9 +1,9 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "c50455d28cd2754e5c004c1e623a9fcd16ee2b39",
-  "content_sha256": "c54bc5b123e1abcea3b35c23670e134de1eea5af981ce72c3518c77eb7c8b471",
+  "git_sha": "b2c9cba766ba8a523332f49fc1a631112dc6b489",
+  "content_sha256": "932e6844274def27c81c4cbe6f0821fdf9944e9c452efa1039d1a0e3ad224423",
   "tool": "scripts/build_trace_attestation.py",
-  "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
+  "overlay_used": "/Users/johnny/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
   "matrix": {
     "schema_version": "harness/traceability/overlay/v1",
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 83,
+      "total_links": 90,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-07",
@@ -89,6 +89,8 @@
         "status": "verified",
         "srs_section": "SAD.md",
         "code_files": [
+          "cli/fr_cmds.py",
+          "tests/cli/test_fr_cmds_cli.py",
           "tests/cli/test_project_cmds_cli.py",
           "tests/test_attestation_verify.py",
           "tests/test_gate_trace_dimension.py",
@@ -99,6 +101,7 @@
           "tests/test_verify_spec_compliance.py"
         ],
         "test_files": [
+          "tests/cli/test_fr_cmds_cli.py",
           "tests/cli/test_project_cmds_cli.py",
           "tests/test_attestation_verify.py",
           "tests/test_gate_trace_dimension.py",
@@ -116,10 +119,12 @@
         "status": "verified",
         "srs_section": "SAD.md",
         "code_files": [
+          "tests/cli/test_fr_cmds_cli.py",
           "tests/test_scanner_js_traceability.py",
           "tests/test_traceability_pipeline.py"
         ],
         "test_files": [
+          "tests/cli/test_fr_cmds_cli.py",
           "tests/test_scanner_js_traceability.py",
           "tests/test_traceability_pipeline.py"
         ],
@@ -131,9 +136,11 @@
         "status": "verified",
         "srs_section": "SAD.md",
         "code_files": [
+          "tests/cli/test_fr_cmds_cli.py",
           "tests/test_traceability_pipeline.py"
         ],
         "test_files": [
+          "tests/cli/test_fr_cmds_cli.py",
           "tests/test_traceability_pipeline.py"
         ],
         "sad_module": "—",

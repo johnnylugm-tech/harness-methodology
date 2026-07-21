@@ -74,11 +74,10 @@ for hook_file in "$PROJECT_ROOT/$RELATIVE_HOOKS_DIR"/*; do
         fi
     fi
     # Make the symlink relative so it survives moving the repo (or submodule
-    # pointer changes that relocate $PROJECT_ROOT). The canonical hooks dir
-    # sits at $PROJECT_ROOT/$RELATIVE_HOOKS_DIR; the symlink target sits at
-    # $GIT_HOOKS_DIR. Walking up one level, the canonical dir is
-    # ../../$RELATIVE_HOOKS_DIR/$hook_name.
-    relative_target="../../$RELATIVE_HOOKS_DIR/$hook_name"
+    # pointer changes that relocate $PROJECT_ROOT). We dynamically calculate
+    # the relative path to support git worktrees and submodules where
+    # $GIT_HOOKS_DIR is not exactly two levels deep from $PROJECT_ROOT.
+    relative_target=$(python3 -c "import os.path; print(os.path.relpath('$PROJECT_ROOT/$RELATIVE_HOOKS_DIR/$hook_name', '$GIT_HOOKS_DIR'))")
     ln -sf "$relative_target" "$target"
 done
 echo "Mirrored $(ls "$PROJECT_ROOT/$RELATIVE_HOOKS_DIR" | wc -l | tr -d ' ') hook(s) to $GIT_HOOKS_DIR (symlinks to $RELATIVE_HOOKS_DIR/)"
