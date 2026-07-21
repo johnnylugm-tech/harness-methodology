@@ -198,7 +198,8 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 13 previously-unlogged broad excepts now print a [WARN]
     # diagnostic.
-    "cli/project_cmds.py": 1930,  # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
+    "cli/project_cmds.py": 1968,  # 2026-07-21: +38 lines — fix/round-18-dispatch-ssot (Bug C): wrap cmd_amend_sab with a deterministic-tool sessions_spawn.log entry written from the mutation site (covers all callers — standalone amend-sab subcommand + run-fr-step amend-sab delegation + any future caller). Splits the function body into _cmd_amend_sab_impl returning (rc, outcome_tag) and a new _log_amend_sab_outcome helper that mirrors AgentSpawner._log_dispatch's swallowing try/except.
+    # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
     # 2026-07-16: Round 12 站0 — agent_spawner crossed the unlisted-file
     # threshold (900) with three additions: _extract_dispatch_error /
     # _denoise_cli_stderr (站0c error-capture denoise — closes the 76×

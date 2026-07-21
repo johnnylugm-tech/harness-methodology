@@ -20,6 +20,7 @@ from typing import Any
 from core import claude_md
 from core.atomic_io import atomic_write_json
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
+from core.sessions_spawn_logger import SessionsSpawnLogger
 from core.state_io import load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
@@ -842,6 +843,25 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
     amend-sab is no longer reachable. Print a `[amend-sab] PHANTOM:` block
     listing phantom modules and exit non-zero when `--strict` is set so
     pipeline scripts can fail-fast.
+
+    Observability (fix/round-18-dispatch-ssot, Bug C): every amend-sab
+    outcome (success / failure / dry-run) is appended to
+    `.methodology/sessions_spawn.log` from THIS function — the mutation
+    site — so every caller (standalone `harness_cli.py amend-sab`,
+    `run-fr-step --step amend-sab` delegation, and any future caller) is
+    captured. Logging wraps in try/except mirroring AgentSpawner.
+    _log_dispatch's swallowing pattern so a logging failure cannot break
+    dispatch.
+    """
+    rc, outcome = _cmd_amend_sab_impl(args)
+    _log_amend_sab_outcome(args, rc, outcome)
+    return rc
+
+
+def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str]:
+    """Inner implementation of cmd_amend_sab, returning (rc, outcome_tag)
+    so cmd_amend_sab can wrap with logging without losing the original
+    exit-code / failure-mode signals.
     """
     project = Path(args.project).resolve()
     strict = getattr(args, "strict", False)
@@ -863,7 +883,7 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
                 phantoms = phantom_modules(sab_dict, discovered, args.src_dir)
     except Exception as exc:
         print(f"[amend-sab] failed: {exc}", file=sys.stderr)
-        return 1
+        return 1, "exception"
 
     if args.dry_run:
         if added:
@@ -879,7 +899,7 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
                 print(f"  ! {m}")
         else:
             print("[amend-sab] dry-run: no phantom modules detected.")
-        return 0
+        return 0, "dry_run"
 
     if added:
         print(f"[amend-sab] Added {len(added)} module(s) to .methodology/SAB.json:")
@@ -899,9 +919,49 @@ def cmd_amend_sab(args: argparse.Namespace) -> int:
               "or run `extract_sab_from_sad` to re-derive SAB from SAD.md.")
         if strict:
             print("[amend-sab] --strict set: exiting non-zero.", file=sys.stderr)
-            return 1
+            return 1, "phantom_strict"
 
-    return 0
+    return 0, "completed"
+
+
+def _log_amend_sab_outcome(args: argparse.Namespace, rc: int, outcome: str) -> None:
+    """Append one entry to `.methodology/sessions_spawn.log` for every
+    amend-sab invocation. Logging at the mutation site covers ALL
+    callers (the `run-fr-step` dispatch delegation, the standalone
+    `harness_cli.py amend-sab` subcommand, any future caller) rather
+    than scattering observability into a single dispatcher.
+
+    Schema follows the convention for non-LLM-tool entries used
+    elsewhere in the project: `role` sentinel tags the source,
+    `session_id=""` (per `core/agent_spawner._log_dispatch` line 811
+    for failed dispatches with no real session), `status` reports the
+    outcome tag.
+
+    Logging wraps in try/except mirroring
+    `core/agent_spawner._log_dispatch` lines 850-852 — a logging failure
+    MUST NOT break the dispatch itself.
+    """
+    project = Path(getattr(args, "project", ".") or ".").resolve()
+    try:
+        SessionsSpawnLogger(project).log_spawn(
+            role="tool:amend-sab",
+            task=f"amend-sab for {project.name} (deterministic tool)",
+            session_id="",
+            status=("COMPLETED" if rc == 0 else f"FAILED(rc={rc})"),
+            step="AMEND-SAB",
+            tool_kind="amend-sab",
+            outcome=outcome,
+            rc=rc,
+            src_dir=getattr(args, "src_dir", None),
+            dry_run=bool(getattr(args, "dry_run", False)),
+            strict=bool(getattr(args, "strict", False)),
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # Mirror AgentSpawner._log_dispatch swallowing pattern: a
+        # logging failure is non-fatal; surface as a warning but never
+        # alter the dispatch's exit code or behavior.
+        print(f"[WARN] amend-sab: failed to record sessions_spawn entry: "
+              f"{exc}", file=sys.stderr)
 
 
 def cmd_kill_switch(args: argparse.Namespace) -> int:

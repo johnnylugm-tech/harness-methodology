@@ -2398,3 +2398,144 @@ class TestCoverageFixPromptMatchesPragmaAllowlist:
             "list with no concrete example to mirror."
         )
 
+
+# =============================================================================
+# cmd_amend_sab writes a sessions_spawn.log entry from the mutation site
+# (PR: Round 18 Bug C).
+#
+# Pre-fix, the AMEND-SAB delegation branch in cmd_run_fr_step early-returned
+# before AgentSpawner.spawn() so sessions_spawn.log never recorded the
+# dispatch. The fix places a log_spawn call inside cmd_amend_sab itself
+# (the mutation site) so every caller is covered — the standalone
+# amend-sab subcommand, the run-fr-step delegation, any future caller.
+# =============================================================================
+
+
+class TestAmendSabWritesSessionsSpawnLogEntry:
+    """Every cmd_amend_sab invocation appends exactly one
+    `.methodology/sessions_spawn.log` line with role="tool:amend-sab"
+    and session_id=""."""
+
+    def _build_args(self, tmp_path: Path, **overrides) -> argparse.Namespace:
+        ns = argparse.Namespace(
+            project=str(tmp_path),
+            src_dir="03-development/src",
+            dry_run=False,
+            strict=False,
+        )
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def _read_log_entries(self, tmp_path: Path) -> list[dict]:
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        if not log_path.exists():
+            return []
+        return [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+
+    def test_amend_sab_success_writes_one_log_entry(self, tmp_path, capsys):
+        """`cmd_amend_sab` mutating SAB.json with new modules MUST
+        write exactly one log entry with status=COMPLETED and the
+        amend-sab role sentinel."""
+        from cli.project_cmds import cmd_amend_sab
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": ["app.seed"]}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+        (src / "extra_one.py").write_text("y = 1")
+
+        rc = cmd_amend_sab(self._build_args(tmp_path))
+        assert rc == 0
+
+        entries = self._read_log_entries(tmp_path)
+        assert len(entries) == 1, (
+            f"Expected exactly one sessions_spawn.log entry per amend-sab "
+            f"invocation; got {len(entries)} entries: {entries}"
+        )
+        e = entries[0]
+        assert e["role"] == "tool:amend-sab"
+        assert e["session_id"] == ""
+        assert e["status"] == "COMPLETED"
+        assert e["step"] == "AMEND-SAB"
+        assert e["tool_kind"] == "amend-sab"
+        assert e["outcome"] == "completed"
+        assert e["rc"] == 0
+        assert e["src_dir"] == "03-development/src"
+
+    def test_amend_sab_noop_still_writes_log_entry(self, tmp_path):
+        """Idempotent no-op (amend-sab on already-aligned tree) MUST
+        still write a log entry — observability is unconditional on
+        invocation, not conditional on whether a mutation happened.
+        Otherwise the audit trail loses track of how many times the
+        operator ran the tool."""
+        from cli.project_cmds import cmd_amend_sab
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": ["app.seed"]}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        rc = cmd_amend_sab(self._build_args(tmp_path))
+        assert rc == 0
+
+        entries = self._read_log_entries(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "COMPLETED"
+        assert entries[0]["outcome"] == "completed"
+
+    def test_amend_sab_failure_writes_log_with_failed_status(self, tmp_path, capsys):
+        """`cmd_amend_sab` hitting an exception MUST write a log entry
+        with status=FAILED so audit tools can spot the failure despite
+        the dispatched error printed to stderr."""
+        from cli.project_cmds import cmd_amend_sab
+        import cli.project_cmds as pc
+
+        # Force amend_sab to throw — captures both the exception handler
+        # in cmd_amend_sab AND the post-call log entry, which is what
+        # we want here (the user asked for observability through every path).
+        def _boom(*a, **kw):
+            raise RuntimeError("synthetic failure for test")
+
+        original = pc.amend_sab if hasattr(pc, "amend_sab") else None
+
+        class _BoomModule:
+            amend_sab = staticmethod(_boom)
+            discover_modules = staticmethod(lambda *a, **kw: [])
+            phantom_modules = staticmethod(lambda *a, **kw: [])
+
+        monkeypatch_patch = pc.__dict__.copy()
+        monkeypatch_patch["amend_sab"] = _boom
+        # Easier: use sys.modules injection
+        import sys
+        sys.modules["core.quality_gate.sab_amender"] = _BoomModule
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        try:
+            rc = cmd_amend_sab(self._build_args(tmp_path))
+        finally:
+            if original is not None:
+                sys.modules["core.quality_gate.sab_amender"] = original
+            # Best-effort cleanup of cache.
+            sys.modules.pop("core.quality_gate.sab_amender", None)
+
+        assert rc == 1
+        entries = self._read_log_entries(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "FAILED(rc=1)"
+        assert entries[0]["outcome"] == "exception"
+        assert entries[0]["rc"] == 1
+
