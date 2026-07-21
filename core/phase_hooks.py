@@ -157,6 +157,20 @@ NON_PIPELINE_POSTFLIGHTS: "dict[str, str]" = {
 
 _PRAGMA_RE = re.compile(r"#\s*pragma:\s*no\s*cover")
 
+# Single source of truth for what a `# pragma: no cover` annotation may
+# exempt. Reused verbatim by cli/fr_cmds.py's COVERAGE-FIX prompt so the
+# sub-agent is never told something is "allowed" that this audit then
+# rejects (see harness-methodology issue: pragma-allowlist drift between
+# TDD-GREEN/COVERAGE-FIX prompts and this audit).
+PRAGMA_NO_COVER_ALLOWLIST: tuple[str, ...] = ("except BaseException",)
+PRAGMA_NO_COVER_GUIDANCE = (
+    "Only `except BaseException` (atomic-write cleanup) may be exempted "
+    "with `# pragma: no cover`. For any other unreachable line: if it is "
+    "genuinely dead code (a branch a library guarantee makes impossible, "
+    "or a duplicate of an existing entry-point module), DELETE it. If it "
+    "is reachable, write a unit test for it instead of excluding it."
+)
+
 
 def _audit_pragma_no_cover(targets: list[str]) -> list[dict]:
     """Scan source dirs for ``# pragma: no cover`` outside allowed patterns.
@@ -164,10 +178,11 @@ def _audit_pragma_no_cover(targets: list[str]) -> list[dict]:
     Semgrep operates on AST and cannot match Python comments, so this runs
     as a separate grep-based check integrated into ``preflight_reliability_lint``.
 
-    Allowlist: only ``except BaseException`` for atomic-write cleanup is
-    automatically accepted.  All other pragma uses must be justified with a
-    unit test — if the code path is reachable, write the test and remove the
-    pragma; if it is genuinely unreachable, document why.
+    Allowlist: ``PRAGMA_NO_COVER_ALLOWLIST`` (only ``except BaseException``
+    for atomic-write cleanup is automatically accepted).  All other pragma
+    uses must be justified with a unit test — if the code path is reachable,
+    write the test and remove the pragma; if it is genuinely unreachable,
+    document why.
 
     Returns a list of finding dicts compatible with the semgrep findings
     format used by ``preflight_reliability_lint``.
@@ -182,8 +197,7 @@ def _audit_pragma_no_cover(targets: list[str]) -> list[dict]:
             for i, line in enumerate(lines, 1):
                 if not _PRAGMA_RE.search(line):
                     continue
-                # Allow: except BaseException for atomic-write cleanup.
-                if "except BaseException" in line:
+                if any(allowed in line for allowed in PRAGMA_NO_COVER_ALLOWLIST):
                     continue
                 findings.append({
                     "rule": "py-pragma-no-cover",
