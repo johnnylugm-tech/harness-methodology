@@ -2044,15 +2044,17 @@ class TestRunFrStepAmendSab:
         return ns
 
     @staticmethod
-    def _git_commit(tmp_path: Path, message: str) -> None:
+    def _git_commit(tmp_path: Path, message: str, *, allow_empty: bool = False) -> None:
         """`git commit` scoped with an explicit identity so this test does
         not depend on the runner having a global user.name/user.email
-        configured (CI runners commonly don't)."""
-        subprocess.run(
-            ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
-             "commit", "-q", "-m", message],
-            cwd=str(tmp_path), check=True,
-        )
+        configured (CI runners commonly don't). `allow_empty=True` lets
+        idempotency-style tests land a marker commit even when the
+        working tree has nothing to stage."""
+        cmd = ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
+               "commit", "-q", "-m", message]
+        if allow_empty:
+            cmd.append("--allow-empty")
+        subprocess.run(cmd, cwd=str(tmp_path), check=True)
 
     def test_argparse_accepts_amend_sab(self, tmp_path):
         """`run-fr-step --step amend-sab` must parse without SystemExit (was a
@@ -2239,4 +2241,64 @@ class TestRunFrStepAmendSab:
 
         rc2 = cmd_run_fr_step(self._make_args(tmp_path))
         assert rc2 == 0, "Once committed and no further drift, amend-sab must succeed"
+
+    def test_amend_sab_short_circuits_when_already_committed(self, tmp_path, monkeypatch):
+        """Regression (fix/round-18-dispatch-ssot, Bug A): the
+        `_FR_STEP_COMMIT_PATTERNS` dict gain an `AMEND-SAB` key so a
+        second `cmd_run_fr_step(... amend-sab)` whose amend-sab commit is
+        already in `git log` short-circuits via `_fr_step_already_done`,
+        skipping the duplication-prevention `rc == 6` dirty-tree block.
+        Without this dict key, `_fr_step_already_done("AMEND-SAB", ...)`
+        returned False unconditionally (key missing → `""` → falsy) and
+        the dirty-tree BLOCK fired on every re-run even when SAB.json
+        was already committed.
+        """
+        from harness_cli import cmd_run_fr_step
+        from cli import project_cmds
+
+        # Stub cmd_amend_sab at the source module that the delegation branch
+        # imports it from. If short-circuit fails, this counter goes > 0.
+        calls: list[argparse.Namespace] = []
+
+        def _stub_amend_sab(args):
+            calls.append(args)
+            # No SAB.json mutation — simulates an idempotent re-run against
+            # a repo where the amendment already landed.
+            return 0
+
+        monkeypatch.setattr(project_cmds, "cmd_amend_sab", _stub_amend_sab)
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        self._git_commit(tmp_path, "init")
+        # Commit that matches the AMEND-SAB pattern in _FR_STEP_COMMIT_PATTERNS
+        # — key inserted in fix/round-18-dispatch-ssot (Bug A):
+        #   "AMEND-SAB": "amend({fr_id}): SAB modules"
+        # formatted with fr_id=FR-03. allow_empty because the dirty-tree
+        # BLOCK check in the AMEND-SAB branch assumes new work to commit;
+        # this test simulates the post-commit state, so a marker commit is
+        # the right shape.
+        self._git_commit(tmp_path, "amend(FR-03): SAB modules", allow_empty=True)
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+
+        assert rc == 0, (
+            f"Re-run after a matching amend-sab commit MUST short-circuit "
+            f"(return 0) via _fr_step_already_done, not call cmd_amend_sab "
+            f"and not trip the dirty-tree BLOCK. Got rc={rc}, "
+            f"cmd_amend_sab called {len(calls)} time(s)."
+        )
+        assert len(calls) == 0, (
+            f"On idempotent re-run, cmd_amend_sab MUST NOT be invoked. "
+            f"Saw {len(calls)} call(s); the AMEND-SAB dict key did not "
+            f"short-circuit _fr_step_already_done."
+        )
 
