@@ -1359,6 +1359,164 @@ class TestRunFrStep:
         }))
         assert not _fr_step_already_done("GATE1", "FR-05", tmp_path, phase=3)
 
+    # ------------------------------------------------------------------
+    # Bug Fix Multi-Tag-Docstring + Idempotency-Cascade (2026-07-21)
+    # ------------------------------------------------------------------
+
+    def test_fr_step_already_done_multi_tag_docstring_matches_each_fr(self, tmp_path, monkeypatch):
+        """Multi-tag docstring `[FR-02, FR-03, FR-04]` MUST match each individual
+        FR's TDD-GREEN heuristic. Pre-fix: only literal `[FR-02]` matched; the
+        combined string failed for every FR even when each is genuinely present
+        in the tag set.
+
+        Live-failing scenario before fix: taskq/executor.py after FR-04 IMPROVE
+        has header that contains the multi-tag set `[FR-02, FR-03, FR-04]`;
+        FR-02's heuristic returns False even though `[FR-02]` is semantically
+        a tag in that combined set.
+        """
+        import subprocess as _sp
+
+        class _EmptyGrep:
+            returncode = 0
+            stdout = ""  # commit grep empty (phase boundary scenario)
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _EmptyGrep())
+
+        # NO cascade pre-conditions (no sentinel, no manifest), so the
+        # multi-tag docstring scan is the only signal that matters here.
+        src_dir = tmp_path / "03-development" / "src"
+        src_dir.mkdir(parents=True)
+        (src_dir / "executor.py").write_text(
+            '"""[FR-02, FR-03, FR-04] `taskq.executor` — shared executor."""\n'
+            "def run_task(tid): return tid\n"
+        )
+
+        # Each FR in the multi-tag set MUST match.
+        assert _fr_step_already_done("TDD-GREEN", "FR-02", tmp_path, phase=3), (
+            "FR-02 (leading tag in [FR-02, FR-03, FR-04]) must match — "
+            "multi-tag leading pattern `[FR-02,` should match"
+        )
+        assert _fr_step_already_done("TDD-GREEN", "FR-03", tmp_path, phase=3), (
+            "FR-03 (mid-list tag in [FR-02, FR-03, FR-04]) must match — "
+            "multi-tag mid-list pattern `FR-03,` should match"
+        )
+        assert _fr_step_already_done("TDD-GREEN", "FR-04", tmp_path, phase=3), (
+            "FR-04 (trailing tag in [FR-02, FR-03, FR-04]) must match — "
+            "multi-tag trailing pattern `FR-04]` should match"
+        )
+
+        # A FR NOT in the tag set must NOT match (negative case).
+        assert not _fr_step_already_done("TDD-GREEN", "FR-99", tmp_path, phase=3), (
+            "FR-99 (not in any tag) must not match the multi-tag docstring"
+        )
+
+    def test_fr_step_already_done_tdd_green_cascade_when_gate1_sentinel_and_quality_complete(
+        self, tmp_path, monkeypatch,
+    ):
+        """When GATE1 sentinel + manifest quality_complete=true exist for this
+        FR in this phase, TDD-RED/GREEN/IMPROVE heuristic MUST short-circuit
+        to True even if commit grep is empty (phase boundary scenario) AND
+        docstring scan would also fail (no source artifact at all).
+
+        This is the canonical bug-fix repro for FR-02: GREEN commits
+        6a0b272/71cb187/e6e2fee pre-date the e91cc23 boundary, so the commit
+        grep is empty; AND the heuristic fallback path was unreachable due to
+        the early `return False` at line 1682-1683 (now removed by this fix).
+        With the cascade, the sentinel + quality_complete signals are
+        sufficient to mark the TDD steps as done (they are the transitive
+        prerequisites that produced the sentinel + passing manifest).
+        """
+        import subprocess as _sp
+
+        class _EmptyGrep:
+            returncode = 0
+            stdout = ""
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _EmptyGrep())
+
+        # Write GATE1 sentinel for FR-02 phase=3.
+        from core.quality_gate.gate1_evidence import _finalize_sentinel_path
+        sentinel = _finalize_sentinel_path(tmp_path, 1, "FR-02", phase=3)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("2026-07-21T00:00:00+00:00\n", encoding="utf-8")
+
+        # Write manifest with quality_complete=true for FR-02.
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps({
+            "gate_results": {"gate1": {"FR-02": {"score": 100.0, "quality_complete": True}}},
+        }))
+
+        # NO src dir, NO test dir, NO commit grep — yet cascade fires.
+        assert _fr_step_already_done("TDD-RED", "FR-02", tmp_path, phase=3), (
+            "TDD-RED must short-circuit to True when GATE1 sentinel + "
+            "quality_complete=true exist (cascade shortcut)"
+        )
+        assert _fr_step_already_done("TDD-GREEN", "FR-02", tmp_path, phase=3), (
+            "TDD-GREEN must short-circuit to True via cascade"
+        )
+        # TDD-IMPROVE also covered by cascade (the cascade lives at the top
+        # of the function before commit grep, and applies to all three
+        # TDD steps; TDD-IMPROVE has no separate artifact heuristic in
+        # this fix).
+        assert _fr_step_already_done("TDD-IMPROVE", "FR-02", tmp_path, phase=3), (
+            "TDD-IMPROVE must short-circuit to True via cascade (GATE1 "
+            "sentinel + quality_complete=true is transitive proof that "
+            "TDD-IMPROVE prerequisites ran)"
+        )
+
+    def test_fr_step_already_done_cascade_not_used_for_gate1_itself(self, tmp_path, monkeypatch):
+        """Cascade MUST NOT fire for GATE1 step itself. GATE1 has its own
+        sentinel + quality_complete logic at lines 1670-1712; cascade
+        deliberately excludes GATE1 from the trigger set to prevent a
+        circular short-circuit (cascade reads the SAME manifest that the
+        GATE1 branch reads — without exclusion, GATE1 would short-circuit
+        on its own sentinel regardless of the sentinel write timing)."""
+        import subprocess as _sp
+
+        # Empty commit grep (would normally make GATE1 return False via
+        # sentinel-only check, which depends on sentinel.exists()).
+        class _EmptyGrep:
+            returncode = 0
+            stdout = ""
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _EmptyGrep())
+
+        # No sentinel, no manifest → GATE1 must return False (cascade NOT in play).
+        assert not _fr_step_already_done("GATE1", "FR-01", tmp_path, phase=3), (
+            "GATE1 without sentinel must return False; cascade is excluded "
+            "from GATE1 step to prevent circular short-circuit"
+        )
+
+    def test_fr_step_already_done_negative_no_sentinel_no_artifact(self, tmp_path, monkeypatch):
+        """Negative: no sentinel, no manifest quality_complete, no source
+        artifact → all three TDD heuristics return False (genuine not-done).
+        Pins that the cascade is not a blanket 'always True' shortcut.
+        """
+        import subprocess as _sp
+
+        class _EmptyGrep:
+            returncode = 0
+            stdout = ""
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _EmptyGrep())
+
+        # No .methodology dir, no 03-development/src, no test file at all.
+        assert not _fr_step_already_done("TDD-RED", "FR-77", tmp_path, phase=3), (
+            "TDD-RED must return False when no sentinel, no manifest, no test file"
+        )
+        assert not _fr_step_already_done("TDD-GREEN", "FR-77", tmp_path, phase=3), (
+            "TDD-GREEN must return False when no sentinel, no manifest, no src"
+        )
+        assert not _fr_step_already_done("TDD-IMPROVE", "FR-77", tmp_path, phase=3), (
+            "TDD-IMPROVE must return False when no sentinel, no manifest"
+        )
+
+        # Cascade requires phase is not None — verify with phase=None too.
+        assert not _fr_step_already_done("TDD-GREEN", "FR-77", tmp_path, phase=None), (
+            "Cascade must NOT fire when phase=None (defensive default)"
+        )
+
     @staticmethod
     def _git(tmp_path, *args):
         import subprocess as _sp
