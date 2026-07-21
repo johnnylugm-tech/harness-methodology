@@ -2201,3 +2201,27 @@ class TestRunGateAutoAmendSab:
         assert "Phantom modules" in out
         assert "app.never_implemented" in out
 
+    def test_auto_amend_sab_does_not_duplicate_path_form_entries(self, tmp_path, capsys):
+        """Regression: `_check_sab_module_alignment` passed an ABSOLUTE src_dir
+        Path into `amend_sab`, which treats src_dir as a RELATIVE prefix string
+        for stripping path-form SAB entries (e.g. "03-development/src/app/seed.py").
+        With the absolute path, the prefix strip silently failed, so an
+        already-registered path-form module was mis-detected as unregistered
+        and re-added under its dotted name — corrupting SAB.json with a
+        duplicate entry for the same module. Only `extra_one` (genuinely new)
+        must be added; `seed` (already registered, path form) must NOT gain a
+        second "app.seed" entry."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, modules=["03-development/src/app/seed.py"])
+        self._make_src(tmp_path, "seed", "extra_one")
+
+        rc = _check_sab_module_alignment(str(tmp_path), gate=1, auto_amend=True)
+        out = capsys.readouterr().out
+        assert rc is None, f"Expected fall-through (None) after auto-amend. Output: {out}"
+
+        sab_after = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        modules_after = sab_after["layers"][0]["modules"]
+        assert modules_after == ["03-development/src/app/seed.py", "app.extra_one"], (
+            f"path-form 'seed' entry must not be duplicated as 'app.seed': {modules_after}"
+        )
+

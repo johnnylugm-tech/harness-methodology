@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 import io
 
@@ -2172,4 +2173,69 @@ class TestRunFrStepAmendSab:
         sab_after_second = (tmp_path / ".methodology" / "SAB.json").read_text()
 
         assert sab_after_first == sab_after_second
+
+    def test_amend_sab_blocks_when_sab_json_left_uncommitted(self, tmp_path, capsys):
+        """Regression: the delegation branch returns BEFORE the general
+        post-step dirty-tree guard / `_COMMIT_REQUIRED_STEPS` check further
+        down `cmd_run_fr_step` — those never run for an early return — and
+        `_COMMIT_REQUIRED_STEPS` itself stores this step as lowercase
+        "amend-sab" while `step` is always upper-cased, so neither backstop
+        would fire even if reached. `cmd_amend_sab` never commits by design.
+        Without a dedicated check, a genuine SAB.json mutation left
+        uncommitted would silently persist. Must BLOCK (exit 6) instead."""
+        from harness_cli import cmd_run_fr_step
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True
+        )
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+        err = capsys.readouterr().err
+
+        assert rc == 6, f"Must BLOCK when SAB.json is left uncommitted, got rc={rc}"
+        assert "SAB.json was updated but not committed" in err
+        assert "git" in err and "commit" in err
+
+    def test_amend_sab_no_block_when_operator_commits(self, tmp_path, capsys):
+        """Counter-example to the block above: once the caller commits
+        SAB.json after amend-sab (as the orchestrator prompt instructs),
+        the step must succeed cleanly (rc=0), proving the guard only fires
+        on genuinely uncommitted state, not on every mutation."""
+        from harness_cli import cmd_run_fr_step
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True
+        )
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+        assert rc == 6  # first call: mutated but uncommitted
+
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "amend: register SAB modules"],
+            cwd=str(tmp_path), check=True,
+        )
+
+        rc2 = cmd_run_fr_step(self._make_args(tmp_path))
+        assert rc2 == 0, "Once committed and no further drift, amend-sab must succeed"
 

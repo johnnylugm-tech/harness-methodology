@@ -1025,7 +1025,15 @@ def _check_sab_module_alignment(
         if unregistered:
             if auto_amend:
                 from core.quality_gate.sab_amender import amend_sab
-                added = amend_sab(Path(project), src_dir=str(src_dir), dry_run=False)
+                # amend_sab/normalize_sab_module_to_dotted treat src_dir as a
+                # RELATIVE prefix string (e.g. "03-development/src") used to
+                # strip path-form SAB entries — src_dir here is the ABSOLUTE
+                # Path from ProjectLayout, so it must be relativized first.
+                # Passing it absolute silently breaks path-form prefix
+                # stripping and duplicates already-registered path-form
+                # modules under their dotted name.
+                _src_dir_rel = str(src_dir.relative_to(Path(project).resolve()))
+                added = amend_sab(Path(project), src_dir=_src_dir_rel, dry_run=False)
                 if added:
                     print(f"[amend-sab] auto-registered: {sorted(added)}")
                     print("[amend-sab] review via `git diff .methodology/SAB.json` "
