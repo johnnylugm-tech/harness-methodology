@@ -251,7 +251,14 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +1 line — Round 13 站1: exception-swallow ratchet paydown —
     # the attestation-check except now prints its error instead of silently
     # discarding it.
-    "core/phase_hooks.py": 1598,
+    # 2026-07-21: +12 lines — pragma-allowlist drift fix: _audit_pragma_no_cover's
+    # allowlist is now a named PRAGMA_NO_COVER_ALLOWLIST/PRAGMA_NO_COVER_GUIDANCE
+    # pair (single source of truth) instead of an inline string literal, so
+    # cli/fr_cmds.py's COVERAGE-FIX prompt can import and interpolate the same
+    # guidance GATE1 actually enforces instead of hand-writing a broader,
+    # unsynchronized allowlist (was whitelisting `if __name__ == "__main__":`
+    # pragmas that GATE1 always rejected — guaranteed no-progress BLOCKED rounds).
+    "core/phase_hooks.py": 1610,
     # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
     # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
     # (broken) Path(__file__).parent arithmetic.

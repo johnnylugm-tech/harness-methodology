@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from core.phase_hooks import PhaseHooks
+from core.phase_hooks import PhaseHooks, PRAGMA_NO_COVER_ALLOWLIST
 
 
 def _project(tmp_path: Path, language: str = "python") -> Path:
@@ -302,6 +302,13 @@ class TestPragmaNoCoverAudit:
         result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
         rules = {f["rule"] for f in result["findings"]}
         assert "py-pragma-no-cover" not in rules
+
+    def test_allowlist_is_single_source_of_truth(self):
+        """PRAGMA_NO_COVER_ALLOWLIST is the only exemption this audit honors —
+        cli/fr_cmds.py's COVERAGE-FIX prompt must interpolate the sibling
+        PRAGMA_NO_COVER_GUIDANCE constant instead of hand-writing its own
+        (broader) allowed-list, so the two can never drift again."""
+        assert PRAGMA_NO_COVER_ALLOWLIST == ("except BaseException",)
 
     def test_mixed_pragmas(self, tmp_path):
         """Mixed workaround + legitimate pragmas → only workaround flagged."""

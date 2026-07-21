@@ -558,6 +558,20 @@ class TestRunFrStep:
         assert "assert False  # RED" in prompt
         assert "feat(FR-01): GREEN" in prompt
 
+    def test_prompt_tdd_green_forbids_unreachable_defensive_code(self, tmp_path):
+        """Regression: TDD-GREEN must warn against writing branches that are
+        unreachable under language/library guarantees (e.g. argparse
+        required=True) or that duplicate an existing __main__.py entry
+        point — this is what let dead code slip into GREEN, get pragma'd by
+        COVERAGE-FIX, then get rejected by GATE1's pragma audit (2 wasted
+        no-progress rounds observed in the wild)."""
+        srs = tmp_path / "SRS.md"
+        srs.write_text("### FR-01: X\n\n---\n", encoding="utf-8")
+        prompt = _build_fr_step_prompt("TDD-GREEN", "FR-01", 3, tmp_path, srs)
+        assert "unreachable under the language/library" in prompt
+        assert "do not duplicate its" in prompt
+        assert '__main__.py' in prompt
+
     def test_prompt_gate1_contains_run_gate_command(self, tmp_path):
         """GATE1 prompt includes run-gate and finalize-gate commands."""
         prompt = _build_fr_step_prompt("GATE1", "FR-01", 3, tmp_path, None)
@@ -697,6 +711,24 @@ class TestRunFrStep:
         whole-tree fallback command is unchanged."""
         prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
         assert "pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q" in prompt
+
+    def test_prompt_coverage_fix_pragma_allowlist_matches_gate1_audit(self, tmp_path):
+        """Regression (pragma-allowlist drift): COVERAGE-FIX's ESCAPE HATCH
+        must not advertise an exemption GATE1's _audit_pragma_no_cover will
+        then reject. `if __name__ == "__main__":` must no longer be listed
+        as an allowed pragma target, and the prompt must interpolate the
+        single-source-of-truth guidance from core.phase_hooks so the two
+        can never drift apart again."""
+        from core.phase_hooks import PRAGMA_NO_COVER_GUIDANCE
+
+        prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
+        # Old hand-written allowlist (which used to whitelist __main__ guards) is gone.
+        assert "✓ Allowed:" not in prompt
+        # New rule explicitly rejects __main__ guards as a pragma target.
+        assert 'blocks are NOT a valid pragma target' in prompt
+        # Prompt now shares GATE1's own allowlist description verbatim —
+        # the two can no longer say different things.
+        assert PRAGMA_NO_COVER_GUIDANCE in prompt
 
     def test_resume_fr_phase_finds_first_pending_step(self, tmp_path, monkeypatch):
         """resume-fr-phase prints the first step that is not yet done."""
