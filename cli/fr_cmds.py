@@ -2283,7 +2283,20 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                     f"point; in-process tests provide measurable coverage for the internal logic.\n\n"
                 )
 
-        from core.phase_hooks import PRAGMA_NO_COVER_GUIDANCE as _pragma_guidance
+        from core.phase_hooks import (
+            PRAGMA_NO_COVER_ALLOWLIST as _pragma_allowlist,
+            PRAGMA_NO_COVER_GUIDANCE as _pragma_guidance,
+        )
+        # Render the allowlist as an interpolated block ONCE here so the
+        # rest of the prompt can be a single adjacent-string expression
+        # (every chunk in the multi-line return below is f-prefixed; this
+        # pure-string block carries no interpolation).
+        _pragma_allowlist_block = (
+            "Allowed exemptions (rendered verbatim from Gate 1 audit's "
+            "`PRAGMA_NO_COVER_ALLOWLIST` SSOT — adding a pattern that is not "
+            "in this list WILL fail Gate 1 on the next dispatch):\n"
+            + "".join(f"  - `{pat}`\n" for pat in _pragma_allowlist)
+        )
 
         return (
             f"You are a coverage fixer for {fr_id}.\n\n"
@@ -2314,6 +2327,7 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"git commit -m 'test({fr_id}): add coverage tests and pragma exclusions'`\n\n"
             f"[ESCAPE HATCH — pragma: no cover]\n"
             f"{_pragma_guidance}\n"
+            f"{_pragma_allowlist_block}\n"
             f"`if __name__ == \"__main__\":` blocks are NOT a valid pragma target. If this "
             f"project has a dedicated entry-point module (`<pkg>/__main__.py`), exclude THAT "
             f"file at the file level via setup.cfg's `[coverage:run] omit`, and DELETE any "
@@ -2321,8 +2335,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
             f"module exists, extract one; that is an architecture fix, not a coverage "
             f"suppression.\n"
             f"Each `# pragma: no cover` annotation MUST be accompanied by a one-line comment "
-            f"explaining WHY it is untestable, e.g.:\n"
-            f"  `raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement`\n\n"
+            f"explaining WHY it is untestable. Example that PASSES Gate 1 "
+            f"(matches the allowlist above):\n"
+            f"  `except BaseException: pass  # pragma: no cover — atomic-write cleanup, see core.atomic_io`\n\n"
             f"[PARTIAL PROGRESS NOTE]\n"
             f"If there are many missing spec tests (>50), add as many as you can and commit.\n"
             f"The meta-loop will re-run if coverage is still insufficient — each session "

@@ -2302,3 +2302,99 @@ class TestRunFrStepAmendSab:
             f"short-circuit _fr_step_already_done."
         )
 
+
+# =============================================================================
+# COVERAGE-FIX prompt vs PRAGMA_NO_COVER_ALLOWLIST SSOT (PR: Round 18 Bug B)
+#
+# Round 17 PR review surfaced that the COVERAGE-FIX prompt taught LLM agents
+# a 4-pattern allowed pragma list while the Gate 1 audit scanner (in
+# core/phase_hooks.py:_audit_pragma_no_cover) only honored one pattern:
+# `except BaseException`. Round 18 fixes this by rendering the SSOT tuple
+# verbatim into the prompt + replacing the contradictory
+# `raise NotImplementedError # pragma: no cover` example with one that
+# actually passes Gate 1. These tests pin the bidirectional binding so
+# future widening of the tuple automatically propagates to the prompt.
+# =============================================================================
+
+
+class TestCoverageFixPromptMatchesPragmaAllowlist:
+    """The COVERAGE-FIX dispatch prompt must teach only what the Gate 1
+    audit scanner accepts — agents following the prompt MUST produce
+    output the scanner does not reject as `py-pragma-no-cover`."""
+
+    def _render_coverage_fix_prompt(self, tmp_path: Path) -> str:
+        """Render the COVERAGE-FIX prompt via the same code path the
+        dispatch loop would use. Stub `_compute_fr_spec_data` upstream
+        so we don't need real SRS / spec files."""
+        from cli.fr_cmds import _build_fr_step_prompt
+
+        # Minimal project layout so _compute_fr_spec_data can construct
+        # test_file path; layout is read-only here.
+        (tmp_path / "03-development").mkdir(exist_ok=True)
+        (tmp_path / "03-development" / "tests").mkdir(exist_ok=True)
+        (tmp_path / "03-development" / "src").mkdir(exist_ok=True)
+        (tmp_path / "02-architecture").mkdir(exist_ok=True)
+        (tmp_path / "01-requirements").mkdir(exist_ok=True)
+        srs_path = tmp_path / "01-requirements" / "SRS.md"
+        srs_path.touch()
+        return _build_fr_step_prompt(
+            "COVERAGE-FIX", "FR-03", phase=3, project=tmp_path,
+            srs_path=srs_path,
+        )
+
+    def test_prompt_renders_pragma_allowlist_verbatim(self, tmp_path):
+        """Regression (fix/round-18-dispatch-ssot, Bug B): the COVERAGE-FIX
+        prompt body must include an `Allowed exemptions:` block listing
+        every entry from `PRAGMA_NO_COVER_ALLOWLIST` so the agent sees
+        exactly what Gate 1's audit will accept (and is warned that
+        adding a non-listed pattern will fail)."""
+        prompt = self._render_coverage_fix_prompt(tmp_path)
+
+        from core.phase_hooks import PRAGMA_NO_COVER_ALLOWLIST
+        assert "Allowed exemptions (rendered verbatim from Gate 1 audit's" in prompt, (
+            "Prompt must call out that the listed exemptions are rendered "
+            "verbatim from the audit's SSOT tuple."
+        )
+        assert "PRAGMA_NO_COVER_ALLOWLIST" in prompt, (
+            "Prompt must reference the SSOT constant name so future SSOT "
+            "widening drives operator-visible prompt updates."
+        )
+        for pat in PRAGMA_NO_COVER_ALLOWLIST:
+            assert pat in prompt, (
+                f"Pragma pattern {pat!r} from PRAGMA_NO_COVER_ALLOWLIST "
+                f"is not present in the rendered prompt. Widening the "
+                f"SSOT must auto-propagate via the `for pat in ...` "
+                f"interpolation block."
+            )
+
+    def test_prompt_does_not_teach_non_ssup_patterns(self, tmp_path):
+        """Pre-fix regression (Bug B): the COVERAGE-FIX prompt showed
+        `raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement`
+        as an EXAMPLE. The audit scanner would reject that exact line
+        because the SSOT only honors `except BaseException`. The fix
+        replaces this example with one that matches the SSOT, so a
+        test asserting its absence proves the drift is closed."""
+        prompt = self._render_coverage_fix_prompt(tmp_path)
+
+        # The pre-fix contradictory example must NOT appear.
+        forbidden_examples = [
+            "raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement",
+        ]
+        for forbidden in forbidden_examples:
+            assert forbidden not in prompt, (
+                f"COVERAGE-FIX prompt still teaches the pre-fix example "
+                f"{forbidden!r}, which the Gate 1 audit scanner would "
+                f"reject. Replace with an example matching "
+                f"PRAGMA_NO_COVER_ALLOWLIST."
+            )
+
+        # The post-fix SSOT-compliant example must appear (regression
+        # against accidental removal). Use a flexible substring match
+        # so the test isn't tied to exact wording tweaks.
+        assert "except BaseException: pass  # pragma: no cover" in prompt, (
+            "The post-fix prompt must demonstrate the SSOT-compliant "
+            "annotation `except BaseException: pass  # pragma: no cover`. "
+            "Otherwise the agent's learning signal is purely the allowlist "
+            "list with no concrete example to mirror."
+        )
+
