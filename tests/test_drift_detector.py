@@ -565,6 +565,23 @@ class TestSabDriftDetection:
         layer_map = {"Core": {"core/phase_hooks"}}
         assert detector._resolve_import_layer("nonexistent.module", layer_map) is None
 
+    def test_resolve_import_layer_shared_top_level_package_is_ambiguous(self, tmp_path):
+        """A bare top-level package shared by multiple layers (e.g. pkg.cli /
+        pkg.service / pkg.store) must not silently resolve to whichever layer
+        iterates first — it's genuinely ambiguous from the import path alone."""
+        detector = DriftDetector(str(tmp_path))
+        layer_map = {
+            "cli": {"pkgX.cli", "pkgX.__main__"},
+            "service": {"pkgX.executor"},
+            "store": {"pkgX.breaker", "pkgX.cache"},
+        }
+        assert detector._resolve_import_layer("pkgX", layer_map) is None
+        # Fully-qualified submodule imports must still resolve uniquely —
+        # the ambiguity fix must not regress the unambiguous case.
+        assert detector._resolve_import_layer("pkgX.cache", layer_map) == "store"
+        assert detector._resolve_import_layer("pkgX.executor", layer_map) == "service"
+        assert detector._resolve_import_layer("pkgX.cli", layer_map) == "cli"
+
     def test_detect_all_includes_sab(self, tmp_path):
         """detect_all returns 'sab' key in results dict."""
         detector = DriftDetector(str(tmp_path))
