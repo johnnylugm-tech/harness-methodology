@@ -42,7 +42,14 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     project = Path(args.project).resolve()
     phase = args.phase
-    harness_root = Path(__file__).parent.resolve()
+    # `__file__` = harness/cli/project_cmds.py → `__file__.parent` = harness/cli/.
+    # The actual harness root (containing scripts/, templates/, CLAUDE.md.template,
+    # INTEGRATION.md) is the parent of cli/. This bug shipped during the Phase 3
+    # cmd_* extraction when project_cmds moved from the top-level harness_cli.py
+    # into harness/cli/ — the harness_root anchor stayed one level too deep,
+    # making init-project silently skip hook install ("WARNING:
+    # .../harness/cli/scripts/setup-git-hooks.sh not found") and template copy.
+    harness_root = Path(__file__).parent.parent.resolve()
 
     # Resolve project language before any writes — every later gate run reads
     # the persisted value from state.json (toolchain resolution, S2 checks).
