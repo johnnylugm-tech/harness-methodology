@@ -65,6 +65,21 @@ def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
         _sf = _finalize_sentinel_path(project, _gate, None, phase=_phase)
         _sf.parent.mkdir(parents=True, exist_ok=True)
         _sf.write_text("test-sentinel\n", encoding="utf-8")
+    # Phase 3 additionally requires the p3-post-gate2 milestone precondition
+    # (_validate_p3_post_gate2_precondition, wired into _advance_prechecks) —
+    # the same gate2_result.json check push-milestone --type p3-post-gate2
+    # and validate-handoff --from-phase 3 already enforce. Write a passing
+    # one here so tests using this helper don't need to know about it
+    # separately (the per-FR half is already covered by the sentinel loop
+    # above via gate1_evidence_exists' .finalized channel).
+    if 3 in EXIT_GATE_MAP:
+        _gate2_result = project / ".methodology" / "gate2_result.json"
+        if not _gate2_result.exists():
+            _gate2_result.parent.mkdir(parents=True, exist_ok=True)
+            _gate2_result.write_text(
+                json.dumps({"gate": 2, "composite_score": 92.25, "phase": 3}),
+                encoding="utf-8",
+            )
 
 def _generate_stage_pass(
     project_path: Path, gate_num: int, phase_num: int,
