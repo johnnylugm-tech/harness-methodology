@@ -937,14 +937,27 @@ def _filter_phantoms_for_fr(project: str, fr_id: str, phantoms: set[str]) -> set
         if owner_of.get(mod) == fr_id or owner_of.get(mod) in passed_frs
     }
 
-def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = None) -> Optional[int]:
+def _check_sab_module_alignment(
+    project: str,
+    gate: int,
+    fr_id: Optional[str] = None,
+    *,
+    auto_amend: bool = False,
+) -> Optional[int]:
     """Gate 1 Architecture Amendment Protocol: block on bidirectional SAB drift.
 
     Returns 1 when gate==1 and either:
       (a) unregistered: at least one .py file in src/ is absent from SAB.json, OR
       (b) phantom: SAB.json declares modules the codebase has not implemented.
-    Returns None when the check is skipped (gate != 1, SAB.json missing, no src dir)
-    or when SAB and codebase are symmetrically aligned.
+    Returns None when the check is skipped (gate != 1, SAB.json missing, no src dir),
+    when SAB and codebase are symmetrically aligned, or — if `auto_amend=True` —
+    when an unregistered drift was auto-amended (audit log via `[amend-sab]
+    auto-registered:` line; the change is on disk so the operator can still
+    review via `git diff .methodology/SAB.json` and `git commit`).
+
+    Phantom drift is NEVER auto-amended: a module registered in SAB but absent
+    from `src/` is a real deletion gap that should surface, not silently vanish.
+    Only the `(a) unregistered` direction is auto-healable.
 
     SAB ``modules`` entries may be expressed in either dotted
     (``taskq.cli``) or path (``03-development/src/taskq/cli.py``) form;
@@ -981,6 +994,14 @@ def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = 
     legitimately don't exist yet — see `_filter_phantoms_for_fr`. Passing
     `fr_id` narrows the phantom set to that FR's own scope before deciding
     whether to block; `fr_id=None` preserves the original unscoped check.
+
+    `auto_amend` (2026-07-21 add): opt-in escape hatch for CI / batch flows.
+    When True and `unregistered` is non-empty, `core.quality_gate.sab_amender
+    .amend_sab` is invoked (idempotent — `cmd_amend_sab`'s own SSOT) to
+    register the new modules in the LAST layer, the audit line is emitted,
+    and the function falls through to the phantom branch (return None). The
+    operator must still `git add .methodology/SAB.json && git commit` to
+    persist the change — `amend_sab` deliberately does not commit.
     """
     if gate != 1:
         return None
@@ -1002,13 +1023,45 @@ def _check_sab_module_alignment(project: str, gate: int, fr_id: Optional[str] = 
 
         unregistered = actual_modules - sab_modules
         if unregistered:
-            print(
-                f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
-                f"Unregistered modules detected: {unregistered}\n"
-                f"Fix: you must create an Amendment PR to update SAB.json and SAD.md "
-                f"before Gate 1 evaluation can proceed."
-            )
-            return 1
+            if auto_amend:
+                from core.quality_gate.sab_amender import amend_sab
+                added = amend_sab(Path(project), src_dir=str(src_dir), dry_run=False)
+                if added:
+                    print(f"[amend-sab] auto-registered: {sorted(added)}")
+                    print("[amend-sab] review via `git diff .methodology/SAB.json` "
+                          "and `git commit` to persist (auto-amend does NOT commit).")
+                # Fall through — re-scan SAB so the phantom branch sees the updated state.
+                sab_data = json.loads(sab_path.read_text(encoding="utf-8"))
+                sab_modules = {
+                    dotted
+                    for layer in sab_data.get("layers", [])
+                    for mod in layer.get("modules", [])
+                    for dotted in [_normalize_sab_module_to_dotted(mod)]
+                    if dotted is not None
+                }
+                unregistered = actual_modules - sab_modules
+                if not unregistered:
+                    # Auto-amend fully closed the gap — continue to phantom check.
+                    pass
+                else:
+                    # amend_sab did not close the gap (e.g. heuristic layer choice
+                    # rejected all candidates). Surface as BLOCKED for the operator.
+                    print(
+                        f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
+                        f"Unregistered modules detected after auto-amend: {unregistered}\n"
+                        f"Fix: amend-sab failed to register (likely heuristic layer mismatch — "
+                        f"see `cmd_amend_sab` output above). Run `harness_cli.py amend-sab "
+                        f"--project {project}` manually to investigate."
+                    )
+                    return 1
+            else:
+                print(
+                    f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
+                    f"Unregistered modules detected: {unregistered}\n"
+                    f"Fix: you must create an Amendment PR to update SAB.json and SAD.md "
+                    f"before Gate 1 evaluation can proceed."
+                )
+                return 1
 
         # Phantom check: SAB declares modules the codebase lacks. Use the
         # shared helper so the message + handling stay in sync with
@@ -1082,7 +1135,10 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
         return 8
 
     # Architecture Amendment Protocol: Module Alignment Check (Gate 1)
-    _amend_result = _check_sab_module_alignment(project, args.gate, fr_id)
+    _amend_result = _check_sab_module_alignment(
+        project, args.gate, fr_id,
+        auto_amend=getattr(args, "auto_amend_sab", False),
+    )
     if _amend_result is not None:
         return _amend_result
 
@@ -2377,6 +2433,9 @@ def register(sub) -> None:
     rg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)", dest="fr_id")
     rg.add_argument("--skip-preflight", action="store_true", help="Skip preflight validation before gate (Item 9)")
     rg.add_argument("--delta", action="store_true", help="Delta-check mode (P5/P7/P8): skip re-evaluation if FR code unchanged")
+    rg.add_argument("--auto-amend-sab", action="store_true", dest="auto_amend_sab",
+                    help="Auto-register newly-discovered modules to SAB.json on unregistered drift "
+                         "(default: BLOCK; phantom drift is NEVER auto-amended).")
     rg.set_defaults(func=cmd_run_gate)
 
     # finalize-gate (Phase 2: read result.json, check thresholds, git)

@@ -240,6 +240,24 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
         return 0
 
+    # 1a. Deterministic tools — skip LLM dispatch
+    # `amend-sab` is a pure-mechanical tool (`core.quality_gate.sab_amender.amend_sab`)
+    # that scans `03-development/src/` and writes SAB.json atomically. It is in
+    # `_COMMIT_REQUIRED_STEPS` (core/agent_spawner.py:123) but does NOT need an
+    # LLM — delegating directly to `cmd_amend_sab` (cli/project_cmds.py) avoids
+    # spawning a sub-agent for a no-eval scan. The post-step dirty-tree guard
+    # (fr_cmds.py:859) and the SSOT commit-required check (`_COMMIT_REQUIRED_STEPS`)
+    # still trip if the operator forgets to `git commit` the SAB.json update.
+    if step == "AMEND-SAB":
+        from cli.project_cmds import cmd_amend_sab
+        if not getattr(args, "src_dir", None):
+            args.src_dir = "03-development/src"
+        if not hasattr(args, "dry_run"):
+            args.dry_run = False
+        if not hasattr(args, "strict"):
+            args.strict = False
+        return cmd_amend_sab(args)
+
     # 2. Pre-flight checks — must pass before agent dispatch
     preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=srs_path)
     if not preflight_ok:
@@ -2533,7 +2551,7 @@ def register(sub) -> None:
     rfp.add_argument("--fr-id", required=True, dest="fr_id", help="FR ID (e.g. FR-14)")
     rfp.add_argument(
         "--step", required=True, dest="step",
-        choices=["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA"],
+        choices=["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA", "AMEND-SAB"],
         type=str.upper,
         help="TDD step to dispatch",
     )
