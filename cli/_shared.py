@@ -72,7 +72,13 @@ def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
     # one here so tests using this helper don't need to know about it
     # separately (the per-FR half is already covered by the sentinel loop
     # above via gate1_evidence_exists' .finalized channel).
-    if 3 in EXIT_GATE_MAP:
+    #
+    # Scoped to `phase in (None, 3)` — not unconditional — so a caller that
+    # explicitly passes phase=1/2/4/6 (exercising a different phase) doesn't
+    # get a Phase-3 artifact silently injected into its fixture. `None`
+    # covers the legacy non-phase-scoped call form (most existing callers),
+    # matching this function's own phase=None semantics documented above.
+    if phase in (None, 3):
         _gate2_result = project / ".methodology" / "gate2_result.json"
         if not _gate2_result.exists():
             _gate2_result.parent.mkdir(parents=True, exist_ok=True)
