@@ -2043,6 +2043,17 @@ class TestRunFrStepAmendSab:
             setattr(ns, k, v)
         return ns
 
+    @staticmethod
+    def _git_commit(tmp_path: Path, message: str) -> None:
+        """`git commit` scoped with an explicit identity so this test does
+        not depend on the runner having a global user.name/user.email
+        configured (CI runners commonly don't)."""
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
+             "commit", "-q", "-m", message],
+            cwd=str(tmp_path), check=True,
+        )
+
     def test_argparse_accepts_amend_sab(self, tmp_path):
         """`run-fr-step --step amend-sab` must parse without SystemExit (was a
         hard `choices` rejection before this PR)."""
@@ -2192,9 +2203,7 @@ class TestRunFrStepAmendSab:
 
         subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
         subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True
-        )
+        self._git_commit(tmp_path, "init")
 
         rc = cmd_run_fr_step(self._make_args(tmp_path))
         err = capsys.readouterr().err
@@ -2220,18 +2229,13 @@ class TestRunFrStepAmendSab:
 
         subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
         subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "init"], cwd=str(tmp_path), check=True
-        )
+        self._git_commit(tmp_path, "init")
 
         rc = cmd_run_fr_step(self._make_args(tmp_path))
         assert rc == 6  # first call: mutated but uncommitted
 
         subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", "amend: register SAB modules"],
-            cwd=str(tmp_path), check=True,
-        )
+        self._git_commit(tmp_path, "amend: register SAB modules")
 
         rc2 = cmd_run_fr_step(self._make_args(tmp_path))
         assert rc2 == 0, "Once committed and no further drift, amend-sab must succeed"
