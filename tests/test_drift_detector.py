@@ -258,6 +258,32 @@ class TestSabDriftDetection:
         assert result.has_drift is True
         assert any("unregistered.py" in i.location for i in result.drift_items)
 
+    def test_detect_sab_drift_scripts_dir_exempt_from_unregistered_check(self, tmp_path):
+        """scripts/ is tooling/CI helpers (same category as harness/), not
+        application code. amend_sab()/discover_modules() only ever scan
+        src_dir (03-development/src/), so a scripts/*.py file can never be
+        legitimately registered in any SAB layer — Check 2 must not flag it
+        as unregistered (there is no way to ever clear such a finding)."""
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir()
+        sab_json = {
+            "layers": [
+                {"name": "L1", "modules": ["known.py"], "allowed_dependencies": []},
+            ],
+            "dependencies": {"L1": []},
+        }
+        (method_dir / "SAB.json").write_text(
+            __import__("json").dumps(sab_json)
+        )
+        (tmp_path / "known.py").write_text("# known")
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "shell_audit.py").write_text("# tooling script")
+
+        detector = DriftDetector(str(tmp_path))
+        result = detector.detect_sab_drift()
+        assert not any("shell_audit.py" in i.location for i in result.drift_items)
+
     def test_detect_sab_drift_dotted_module_resolves_to_path_bug30(self, tmp_path):
         """Regression test for Bug #30: SAB module entries using Python dotted
         notation (e.g. 'src.taskq.config') must be resolved to filesystem path

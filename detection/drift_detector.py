@@ -651,6 +651,14 @@ class DriftDetector:
                 continue
             if rel.startswith("archive/"):
                 continue
+            # scripts/ is tooling/CI helpers (same category as harness/), not
+            # application code — amend_sab()/discover_modules() only ever
+            # scans src_dir (03-development/src/), so a scripts/*.py file can
+            # never legitimately be registered in any SAB layer. Without this
+            # exclusion, Check 2 flags it as "unregistered" forever with no
+            # way to clear the finding.
+            if rel.startswith("scripts/"):
+                continue
             # Exempt auto-generated / standard wrapper files (v2.11 extension):
             # - __init__.py / __main__.py are package init / entry-point markers,
             #   not application modules tracked in SAB layers.
