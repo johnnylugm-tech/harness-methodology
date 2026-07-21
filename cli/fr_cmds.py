@@ -1710,21 +1710,24 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
             cmd.append(f"{boundary}..HEAD")
         r = _sp.run(cmd, capture_output=True, text=True, cwd=str(project))
         committed = bool(r.stdout.strip())
-    # For GATE1 / GATE1-DELTA, sentinel absence means the step has NOT
-    # been finalized for THIS phase (Bug A+B phase-scoping guarantee).
-    # For TDD steps, commit-grep success alone is NOT sufficient — the
-    # dual verification below (test_file.exists() / src dir tag scan)
-    # ensures the artifact on disk matches what the commit claims.
-    # Bug Fix Idempotency-Cascade (2026-07-21): the pre-fix single
-    # `if not committed: return False` blocked the artifact fallback
-    # when the commit grep was empty (phase-boundary scenario); the
-    # new condition preserves the original TDD dual-verification but
-    # removes the early-exit barrier.
-    if (
-        step.upper() in ("GATE1", "GATE1-DELTA")
-        and phase is not None
-        and not committed
-    ):
+    # Review fix (2026-07-21): an earlier version of this change relaxed
+    # this to only early-return for GATE1/GATE1-DELTA, letting TDD-RED/
+    # TDD-GREEN fall through to the artifact heuristic below with NO
+    # commit evidence at all. That let a leftover, uncommitted artifact
+    # (e.g. a test file written by a dispatch that crashed before its
+    # commit landed) get silently marked "already done" — reproduced:
+    # `_fr_step_already_done("TDD-RED", fr_id, project, phase=3)` with an
+    # empty `git log --grep` AND an on-disk `test_frXX.py` returned True.
+    # The GATE1 cascade above already closes the phase-boundary gap this
+    # was meant to fix (FR-02's GREEN commits pre-dating the boundary):
+    # once GATE1 has genuinely PASSED for this FR/phase, the cascade
+    # short-circuits TDD-RED/GREEN/IMPROVE via the sentinel + manifest
+    # quality_complete signal — no commit-grep relaxation is needed, and
+    # unlike a raw unscoped-grep fallback it can't reintroduce the stale
+    # reset-away-lineage bug `_fr_step_lineage_boundary` exists to prevent
+    # (2026-07-11 repro documented on that function). So: commit evidence
+    # remains a hard requirement for every step here, TDD included.
+    if not committed:
         return False
 
     # GATE1 / GATE1-DELTA: commit pattern alone is insufficient — a "Gate1 PASS"
@@ -1774,18 +1777,19 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
             except OSError as exc:
                 print(f"[WARN] docstring-reference scan: could not read {py_file}: {exc}", file=sys.stderr)
                 continue
-            # Match `[FR-XX]` (single tag, original behaviour preserved) OR
-            # `[FR-XX,` (multi-tag leading) OR `FR-XX,` (mid-list) OR `FR-XX]`
-            # (trailing). This handles IMPROVE-refactor docstrings like
-            # `[FR-02, FR-03, FR-04]` which the pre-fix literal `[FR-XX]`
-            # substring scan mis-classified as "no match" — every FR in the
-            # combined tag set was wrongly reported as not-done (Bug Fix
-            # Multi-Tag-Docstring, 2026-07-21).
-            if (f"[{fr_id}]" in text
-                or f"[{fr_id}," in text
-                or f"{fr_id}," in text
-                or f"{fr_id}]" in text):
-                return True
+            # Match fr_id as an exact, comma-separated member of any
+            # `[...]` bracket block (handles both the single-tag
+            # `[FR-02]` convention and the multi-tag `[FR-02, FR-03,
+            # FR-04]` docstring IMPROVE-refactor produces when it
+            # consolidates modules into one shared file — Bug Fix
+            # Multi-Tag-Docstring, 2026-07-21). Anchored to bracket
+            # contents (not a whole-file substring search) so an
+            # unrelated comment like "# see FR-03, FR-09" cannot
+            # false-positive match — every match must be an exact tag,
+            # not a coincidental substring anywhere in the file.
+            for _tag_block in re.findall(r"\[([^\]]*)\]", text):
+                if fr_id in {t.strip() for t in _tag_block.split(",")}:
+                    return True
         return False
     # TDD-IMPROVE / AMEND-SAB / GATE1: commit-grep success is sufficient
     # to mark the step done. GATE1 phase-scoping was already verified

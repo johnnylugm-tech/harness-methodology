@@ -1373,14 +1373,21 @@ class TestRunFrStep:
         has header that contains the multi-tag set `[FR-02, FR-03, FR-04]`;
         FR-02's heuristic returns False even though `[FR-02]` is semantically
         a tag in that combined set.
+
+        Review fix (2026-07-21): the docstring scan is only ever reached when
+        a matching "feat({fr_id}): GREEN" commit was found (commit evidence
+        remains a hard requirement — see the review-fix comment above the
+        `if not committed: return False` check in _fr_step_already_done).
+        So this test mocks a NON-empty commit grep, isolating the docstring
+        multi-tag matching behaviour from the commit-evidence requirement.
         """
         import subprocess as _sp
 
-        class _EmptyGrep:
+        class _NonEmptyGrep:
             returncode = 0
-            stdout = ""  # commit grep empty (phase boundary scenario)
+            stdout = "abc1234 feat(FR-XX): GREEN\n"  # commit evidence present
 
-        monkeypatch.setattr(_sp, "run", lambda *_, **__: _EmptyGrep())
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _NonEmptyGrep())
 
         # NO cascade pre-conditions (no sentinel, no manifest), so the
         # multi-tag docstring scan is the only signal that matters here.
@@ -1393,21 +1400,102 @@ class TestRunFrStep:
 
         # Each FR in the multi-tag set MUST match.
         assert _fr_step_already_done("TDD-GREEN", "FR-02", tmp_path, phase=3), (
-            "FR-02 (leading tag in [FR-02, FR-03, FR-04]) must match — "
-            "multi-tag leading pattern `[FR-02,` should match"
+            "FR-02 (leading tag in [FR-02, FR-03, FR-04]) must match"
         )
         assert _fr_step_already_done("TDD-GREEN", "FR-03", tmp_path, phase=3), (
-            "FR-03 (mid-list tag in [FR-02, FR-03, FR-04]) must match — "
-            "multi-tag mid-list pattern `FR-03,` should match"
+            "FR-03 (mid-list tag in [FR-02, FR-03, FR-04]) must match"
         )
         assert _fr_step_already_done("TDD-GREEN", "FR-04", tmp_path, phase=3), (
-            "FR-04 (trailing tag in [FR-02, FR-03, FR-04]) must match — "
-            "multi-tag trailing pattern `FR-04]` should match"
+            "FR-04 (trailing tag in [FR-02, FR-03, FR-04]) must match"
         )
 
         # A FR NOT in the tag set must NOT match (negative case).
         assert not _fr_step_already_done("TDD-GREEN", "FR-99", tmp_path, phase=3), (
             "FR-99 (not in any tag) must not match the multi-tag docstring"
+        )
+
+    def test_fr_step_already_done_docstring_scan_does_not_match_unbracketed_prose(
+        self, tmp_path, monkeypatch,
+    ):
+        """Review fix regression (2026-07-21): the multi-tag scan must be
+        anchored to `[...]` bracket contents, not a whole-file substring
+        search. A plain comment mentioning another FR (no brackets) MUST
+        NOT false-positive match — reproduced pre-fix:
+        `_fr_step_already_done("TDD-GREEN", "FR-03", ...)` returned True
+        for a file whose only FR-03 reference was
+        `# TODO: coordinate with FR-03, FR-09 before touching this file`
+        (no enclosing brackets at all).
+        """
+        import subprocess as _sp
+
+        class _NonEmptyGrep:
+            returncode = 0
+            stdout = "abc1234 feat(FR-03): GREEN\n"  # commit evidence present
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _NonEmptyGrep())
+
+        src_dir = tmp_path / "03-development" / "src"
+        src_dir.mkdir(parents=True)
+        (src_dir / "unrelated.py").write_text(
+            "# TODO: coordinate with FR-03, FR-09 before touching this file\n"
+            "def run(): pass\n"
+        )
+
+        assert not _fr_step_already_done("TDD-GREEN", "FR-03", tmp_path, phase=3), (
+            "An unbracketed prose mention of FR-03 must NOT satisfy the "
+            "docstring-tag heuristic — only an exact tag inside a `[...]` "
+            "bracket block counts."
+        )
+
+        # Positive control: the SAME fr_id properly bracketed DOES match,
+        # proving the negative result above isn't from some other cause.
+        (src_dir / "unrelated.py").write_text(
+            '"""[FR-03] properly tagged module."""\n'
+            "def run(): pass\n"
+        )
+        assert _fr_step_already_done("TDD-GREEN", "FR-03", tmp_path, phase=3), (
+            "Sanity check: a properly bracketed [FR-03] tag must still match "
+            "(proves the negative case above is due to missing brackets, "
+            "not a broken scan)."
+        )
+
+    def test_fr_step_already_done_tdd_red_leftover_uncommitted_artifact_not_marked_done(
+        self, tmp_path, monkeypatch,
+    ):
+        """Review fix regression (2026-07-21): a test file left on disk by a
+        dispatch that crashed BEFORE its commit landed must NOT be marked
+        done. Commit evidence is a hard requirement for every step,
+        including TDD-RED/TDD-GREEN — the artifact heuristic is dual
+        verification ON TOP OF a matching commit, never a substitute for
+        one. Reproduced pre-fix: `_fr_step_already_done("TDD-RED", "FR-02",
+        ..., phase=3)` returned True with an empty `git log --grep` AND an
+        on-disk `test_fr02.py` with no commit at all.
+        """
+        import subprocess as _sp
+
+        class _EmptyGrep:
+            returncode = 0
+            stdout = ""  # no commit at all — simulates a crashed dispatch
+
+        monkeypatch.setattr(_sp, "run", lambda *_, **__: _EmptyGrep())
+
+        test_dir = tmp_path / "03-development" / "tests"
+        test_dir.mkdir(parents=True)
+        (test_dir / "test_fr02.py").write_text("def test_x(): pass\n")
+
+        assert not _fr_step_already_done("TDD-RED", "FR-02", tmp_path, phase=3), (
+            "A leftover, uncommitted test file must NOT satisfy TDD-RED's "
+            "idempotency check — commit evidence is required."
+        )
+
+        src_dir = tmp_path / "03-development" / "src"
+        src_dir.mkdir(parents=True)
+        (src_dir / "fr02_helper.py").write_text("x = 1\n")
+
+        assert not _fr_step_already_done("TDD-GREEN", "FR-02", tmp_path, phase=3), (
+            "A leftover, uncommitted source file (matched via filename-number "
+            "heuristic) must NOT satisfy TDD-GREEN's idempotency check — "
+            "commit evidence is required."
         )
 
     def test_fr_step_already_done_tdd_green_cascade_when_gate1_sentinel_and_quality_complete(
