@@ -1261,10 +1261,15 @@ class GateContext:
     tier3_context: dict = field(default_factory=dict)  # CRG Point 2 — per-dim context
     crg_safety_context: dict = field(default_factory=dict)  # CRG Points 3+4 — pre-computed
     auto_fix_rounds: int = 0
-    # Per-FR test spec coverage: list of required test names + set that exist.
-    # Used by finalize_gate() to cap test_coverage score at spec_coverage_pct.
+    # Per-FR test spec coverage: list of required test names (one entry per
+    # TEST_SPEC.md row — a parametrized case legitimately repeats its function
+    # name across multiple rows, see _parse_spec_names_for_fr) + a row-based
+    # count of how many of those rows have their function present. Used by
+    # finalize_gate() to cap test_coverage score at spec_coverage_pct. The
+    # count (not a dedupe set) keeps numerator/denominator symmetric — see
+    # fix/spec-cap-list-set-mismatch.
     _spec_test_names: list[str] = field(default_factory=list)
-    _existing_spec_tests: set[str] = field(default_factory=set)
+    _existing_spec_count: int = 0
 
     def evaluation_prompt(self) -> str:
         """Return a human-readable evaluation instruction for Claude."""
@@ -1907,7 +1912,7 @@ class HarnessBridge:
         # so incomplete test suites don't get a falsely high score when existing
         # tests all pass at 100% coverage.
         _spec_names: list[str] = []
-        _existing_spec: set[str] = set()
+        _existing_spec_count: int = 0
         if fr_id and gate_num == 1 and phase in PER_FR_GATE1_PHASES:
             _layout = ProjectLayout(project_root)
             _test_dir = _layout.active_test_dir
@@ -1933,23 +1938,31 @@ class HarnessBridge:
                     pass
             if _spec_names and _test_dir.is_dir():
                 try:
-                    _actual_fns = set()
-                    for _f in _test_dir.rglob("*.py"):
-                        try:
-                            _content = _f.read_text(encoding="utf-8", errors="replace")
-                            for line in _content.splitlines():
-                                m2 = re.match(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", line)
-                                if m2:
-                                    _actual_fns.add(m2.group(1))
-                        except OSError:
-                            continue
-                    _existing_spec = set()
+                    # Language-aware scan (matches core.quality_gate.spec_coverage's
+                    # _run_spec_coverage_check, which this cap is meant to mirror) —
+                    # a hardcoded *.py glob here would silently zero-cap test_coverage
+                    # for js/ts projects, since no test function would ever match.
+                    from core.quality_gate.spec_coverage import (
+                        _get_test_directories,
+                        _scan_test_functions,
+                    )
+                    from core.utils.lang_patterns import project_language
+                    _lang = project_language(project_root)
+                    _actual_fns: set[str] = set()
+                    for _tdir in _get_test_directories(Path(project_root)):
+                        _actual_fns |= _scan_test_functions(_tdir, _lang)
+                    # Row-based count, NOT a dedupe set: _spec_names has one entry
+                    # per TEST_SPEC.md row, and a parametrized case legitimately
+                    # repeats its function name across multiple rows. Deduping the
+                    # numerator while the denominator stays row-based mathematically
+                    # caps the score below 100% even when every required test exists
+                    # (see fix/spec-cap-list-set-mismatch).
                     for fn in _spec_names:
                         raw_fn = fn.strip("`").strip()
                         raw_fn = re.sub(r"\[.*\]$", "", raw_fn)
                         raw_fn = re.sub(r"\(\)$", "", raw_fn)
                         if raw_fn in _actual_fns:
-                            _existing_spec.add(fn)
+                            _existing_spec_count += 1
                 except OSError:
                     pass
 
@@ -1968,7 +1981,7 @@ class HarnessBridge:
             crg_safety_context=crg_safety_context,
             auto_fix_rounds=auto_fix_rounds,
             _spec_test_names=_spec_names,
-            _existing_spec_tests=_existing_spec,
+            _existing_spec_count=_existing_spec_count,
         )
 
     def finalize_gate(
@@ -2192,10 +2205,10 @@ class HarnessBridge:
         # When required tests are partially missing, coverage % can be 100% even
         # when most tests don't exist yet. Cap at spec_coverage_pct.
         _spec_names: list = getattr(ctx, '_spec_test_names', [])
-        _spec_existing: set = getattr(ctx, '_existing_spec_tests', set())
+        _existing_count: int = getattr(ctx, '_existing_spec_count', 0)
         _spec_cap: float = 100.0
-        if _spec_names and len(_spec_existing) < len(_spec_names):
-            _spec_cap = len(_spec_existing) / max(len(_spec_names), 1) * 100.0
+        if _spec_names and _existing_count < len(_spec_names):
+            _spec_cap = _existing_count / max(len(_spec_names), 1) * 100.0
 
         dims: list[DimResult] = []
         for dim_name, dim_data in raw.get("breakdown", {}).items():
