@@ -32,6 +32,7 @@ from core.quality_gate.ghost_detector import (
     write_ghost_paper_trail,
 )
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+from core.quality_gate.spec_coverage import _parse_test_spec
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 from harness import tool_checks
@@ -1837,31 +1838,25 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
     """Parse TEST_SPEC.md and return (test_names, formatted_note) for a given FR.
 
     Returns ([], "") when TEST_SPEC.md is missing or has no entries for this FR.
+
+    Reuses `spec_coverage._parse_test_spec()` — the same parser
+    `finalize-gate`'s S4 spec-coverage check uses — instead of a second,
+    independently-maintained line-by-line parser. The prior local parser
+    only reset `current_fr` on a `### FR-XX` heading; any other heading
+    (e.g. `### NFR Integration (...)`) left `current_fr` stuck on the
+    last FR seen, silently leaking later sections' test names into this
+    FR's spec_test_names list (Bug Fix Spec-Cov-Section-Boundary,
+    2026-07-21 — FR-05 example: denominator inflated from 11 to 16 by
+    NFR-03/NFR-08/NFR-09/smoke-test rows bleeding in after the
+    `### NFR Integration` heading, which the old regex
+    `^###\s+([A-Z]+-\d+)` did not recognise as a section boundary).
     """
     test_spec_path = ProjectLayout(project).test_spec_path
     if not test_spec_path.exists():
         return [], ""
 
-    spec_text = test_spec_path.read_text(encoding="utf-8")
-    current_fr = ""
-    spec_rows: list[str] = []
-    for line in spec_text.splitlines():
-        stripped = line.strip()
-        m = re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", stripped)
-        if m:
-            current_fr = m.group(1)
-            continue
-        if current_fr != fr_id:
-            continue
-        if "Test Function" in stripped:
-            continue
-        if stripped.startswith("|") and stripped.endswith("|"):
-            cols = [c.strip() for c in stripped.split("|")[1:-1]]
-            if len(cols) >= 2:
-                clean_col = cols[1].strip(" `")
-                if clean_col.startswith("test_"):
-                    spec_rows.append(clean_col)
-            continue
+    items = _parse_test_spec(test_spec_path)
+    spec_rows = [i["test_fn"] for i in items if i["fr_id"] == fr_id]
     if spec_rows:
         note = (
             f"\n[TEST SPEC — match these EXACT names]\n"
@@ -1881,10 +1876,32 @@ def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]
 # ---------------------------------------------------------------------------
 
 def _compute_fr_spec_data(project: Path, fr_id: str, test_file: str) -> dict:
-    """Compute spec test coverage data needed by GATE1, CODE-FIX, COVERAGE-FIX."""
+    """Compute spec test coverage data needed by GATE1, CODE-FIX, COVERAGE-FIX.
+
+    `spec_cov_pct` / `missing_spec_count` / `spec_summary` are computed
+    row-for-row against `spec_test_names` (mirrors
+    `spec_coverage._run_spec_coverage_check()`'s `covered = [i for i in
+    items if i["test_fn"] in actual_fns]` — same list, same basis for
+    numerator and denominator). `existing_spec_tests` stays a `set` of
+    covered UNIQUE names — CODE-FIX (below) only ever does `in`
+    membership checks against it, which are unaffected by de-duplication.
+
+    Bug Fix Spec-Cov-Asymmetric-Dedup (2026-07-21): previously the
+    numerator counted `len(existing_spec_tests)` (a `set`, de-duplicated)
+    against a denominator of `len(spec_test_names)` (a `list`, NOT
+    de-duplicated). TEST_SPEC.md's v2.13.0 "Multi-scenario expansion"
+    rule (02-architecture/TEST_SPEC.md:224) deliberately repeats the same
+    function name across N parametrize rows (e.g. FR-05's
+    `test_fr05_07_exit_code_map` appears 5 times for 5 exit codes). Those
+    5 rows always collapsed to 1 in the set-based numerator while still
+    counting 5 in the list-based denominator, manufacturing
+    `min(N-1, N)` permanently-unsatisfiable "missing" entries regardless
+    of actual test coverage.
+    """
     spec_test_names, _ = _extract_test_spec_names(project, fr_id)
     test_file_path = project / test_file
     existing_spec_tests: set[str] = set()
+    covered_row_count = 0
     if spec_test_names and test_file_path.exists():
         try:
             tf_content = test_file_path.read_text(encoding="utf-8")
@@ -1899,15 +1916,16 @@ def _compute_fr_spec_data(project: Path, fr_id: str, test_file: str) -> dict:
                 raw_fn = re.sub(r"\(\)$", "", raw_fn)
                 if raw_fn in _actual_fns:
                     existing_spec_tests.add(fn)
+                    covered_row_count += 1
         except (OSError, UnicodeDecodeError):
             pass
     spec_cov_pct = (
-        round(len(existing_spec_tests) / max(len(spec_test_names), 1) * 100)
+        round(covered_row_count / max(len(spec_test_names), 1) * 100)
         if spec_test_names else 100
     )
-    missing_spec_count = len(spec_test_names) - len(existing_spec_tests)
+    missing_spec_count = len(spec_test_names) - covered_row_count
     spec_summary = (
-        f"SPEC COVERAGE: {len(existing_spec_tests)}/{len(spec_test_names)} "
+        f"SPEC COVERAGE: {covered_row_count}/{len(spec_test_names)} "
         f"({spec_cov_pct}%) — {missing_spec_count} missing"
         if spec_test_names else ""
     )
