@@ -2281,12 +2281,12 @@ class TestRunFrStepAmendSab:
         self._git_commit(tmp_path, "init")
         # Commit that matches the AMEND-SAB pattern in _FR_STEP_COMMIT_PATTERNS
         # — key inserted in fix/round-18-dispatch-ssot (Bug A):
-        #   "AMEND-SAB": "amend({fr_id}): SAB modules"
+        #   "AMEND-SAB": "amend: register SAB modules ({fr_id})"
         # formatted with fr_id=FR-03. allow_empty because the dirty-tree
         # BLOCK check in the AMEND-SAB branch assumes new work to commit;
         # this test simulates the post-commit state, so a marker commit is
         # the right shape.
-        self._git_commit(tmp_path, "amend(FR-03): SAB modules", allow_empty=True)
+        self._git_commit(tmp_path, "amend: register SAB modules (FR-03)", allow_empty=True)
 
         rc = cmd_run_fr_step(self._make_args(tmp_path))
 

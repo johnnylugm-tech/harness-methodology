@@ -1609,7 +1609,7 @@ _FR_STEP_COMMIT_PATTERNS: dict[str, str] = {
     "TDD-RED":     "test(RED): failing test for {fr_id}",
     "TDD-GREEN":   "feat({fr_id}): GREEN",
     "TDD-IMPROVE": "refactor({fr_id}): IMPROVE",
-    "AMEND-SAB":   "amend({fr_id}): SAB modules",         # idempotency pattern for amend-sab dispatch
+    "AMEND-SAB":   "amend: register SAB modules ({fr_id})",         # idempotency pattern for amend-sab dispatch
     "GATE1":       "feat({fr_id}): Gate1 PASS",         # prefix match; phase-scoped
     "GATE1-DELTA": "feat({fr_id}): Gate1 PASS",         # same prefix + git diff check
 }
