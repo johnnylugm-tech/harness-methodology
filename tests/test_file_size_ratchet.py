@@ -38,7 +38,16 @@ _LINE_CEILING: dict[str, int] = {
     # SAD.md §5 parse failure now records a degradation entry (SAB baseline
     # consequence is significant enough for the persistent ledger, not just a
     # print) + _trigger_hooks failure now logs via the file's own local logger.
-    "harness/harness_bridge.py": 3053,
+    # 2026-07-21: +9 lines — fix/spec-cap-list-set-mismatch: replaced the
+    # hardcoded *.py-only rglob scan with the shared language-aware
+    # _get_test_directories/_scan_test_functions helpers, and switched the
+    # numerator from a dedupe-set to a row-based count (matches the
+    # denominator's row-based list; a parametrized case legitimately repeats
+    # its Test Function name across multiple TEST_SPEC.md rows, so a
+    # dedupe-set numerator against a non-deduped list denominator
+    # mathematically capped test_coverage below 100% even when every
+    # required test existed).
+    "harness/harness_bridge.py": 3062,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

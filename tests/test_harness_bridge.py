@@ -929,7 +929,7 @@ class TestSabClosureGaps:
             sab_data={},
         )
         ctx._spec_test_names = ["test_a", "test_b", "test_c", "test_d"]
-        ctx._existing_spec_tests = {"test_a"}  # 25% spec coverage
+        ctx._existing_spec_count = 1  # 25% spec coverage
         self._write_gate1_result(ctx, {
             # Agent claims 90% coverage, but threshold is 60%.
             # Cap applies: 25% < 60% threshold -> GateBlockedError
@@ -1502,7 +1502,7 @@ class TestPrepareGateSpecScan:
         )
         ctx = self._scan(tmp_path)
         assert ctx._spec_test_names == ["test_widget_renders"]
-        assert "test_widget_renders" in ctx._existing_spec_tests, (
+        assert ctx._existing_spec_count == 1, (
             "rglob must find test_widget_renders in test_integration.py"
         )
 
@@ -1514,8 +1514,8 @@ class TestPrepareGateSpecScan:
             test_files={"test_fr01.py": "def test_widget_renders():\n    pass\n"},
         )
         ctx = self._scan(tmp_path)
-        assert len(ctx._existing_spec_tests) == 1, (
-            f"backtick-quoted name must match; existing={ctx._existing_spec_tests}"
+        assert ctx._existing_spec_count == 1, (
+            f"backtick-quoted name must match; existing_count={ctx._existing_spec_count}"
         )
 
     def test_parameterized_spec_name_matches(self, tmp_path):
@@ -1526,9 +1526,68 @@ class TestPrepareGateSpecScan:
             test_files={"test_fr01.py": "def test_widget_renders(mode):\n    pass\n"},
         )
         ctx = self._scan(tmp_path)
-        assert len(ctx._existing_spec_tests) == 2, (
+        assert ctx._existing_spec_count == 2, (
             f"both parametrized rows must match the single base function; "
-            f"existing={ctx._existing_spec_tests}"
+            f"existing_count={ctx._existing_spec_count}"
+        )
+
+    def test_repeated_spec_name_matches_every_row_not_just_once(self, tmp_path):
+        """Regression (fix/spec-cap-list-set-mismatch): when a parametrized
+        case's sub-cases are declared as repeated rows sharing the EXACT SAME
+        Test Function name (this project's actual TEST_SPEC.md convention —
+        the sub-case distinction lives in the Inputs column, not the function
+        name), every row must count toward _existing_spec_count, not just one.
+        A dedupe-by-set implementation would collapse N repeated rows down to
+        1, mathematically capping test_coverage below 100% even when the
+        single backing function exists and every row is legitimately
+        satisfied by it."""
+        self._make_project(
+            tmp_path,
+            spec_rows=[
+                "test_fr01_07_injection_chars",
+                "test_fr01_07_injection_chars",
+                "test_fr01_07_injection_chars",
+            ],
+            test_files={"test_fr01.py": "def test_fr01_07_injection_chars(char):\n    pass\n"},
+        )
+        ctx = self._scan(tmp_path)
+        assert ctx._existing_spec_count == 3, (
+            f"all 3 repeated rows must count (row-based, not deduped) since the "
+            f"backing function exists; existing_count={ctx._existing_spec_count}"
+        )
+        assert ctx._existing_spec_count == len(ctx._spec_test_names), (
+            "every declared row is satisfied -> spec_cap must reach 100%, not "
+            "be capped by numerator/denominator asymmetry"
+        )
+
+    def test_language_aware_scan_matches_js_test_title(self, tmp_path):
+        """Regression (fix/spec-cap-list-set-mismatch, 2nd bug): the spec-cap
+        scan used to hardcode a Python-only `*.py` rglob for `def test_*`, so
+        ANY JS/TS project matched zero test functions and test_coverage was
+        silently floored toward 0% for every FR with a declared spec test.
+        Sets .methodology/state.json language=javascript and provides only a
+        .test.js file (no .py file at all) — the pre-fix code could not find
+        this under any circumstance; the fix's project_language() +
+        _scan_test_functions(..., language) path must find it."""
+        self._make_project(
+            tmp_path,
+            spec_rows=["test_widget_renders"],
+            test_files={},
+        )
+        methodology = tmp_path / ".methodology"
+        methodology.mkdir(parents=True, exist_ok=True)
+        (methodology / "state.json").write_text(
+            json.dumps({"language": "javascript"}), encoding="utf-8"
+        )
+        js_test_dir = tmp_path / "03-development" / "tests"
+        (js_test_dir / "widget.test.js").write_text(
+            "test('test_widget_renders', () => { expect(true).toBe(true); });\n",
+            encoding="utf-8",
+        )
+        ctx = self._scan(tmp_path)
+        assert ctx._existing_spec_count == 1, (
+            "language-aware scan must find test_widget_renders in a .test.js "
+            f"file when project_language=javascript; existing_count={ctx._existing_spec_count}"
         )
 
     def test_async_def_matches(self, tmp_path):
@@ -1539,7 +1598,7 @@ class TestPrepareGateSpecScan:
             test_files={"test_fr01.py": "async def test_widget_async(client):\n    pass\n"},
         )
         ctx = self._scan(tmp_path)
-        assert "test_widget_async" in ctx._existing_spec_tests, (
+        assert ctx._existing_spec_count == 1, (
             "async def must be detected by the function scanner"
         )
 
