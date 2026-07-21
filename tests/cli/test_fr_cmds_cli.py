@@ -2044,15 +2044,17 @@ class TestRunFrStepAmendSab:
         return ns
 
     @staticmethod
-    def _git_commit(tmp_path: Path, message: str) -> None:
+    def _git_commit(tmp_path: Path, message: str, *, allow_empty: bool = False) -> None:
         """`git commit` scoped with an explicit identity so this test does
         not depend on the runner having a global user.name/user.email
-        configured (CI runners commonly don't)."""
-        subprocess.run(
-            ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
-             "commit", "-q", "-m", message],
-            cwd=str(tmp_path), check=True,
-        )
+        configured (CI runners commonly don't). `allow_empty=True` lets
+        idempotency-style tests land a marker commit even when the
+        working tree has nothing to stage."""
+        cmd = ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
+               "commit", "-q", "-m", message]
+        if allow_empty:
+            cmd.append("--allow-empty")
+        subprocess.run(cmd, cwd=str(tmp_path), check=True)
 
     def test_argparse_accepts_amend_sab(self, tmp_path):
         """`run-fr-step --step amend-sab` must parse without SystemExit (was a
@@ -2239,4 +2241,301 @@ class TestRunFrStepAmendSab:
 
         rc2 = cmd_run_fr_step(self._make_args(tmp_path))
         assert rc2 == 0, "Once committed and no further drift, amend-sab must succeed"
+
+    def test_amend_sab_short_circuits_when_already_committed(self, tmp_path, monkeypatch):
+        """Regression (fix/round-18-dispatch-ssot, Bug A): the
+        `_FR_STEP_COMMIT_PATTERNS` dict gain an `AMEND-SAB` key so a
+        second `cmd_run_fr_step(... amend-sab)` whose amend-sab commit is
+        already in `git log` short-circuits via `_fr_step_already_done`,
+        skipping the duplication-prevention `rc == 6` dirty-tree block.
+        Without this dict key, `_fr_step_already_done("AMEND-SAB", ...)`
+        returned False unconditionally (key missing → `""` → falsy) and
+        the dirty-tree BLOCK fired on every re-run even when SAB.json
+        was already committed.
+        """
+        from harness_cli import cmd_run_fr_step
+        from cli import project_cmds
+
+        # Stub cmd_amend_sab at the source module that the delegation branch
+        # imports it from. If short-circuit fails, this counter goes > 0.
+        calls: list[argparse.Namespace] = []
+
+        def _stub_amend_sab(args):
+            calls.append(args)
+            # No SAB.json mutation — simulates an idempotent re-run against
+            # a repo where the amendment already landed.
+            return 0
+
+        monkeypatch.setattr(project_cmds, "cmd_amend_sab", _stub_amend_sab)
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        self._git_commit(tmp_path, "init")
+        # Commit that matches the AMEND-SAB pattern in _FR_STEP_COMMIT_PATTERNS
+        # — key inserted in fix/round-18-dispatch-ssot (Bug A):
+        #   "AMEND-SAB": "amend({fr_id}): SAB modules"
+        # formatted with fr_id=FR-03. allow_empty because the dirty-tree
+        # BLOCK check in the AMEND-SAB branch assumes new work to commit;
+        # this test simulates the post-commit state, so a marker commit is
+        # the right shape.
+        self._git_commit(tmp_path, "amend(FR-03): SAB modules", allow_empty=True)
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+
+        assert rc == 0, (
+            f"Re-run after a matching amend-sab commit MUST short-circuit "
+            f"(return 0) via _fr_step_already_done, not call cmd_amend_sab "
+            f"and not trip the dirty-tree BLOCK. Got rc={rc}, "
+            f"cmd_amend_sab called {len(calls)} time(s)."
+        )
+        assert len(calls) == 0, (
+            f"On idempotent re-run, cmd_amend_sab MUST NOT be invoked. "
+            f"Saw {len(calls)} call(s); the AMEND-SAB dict key did not "
+            f"short-circuit _fr_step_already_done."
+        )
+
+
+# =============================================================================
+# COVERAGE-FIX prompt vs PRAGMA_NO_COVER_ALLOWLIST SSOT (PR: Round 18 Bug B)
+#
+# Round 17 PR review surfaced that the COVERAGE-FIX prompt taught LLM agents
+# a 4-pattern allowed pragma list while the Gate 1 audit scanner (in
+# core/phase_hooks.py:_audit_pragma_no_cover) only honored one pattern:
+# `except BaseException`. Round 18 fixes this by rendering the SSOT tuple
+# verbatim into the prompt + replacing the contradictory
+# `raise NotImplementedError # pragma: no cover` example with one that
+# actually passes Gate 1. These tests pin the bidirectional binding so
+# future widening of the tuple automatically propagates to the prompt.
+# =============================================================================
+
+
+class TestCoverageFixPromptMatchesPragmaAllowlist:
+    """The COVERAGE-FIX dispatch prompt must teach only what the Gate 1
+    audit scanner accepts — agents following the prompt MUST produce
+    output the scanner does not reject as `py-pragma-no-cover`."""
+
+    def _render_coverage_fix_prompt(self, tmp_path: Path) -> str:
+        """Render the COVERAGE-FIX prompt via the same code path the
+        dispatch loop would use. Stub `_compute_fr_spec_data` upstream
+        so we don't need real SRS / spec files."""
+        from cli.fr_cmds import _build_fr_step_prompt
+
+        # Minimal project layout so _compute_fr_spec_data can construct
+        # test_file path; layout is read-only here.
+        (tmp_path / "03-development").mkdir(exist_ok=True)
+        (tmp_path / "03-development" / "tests").mkdir(exist_ok=True)
+        (tmp_path / "03-development" / "src").mkdir(exist_ok=True)
+        (tmp_path / "02-architecture").mkdir(exist_ok=True)
+        (tmp_path / "01-requirements").mkdir(exist_ok=True)
+        srs_path = tmp_path / "01-requirements" / "SRS.md"
+        srs_path.touch()
+        return _build_fr_step_prompt(
+            "COVERAGE-FIX", "FR-03", phase=3, project=tmp_path,
+            srs_path=srs_path,
+        )
+
+    def test_prompt_renders_pragma_allowlist_verbatim(self, tmp_path):
+        """Regression (fix/round-18-dispatch-ssot, Bug B): the COVERAGE-FIX
+        prompt body must include an `Allowed exemptions:` block listing
+        every entry from `PRAGMA_NO_COVER_ALLOWLIST` so the agent sees
+        exactly what Gate 1's audit will accept (and is warned that
+        adding a non-listed pattern will fail)."""
+        prompt = self._render_coverage_fix_prompt(tmp_path)
+
+        from core.phase_hooks import PRAGMA_NO_COVER_ALLOWLIST
+        assert "Allowed exemptions (rendered verbatim from Gate 1 audit's" in prompt, (
+            "Prompt must call out that the listed exemptions are rendered "
+            "verbatim from the audit's SSOT tuple."
+        )
+        assert "PRAGMA_NO_COVER_ALLOWLIST" in prompt, (
+            "Prompt must reference the SSOT constant name so future SSOT "
+            "widening drives operator-visible prompt updates."
+        )
+        for pat in PRAGMA_NO_COVER_ALLOWLIST:
+            assert pat in prompt, (
+                f"Pragma pattern {pat!r} from PRAGMA_NO_COVER_ALLOWLIST "
+                f"is not present in the rendered prompt. Widening the "
+                f"SSOT must auto-propagate via the `for pat in ...` "
+                f"interpolation block."
+            )
+
+    def test_prompt_does_not_teach_non_ssup_patterns(self, tmp_path):
+        """Pre-fix regression (Bug B): the COVERAGE-FIX prompt showed
+        `raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement`
+        as an EXAMPLE. The audit scanner would reject that exact line
+        because the SSOT only honors `except BaseException`. The fix
+        replaces this example with one that matches the SSOT, so a
+        test asserting its absence proves the drift is closed."""
+        prompt = self._render_coverage_fix_prompt(tmp_path)
+
+        # The pre-fix contradictory example must NOT appear.
+        forbidden_examples = [
+            "raise NotImplementedError  # pragma: no cover — abstract base, subclass must implement",
+        ]
+        for forbidden in forbidden_examples:
+            assert forbidden not in prompt, (
+                f"COVERAGE-FIX prompt still teaches the pre-fix example "
+                f"{forbidden!r}, which the Gate 1 audit scanner would "
+                f"reject. Replace with an example matching "
+                f"PRAGMA_NO_COVER_ALLOWLIST."
+            )
+
+        # The post-fix SSOT-compliant example must appear (regression
+        # against accidental removal). Use a flexible substring match
+        # so the test isn't tied to exact wording tweaks.
+        assert "except BaseException: pass  # pragma: no cover" in prompt, (
+            "The post-fix prompt must demonstrate the SSOT-compliant "
+            "annotation `except BaseException: pass  # pragma: no cover`. "
+            "Otherwise the agent's learning signal is purely the allowlist "
+            "list with no concrete example to mirror."
+        )
+
+
+# =============================================================================
+# cmd_amend_sab writes a sessions_spawn.log entry from the mutation site
+# (PR: Round 18 Bug C).
+#
+# Pre-fix, the AMEND-SAB delegation branch in cmd_run_fr_step early-returned
+# before AgentSpawner.spawn() so sessions_spawn.log never recorded the
+# dispatch. The fix places a log_spawn call inside cmd_amend_sab itself
+# (the mutation site) so every caller is covered — the standalone
+# amend-sab subcommand, the run-fr-step delegation, any future caller.
+# =============================================================================
+
+
+class TestAmendSabWritesSessionsSpawnLogEntry:
+    """Every cmd_amend_sab invocation appends exactly one
+    `.methodology/sessions_spawn.log` line with role="tool:amend-sab"
+    and session_id=""."""
+
+    def _build_args(self, tmp_path: Path, **overrides) -> argparse.Namespace:
+        ns = argparse.Namespace(
+            project=str(tmp_path),
+            src_dir="03-development/src",
+            dry_run=False,
+            strict=False,
+        )
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def _read_log_entries(self, tmp_path: Path) -> list[dict]:
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        if not log_path.exists():
+            return []
+        return [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+
+    def test_amend_sab_success_writes_one_log_entry(self, tmp_path, capsys):
+        """`cmd_amend_sab` mutating SAB.json with new modules MUST
+        write exactly one log entry with status=COMPLETED and the
+        amend-sab role sentinel."""
+        from cli.project_cmds import cmd_amend_sab
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": ["app.seed"]}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+        (src / "extra_one.py").write_text("y = 1")
+
+        rc = cmd_amend_sab(self._build_args(tmp_path))
+        assert rc == 0
+
+        entries = self._read_log_entries(tmp_path)
+        assert len(entries) == 1, (
+            f"Expected exactly one sessions_spawn.log entry per amend-sab "
+            f"invocation; got {len(entries)} entries: {entries}"
+        )
+        e = entries[0]
+        assert e["role"] == "tool:amend-sab"
+        assert e["session_id"] == ""
+        assert e["status"] == "COMPLETED"
+        assert e["step"] == "AMEND-SAB"
+        assert e["tool_kind"] == "amend-sab"
+        assert e["outcome"] == "completed"
+        assert e["rc"] == 0
+        assert e["src_dir"] == "03-development/src"
+
+    def test_amend_sab_noop_still_writes_log_entry(self, tmp_path):
+        """Idempotent no-op (amend-sab on already-aligned tree) MUST
+        still write a log entry — observability is unconditional on
+        invocation, not conditional on whether a mutation happened.
+        Otherwise the audit trail loses track of how many times the
+        operator ran the tool."""
+        from cli.project_cmds import cmd_amend_sab
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": ["app.seed"]}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        rc = cmd_amend_sab(self._build_args(tmp_path))
+        assert rc == 0
+
+        entries = self._read_log_entries(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "COMPLETED"
+        assert entries[0]["outcome"] == "completed"
+
+    def test_amend_sab_failure_writes_log_with_failed_status(self, tmp_path, capsys):
+        """`cmd_amend_sab` hitting an exception MUST write a log entry
+        with status=FAILED so audit tools can spot the failure despite
+        the dispatched error printed to stderr."""
+        from cli.project_cmds import cmd_amend_sab
+        import cli.project_cmds as pc
+
+        # Force amend_sab to throw — captures both the exception handler
+        # in cmd_amend_sab AND the post-call log entry, which is what
+        # we want here (the user asked for observability through every path).
+        def _boom(*a, **kw):
+            raise RuntimeError("synthetic failure for test")
+
+        original = pc.amend_sab if hasattr(pc, "amend_sab") else None
+
+        class _BoomModule:
+            amend_sab = staticmethod(_boom)
+            discover_modules = staticmethod(lambda *a, **kw: [])
+            phantom_modules = staticmethod(lambda *a, **kw: [])
+
+        monkeypatch_patch = pc.__dict__.copy()
+        monkeypatch_patch["amend_sab"] = _boom
+        # Easier: use sys.modules injection
+        import sys
+        sys.modules["core.quality_gate.sab_amender"] = _BoomModule
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        try:
+            rc = cmd_amend_sab(self._build_args(tmp_path))
+        finally:
+            if original is not None:
+                sys.modules["core.quality_gate.sab_amender"] = original
+            # Best-effort cleanup of cache.
+            sys.modules.pop("core.quality_gate.sab_amender", None)
+
+        assert rc == 1
+        entries = self._read_log_entries(tmp_path)
+        assert len(entries) == 1
+        assert entries[0]["status"] == "FAILED(rc=1)"
+        assert entries[0]["outcome"] == "exception"
+        assert entries[0]["rc"] == 1
 

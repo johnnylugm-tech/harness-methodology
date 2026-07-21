@@ -364,6 +364,27 @@ class TestAgentSpawner:
                 )
         assert result["status"] == "complete"
 
+    def test_commit_required_steps_shape_is_all_uppercase(self):
+        """Regression (fix/round-18-dispatch-ssot, Bug A): every entry in
+        _COMMIT_REQUIRED_STEPS must be uppercase. Pre-fix had "amend-sab"
+        in lowercase which silently broke 5 consumer-site `if step in
+        _COMMIT_REQUIRED_STEPS` checks (argparse type=str.upper at
+        cli/fr_cmds.py:2529 always uppercases the comparison string).
+        Pin the shape here so future contributors adding new step names
+        see the convention and follow it."""
+        from core.agent_spawner import _COMMIT_REQUIRED_STEPS
+        for entry in _COMMIT_REQUIRED_STEPS:
+            assert entry == entry.upper(), (
+                f"_COMMIT_REQUIRED_STEPS entry {entry!r} must be uppercase; "
+                f"all entries ({sorted(_COMMIT_REQUIRED_STEPS)}) should match "
+                "the argparse type=str.upper convention."
+            )
+        assert "AMEND-SAB" in _COMMIT_REQUIRED_STEPS, (
+            "AMEND-SAB must be a first-class member of _COMMIT_REQUIRED_STEPS "
+            "so the post-dispatch dirty-tree guard and the inner-JSON "
+            "commit-required check at agent_spawner.py:288 both fire."
+        )
+
     def test_spawn_inner_json_complete_without_step_context_passes(self):
         """When context={'step': None}, commit-required check is skipped."""
         spawner = AgentSpawner()

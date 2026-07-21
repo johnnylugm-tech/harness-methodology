@@ -122,7 +122,7 @@ _UNATTENDED_PREAMBLE = (
 # because they only modify code for the next GATE round to commit.
 _COMMIT_REQUIRED_STEPS: frozenset[str] = frozenset({
     "TDD-RED", "TDD-GREEN", "TDD-IMPROVE",
-    "MIRROR", "amend-sab", "ORCH-POST",
+    "MIRROR", "AMEND-SAB", "ORCH-POST",
     "GATE1", "GATE1-DELTA",
 })
 
