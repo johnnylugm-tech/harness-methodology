@@ -1660,6 +1660,32 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         )
         return 17
 
+    # ── Milestone-push precondition (Phase 3 only) ────────────────────
+    # advance-phase is the FSM's authoritative gate: any path that reaches
+    # it (including a session resuming after an interruption, or a human
+    # running it standalone) must be held to the same bar as the SOP's own
+    # push-milestone --type p3-post-gate2 step. Without this, Phase 3 can
+    # exit to Phase 4 with the PUSH ③/④/⑤ milestone checkpoints never
+    # having been pushed — the quality-evidence checks above (finalize-gate
+    # sentinels, Phase Truth) do not cover this, and previously nothing did.
+    # Reuses the same precondition push-milestone p3-post-gate2 and
+    # validate-handoff --from-phase 3 already enforce (_shared.py), so all
+    # three call sites stay in sync on a single definition.
+    if completed_phase == 3:
+        _fr_ids_for_milestone = _resolve_fr_ids_from_manifest(project)
+        _milestone_errors = _shared._validate_p3_post_gate2_precondition(
+            project, _fr_ids_for_milestone
+        )
+        if _milestone_errors:
+            print(
+                "\n[BLOCKED] Phase 3 milestone precondition not met "
+                "(push-milestone --type p3-post-gate2 requirements):\n"
+                + "".join(f"  ✗ {m}\n" for m in _milestone_errors)
+                + "\n  Run: python3 harness_cli.py push-milestone --type p3-post-gate2 "
+                f"--project . --fr-ids {','.join(_fr_ids_for_milestone)}"
+            )
+            return 12
+
     # ── Gate 1 per-FR coverage check (FR-loop phases only) ───────────
     if completed_phase in ADVANCE_GATE1_CHECK_PHASES:
         _rc = _check_gate1_live_coverage(project, completed_phase)

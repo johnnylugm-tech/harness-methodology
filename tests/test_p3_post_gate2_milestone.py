@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 
-from cli._shared import _validate_p3_post_gate2_precondition
+from cli._shared import _finalize_sentinel_path, _validate_p3_post_gate2_precondition
 from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
 
 
@@ -98,6 +98,88 @@ class TestP3PostGate2Precondition:
             _seed_fr_sentinel(tmp_path, fr)
         errs = _validate_p3_post_gate2_precondition(tmp_path, ["FR-01"])
         assert any("parse" in e.lower() or "json" in e.lower() for e in errs)
+
+
+class TestAdvancePrechecksMilestoneGate:
+    """Regression (2026-07-22, integration-test Phase 3 run): advance-phase's
+    own precondition chain (`_advance_prechecks`) verified quality evidence
+    (finalize-gate sentinels, Phase Truth) but never checked whether the
+    p3-post-gate2 milestone precondition — the same one push-milestone and
+    validate-handoff already enforce via `_validate_p3_post_gate2_precondition`
+    — was ever satisfied. That let Phase 3 exit to Phase 4 with PUSH
+    ③/④/⑤ never having been pushed. Fix wires the existing validator into
+    `_advance_prechecks` for completed_phase == 3 only (Phase 4/6 have no
+    equivalent milestone type in push-milestone's --type choices)."""
+
+    @staticmethod
+    def _seed_bare_p3_project(tmp_path: Path) -> None:
+        """Fixture-only setup (no private-seam patching): every
+        _advance_prechecks check that runs BEFORE the milestone gate is a
+        real no-op on a bare project with an empty manifest —
+        _check_gate_score_variance (no decision_logs/GATE_3_*.yaml),
+        _check_deferred_fixes_resolved (no deferred_fixes.md),
+        _check_ghost_paper_trail (no ghost trail records) — verified by
+        reading their source: each returns 0 when its corresponding file/
+        record is simply absent. Only the EXIT_GATE_MAP finalize-gate
+        sentinel (real file, written below) and the milestone check itself
+        need explicit fixture state.
+        """
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        # Empty manifest → _resolve_fr_ids_from_manifest() and the existing
+        # per-FR finalize-sentinel check both resolve to [], isolating the
+        # milestone check to gate2_result.json alone (the per-FR sentinel
+        # branch is already covered exhaustively by TestP3PostGate2Precondition
+        # above).
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text("{}", encoding="utf-8")
+        # Exit-gate (Gate 2) finalize-gate sentinel — required by the
+        # existing EXIT_GATE_MAP check that runs immediately before ours.
+        fs = _finalize_sentinel_path(tmp_path, 2, None, phase=3)
+        fs.parent.mkdir(parents=True, exist_ok=True)
+        fs.write_text("test-finalized\n", encoding="utf-8")
+
+    def test_blocks_when_milestone_not_pushed(self, tmp_path: Path):
+        """Core regression case: everything upstream passes, but
+        push-milestone --type p3-post-gate2 never ran (no gate2_result.json)
+        — advance-phase must BLOCK (rc=12), not silently advance to Phase 4."""
+        import cli.phase_cmds as phase_cmds
+
+        self._seed_bare_p3_project(tmp_path)
+        rc = phase_cmds._advance_prechecks(tmp_path, 3)
+        assert rc == 12
+
+    def test_passes_when_milestone_satisfied(self, tmp_path: Path):
+        """Once the milestone precondition is met, our check must not be
+        what blocks the run (rc != 12) — proving it doesn't spuriously
+        block valid runs. (Full end-to-end rc==0 for the whole remaining
+        chain — Phase Truth, submodule guard, STAGE_PASS regen — is already
+        covered by the existing TestCmdAdvancePhase fixtures in
+        test_handover_generator.py, which this fix required updating.)"""
+        import cli.phase_cmds as phase_cmds
+
+        self._seed_bare_p3_project(tmp_path)
+        _seed_gate2_pass(tmp_path, composite=92.25)
+        rc = phase_cmds._advance_prechecks(tmp_path, 3)
+        assert rc != 12, f"milestone precondition satisfied but still blocked: rc={rc}"
+
+    def test_only_applies_to_phase_3(self):
+        """Structural guard: the milestone check must be scoped to
+        completed_phase == 3 only. Phase 4/6 have no p3-post-gate2-equivalent
+        milestone type in push-milestone's --type choices (only p3-mid,
+        p3-pre-gate2, p3-post-gate2 exist for P3; P4 only has p4-mid,
+        p4-pre-gate3), so generalizing this check to them would invent a
+        requirement harness's own design doesn't define."""
+        import inspect
+
+        import cli.phase_cmds as phase_cmds
+
+        src = inspect.getsource(phase_cmds._advance_prechecks)
+        marker = "_validate_p3_post_gate2_precondition"
+        assert marker in src
+        call_idx = src.index(marker)
+        guard_idx = src.rindex("if completed_phase == 3:", 0, call_idx)
+        # No unrelated "if completed_phase == 3" block sits between the
+        # guard and the call — i.e. the call is directly gated by it.
+        assert src[guard_idx:call_idx].count("if completed_phase") == 1
 
 
 class TestP3PostGate2Cli:
