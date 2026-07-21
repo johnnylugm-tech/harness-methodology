@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 import io
 
@@ -2014,3 +2015,228 @@ class TestFrStepPreflightSrsPath:
         # by checking cmd_run_fr_step used args.srs (not getattr with a silent None)
         # The spy isn't reached on skip, but args.srs attribute access must not throw.
         assert args.srs == "docs/SRS.md"  # arg is always available (registered by argparse)
+
+
+# =============================================================================
+# run-fr-step --step amend-sab (PR: P3 IMPROVE→GATE1 SAB sync)
+#
+# Bug: `agent_spawner._COMMIT_REQUIRED_STEPS` SSOT listed `amend-sab` since
+# 2026-07-15 but `cmd_run_fr_step` did not expose it as an argparse choice.
+# TDD-IMPROVE could extract a new `.py` file (e.g. DRY helper), leaving SAB.json
+# stale, which made the next `run-gate --gate 1` BLOCK with "Unregistered
+# modules detected". Fix: bridge the SSOT name through argparse, and route
+# `amend-sab` through `cmd_amend_sab` (deterministic, not LLM-dispatched).
+# =============================================================================
+
+class TestRunFrStepAmendSab:
+    """`run-fr-step --step amend-sab` delegates to `cmd_amend_sab`, not a sub-agent."""
+
+    def _make_args(self, tmp_path: Path, **overrides) -> argparse.Namespace:
+        ns = argparse.Namespace(
+            phase=3, fr_id="FR-03", step="amend-sab",
+            project=str(tmp_path), src_dir=None,
+            dry_run=False, strict=False,
+            srs=None, timeout=600, max_turns=30, max_fix_rounds=3,
+            no_mcp=False, no_push=True, prompt_file=None,
+        )
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    @staticmethod
+    def _git_commit(tmp_path: Path, message: str) -> None:
+        """`git commit` scoped with an explicit identity so this test does
+        not depend on the runner having a global user.name/user.email
+        configured (CI runners commonly don't)."""
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@test.com",
+             "commit", "-q", "-m", message],
+            cwd=str(tmp_path), check=True,
+        )
+
+    def test_argparse_accepts_amend_sab(self, tmp_path):
+        """`run-fr-step --step amend-sab` must parse without SystemExit (was a
+        hard `choices` rejection before this PR)."""
+        from harness_cli import build_parser
+        parser = build_parser()
+        # argparse normalises via `type=str.upper` before matching choices, so
+        # pass the canonical lowercase form to verify the choices list gained it.
+        args = parser.parse_args([
+            "run-fr-step", "--phase", "3", "--fr-id", "FR-03",
+            "--step", "amend-sab", "--project", str(tmp_path),
+            "--no-push",
+        ])
+        assert args.step == "AMEND-SAB"  # normalised by type=str.upper
+        assert args.fr_id == "FR-03"
+
+    def test_amend_sab_delegates_to_cmd_amend_sab_not_llm(self, tmp_path, monkeypatch, capsys):
+        """`cmd_run_fr_step(amend-sab)` must call `cmd_amend_sab` and MUST NOT
+        invoke AgentSpawner.spawn (proves no LLM dispatch)."""
+        from harness_cli import cmd_run_fr_step
+        from cli import project_cmds
+
+        # Stub cmd_amend_sab so we can capture the call without running the
+        # full SAB-discover pipeline.
+        calls: list[argparse.Namespace] = []
+
+        def _stub_amend_sab(args):
+            calls.append(args)
+            return 0
+
+        # AgentSpawner is imported lazily inside `cmd_run_fr_step` (line ~200):
+        #     from core.agent_spawner import AgentSpawner
+        # It's NOT in `cli.fr_cmds` module namespace — Python's `from ... import`
+        # inside a function binds the name in that function's locals only.
+        # Monkeypatch the SOURCE module so the local `from ... import AgentSpawner`
+        # inside `cmd_run_fr_step` resolves to our spy.
+        from core import agent_spawner as _core_spawner
+        spawned: list = []
+
+        class _SpawnerSpy:
+            def __init__(self, *a, **kw):
+                spawned.append(("ctor", kw))
+
+            def spawn(self, *a, **kw):
+                spawned.append(("spawn", kw))
+                raise AssertionError(
+                    "amend-sab MUST NOT dispatch a sub-agent — "
+                    "pure-mechanical tool, deterministic scan."
+                )
+
+        monkeypatch.setattr(project_cmds, "cmd_amend_sab", _stub_amend_sab)
+        monkeypatch.setattr(_core_spawner, "AgentSpawner", _SpawnerSpy)
+
+        # `AMEND-SAB` is NOT in `_FR_STEP_COMMIT_PATTERNS` (fr_cmds.py:1581-1587)
+        # so `_fr_step_already_done` short-circuits to False at line 1638-1639.
+        # No mock needed — the delegation branch runs before any LLM dispatch.
+
+        # Build a minimal valid SAB so cmd_amend_sab has something to load.
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src"
+        src.mkdir(parents=True)
+        (src / "app.py").write_text("x = 1")
+
+        cmd_run_fr_step(self._make_args(tmp_path))
+
+        assert len(spawned) == 0, f"AgentSpawner was constructed/dispatched: {spawned}"
+        assert len(calls) == 1, f"cmd_amend_sab called {len(calls)} times, expected 1"
+        # Default src_dir filled in by the delegation branch.
+        assert calls[0].src_dir == "03-development/src"
+        assert calls[0].dry_run is False
+        assert calls[0].strict is False
+
+    def test_amend_sab_writes_sab_for_unregistered_modules(self, tmp_path, monkeypatch):
+        """End-to-end: invoke the real `cmd_amend_sab` (via delegation) with a
+        src tree containing 2 unregistered `.py` files. SAB.json must gain both."""
+        from harness_cli import cmd_run_fr_step
+
+        # Real cmd_amend_sab, no stubbing — this verifies the delegation
+        # wiring actually reaches the real implementation.
+        # No `_fr_step_already_done` mock: AMEND-SAB is not in
+        # _FR_STEP_COMMIT_PATTERNS so the check returns False by design.
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": ["app.seed"]}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+        (src / "extra_one.py").write_text("y = 1")
+        (src / "extra_two.py").write_text("z = 1")
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+        assert rc == 0
+
+        sab = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        registered = {
+            m["name"] if isinstance(m, dict) else m
+            for layer in sab["layers"]
+            for m in layer["modules"]
+        }
+        assert registered == {"app.seed", "app.extra_one", "app.extra_two"}
+
+    def test_amend_sab_idempotent(self, tmp_path, monkeypatch):
+        """Re-running `amend-sab` against an aligned tree must be a no-op
+        (SAB.json diff = 0 after second invocation)."""
+        from harness_cli import cmd_run_fr_step
+
+        # No `_fr_step_already_done` mock — AMEND-SAB is not in
+        # _FR_STEP_COMMIT_PATTERNS (see test_amend_sab_writes_sab_for_unregistered_modules).
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        cmd_run_fr_step(self._make_args(tmp_path))
+        sab_after_first = (tmp_path / ".methodology" / "SAB.json").read_text()
+
+        cmd_run_fr_step(self._make_args(tmp_path))
+        sab_after_second = (tmp_path / ".methodology" / "SAB.json").read_text()
+
+        assert sab_after_first == sab_after_second
+
+    def test_amend_sab_blocks_when_sab_json_left_uncommitted(self, tmp_path, capsys):
+        """Regression: the delegation branch returns BEFORE the general
+        post-step dirty-tree guard / `_COMMIT_REQUIRED_STEPS` check further
+        down `cmd_run_fr_step` — those never run for an early return — and
+        `_COMMIT_REQUIRED_STEPS` itself stores this step as lowercase
+        "amend-sab" while `step` is always upper-cased, so neither backstop
+        would fire even if reached. `cmd_amend_sab` never commits by design.
+        Without a dedicated check, a genuine SAB.json mutation left
+        uncommitted would silently persist. Must BLOCK (exit 6) instead."""
+        from harness_cli import cmd_run_fr_step
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        self._git_commit(tmp_path, "init")
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+        err = capsys.readouterr().err
+
+        assert rc == 6, f"Must BLOCK when SAB.json is left uncommitted, got rc={rc}"
+        assert "SAB.json was updated but not committed" in err
+        assert "git" in err and "commit" in err
+
+    def test_amend_sab_no_block_when_operator_commits(self, tmp_path, capsys):
+        """Counter-example to the block above: once the caller commits
+        SAB.json after amend-sab (as the orchestrator prompt instructs),
+        the step must succeed cleanly (rc=0), proving the guard only fires
+        on genuinely uncommitted state, not on every mutation."""
+        from harness_cli import cmd_run_fr_step
+
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps({"layers": [{"name": "app", "modules": []}]})
+        )
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True)
+        (src / "seed.py").write_text("x = 1")
+
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        self._git_commit(tmp_path, "init")
+
+        rc = cmd_run_fr_step(self._make_args(tmp_path))
+        assert rc == 6  # first call: mutated but uncommitted
+
+        subprocess.run(["git", "add", "-A"], cwd=str(tmp_path), check=True)
+        self._git_commit(tmp_path, "amend: register SAB modules")
+
+        rc2 = cmd_run_fr_step(self._make_args(tmp_path))
+        assert rc2 == 0, "Once committed and no further drift, amend-sab must succeed"
+

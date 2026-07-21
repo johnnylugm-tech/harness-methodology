@@ -240,6 +240,51 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
         return 0
 
+    # 1a. Deterministic tools — skip LLM dispatch
+    # `amend-sab` is a pure-mechanical tool (`core.quality_gate.sab_amender.amend_sab`)
+    # that scans `03-development/src/` and writes SAB.json atomically. It is in
+    # `_COMMIT_REQUIRED_STEPS` (core/agent_spawner.py:123) but does NOT need an
+    # LLM — delegating directly to `cmd_amend_sab` (cli/project_cmds.py) avoids
+    # spawning a sub-agent for a no-eval scan.
+    #
+    # This branch returns BEFORE the general post-step dirty-tree guard /
+    # `_COMMIT_REQUIRED_STEPS` check below (they never run for an early
+    # return), and `_COMMIT_REQUIRED_STEPS` itself stores this step as
+    # lowercase "amend-sab" while `step` here is always upper-cased — so
+    # neither backstop would have fired even if reached. `cmd_amend_sab`
+    # never commits by design, so an uncommitted SAB.json mutation would
+    # otherwise persist silently. Check it directly here instead.
+    if step == "AMEND-SAB":
+        from cli.project_cmds import cmd_amend_sab
+        if not getattr(args, "src_dir", None):
+            args.src_dir = "03-development/src"
+        if not hasattr(args, "dry_run"):
+            args.dry_run = False
+        if not hasattr(args, "strict"):
+            args.strict = False
+        rc = cmd_amend_sab(args)
+        if rc == 0 and not args.dry_run:
+            _sab_dirty = subprocess.run(
+                ["git", "status", "--porcelain", "--", ".methodology/SAB.json"],
+                capture_output=True, text=True, cwd=str(project),
+            ).stdout.strip()
+            if _sab_dirty:
+                print(
+                    f"\n[BLOCKED] {fr_id} AMEND-SAB: SAB.json was updated but not "
+                    f"committed.\n"
+                    f"  cmd_amend_sab deliberately does not commit — the caller "
+                    f"must:\n"
+                    f"    git -C {project} add .methodology/SAB.json && "
+                    f"git -C {project} commit -m \"amend: register SAB modules "
+                    f"({fr_id})\"\n"
+                    f"  then re-run this step (idempotent — will no-op once "
+                    f"committed).\n"
+                    f"  Uncommitted status:\n{_sab_dirty}",
+                    file=sys.stderr,
+                )
+                return 6  # Same exit code as the general dirty-tree guard below
+        return rc
+
     # 2. Pre-flight checks — must pass before agent dispatch
     preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=srs_path)
     if not preflight_ok:
@@ -2533,7 +2578,7 @@ def register(sub) -> None:
     rfp.add_argument("--fr-id", required=True, dest="fr_id", help="FR ID (e.g. FR-14)")
     rfp.add_argument(
         "--step", required=True, dest="step",
-        choices=["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA"],
+        choices=["TDD-RED", "TDD-GREEN", "TDD-IMPROVE", "GATE1", "GATE1-DELTA", "AMEND-SAB"],
         type=str.upper,
         help="TDD step to dispatch",
     )

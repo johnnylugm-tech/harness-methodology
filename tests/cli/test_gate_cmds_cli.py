@@ -2112,3 +2112,116 @@ class TestFinalizeGate4PostPushDirtyWarn:
         assert rc == 0
         assert "[WARN] post-push dirty tree" not in out
         assert "commit_and_push_gate" in call_order
+
+
+# =============================================================================
+# _check_sab_module_alignment: --auto-amend-sab opt-in flag (PR: P3 IMPROVE→GATE1)
+#
+# Bug: when TDD-IMPROVE extracted a new .py (e.g. DRY helper like taskq._env),
+# Gate 1 BLOCKed with "Unregistered modules detected" — forcing the operator
+# into a hand-edit or a JS-orchestrator-prompt workaround. Fix adds an
+# opt-in `--auto-amend-sab` flag that calls the idempotent `amend_sab` and
+# emits an audit line. Phantom drift is NEVER auto-amended (real deletion gap).
+# =============================================================================
+
+class TestRunGateAutoAmendSab:
+    """`run-gate --auto-amend-sab` opt-in: closes unregistered drift only."""
+
+    def _make_sab(self, tmp_path: Path, modules: list) -> None:
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        sab_data = {
+            "layers": [{"name": "app", "modules": modules}],
+            "allowed_dependencies": [],
+        }
+        (tmp_path / ".methodology" / "SAB.json").write_text(
+            json.dumps(sab_data), encoding="utf-8"
+        )
+
+    def _make_src(self, tmp_path: Path, *module_files: str) -> None:
+        src = tmp_path / "03-development" / "src" / "app"
+        src.mkdir(parents=True, exist_ok=True)
+        for name in module_files:
+            (src / f"{name}.py").write_text("x = 1")
+
+    def test_default_off_still_blocks_on_unregistered(self, tmp_path, capsys):
+        """Without `--auto-amend-sab` (default), unregistered drift MUST block
+        — opt-in defaults preserve the strict GATE1 semantics per the
+        `gate_cmds.py:940` design comment."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, modules=["app.seed"])
+        self._make_src(tmp_path, "seed", "unregistered_one")
+
+        rc = _check_sab_module_alignment(str(tmp_path), gate=1)
+        out = capsys.readouterr().out
+        assert rc == 1, "Default must BLOCK on unregistered drift"
+        assert "Unregistered modules detected" in out
+        assert "app.unregistered_one" in out
+
+    def test_auto_amend_sab_on_closes_unregistered_drift(self, tmp_path, capsys):
+        """With `auto_amend=True`, the function MUST register the new module
+        to SAB.json, emit an audit line, and return None (fall-through to
+        gate evaluation)."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, modules=["app.seed"])
+        self._make_src(tmp_path, "seed", "extra_one")
+
+        rc = _check_sab_module_alignment(str(tmp_path), gate=1, auto_amend=True)
+        out = capsys.readouterr().out
+
+        assert rc is None, (
+            f"Expected fall-through (None) after auto-amend, got {rc}. "
+            f"Output: {out}"
+        )
+        assert "[amend-sab] auto-registered" in out, (
+            f"Audit line missing — operator cannot trace the auto-fix. Got: {out}"
+        )
+        assert "app.extra_one" in out
+
+        # Confirm SAB.json was actually mutated (this is the audit point).
+        sab_after = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        registered_names = {
+            m if isinstance(m, str) else m["name"]
+            for layer in sab_after["layers"]
+            for m in layer["modules"]
+        }
+        assert "app.extra_one" in registered_names
+        assert "app.seed" in registered_names
+
+    def test_auto_amend_sab_phantom_branch_unchanged(self, tmp_path, capsys):
+        """Phantom drift (SAB declares, src lacks) MUST block even with
+        auto_amend=True — silently removing phantoms would mask real
+        deletion drift. Only the unregistered direction is auto-healable."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, modules=["app.seed", "app.never_implemented"])
+        self._make_src(tmp_path, "seed")  # `never_implemented` is NOT created
+
+        rc = _check_sab_module_alignment(str(tmp_path), gate=1, auto_amend=True)
+        out = capsys.readouterr().out
+        assert rc == 1, "Phantom drift MUST block — auto_amend is unregistered-only"
+        assert "Phantom modules" in out
+        assert "app.never_implemented" in out
+
+    def test_auto_amend_sab_does_not_duplicate_path_form_entries(self, tmp_path, capsys):
+        """Regression: `_check_sab_module_alignment` passed an ABSOLUTE src_dir
+        Path into `amend_sab`, which treats src_dir as a RELATIVE prefix string
+        for stripping path-form SAB entries (e.g. "03-development/src/app/seed.py").
+        With the absolute path, the prefix strip silently failed, so an
+        already-registered path-form module was mis-detected as unregistered
+        and re-added under its dotted name — corrupting SAB.json with a
+        duplicate entry for the same module. Only `extra_one` (genuinely new)
+        must be added; `seed` (already registered, path form) must NOT gain a
+        second "app.seed" entry."""
+        from cli.gate_cmds import _check_sab_module_alignment
+        self._make_sab(tmp_path, modules=["03-development/src/app/seed.py"])
+        self._make_src(tmp_path, "seed", "extra_one")
+
+        rc = _check_sab_module_alignment(str(tmp_path), gate=1, auto_amend=True)
+        out = capsys.readouterr().out
+        assert rc is None, f"Expected fall-through (None) after auto-amend. Output: {out}"
+
+        sab_after = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        modules_after = sab_after["layers"][0]["modules"]
+        assert modules_after == ["03-development/src/app/seed.py", "app.extra_one"], (
+            f"path-form 'seed' entry must not be duplicated as 'app.seed': {modules_after}"
+        )
+
