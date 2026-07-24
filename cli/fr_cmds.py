@@ -23,6 +23,7 @@ from core.agent_spawner import (
     is_structurally_broken,
 )
 from core.canonical_form import fr_num_str
+from core.degradation_ledger import record_degradation
 from core.harness_config import get_timeout, get_value
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
@@ -564,10 +565,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     print(f"[run-fr-step] {fr_id} NO PROGRESS detected (round {fix_round})"
                           f" — same error signature as previous round")
                     if no_progress_count >= 2:
-                        print(f"[run-fr-step] {fr_id} BLOCKED: 2 consecutive no-progress rounds"
-                              f" — human intervention required\n"
-                              f"  Error pattern: {curr_sig[:150]}")
-                        return 2
+                        return _abort_no_progress_with_self_doubt(
+                            fr_id, step, project, _last_failure_class, curr_sig
+                        )
                 else:
                     no_progress_count = 0
                 prev_snapshot_sig = curr_sig
@@ -1191,6 +1191,51 @@ def _abort_dispatch_infra_or_harness_bug(
         file=sys.stderr,
     )
     return EX_FR_STEP_INFRA_ABORT
+
+
+def _abort_no_progress_with_self_doubt(
+    fr_id: str, step: str, project: Path, failure_class: "str | None", sig: str
+) -> int:
+    """Round 17 站2 (finding B): the fix-round loop hit 2 consecutive
+    no-progress rounds — the SAME tool error signature twice, no forward
+    motion. Before this, the loop just printed BLOCKED and returned 2: the
+    event was invisible to run-report, and the operator was left to assume a
+    code defect.
+
+    The plan's original signal — contrast S4's independent coverage against
+    the gate verdict — turned out not to exist: _run_harness_cross_validation
+    returns only violation messages (not a coverage number), and
+    _capture_tool_snapshot runs pytest WITHOUT --cov. With no reliable
+    'gate-internal contradiction' number available, this does the two honest
+    things that ARE possible at this already-terminal point:
+
+      1. record the exhausted loop to the degradation ledger (R13) so
+         run-report (R14/R16) can see how often an FR hits an inescapable
+         fix-round — today it is a silent return 2.
+      2. a self-doubt channel (R12 站3a shape, red_assertion_check:911): a
+         deterministic same-error loop that survives two fix rounds MAY be a
+         harness gate-calculation bug (the #20 spec-cap class), not a code
+         defect — surface that hypothesis so it is reported as [HARNESS-BUG]
+         rather than code-fixed forever.
+    """
+    record_degradation(
+        project, "fr-step-no-progress",
+        f"{fr_id} {step}: 2 consecutive no-progress fix rounds "
+        f"(failure_class={failure_class})",
+        why=f"identical tool signature across rounds: {sig[:150]}",
+    )
+    print(
+        f"[run-fr-step] {fr_id} BLOCKED: 2 consecutive no-progress rounds"
+        f" — human intervention required\n"
+        f"  Error pattern: {sig[:150]}\n"
+        f"  SELF-CHECK before treating this as a code defect: a deterministic"
+        f" same-error loop that survives 2 fix rounds may be a harness"
+        f" gate-calculation bug (e.g. a spec-cap / scope miscount like the #20"
+        f" class), NOT your code. If the tests and coverage are actually"
+        f" correct, report this as [HARNESS-BUG] rather than dispatching"
+        f" another fix round."
+    )
+    return 2
 
 
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.
