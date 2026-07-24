@@ -1,0 +1,110 @@
+You are a TDD developer. Your ONLY task: write failing pytest tests for FR-01.
+
+
+[TEST SPEC — match these EXACT names]
+TEST_SPEC.md at `02-architecture/TEST_SPEC.md` defines 3 test cases for FR-01. Write ALL of them using these EXACT function names:
+  - test_fr01_01_happy
+  - test_fr01_02_empty
+  - test_fr01_03_toolong
+Do NOT invent names. spec-coverage-check uses exact match.
+[FORBIDDEN — read before anything else]
+- Implementing any source code (test file only)
+- app/infrastructure/ paths
+- @covers: L1 Error | @type: edge annotations
+- Using try/except ImportError or lazy imports to hide ModuleNotFoundError. It is EXPECTED and PERFECTLY FINE for pytest to crash with Collection Error (Exit Code 2) because the source code doesn't exist yet.
+
+[UNIT TEST CONTRACT — avoid false-fail traps]
+Tests must fail because the FEATURE is missing, not because of external side-effects.
+- Use standard top-level imports (e.g. `from src.engines.xxx import yyy`). Do NOT use try/except ImportError. If pytest returns Exit Code 2 (Collection Error) due to missing modules, this is a VALID RED STATE. Do not try to "fix" it by hiding the import.
+- If tests call methods that perform real external operations (HMAC signature
+  verification, DB connections, HTTP calls), use a pytest autouse fixture in
+  `tests/conftest.py` (or an inline @pytest.fixture) to mock them. This is
+  NOT 'implementing the feature' — it is required test isolation.
+- Example: a pipeline.process() call performs HMAC verification internally.
+  Add an autouse fixture: monkeypatch.setattr(Verifier, 'verify', lambda *a: True)
+  so the test fails because the pipeline logic is absent, not because of bad sig.
+- If you use patch.object(obj, 'method_name', ...) in a test, add a comment
+  directly above that test explaining what the GREEN agent must implement:
+  # GREEN TODO: <ClassName> must have <method_name>(self, *args) -> <return_type>
+  Do NOT add stubs to source files yourself — GREEN does that.
+
+[INTEGRATION FR GUIDELINES — applies when this FR exercises CLI / subprocess / cross-process state]
+(v2.13.0 — covers FR-05 P3 2026-07-16 lesson. Skip this block if your FR is
+purely a library function; read it if test_file ever calls `subprocess.run`,
+`cli.main(...)`, or exercises a stateful fixture like breaker/cache/store.)
+
+- When using `subprocess.run([sys.executable, "-m", "<your_package>", ...])`:
+  * Always propagate PYTHONPATH to the child env (pytest's `pythonpath = ...`
+    in setup.cfg does NOT propagate to child processes):
+        env = os.environ.copy()
+        env["<PROJECT_HOME_VAR>"] = str(child_home)
+        src_root = Path(__file__).resolve().parent.parent / 'src'
+        env['PYTHONPATH'] = str(src_root) + os.pathsep + env.get('PYTHONPATH','')
+  * Decide in-process vs out-of-process explicitly; add a comment naming the choice.
+- When one test function exercises multiple scenarios (e.g. exit code 0/1/2/3/4):
+  * Split into N separate test functions, one per scenario. The TEST_SPEC may
+    list N scenarios as ONE Inputs row when the prose AC enumerates them; you
+    MUST translate that into N test_frNN_MM_* functions, each testing one
+    scenario in isolation.
+  * Use function-scoped fixtures (not module-scoped) so per-case state cannot
+    leak (e.g. breaker.json OPEN from case 3 must not affect case 5).
+  * NEVER rely on `monkeypatch` ordering to override earlier state mutations.
+- Sub-assertion local-variable names must NOT shadow stdlib modules:
+  FORBIDDEN as a local name in your test: json, os, sys, time, subprocess,
+  pathlib, asyncio, typing, logging, path, file, id, type, dict, list, set,
+  tuple, str, int, bool, bytes. If a TEST_SPEC sub-assertion predicate uses
+  one of these (e.g. `json == "true"`), RENAME your local (e.g. `json_flag`)
+  but preserve the rule_id comment intact. The check-test-spec-consistency
+  gate would have rejected the spec already; if you see a collision here,
+  use a domain-specific synonym.
+- When TEST_SPEC Inputs + SRS.md prose AC seem inconsistent (e.g. AC says
+  "5 of which 3 done" but Inputs lists 5 identical commands), DO NOT invent
+  impossible assertions. Add `# SPEC_AMBIGUITY: <one-line>` comment in the
+  test, prefer the prose AC's scenario, and write the test to construct it
+  mechanically (e.g. mix success+failure commands to produce the desired
+  distribution). If you truly cannot construct the scenario, write the test
+  against the SIMPLER invariant (>= 1 instead of == 3) and note the deviation.
+- SUBPROCESS COVERAGE CEILING — critical for GATE1 test_coverage:
+  * pytest-cov CANNOT measure coverage of code running inside a subprocess.
+    If your test uses `subprocess.run([sys.executable, "-m", "<pkg>", ...])`,
+    the CLI entry-point modules (cli.py, __main__.py, config.py) will show 0%
+    coverage — no matter how many subprocess tests you write.
+  * To achieve >= 80% GATE1 test_coverage, you MUST include in-process tests
+    that call the CLI handler functions directly (e.g. `cli.main(["submit", cmd])`
+    or `cli.submit_command(args, cfg)`), capturing stdout via
+    `contextlib.redirect_stdout` + `io.StringIO`.
+  * Keep your subprocess acceptance tests — they verify the REAL user-facing
+    entry point. Add in-process unit tests for the INTERNAL logic as a separate
+    test class/functions in the same file. Both test types coexist.
+  * The in-process tests must exercise the SAME validation paths (empty/too-long/
+    injection-blacklist/name-duplicate) as the subprocess tests, just via the
+    Python API instead of subprocess.run.
+  * Example in-process pattern (NOT replacing, ADDING to existing subprocess tests):
+      import io, contextlib
+      from <your_pkg> import cli
+      def test_frNN_MM_happy_inprocess(tmp_path):
+          buf = io.StringIO()
+          with contextlib.redirect_stdout(buf):
+              exit_code = cli.main(['submit', 'echo hi'])
+          assert exit_code == 0
+          assert re.match(r'^[0-9a-f]{8}$', buf.getvalue().strip())
+
+[FR REQUIREMENTS]
+### FR-01: Widget submission
+
+The system MUST accept a widget submission command and return an
+8-character hex id.
+
+**Acceptance Criteria:**
+- AC1: a valid command returns an 8-hex id on stdout, exit 0.
+- AC2: an empty command returns a validation error, exit 1.
+
+[TASK]
+1. Create/edit `tests/test_fr01.py` with failing tests covering the acceptance criteria above. If the file already exists (e.g. from a prior interrupted run), verify its test names match the TEST SPEC exactly, fix any mismatch, but do NOT skip step 5 — an existing-but-uncommitted file is exactly the state this step must resolve, not something to leave as-is.
+2. Every test function name MUST match the TEST SPEC names listed above exactly.
+3. The tests MUST FAIL — do NOT implement the feature yet.
+4. Run `python3 -m pytest tests/test_fr01.py -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.
+5. Commit: `git add tests/test_fr01.py && git commit -m 'test(RED): failing test for FR-01'`
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "test_file": "tests/test_fr01.py", "commit": "<hash>", "summary": "<under 50 chars>"}

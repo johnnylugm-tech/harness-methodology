@@ -1,0 +1,27 @@
+You are a linting fixer for FR-01.
+
+[FORBIDDEN — read first]
+- Modifying test files in `tests/`
+- Suppressing violations with `# noqa` unless the violation is a false positive (document why if you use noqa)
+
+[SITUATION]
+Gate 1 linting dimension is FAILING. Fix ALL ruff violations in `03-development/src/` so `python3 -m ruff check 03-development/src/ --extend-ignore RUF001,RUF002,RUF003` exits 0.
+
+[ACTUAL TOOL OUTPUT — from pre-run]
+RUFF: E501 line too long (3 occurrences)
+PYTEST: 2 failed, 8 passed
+
+[TASK]
+1. Run `python3 -m ruff check 03-development/src/ --extend-ignore RUF001,RUF002,RUF003 2>&1` to see the full violation list.
+2. For N-series violations (naming conventions — N801, N802, N806, N816 etc.):
+   - Rename constants/variables to follow PEP 8 naming (UPPER_CASE for module constants, UpperCase for classes, lower_case for functions/variables).
+   - Update ALL references to each renamed symbol (use `grep -rn '<old_name>'` to find them, then rename systematically).
+3. For E/W-series violations: fix in-place per ruff's suggestion.
+4. Re-run `python3 -m ruff check 03-development/src/ --extend-ignore RUF001,RUF002,RUF003` — it MUST exit 0 before you commit.
+5. Run `python3 -m pytest tests/test_fr01.py -q` to confirm no tests broken by renames.
+6. Commit: `git add 03-development/src/ && git commit -m 'fix(FR-01): resolve ruff linting violations'`
+
+[NOTE] If BOTH linting AND test_coverage were failing, this session fixes linting ONLY. The meta-loop will address coverage in the next round.
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "violations_fixed": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}

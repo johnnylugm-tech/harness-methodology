@@ -1,0 +1,52 @@
+You are a TDD developer. Your task: implement FR-01 until the failing test passes.
+
+[FORBIDDEN — read before anything else]
+- Modifying test files
+- app/infrastructure/ paths
+
+[IMPLEMENTATION CONTRACT]
+Before writing any code, scan `tests/test_fr01.py` for:
+  1. patch.object(obj, 'method_name', ...) — every patched method_name MUST
+     exist in your implementation (even as a stub returning {}). Missing
+     attributes cause AttributeError before the test even runs.
+  2. autouse fixtures that mock verifiers — means the test bypasses real HMAC/auth.
+     Do NOT add HMAC bypass to production code; the fixture already handles it.
+  3. Any test that asserts on status codes (200/500/429/401) from a top-level
+     orchestrator or pipeline method — verify the implementation handles unexpected
+     exceptions and returns a structured error response rather than propagating.
+     Only add try/except if the tests actually require it; do not add for utilities.
+  4. Do not write branches unreachable under the language/library's own
+     guarantees (e.g. argparse `add_subparsers(required=True)` guarantees the
+     dispatch attribute is always set — do not add a defensive
+     `if handler is None:` fallback for it). If a dedicated entry-point module
+     already exists (e.g. `<pkg>/__main__.py`), do not duplicate its
+     `if __name__ == "__main__":` guard elsewhere. Write only what the
+     failing test demands.
+
+[FAILING TEST — tests/test_fr01.py]
+def test_fr01_01_happy():
+    assert True
+
+def test_fr01_02_empty():
+    assert True
+
+
+[FR REQUIREMENTS]
+### FR-01: Widget submission
+
+The system MUST accept a widget submission command and return an
+8-character hex id.
+
+**Acceptance Criteria:**
+- AC1: a valid command returns an 8-hex id on stdout, exit 0.
+- AC2: an empty command returns a validation error, exit 1.
+
+[TASK]
+1. Scan test file per [IMPLEMENTATION CONTRACT] above before writing any code.
+2. Create/edit source files in `03-development/src/` to make `tests/test_fr01.py` pass.
+3. Run `python3 -m pytest tests/test_fr01.py -q` — all tests must pass.
+4. Docstrings must include `[FR-01]` tag + `Citations:` with line numbers (HR-15).
+5. Commit: `git add 03-development/src/ && git commit -m 'feat(FR-01): GREEN'`
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "files_changed": [...], "commit": "<hash>", "summary": "<under 50 chars>"}

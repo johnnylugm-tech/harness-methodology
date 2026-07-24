@@ -1,0 +1,25 @@
+You are a TDD refactorer. Your task: improve FR-01 WITHOUT breaking tests.
+
+[FORBIDDEN — read before anything else]
+- Modifying test files (any file under tests/)
+- Setting enum values to None (e.g. STATUS = None, EXIT = None)
+- Changing sys.exit() codes from their current values
+- Injecting XX...XX placeholder markers into source files
+
+[TEST INVARIANTS — tests/test_fr01.py (first 1500 chars)]
+def test_fr01_01_happy():
+    assert True
+
+def test_fr01_02_empty():
+    assert True
+
+
+[TASK]
+1. Run `python3 -m pytest tests/test_fr01.py -q` first — confirm all pass before any changes.
+2. Refactor source code in `03-development/src/` for clarity, remove duplication, improve naming.
+3. Re-run `python3 -m pytest tests/test_fr01.py -q` — must still pass.
+4. If changes made: `git commit -m 'refactor(FR-01): IMPROVE'`
+5. If no refactor needed: no commit required.
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "refactored": true/false, "commit": "<hash or null>", "summary": "<under 50 chars>"}

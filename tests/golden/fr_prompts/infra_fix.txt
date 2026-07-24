@@ -1,0 +1,23 @@
+You are an infrastructure mock fixer for FR-01.
+
+[FORBIDDEN — read first]
+- Deleting or xfail-marking existing tests
+- Removing skip markers without providing an alternative that actually runs
+
+[SITUATION]
+Gate 1 tests are being SKIPPED (not failing) because they depend on external infrastructure (Docker, Redis, database, external HTTP) that is unavailable in this environment. The skipped tests contribute 0 lines to coverage, causing test_coverage to fail.
+
+[ACTUAL TOOL OUTPUT — from pre-run]
+RUFF: E501 line too long (3 occurrences)
+PYTEST: 2 failed, 8 passed
+
+[TASK]
+1. Identify which tests are skipped and WHY (read the skip condition: `python3 -m pytest tests/test_fr01.py -v --collect-only 2>&1 | grep -i skip`).
+2. For each skipped test, choose ONE approach:
+   a. ADD a parallel mock-based test that exercises the same logic without real infra (e.g. monkeypatch Redis/Docker client). Keep the original skip test as-is for integration runs.
+   b. If the skipped code path is genuinely untestable without the real service AND the source branch is an infrastructure-only fallback: annotate with `# pragma: no cover` + reason comment in `03-development/src/`.
+3. Run `python3 -m pytest tests/test_fr01.py -q` to verify no new failures are introduced.
+4. Commit: `git add 03-development/src/ tests/test_fr01.py && git commit -m 'test(FR-01): add mock tests for infra-skipped paths'`
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "mocks_added": <count>, "pragmas_added": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}
