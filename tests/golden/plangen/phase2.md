@@ -305,7 +305,7 @@ are not re-opened. This bounds backtracking to a single step.
   - Every case has concrete Inputs in TRUE form (key="value"), NOT pytest-id form (underscore-replaced)?
   - Sub-assertions table populated per FR (rule_id + predicate + applies_to referencing real case #s)?
   - Self-consistency gate passes? (python3 harness_cli.py check-test-spec-consistency --project .)
-  - Direction B property gate passes? (python3 harness_cli.py check-property-spec --project .)
+  - Direction B property gate passes? (python3 harness_cli.py check-property-spec --project . --no-require-execution)
   - Cross-cutting sections complete (NFR Integration + Deployment Smoke + Backward Compatibility if multi-phase)?
   - Summary table populated with counts per type?
   - All upstream deliverables consistent with each other? No contradictory decisions?
