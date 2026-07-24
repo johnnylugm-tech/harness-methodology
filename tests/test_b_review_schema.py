@@ -195,6 +195,22 @@ class TestEnforceEscalation:
         assert action == EscalationAction.APPROVE
         assert "low" in reason.lower()
 
+    def test_approve_all_low_at_round_5_returns_approve(self):
+        """Regression: HR-12 ceiling must NOT override APPROVE+all-low.
+
+        Bug: enforce_escalation short-circuited to ESCALATE_HUMAN whenever
+        round_num >= max_rounds, even when B-2 returned APPROVE with only
+        low-severity gaps (the documented "successful convergence" case).
+        Per plan §[B-2], APPROVE+all-low is always APPROVE.
+
+        Triggered by: taskq Phase 2 TEST_SPEC.md B-2 round 5 returning
+        {review_status: APPROVE, gaps: 7×low}, which previously returned
+        escalate_human instead of approve.
+        """
+        action, reason = enforce_escalation(_approve_clean(), round_num=5, max_rounds=5)
+        assert action == EscalationAction.APPROVE
+        assert "low" in reason.lower()
+
     def test_approve_with_real_invention_high_returns_retry(self):
         action, _ = enforce_escalation(_approve_with_high_real_invention(), round_num=1)
         assert action == EscalationAction.RETRY

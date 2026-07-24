@@ -150,19 +150,26 @@ def enforce_escalation(
 ) -> tuple[EscalationAction, str]:
     """Decide escalation action from B-2 review result.
 
-    Rules (mirrored from generate_full_plan.py:732-739 but now framework-side):
-      - APPROVE + no medium/high gap → APPROVE
-      - APPROVE + any medium or high gap → RETRY (fix → re-dispatch)
+    Rules (mirrored from plan §[B-2]):
+      - APPROVE + no medium/high gap → APPROVE (regardless of round)
+      - APPROVE + any medium or high gap → RETRY (fix → re-dispatch),
+        escalate_human at round == max_rounds (retry would exceed budget)
       - REJECT  → RETRY until round == max_rounds, then ESCALATE_HUMAN
-      - CANCELLED → RETRY (single retry only — synthesized CANCELLED marks the
-                    retry as framework-side, not user-fixable)
-      - round >= max_rounds → ESCALATE_HUMAN regardless
+      - CANCELLED → RETRY (single retry — synthesized CANCELLED is
+                    framework-side, not user-fixable); escalate at ceiling
 
-    Returns (action, reason). Workflow JS / harness_cli should branch on action.
+    round_num > max_rounds → ESCALATE_HUMAN (programming-error guard,
+    unreachable in normal flow because the round loop terminates at max_rounds).
+
+    Bug history: pre-fix this function short-circuited to ESCALATE_HUMAN
+    whenever round_num >= max_rounds regardless of status, wrongly
+    escalating APPROVE+all-low at round 5. Hit by taskq Phase 2
+    TEST_SPEC.md (B-2 round 5 returned APPROVE + 7×low gaps and was
+    wrongly escalated). Now follows the docstring rules exactly.
     """
-    if round_num >= max_rounds:
+    if round_num > max_rounds:
         return EscalationAction.ESCALATE_HUMAN, (
-            f"HR-12: reached round {round_num}/{max_rounds} without convergence"
+            f"HR-12: round_num {round_num} exceeds max_rounds {max_rounds}"
         )
 
     status = b2.get("review_status", "")
@@ -174,14 +181,32 @@ def enforce_escalation(
 
     if status == "APPROVE":
         if has_medium_or_high:
+            if round_num >= max_rounds:
+                return EscalationAction.ESCALATE_HUMAN, (
+                    f"HR-12: round {round_num}/{max_rounds}, APPROVE with "
+                    f"{sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') in ('medium','high'))} "
+                    f"medium/high gap(s) still open"
+                )
             return EscalationAction.RETRY, (
                 f"APPROVE but {sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') in ('medium','high'))} "
                 f"medium/high gap(s) remain"
             )
         return EscalationAction.APPROVE, "APPROVE with all gaps low"
     if status == "REJECT":
+        if round_num >= max_rounds:
+            return EscalationAction.ESCALATE_HUMAN, (
+                f"HR-12: reached round {round_num}/{max_rounds} without convergence"
+            )
         return EscalationAction.RETRY, "REJECT — fix and re-dispatch"
     if status == "CANCELLED":
+        if round_num >= max_rounds:
+            return EscalationAction.ESCALATE_HUMAN, (
+                f"HR-12: reached round {round_num}/{max_rounds} without convergence"
+            )
         return EscalationAction.RETRY, "CANCELLED — framework-side retry"
-    # Unknown status — retry (don't terminate prematurely on transient/unexpected status)
+    # Unknown status — retry under ceiling, escalate at ceiling
+    if round_num >= max_rounds:
+        return EscalationAction.ESCALATE_HUMAN, (
+            f"HR-12: unknown review_status at round {round_num}/{max_rounds}"
+        )
     return EscalationAction.RETRY, f"unknown review_status: {status!r} — retrying"
