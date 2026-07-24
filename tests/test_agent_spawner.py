@@ -945,17 +945,27 @@ class TestStructuralSignatureSingleSource:
     and fr_cmds delegates; these tests keep it that way."""
 
     def test_fr_cmds_delegates_instead_of_owning_a_signature_copy(self):
-        import inspect
-
+        # Read source from disk rather than inspect.getsource: the latter goes
+        # through linecache, which was observed to race on the FIRST full-suite
+        # run right after the 站4 fr_prompts split landed (fr_cmds newly does
+        # `from cli.fr_prompts import ...`; inspect.getsource of the module hit
+        # a cold-linecache, order-dependent transient that self-healed once
+        # pycache was warm — 3 subsequent full runs + a pycache-cleared run all
+        # green). A direct file read is deterministic and cannot order-depend
+        # on which test warmed linecache first.
         import cli.fr_cmds as fr_cmds
 
-        fr_source = inspect.getsource(fr_cmds)
+        fr_source = Path(fr_cmds.__file__).read_text(encoding="utf-8")
         assert "_CONNECTOR_DISABLED_SIGNATURE" not in fr_source, (
             "cli/fr_cmds.py re-grew its own signature constant — the "
             "detection registry is core.agent_spawner._STRUCTURAL_FAILURE_SIGNATURES"
         )
-        assert "is_structurally_broken" in inspect.getsource(
-            fr_cmds._is_connector_disabled_failure
+        _idx = fr_source.find("def _is_connector_disabled_failure")
+        assert _idx != -1, "_is_connector_disabled_failure missing from cli/fr_cmds.py"
+        _body = fr_source[_idx:].split("\ndef ", 1)[0]
+        assert "is_structurally_broken" in _body, (
+            "_is_connector_disabled_failure must delegate to is_structurally_"
+            "broken, not re-implement the structural check"
         )
 
     def test_signature_literal_defined_only_in_agent_spawner(self):
