@@ -644,6 +644,7 @@ def _collect_ifs(stmts: list, uses: list) -> None:
                         for p in [_canonical_predicate(ast.unparse(s.test))] if p)
                     uses.append(_SubUse(_var, frozenset(), _asserts))
             elif trig is not None:
+                assert isinstance(trig, tuple)
                 var, values = trig
                 # Bug #27 fix: use _canonical_predicate for both sides so
                 # semantically equivalent predicates (different whitespace,
