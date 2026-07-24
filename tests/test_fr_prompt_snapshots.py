@@ -83,6 +83,16 @@ _BUILDERS: dict[str, Callable[[Path, Path], str]] = {
     "code_fix_dims": lambda p, s: _build_fr_step_prompt(
         "CODE-FIX", "FR-01", 3, p, s,
         failing_dims=["linting", "test_coverage"], tool_snapshot=_TOOL_SNAPSHOT),
+    # 站4-review reinforcement — branches the original 10 cases did not reach:
+    # GATE1 with a non-empty block_reason (the block_section), and CODE-FIX
+    # with a src-only failing_dims set (no test_coverage → the other forbidden
+    # clause + no test_cov_section + task_lines without the coverage step).
+    "gate1_blocked": lambda p, s: _build_fr_step_prompt(
+        "GATE1", "FR-01", 3, p, s,
+        block_reason="S3: tool_evidence_missing for type_safety"),
+    "code_fix_src_only": lambda p, s: _build_fr_step_prompt(
+        "CODE-FIX", "FR-01", 3, p, s,
+        failing_dims=["linting"], tool_snapshot=_TOOL_SNAPSHOT),
 }
 
 _CASE_KEYS = sorted(_BUILDERS.keys())
@@ -223,3 +233,65 @@ def test_every_prompt_step_has_a_snapshot():
         f"steps {sorted(_COVERED_STEPS)}. Add a golden + case-table entry "
         f"for any new step, or drop the stale golden for a removed one."
     )
+
+
+# ── 站4-review reinforcement: two branches needing a non-default fixture/stub,
+# so they live outside the parametrized _BUILDERS table but share its golden
+# mechanism (_check_golden). Together with gate1_blocked / code_fix_src_only
+# above, these pin the four branches the base 10 cases left to manual review:
+# block_reason, CODE-FIX src-only, COVERAGE-FIX subprocess ceiling, CRG hits.
+
+def _check_golden(key: str, out: str) -> None:
+    golden_path = GOLDEN_DIR / f"{key}.txt"
+    if os.environ.get("REGEN_GOLDEN") == "1":
+        golden_path.parent.mkdir(parents=True, exist_ok=True)
+        golden_path.write_text(out, encoding="utf-8")
+    assert out == golden_path.read_text(encoding="utf-8"), (
+        f"{key} prompt drifted from its golden — regenerate in this commit:\n"
+        f"  REGEN_GOLDEN=1 python3 -m pytest tests/test_fr_prompt_snapshots.py -q"
+    )
+
+
+def test_coverage_fix_subprocess_branch_matches_golden(tmp_path):
+    """COVERAGE-FIX's _cf_sp_warning fires only when the test file drives the
+    CLI via subprocess.run — the default fixture's test file does not, so this
+    branch was uncovered by the 10 base cases."""
+    proj, srs = _fixture_project(tmp_path)
+    tf = ProjectLayout(proj).active_test_dir / "test_fr01.py"
+    tf.write_text(
+        "import subprocess, sys\n\n"
+        "def test_fr01_01_happy():\n"
+        "    subprocess.run([sys.executable, '-m', 'pkg', 'submit'])\n",
+        encoding="utf-8",
+    )
+    out = _normalize(
+        _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, proj, srs,
+                              tool_snapshot=_TOOL_SNAPSHOT),
+        proj)
+    _check_golden("coverage_fix_subprocess", out)
+
+
+def test_tdd_red_with_crg_hits_matches_golden(monkeypatch, tmp_path):
+    """TDD-RED's _related_ctx block renders only when CRG semantic search
+    returns hits — the autouse stub returns zero, so the base tdd_red case
+    never exercised it. Override with a fixed-hits stub and pin the block."""
+    stub = types.ModuleType("harness.crg_bridge")
+
+    class _StubHits:
+        def __init__(self, *a, **k):
+            pass
+
+        def semantic_search(self, *a, **k):
+            return {"results": [
+                {"name": "validate_widget",
+                 "file_path": "03-development/src/widgets/validate.py"},
+                {"name": "WidgetStore",
+                 "file_path": "03-development/src/widgets/store.py"},
+            ]}
+
+    setattr(stub, "CRGBridge", _StubHits)
+    monkeypatch.setitem(sys.modules, "harness.crg_bridge", stub)
+
+    proj, srs = _fixture_project(tmp_path)
+    out = _normalize(_build_fr_step_prompt("TDD-RED", "FR-01", 3, proj, srs), proj)
+    _check_golden("tdd_red_crg", out)

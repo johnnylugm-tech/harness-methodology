@@ -1,0 +1,85 @@
+You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for FR-01.
+
+[TEST SPEC — required test cases for FR-01]
+TEST_SPEC.md requires these EXACT test functions:
+  - test_fr01_01_happy
+  - test_fr01_02_empty
+  - test_fr01_03_toolong
+
+SPEC COVERAGE: 2/3 (67%) — 1 missing
+→ score = min(coverage_pct, spec_cov_pct). Missing tests count as 0.
+  All required tests MUST exist and pass — partial coverage = partial score.
+
+
+[PREVIOUS ATTEMPT BLOCKED — read carefully]
+S3: tool_evidence_missing for type_safety
+Ensure the gate1_result.json you write this time satisfies the
+tool_evidence requirement described in step 3 below.
+
+[STOP RULE — follow when tools fail or you are unsure]
+- If run-gate itself prints [BLOCKED] (SAB phantom/unregistered module, manifest corruption — a PRECONDITION failure, the dimension tools never ran):
+  → Do NOT write gate1_result.json and do NOT record any score=0
+  → Report status INFRA_BLOCKED with the verbatim [BLOCKED] message
+  → This is an infrastructure problem, not a code-quality verdict — recording zeros here poisons the manifest and dispatches fixes at healthy code
+- If a single dimension tool command fails to execute (error, not found, env issue):
+  → Record score=0 for that dimension
+  → Set tool_evidence = first 300 chars of the error output
+  → Move on to the next dimension — do NOT retry the same command
+- If finalize-gate prints [BLOCKED]:
+  → Include the exact BLOCKED message in your output summary
+  → Do NOT attempt to fix source code yourself — that is CODE-FIX's job
+- Write gate1_result.json and call finalize-gate within 10 turns of starting.
+  A low score with tool_evidence is always better than a timeout.
+
+[TASK — follow EXACTLY in order]
+1. Run: `python3 harness_cli.py run-gate --gate 1 --phase 3 --fr-id FR-01 --project <PROJECT>`
+   The output contains FR-SCOPED TOOL OVERRIDES — exact commands for each
+   dimension.  Use those commands, not the generic ones in evaluate_dimension.md.
+
+2. Run the three tool commands from step 1's FR-SCOPED TOOL OVERRIDES:
+   a. linting:      ruff check ... (exact command shown in run-gate output)
+   b. type_safety:  pyright ... (exact command shown in run-gate output)
+   c. test_coverage: coverage run / pytest ... (exact command shown in run-gate output)
+   Save each tool's output to .sessi-work/round_1/tools/<dimension>.txt
+
+3. Write `.sessi-work/gate1_result.json` with this EXACT schema:
+   {
+     "gate": 1, "phase": 3, "fr_id": "FR-01",
+     "overall_score": <float>,           // weighted avg of breakdown scores
+     "quality_complete": true,            // true if overall_score >= 80
+     "rounds_used": 1,
+     "breakdown": {
+       "linting":       {"score": <0-100>, "threshold": 90, "tool_evidence": "<first 500 chars of ruff stdout>"},
+       "type_safety":   {"score": <0-100>, "threshold": 85, "tool_evidence": "<first 500 chars of pyright stdout>"},
+       "test_coverage": {
+           "score": <0-100>, "threshold": 80,
+           "tests_passed": <int>,   // REQUIRED: count from pytest summary line
+           "tests_failed": <int>,   // REQUIRED: must be 0 — any failed test blocks the gate
+           "tests_skipped": <int>,  // REQUIRED: count skipped tests
+           "tool_evidence": "<first 500 chars of coverage/pytest stdout>"
+       }
+     }
+   }
+   overall_score = (linting.score × 0.33 + type_safety.score × 0.33 + test_coverage.score × 0.34).
+   quality_complete = (overall_score >= 80) AND (every dimension score >= its threshold).
+   CRITICAL: `tool_evidence` is REQUIRED for every dimension.
+   If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.
+   Score fabrication (writing a score without running the tool) also causes S3 block.
+   CRITICAL: `tests_failed` MUST be 0. finalize-gate parses tool_evidence for
+   '{N} failed' and blocks immediately if any test is red — even at 96% coverage.
+
+   Scoring formulas:
+   - linting:      ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)
+   - type_safety:  parse pyright JSON summary.errorCount: max(0, 100 - errorCount×5)
+   - test_coverage: score = min(coverage_pct, spec_cov_pct).
+     spec_cov_pct = (existing_required_tests / total_required) × 100.
+     Currently: 1 required tests missing → spec_cov_pct = 67% → score capped at 67.
+     ALL required tests must exist and pass — partial spec coverage = partial score.
+
+4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01 --project <PROJECT>`
+   If finalize-gate prints [BLOCKED], include the exact error in your output summary.
+
+5. Report pass/fail and failing dimensions (if any).
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "gate_score": <float>, "pass": true/false, "failing_dims": [...], "commit": "<hash or null>", "summary": "<under 50 chars>"}

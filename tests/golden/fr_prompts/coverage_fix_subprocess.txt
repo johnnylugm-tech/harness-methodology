@@ -1,0 +1,64 @@
+You are a coverage fixer for FR-01.
+
+[FORBIDDEN — read first]
+- Deleting or xfail-marking existing tests
+- Adding `# pragma: no cover` to lines that CAN be tested (only use it as a last resort for genuinely untestable lines — see ESCAPE HATCH below)
+
+
+[SUBPROCESS COVERAGE CEILING — READ THIS FIRST]
+Your test file `tests/test_fr01.py` drives the CLI via `subprocess.run`.
+pytest-cov CANNOT measure coverage inside subprocesses — the CLI
+entry-point modules (e.g. cli.py, __main__.py, config.py) will stay
+at 0% no matter how many subprocess tests you add.
+Adding MORE subprocess tests will NOT raise coverage — it wastes rounds.
+
+INSTEAD, you MUST add in-process unit tests that call the CLI functions
+directly. Pattern (ADD alongside existing subprocess tests, do NOT replace):
+  import io, contextlib
+  from <your_pkg> import cli
+  buf = io.StringIO()
+  with contextlib.redirect_stdout(buf):
+      exit_code = cli.main(['submit', 'echo hi'])
+  output = buf.getvalue()
+
+Add in-process tests for the SAME validation paths (empty/too-long/
+injection-blacklist/name-duplicate/atomic-write) covered by the existing
+subprocess tests. Keep both — subprocess tests verify the real CLI entry
+point; in-process tests provide measurable coverage for the internal logic.
+
+[SITUATION]
+All Gate 1 tests currently PASS, but the test_coverage dimension is FAILING.
+Coverage is below the 80% threshold. Two possible root causes:
+  A. Existing tests don't cover enough source lines (code coverage < 80%).
+  B. Required test functions from TEST_SPEC.md are absent from `tests/test_fr01.py`.
+
+[ACTUAL TOOL OUTPUT — from pre-run]
+RUFF: E501 line too long (3 occurrences)
+PYTEST: 2 failed, 8 passed
+
+[TASK]
+1. Run `python3 -m pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q` to identify which source lines are not covered (Miss column).
+2. Read `02-architecture/TEST_SPEC.md` section for FR-01 to identify required test function names. For each function missing from `tests/test_fr01.py` — add it.
+3. For each uncovered line: decide which approach applies:
+   a. Line CAN be reached by a test → add a targeted unit test.
+   b. Line is genuinely untestable → apply ESCAPE HATCH (see below).
+4. Re-run until coverage reaches ≥ 80%: `python3 -m pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q`
+5. Commit both `tests/test_fr01.py` and any source changes from ESCAPE HATCH:
+   `git add 03-development/src/ tests/test_fr01.py && git commit -m 'test(FR-01): add coverage tests and pragma exclusions'`
+
+[ESCAPE HATCH — pragma: no cover]
+Only `except BaseException` (atomic-write cleanup) may be exempted with `# pragma: no cover`. For any other unreachable line: if it is genuinely dead code (a branch a library guarantee makes impossible, or a duplicate of an existing entry-point module), DELETE it. If it is reachable, write a unit test for it instead of excluding it.
+Allowed exemptions (rendered verbatim from Gate 1 audit's `PRAGMA_NO_COVER_ALLOWLIST` SSOT — adding a pattern that is not in this list WILL fail Gate 1 on the next dispatch):
+  - `except BaseException`
+
+`if __name__ == "__main__":` blocks are NOT a valid pragma target. If this project has a dedicated entry-point module (`<pkg>/__main__.py`), exclude THAT file at the file level via setup.cfg's `[coverage:run] omit`, and DELETE any duplicate guard found elsewhere — do not pragma it. If no dedicated entry-point module exists, extract one; that is an architecture fix, not a coverage suppression.
+Each `# pragma: no cover` annotation MUST be accompanied by a one-line comment explaining WHY it is untestable. Example that PASSES Gate 1 (matches the allowlist above):
+  `except BaseException: pass  # pragma: no cover — atomic-write cleanup, see core.atomic_io`
+
+[PARTIAL PROGRESS NOTE]
+If there are many missing spec tests (>50), add as many as you can and commit.
+The meta-loop will re-run if coverage is still insufficient — each session reads the test file fresh and picks up where the previous session left off.
+Do NOT stop early to 'leave some for next time' — add the maximum you can.
+
+[OUTPUT FORMAT]
+Return JSON: {"status": "DONE", "coverage_pct": <number>, "tests_added": <count>, "pragmas_added": <count>, "commit": "<hash>", "summary": "<under 50 chars>"}
