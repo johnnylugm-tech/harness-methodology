@@ -179,7 +179,8 @@ _LINE_CEILING: dict[str, int] = {
     # + _abort_dispatch_infra_or_harness_bug (HARNESS_BUG/INFRA short-circuit
     # in the fix-round loop — do not dispatch CODE-FIX at a problem no code
     # change can resolve) + the UNKNOWN-exhausted hint at loop exhaustion.
-    "cli/fr_cmds.py": 2802,  # 2026-07-21: +18 lines — fix/spec-cov-pct-section-boundary-and-dedup: `_extract_test_spec_names()` now reuses `spec_coverage._parse_test_spec()` (the parser `finalize-gate`'s S4 spec-coverage check already uses) instead of a second, independently-drifted line-by-line parser whose section-boundary regex only reset `current_fr` on `### FR-XX` headings — any other heading (e.g. `### NFR Integration (...)`) left `current_fr` stuck, leaking later sections' test names into the FR's denominator (FR-05 repro: 11 real rows inflated to 16). `_compute_fr_spec_data()` also gained a `covered_row_count` counter computed row-for-row against `spec_test_names` (mirrors `spec_coverage._run_spec_coverage_check()`'s list-based `covered = [i for i in items if ...]`) instead of dividing a de-duplicated `set`-based numerator by a non-deduplicated `list`-based denominator — TEST_SPEC.md's v2.13.0 "Multi-scenario expansion" rule deliberately repeats one function name across N parametrize rows, and the old asymmetric dedup manufactured N-1 permanently-unsatisfiable "missing" entries regardless of actual coverage (FR-05 repro: `spec_cov_pct` wrongly capped at 75% instead of the true 100%, causing GATE1 to falsely BLOCK for 7 consecutive rounds before a sub-agent got lucky and overrode the bad prompt hint).
+    # 2026-07-24: -839 lines — Round 17 站4 (finding D): _build_fr_step_prompt extracted into cli/fr_prompts/ façade package.
+    "cli/fr_cmds.py": 1980,
     # 2026-07-21: +4 lines — review fix on fix/fr-step-already-done-cascade: reverted the sub-change that relaxed `if not committed: return False` to only fire for GATE1/GATE1-DELTA (it let TDD-RED/TDD-GREEN mark themselves done from a leftover, uncommitted artifact alone — reproduced live; commit evidence is a hard requirement again for every step). The GATE1 sentinel+quality_complete cascade already covers the phase-boundary scenario (FR-02 GREEN commits pre-dating the boundary) that relaxation was meant to fix, so no expressiveness is lost. Also replaced the multi-tag docstring scan's 4 unanchored substring patterns with a `[...]`-bracket-anchored, exact-tag-set match (`re.findall(r"\[([^\]]*)\]", text)` + membership check) — the substring version could false-positive match an unrelated prose comment like "# see FR-03, FR-09" with no enclosing brackets at all (also reproduced live).
     # 2026-07-21: +15 lines — fix/round-18-dispatch-ssot (Bug B): import `PRAGMA_NO_COVER_ALLOWLIST` alongside `PRAGMA_NO_COVER_GUIDANCE` and render the allowlist verbatim in the COVERAGE-FIX prompt so future widening of the tuple auto-propagates; replace the contradictory `raise NotImplementedError` example with one that matches the SSOT (`except BaseException: pass`).
     # 2026-07-21: +1 line — fix/round-18-dispatch-ssot (Bug A): add `"AMEND-SAB"` key to `_FR_STEP_COMMIT_PATTERNS` so `_fr_step_already_done` short-circuits a re-run whose amend-sab commit is already in git log.
@@ -194,11 +195,8 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-13: +7 lines — audit-phase subparser gained a `description=`
     # clarifying it must run BEFORE advance-phase for a phase-scoped C10
     # result (no workflow JS ever calls it automatically).
-    # 2026-07-16: Round 12 站3a — red_assertion_check crossed the
-    # unlisted threshold (900) adding _unsatisfiable_spec_rule_ids: the
-    # satisfiability probe that downgrades provably-impossible spec
-    # constraints to spec_unsatisfiable warnings (R5 incident mechanized).
-    "core/quality_gate/red_assertion_check.py": 1000,
+    # 2026-07-24: +1 line — pyright type narrowing fix for L647 trig union.
+    "core/quality_gate/red_assertion_check.py": 1005,
     # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 13 previously-unlogged broad excepts now print a [WARN]
     # diagnostic.

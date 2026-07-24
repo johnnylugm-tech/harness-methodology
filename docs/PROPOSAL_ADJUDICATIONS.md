@@ -10,6 +10,20 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 17(2026-07-24)— 15-bug 結構診斷:prompt↔gate 漂移母體的系統性封口
+
+老闆令 review `0197e89..HEAD`(15 個 bug-fix,PR #15–#25)並探討是否有結構性問題;隨後令針對發現確認根源、提修復、不破壞共通性。診斷:8/15 bug-fix 是同一母體(prompt↔gate 規則雙重編碼、無 parity 守衛)的不同發作點,修法逐點反應式(#18B 是 #15 已修 allowlist 的殘留漂移=per-site 綁常數,非結構封口)。四發現以既有共通模式(registry+完備性 meta-test / R13 ledger / R12 自我懷疑 / R15 golden)系統性封口。詳細出處:各站 commit message + `tests/test_prompt_gate_parity.py` / `tests/test_fr_step_no_progress_self_doubt.py` / `tests/test_detector_abstention.py` / `tests/test_fr_prompt_snapshots.py`。
+
+| # | 發現 | 判定 | 一句證據 / 封口手法 | Re-open condition |
+|---|------|------|----------|---|
+| R17-A | prompt↔gate 規則雙重編碼、無 parity 守衛(母體,8/15) | **採納 — 已封(站1)** | GATE1 prompt 手寫的 threshold `90/85/80` 是 `gate1_per_fr.yaml` / `sab_parser._GATE_DIMENSION_STANDARD` 的第三份 → render-from-SSOT 消滅之(byte-equal,站0 snapshot 證);`test_prompt_gate_parity.py` 宣告式 `PROMPT_GATE_RULES` registry + 完備性;`test_no_unbound_hardcoded_threshold_in_prompt` 是母體封口(未來 `max(NN.0,...)` 硬編 threshold author-time fail) | 擴大 parity 到 bug-hunt/peer-review 等其他 prompt↔工具面時另行查證 |
+| R17-A′ | overall_score 權重 prompt `0.33/0.34` vs gate YAML `0.25×4` 不一致 | **降級記錄 — 不強改** | gate1 無 CRG override → `harness_bridge.py:2399` 採用 agent 自報 overall_score,prompt 是 de-facto 權威、YAML weight 是 gate1 死配置;統一牽動 gate2/3/4 fallback + agent output 契約,超出 Surgical。`test_overall_score_weight_asymmetry_is_pinned` 鎖現狀 | overall_score 的 dim 集合(是否含 architecture_constraints)被正式裁定時 |
+| R17-B | 確定性不可逃脫 BLOCKED 迴圈無偵測(原設計:S4/spec_cap 矛盾斷路器) | **縮小 — 原設計前提不成立(站2)** | 2a 實證:S4(`_run_harness_cross_validation`)只 return violation 訊息、不 return 它算的 coverage 值;`_capture_tool_snapshot` 跑 `pytest` 無 `--cov`;#20 具體 bug 已修 + run-fr-step 已有 `no_progress≥2` 斷路器。→ 縮小為 no-progress BLOCKED 點 `record_degradation`(補觀測黑洞)+ gate-bug 自我懷疑通道(R12 站3a) | 要做真矛盾偵測需先讓 `_capture_tool_snapshot` 加 `--cov` 或 S4 落地 harness_score(動熱路徑,ROI 待證) |
+| R17-C | 偵測器猜測 / 不可清除 finding | **立則-only — 零新活傷口(站3)** | 3a 審計 detection/+quality_gate/ 9 個 break/next(iter) 站點全健康(fail-fast/存在性/前綴剝除/表格邊界);唯一猜測病(`_resolve_import_layer`)#23 已修已測、#24 同族已修。`test_detector_abstention.py` 結構鎖定(AST 掃描防重構回 first-hit) | 新增 layer/classification resolver 時登記其 abstain 測試 |
+| R17-D | `_build_fr_step_prompt` 719 行 god-function(A/C 震央,無 golden) | **採納 — 已封(站4)** | 站0 建 per-step golden snapshot(`test_fr_prompt_snapshots.py`,byte-equal 執法);站4 於 snapshot 保護下完成 façade 拆分,將 prompt 建立邏輯移至 `cli/fr_prompts/` 包,`cli/fr_cmds.py` 行數下降 839 行(2802 → 1963),`test_file_size_ratchet.py`  ceiling 隨之調降至 1980,13 個 golden prompt snapshots 全數 byte-equal 通過。 | 未來新增 FR step 時擴充 `cli/fr_prompts/` 專用 builder 與對應 snapshot golden |
+
+> 附帶發現(非裁決項):`core/quality_gate/red_assertion_check.py:647` 有活的 pyright 型別 error(`var, values = trig` — `_parse_trigger` union 型別未窄化過 `_UNHANDLED_TRIGGER` sentinel),型別問題非猜測病,已 flag 獨立工單處理,不併入本輪。
+
 ## Round 16(2026-07-18)— 外部檢索自主盤點(2025-2026 論文/大廠白皮書/熱門 OSS)
 
 老闆指示盤點框架弱點時加入外部觀點,本輪檢索學術論文/技術白皮書/GitHub 熱門實作,逐條與框架現況對賬。

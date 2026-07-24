@@ -173,7 +173,8 @@ def test_no_unbound_hardcoded_threshold_in_prompt():
     """Completeness /母體封口: the GATE1 threshold floor must be sourced from
     the SSOT, never a re-introduced literal. A future `max(90.0, ...)` slip is
     exactly the finding-A drift class; this makes it fail at author time."""
-    src = inspect.getsource(_build_fr_step_prompt)
+    from cli.fr_prompts.gate import build_gate1_prompt
+    src = inspect.getsource(_build_fr_step_prompt) + inspect.getsource(build_gate1_prompt)
     for literal in ("max(90.0", "max(85.0", "max(80.0"):
         assert literal not in src, (
             f"{literal!r}: a hand-copied gate threshold floor is back in the "
