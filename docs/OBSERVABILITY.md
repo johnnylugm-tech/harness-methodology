@@ -52,9 +52,13 @@ One JSON object per line, written by
 `why`. Also prints one `[DEGRADED] component: what (why)` line to stderr
 the first time a given `(component, what)` pair fires in a process — see
 `docs/ERROR_HANDLING.md`'s DEGRADE row. `core/state_io.py`'s
-`lenient=True` path (Round 14 站2) is the newest writer: a corrupt
-`state.json`/`quality_manifest.json` degrading to `{}` now lands here
-instead of vanishing into a silent `except: pass`.
+`lenient=True` path (Round 14 站2) is one writer: a corrupt
+`state.json`/`quality_manifest.json` degrading to `{}` lands here instead
+of vanishing into a silent `except: pass`. **Round 17 站2** added another:
+`_abort_no_progress_with_self_doubt` records inescapable GATE1 fix-round
+no-progress loops (`no_progress_count >= 2`) here before returning exit 2,
+eliminating the blind spot where silent `return 2` previously left no trail
+for `run-report`.
 
 ### `.sessi-work/crash/crash_<timestamp>_<pid>.json`
 
