@@ -32,6 +32,7 @@ from core.quality_gate.ghost_detector import (
     write_ghost_paper_trail,
 )
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+from core.quality_gate.sab_parser import _GATE_DIMENSION_STANDARD
 from core.quality_gate.spec_coverage import _parse_test_spec
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
@@ -2211,14 +2212,20 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                 f"  All required tests MUST exist and pass — partial coverage = partial score.\n\n"
             )
 
-        # ── Effective thresholds (yaml defaults + quality_manifest overrides floor) ──
-        # gate_score_overrides is a floor — only raise, never lower.  This matches
-        # harness_bridge.py:2224-2229: threshold = max(yaml_threshold, override).
+        # ── Effective thresholds (gate-dimension SSOT + quality_manifest override floor) ──
+        # Round 17 finding A: the per-dimension threshold floor is the gate's
+        # own dimension threshold, single-sourced from
+        # core.quality_gate.sab_parser._GATE_DIMENSION_STANDARD (parity-tested
+        # against gate1_per_fr.yaml and gate4_p6_full.yaml). These were a
+        # hand-copied 90.0/85.0/80.0 here — a second, unbound copy of the gate's
+        # own thresholds that would silently drift if the gate YAML changed.
+        # gate_score_overrides is a floor — only raise, never lower (mirrors
+        # harness_bridge.finalize_gate's max(d.threshold, override) at :2240).
         _gate_manifest = load_quality_manifest(project, lenient=True)
         _gate_overrides = _gate_manifest.get("gate_score_overrides", {})
-        _lint_thresh = max(90.0, float(_gate_overrides.get("linting", 0)))
-        _type_thresh = max(85.0, float(_gate_overrides.get("type_safety", 0)))
-        _cov_thresh = max(80.0, float(_gate_overrides.get("test_coverage", 0)))
+        _lint_thresh = max(float(_GATE_DIMENSION_STANDARD["linting"]), float(_gate_overrides.get("linting", 0)))
+        _type_thresh = max(float(_GATE_DIMENSION_STANDARD["type_safety"]), float(_gate_overrides.get("type_safety", 0)))
+        _cov_thresh = max(float(_GATE_DIMENSION_STANDARD["test_coverage"]), float(_gate_overrides.get("test_coverage", 0)))
 
         return (
             f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"
