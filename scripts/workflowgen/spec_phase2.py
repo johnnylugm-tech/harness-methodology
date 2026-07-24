@@ -391,7 +391,7 @@ def _render_phase2_peer_review() -> str:
         + "    + ' | gaps=' + ((peerB2 ? peerB2.gaps : []) || []).length\n"
         + "    + ' | escalation=' + sbrResult.escalation_action)\n"
         + "\n"
-        + "  if (sbrResult.escalation_action === 'approve') { log('  APPROVED'); break }\n"
+        + "  if (sbrResult.escalation_action === 'approve') { peerReviewPassed = true; log('  APPROVED'); break }\n"
         + "  if (sbrResult.escalation_action === 'escalate_human') {\n"
         + "    return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }\n"
         + "  }\n"

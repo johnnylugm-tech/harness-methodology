@@ -798,7 +798,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     + ' | gaps=' + ((peerB2 ? peerB2.gaps : []) || []).length
     + ' | escalation=' + sbrResult.escalation_action)
 
-  if (sbrResult.escalation_action === 'approve') { log('  APPROVED'); break }
+  if (sbrResult.escalation_action === 'approve') { peerReviewPassed = true; log('  APPROVED'); break }
   if (sbrResult.escalation_action === 'escalate_human') {
     return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }
   }
