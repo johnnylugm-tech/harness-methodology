@@ -78,8 +78,8 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "read-file CLI + cat; length/--expect-prefix anchors validated in JS"),
     (r"^legal-artifacts$", "carrier", "js-regex",
      "print-legal-artifacts CLI output echoed verbatim"),
-    (r"^gate1-precheck$", "carrier", "schema",
-     "already-passed FR list transcribed (FR_LIST_SCHEMA)"),
+    (r"^(gate1|gate2|gate3|gate4)-precheck$", "carrier", "schema",
+     "pre-flight GUARD; checks if gate/FRs were already passed in quality_manifest.json (VERDICT_SCHEMA)"),
     # ── judgment: the LLM output IS the work product ──
     (r"^a-$", "judgment", "none",
      "A agents author deliverable content (SRS/SAD/ADR/TEST_SPEC…)"),
