@@ -10,6 +10,20 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 18(2026-07-25)— 病灶歸位:把補丁層的修復搬回它該在的層
+
+老闆令 review `0e164ee..HEAD`(25 commits,其中 16 個是 Round 17 之後的新批次)並探討結構性問題,隨後令針對建議優先序全部四項提「正解 not workaround」。診斷:16 個新 commit 中 9 個實質修復**全部由 taskq 真實 E2E 跑動觸發**,5487 個測試 + 72 個 guards 攔截率 0;四個問題共享同一病理——**修復被放在症狀出現的層,而不是病因所在的層**,所以修復本身製造新 bug、漏掉同類副本、或永遠無法收斂。詳細出處:各站 commit message + `tests/test_gate_threshold_docs_parity.py` / `tests/test_attestation_idempotence.py` / `scripts/workflowgen/js_src/sim_runner.test.mjs` §6-7。
+
+| # | 發現 | 判定 | 一句證據 / 封口手法 | Re-open condition |
+|---|------|------|----------|---|
+| R18-A | 35214a0 的 orphan-module fold 把「無 FR 宣告的模組」塞進每個 FR 的 Gate 1 覆蓋 scope | **採納 — 移除(站1);原設計前提兩半皆假** | 探針實證兩個活 bug:套件式宣告(`taskq.executor`,正是 cov_utils 上方 Fix III 支援的形狀)的子模組 dotted name 不等於宣告值 → 被判孤兒塞進別的 FR;無 `fr_module_traceability` 時 claim set 為空 → 全部是孤兒 → Priority-2 的 import-based 收斂變死碼、退化為全庫。**前提本身錯**:SAB.json `layers` 已宣告全部 7 個模組(store→persistence,config/models→foundation),且 `gate2_p3_exit.yaml` 是 `scope: full_phase`,共享模組在 **Gate 2** 就被全庫覆蓋率測到,在 advance-phase **之前** | 若未來 Gate 2 改為 FR-scoped,共享模組的檢查點需重新設計 |
+| R18-A′ | 補償方案「新增 `preflight_module_ownership` 強制每個模組有 FR 主人」 | **撤銷 — 計畫核准後查證推翻** | taskq 的 config/models/store 是設計上的基礎設施層,天然不屬於任何單一 FR;強迫歸屬違反架構現實。且時序上,FR-01 跑 TDD 時 FR-02 尚未寫完的共享模組本就無法對 FR-01 的 per-FR checkpoint 負責。原計畫的 1b/1c 因此**不實作**(計畫 Self-Review 已預留此分支) | 若實測出現「模組完全不在 SAB.layers 也不在 traceability」的真孤兒,再議 |
+| R18-B | gate 閾值在 prose 中的手寫副本無守衛(R17-A 母體的未覆蓋面) | **採納 — 已封(站2)** | 35214a0 把 Gate 1 的 linting/type_safety 由 90/85 改為 100/100,只更新 yaml + 2 份副本,**留下 5 份仍寫 90/85**(`docs/P{3,5,7,8}_SOP.md` + flowchart)。R17 的 `PROMPT_GATE_RULES` 只綁 GATE1 prompt 一個消費點。→ `gate_thresholds.load_gate_thresholds()` 讀執法用的 yaml、不存值;`sab_parser` 兩個常數改為 yaml-derived(gate4 實測 15 dims 完全等值,gate1 順帶補上 `architecture_constraints`);`test_gate_threshold_docs_parity.py` 三類 registry + 完備性 meta-test。反例驗證:改 yaml 一個值 → 6 個測試變紅 | 擴大到 evaluate_dimension.md 等 LLM 判斷面 prose 時另行查證 |
+| R18-C | attestation 刷新迴圈結構上不可能收斂(6/16 commit 是純儀式) | **採納 — 已封(站3)** | 6 次 `chore: refresh attestation post-pull` 的 `content_sha256` **六次全同**(932e6844…)= 矩陣一次都沒真的變過;`_trace_dirty_state` 用 mtime 而 git 不保存 mtime,清除它要改寫檔案 → 改 `git_sha` → 真 diff → 必須 commit → `git_sha` 又過期。且 `git_sha` **零比對消費者**(3 處 print,0 處讀)。→ `write_attestation` 內容未變時只 `os.utime`;`_trace_dirty_state` 判髒時先重算內容(實測 0.43s,僅走不快樂路徑)再決定擋不擋,失敗一律 fail-closed。**自證**:站3 的 commit 本身未跑儀式即通過 | 若 `build_attestation` 成本顯著上升(大型專案實測 > 3s),慢路徑需改為增量指紋 |
+| R18-D | `render_gate_loop` 的 gate PASS 判定在模擬測床零覆蓋 | **採納 — 已封(站4)** | 探針實證:precheck 的 VERDICT_SCHEMA 落到 happy synthesizer 的 `{pass:true}`,**所有既有場景都跳過 round loop**,從未執行過 gate 判定。這正是 9b5f7cf 用 `quality_complete`(SSI 分數寫入、在 Phase Truth 之前、且永不回退)當完成信號、兩個 commit 後被 64d8ea9 推翻的位置——期間 `--check` / golden / 52 測試對**兩個版本都綠**,因為它們比對的是生成器與生成物,看不見前提錯誤。→ sim_runner 補 13 個語意場景,floor 21→33 | 新增 gate 或改變 PASS 條件時擴充對應場景 |
+
+> 附帶修正(非裁決項):64d8ea9 把判定改讀 `state.json.last_gate` 後,`render_gate_loop` 的 PASS 日誌仍印 `manifest qc=true`——與 83ed438 修的是同一類(日誌宣稱程式已不再做的事),由該修復本身引入。站4 一併更正。
+
 ## Round 17(2026-07-24)— 15-bug 結構診斷:prompt↔gate 漂移母體的系統性封口
 
 老闆令 review `0197e89..HEAD`(15 個 bug-fix,PR #15–#25)並探討是否有結構性問題;隨後令針對發現確認根源、提修復、不破壞共通性。診斷:8/15 bug-fix 是同一母體(prompt↔gate 規則雙重編碼、無 parity 守衛)的不同發作點,修法逐點反應式(#18B 是 #15 已修 allowlist 的殘留漂移=per-site 綁常數,非結構封口)。四發現以既有共通模式(registry+完備性 meta-test / R13 ledger / R12 自我懷疑 / R15 golden)系統性封口。詳細出處:各站 commit message + `tests/test_prompt_gate_parity.py` / `tests/test_fr_step_no_progress_self_doubt.py` / `tests/test_detector_abstention.py` / `tests/test_fr_prompt_snapshots.py`。
