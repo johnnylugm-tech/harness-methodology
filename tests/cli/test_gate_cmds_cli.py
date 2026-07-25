@@ -1603,10 +1603,13 @@ class TestSabPhantomPerFrScoping:
 
 class TestPrintFrScopedOverridesPy:
     """When ``quality_manifest.json`` declares ``fr_module_traceability[fr_id]``,
-    _print_fr_scoped_overrides_py must scope coverage to that module alone,
-    not to every module imported by the test file. Prior to the fix, a test
-    that imported helpers from other FRs' modules reported ~1/N coverage
-    instead of the true per-module coverage, blocking legitimate GATE1-DELTA
+    _print_fr_scoped_overrides_py must scope coverage to that module — plus
+    any module under src_dir claimed by NO FR (an orphan/shared module like
+    taskq.store, folded into every FR's scope so it's never left uncovered
+    until Phase exit; see cov_utils.resolve_fr_scoped_src_files) — not to
+    every module imported by the test file. Prior to the fix, a test that
+    imported helpers from other FRs' modules reported ~1/N coverage instead
+    of the true per-module coverage, blocking legitimate GATE1-DELTA
     re-evaluations in carry-forward phases (P5/P7/P8)."""
 
     def _setup(self, tmp_path):
@@ -1627,7 +1630,11 @@ class TestPrintFrScopedOverridesPy:
         from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
-            "fr_module_traceability": {"FR-04": "taskq.cache"},
+            # cli.py is claimed by FR-01 — not an orphan, stays excluded from
+            # FR-04's scope. store.py is claimed by no FR — an orphan module
+            # folded into every FR's scope (this fix's whole point), so it
+            # now correctly appears even though FR-04 doesn't own it.
+            "fr_module_traceability": {"FR-04": "taskq.cache", "FR-01": "taskq.cli"},
             "quality_targets": {"min_coverage": 80},
         }
         _print_fr_scoped_overrides_py(
@@ -1636,10 +1643,13 @@ class TestPrintFrScopedOverridesPy:
             manifest, non_code_frs=set(), cov_threshold=80,
         )
         out = capsys.readouterr().out
-        # Only the owned module (cache) should appear in the include flag.
+        # The owned module (cache) appears.
         assert "cache.py" in out
+        # cli.py is claimed by FR-01 (not an orphan) — stays excluded.
         assert "cli.py" not in out
-        assert "store.py" not in out
+        # store.py is claimed by no FR — an orphan, folded in so no shared
+        # module escapes Gate 1 coverage until Phase exit.
+        assert "store.py" in out
 
     def test_falls_back_to_imports_when_no_traceability(self, tmp_path, capsys):
         """No ``fr_module_traceability`` → fall back to import-based detection

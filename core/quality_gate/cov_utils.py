@@ -226,4 +226,29 @@ def resolve_fr_scoped_src_files(
     if scope_override:
         src_files = list(dict.fromkeys(src_files + scope_override))
 
+    # Any module under src_dir that NO FR claims in fr_module_traceability is
+    # shared/infrastructure code (e.g. taskq.store) that no single FR's Gate 1
+    # scope would otherwise ever cover — the whole-repo 100% bar only gets
+    # enforced once, at advance-phase, after every FR is already "done". Fold
+    # orphaned modules into every FR's scope so the first Gate 1 that runs
+    # after an orphan module exists already requires it covered — the true
+    # final standard applied at the earliest possible checkpoint, not
+    # deferred to a later one.
+    all_claimed: set = set()
+    for _trace in manifest_data.get("fr_module_traceability", {}).values():
+        entries = [_trace] if isinstance(_trace, str) else (_trace if isinstance(_trace, list) else [])
+        for t in entries:
+            if isinstance(t, str) and t and not any(p in (".", "..") for p in t.replace("\\", "/").split("/")):
+                all_claimed.add(t)
+    src_root = Path(project) / src_dir
+    if src_root.is_dir():
+        for py_file in sorted(src_root.rglob("*.py")):
+            if py_file.name == "__init__.py":
+                continue
+            mod_dotted = ".".join(py_file.relative_to(src_root).with_suffix("").parts)
+            if mod_dotted not in all_claimed:
+                rel = str(py_file.relative_to(project))
+                if rel not in src_files:
+                    src_files.append(rel)
+
     return src_files

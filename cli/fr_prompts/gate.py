@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from core.state_io import load_quality_manifest
-from core.quality_gate.sab_parser import _GATE_DIMENSION_STANDARD
+from core.quality_gate.sab_parser import _GATE1_DIMENSION_STANDARD
 
 from cli.fr_prompts._shared import _compute_fr_spec_data, _extract_test_spec_names
 
@@ -51,9 +51,9 @@ def build_gate1_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, te
 
     _gate_manifest = load_quality_manifest(project, lenient=True)
     _gate_overrides = _gate_manifest.get("gate_score_overrides", {})
-    _lint_thresh = max(float(_GATE_DIMENSION_STANDARD["linting"]), float(_gate_overrides.get("linting", 0)))
-    _type_thresh = max(float(_GATE_DIMENSION_STANDARD["type_safety"]), float(_gate_overrides.get("type_safety", 0)))
-    _cov_thresh = max(float(_GATE_DIMENSION_STANDARD["test_coverage"]), float(_gate_overrides.get("test_coverage", 0)))
+    _lint_thresh = max(float(_GATE1_DIMENSION_STANDARD["linting"]), float(_gate_overrides.get("linting", 0)))
+    _type_thresh = max(float(_GATE1_DIMENSION_STANDARD["type_safety"]), float(_gate_overrides.get("type_safety", 0)))
+    _cov_thresh = max(float(_GATE1_DIMENSION_STANDARD["test_coverage"]), float(_gate_overrides.get("test_coverage", 0)))
 
     return (
         f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"

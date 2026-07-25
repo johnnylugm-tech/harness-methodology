@@ -43,7 +43,7 @@ from cli.fr_cmds import (  # noqa: E402
     _build_fr_step_prompt,
     _extract_test_spec_names,
 )
-from core.quality_gate.sab_parser import _GATE_DIMENSION_STANDARD  # noqa: E402
+from core.quality_gate.sab_parser import _GATE1_DIMENSION_STANDARD  # noqa: E402
 
 import pytest  # noqa: E402
 
@@ -84,9 +84,9 @@ def _gate1_dim(field: str) -> dict[str, float]:
 
 def _mk_threshold_check(dim: str) -> Callable[[str], None]:
     def _check(prompt: str) -> None:
-        val = int(_GATE_DIMENSION_STANDARD[dim])
+        val = int(_GATE1_DIMENSION_STANDARD[dim])
         assert f'"threshold": {val}' in prompt, (
-            f"{dim} threshold {val} (SSOT _GATE_DIMENSION_STANDARD) not "
+            f"{dim} threshold {val} (SSOT _GATE1_DIMENSION_STANDARD) not "
             f"rendered in GATE1 prompt — the prompt must source it, not "
             f"hand-copy it")
     return _check
@@ -120,13 +120,13 @@ class PromptGateRule(NamedTuple):
 # first-column rule_id set is pinned by the completeness meta-test below.
 PROMPT_GATE_RULES: tuple[PromptGateRule, ...] = (
     PromptGateRule("threshold_linting", "GATE1",
-                   "sab_parser._GATE_DIMENSION_STANDARD['linting'] == gate1_per_fr.yaml",
+                   "sab_parser._GATE1_DIMENSION_STANDARD['linting'] == gate1_per_fr.yaml",
                    _mk_threshold_check("linting")),
     PromptGateRule("threshold_type_safety", "GATE1",
-                   "sab_parser._GATE_DIMENSION_STANDARD['type_safety'] == gate1_per_fr.yaml",
+                   "sab_parser._GATE1_DIMENSION_STANDARD['type_safety'] == gate1_per_fr.yaml",
                    _mk_threshold_check("type_safety")),
     PromptGateRule("threshold_test_coverage", "GATE1",
-                   "sab_parser._GATE_DIMENSION_STANDARD['test_coverage'] == gate1_per_fr.yaml",
+                   "sab_parser._GATE1_DIMENSION_STANDARD['test_coverage'] == gate1_per_fr.yaml",
                    _mk_threshold_check("test_coverage")),
     PromptGateRule("pragma_allowlist", "COVERAGE-FIX",
                    "core.phase_hooks.PRAGMA_NO_COVER_ALLOWLIST",
@@ -157,15 +157,15 @@ def test_registry_covers_exactly_the_expected_rule_ids():
 
 
 def test_gate1_yaml_thresholds_match_standard_ssot():
-    """Legitimises the prompt sourcing thresholds from _GATE_DIMENSION_STANDARD:
+    """Legitimises the prompt sourcing thresholds from _GATE1_DIMENSION_STANDARD:
     gate1_per_fr.yaml's tool-dim thresholds MUST equal the standard table.
     If gate1 ever needs distinct thresholds, this fails — forcing a dedicated
     gate1 SSOT rather than a silently-wrong prompt."""
     thr = _gate1_dim("threshold")
     for name in ("linting", "type_safety", "test_coverage"):
-        assert thr[name] == _GATE_DIMENSION_STANDARD[name], (
+        assert thr[name] == _GATE1_DIMENSION_STANDARD[name], (
             f"{name}: gate1_per_fr.yaml threshold {thr[name]} != standard "
-            f"{_GATE_DIMENSION_STANDARD[name]} — prompt sources the standard, "
+            f"{_GATE1_DIMENSION_STANDARD[name]} — prompt sources the standard, "
             f"so a divergence here silently mis-instructs GATE1 sub-agents")
 
 
@@ -178,9 +178,9 @@ def test_no_unbound_hardcoded_threshold_in_prompt():
     for literal in ("max(90.0", "max(85.0", "max(80.0"):
         assert literal not in src, (
             f"{literal!r}: a hand-copied gate threshold floor is back in the "
-            f"prompt builder. Source it from _GATE_DIMENSION_STANDARD (finding "
+            f"prompt builder. Source it from _GATE1_DIMENSION_STANDARD (finding "
             f"A) so it cannot drift from gate1_per_fr.yaml.")
-    assert "_GATE_DIMENSION_STANDARD" in src, (
+    assert "_GATE1_DIMENSION_STANDARD" in src, (
         "the GATE1 prompt no longer sources thresholds from the SSOT")
 
 

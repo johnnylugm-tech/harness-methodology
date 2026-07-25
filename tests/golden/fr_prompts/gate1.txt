@@ -43,8 +43,8 @@ SPEC COVERAGE: 2/3 (67%) — 1 missing
      "quality_complete": true,            // true if overall_score >= 80
      "rounds_used": 1,
      "breakdown": {
-       "linting":       {"score": <0-100>, "threshold": 90, "tool_evidence": "<first 500 chars of ruff stdout>"},
-       "type_safety":   {"score": <0-100>, "threshold": 85, "tool_evidence": "<first 500 chars of pyright stdout>"},
+       "linting":       {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of ruff stdout>"},
+       "type_safety":   {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of pyright stdout>"},
        "test_coverage": {
            "score": <0-100>, "threshold": 80,
            "tests_passed": <int>,   // REQUIRED: count from pytest summary line

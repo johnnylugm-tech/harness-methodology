@@ -131,6 +131,21 @@ _GATE_DIMENSION_STANDARD: dict[str, float] = {
     "test_assertion_quality": 70, "traceability": 100,
 }
 
+# Gate 1 (per-FR checkpoint) dimension thresholds — deliberately stricter than
+# _GATE_DIMENSION_STANDARD (Gate 4's floor) for linting/type_safety: those two
+# dimensions are boolean in nature (a lint violation or type error either
+# exists or doesn't — there's no "acceptable amount"), so Gate 1 requires the
+# same zero-tolerance bar the whole-repo checks already enforce, applied at
+# the earliest possible checkpoint instead of accumulating until Phase exit.
+# Kept in sync with harness/gate_configs/gate1_per_fr.yaml (test enforces
+# parity — test_prompt_gate_parity.py::test_gate1_yaml_thresholds_match_standard_ssot).
+# Deliberately NOT unified with _GATE_DIMENSION_STANDARD: raising that shared
+# constant would also raise Gate 2/3/4's NFR-backed gate_score_overrides floor
+# (derive_gate_score_overrides below), which is out of this fix's scope.
+_GATE1_DIMENSION_STANDARD: dict[str, float] = {
+    "linting": 100, "type_safety": 100, "test_coverage": 80,
+}
+
 # Only an explicit "at least N" target (≥N / >=N) is read as a dimension-score floor.
 # Free-form targets like "p95 < 3s" are intentionally NOT parsed (different semantics).
 _NFR_TARGET_NUM_RE = re.compile(r"(?:≥|>=)\s*(\d+(?:\.\d+)?)")
