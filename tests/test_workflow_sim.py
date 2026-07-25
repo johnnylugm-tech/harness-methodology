@@ -62,4 +62,7 @@ def test_sim_testbed_passes():
     # dead guard, the exact failure mode Round 11 station 0 revived.
     m = re.search(r"^# pass (\d+)$", result.stdout, re.MULTILINE)
     assert m, f"could not find node --test pass count in output:\n{result.stdout[-500:]}"
-    assert int(m.group(1)) >= 21, f"sim suite shrank: only {m.group(1)} passing tests (floor 21)"
+    # Floor raised 21 -> 33 by Round 18 站4, which added 13 scenarios: the
+    # Gate 2/3/4 PASS semantics (4 per exit gate x 3 gates) that render_gate_
+    # loop had zero coverage for, plus the P2 peer-review approval log.
+    assert int(m.group(1)) >= 33, f"sim suite shrank: only {m.group(1)} passing tests (floor 33)"

@@ -862,7 +862,7 @@ def render_gate_loop(
         + f"    {{ label: 'gate{gate_num}-verify-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA }},\n"
         + "  )\n"
         + f"  gate{gate_num}Pass = !!(g{gate_num}v && g{gate_num}v.last_gate_ok === true && g{gate_num}v.d4_rc === 0)\n"
-        + f"  if (gate{gate_num}Pass) {{ log('  Gate {gate_num} PASS [harness-verified: manifest qc=true, D4 rc=0]'); break }}\n"
+        + f"  if (gate{gate_num}Pass) {{ log('  Gate {gate_num} PASS [harness-verified: state.json last_gate >= {gate_num}, D4 rc=0]'); break }}\n"
         + f"  log('  Gate {gate_num} not yet PASS [' + (g{gate_num}v ? String(g{gate_num}v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))\n"
         + "}\n"
         + f"if (gate{gate_num}Blocked) {{\n"

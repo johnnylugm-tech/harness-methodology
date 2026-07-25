@@ -560,7 +560,7 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
     { label: 'gate2-verify-r' + round, phase: 'Gate 2', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
   gate2Pass = !!(g2v && g2v.last_gate_ok === true && g2v.d4_rc === 0)
-  if (gate2Pass) { log('  Gate 2 PASS [harness-verified: manifest qc=true, D4 rc=0]'); break }
+  if (gate2Pass) { log('  Gate 2 PASS [harness-verified: state.json last_gate >= 2, D4 rc=0]'); break }
   log('  Gate 2 not yet PASS [' + (g2v ? String(g2v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (gate2Blocked) {

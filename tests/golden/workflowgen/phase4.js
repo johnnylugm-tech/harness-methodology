@@ -571,7 +571,7 @@ if (!gate3Pass) for (let round = 1; round <= 3; round++) {
     { label: 'gate3-verify-r' + round, phase: 'Gate 3', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
   gate3Pass = !!(g3v && g3v.last_gate_ok === true && g3v.d4_rc === 0)
-  if (gate3Pass) { log('  Gate 3 PASS [harness-verified: manifest qc=true, D4 rc=0]'); break }
+  if (gate3Pass) { log('  Gate 3 PASS [harness-verified: state.json last_gate >= 3, D4 rc=0]'); break }
   log('  Gate 3 not yet PASS [' + (g3v ? String(g3v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (gate3Blocked) {

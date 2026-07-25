@@ -214,3 +214,93 @@ test('phase6 regression pin: persistApproval executes without ReferenceError (MA
   assert.ok(events.agents.some((a) => a.label.startsWith('write-approval')),
     'approval writes must have been dispatched (the persistApproval body ran)')
 })
+
+// ---- 6. Gate 2/3/4 PASS semantics (Round 18 站4) ---------------------------
+// render_gate_loop's verdict was zero-covered here: the precheck's
+// VERDICT_SCHEMA call falls through to the happy synthesizer's {pass:true},
+// so every prior test skipped the round loop entirely and never exercised
+// what makes a phase-exit gate PASS. That blind spot is exactly where
+// 9b5f7cf shipped a precheck keyed on manifest.quality_complete — a flag
+// written from the SSI dimension score BEFORE finalize-gate's Phase Truth
+// check runs, and never reverted — which 64d8ea9 had to replace two commits
+// later with state.json.last_gate. --check, the golden fixtures, and the
+// 52-test workflowgen suite were all green for both versions: they compare
+// generator output to generator output and cannot see a wrong premise.
+const EXIT_GATES = [
+  ['phase3-implementation.js', 2],
+  ['phase4-testing.js', 3],
+  ['phase6-quality.js', 4],
+]
+
+for (const [name, gate] of EXIT_GATES) {
+  const precheck = new RegExp(`^gate${gate}-precheck$`)
+  const verify = new RegExp(`^gate${gate}-verify-r`)
+  const roundAgent = new RegExp(`^gate${gate}-r\\d`)
+
+  test(`${name} Gate ${gate}: pre-flight PASS skips the round loop`, async () => {
+    const overrides = [
+      { match: precheck, respond: { pass: true, reason: 'last_gate >= N' } },
+      ...happyOverrides(),
+    ]
+    const { events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
+    assert.equal(events.agents.filter((a) => roundAgent.test(a.label)).length, 0,
+      `the round loop re-dispatched despite a finalized gate — the repeated `
+      + `round-1 respawn 9b5f7cf exists to prevent`)
+  })
+
+  test(`${name} Gate ${gate}: pre-flight FAIL enters the round loop`, async () => {
+    const overrides = [
+      { match: precheck, respond: { pass: false, reason: 'not finalized' } },
+      { match: verify, respond: { last_gate_ok: true, d4_rc: 0, detail: 'sim' } },
+      ...happyOverrides(),
+    ]
+    const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
+    assert.ok(events.agents.some((a) => roundAgent.test(a.label)),
+      'an unfinalized gate must still run its orchestrator round')
+    assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+    assert.ok(events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
+      'last_gate_ok + d4_rc=0 is the PASS condition')
+  })
+
+  test(`${name} Gate ${gate}: last_gate_ok=false cannot PASS (the 9b5f7cf premise)`, async () => {
+    const overrides = [
+      { match: precheck, respond: { pass: false, reason: 'not finalized' } },
+      // Phase Truth still blocking: the SSI dims may well have scored, which
+      // is precisely the state manifest.quality_complete reported as done.
+      { match: verify, respond: { last_gate_ok: false, d4_rc: 0, detail: 'phase truth 69%' } },
+      ...happyOverrides(),
+    ]
+    const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
+    assert.ok(!events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
+      `Gate ${gate} reported PASS while state.json.last_gate says it was never `
+      + `finalized — advance-phase would then hit the same block downstream`)
+    assert.ok(result.error, 'a gate that never passes must return a structured error')
+  })
+
+  test(`${name} Gate ${gate}: a nonzero D4 exit code cannot PASS`, async () => {
+    const overrides = [
+      { match: precheck, respond: { pass: false, reason: 'not finalized' } },
+      { match: verify, respond: { last_gate_ok: true, d4_rc: 1, detail: 'spec-coverage below threshold' } },
+      ...happyOverrides(),
+    ]
+    const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
+    assert.ok(!events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
+      'spec-coverage-check failing must veto the gate even when last_gate is set')
+    assert.ok(result.error)
+  })
+}
+
+// ---- 7. P2 peer-review approval is reported (Round 18 站4) -----------------
+// 83ed438: the APPROVE branch broke out of the round loop without ever
+// assigning peerReviewPassed, so the post-loop "Peer Review PASS (APPROVE)"
+// line never printed even on a real approval. Gating was unaffected (callers
+// branch on peerB2.review_status), which is why nothing caught it — the only
+// symptom was a run log that misreported its own outcome.
+test('phase2 peer review: an approved review actually logs PASS', async () => {
+  const { result, events } = await runWorkflow(
+    WF('phase2-architecture.js'), makeHappyResponder(happyOverrides()))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  assert.ok(events.logs.some((l) => l.includes('Peer Review PASS')),
+    'escalation_action=approve must set peerReviewPassed — otherwise the run '
+    + 'log claims no approval happened while the workflow proceeds as if it did')
+})
