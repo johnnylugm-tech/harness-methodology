@@ -1603,13 +1603,10 @@ class TestSabPhantomPerFrScoping:
 
 class TestPrintFrScopedOverridesPy:
     """When ``quality_manifest.json`` declares ``fr_module_traceability[fr_id]``,
-    _print_fr_scoped_overrides_py must scope coverage to that module — plus
-    any module under src_dir claimed by NO FR (an orphan/shared module like
-    taskq.store, folded into every FR's scope so it's never left uncovered
-    until Phase exit; see cov_utils.resolve_fr_scoped_src_files) — not to
-    every module imported by the test file. Prior to the fix, a test that
-    imported helpers from other FRs' modules reported ~1/N coverage instead
-    of the true per-module coverage, blocking legitimate GATE1-DELTA
+    _print_fr_scoped_overrides_py must scope coverage to that module alone,
+    not to every module imported by the test file. Prior to the fix, a test
+    that imported helpers from other FRs' modules reported ~1/N coverage
+    instead of the true per-module coverage, blocking legitimate GATE1-DELTA
     re-evaluations in carry-forward phases (P5/P7/P8)."""
 
     def _setup(self, tmp_path):
@@ -1619,6 +1616,20 @@ class TestPrintFrScopedOverridesPy:
         (tmp_path / "03-development" / "tests").mkdir(parents=True)
         for mod in ("cache", "cli", "store"):
             (tmp_path / "03-development" / "src" / "taskq" / f"{mod}.py").write_text("x = 1")
+        # config.py is imported by NO test file and claimed by NO FR. The
+        # fixture previously had no such module — every module it created was
+        # imported by test_fr04.py — so "narrow the scope" and "put everything
+        # in the scope" produced identical output and the whole-repo-collapse
+        # regression of 35214a0 passed unnoticed (Round 18 站1). Any assertion
+        # that scope narrowing actually narrows needs this shape.
+        (tmp_path / "03-development" / "src" / "taskq" / "config.py").write_text("y = 1")
+        # Package-style claim shape: an FR names "taskq.executor" while the
+        # real code lives in executor/runner.py (the "Fix III" case handled in
+        # cov_utils.resolve_fr_scoped_src_files).
+        _exec = tmp_path / "03-development" / "src" / "taskq" / "executor"
+        _exec.mkdir()
+        (_exec / "__init__.py").write_text("")
+        (_exec / "runner.py").write_text("z = 1")
         (tmp_path / "03-development" / "tests" / "test_fr04.py").write_text(
             "from taskq.cli import cmd\n"
             "from taskq.store import load_task\n"
@@ -1630,10 +1641,6 @@ class TestPrintFrScopedOverridesPy:
         from cli.gate_cmds import _print_fr_scoped_overrides_py
         self._setup(tmp_path)
         manifest = {
-            # cli.py is claimed by FR-01 — not an orphan, stays excluded from
-            # FR-04's scope. store.py is claimed by no FR — an orphan module
-            # folded into every FR's scope (this fix's whole point), so it
-            # now correctly appears even though FR-04 doesn't own it.
             "fr_module_traceability": {"FR-04": "taskq.cache", "FR-01": "taskq.cli"},
             "quality_targets": {"min_coverage": 80},
         }
@@ -1643,13 +1650,42 @@ class TestPrintFrScopedOverridesPy:
             manifest, non_code_frs=set(), cov_threshold=80,
         )
         out = capsys.readouterr().out
-        # The owned module (cache) appears.
+        # Only the owned module (cache) should appear in the include flag.
         assert "cache.py" in out
-        # cli.py is claimed by FR-01 (not an orphan) — stays excluded.
         assert "cli.py" not in out
-        # store.py is claimed by no FR — an orphan, folded in so no shared
-        # module escapes Gate 1 coverage until Phase exit.
-        assert "store.py" in out
+        # store.py is imported by the test but owned by another concern;
+        # config.py is neither imported nor owned. Neither belongs in FR-04's
+        # Gate 1 scope: shared/infrastructure modules are measured by Gate 2
+        # (`scope: full_phase`) at P3 exit, not charged to whichever FR
+        # happens to run its per-FR checkpoint first (Round 18 站1).
+        assert "store.py" not in out
+        assert "config.py" not in out
+
+    def test_package_claim_does_not_leak_submodules_into_other_frs(self, tmp_path, capsys):
+        """A package-style claim ("taskq.executor" covering executor/runner.py)
+        must stay inside its own FR's scope. 35214a0's orphan fold compared the
+        submodule's dotted name (taskq.executor.runner) against the claim set
+        ({taskq.executor}), found no exact match, called it unclaimed, and
+        appended it to EVERY FR's scope — so FR-04's Gate 1 coverage was
+        diluted by FR-02's internals."""
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {
+                "FR-04": "taskq.cache", "FR-02": "taskq.executor",
+            },
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        assert "cache.py" in out
+        assert "runner.py" not in out, (
+            "FR-02's package internals leaked into FR-04's Gate 1 coverage scope"
+        )
 
     def test_falls_back_to_imports_when_no_traceability(self, tmp_path, capsys):
         """No ``fr_module_traceability`` → fall back to import-based detection
@@ -1668,6 +1704,13 @@ class TestPrintFrScopedOverridesPy:
         # traceability declares the FR's owned module.
         for mod in ("cache.py", "cli.py", "store.py"):
             assert f"{mod}" in out, f"{mod} should appear in fallback scope"
+        # ...but the fallback is still import-BASED: a module the test file
+        # never imports stays out. 35214a0's orphan fold made every module
+        # "unclaimed" when the trace was absent, appending all of them and
+        # silently turning this narrowing into dead code (Round 18 站1).
+        assert "config.py" not in out, (
+            "import-based scope narrowing collapsed back to whole-repo"
+        )
 
     def test_skips_traceability_when_owned_path_missing(self, tmp_path, capsys):
         """If fr_module_traceability points to a file that does not exist

@@ -226,29 +226,26 @@ def resolve_fr_scoped_src_files(
     if scope_override:
         src_files = list(dict.fromkeys(src_files + scope_override))
 
-    # Any module under src_dir that NO FR claims in fr_module_traceability is
-    # shared/infrastructure code (e.g. taskq.store) that no single FR's Gate 1
-    # scope would otherwise ever cover — the whole-repo 100% bar only gets
-    # enforced once, at advance-phase, after every FR is already "done". Fold
-    # orphaned modules into every FR's scope so the first Gate 1 that runs
-    # after an orphan module exists already requires it covered — the true
-    # final standard applied at the earliest possible checkpoint, not
-    # deferred to a later one.
-    all_claimed: set = set()
-    for _trace in manifest_data.get("fr_module_traceability", {}).values():
-        entries = [_trace] if isinstance(_trace, str) else (_trace if isinstance(_trace, list) else [])
-        for t in entries:
-            if isinstance(t, str) and t and not any(p in (".", "..") for p in t.replace("\\", "/").split("/")):
-                all_claimed.add(t)
-    src_root = Path(project) / src_dir
-    if src_root.is_dir():
-        for py_file in sorted(src_root.rglob("*.py")):
-            if py_file.name == "__init__.py":
-                continue
-            mod_dotted = ".".join(py_file.relative_to(src_root).with_suffix("").parts)
-            if mod_dotted not in all_claimed:
-                rel = str(py_file.relative_to(project))
-                if rel not in src_files:
-                    src_files.append(rel)
-
+    # Deliberately NOT folded in: modules under src_dir that no FR claims in
+    # fr_module_traceability. A prior fix (35214a0) appended every such
+    # "orphan" to EVERY FR's scope, on the premise that shared/infrastructure
+    # code (taskq.store) would otherwise escape checking until advance-phase.
+    # Both halves of that premise were measured false (Round 18 站1):
+    #   - Not unclaimed: SAB.json `layers` registers every module by design
+    #     (taskq.store -> persistence, taskq.config/models -> foundation).
+    #     fr_module_traceability maps FR -> module and is not supposed to
+    #     cover code that no single FR owns.
+    #   - Not deferred: Gate 2 is `scope: full_phase` (gate2_p3_exit.yaml) and
+    #     measures whole-repo coverage at P3 exit — before advance-phase.
+    #     FR-scoped coverage applies only to Gate 1 (`if fr_id and
+    #     args.gate == 1` in cli/gate_cmds.py).
+    # The fold also broke two things it was never meant to touch: a
+    # package-style claim ("taskq.executor") left its own submodules
+    # (taskq.executor.runner) looking unclaimed, so they leaked into other
+    # FRs' scopes; and with no fr_module_traceability at all every module
+    # was "unclaimed", making the Priority-2 import-based narrowing above
+    # dead code and collapsing FR-scoped coverage back to whole-repo.
+    # Timing is the deeper reason not to reinstate it: while FR-01 runs its
+    # TDD chain, a shared module FR-02 has not finished writing cannot
+    # meaningfully be held against FR-01's Gate 1.
     return src_files
