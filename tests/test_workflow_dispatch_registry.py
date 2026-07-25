@@ -60,7 +60,10 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "verify_gate1_qc.py canonical stdout; 站2a: verdict from echoed "
      "stdout ONLY (schema pass ignored — wf_53d055ce-d0b class closed)"),
     (r"^(gate2|gate3|gate4)-verify-r$", "carrier", "schema",
-     "manifest qc + D4 rc transcribed (GATE_VERIFY_SCHEMA)"),
+     "state.json last_gate_ok (>= this gate, proves finalize-gate's Phase "
+     "Truth check passed — manifest quality_complete alone is set before "
+     "that check runs and never reverts) + D4 rc transcribed "
+     "(GATE_VERIFY_SCHEMA)"),
     (r"^advance-verify-r$", "carrier", "schema",
      "state.json current_phase printed as JSON, transcribed (PHASE_SCHEMA)"),
     (r"^p8-verify-r$", "carrier", "schema",
@@ -78,8 +81,12 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "read-file CLI + cat; length/--expect-prefix anchors validated in JS"),
     (r"^legal-artifacts$", "carrier", "js-regex",
      "print-legal-artifacts CLI output echoed verbatim"),
-    (r"^(gate1|gate2|gate3|gate4)-precheck$", "carrier", "schema",
-     "pre-flight GUARD; checks if gate/FRs were already passed in quality_manifest.json (VERDICT_SCHEMA)"),
+    (r"^gate1-precheck$", "carrier", "schema",
+     "already-passed FR list transcribed (FR_LIST_SCHEMA)"),
+    (r"^(gate2|gate3|gate4)-precheck$", "carrier", "schema",
+     "state.json last_gate >= this gate transcribed (VERDICT_SCHEMA); skips "
+     "the round loop only when finalize-gate already fully finalized this "
+     "gate (Phase Truth included), not merely SSI-scored"),
     # ── judgment: the LLM output IS the work product ──
     (r"^a-$", "judgment", "none",
      "A agents author deliverable content (SRS/SAD/ADR/TEST_SPEC…)"),

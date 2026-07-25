@@ -37,6 +37,24 @@ class SpecTrackingParser:
         return "Update log" in content and "Date" in content and "|" in content
 
     @staticmethod
+    def split_row(text: str, strip_edges: bool = False) -> List[str]:
+        """Split a Markdown table row on column-boundary `|`, respecting the
+        `\\|` escape for a literal pipe embedded in cell content (shell
+        pipe syntax, regex alternation, etc.) so it is not miscounted as an
+        extra column — which previously shifted every cell after it and
+        made a correctly-header-resolved status_col index point at the
+        wrong cell."""
+        _PIPE_SENTINEL = "\x00"
+        protected = text.replace("\\|", _PIPE_SENTINEL)
+        if strip_edges:
+            protected = protected.strip("|")
+        # Restore the escape itself (not just the pipe) — callers that
+        # re-serialize cells back to disk (spec_tracking_render.py) must
+        # round-trip byte-for-byte, or the escape is silently dropped and
+        # the pipe becomes a real column delimiter on the next parse.
+        return [p.replace(_PIPE_SENTINEL, "\\|") for p in protected.split("|")]
+
+    @staticmethod
     def _extract_status(parts: List[str]) -> str:
         non_empty = [p for p in reversed(parts) if p]
         # Phase 1: scan all columns for emoji / abbreviated codes.  These are
@@ -73,10 +91,11 @@ class SpecTrackingParser:
         table DATA row in *content* — header and separator rows themselves
         are excluded.
 
-        `cells` are stripped and pipe-boundary-normalised via
-        `.strip("|").split("|")` (matching
-        spec_tracking_render.py::refresh_status_table), so column indices
-        are stable regardless of whether the row has a leading/trailing "|".
+        `cells` are stripped and pipe-boundary-normalised via `split_row()`
+        (also used by spec_tracking_render.py::refresh_status_table), which
+        respects `\\|`-escaped pipes embedded in cell content so column
+        indices are stable regardless of leading/trailing "|" or escaped
+        pipes inside a cell.
 
         `has_header` is True once a header+separator pair has been seen for
         the enclosing table. `status_col` is that header's "Status" column
@@ -103,7 +122,7 @@ class SpecTrackingParser:
                 continue
             if all(c in "|-: " for c in stripped):
                 continue  # separator row — table context carries over
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            cells = [c.strip() for c in SpecTrackingParser.split_row(stripped, strip_edges=True)]
             next_stripped = lines[i + 1].strip() if i + 1 < len(lines) else ""
             next_is_separator = (
                 bool(next_stripped) and "|" in next_stripped
@@ -150,7 +169,7 @@ class SpecTrackingParser:
 
             # No header resolved for this row's table — fall back to the
             # original positional heuristic (header-less content).
-            parts = [p.strip() for p in line.split("|")]
+            parts = [p.strip() for p in SpecTrackingParser.split_row(line)]
             if len(parts) < 4:
                 continue
             if any(x in parts[1] for x in _header_markers):
@@ -189,7 +208,7 @@ class SpecTrackingParser:
                     continue  # table has a header but no "Status" column — not tracked
                 status_val = cells[status_col] if status_col < len(cells) else ""
             else:
-                parts = [p.strip() for p in line.split("|")]
+                parts = [p.strip() for p in SpecTrackingParser.split_row(line)]
                 status_val = SpecTrackingParser._extract_status(parts)
             status_lower = status_val.lower()
 

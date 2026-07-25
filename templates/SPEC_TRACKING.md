@@ -19,3 +19,9 @@
 | FR ID | Spec Description | Intent Class | Decision Framework | Status | Notes |
 |-------|-----------------|--------------|-------------------|--------|-------|
 | FR-01 | {description} | {class} | {framework} | DRAFT | |
+
+## Update log
+
+| Date | Change | By |
+|------|--------|----|
+| {date} | Initial creation | Agent A |

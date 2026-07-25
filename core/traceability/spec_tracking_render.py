@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from core.quality_gate.parsers.spec_tracking_parser import SpecTrackingParser
 from core.utils.project_layout import ProjectLayout
 
 __all__ = ["write_spec_tracking", "refresh_status_table"]
@@ -53,7 +54,7 @@ def refresh_status_table(markdown: str, fr_status: dict[str, str]) -> tuple[str,
     )
     if header_idx is None:
         return markdown, False
-    header_cells = [c.strip() for c in lines[header_idx].strip().strip("|").split("|")]
+    header_cells = [c.strip() for c in SpecTrackingParser.split_row(lines[header_idx].strip(), strip_edges=True)]
     status_col = next((j for j, c in enumerate(header_cells) if c.lower() == "status"), None)
     if status_col is None:
         return markdown, False
@@ -64,7 +65,7 @@ def refresh_status_table(markdown: str, fr_status: dict[str, str]) -> tuple[str,
     if row < len(lines) and lines[row].strip() and set(lines[row].strip()) <= set("|-: "):
         row += 1  # separator row
     while row < len(lines) and lines[row].strip().startswith("|"):
-        cells = [c.strip() for c in lines[row].strip().strip("|").split("|")]
+        cells = [c.strip() for c in SpecTrackingParser.split_row(lines[row].strip(), strip_edges=True)]
         m = _FR_CELL.search(cells[0]) if cells else None
         if m and status_col < len(cells):
             fr = f"FR-{int(m.group(1)):02d}"

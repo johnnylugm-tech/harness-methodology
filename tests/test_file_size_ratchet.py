@@ -350,7 +350,18 @@ _LINE_CEILING: dict[str, int] = {
     # helper dispatch (v2.13.3 pattern, cef32c4's deferred P4/P5/P7/P8
     # migration) with the verdict derived from echoed canonical stdout
     # only; the delta is the comment documenting the hallucination class.
-    "scripts/workflowgen/js_blocks.py": 1329,
+    # 2026-07-25: +34 lines — render_gate_loop()'s Gate 2/3/4 completion
+    # signal was corrected from manifest.gate_results.gate{N}.quality_complete
+    # (set from the SSI score alone, before Phase Truth runs, never reverts)
+    # to state.json.last_gate >= gate_num (only written by finalize-gate's
+    # _update_state_checkpoint AFTER PhaseTruthVerifier passes for an exit
+    # gate — the authoritative "truly finalized" signal advance-phase's own
+    # precondition check already trusts). Touches both the precheck block
+    # and the in-loop verify step, plus rewriting the precheck's shell
+    # one-liner as a template literal (matching the existing ctxCheckCmd
+    # pattern) instead of the old sextuple-escaped nested-quote string,
+    # which a manual decode showed was silently mis-concatenating REPO.
+    "scripts/workflowgen/js_blocks.py": 1363,
 }
 
 
