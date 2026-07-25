@@ -41,6 +41,8 @@ from typing import Optional
 
 import yaml
 
+from core.quality_gate.gate_thresholds import load_gate_thresholds
+
 
 @dataclass
 class SABSpec:
@@ -121,30 +123,21 @@ _NFR_ADVISORY_TYPES: frozenset[str] = frozenset(
     {"deployability", "scalability", "usability"}
 )
 
-# Standard gate-4 dimension thresholds — the floor an NFR-backed dimension must clear.
-# Kept in sync with harness/gate_configs/gate4_p6_full.yaml (test enforces parity).
-_GATE_DIMENSION_STANDARD: dict[str, float] = {
-    "linting": 90, "type_safety": 85, "test_coverage": 80, "security": 80,
-    "secrets_scanning": 100, "license_compliance": 100, "mutation_testing": 70,
-    "architecture": 80, "readability": 80, "error_handling": 80,
-    "documentation": 75, "performance": 75, "integration_coverage": 75,
-    "test_assertion_quality": 70, "traceability": 100,
-}
+# Standard gate-4 dimension thresholds — the floor an NFR-backed dimension must
+# clear. Read from gate4_p6_full.yaml, the file HarnessBridge actually scores
+# against, rather than hand-copied and parity-tested: a copy that must be kept
+# in sync is a copy that eventually is not (Round 18 站2).
+_GATE_DIMENSION_STANDARD: dict[str, float] = load_gate_thresholds(4)
 
-# Gate 1 (per-FR checkpoint) dimension thresholds — deliberately stricter than
-# _GATE_DIMENSION_STANDARD (Gate 4's floor) for linting/type_safety: those two
-# dimensions are boolean in nature (a lint violation or type error either
-# exists or doesn't — there's no "acceptable amount"), so Gate 1 requires the
-# same zero-tolerance bar the whole-repo checks already enforce, applied at
-# the earliest possible checkpoint instead of accumulating until Phase exit.
-# Kept in sync with harness/gate_configs/gate1_per_fr.yaml (test enforces
-# parity — test_prompt_gate_parity.py::test_gate1_yaml_thresholds_match_standard_ssot).
-# Deliberately NOT unified with _GATE_DIMENSION_STANDARD: raising that shared
-# constant would also raise Gate 2/3/4's NFR-backed gate_score_overrides floor
-# (derive_gate_score_overrides below), which is out of this fix's scope.
-_GATE1_DIMENSION_STANDARD: dict[str, float] = {
-    "linting": 100, "type_safety": 100, "test_coverage": 80,
-}
+# Gate 1 (per-FR checkpoint) thresholds, from gate1_per_fr.yaml. Deliberately
+# a separate read from _GATE_DIMENSION_STANDARD rather than the same table:
+# Gate 1 sets linting/type_safety to 100 (both are boolean in nature — a lint
+# violation or type error either exists or it doesn't) while Gate 2/3/4 stay at
+# 90/85, and those feed different things (this one feeds the GATE1 dispatch
+# prompt; the gate-4 one floors the NFR-backed gate_score_overrides in
+# derive_gate_score_overrides below). Reading each gate's own YAML keeps that
+# distinction where it is enforced instead of encoding it here.
+_GATE1_DIMENSION_STANDARD: dict[str, float] = load_gate_thresholds(1)
 
 # Only an explicit "at least N" target (≥N / >=N) is read as a dimension-score floor.
 # Free-form targets like "p95 < 3s" are intentionally NOT parsed (different semantics).

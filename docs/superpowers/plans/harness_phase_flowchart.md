@@ -29,7 +29,7 @@ flowchart TD
     P3_ENTRY --> P3_CHECK["🔍 Entry gate check<br/>Confirm P2 human approval<br/>via git log"]
     P3_CHECK --> P3_PRE["🔧 Preflight<br/>FSM→RUNNING, KillSwitch<br/>Constitution, DriftDetector init"]
     P3_PRE --> P3_WORK["💼 A/B Loop (per FR):<br/>DEVELOPER<br/>REVIEWER<br/><br/>📝 TDD: RED → GREEN<br/>📝 sessions_spawn.log (2 entries)"]
-    P3_WORK --> P3_G1["🔒 Gate 1 (per FR):<br/>linting(90)<br/>type_safety(85)<br/>coverage(80)<br/>score ≥ 75"]
+    P3_WORK --> P3_G1["🔒 Gate 1 (per FR):<br/>linting(100)<br/>type_safety(100)<br/>test_coverage(80)<br/>score ≥ 75"]
     P3_G1 -->|PASS| P3_PUSH1["✅ git push<br/>CHECKPOINT-K"]
     P3_G1 -->|FAIL| P3_FIX["🔧 Fix dimension<br/>[max 3 rounds]"]
     P3_FIX --> P3_G1

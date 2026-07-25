@@ -59,7 +59,7 @@ python harness_cli.py run-phase --phase 5
 
 ```bash
 python harness_cli.py run-gate --gate 1 --phase 5 --fr-id FR-001
-# 3 dims: linting(90) / type_safety(85) / test_coverage(80)
+# 3 dims: linting(100) / type_safety(100) / test_coverage(80)
 # Blocking: any dim < threshold → auto-fix → re-run gate
 ```
 

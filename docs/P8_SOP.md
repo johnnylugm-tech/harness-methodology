@@ -99,7 +99,7 @@ diff <(grep -oE '^[A-Z_]+' .env.staging | sort) <(grep -oE '^[A-Z_]+' .env.prod 
 
 ```bash
 python harness_cli.py run-gate --gate 1 --phase 8 --fr-id FR-001
-# 3 dims: linting(90) / type_safety(85) / test_coverage(80)
+# 3 dims: linting(100) / type_safety(100) / test_coverage(80)
 ```
 
 ---
