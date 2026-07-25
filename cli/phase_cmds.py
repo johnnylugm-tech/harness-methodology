@@ -928,6 +928,44 @@ def cmd_sync_harness(args: argparse.Namespace) -> int:
 
 # --- helpers moved verbatim from harness_cli.py (絞殺者續章 S4d) ---
 
+_TRACE_CONTENT_CURRENT = (
+    "trace attestation content is current (mtime refreshed; matrix unchanged)"
+)
+
+
+def _attestation_content_still_current(project_path: Path) -> bool:
+    """Slow-path adjudication of an mtime-stale attestation: is it REALLY stale?
+
+    The mtime probe below is a proxy, and git does not preserve mtimes — every
+    pull, checkout, or fresh clone rewrites them, so a perfectly current
+    attestation reads as stale. Re-deriving the matrix (~0.4s, and only on the
+    probe's unhappy path) answers the actual question. When the content
+    matches, write_attestation touches the file without changing a byte, so
+    the probe passes from here on and nothing needs to be committed.
+
+    This is what ends the loop that produced six consecutive `chore: refresh
+    attestation post-pull` commits, all six carrying the same
+    content_sha256 — the matrix had not changed once (Round 18 站3).
+
+    Returns False on any failure: an unreadable overlay or a broken build must
+    fall back to the mtime verdict and block, never silently pass.
+    """
+    try:
+        from scripts.build_trace_attestation import (
+            attestation_is_current,
+            build_attestation,
+            write_attestation,
+        )
+
+        fresh = build_attestation(project_path)
+        if not attestation_is_current(project_path, fresh):
+            return False
+        write_attestation(project_path, fresh)
+        return True
+    except Exception:  # pylint: disable=broad-exception-caught
+        return False
+
+
 def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
     """PR 6: mtime-based trace staleness probe — <50ms, no rglob.
 
@@ -975,6 +1013,10 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
         if sad_path.exists():
             try:
                 if sad_path.stat().st_mtime > att_mtime:
+                    # mtime says stale; ask the matrix itself before blocking.
+                    if _attestation_content_still_current(project_path):
+                        return {"passed": True, "reason": _TRACE_CONTENT_CURRENT,
+                                "staler": None, "newer": None}
                     return {"passed": False,
                             "reason": (
                                 f"{sad_candidate} newer than attestation.json — "
@@ -1003,6 +1045,13 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
                 if newest_test.stat().st_mtime > att_mtime:
                     rel = str(newest_test.relative_to(project_path))
                     if strict_trace:
+                        # Same adjudication as the SAD branch: a test file
+                        # touched by `git pull` is newer by mtime while the
+                        # matrix it feeds is unchanged.
+                        if _attestation_content_still_current(project_path):
+                            return {"passed": True,
+                                    "reason": _TRACE_CONTENT_CURRENT,
+                                    "staler": None, "newer": None}
                         return {"passed": False,
                                 "reason": (
                                     f"{rel} newer than attestation.json — "

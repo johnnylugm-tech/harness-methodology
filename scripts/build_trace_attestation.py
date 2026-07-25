@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -93,18 +94,62 @@ def build_attestation(
     }
 
 
+def _attested_content(attestation: dict) -> dict:
+    """The part of an attestation that says something about the matrix.
+
+    Everything except `git_sha`. `git_sha` records WHEN the file was written,
+    not WHAT was attested, and it necessarily differs from the commit that
+    carries it (writing the file is what creates the next commit) — so
+    including it in a freshness comparison guarantees a永 mismatch.
+    """
+    return {k: v for k, v in attestation.items() if k != "git_sha"}
+
+
+def attestation_is_current(project: Path, attestation: dict,
+                           trace_dir: Path = DEFAULT_TRACE_DIR) -> bool:
+    """True when the on-disk attestation already attests this same content."""
+    canonical_path = project / trace_dir / COMMITTED_NAME
+    try:
+        on_disk = json.loads(canonical_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(on_disk, dict) and (
+        _attested_content(on_disk) == _attested_content(attestation)
+    )
+
+
 def write_attestation(
     project: Path,
     attestation: dict,
     trace_dir: Path = DEFAULT_TRACE_DIR,
 ) -> tuple[Path, Path]:
-    """Write both committed and CI-regen attestation files. Returns (canonical, latest)."""
+    """Write both committed and CI-regen attestation files. Returns (canonical, latest).
+
+    Idempotent on the committed file: when the on-disk attestation already
+    attests the same content, only its mtime is bumped, leaving the bytes
+    (and therefore `git status`) untouched.
+
+    Why (Round 18 站3): staleness is probed by mtime
+    (cli.phase_cmds._trace_dirty_state), and git does not preserve mtimes — a
+    pull or checkout rewrites them, so a clean tree reads as stale. Rewriting
+    the file to clear that would change `git_sha`, producing a real diff that
+    has to be committed, whose commit makes `git_sha` stale again. Six
+    consecutive `chore: refresh attestation post-pull` commits landed that way,
+    all six carrying content_sha256 932e6844… — the matrix never actually
+    changed once. Touching instead of rewriting breaks the loop: the mtime
+    probe is satisfied and there is nothing to commit.
+    """
     canonical_path = project / trace_dir / COMMITTED_NAME
     latest_path = project / trace_dir / LATEST_NAME
     canonical_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = json.dumps(attestation, indent=2, ensure_ascii=False)
-    canonical_path.write_text(payload, encoding="utf-8")
+    if attestation_is_current(project, attestation, trace_dir):
+        os.utime(canonical_path, None)
+    else:
+        canonical_path.write_text(payload, encoding="utf-8")
+    # latest is gitignored (CI regen target) — always written in full so a
+    # verifier reading it sees the git_sha of the run that produced it.
     latest_path.write_text(payload, encoding="utf-8")
     return canonical_path, latest_path
 

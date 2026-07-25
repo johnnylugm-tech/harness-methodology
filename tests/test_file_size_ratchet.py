@@ -89,7 +89,9 @@ _LINE_CEILING: dict[str, int] = {
     # (2 via core.degradation_ledger for the state.json-corruption cases).
     # 2026-07-17: +12 lines — Round 13 站2c: 8 agent-facing [BLOCKED] messages
     # gained a "Fix:"/re-run remediation line (blocked-message-contract scan).
-    "cli/phase_cmds.py": 2715,
+    # +15: Round 18 站3 added _attestation_content_still_current, the slow-path
+    # adjudication that stops the mtime probe from manufacturing no-op commits.
+    "cli/phase_cmds.py": 2730,
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
