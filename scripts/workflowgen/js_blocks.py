@@ -797,11 +797,39 @@ def render_gate_loop(
     desc = orchestrator_desc if orchestrator_desc is not None else f"Phase {phase} exit"
     pre_gate_block = f"    + '{pre_gate_note}\\n\\n'\n" if pre_gate_note else ""
     finalize_note = f"finalize-gate (G{gate_num}c) writes HANDOVER.md + pushes on PASS. " if include_finalize_note else ""
+    # Pre-flight: skip dispatch entirely if a previous attempt already wrote
+    # quality_complete=true to the manifest (root cause for repeated round-1
+    # respawns: workflow for-loop has no persistence — every resume restarts
+    # from round=1, even if a prior run's sub-agent already finalised the gate).
+    # We piggyback on checkManifestIntegrity's pattern (delegate the shell read
+    # to a tiny agent so the workflow runtime's hermeticity invariant holds).
+    gate_precheck_block = (
+        f"// Gate {gate_num} pre-flight GUARD: if a prior dispatch already wrote the gate verdict to manifest, skip the entire round loop.\n"
+        f"{{\n"
+        f"  const _precheckCmd = PY + ' -c \"import json; g=(json.load(open(\\\\\\'\" + REPO + \"/.methodology/quality_manifest.json\\\\\\')).get(\\'gate_results\\',{{}}) or {{}}).get(\\'gate{gate_num}\\') or {{}}; print(json.dumps({{\\'qc\\': (isinstance(g,dict) and g.get(\\'quality_complete\\') is True), \\'score\\': (g.get(\\'score\\') if isinstance(g,dict) else None)}}))\"'\n"
+        f"  try {{\n"
+        f"    const _preVerdict = await agent(\n"
+        f"      'Run EXACTLY this command via the Bash tool:\\n`' + _precheckCmd + '; echo RC=$?`\\n'\n"
+        f"      + 'Then report via the StructuredOutput tool: pass = true ONLY if the output line starts with `{{\"qc\": true`; reason = the verbatim JSON line (excluding the RC= line).',\n"
+        f"      {{ label: 'gate{gate_num}-precheck', phase: 'Gate {gate_num}', agentType: 'general-purpose', schema: VERDICT_SCHEMA }},\n"
+        f"    )\n"
+        f"    if (_preVerdict && _preVerdict.pass === true) {{\n"
+        f"      gate{gate_num}Pass = true\n"
+        f"      log('  Gate {gate_num} PRE-FLIGHT PASS — manifest quality_complete=true; skipping round loop')\n"
+        f"    }} else {{\n"
+        f"      log('  Gate {gate_num} pre-flight: manifest not yet complete — proceeding to round loop')\n"
+        f"    }}\n"
+        f"  }} catch (e) {{\n"
+        f"    log('  Gate {gate_num} pre-flight threw: ' + String(e.message ?? e).slice(0, 120) + ' — proceeding to round loop')\n"
+        f"  }}\n"
+        f"}}\n"
+    )
     return (
         render_phase_header(f"Gate {gate_num}")
         + f"log('{log_msg}')\n"
         + f"let gate{gate_num}Pass = false, gate{gate_num}Report = '', gate{gate_num}Blocked = false\n"
-        + "for (let round = 1; round <= 3; round++) {\n"
+        + gate_precheck_block
+        + f"if (!gate{gate_num}Pass) for (let round = 1; round <= 3; round++) {{\n"
         + f"  log('  Gate {gate_num} round ' + round + '/3')\n"
         + integrity_block
         + agent_open

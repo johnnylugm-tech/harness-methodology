@@ -270,7 +270,26 @@ log('  manifest integrity OK')
 phase('Gate 4')
 log('Gate 4 full-project eval (composite ≥85, 14 dims: 12 self-scored + traceability + architecture framework-owned; mutation_testing disabled by default)')
 let gate4Pass = false, gate4Report = '', gate4Blocked = false
-for (let round = 1; round <= 3; round++) {
+// Gate 4 pre-flight GUARD: if a prior dispatch already wrote the gate verdict to manifest, skip the entire round loop.
+{
+  const _precheckCmd = PY + ' -c "import json; g=(json.load(open(\\\'" + REPO + "/.methodology/quality_manifest.json\\\')).get(\'gate_results\',{}) or {}).get(\'gate4\') or {}; print(json.dumps({\'qc\': (isinstance(g,dict) and g.get(\'quality_complete\') is True), \'score\': (g.get(\'score\') if isinstance(g,dict) else None)}))"'
+  try {
+    const _preVerdict = await agent(
+      'Run EXACTLY this command via the Bash tool:\n`' + _precheckCmd + '; echo RC=$?`\n'
+      + 'Then report via the StructuredOutput tool: pass = true ONLY if the output line starts with `{"qc": true`; reason = the verbatim JSON line (excluding the RC= line).',
+      { label: 'gate4-precheck', phase: 'Gate 4', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+    )
+    if (_preVerdict && _preVerdict.pass === true) {
+      gate4Pass = true
+      log('  Gate 4 PRE-FLIGHT PASS — manifest quality_complete=true; skipping round loop')
+    } else {
+      log('  Gate 4 pre-flight: manifest not yet complete — proceeding to round loop')
+    }
+  } catch (e) {
+    log('  Gate 4 pre-flight threw: ' + String(e.message ?? e).slice(0, 120) + ' — proceeding to round loop')
+  }
+}
+if (!gate4Pass) for (let round = 1; round <= 3; round++) {
   log('  Gate 4 round ' + round + '/3')
   // v15: wrap agent() in try/catch (Bug #2)
   try { gate4Report = await agent(

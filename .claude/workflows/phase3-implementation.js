@@ -508,7 +508,26 @@ if (!(preGate2Report && preGate2Report.pass === true)) {
 phase('Gate 2')
 log('Gate 2 exit (composite ≥75, 9 dims: 8 self-scored + traceability framework-owned)')
 let gate2Pass = false, gate2Report = '', gate2Blocked = false
-for (let round = 1; round <= 3; round++) {
+// Gate 2 pre-flight GUARD: if a prior dispatch already wrote the gate verdict to manifest, skip the entire round loop.
+{
+  const _precheckCmd = PY + ' -c "import json; g=(json.load(open(\\\'" + REPO + "/.methodology/quality_manifest.json\\\')).get(\'gate_results\',{}) or {}).get(\'gate2\') or {}; print(json.dumps({\'qc\': (isinstance(g,dict) and g.get(\'quality_complete\') is True), \'score\': (g.get(\'score\') if isinstance(g,dict) else None)}))"'
+  try {
+    const _preVerdict = await agent(
+      'Run EXACTLY this command via the Bash tool:\n`' + _precheckCmd + '; echo RC=$?`\n'
+      + 'Then report via the StructuredOutput tool: pass = true ONLY if the output line starts with `{"qc": true`; reason = the verbatim JSON line (excluding the RC= line).',
+      { label: 'gate2-precheck', phase: 'Gate 2', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+    )
+    if (_preVerdict && _preVerdict.pass === true) {
+      gate2Pass = true
+      log('  Gate 2 PRE-FLIGHT PASS — manifest quality_complete=true; skipping round loop')
+    } else {
+      log('  Gate 2 pre-flight: manifest not yet complete — proceeding to round loop')
+    }
+  } catch (e) {
+    log('  Gate 2 pre-flight threw: ' + String(e.message ?? e).slice(0, 120) + ' — proceeding to round loop')
+  }
+}
+if (!gate2Pass) for (let round = 1; round <= 3; round++) {
   log('  Gate 2 round ' + round + '/3')
   const g2Integrity = await checkManifestIntegrity('Gate 2', 'g2-integrity-r' + round)
   if (!g2Integrity.ok) {

@@ -523,7 +523,26 @@ await agent(
 phase('Gate 3')
 log('Gate 3 exit (composite ≥80, 15 dims: 12 self-scored + traceability/architecture/adversarial_review framework-owned)')
 let gate3Pass = false, gate3Report = '', gate3Blocked = false
-for (let round = 1; round <= 3; round++) {
+// Gate 3 pre-flight GUARD: if a prior dispatch already wrote the gate verdict to manifest, skip the entire round loop.
+{
+  const _precheckCmd = PY + ' -c "import json; g=(json.load(open(\\\'" + REPO + "/.methodology/quality_manifest.json\\\')).get(\'gate_results\',{}) or {}).get(\'gate3\') or {}; print(json.dumps({\'qc\': (isinstance(g,dict) and g.get(\'quality_complete\') is True), \'score\': (g.get(\'score\') if isinstance(g,dict) else None)}))"'
+  try {
+    const _preVerdict = await agent(
+      'Run EXACTLY this command via the Bash tool:\n`' + _precheckCmd + '; echo RC=$?`\n'
+      + 'Then report via the StructuredOutput tool: pass = true ONLY if the output line starts with `{"qc": true`; reason = the verbatim JSON line (excluding the RC= line).',
+      { label: 'gate3-precheck', phase: 'Gate 3', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+    )
+    if (_preVerdict && _preVerdict.pass === true) {
+      gate3Pass = true
+      log('  Gate 3 PRE-FLIGHT PASS — manifest quality_complete=true; skipping round loop')
+    } else {
+      log('  Gate 3 pre-flight: manifest not yet complete — proceeding to round loop')
+    }
+  } catch (e) {
+    log('  Gate 3 pre-flight threw: ' + String(e.message ?? e).slice(0, 120) + ' — proceeding to round loop')
+  }
+}
+if (!gate3Pass) for (let round = 1; round <= 3; round++) {
   log('  Gate 3 round ' + round + '/3')
   gate3Report = await agent(
     'YOU ARE THE GATE-3 ORCHESTRATOR (Phase 4 exit). ROUND ' + round + '.\n'
