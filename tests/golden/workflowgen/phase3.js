@@ -337,12 +337,16 @@ for (const frId of frIds) {
   } else {
         log('  === ' + frId + ' (' + (frTitle[frId] || '') + ') — TDD chain ===')
     const frNum = frId.match(/\d+/)[0].padStart(2, '0')
+    let passed = false
+    for (let frAttempt = 1; frAttempt <= 2; frAttempt++) {
+    if (frAttempt > 1) log('  ' + frId + ' — Gate 1 FAILED on attempt 1, retrying this FR once before moving on (dispatch prompt is resume-aware: re-checks git log, skips already-landed RED/MIRROR/GREEN/IMPROVE commits)')
     const frReport = await agent(
       'YOU ARE THE IMPLEMENTER for ' + frId + ' (' + (frTitle[frId] || '') + '). Run the full TDD chain for THIS ONE FR.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'FIRST — this dispatch may be a retry of a prior attempt on ' + frId + ' that was interrupted mid-chain (this is common; do not assume you are starting from zero). Run `git -C ' + REPO + ' log --oneline -8` and check for existing commits matching RED (`test(RED):`) / GREEN (`feat(' + frId + '):`) / MIRROR (`test(' + frId + '):`) / IMPROVE (`refactor(' + frId + '):`) for this FR. Skip any step below whose commit already exists — jump straight to the first step that is missing. `run-fr-step` itself is idempotent (it skips a step whose commit already landed), so this only saves you the time of re-deciding what to do; it never causes a step to be silently skipped that actually still needs doing.\n\n'
       + 'Direction C (past lessons): Bash `cat ' + REPO + '/.sessi-work/phase3_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in this FR\'s TDD chain (implementation / tests / GATE1 fixes).\n\n'
       + 'Run these harness steps IN ORDER (each is a bash command; read its output before the next):\n'
+      + 'IMPORTANT for steps 1/3/4 below (TDD-RED/TDD-GREEN/TDD-IMPROVE): these usually finish well under 120s — run them as plain synchronous Bash commands, do NOT pre-emptively background them. But they occasionally exceed the Bash tool\'s own 120s default and get auto-backgrounded ("...moved to the background (ID: <id>)... Output is being written to: <path>... You will be notified when it completes."). If that happens: do NOT call the Monitor tool on it — Monitor\'s async notification will not arrive within this single dispatch, and you will be left waiting with nothing to report. Instead recover synchronously: run `sleep 30 && tail -100 <path>` (repeat, cap 20 polls / ~10min) until the command\'s completion is visible in the output — same manual-poll principle as GATE1\'s procedure in step 6 below, minus the nohup/PID setup (the Bash tool already backgrounded it and gave you the output path).\n'
       + '1. TDD-RED:    `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step TDD-RED --project ' + REPO + ' --srs 01-requirements/SRS.md`\n'
   + '   AFTER RED writes the test file: open `tests/test_fr' + frNum + '.py` and ensure EVERY NFR associated with ' + frId + ' in the traceability table (TRACEABILITY_MATRIX.md §5 is the canonical listing) has a `# NFR-XX` comment on at least one test function. Without these annotations, `compute_trace_dimension` 4c = 0% and Gate 2 blocks (HR-16). Use `grep -n "# NFR-" tests/test_fr' + frNum + '.py` and check against the NFR list for ' + frId + ' — document every association.\n'
       + '2. MIRROR:     `' + PY + ' ' + REPO + '/harness_cli.py check-test-mirrors-spec --fr-id ' + frId + ' --test-file tests/test_fr' + frNum + '.py --project ' + REPO + '`\n'
@@ -447,7 +451,9 @@ for (const frId of frIds) {
     // "the LLM's pass field is ignored" in prose while the code still let a
     // hallucinated pass:false veto a PASS manifest, the exact
     // wf_53d055ce-d0b incident this step exists to prevent).
-    const passed = verifyOut.startsWith('GATE1_VERIFIED_PASS')
+    passed = verifyOut.startsWith('GATE1_VERIFIED_PASS')
+    if (passed) break
+    }
     if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }
     else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
   }
