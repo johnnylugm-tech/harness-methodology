@@ -139,6 +139,12 @@ class PhaseTruthVerifier:
             passed = result.passed
             score = 100.0 if passed else 0.0
             details = f"{len(result.block_checks)} check(s), {len(result.violations)} violation(s)"
+            if result.violations:
+                violation_text = "; ".join(
+                    msg + (f" ({hint})" if hint else "")
+                    for msg, hint in result.violations
+                )
+                details += f" — {violation_text}"
 
             return passed, score, details
         except Exception as e:

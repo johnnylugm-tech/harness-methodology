@@ -193,11 +193,11 @@ const PHASE_SCHEMA = {
 const GATE_VERIFY_SCHEMA = {
   type: 'object',
   properties: {
-    manifest_qc: { type: 'boolean', description: 'gate_results.<gate>.quality_complete is exactly true' },
+    last_gate_ok: { type: 'boolean', description: 'state.json last_gate >= this gate number (gate truly finalized, incl. Phase Truth)' },
     d4_rc: { type: 'integer', description: 'exit code of spec-coverage-check' },
     detail: { type: 'string' },
   },
-  required: ['manifest_qc', 'd4_rc'],
+  required: ['last_gate_ok', 'd4_rc'],
 }""",
     "FR_LIST_SCHEMA": """\
 const FR_LIST_SCHEMA = {
@@ -797,16 +797,22 @@ def render_gate_loop(
     desc = orchestrator_desc if orchestrator_desc is not None else f"Phase {phase} exit"
     pre_gate_block = f"    + '{pre_gate_note}\\n\\n'\n" if pre_gate_note else ""
     finalize_note = f"finalize-gate (G{gate_num}c) writes HANDOVER.md + pushes on PASS. " if include_finalize_note else ""
-    # Pre-flight: skip dispatch entirely if a previous attempt already wrote
-    # quality_complete=true to the manifest (root cause for repeated round-1
-    # respawns: workflow for-loop has no persistence — every resume restarts
-    # from round=1, even if a prior run's sub-agent already finalised the gate).
+    # Pre-flight: skip dispatch entirely if a prior run already fully finalized
+    # this gate. The authoritative signal is state.json.last_gate >= gate_num,
+    # which harness_cli.py's finalize-gate only writes (_update_state_checkpoint)
+    # AFTER PhaseTruthVerifier.verify() passes for a phase-exit gate — see
+    # cli/gate_cmds.py cmd_finalize_gate: the Phase-Truth block does `return 11`
+    # BEFORE reaching _update_state_checkpoint. manifest.gate_results.gate{N}.
+    # quality_complete is NOT sufficient on its own: it is set from the SSI
+    # dimension score alone, BEFORE the Phase Truth check runs, and never
+    # reverts — so it can read true forever even while the gate stays blocked.
     # We piggyback on checkManifestIntegrity's pattern (delegate the shell read
     # to a tiny agent so the workflow runtime's hermeticity invariant holds).
     gate_precheck_block = (
-        f"// Gate {gate_num} pre-flight GUARD: if a prior dispatch already wrote the gate verdict to manifest, skip the entire round loop.\n"
+        f"// Gate {gate_num} pre-flight GUARD: only state.json.last_gate >= {gate_num} proves this gate was\n"
+        f"// truly finalized (SSI dims passed AND Phase Truth passed) — see harness_cli.py finalize-gate.\n"
         f"{{\n"
-        f"  const _precheckCmd = PY + ' -c \"import json; g=(json.load(open(\\\\\\'\" + REPO + \"/.methodology/quality_manifest.json\\\\\\')).get(\\'gate_results\\',{{}}) or {{}}).get(\\'gate{gate_num}\\') or {{}}; print(json.dumps({{\\'qc\\': (isinstance(g,dict) and g.get(\\'quality_complete\\') is True), \\'score\\': (g.get(\\'score\\') if isinstance(g,dict) else None)}}))\"'\n"
+        f"  const _precheckCmd = `${{PY}} -c \"import json; lg=json.load(open('${{REPO}}/.methodology/state.json')).get('last_gate'); print(json.dumps({{'qc': isinstance(lg,int) and lg >= {gate_num}, 'last_gate': lg}}))\"`\n"
         f"  try {{\n"
         f"    const _preVerdict = await agent(\n"
         f"      'Run EXACTLY this command via the Bash tool:\\n`' + _precheckCmd + '; echo RC=$?`\\n'\n"
@@ -815,9 +821,9 @@ def render_gate_loop(
         f"    )\n"
         f"    if (_preVerdict && _preVerdict.pass === true) {{\n"
         f"      gate{gate_num}Pass = true\n"
-        f"      log('  Gate {gate_num} PRE-FLIGHT PASS — manifest quality_complete=true; skipping round loop')\n"
+        f"      log('  Gate {gate_num} PRE-FLIGHT PASS — state.json last_gate >= {gate_num} (gate truly finalized); skipping round loop')\n"
         f"    }} else {{\n"
-        f"      log('  Gate {gate_num} pre-flight: manifest not yet complete — proceeding to round loop')\n"
+        f"      log('  Gate {gate_num} pre-flight: not yet finalized — proceeding to round loop')\n"
         f"    }}\n"
         f"  }} catch (e) {{\n"
         f"    log('  Gate {gate_num} pre-flight threw: ' + String(e.message ?? e).slice(0, 120) + ' — proceeding to round loop')\n"
@@ -847,15 +853,15 @@ def render_gate_loop(
         + f"    log('  Gate {gate_num} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
         + "    break\n"
         + "  }\n"
-        + f"  const gate{gate_num}VerifyCmd = PY + ' -c \"import json; g=(json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')).get(\\'gate_results\\',{{}}) or {{}}).get(\\'gate{gate_num}\\') or {{}}; print(json.dumps({{\\'qc\\': (isinstance(g,dict) and g.get(\\'quality_complete\\') is True), \\'score\\': (g.get(\\'score\\') if isinstance(g,dict) else None)}}))\"'\n"
+        + f"  const gate{gate_num}VerifyCmd = `${{PY}} -c \"import json; lg=json.load(open('${{REPO}}/.methodology/state.json')).get('last_gate'); print(json.dumps({{'last_gate_ok': isinstance(lg,int) and lg >= {gate_num}, 'last_gate': lg}}))\"`\n"
         + f"  const g{gate_num}v = await agent(\n"
         + "    'Run these TWO commands via the Bash tool, in order:\\n'\n"
-        + f"    + '1. `' + gate{gate_num}VerifyCmd + '` — stdout is a single JSON line with qc + score.\\n'\n"
+        + f"    + '1. `' + gate{gate_num}VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate {gate_num} is truly finalized (not just SSI-dimension-scored).\\n'\n"
         + f"    + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {d4_threshold}; echo \"RC=$?\"`\\n'\n"
-        + "    + 'Then report via the StructuredOutput tool: manifest_qc = the exact qc boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\\'s final RC= line; detail = qc/score/RC in one line.',\n"
+        + "    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',\n"
         + f"    {{ label: 'gate{gate_num}-verify-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA }},\n"
         + "  )\n"
-        + f"  gate{gate_num}Pass = !!(g{gate_num}v && g{gate_num}v.manifest_qc === true && g{gate_num}v.d4_rc === 0)\n"
+        + f"  gate{gate_num}Pass = !!(g{gate_num}v && g{gate_num}v.last_gate_ok === true && g{gate_num}v.d4_rc === 0)\n"
         + f"  if (gate{gate_num}Pass) {{ log('  Gate {gate_num} PASS [harness-verified: manifest qc=true, D4 rc=0]'); break }}\n"
         + f"  log('  Gate {gate_num} not yet PASS [' + (g{gate_num}v ? String(g{gate_num}v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))\n"
         + "}\n"
