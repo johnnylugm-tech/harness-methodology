@@ -96,7 +96,7 @@ def _render_bug_hunt() -> str:
         + "  + 'PERMITTED actions to populate `resolved` (the `DO NOT modify harness/` scope rule covers ONLY the `harness/` submodule — project source IS in scope for HUNT-RESOLVE):\\n'\n"
         + "  + '- Write a repro test under 03-development/tests/ that RED-fails on the bug. Apply the minimal source fix in 03-development/src/<module>.py. Confirm the repro test now PASSES (RED→GREEN anti-fabrication gate per hunt_bugs.md).\\n'\n"
         + "  + '- Commit the repro test + source fix with `fix(<module>): <title>` prefix.\\n'\n"
-        + "  + '- Update .methodology/bug_hunt_report.json resolution.status to `resolved` with the fix_commit SHA + repro_test path.\\n'\n'\n"
+        + "  + '- Update .methodology/bug_hunt_report.json resolution.status to `resolved` with the fix_commit SHA + repro_test path.\\n'\n"
         + "  + 'Refuted is ALSO permitted: read the offending code, find a guard/fallback the finding missed, cite the exact line numbers as refute_evidence.\\n\\n'\n"
         + "  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if bug_hunt_report.json was written AND all confirmed critical/high findings are resolved-or-refuted; reason = one-line summary. (Truth is enforced downstream: Gate 3\\'s framework-owned adversarial_review dim re-reads the report itself.)\\n\\n'\n"
         + "  + 'SCOPE RULES:\\n- DO NOT run run-gate (Gate 3) / advance-phase / push-milestone.\\n- DO NOT modify harness/ (running its scripts/prompts is fine; editing is NOT — HR-17).\\n- ONLY targets + hunt + resolve + write bug_hunt_report.json.',\n"
