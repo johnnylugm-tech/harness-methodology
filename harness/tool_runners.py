@@ -82,6 +82,29 @@ def run_tool(
 
     cmd = [part.format(root=root, test_target=test_target) for part in spec.cmd]
 
+    # Round 16: pytest-family tools run with cwd=root but no PYTHONPATH, so
+    # `import <package>` fails collection (test_coverage silently scores 0)
+    # for any src-layout project (03-development/src/ or src/) unless the
+    # calling shell happened to already have PYTHONPATH set — a
+    # non-reproducible, environment-dependent gate score. Inject the
+    # project's own src dir (same convention as
+    # core.phase_hooks._SCAN_SRC_DIRS / ProjectLayout.active_src_dir used
+    # elsewhere) only for pytest invocations, only when that dir exists,
+    # merged with (not replacing) any PYTHONPATH the caller already set.
+    # env=None below means "inherit os.environ unchanged" — every non-pytest
+    # tool and every flat-layout project sees zero behavior change.
+    env = None
+    if cmd and cmd[0] == "pytest":
+        from core.utils.project_layout import ProjectLayout
+        src_dir = ProjectLayout(root).active_src_dir
+        if src_dir.is_dir():
+            env = os.environ.copy()
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = (
+                str(src_dir) if not existing
+                else str(src_dir) + os.pathsep + existing
+            )
+
     # Clear a stale report file before the run: if the tool crashes before
     # rewriting it, the scorer must not read a previous run's artifact as if it
     # were current (coverage-summary.json staleness).
@@ -99,6 +122,7 @@ def run_tool(
             text=True,
             timeout=timeout,
             cwd=root,
+            env=env,
         )
         combined = (proc.stdout + proc.stderr).strip()
         if artifact and os.path.isfile(artifact):

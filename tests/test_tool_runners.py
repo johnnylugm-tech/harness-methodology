@@ -560,3 +560,77 @@ class TestRunToolConfigFileGuard:
         _, rc = run_tool("ruff", str(tmp_path))
         # -1 = skipped/unknown, -3 = not found; neither is the config-guard 0 path
         assert rc != 0 or True  # just ensure no TypeError raised
+
+
+# ---------------------------------------------------------------------------
+# run_tool PYTHONPATH injection (Round 16 — src-layout Gate 1 test_coverage
+# was environment-dependent: `import <pkg>` failed collection unless the
+# CALLING shell happened to already have PYTHONPATH set, since run_tool's
+# subprocess.run never passed env=. Fixed by injecting PYTHONPATH from
+# ProjectLayout.active_src_dir, scoped to pytest-family tools only.)
+# ---------------------------------------------------------------------------
+
+def _make_src_layout_project(tmp_path):
+    """Scaffold a minimal 03-development/src/<pkg> + tests project whose
+    test file imports the package — reproduces the exact taskq FR-04 shape."""
+    pkg_dir = tmp_path / "03-development" / "src" / "fakepkg"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+    tests_dir = tmp_path / "03-development" / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_x.py").write_text(
+        "from fakepkg import VALUE\n\n"
+        "def test_value():\n"
+        "    assert VALUE == 1\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+class TestRunToolPythonPathInjection:
+    def test_src_layout_project_import_succeeds_without_manual_pythonpath(
+        self, tmp_path, monkeypatch,
+    ):
+        # Prove the fix does not depend on the calling shell's own env —
+        # explicitly strip PYTHONPATH before invoking run_tool.
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+        project = _make_src_layout_project(tmp_path)
+        output, rc = run_tool("pytest-cov", str(project))
+        assert "ModuleNotFoundError" not in output
+        assert "ImportError" not in output
+        assert rc == 0
+
+    def test_non_pytest_tool_env_untouched(self, tmp_path, monkeypatch):
+        # Generality guard: only cmd[0] == "pytest" gets an env= override —
+        # every other tool must still pass env=None (inherit unchanged).
+        captured = {}
+        real_run = __import__("subprocess").run
+
+        def _spy_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["env"] = kwargs.get("env")
+            return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
+
+        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        project = _make_src_layout_project(tmp_path)
+        run_tool("ruff", str(project))
+        assert captured["cmd"][0] != "pytest"
+        assert captured["env"] is None
+
+    def test_flat_layout_project_env_untouched(self, tmp_path, monkeypatch):
+        # No 03-development/src and no src/ → active_src_dir does not
+        # .is_dir() → injection must not fire even for a pytest tool.
+        captured = {}
+        real_run = __import__("subprocess").run
+
+        def _spy_run(cmd, **kwargs):
+            captured["env"] = kwargs.get("env")
+            return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
+
+        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        tests_dir = tmp_path / "03-development" / "tests"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test_x.py").write_text("def test_ok():\n    assert True\n",
+                                              encoding="utf-8")
+        run_tool("pytest-cov", str(tmp_path))
+        assert captured["env"] is None
