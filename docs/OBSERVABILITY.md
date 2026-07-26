@@ -159,11 +159,18 @@ docstring and this station's commit message for the field-by-field trace):
 |---|---|---|
 | `regression_flags` non-empty (destructive edit / XX-mutator-marker) | `destructive_edit_or_mutator_marker` | specification |
 | `inner_status` in `{AWAITING_CONFIRMATION, NOTHING_TO_DO}` | `semantic_noop_termination` | specification |
-| `output` starts with `"Commit-required step"` | `commit_required_step_no_commit` | specification |
+| `error_output` starts with `"Commit-required step"` | `commit_required_step_no_commit` | specification |
 | `error_class == "STRUCTURAL"` | `structural_env_breakage` | infra |
-| `error_class == "INFRA_ERROR"` | `infra_error_transient` | infra |
-| `status == "TIMEOUT"` | `dispatch_timeout` | infra |
+| `error_class == "INFRA_ERROR"`, re-derived from `error_output` when the stamped value is the `EXECUTION_ERROR` fallback | `infra_error_transient` | infra |
+| `status == "TIMEOUT"`, or `error_output` contains `error_max_turns` | `dispatch_timeout` | infra |
 | (no rule matches) | `UNCLASSIFIED` | — |
+
+> Two of those rows are corrections from Round 19 站1, and the reason they were
+> wrong is worth keeping: `commit_required_step_no_commit` read `output`, and
+> the log writes that text as `error_output`, so it never matched a real entry;
+> `semantic_noop_termination` read `inner_status`, which `_log_dispatch` did not
+> emit at all until that station. Both had been inert since Round 16 while their
+> unit fixtures — written with the same mistaken field names — stayed green.
 
 **Honest gap, not an oversight**: `inter_agent` and `verification` currently
 have zero rules. B-review's `escalation_action`
@@ -179,10 +186,50 @@ per-dispatch (a logging change, not a classifier change), extend
 
 `UNCLASSIFIED` is a floor, not a bug: any entry matching no rule keeps its
 original `error_class`/`status` for human triage rather than being force-fit
-into the nearest bucket or silently dropped. `core.failure_modes.summarize()`
-reports `unclassified_pct` alongside the mode/category counts — a high
-percentage means the ruleset's coverage is thin for that dataset, not that
-the classifier is malfunctioning.
+into the nearest bucket or silently dropped.
+
+**Read `unclassified_failure_pct`, not `unclassified_pct`.** `summarize()`
+reports both, and only the first is a defect signal. The second is computed
+over every entry, and a SUCCESSFUL dispatch matches no failure rule by
+construction — so it climbs when a run goes well. taskq's log read 95.6%
+unclassified with 72 of its 91 entries being plain `complete`; the meaningful
+figure, unexplained failures over failures, was 78.9%. (The "82.1%
+UNCLASSIFIED" recorded in Round 16 is this same arithmetic and should be read
+the same way.) `run-report` leads with the failure-scoped number and labels the
+other as not-a-defect-signal.
+
+### Feeding real failures back into the rules
+
+The classifier's unit suite proves each rule has a hit fixture and a miss
+fixture. Both are hand-authored by whoever wrote the rules, so that suite
+cannot tell you whether real failures are covered — it is green either way.
+Round 19 站1 closed that loop:
+
+```bash
+python harness_cli.py export-failure-corpus --project /path/to/project --out tests/fixtures/failure_corpus/<run-name>.jsonl
+```
+
+Read-only. It emits de-identified, de-duplicated failure **shapes** — the raw
+signals a rule reads, and nothing else. No `session_id`, no prompt text, no
+timestamps, no paths, and deliberately no `error_class`: that field is a verdict
+stamped at dispatch time, and keeping it would make the corpus replay old
+verdicts instead of exercising the current signature registry end to end.
+
+To adopt a corpus: write the file, register it in `CORPORA` in
+`tests/test_failure_corpus_coverage.py`, and run the suite.
+
+**When the ratchet goes red**, a real failure shape matches no rule. The fix is
+to add or widen a rule in `core/failure_modes.py` — not to raise
+`MAX_UNCLASSIFIED`. Raise it only when a shape genuinely cannot be classified
+deterministically, and justify that in the same commit (the same contract
+`tests/test_file_size_ratchet.py` uses). A red ratchet after importing a new
+run's corpus is the mechanism working.
+
+That suite also enforces the structural rule that would have caught both dead
+rules on day one: **every entry field a rule reads must appear in real corpus
+entries**, or be registered in `FIELDS_ABSENT_FROM_CORPUS` with a reason. Its
+authority is the corpus, not a hand-written list, so it cannot drift the way
+the rules did.
 
 The MAST paper's own reported category split (specification 41.77% /
 inter-agent 36.94% / verification 21.30%) is a statistic about its own study

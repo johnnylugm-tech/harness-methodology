@@ -10,6 +10,24 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 19(2026-07-26)— 打開封閉的驗證迴路:讓真實 run 的失敗有辦法變成執法
+
+老闆令檢視 taskq **P3 的執行過程與紀錄**、對照 harness git history,探討結構性問題,隨後令針對所提全部問題提「正解 not workaround」。
+
+實測 `sessions_spawn.log` 91 筆:69 次 developer dispatch、**19 次失敗(27.5%)**、失敗吃掉 1.30h 掛鐘(全程 3.75h 的 35%)。四項查證屬實的問題共享同一病理:**驗證的輸入全部由寫程式碼的人自己產生,真實執行產生的證據沒有路徑進來變成執法**。三項上一輪報告提出的主張經查證**證偽或降級**,一併記錄——賬本的用途正是讓撤銷與採納一樣可追溯。
+
+| # | 主張 | 判定 | 一句證據 | Re-open condition |
+|---|------|------|----------|---|
+| R19-A | 分類器對真實失敗語料 100% 誤判(`Stream idle timeout` ×12 / `session limit` ×1 全歸 EXECUTION_ERROR → 路由進 CODE-FIX) | **採納,且範圍比報告時更大** | 病灶不只是 regex 少兩條。查證另發現:`_is_missing_required_commit` 讀 `output` 而 log 寫 `error_output`、`_is_semantic_noop` 讀的 `inner_status` 從未落盤——**6 條規則有 2 條對真實資料結構上不可能命中**,自 R16 建立起從未觸發過。兩者的 fixture 都用了規則作者假設的欄位名,所以測試恆綠。另 `unclassified_pct` 分母含成功 entry(91 筆中 72 筆 `complete`),95.6% 與 R16 記的 82.1% 皆為同一算術錯誤;失敗域真值是 15/19=78.9% | corpus 匯入新語料而 ratchet 紅時,補規則而非抬 ratchet;若真實失敗形態長尾極長(每輪都是全新字串),則轉向「UNCLASSIFIED 當一等公民路由、不追求分類完備」 |
+| R19-B | 失敗 dispatch 的成本/turns 完全不可見(2/19 有 cost vs 成功 50/50) | **採納** | 非資料不可得:失敗路徑的 `_extract_dispatch_error` **已經 `json.loads(stdout)` 成功**(taskq 的 `subtype=success API Error:` 正是它的產物),cost/usage 就在同一個 dict,而 `_extract_envelope_metrics` 只在 `returncode == 0` 分支被呼叫。且既有測試 `test_spawn_envelope_absent_on_error_path` 把「非零退出永無信封」**寫成了斷言**,把缺陷釘成規格 | 下次 run 的 log 若顯示失敗 entry 仍缺 cost,表示 CLI 在串流中斷時只吐部分信封,需另查 |
+| R19-C | gate 判定不記錄執法者版本,taskq Gate 2 同分數 96.7 一次 BLOCK 一次 PASS 無跡可尋 | **採納** | `grep harness_sha\|framework_version\|harness_version` 掃 `cli/gate_cmds.py` + `core/quality_gate/` 零命中,倉庫亦無 VERSION 檔。兩個中間的 fix(7c60859/97cd298)讀完確認**是真修復不是放水**——問題不在修得對不對,在產物上無法回答「這次判定用的是哪個執法者」 | 若 submodule 以外的佈署形態出現(pip 安裝等),`enforcer_sha()` 的 `harness_root()` 推導需重驗 |
+| R19-D | `compute_trace_dimension.passed` 與消費端 `score >= threshold` 兩處計算同一判定,等價性無守衛 | **採納,且查出 7c60859 的修法仍破裂** | 8 個既有 override 測試無一測等價性。直接斷言後找到反例:**失敗的 component 不是綁定 min 的那個**時規則失效——`4a=99.9`(一個 FR 沒測到,bar 100 FAIL)/ `4b=90`(bar 60 pass 且為 min)→ `threshold_effective=60` → `90>=60` 報 PASS。參數化下 **55 個組合**破裂。目前無事故是因 `cli/gate_cmds.py` 先用 `passed` 擋住才輪到 bridge 用分數——**正確性靠執行順序保命** | 若未來新增第 4 個 traceability component,`resolve_threshold_effective` 的「取最高失敗 bar」證明需重做 |
+| R19-E′ | ~~Gate 閾值階梯倒掛(Gate1 100/100 嚴於 Gate2/3/4 90/85)~~ | **證偽,撤銷** | `gate1_per_fr.yaml` 是 `scope: single_fr`(量單一 FR 的檔案),`gate2_p3_exit.yaml` 是 `scope: full_phase`(量全庫)。**測量域不同,閾值不可比較**;「同一份程式碼 Gate1 擋、Gate2 放行」不成立,「taskq 進 P5 會被擋」的預測隨之作廢 | 若未來兩個 gate 的 scope 改成相同,倒掛就成立,需重議 |
+| R19-F′ | ~~`dispatch_attempt` 恆為 1 = 重試盲區~~ | **證偽,撤銷** | `_STRUCTURAL_FAILURE_SIGNATURES` 是空 tuple(R12 站0c 以生產證據清空),`is_structurally_broken()` 恆 False,spawn 層**依設計不重試**;上層 fix-loop 的重試記在 `retry_round`(taskq 實測 4 筆=1、1 筆=2)。恆為 1 是正確行為 | 該 registry 若因新證據重新填入,`dispatch_attempt` 才會有多值 |
+| R19-G′ | 專案端 workaround 先落地、harness 正解事後補、無回收機制(taskq `conftest.py` 09:45 vs harness `d35beeb` 16:39) | **降級 — 現象屬實,不建機制** | 正解形狀是跨 repo 通知,成本遠高於收益;且「專案在框架修好前自救」本身合理。記錄於此供未來對照 | 同類 workaround 在多個專案重複出現 ≥3 次,且可證明造成實際誤導時 |
+
+> 方法論收穫:**「規則有測試」≠「規則會執行」**。`test_failure_modes.py` 的完備性 meta-test 保證每條規則有 hit/miss fixture,而 fixture 由規則作者撰寫——兩邊出自同一顆腦袋,所以 2 條死規則、1 個錯分母、1 個把缺陷寫成斷言的測試可以同時存在而全綠。本輪的守衛把權威換成**真實語料**(`tests/fixtures/failure_corpus/`):規則讀的欄位必須出現在真實 entry 中,否則測試紅。
+
 ## Round 18(2026-07-25)— 病灶歸位:把補丁層的修復搬回它該在的層
 
 老闆令 review `0e164ee..HEAD`(25 commits,其中 16 個是 Round 17 之後的新批次)並探討結構性問題,隨後令針對建議優先序全部四項提「正解 not workaround」。診斷:16 個新 commit 中 9 個實質修復**全部由 taskq 真實 E2E 跑動觸發**,5487 個測試 + 72 個 guards 攔截率 0;四個問題共享同一病理——**修復被放在症狀出現的層,而不是病因所在的層**,所以修復本身製造新 bug、漏掉同類副本、或永遠無法收斂。詳細出處:各站 commit message + `tests/test_gate_threshold_docs_parity.py` / `tests/test_attestation_idempotence.py` / `scripts/workflowgen/js_src/sim_runner.test.mjs` §6-7。
