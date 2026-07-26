@@ -140,6 +140,39 @@ def _failure_modes_report(project: Path) -> dict:
     }
 
 
+def _gate_provenance_report(project: Path) -> dict:
+    """Round 19 站3: which harness commit produced each gate verdict on record.
+
+    Deliberately minimal — verdict, composite, enforcer. The question this
+    answers is "did the enforcer change between these two runs?", which is what
+    taskq's Gate 2 BLOCK(96.7) -> PASS(96.7) could not be asked of. Results
+    written before that station have no enforcer_sha and report None rather
+    than being hidden, so a mixed-vintage project reads honestly.
+    """
+    from cli._shared import gate_result_paths
+    gates: list[dict] = []
+    for gate in (1, 2, 3, 4):
+        for path in gate_result_paths(project, gate):
+            if not path.is_file():
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            gates.append({
+                "gate": gate,
+                "verdict": data.get("verdict") or data.get("passed"),
+                "composite_score": data.get("composite_score") or data.get("overall_score"),
+                "enforcer_sha": data.get("enforcer_sha"),
+            })
+            break
+    if not gates:
+        return {"available": False}
+    return {"available": True, "gates": gates}
+
+
 def _degradation_report(project: Path) -> dict:
     from core.degradation_ledger import LEDGER_RELPATH
     entries = _read_jsonl(project / LEDGER_RELPATH)
@@ -206,6 +239,7 @@ def build_report(project: Path) -> dict:
         "project": str(project),
         "spawn_log": _spawn_log_report(project),
         "failure_modes": _failure_modes_report(project),
+        "gate_provenance": _gate_provenance_report(project),
         "degradations": _degradation_report(project),
         "crash_bundles": _crash_report(project),
         "trajectory": _trajectory_report(project),
@@ -272,6 +306,19 @@ def _render_human(report: dict) -> str:
         for sample in fm.get("unclassified_failure_samples") or []:
             lines.append(f"    needs a rule: {sample}")
         lines.append(f"  span: {fm['first_timestamp']} .. {fm['last_timestamp']}")
+
+    gp = report["gate_provenance"]
+    lines.append("")
+    lines.append("## Gate provenance (which harness commit produced each verdict)")
+    if not gp["available"]:
+        lines.append("  n/a — no gate result files found")
+    else:
+        for row in gp["gates"]:
+            enforcer = row["enforcer_sha"] or "not recorded (result predates Round 19 站3)"
+            lines.append(
+                f"  Gate {row['gate']}: verdict={row['verdict']} "
+                f"score={row['composite_score']} enforcer={enforcer}"
+            )
         lines.append(
             "  NOTE: a log spanning multiple rounds/eras mixes different "
             "code versions — counts are not evidence of the CURRENT "

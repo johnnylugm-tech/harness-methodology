@@ -224,6 +224,54 @@ def _filter_active_frs(rt, missing: dict) -> tuple[set, set]:
     return active_uncoded, active_untested
 
 
+def resolve_threshold_effective(
+    *,
+    pct_4a: float, pct_4b: float, pct_4c: float,
+    threshold_4a: float, threshold_4b: float, threshold_4c: float,
+) -> float:
+    """The threshold to compare `merged_pct` against, so that
+    ``merged_pct >= threshold_effective`` is exactly ``passed``.
+
+    `merged_pct` is a min() over three components with DIFFERENT thresholds
+    (4a=100%, 4b/4c=60/80/90% per gate), but consumers persist it as one score
+    and compare it against one threshold — the generic shape every other
+    dimension uses (cli/gate_cmds.py's gate result patch,
+    harness_bridge._override_traceability_dim_score). Getting this number wrong
+    makes those consumers contradict `passed`, which is what blocked taskq's
+    Gate 2 for 3 rounds when the flat 4a threshold of 100 was used (7c60859).
+
+    That fix used "the threshold of whichever component binds the min". Round
+    19 站3 found it still breaks whenever the FAILING component is not the
+    binding one:
+
+        4a=95 (bar 100, FAILS) | 4b=60 (bar 60, passes, and is the min) | 4c=90
+        -> binds on 4b, so effective=60, and 60 >= 60 reports PASS
+        -> passed is False
+
+    The rule that holds in general: if anything fails, compare against the
+    HIGHEST failing bar. Then merged (being the min, hence <= the failing
+    component's percentage, hence < its bar) is necessarily below it. If
+    nothing fails, keep the binding component's threshold — merged is that
+    component's value and clears it, and the printed number stays meaningful to
+    a human reading the gate line.
+    """
+    failing = [
+        threshold
+        for pct, threshold in (
+            (pct_4a, threshold_4a), (pct_4b, threshold_4b), (pct_4c, threshold_4c),
+        )
+        if pct < threshold
+    ]
+    if failing:
+        return max(failing)
+    merged = min(pct_4a, pct_4b, pct_4c)
+    if merged == pct_4a:
+        return threshold_4a
+    if merged == pct_4b:
+        return threshold_4b
+    return threshold_4c
+
+
 def compute_trace_dimension(project, gate: int) -> dict:
     """Compute the `traceability` gate dimension (PR 4).
 
@@ -370,20 +418,14 @@ def compute_trace_dimension(project, gate: int) -> dict:
         and result["4b_test_spec_pct"] >= threshold_4b
         and nfr_pct >= threshold_4c
     )
-    # Bug fix: merged_pct is a min() over three components with DIFFERENT
-    # thresholds (4a=100%, 4b/4c=60/80/90% per gate). Callers that persist
-    # `merged_pct` as a single "score" and compare it against a single
-    # "threshold" must compare it against the threshold of whichever
-    # component is currently binding the min — never the flat 100%
-    # threshold_4a — or a passing 4b/4c (e.g. 76% ≥ its own 60% bar) gets
-    # misreported as failing against an unrelated 100% bar. This keeps
-    # `score >= threshold_effective` equivalent to `result["passed"]`.
-    if merged == pct_4a:
-        result["threshold_effective"] = threshold_4a
-    elif merged == result["4b_test_spec_pct"]:
-        result["threshold_effective"] = threshold_4b
-    else:
-        result["threshold_effective"] = threshold_4c
+    result["threshold_effective"] = resolve_threshold_effective(
+        pct_4a=pct_4a,
+        pct_4b=result["4b_test_spec_pct"],
+        pct_4c=nfr_pct,
+        threshold_4a=threshold_4a,
+        threshold_4b=threshold_4b,
+        threshold_4c=threshold_4c,
+    )
     return result
 
 

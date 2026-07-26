@@ -1657,6 +1657,38 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
 
     return None
 
+def _stamp_enforcer_provenance(project_path: Path, gate: int) -> None:
+    """Record WHICH harness commit is finalizing this gate, into the gate result.
+
+    A gate result says what was measured and against what thresholds; it never
+    said who measured. taskq's Gate 2 went BLOCK -> PASS on an unchanged
+    composite of 96.7 either side of a submodule bump, and nothing in the
+    result file connected the two (see core/harness_provenance.py for the
+    timeline). Reading the artifact alone, the gate flipped on identical
+    evidence.
+
+    Additive and best-effort: a missing/corrupt result file, or an unwritable
+    tree, leaves the gate verdict exactly as it was. Provenance is a record OF
+    a decision, never an input to one — it must not be able to block a gate.
+    Readers must use `.get("enforcer_sha")`; every result written before this
+    station lacks the field.
+    """
+    from core.harness_provenance import enforcer_sha
+    for path in gate_result_paths(project_path, gate):
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
+            data["enforcer_sha"] = enforcer_sha()
+            path.write_text(json.dumps(data, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"[WARN] could not stamp enforcer provenance into {path.name}: {exc}",
+                  file=sys.stderr)
+
+
 def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
     """I-5/I-6: Gates 2-4 D4 spec-coverage + PR 4 trace dimension.
 
@@ -1824,6 +1856,10 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
     if (code := _finalize_gate_preflight(args, project_path)) is not None:
         return code
+    # Stamp before the checks that can return early: a BLOCKED verdict needs
+    # provenance at least as much as a PASS does — taskq's 96.7 BLOCK is
+    # exactly the record that turned out to be unattributable.
+    _stamp_enforcer_provenance(project_path, args.gate)
     if (code := _finalize_gate_fr_checks(args, project_path)) is not None:
         return code
     if (code := _finalize_gate_cross_checks(args, project_path)) is not None:
