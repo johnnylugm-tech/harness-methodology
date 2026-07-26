@@ -152,6 +152,83 @@ class TestHandoverGenerator:
         assert "old content" not in content
         assert "P7-exit-20260504" in content
 
+    def test_obligations_section_renders_blocking_table(self, tmp_path: Path):
+        """Round 14 A: HandoverGenerator.render(obligations=[...]) must emit
+        a 'P(N+1) Entry Obligations' section in the returned markdown, with
+        one row per Obligation (check_id, rule_id, location, message)."""
+        from core.phase_hooks import Obligation
+
+        gen = HandoverGenerator(tmp_path)
+        content = gen.render(
+            checkpoint_id="P3-exit-20260726",
+            phase=3,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+            resume_phase=4,
+            obligations=[
+                Obligation(
+                    check_id="property_spec",
+                    target_phase=4,
+                    rule_id="FR-03",
+                    message=("FR-03 declares a property invariant but no "
+                             "executing property-based test covers it"),
+                ),
+                Obligation(
+                    check_id="reliability_lint",
+                    target_phase=4,
+                    rule_id="py-mkstemp-outside-try",
+                    file="src/taskq/store.py",
+                    line=86,
+                    message=("WARNING py-mkstemp-outside-try "
+                             "src/taskq/store.py:86 — resolve before entering "
+                             "the target phase"),
+                ),
+            ],
+        )
+        assert "P4 Entry Obligations" in content
+        assert "`property_spec`" in content
+        assert "`FR-03`" in content
+        assert "FR-03 declares a property invariant" in content
+        assert "`reliability_lint`" in content
+        assert "`py-mkstemp-outside-try`" in content
+        assert "`src/taskq/store.py:86`" in content
+
+    def test_obligations_section_omitted_when_empty(self, tmp_path: Path):
+        """An empty obligations list must NOT emit the obligations section
+        (avoids noise on clean advances)."""
+        gen = HandoverGenerator(tmp_path)
+        content = gen.render(
+            checkpoint_id="P4-exit-20260726",
+            phase=4,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+            obligations=[],
+        )
+        assert "P5 Entry Obligations" not in content
+        assert "Entry Obligations" not in content
+
+    def test_obligations_section_pipes_escaped(self, tmp_path: Path):
+        """Pipe characters in messages must be escaped so the markdown table
+        remains single-column (a message may legitimately contain '|')."""
+        from core.phase_hooks import Obligation
+
+        gen = HandoverGenerator(tmp_path)
+        content = gen.render(
+            checkpoint_id="P3-exit-20260726",
+            phase=3,
+            task_background="bg",
+            current_status="status",
+            next_steps=["step 1"],
+            resume_phase=4,
+            obligations=[Obligation(
+                check_id="x", target_phase=4, rule_id="R1",
+                message="a | b | c")],
+        )
+        # The pipe inside the message must be escaped to backslash-pipe
+        assert "a \\| b \\| c" in content
+
 
 # ── GitStrategy integration tests ───────────────────────────────────────────
 
@@ -1256,13 +1333,103 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+
+    def test_advance_phase_surfaces_obligations_to_handover(self, tmp_path, monkeypatch):
+        """Round 14 A: when preview_next_phase_blocking returns obligations,
+        cmd_advance_phase must propagate them to HandoverGenerator.write so
+        the P(N+1) Entry Obligations table lands in HANDOVER.md."""
+        import io
+        import json
+        from core.phase_hooks import Obligation
+        from harness_cli import cmd_advance_phase
+
+        manifest_dir = tmp_path / ".methodology"
+        manifest_dir.mkdir()
+        manifest = {
+            "fr_ids": ["FR-01", "FR-03"],
+            "gate_results": {
+                "gate1": {
+                    "FR-01": {"quality_complete": True, "score": 95.0},
+                    "FR-03": {"quality_complete": True, "score": 95.0},
+                },
+                "gate2": {"quality_complete": True, "score": 96.5},
+            },
+        }
+        (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+
+        write_kwargs = {}
+        fsm_kwargs = {}
+
+        def fake_write(self, **kw):
+            write_kwargs.update(kw)
+            return tmp_path / "HANDOVER.md"
+
+        def fake_fsm(project, phase, **kw):
+            fsm_kwargs.update(kw)
+
+        def fake_run(cmd, **kw):
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        class Args:
+            pass
+        a = Args()
+        a.completed_phase = 3  # type: ignore[reportAttributeAccessIssue]
+        a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+
+        monkeypatch.setattr("sys.stdout", io.StringIO())
+        monkeypatch.setattr("cli.phase_cmds._advance_fsm", fake_fsm)
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda project, phase: 0)
+
+        # Stub PhaseHooks.preview_next_phase_blocking to return a fixed list.
+        # We construct a PhaseHooks instance (real) and patch the method.
+        from core.phase_hooks import PhaseHooks
+        monkeypatch.setattr(
+            PhaseHooks, "preview_next_phase_blocking",
+            lambda self, next_phase: [
+                Obligation(
+                    check_id="property_spec",
+                    target_phase=next_phase,
+                    rule_id="FR-03",
+                    message="FR-03 property invariant not executing",
+                ),
+                Obligation(
+                    check_id="reliability_lint",
+                    target_phase=next_phase,
+                    rule_id="py-mkstemp-outside-try",
+                    file="src/taskq/store.py",
+                    line=86,
+                    message="WARNING py-mkstemp-outside-try src/taskq/store.py:86",
+                ),
+            ],
+        )
 
         exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
-        # gate1 is null → fr_done should be 0, no AttributeError raised
-        assert "0/2 FRs" in write_kwargs.get("task_background", "")
-        assert "Gate 2" in write_kwargs.get("task_background", "")
+
+        # Both call sites must receive the same obligations list.
+        assert "obligations" in write_kwargs, (
+            "HandoverGenerator.write missing 'obligations' — A2/A3 wiring broken"
+        )
+        assert len(write_kwargs["obligations"]) == 2
+        assert write_kwargs["obligations"][0].rule_id == "FR-03"
+        assert write_kwargs["obligations"][1].rule_id == "py-mkstemp-outside-try"
+
+        assert "obligations" in fsm_kwargs
+        assert fsm_kwargs["obligations"] == write_kwargs["obligations"]
+
+        # A4: when obligations exist, the over-promise "Ready to begin Phase N+1"
+        # must be replaced with a pointer to the obligations table.
+        status = write_kwargs.get("current_status", "")
+        assert "Ready to begin Phase 4" not in status, (
+            "A4 regression: status must drop the over-promise when obligations exist"
+        )
+        assert "obligation" in status.lower()
 
 
     def test_p1_missing_deliverable_blocks_advance(self, tmp_path, monkeypatch):

@@ -64,11 +64,21 @@ class SpecCase:
 
 @dataclass(frozen=True)
 class SubAssertion:
-    """A sub-assertion rule and the case ids it is declared to apply to."""
+    """A sub-assertion rule and the case ids it is declared to apply to.
+
+    `fulfill_phase` (added v2.14 / Round 14 A+B): the earliest phase at which
+    this assertion must be exercised by an executing test. ``None`` (default)
+    preserves the historical "any phase that has a test" semantics — the
+    caller decides the effective block phase. Direction B's TEST_SPEC
+    `**Properties**` table is the primary source of non-None values; the
+    property_spec gate reads the maximum across an FR's declared properties
+    and uses that as the dynamic replacement for the hard-coded P4 trigger.
+    """
 
     rule_id: str
     predicate: str
     applies_to: list[int] = field(default_factory=list)
+    fulfill_phase: int | None = None
 
 
 class UnsafePredicateError(ValueError):

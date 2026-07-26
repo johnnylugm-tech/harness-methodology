@@ -80,7 +80,14 @@ def _split_fr_sections(content: str) -> dict[str, str]:
 
 
 def _parse_invariant_table(body: str) -> list[SubAssertion]:
-    """Parse the `**Properties**` table (invariant | applies_to) of one FR body."""
+    """Parse the `**Properties**` table (invariant | applies_to) of one FR body.
+
+    Optional `fulfill_phase` column (v2.14 / Round 14 B): declares the earliest
+    phase at which the property must be exercised by an executing test. Missing
+    column / empty cell / non-int cell → ``None`` (preserves historical default
+    of "any phase that has a test" — the property_spec gate will fall back to
+    P4 in preflight_property_spec).
+    """
     lines = body.splitlines()
     for idx, line in enumerate(lines):
         s = line.strip()
@@ -93,6 +100,7 @@ def _parse_invariant_table(body: str) -> list[SubAssertion]:
         i_id = _find(header, "property")
         i_inv = _find(header, "invariant")
         i_app = _find(header, "applies")
+        i_fp = _find(header, "fulfill_phase")
         if i_inv is None or i_app is None:
             return []
         props: list[SubAssertion] = []
@@ -111,7 +119,18 @@ def _parse_invariant_table(body: str) -> list[SubAssertion]:
             if not pred:
                 continue
             applies = [int(n) for n in re.findall(r"\d+", cells[i_app])]
-            props.append(SubAssertion(rid, pred, applies))
+            # fulfill_phase: optional column. Missing column / empty cell /
+            # non-int cell → None (back-compat with tables that omit the
+            # column entirely; the gate will fall back to P4).
+            fulfill_phase: int | None = None
+            if i_fp is not None and i_fp < len(cells):
+                _fp_text = cells[i_fp].strip().strip("`").strip()
+                if _fp_text:
+                    try:
+                        fulfill_phase = int(_fp_text)
+                    except ValueError:
+                        fulfill_phase = None
+            props.append(SubAssertion(rid, pred, applies, fulfill_phase))
         return props
     return []
 

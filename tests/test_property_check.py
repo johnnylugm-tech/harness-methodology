@@ -188,3 +188,107 @@ def test_ast_check_avoids_false_positive(tmp_path: Path) -> None:
     proj = _project(tmp_path, body, test_files={"test_fr01.py": test_content})
     vs = check_property_spec(proj, require_execution=True)
     assert any(v.check_type == "property_not_executed" for v in vs)
+
+
+# ── Round 14 B: fulfill_phase column (back-compat + new column) ────────────
+
+
+def test_fulfill_phase_missing_column_falls_back_to_p4(tmp_path: Path) -> None:
+    """Back-compat: tables that omit `fulfill_phase` must keep the historical
+    P4 trigger — preflight blocks at P4, informational at P3 (regression guard
+    for the dynamic `_max_fulfill` default introduced in Round 14 B)."""
+    proj = _project(tmp_path, _FR_WITH_PROP)  # no fulfill_phase column
+    r3 = _hooks(proj, 3).preflight_property_spec()
+    assert r3["passed"] is True
+    assert r3.get("fulfill_phase") == 4
+    r4 = _hooks(proj, 4).preflight_property_spec()
+    assert r4["passed"] is False and r4["errors"] == 1
+    assert r4.get("fulfill_phase") == 4
+
+
+def _spec_with_fulfill_phase(fulfill_row: str) -> str:
+    """Build a TEST_SPEC body whose FR-01 Properties table includes a
+    `fulfill_phase` column matching the legacy `(property_id, invariant,
+    applies_to)` shape plus a 4th column equal to `fulfill_row`."""
+    return (
+        "### FR-01: encode/decode roundtrip\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_roundtrip` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties** (universal invariants — verify with hypothesis; "
+        "strength via mutation):\n"
+        "| property_id | invariant | applies_to | fulfill_phase |\n"
+        "|---|---|---|---|\n"
+        f"| {fulfill_row}\n"
+    )
+
+
+def test_fulfill_phase_column_blocks_according_to_value(tmp_path: Path) -> None:
+    """When `fulfill_phase=5` is declared, the gate is informational at P4
+    and blocking at P5 (dynamic — replaces the hard-coded P4 trigger)."""
+    body = _spec_with_fulfill_phase(
+        "P1-len | `len(source) == 3` | 1 | 5 |")
+    proj = _project(tmp_path, body)
+
+    r3 = _hooks(proj, 3).preflight_property_spec()
+    assert r3["passed"] is True
+    assert r3.get("fulfill_phase") == 5
+
+    r4 = _hooks(proj, 4).preflight_property_spec()
+    assert r4["passed"] is True  # P4 < fulfill_phase=5 → not blocking yet
+    assert r4.get("fulfill_phase") == 5
+
+    r5 = _hooks(proj, 5).preflight_property_spec()
+    assert r5["passed"] is False and r5["errors"] == 1
+    assert r5.get("fulfill_phase") == 5
+
+
+def test_fulfill_phase_empty_or_invalid_cell_falls_back_to_p4(tmp_path: Path) -> None:
+    """Empty cell or non-int cell in `fulfill_phase` → None in the parsed
+    SubAssertion → default 4 (back-compat)."""
+    body_empty = _spec_with_fulfill_phase(
+        "P1-len | `len(source) == 3` | 1 |  |")
+    proj = _project(tmp_path, body_empty)
+    r4 = _hooks(proj, 4).preflight_property_spec()
+    assert r4["passed"] is False and r4["errors"] == 1
+    assert r4.get("fulfill_phase") == 4  # empty → default P4
+
+    body_garbage = _spec_with_fulfill_phase(
+        "P1-len | `len(source) == 3` | 1 | soon |")
+    proj2 = _project(tmp_path, body_garbage)
+    r4b = _hooks(proj2, 4).preflight_property_spec()
+    assert r4b["passed"] is False and r4b["errors"] == 1
+    assert r4b.get("fulfill_phase") == 4  # non-int → default P4
+
+
+def test_fulfill_phase_uses_max_across_frs(tmp_path: Path) -> None:
+    """When multiple FRs declare fulfill_phases, the gate uses the MAX
+    (not min / average) — strict semantics: a single 'later' FR still
+    fails open at P4 if the others are valid."""
+    body = (
+        "### FR-01: early\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_x` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to | fulfill_phase |\n"
+        "|---|---|---|---|\n"
+        "| P1 | `len(source) == 3` | 1 | 4 |\n\n"
+        "### FR-02: late\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr02_x` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to | fulfill_phase |\n"
+        "|---|---|---|---|\n"
+        "| P2 | `len(source) == 3` | 1 | 6 |\n"
+    )
+    proj = _project(tmp_path, body)
+    # P4 < max(4, 6) = 6 → execution not required → passes
+    r4 = _hooks(proj, 4).preflight_property_spec()
+    assert r4["passed"] is True
+    assert r4.get("fulfill_phase") == 6  # max(4, 6) — the later one wins
+    # P6 ≥ max(4, 6) → execution required → both FRs fail (no @given test)
+    r6 = _hooks(proj, 6).preflight_property_spec()
+    assert r6["passed"] is False and r6["errors"] == 2
+    assert r6.get("fulfill_phase") == 6

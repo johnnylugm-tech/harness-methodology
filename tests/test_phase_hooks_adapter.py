@@ -420,3 +420,67 @@ class TestReVerifyOverlay:
             "re-verify must respect the overlay and not re-report FR-07 as "
             f"still_untested. Dispatched untested was: {dispatched_untested}"
         )
+
+
+# ── Round 14 A: preview_next_phase_blocking tests ──────────────────────────
+
+
+def test_preview_next_phase_blocking_property_spec_obligation(tmp_path) -> None:
+    """When in P3 with a property declared but no hypothesis test, previewing
+    P4 must surface a 'property_spec' obligation (the root cause of the
+    2026-07-26 P3→P4 push block on taskq)."""
+    from core.phase_hooks import PhaseHooks
+    from core.utils.project_layout import ProjectLayout
+
+    spec_path = ProjectLayout(tmp_path).test_spec_path
+    spec_path.parent.mkdir(parents=True, exist_ok=True)
+    spec_path.write_text(
+        "# TEST_SPEC\n\n"
+        "## Functional Requirement Test Cases\n\n"
+        "### FR-01: round-trip\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_x` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to |\n"
+        "|---|---|---|\n"
+        "| P1 | `len(source) == 3` | 1 |\n",
+        encoding="utf-8",
+    )
+    # No hypothesis test in tests/ → property_spec must block at P4
+    hooks = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+    obls = hooks.preview_next_phase_blocking(next_phase=4)
+    property_obls = [o for o in obls if o.check_id == "property_spec"]
+    assert property_obls, f"expected property_spec obligation, got {obls}"
+    assert any(o.rule_id == "FR-01" for o in property_obls)
+    for o in property_obls:
+        assert o.target_phase == 4
+
+
+def test_preview_next_phase_blocking_clean_returns_empty(tmp_path) -> None:
+    """When no property is declared and no reliability findings exist,
+    previewing P4 must return an empty obligation list (no false positives)."""
+    from core.phase_hooks import PhaseHooks
+
+    hooks = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+    obls = hooks.preview_next_phase_blocking(next_phase=4)
+    # Sanity: with no project artifacts, the only simulation-blocking
+    # findings should be originating from PREFLIGHT_CHECKS that match the
+    # delayed-blocking allowlist. For an empty /tmp project, no obligations
+    # are expected (no property declared, no source files, no manifest).
+    prop_obls = [o for o in obls if o.check_id == "property_spec"]
+    assert prop_obls == [], (
+        f"empty project should not surface property_spec obligation, got {obls}"
+    )
+
+
+def test_preview_next_phase_blocking_rejects_invalid_phase(tmp_path) -> None:
+    """Out-of-range next_phase must raise ValueError (PARAMETER-GUARD contract)."""
+    from core.phase_hooks import PhaseHooks
+
+    hooks = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
+    import pytest
+    with pytest.raises(ValueError):
+        hooks.preview_next_phase_blocking(next_phase=99)
+    with pytest.raises(ValueError):
+        hooks.preview_next_phase_blocking(next_phase=0)

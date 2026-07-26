@@ -20,6 +20,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 
@@ -31,6 +32,100 @@ from core.state_io import StateCorruptError, load_quality_manifest, load_state
 
 class KillSwitchBlockedError(RuntimeError):
     """Raised when kill-switch circuit is OPEN for an agent."""
+
+
+# Round 14 A: cross-phase obligation model. The preflight_* methods all
+# pattern-match on `self.phase` to decide whether a finding is blocking,
+# so a "P(N) informational, P(N+1) blocking" gap is structurally invisible
+# to advance-phase. The fix is to simulate the preflight at next_phase and
+# surface the resulting blocking findings as structured obligations that
+# HANDOVER.md can carry over to the next session.
+@dataclass(frozen=True)
+class Obligation:
+    """A cross-phase carry-over obligation: P(N+1) entry blocking finding.
+
+    `check_id` is the preflight_* key from PREFLIGHT_CHECKS (e.g.
+    "property_spec", "reliability_lint"). `rule_id` identifies the specific
+    FR / rule / file that triggered the obligation (e.g. "FR-03",
+    "py-mkstemp-outside-try", or the check_id itself when no finer-grained
+    rule is available). `message` is the human-readable description already
+    printed to stdout by the preflight run.
+    """
+
+    check_id: str
+    target_phase: int
+    rule_id: str
+    message: str
+    file: str | None = None
+    line: int | None = None
+
+
+# Preflights that use the "P(N) informational, P(N+1) blocking" pattern.
+# Preview only surfaces these — environmental / always-blocking checks
+# (kill_switch, tool_registry, constitution, FSM) are not carry-over
+# obligations and would only drown the operator in noise.
+_DELAYED_BLOCKING_PREFLIGHTS: frozenset[str] = frozenset({
+    "drift_detection",
+    "sab_check",
+    "traceability",
+    "fr_spec_consistency",
+    "property_spec",
+    "artifact_consistency",
+    "reliability_lint",
+    "config_liveness",
+    "previous_phase_artifacts",
+    "bvs_phase_order",
+})
+
+
+def _obligations_from_preflight(
+    check_id: str, res: Dict[str, Any], target_phase: int,
+) -> List[Obligation]:
+    """Convert one preflight result dict into a list of Obligation rows.
+
+    Each preflight reports its findings in a slightly different shape, so
+    the extractor is per-check. Unknown check_ids fall back to a single
+    obligation carrying the check_id / blocking message.
+    """
+    out: List[Obligation] = []
+    if check_id == "property_spec":
+        # Use `divergences` (set of rule_ids reported as errors by
+        # PhaseHooks.preflight_property_spec) — one obligation per FR.
+        for rid in res.get("divergences") or []:
+            out.append(Obligation(
+                check_id=check_id,
+                target_phase=target_phase,
+                rule_id=str(rid),
+                message=(f"{rid} declares a property invariant but no executing "
+                         "property-based test (hypothesis @given / fast-check) "
+                         "covers it — add the test before entering the target phase"),
+            ))
+    elif check_id == "reliability_lint":
+        # Use `findings` (list of {rule, file, line, severity} dicts).
+        for f in res.get("findings") or []:
+            out.append(Obligation(
+                check_id=check_id,
+                target_phase=target_phase,
+                rule_id=str(f.get("rule", "?")),
+                file=f.get("file"),
+                line=f.get("line"),
+                message=(f"{f.get('severity', '?')} {f.get('rule', '?')} "
+                         f"{f.get('file', '?')}:{f.get('line', '?')} — "
+                         "resolve before entering the target phase"),
+            ))
+    else:
+        # Generic fallback: one obligation per blocking result, carrying the
+        # check's own error string. File/line not available.
+        msg = (res.get("error") or res.get("message")
+               or f"{check_id} would block at phase {target_phase}")
+        out.append(Obligation(
+            check_id=check_id,
+            target_phase=target_phase,
+            rule_id=check_id,
+            message=str(msg),
+        ))
+    return out
+
 
 
 # Phase → check_type mapping is owned by the constitution package
@@ -808,15 +903,41 @@ class PhaseHooks:
 
         Only FRs that declare a TEST_SPEC `**Properties**` table are checked:
         declared invariants must be self-consistent (reused red_assertion
-        engine), and from P4 — once tests exist — actually executed by a
-        property-based test (hypothesis / fast-check). Property *strength* is
-        backed by the existing mutation_testing dimension, not re-scored here.
-        Informational at P1; blocking from P2 (self-consistency) / P4
-        (execution). No declarations → skipped (opt-in, not a fake gate).
+        engine), and from the FR's `fulfill_phase` (Round 14 B; default P4
+        when the table omits the column) — once tests exist — actually
+        executed by a property-based test (hypothesis / fast-check). Property
+        *strength* is backed by the existing mutation_testing dimension, not
+        re-scored here. Informational at P1; blocking from P2 (self-consistency)
+        / fulfill_phase (execution). No declarations → skipped (opt-in, not a
+        fake gate).
         """
-        from core.quality_gate.property_check import check_property_spec
+        from core.quality_gate.property_check import (
+            check_property_spec,
+            parse_property_tables,
+        )
+        from core.utils.project_layout import ProjectLayout
         print("\n[PRE-FLIGHT] Property Declarations")
-        require_execution = self.phase is not None and self.phase >= 4
+        # Round 14 B: dynamic fulfill_phase replaces the hard-coded P4 trigger.
+        # Default 4 preserves back-compat for tables that omit the column.
+        try:
+            _spec_path = ProjectLayout(self.project_path).test_spec_path
+            _props_by_fr: dict[str, list] = {}
+            if _spec_path.exists():
+                _props_by_fr = parse_property_tables(
+                    _spec_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception as e:  # noqa: BLE001 — scan errors fall back to P4
+            print(f"   [WARN] property-spec table parse failed: {e!r}; "
+                  "defaulting fulfill_phase to 4")
+            _props_by_fr = {}
+        _fulfill_phases = [
+            p.fulfill_phase
+            for props in _props_by_fr.values()
+            for p in props
+            if p.fulfill_phase is not None
+        ]
+        _max_fulfill = max(_fulfill_phases) if _fulfill_phases else 4
+        require_execution = (
+            self.phase is not None and self.phase >= _max_fulfill)
         try:
             violations = check_property_spec(
                 self._layout.root, require_execution=require_execution)
@@ -826,7 +947,8 @@ class PhaseHooks:
 
         if not violations:
             print("   No property declarations, or all consistent + executed.")
-            return {"passed": True, "skipped": True}
+            return {"passed": True, "skipped": True,
+                    "fulfill_phase": _max_fulfill}
 
         errors = [v for v in violations if v.severity == "error"]
         reviews = [v for v in violations if v.severity == "info"]
@@ -838,12 +960,14 @@ class PhaseHooks:
             print(f"   [BLOCKED] Phase {self.phase}: {len(errors)} property issue(s)")
         elif errors:
             print(f"   INFO: {len(errors)} property issue(s); not blocking at "
-                  f"phase {self.phase}")
+                  f"phase {self.phase} (execution required from P{_max_fulfill})")
         elif reviews:
             print(f"   needs_review: {len(reviews)} invariant(s) not evaluable "
                   "against cases")
         return {"passed": passed, "blocking": blocking,
-                "errors": len(errors), "needs_review": len(reviews)}
+                "errors": len(errors), "needs_review": len(reviews),
+                "divergences": [v.rule_id for v in errors],
+                "fulfill_phase": _max_fulfill}
 
     def preflight_artifact_consistency(self) -> Dict[str, Any]:
         """Machine-catch P1/P2 artifact hallucinations (audit fix): an
@@ -1303,6 +1427,49 @@ class PhaseHooks:
 
         print(f"\nPRE-FLIGHT: {'PASS' if all_passed else 'FAIL'}")
         return {"all_passed": all_passed, "details": results}
+
+    # Round 14 A: cross-phase obligation preview. The preflight_* methods all
+    # pattern-match on `self.phase` to decide whether a finding is blocking;
+    # by constructing a sibling PhaseHooks with `phase=next_phase` we can
+    # simulate "what would block if I entered P(N+1) right now" without
+    # mutating any state. Findings returned in this list are the cross-phase
+    # carry-over obligations that the next session must resolve before they
+    # actually trip the gate.
+    def preview_next_phase_blocking(self, next_phase: int) -> list["Obligation"]:
+        """Simulate preflight at next_phase; return obligations that would block.
+
+        Runs `_do_preflight_all` under a fresh ``PhaseHooks(phase=next_phase)``
+        instance and extracts findings from the preflights that use the
+        "P(N) informational, P(N+1) blocking" pattern (the same 8 preflights
+        catalogued in the P3→P4 push-block root-cause analysis). Other
+        preflights (kill_switch, tool_registry, constitution, ...) are
+        environmental / always-blocking; they are not "carry-over obligations"
+        and are excluded from the returned list by design.
+
+        stdout is suppressed during the simulation so the preview is
+        idempotent and does not pollute the calling command's output.
+        """
+        from core.phase_topology import VALID_PHASES
+        if next_phase not in VALID_PHASES:
+            raise ValueError(
+                f"next_phase must be in {list(VALID_PHASES)}; got {next_phase}")
+        sibling = PhaseHooks(
+            str(self.project_path), phase=next_phase,
+            enable_kill_switch=False,
+        )
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            sim = sibling._do_preflight_all()
+        results = sim.get("details", {})
+        obligations: list[Obligation] = []
+        for check_id, res in results.items():
+            if check_id not in _DELAYED_BLOCKING_PREFLIGHTS:
+                continue
+            if res.get("passed") or not res.get("blocking"):
+                continue
+            obligations.extend(_obligations_from_preflight(check_id, res, next_phase))
+        return obligations
 
     # MONITORING HOOKS
 

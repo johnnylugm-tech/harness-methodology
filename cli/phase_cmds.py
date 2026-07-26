@@ -368,6 +368,41 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     if rc != 0:
         return rc
 
+    # Round 14 A: predict P(N+1) entry blocking findings (cross-phase
+    # carry-over obligations). The preflight_* methods pattern-match on
+    # `phase` to decide whether a finding is blocking — by asking a sibling
+    # PhaseHooks with `phase=next_phase` to simulate a preflight run, we
+    # surface findings that would silently trip the next session's gate.
+    # Stdout is suppressed inside preview_next_phase_blocking so this
+    # simulation does not pollute the advance-phase output.
+    _obligations: list = []
+    try:
+        from core.phase_hooks import PhaseHooks
+        _phase_hooks = PhaseHooks(
+            str(project), phase=args.completed_phase,
+            enable_kill_switch=False,
+            drift_threshold=get_value(project, "drift_threshold"),
+        )
+        _obligations = _phase_hooks.preview_next_phase_blocking(next_phase)
+    except Exception as _oblig_err:  # pylint: disable=broad-exception-caught
+        # Preview failure is non-fatal — surface, do not block advance.
+        print(f"  [WARN] preview_next_phase_blocking failed: {_oblig_err}",
+              file=sys.stderr)
+        _obligations = []
+    if _obligations:
+        # Round 14 A4: stop over-promising "Ready to begin Phase N+1" — the
+        # obligation table below identifies what would block at entry.
+        status = (f"Phase {args.completed_phase} completed. "
+                  f"P{next_phase} entry has {len(_obligations)} obligation(s) "
+                  f"to resolve — see below."
+                  if not fr_total else
+                  f"Phase {args.completed_phase}: {fr_done}/{fr_total} FRs "
+                  f"Gate 1 PASS. Gate {last_gate_num}{gate_score_str} — "
+                  f"quality_complete. P{next_phase} entry has "
+                  f"{len(_obligations)} obligation(s) to resolve — see below.")
+        print(f"\n[advance-phase] {len(_obligations)} P{next_phase} entry "
+              "obligation(s) detected — see HANDOVER.md table.")
+
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     # B1 (split-brain fix): capture the advance write-set BEFORE anything is
     # written, so a failed handover commit can restore the pre-advance state
@@ -390,7 +425,8 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         _layout.release_checklist_path,
     ])
     _advance_fsm(project, args.completed_phase,
-                 last_gate=last_gate_num, last_fr=last_fr_id)
+                 last_gate=last_gate_num, last_fr=last_fr_id,
+                 obligations=_obligations)
     claude_md.update_claude_md(project)               # phase number just changed → refresh CLAUDE.md
     claude_md.llm_clean_stale_claude_md(project)      # remove stale manual harness status text
 
@@ -571,6 +607,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             f"Read the Phase {next_phase} plan and execute",
         ],
         resume_phase=next_phase,
+        obligations=_obligations,
     )
 
     # Commit locally (no push — next milestone push publishes to origin)
@@ -1157,7 +1194,8 @@ def _advance_commit_targets(
 
 def _advance_fsm(project: Path, completed_phase: int,
                  last_gate: int | None = None,
-                 last_fr: str | None = None) -> None:
+                 last_fr: str | None = None,
+                 obligations: list | None = None) -> None:
     """Write state.json — the single source of truth for phase state.
 
     Local hooks, CI, and all harness commands read .methodology/state.json::current_phase.
@@ -1232,6 +1270,7 @@ def _advance_fsm(project: Path, completed_phase: int,
                 f"Read the Phase {next_phase} plan and execute",
             ],
             resume_phase=next_phase,
+            obligations=obligations,
         )
 
         with StateTransaction(project) as txn:

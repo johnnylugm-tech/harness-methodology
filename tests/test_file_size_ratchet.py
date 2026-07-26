@@ -106,7 +106,7 @@ _LINE_CEILING: dict[str, int] = {
     # gained a "Fix:"/re-run remediation line (blocked-message-contract scan).
     # +15: Round 18 站3 added _attestation_content_still_current, the slow-path
     # adjudication that stops the mtime probe from manufacturing no-op commits.
-    "cli/phase_cmds.py": 2730,
+    "cli/phase_cmds.py": 2810,  # 2026-07-26: +80 — Round 14 A2/A4: cmd_advance_phase now previews P(N+1) entry blocking via PhaseHooks.preview_next_phase_blocking(), threads obligations into HandoverGenerator.write + _advance_fsm, and replaces "Ready to begin Phase N+1" with a pointer to the obligations table (sized to current 2768).
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -213,7 +213,7 @@ _LINE_CEILING: dict[str, int] = {
     # clarifying it must run BEFORE advance-phase for a phase-scoped C10
     # result (no workflow JS ever calls it automatically).
     # 2026-07-24: +1 line — pyright type narrowing fix for L647 trig union.
-    "core/quality_gate/red_assertion_check.py": 1005,
+    "core/quality_gate/red_assertion_check.py": 1020,  # 2026-07-26: +6 — Round 14 B1: SubAssertion gains fulfill_phase field (1 dataclass line + 5-line docstring note) for the Direction-B TEST_SPEC Properties fulfill-phase schema (sized to current 1011).
     # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 13 previously-unlogged broad excepts now print a [WARN]
     # diagnostic.
@@ -292,7 +292,7 @@ _LINE_CEILING: dict[str, int] = {
     # guidance GATE1 actually enforces instead of hand-writing a broader,
     # unsynchronized allowlist (was whitelisting `if __name__ == "__main__":`
     # pragmas that GATE1 always rejected — guaranteed no-progress BLOCKED rounds).
-    "core/phase_hooks.py": 1610,
+    "core/phase_hooks.py": 1810,  # 2026-07-26: +167 — Round 14 A1 + B3: PhaseHooks gains preview_next_phase_blocking(next_phase) (~50 lines: Obligation dataclass, _DELAYED_BLOCKING_PREFLIGHTS frozenset, _obligations_from_preflight() helper covering property_spec / reliability_lint / generic fallback, simulation-driver method with stdout suppression), and preflight_property_spec rewires from hardcoded phase>=4 to dynamic max(fulfill_phase) across FRs with extracted SubAssertion.fulfill_phase (~100 lines including P3-skipped path that still carries fulfill_phase) — full carry-over obligation preview + proper back-compat (sized to current 1777).
     # 2026-07-12: +7 lines — Round 5 建議2站1: _generate_sab_json now resolves
     # scripts/ via the shared harness_scripts_dir() SSOT instead of its own
     # (broken) Path(__file__).parent arithmetic.
