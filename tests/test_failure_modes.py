@@ -28,10 +28,16 @@ _FIXTURES_BY_MODE_ID = {
         {"status": "ERROR", "error_class": "EXECUTION_ERROR", "inner_status": "AWAITING_CONFIRMATION"},
         {"status": "ERROR", "error_class": "EXECUTION_ERROR", "inner_status": "complete"},
     ),
+    # Round 19 站1: these two fixtures said `output`. The logger writes that
+    # text under `error_output`, so the rule matched the fixture and nothing
+    # else — 91 real taskq entries, including a literal "Commit-required step
+    # 'TDD-IMPROVE'" failure, all classified UNCLASSIFIED. Fixture and rule now
+    # both use the field the log actually carries; tests/
+    # test_failure_corpus_coverage.py holds the real entry that proves it.
     "commit_required_step_no_commit": (
         {"status": "ERROR", "error_class": "EXECUTION_ERROR",
-         "output": "Commit-required step 'TDD-GREEN' returned empty commit (status='complete')"},
-        {"status": "ERROR", "error_class": "EXECUTION_ERROR", "output": "some other failure text"},
+         "error_output": "Commit-required step 'TDD-GREEN' returned empty commit (status='complete')"},
+        {"status": "ERROR", "error_class": "EXECUTION_ERROR", "error_output": "some other failure text"},
     ),
     "structural_env_breakage": (
         {"status": "ERROR", "error_class": "STRUCTURAL"},

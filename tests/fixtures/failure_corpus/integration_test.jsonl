@@ -1,0 +1,3 @@
+{"error_output": "subtype=error_max_turns", "regression_flags": {}, "role": "developer", "status": "ERROR"}
+{"error_output": "Commit-required step 'GATE1' returned empty commit (status='INFRA_BLOCKED')", "regression_flags": {}, "role": "developer", "status": "ERROR"}
+{"error_output": "Commit-required step 'GATE1' returned empty commit (status='<unset>')", "regression_flags": {}, "role": "developer", "status": "ERROR"}

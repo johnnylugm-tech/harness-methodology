@@ -53,6 +53,28 @@ UNCLASSIFIED = "UNCLASSIFIED"
 
 _NOOP_INNER_STATUSES = frozenset({"AWAITING_CONFIRMATION", "NOTHING_TO_DO"})
 
+# Statuses that mean a dispatch FAILED (everything else is a success). The
+# authority for this list; cli/fr_cmds.py imports it rather than keeping the
+# second copy it used to own.
+#
+# Round 19 站1 moved it here because the denominator was wrong, not just
+# duplicated: `summarize` counted UNCLASSIFIED over EVERY entry, successes
+# included. A successful dispatch matches no failure rule BY CONSTRUCTION, so
+# it landed in UNCLASSIFIED and inflated the number that is supposed to mean
+# "failures this classifier cannot explain". taskq's 91 entries read 95.6%
+# UNCLASSIFIED; 72 of those were `complete`. The honest figure — unexplained
+# FAILURES over failures — was 78.9%. Both are reported now (see summarize),
+# but only the failure-scoped one is a defect signal.
+DISPATCH_FAILURE_STATUSES: frozenset[str] = frozenset({
+    "REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD",
+    "AWAITING_CONFIRMATION", "NOTHING_TO_DO",
+})
+
+
+def is_failure_entry(entry: dict) -> bool:
+    """True when this log entry records a failed dispatch."""
+    return str(entry.get("status") or "") in DISPATCH_FAILURE_STATUSES
+
 
 class FailureModeRule(NamedTuple):
     mode_id: str
@@ -79,27 +101,94 @@ def _is_semantic_noop(entry: dict) -> bool:
 def _is_missing_required_commit(entry: dict) -> bool:
     """A commit-required FR step reported completion but produced no commit
     — matches core.agent_spawner._validate_inner_json's fixed, framework-
-    authored output prefix (not free-form agent text)."""
-    return str(entry.get("output") or "").startswith("Commit-required step")
+    authored output prefix (not free-form agent text).
+
+    Reads `error_output`, which is the field name the log actually carries:
+    _log_dispatch writes `error_output=result["output"]`. Round 19 站1 found
+    this rule reading `output` — the spawn-result key, never a log key — so it
+    returned False for every one of taskq's 91 real entries, including the one
+    that literally starts with "Commit-required step 'TDD-IMPROVE'". Its unit
+    fixture used `output` too, so both sides agreed with each other and neither
+    agreed with production. `test_failure_mode_fields_exist_in_the_log_schema`
+    now pins every rule's field reads against the logger's own schema.
+    """
+    return str(entry.get("error_output") or "").startswith("Commit-required step")
+
+
+def _effective_error_class(entry: dict) -> str:
+    """The entry's error class, recomputed from `error_output` when the stamped
+    value carries no information.
+
+    `error_class` is a LABEL that core.agent_spawner._classify_dispatch_error
+    stamped at dispatch time. Two of its three values are positive findings —
+    "STRUCTURAL" and "INFRA_ERROR" mean a signature actually matched — and those
+    are always honoured here: this module never overrides the spawner's verdict.
+
+    "EXECUTION_ERROR" is different. It is that function's `else` branch: "no
+    INFRA signature matched", i.e. the absence of a finding, evaluated against
+    whatever the signature registry contained on the day the entry was written.
+    Re-deriving it is not second-guessing a verdict, it is re-running a fallback
+    against the current registry — which is the only way a fix to that registry
+    can reach data already on disk.
+
+    Round 19 站1 needed exactly this: after teaching _INFRA_ERROR_RE about
+    "stream idle timeout", taskq's 12 stream-idle entries still read
+    UNCLASSIFIED, each frozen at EXECUTION_ERROR from before the fix. It also
+    makes tests/fixtures/failure_corpus/ (which strips the field entirely) an
+    end-to-end exercise of `error_output -> class -> mode` rather than a replay.
+
+    Entries whose EXECUTION_ERROR came from _validate_inner_json rather than the
+    regex are unaffected: their text matches no INFRA signature either, and the
+    semantic-no-op / missing-commit rules sit ahead of the INFRA rule anyway.
+
+    Re-derivation is restricted to FAILED entries, and that restriction is
+    load-bearing. _log_dispatch writes `error_output` on every entry — on a
+    SUCCESSFUL dispatch it holds the sub-agent's ordinary reply text, not an
+    error — and `error_class` is written only on failures precisely because of
+    that. Running error signatures over a success message produced 3 false
+    INFRA_ERROR hits on taskq's log the first time this was tried (an ordinary
+    "Committed successfully..." reply among them), which is the same shape of
+    mistake this whole station exists to remove.
+    """
+    if not is_failure_entry(entry):
+        return str(entry.get("error_class") or "")
+    stamped = str(entry.get("error_class") or "")
+    if stamped and stamped != "EXECUTION_ERROR":
+        return stamped
+    output = str(entry.get("error_output") or "")
+    if not output:
+        return stamped
+    from core.agent_spawner import _classify_dispatch_error
+    return _classify_dispatch_error(output)
 
 
 def _is_structural_env_breakage(entry: dict) -> bool:
     """Deterministic environment breakage (e.g. connectors disabled) —
     core.agent_spawner._classify_dispatch_error's "STRUCTURAL" class."""
-    return entry.get("error_class") == "STRUCTURAL"
+    return _effective_error_class(entry) == "STRUCTURAL"
 
 
 def _is_infra_error(entry: dict) -> bool:
     """Network/auth/rate-limit/model-unavailable signature — the model could
     not be reached or used, distinct from an agent-logic failure."""
-    return entry.get("error_class") == "INFRA_ERROR"
+    return _effective_error_class(entry) == "INFRA_ERROR"
 
 
 def _is_dispatch_timeout(entry: dict) -> bool:
     """Sub-agent dispatch exceeded its turn/time budget with no regression
     flags raised (a timeout that also tripped regression flags is reported
-    as REGRESSION_GUARD instead — see _has_regression_flags)."""
-    return entry.get("status") == "TIMEOUT"
+    as REGRESSION_GUARD instead — see _has_regression_flags).
+
+    Two shapes, one meaning — the docstring already said "turn/time budget"
+    but only the time half was detected:
+      - wall-clock: subprocess.TimeoutExpired -> status="TIMEOUT"
+      - turn budget: the CLI's own `error_max_turns` result subtype, which
+        exits non-zero and so arrives as status="ERROR" with that subtype in
+        error_output (taskq P3: 2 occurrences, both UNCLASSIFIED before this).
+    """
+    if entry.get("status") == "TIMEOUT":
+        return True
+    return "error_max_turns" in str(entry.get("error_output") or "")
 
 
 # Declarative rule registry — evaluated in order, first match wins. An entry
@@ -175,12 +264,27 @@ def classify_entry(entry: dict) -> dict[str, Any]:
 def summarize(entries: "list[dict]") -> dict[str, Any]:
     """Aggregate classify_entry over a list of entries: per-mode counts, a
     MAST-category rollup, and the unclassified floor as both a count and a
-    percentage (None when entries is empty — a percentage of zero denominator
-    is not a real number)."""
+    percentage (None when the denominator is empty — a percentage of zero
+    denominator is not a real number).
+
+    Reports the unclassified floor twice, over two different denominators:
+
+      unclassified_pct          over ALL entries — kept for continuity with
+                                pre-Round-19 reports, but NOT a defect signal:
+                                successful dispatches match no failure rule by
+                                construction, so this number rises whenever a
+                                run goes well.
+      unclassified_failure_pct  over failed entries only (is_failure_entry).
+                                THIS is the coverage gap — failures the rules
+                                cannot explain. It is what the corpus ratchet
+                                (tests/test_failure_corpus_coverage.py) bounds.
+    """
     mode_counts: dict[str, int] = {}
     category_counts: dict[str, int] = {}
     total = 0
     unclassified = 0
+    failures = 0
+    unclassified_failures = 0
     for entry in entries:
         total += 1
         classified = classify_entry(entry)
@@ -188,12 +292,22 @@ def summarize(entries: "list[dict]") -> dict[str, Any]:
         mode_counts[mode_id] = mode_counts.get(mode_id, 0) + 1
         category = classified["mast_category"] or UNCLASSIFIED
         category_counts[category] = category_counts.get(category, 0) + 1
-        if mode_id == UNCLASSIFIED:
+        is_unclassified = mode_id == UNCLASSIFIED
+        if is_unclassified:
             unclassified += 1
+        if is_failure_entry(entry):
+            failures += 1
+            if is_unclassified:
+                unclassified_failures += 1
     return {
         "total": total,
         "mode_counts": mode_counts,
         "category_counts": category_counts,
         "unclassified_count": unclassified,
         "unclassified_pct": round(100.0 * unclassified / total, 1) if total else None,
+        "failure_total": failures,
+        "unclassified_failure_count": unclassified_failures,
+        "unclassified_failure_pct": (
+            round(100.0 * unclassified_failures / failures, 1) if failures else None
+        ),
     }

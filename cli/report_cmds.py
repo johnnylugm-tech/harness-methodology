@@ -110,16 +110,31 @@ def _failure_modes_report(project: Path) -> dict:
     reads against core.failure_modes' MAST-aligned rules. Independent read
     (each run-report section is self-contained, same as every other section
     here) — not a derivative of _spawn_log_report's output."""
-    from core.failure_modes import summarize
+    from core.failure_modes import UNCLASSIFIED, classify_entry, is_failure_entry, summarize
     from core.sessions_spawn_logger import SessionsSpawnLogger
     entries = _read_jsonl(project / SessionsSpawnLogger.LOG_FILENAME)
     if not entries:
         return {"available": False}
     summary = summarize(entries)
     timestamps = [e["timestamp"] for e in entries if isinstance(e.get("timestamp"), str)]
+    # Round 19 站1: name the shapes behind unclassified_failure_count, so the
+    # operator sees WHICH phrasing needs a rule instead of only that some do.
+    # De-duplicated and capped — this is a pointer to the gap, not a log dump.
+    samples: list[str] = []
+    for entry in entries:
+        if not is_failure_entry(entry):
+            continue
+        if classify_entry(entry)["mode_id"] != UNCLASSIFIED:
+            continue
+        text = f"{entry.get('status')}: {str(entry.get('error_output') or '')[:120]}"
+        if text not in samples:
+            samples.append(text)
+        if len(samples) >= 5:
+            break
     return {
         "available": True,
         **summary,
+        "unclassified_failure_samples": samples,
         "first_timestamp": timestamps[0] if timestamps else None,
         "last_timestamp": timestamps[-1] if timestamps else None,
     }
@@ -240,13 +255,22 @@ def _render_human(report: dict) -> str:
     if not fm["available"]:
         lines.append("  n/a — log not found or empty")
     else:
-        lines.append(f"  total: {fm['total']}")
+        lines.append(f"  total: {fm['total']}  (failures: {fm['failure_total']})")
         lines.append(f"  by mode: {fm['mode_counts']}")
         lines.append(f"  by MAST category: {fm['category_counts']}")
+        # The failure-scoped figure first, and labelled as the real one: the
+        # all-entry percentage counts successes, which match no failure rule by
+        # construction, so it rises when a run goes WELL (Round 19 站1).
         lines.append(
-            f"  unclassified: {fm['unclassified_count']} "
-            f"({fm['unclassified_pct']}%)"
+            f"  unexplained failures: {fm['unclassified_failure_count']}"
+            f"/{fm['failure_total']} ({fm['unclassified_failure_pct']}%)"
         )
+        lines.append(
+            f"  unclassified over all entries: {fm['unclassified_count']} "
+            f"({fm['unclassified_pct']}%) — includes successes, not a defect signal"
+        )
+        for sample in fm.get("unclassified_failure_samples") or []:
+            lines.append(f"    needs a rule: {sample}")
         lines.append(f"  span: {fm['first_timestamp']} .. {fm['last_timestamp']}")
         lines.append(
             "  NOTE: a log spanning multiple rounds/eras mixes different "
@@ -307,7 +331,74 @@ def cmd_run_report(args: argparse.Namespace) -> int:
     return 0
 
 
+# Round 19 站1 — failure-corpus export.
+#
+# The fields a corpus entry keeps are exactly the RAW SIGNALS the classifier's
+# rules read (core.failure_modes), and deliberately NOT `error_class`: that is
+# a verdict stamped at dispatch time, and keeping it would make the corpus
+# replay old verdicts instead of exercising the current signature registry
+# end-to-end (see core.failure_modes._effective_error_class).
+#
+# Everything identifying is dropped — session_id, the prompt text, timestamps,
+# phase/fr_id, any path. A corpus records failure SHAPES, not a log copy. That
+# is also why it is safe to carry shapes observed on one project into this
+# repo's fixtures at all.
+_CORPUS_FIELDS = ("role", "status", "error_output", "regression_flags", "inner_status")
+
+
+def build_failure_corpus(project: Path) -> list[dict]:
+    """Read-only: distinct failure shapes from a project's sessions_spawn.log.
+
+    Failures only (core.failure_modes.is_failure_entry) — a successful dispatch
+    matches no failure rule by construction and would only pad the corpus.
+    De-duplicated on the kept fields, since the corpus measures shape coverage,
+    not how often a shape recurred.
+    """
+    from core.failure_modes import is_failure_entry
+    from core.sessions_spawn_logger import SessionsSpawnLogger
+    seen: set[str] = set()
+    out: list[dict] = []
+    for entry in _read_jsonl(project / SessionsSpawnLogger.LOG_FILENAME):
+        if not is_failure_entry(entry):
+            continue
+        shape = {k: entry[k] for k in _CORPUS_FIELDS if k in entry}
+        key = json.dumps(shape, sort_keys=True, ensure_ascii=False)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(shape)
+    return out
+
+
+def cmd_export_failure_corpus(args: argparse.Namespace) -> int:
+    project = Path(args.project).resolve()
+    shapes = build_failure_corpus(project)
+    if not shapes:
+        print(f"[WARN] no failed dispatches found under {project} — nothing to export",
+              file=sys.stderr)
+    payload = "".join(json.dumps(s, sort_keys=True, ensure_ascii=False) + "\n" for s in shapes)
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(payload, encoding="utf-8")
+        print(f"[export-failure-corpus] {len(shapes)} distinct failure shape(s) -> {out_path}")
+    else:
+        sys.stdout.write(payload)
+    return 0
+
+
 def register(sub) -> None:
+    ec = sub.add_parser(
+        "export-failure-corpus",
+        help="Read-only: export de-identified, de-duplicated dispatch-failure "
+             "shapes from a project's sessions_spawn.log, for use as classifier "
+             "test fixtures (tests/fixtures/failure_corpus/)",
+    )
+    ec.add_argument("--project", default=".", help="Project root (default: .)")
+    ec.add_argument("--out", default=None,
+                    help="Write JSONL here (default: stdout)")
+    ec.set_defaults(func=cmd_export_failure_corpus)
+
     rr = sub.add_parser(
         "run-report",
         help="Read-only aggregation of run artifacts: spawn dispatches "

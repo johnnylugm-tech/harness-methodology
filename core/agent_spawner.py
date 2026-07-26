@@ -31,6 +31,15 @@ _SDK_STREAM_MARKERS = (
 # Substrings in a failed `claude -p` output that signal an environment / API /
 # model / network problem (the model could not be reached or used — the agent
 # never really ran) rather than a genuine agent-logic error.
+#
+# Round 19 站1: "stream idle timeout" and "session limit" were added from real
+# corpus, not imagination — taskq's P3 run produced 12 `API Error: Stream idle
+# timeout - no chunks received` and 1 `You've hit your session limit`, and every
+# one classified EXECUTION_ERROR ("the agent's own logic failed", which routes
+# into CODE-FIX). "stream closed" and "rate limit" were already here; the two
+# sibling phrasings the CLI actually emits were not. tests/fixtures/
+# failure_corpus/ now holds that corpus so the next unseen phrasing fails a
+# test instead of being silently mislabelled.
 _INFRA_ERROR_RE = re.compile(
     r"connection (?:closed|error|reset|refused|aborted)"
     r"|could not connect|connection to .{0,60}closed"
@@ -38,8 +47,8 @@ _INFRA_ERROR_RE = re.compile(
     r"|network (?:error|unreachable)"
     r"|\b(?:401|403|404|429|5\d{2})\b"
     r"|unauthorized|authentication|invalid x-api-key|api[\s_-]?key|oauth"
-    r"|stream closed|getoauthtoken|permission denied"
-    r"|rate[\s_-]?limit|overloaded|quota|credit balance"
+    r"|stream closed|stream idle timeout|getoauthtoken|permission denied"
+    r"|rate[\s_-]?limit|session limit|overloaded|quota|credit balance"
     r"|insufficient (?:credit|quota|balance)"
     r"|connector"
     r"|model\b.{0,30}(?:not found|does not exist|unavailable)",
@@ -831,6 +840,15 @@ class AgentSpawner:
             # iteration, a different concept) — unset outside that loop.
             if dispatch_attempt is not None:
                 _extra["dispatch_attempt"] = dispatch_attempt
+            # Round 19 站1: _validate_inner_json puts `inner_status` on the
+            # ERROR dict it returns, but this logger never wrote it out — so
+            # core.failure_modes._is_semantic_noop, whose ONLY input is a log
+            # entry's `inner_status`, could not match a single real entry in
+            # 91 taskq records. The rule was not wrong; the signal it reads
+            # never reached the log. Written only when present, so successful
+            # dispatches stay unchanged.
+            if result.get("inner_status"):
+                _extra["inner_status"] = result["inner_status"]
             # Round 14 站0: cost/turns/token fields lifted straight out of
             # the claude -p envelope (see _extract_envelope_metrics) —
             # previously parsed then discarded. Only present when the

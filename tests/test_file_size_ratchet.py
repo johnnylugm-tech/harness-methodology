@@ -244,7 +244,13 @@ _LINE_CEILING: dict[str, int] = {
     # "commit" field were both reading status/commit/pass straight off the
     # envelope (always absent there), so this new helper unwraps it first —
     # see the function's own docstring for the sessions_spawn.log evidence.
-    "core/agent_spawner.py": 1084,
+    # 2026-07-26: +18 lines — Round 19 站1. Two INFRA signatures the CLI
+    # actually emits ("stream idle timeout", "session limit") plus the comment
+    # recording that they came from a real corpus rather than guesswork, and
+    # _log_dispatch now writing `inner_status` — the field core.failure_modes
+    # ._is_semantic_noop reads and which had never been emitted, leaving that
+    # rule unable to match any real entry.
+    "core/agent_spawner.py": 1102,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

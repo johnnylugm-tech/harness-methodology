@@ -24,6 +24,7 @@ from core.agent_spawner import (
 )
 from core.canonical_form import fr_num_str
 from core.degradation_ledger import record_degradation
+from core.failure_modes import DISPATCH_FAILURE_STATUSES
 from core.harness_config import get_timeout, get_value
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
@@ -1098,10 +1099,11 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 # defense-in-depth — AgentSpawner._validate_inner_json already converts them to
 # ERROR, but a direct caller passing through these strings (e.g. an outer
 # workflow agent reflecting inner status) should also be caught.
-_DISPATCH_ERROR_STATUSES: frozenset[str] = frozenset({
-    "REJECT", "BLOCKED", "FAILED", "ERROR", "TIMEOUT", "REGRESSION_GUARD",
-    "AWAITING_CONFIRMATION", "NOTHING_TO_DO",
-})
+#
+# Round 19 站1: the set itself now lives in core.failure_modes, which needs the
+# same answer to scope its unclassified-failure denominator. One list, two
+# readers — the alias keeps this module's 5 call sites unchanged.
+_DISPATCH_ERROR_STATUSES: frozenset[str] = DISPATCH_FAILURE_STATUSES
 
 # Distinct from BLOCKED (2) / commit-dirty (6) / GHOST_DETECTED (22): means
 # "do not retry — the environment itself is broken."

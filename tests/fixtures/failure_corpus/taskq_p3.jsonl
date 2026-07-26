@@ -1,0 +1,6 @@
+{"error_output": "subtype=error_max_turns", "regression_flags": {}, "role": "developer", "status": "ERROR"}
+{"error_output": "Agent timed out after 600s", "regression_flags": {}, "role": "developer", "status": "TIMEOUT"}
+{"error_output": "{\"status\":\"DONE\",\"test_file\":\"tests/test_fr02.py\",\"commit\":\"628be30\",\"summary\":\"16 RED cases; collection error expected\"}", "regression_flags": {"lines_removed>50": [["tests/test_fr02.py", 939]]}, "role": "developer", "status": "REGRESSION_GUARD"}
+{"error_output": "Commit-required step 'TDD-IMPROVE' returned empty commit (status='DONE')", "regression_flags": {}, "role": "developer", "status": "ERROR"}
+{"error_output": "subtype=success API Error: Stream idle timeout - no chunks received", "regression_flags": {}, "role": "developer", "status": "ERROR"}
+{"error_output": "subtype=success You've hit your session limit · resets 1:20pm (Asia/Taipei)", "regression_flags": {}, "role": "developer", "status": "ERROR"}
