@@ -237,6 +237,9 @@ def compute_trace_dimension(project, gate: int) -> dict:
         "passed": True/False,
         "threshold_4a": 100,
         "threshold_4b": 60.0/80.0/90.0,
+        "threshold_effective": 100/60.0/80.0/90.0,  # threshold of whichever
+            # component (4a/4b/4c) is binding merged_pct — compare merged_pct
+            # against THIS, not threshold_4a, or a passing 4b/4c misreads as FAIL
         "active_uncoded": [...],   # FRs in denominator without code
         "active_untested": [...],  # FRs in denominator without test
         "nfr_untested": [...],     # NFRs from SRS.md without any test reference
@@ -367,6 +370,20 @@ def compute_trace_dimension(project, gate: int) -> dict:
         and result["4b_test_spec_pct"] >= threshold_4b
         and nfr_pct >= threshold_4c
     )
+    # Bug fix: merged_pct is a min() over three components with DIFFERENT
+    # thresholds (4a=100%, 4b/4c=60/80/90% per gate). Callers that persist
+    # `merged_pct` as a single "score" and compare it against a single
+    # "threshold" must compare it against the threshold of whichever
+    # component is currently binding the min — never the flat 100%
+    # threshold_4a — or a passing 4b/4c (e.g. 76% ≥ its own 60% bar) gets
+    # misreported as failing against an unrelated 100% bar. This keeps
+    # `score >= threshold_effective` equivalent to `result["passed"]`.
+    if merged == pct_4a:
+        result["threshold_effective"] = threshold_4a
+    elif merged == result["4b_test_spec_pct"]:
+        result["threshold_effective"] = threshold_4b
+    else:
+        result["threshold_effective"] = threshold_4c
     return result
 
 

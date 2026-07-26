@@ -243,7 +243,11 @@ def _override_traceability_dim_score(
                 )
             if _d.score != _framework_score:
                 _changed = True
-            _new_dims.append(dataclasses.replace(_d, score=_framework_score))
+            _new_dims.append(dataclasses.replace(
+                _d,
+                score=_framework_score,
+                threshold=_trace_dim["threshold_effective"],
+            ))
         else:
             _new_dims.append(_d)
     return _new_dims, _changed
@@ -2342,6 +2346,15 @@ class HarnessBridge:
         dims, _trace_overridden = _override_traceability_dim_score(
             dims, ctx.project_root, ctx.gate_num
         )
+        # The gate YAML (gate{N}_p3_exit.yaml) declares a static threshold=100
+        # for traceability — correct for its 4a (FR→code→test) sub-metric, but
+        # traceability's persisted score is merged_pct = min(4a, 4b, 4c), and
+        # 4b/4c intentionally use a lower 60/80/90% ladder. `_dim_thresholds`
+        # (sourced from that YAML) takes precedence over `d.threshold` below,
+        # so it must be dropped here — `d.threshold` already carries the
+        # correct per-round `threshold_effective` from the override above.
+        if any(d.name == "traceability" for d in dims):
+            _dim_thresholds.pop("traceability", None)
         if _trace_overridden:
             _crg_overrides_applied = True
 

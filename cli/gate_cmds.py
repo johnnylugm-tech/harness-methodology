@@ -1730,7 +1730,7 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
                         f"4a={_t_4a:.1f}% 4b={_t_4b:.1f}% 4c={_t_4c:.1f}% merged={_t_merged:.1f}%"
                     )
                     _gr["breakdown"]["traceability"]["threshold"] = float(
-                        _trace["threshold_4a"]
+                        _trace["threshold_effective"]
                     )
                     _gr["breakdown"]["traceability"]["framework_override"] = True
                     _gp.write_text(

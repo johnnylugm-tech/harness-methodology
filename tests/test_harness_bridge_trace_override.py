@@ -54,6 +54,7 @@ def _trace_dim_result(merged_pct: float, **kwargs) -> dict:
         "passed": merged_pct >= 60.0,
         "threshold_4a": 100,
         "threshold_4b": 60.0,
+        "threshold_effective": 100,
         "active_uncoded": [],
         "active_untested": [],
         "blocking": True,

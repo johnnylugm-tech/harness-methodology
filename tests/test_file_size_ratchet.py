@@ -47,7 +47,17 @@ _LINE_CEILING: dict[str, int] = {
     # dedupe-set numerator against a non-deduped list denominator
     # mathematically capped test_coverage below 100% even when every
     # required test existed).
-    "harness/harness_bridge.py": 3062,
+    # 2026-07-26: +13 lines — traceability dim threshold-mismatch fix:
+    # merged_pct (min of 4a/4b/4c, each with a DIFFERENT threshold) was being
+    # compared against the flat 4a threshold (100%) in both the per-dim
+    # override (_override_traceability_dim_score) and the YAML-sourced
+    # _dim_thresholds lookup, so a Gate 2 run with 4b/4c legitimately ≥60%
+    # but <100% was misreported as FAIL even though compute_trace_dimension's
+    # own `passed` field said PASS. Now both consumers use the function's new
+    # `threshold_effective` (the threshold of whichever component is binding
+    # the min), and the YAML override is dropped for this dim so it can't
+    # shadow the fix.
+    "harness/harness_bridge.py": 3075,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
