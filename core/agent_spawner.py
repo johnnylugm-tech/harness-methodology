@@ -397,6 +397,31 @@ def _extract_envelope_metrics(data: dict) -> dict[str, Any]:
     return metrics
 
 
+def _envelope_metrics_from_stdout(stdout: str) -> dict[str, Any]:
+    """Envelope metrics off a raw stdout string, or {} if there is no envelope.
+
+    Round 19 站2. spawn()'s failure path already proves this stdout parses:
+    _extract_dispatch_error json.loads() it to lift `subtype` and `result` (a
+    taskq error_output reading "subtype=success API Error: Stream idle timeout"
+    is that code path's own output). The cost and token counts sat in the same
+    dict and were simply never read, so a failed dispatch logged no cost at all
+    — 2 of taskq's 19 failures carried one, against 50 of 50 successes, while
+    those failures burned 1.30h of wall clock. Every run-report cost figure was
+    therefore the cost of the happy path.
+
+    Best-effort by contract: non-JSON stdout, a JSON non-object, or an envelope
+    without these keys all yield {}. It must never raise — an observability
+    field is not worth converting a dispatch failure into a harness crash.
+    """
+    try:
+        data = json.loads(stdout or "")
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return _extract_envelope_metrics(data)
+
+
 class AgentSpawner:
     """
     Spawns developer and reviewer agents via the Claude Code headless CLI.
@@ -613,6 +638,7 @@ class AgentSpawner:
                 duration_seconds=round(_spawn_duration, 3),
                 retry_round=retry_round,
                 dispatch_attempt=_attempt,
+                envelope=_envelope_metrics_from_stdout(proc.stdout),
             )
             if regression_flags:
                 error_result = {**error_result, "status": "REGRESSION_GUARD", "regression_flags": regression_flags}
@@ -852,8 +878,15 @@ class AgentSpawner:
             # Round 14 站0: cost/turns/token fields lifted straight out of
             # the claude -p envelope (see _extract_envelope_metrics) —
             # previously parsed then discarded. Only present when the
-            # dispatch produced a real envelope (never on transport
-            # timeout/non-zero-exit/non-JSON-stdout failures).
+            # dispatch produced a real envelope.
+            #
+            # Round 19 站2 corrected the reach: "never on non-zero-exit" was
+            # true of the code, not of the data. A non-zero exit very often
+            # still writes a complete envelope to stdout — spawn()'s failure
+            # branch now passes it through _envelope_metrics_from_stdout, so a
+            # failed dispatch's cost stops being invisible. Genuinely absent
+            # only on transport TIMEOUT (no proc, hence no stdout) and on
+            # non-JSON stdout.
             if envelope:
                 _extra.update(envelope)
             logger.log_spawn(

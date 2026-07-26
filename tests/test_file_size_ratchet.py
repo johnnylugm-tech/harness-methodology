@@ -250,7 +250,13 @@ _LINE_CEILING: dict[str, int] = {
     # _log_dispatch now writing `inner_status` — the field core.failure_modes
     # ._is_semantic_noop reads and which had never been emitted, leaving that
     # rule unable to match any real entry.
-    "core/agent_spawner.py": 1102,
+    # 2026-07-26: +33 lines — Round 19 站2: _envelope_metrics_from_stdout, and
+    # wiring it into the non-zero-exit branch. That branch already json.loads()
+    # its stdout to lift the error text (_extract_dispatch_error) and threw the
+    # cost/token fields sitting in the same dict away, so failed dispatches
+    # logged no cost: 2 of taskq's 19 failures carried one against 50 of 50
+    # successes, while those failures burned 1.30h of wall clock.
+    "core/agent_spawner.py": 1135,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

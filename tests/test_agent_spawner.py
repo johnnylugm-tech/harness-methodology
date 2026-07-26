@@ -1221,9 +1221,19 @@ class TestCalculateLogicalRemoval:
         for key in ("total_cost_usd", "num_turns", "duration_api_ms", "usage"):
             assert key not in spawn_entry
 
-    def test_spawn_envelope_absent_on_error_path(self, tmp_path):
-        """A non-zero exit never produced an envelope — no cost/turns/usage
-        fields, regardless of what the (unused) stdout happens to contain."""
+    def test_spawn_envelope_absent_when_failure_has_no_stdout(self, tmp_path):
+        """A non-zero exit with EMPTY stdout carries no envelope — nothing to
+        parse, so no cost/turns/usage fields.
+
+        Round 19 站2 narrowed this test's claim. It used to say a non-zero exit
+        "never produced an envelope ... regardless of what the (unused) stdout
+        happens to contain", which described the code rather than the CLI: a
+        failing run very often still writes a complete envelope, and treating
+        stdout as unused is what made failed dispatches cost-invisible (2 of
+        taskq's 19 failures had a cost figure, versus 50 of 50 successes). The
+        empty-stdout case asserted here is still exactly right; the sibling
+        test below covers the case this docstring used to deny.
+        """
         spawner = AgentSpawner(project_path=tmp_path)
         mock_proc = MagicMock()
         mock_proc.returncode = 1
@@ -1242,6 +1252,78 @@ class TestCalculateLogicalRemoval:
             if line.strip()
         ]
         spawn_entry = entries[-1]
+        for key in ("total_cost_usd", "num_turns", "duration_api_ms", "usage"):
+            assert key not in spawn_entry
+
+    def test_spawn_captures_envelope_when_a_failure_still_wrote_one(self, tmp_path):
+        """Round 19 站2 — the shape taskq's P3 run actually produced.
+
+        `claude -p` exited non-zero, yet stdout held a complete envelope: the
+        run's own log records error_output "subtype=success API Error: Stream
+        idle timeout - no chunks received", and BOTH of those substrings come
+        out of _extract_dispatch_error json.loads()-ing this same stdout. The
+        cost and token counts sat in that dict the whole time and were never
+        read, so 12 identical stream-idle failures logged zero cost.
+
+        The failure text must stay untouched — this is an observability field,
+        not a reclassification.
+        """
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "result": "API Error: Stream idle timeout - no chunks received",
+            "session_id": "abc123",
+            "total_cost_usd": 0.42,
+            "num_turns": 7,
+            "duration_api_ms": 5100,
+            "usage": {"input_tokens": 11, "output_tokens": 222},
+        })
+        mock_proc.stderr = ""
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        assert result["status"] == "ERROR"
+        assert "Stream idle timeout" in result["output"]
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        entries = [
+            json.loads(line) for line in log_path.read_text().splitlines()
+            if line.strip()
+        ]
+        spawn_entry = entries[-1]
+        assert spawn_entry["total_cost_usd"] == 0.42
+        assert spawn_entry["num_turns"] == 7
+        assert spawn_entry["duration_api_ms"] == 5100
+        assert spawn_entry["usage"]["output_tokens"] == 222
+
+    def test_spawn_envelope_capture_never_masks_a_failure(self, tmp_path):
+        """Malformed stdout on the failure path must degrade to "no metrics",
+        never to a crash and never to an altered verdict. An observability
+        field is not worth turning a dispatch failure into a harness crash."""
+        spawner = AgentSpawner(project_path=tmp_path)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = '{"truncated": "json"'  # unparseable
+        mock_proc.stderr = "the real cause"
+        with patch("shutil.which", return_value="/usr/bin/claude"):
+            with patch("subprocess.run", return_value=mock_proc):
+                result = spawner.spawn(
+                    role="developer", prompt="Task",
+                    context={"phase": 3}, model="claude",
+                )
+        assert result["status"] == "ERROR"
+        assert result["exit_code"] == 1
+        assert "the real cause" in result["output"]
+        log_path = tmp_path / ".methodology" / "sessions_spawn.log"
+        spawn_entry = [
+            json.loads(line) for line in log_path.read_text().splitlines() if line.strip()
+        ][-1]
         for key in ("total_cost_usd", "num_turns", "duration_api_ms", "usage"):
             assert key not in spawn_entry
 
