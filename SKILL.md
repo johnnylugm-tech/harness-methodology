@@ -1,6 +1,6 @@
 ---
 name: harness-methodology
-version: 2.9.0
+version: 2.12.0
 constitution_version: 2.7
 description: |
   全流程軟體開發管線編排與品質門禁。Phase 1-8、14 維度品質憲章。
@@ -10,7 +10,7 @@ description: |
 
 # SKILL.md — harness-methodology
 
-> **Version**: v2.9.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
+> **Version**: v2.12.0 | **Framework**: harness-methodology | **Academic Benchmark**: 91/100
 
 ---
 
@@ -517,11 +517,12 @@ error_handling 加分),是 tts-new 過 Gate 4 後仍有 50 bugs 的根因。v2.9
 | 機制 | 規則 |
 |------|------|
 | error_handling 質化 | scorer = `100×(handled/total) − 5×anti_patterns`;反模式:`except BaseException`(即使 re-raise)、bare except 無 re-raise、broad swallow(`except Exception: pass`)、JS empty catch。窄型 except-pass 不罰。 |
-| Reliability preflight | `preflight_reliability_lint`(P4+ blocking):vendored `py_reliability.yaml`(subprocess/requests 無 timeout、time.sleep in async、mkstemp 無 try/finally、TOCTOU、create_task unreferenced)。 |
+| Reliability preflight | `preflight_reliability_lint`(P4+ blocking):vendored `py_reliability.yaml`與 `PRAGMA_NO_COVER_ALLOWLIST`(僅豁免 `except BaseException`)。`_advance_prechecks` 印刻 `PRAGMA_NO_COVER_GUIDANCE` SSOT 且 pytest 限縮至 `active_test_dir`。 |
 | Config liveness preflight | `preflight_config_liveness`(P4+ blocking):代碼讀的 env key(`os.getenv`/`process.env`)必須在 `.env.example`/compose/deployment/README 宣告;否則 orphan(測試走 default 永遠綠的死設定)。無宣告來源 → skip。 |
 | 架構風險測試觸發 | `derive_test_cases.md` Step 1b:SAD 模組特徵強制 NP-13/15/07(不靠 SRS 關鍵字),case 落 `tests/integration/`,D4 + mirror gate 自動 enforce。 |
-| **adversarial_review(Gate 3)** | framework-owned 維度(threshold 100, weight 0, `requires_tool_execution: false`)。讀 `.methodology/bug_hunt_report.json`,confirmed critical/high 未 resolved/refuted → BLOCK。協議:`hunt_bugs.md`;靶向:`bug-hunt-targets` CLI。**hunt 只在 Gate 3 跑一次**,用與開發不同的模型。 |
+| **adversarial_review(Gate 3)** | framework-owned 維度(threshold 100, weight 0, `requires_tool_execution: false`)。讀 `.methodology/bug_hunt_report.json`,confirmed critical/high 未 resolved/refuted → BLOCK。修復顯性規約:resolved 路徑需寫 `repro_test` + `fix(<module>):` commit；refuted 路徑需引用程式碼行號。專案原始碼在修訂範圍內，僅 `harness/` 子模組禁動。**hunt 只在 Gate 3 跑一次**。 |
 | 不重複報告 | 靜態可確定的(preflight 已攔)不進 hunt;mutation survivors 作為 hunt 輸入(`bug_hunt_targets.json`),非獨立 gate 項。 |
+| Gate Provenance & Timeouts | `finalize-gate` 印刻 `harness_sha`（以 `enforcer_sha()` 歸因版本）；`STALL_TIMEOUTS` 定義 `env_check: 900s` 為長耗時任務提供緩衝（詳見 `docs/CONFIGURATION.md`）。 |
 
 ## 8. Agentic Trajectory Tracing (v2.7.0+)
 
