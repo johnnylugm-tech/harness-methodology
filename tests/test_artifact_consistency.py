@@ -252,6 +252,22 @@ def test_preflight_forward_refs_informational_at_p1_blocking_at_p2(tmp_path: Pat
     assert r2["passed"] is False and r2["errors"] == 1
 
 
+def test_preflight_artifact_consistency_error_details_carries_violation_detail(
+    tmp_path: Path,
+) -> None:
+    """Round 15 §3 regression guard: `error_details` must keep carrying
+    rule_id/message for every error-severity violation — this is what
+    preview_next_phase_blocking's obligation extractor reads instead of
+    the previous print()-only, discarded detail."""
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "Arch: ./02-architecture/ARCHITECTURE.md\n")
+    r2 = _hooks(tmp_path, 2).preflight_artifact_consistency()
+    assert r2["passed"] is False
+    assert "error_details" in r2
+    assert len(r2["error_details"]) == r2["errors"]
+    assert all("rule_id" in d and "message" in d for d in r2["error_details"])
+
+
 def test_preflight_nfr_coverage_only_checked_from_p3(tmp_path: Path) -> None:
     _w(ProjectLayout(tmp_path).srs_path, "### NFR-01\n### NFR-06\n")
     _w(_adr_path(tmp_path), _ADR_TABLE)  # table has NFR-01/02/03 — NFR-06 dropped

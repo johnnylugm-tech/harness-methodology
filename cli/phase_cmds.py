@@ -213,6 +213,40 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_preview_next_phase(args: argparse.Namespace) -> int:
+    """Round 15 §2: read-only preview of P(N+1) entry-blocking findings.
+
+    Does not write state.json, does not write HANDOVER.md, does not create
+    any commit — a non-destructive query so an operator can check whether
+    the next phase would block BEFORE the current phase's exit gate has
+    even passed (cmd_advance_phase's own preview only runs after
+    _advance_prechecks succeeds).
+    """
+    from core.phase_hooks import PhaseHooks
+
+    project = Path(args.project).resolve()
+    hooks = PhaseHooks(str(project), phase=args.phase, enable_kill_switch=False,
+                        drift_threshold=get_value(project, "drift_threshold"))
+    next_phase = args.phase + 1
+    try:
+        obligations = hooks.preview_next_phase_blocking(next_phase)
+    except ValueError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
+
+    if not obligations:
+        print(f"\n[preview-next-phase] Phase {next_phase} entry: clean — "
+              "no blocking obligations predicted.")
+        return 0
+
+    print(f"\n[preview-next-phase] Phase {next_phase} entry: "
+          f"{len(obligations)} obligation(s) predicted:\n")
+    for ob in obligations:
+        loc = f" {ob.file}:{ob.line}" if ob.file else ""
+        print(f"  [{ob.check_id}] {ob.rule_id}{loc} — {ob.message}")
+    return 1
+
+
 def cmd_advance_phase(args: argparse.Namespace) -> int:
     """Advance to next phase: update state.json atomically.
 
@@ -2720,6 +2754,16 @@ def register(sub) -> None:
     pcc.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     pcc.add_argument("--project", default=".", help="Project root (default: .)")
     pcc.set_defaults(func=cmd_pre_commit_check)
+
+    # preview-next-phase (Round 15 §2 — read-only, no state/HANDOVER/commit writes)
+    pn = sub.add_parser(
+        "preview-next-phase",
+        help="Read-only: predict P(N+1) entry-blocking findings (no writes)",
+    )
+    pn.add_argument("--phase", type=int, required=True,
+                     help="Current phase number to preview from")
+    pn.add_argument("--project", default=".", help="Project root (default: .)")
+    pn.set_defaults(func=cmd_preview_next_phase)
 
     # advance-phase
     adv = sub.add_parser(

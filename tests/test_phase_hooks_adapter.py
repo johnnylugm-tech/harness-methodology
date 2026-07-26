@@ -484,3 +484,134 @@ def test_preview_next_phase_blocking_rejects_invalid_phase(tmp_path) -> None:
         hooks.preview_next_phase_blocking(next_phase=99)
     with pytest.raises(ValueError):
         hooks.preview_next_phase_blocking(next_phase=0)
+
+
+# ── Round 15 §3: _obligations_from_preflight per-check extractors ──────────
+#
+# Round 14 A shipped only property_spec + reliability_lint extractors; the
+# other 8 _DELAYED_BLOCKING_PREFLIGHTS members fell through to a generic
+# fallback that produced no actionable detail (e.g. "drift_detection would
+# block at phase 4"). These tests fabricate each preflight's real
+# blocking-path return shape (confirmed by reading the corresponding
+# preflight_* method) and assert the extractor produces a useful obligation.
+
+
+def test_obligations_drift_detection_extracts_per_item() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {
+        "passed": False, "drifts": 1, "score": 88.9, "threshold": 95.0,
+        "details": {
+            "sab": {"drift_type": "sab", "has_drift": True, "items": [
+                {"type": "sab", "severity": "LOW",
+                 "location": "03-development/conftest.py",
+                 "description": "New file not registered in any SAB layer"},
+            ]},
+        },
+    }
+    obls = _obligations_from_preflight("drift_detection", res, target_phase=4)
+    assert len(obls) == 1
+    assert obls[0].rule_id == "sab"
+    assert obls[0].file == "03-development/conftest.py"
+    assert "not registered" in obls[0].message
+
+
+def test_obligations_sab_check_extracts_per_violation() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "violations": [
+        "Layer L1: deps ['L9'] reference unknown layers",
+    ], "layers": 2}
+    obls = _obligations_from_preflight("sab_check", res, target_phase=3)
+    assert len(obls) == 1
+    assert "unknown layers" in obls[0].message
+
+
+def test_obligations_traceability_extracts_untested_uncoded_and_attestation() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {
+        "passed": False, "untested": ["FR-02"], "uncoded": ["FR-05"],
+        "attestation": "mismatch", "attestation_message": "hash drift",
+    }
+    obls = _obligations_from_preflight("traceability", res, target_phase=5)
+    rule_ids = {o.rule_id for o in obls}
+    assert rule_ids == {"FR-02", "FR-05", "attestation"}
+    att = next(o for o in obls if o.rule_id == "attestation")
+    assert "hash drift" in att.message
+
+
+def test_obligations_traceability_clean_attestation_produces_no_extra_obligation() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": True, "untested": [], "uncoded": [], "attestation": "clean"}
+    obls = _obligations_from_preflight("traceability", res, target_phase=5)
+    assert obls == []
+
+
+def test_obligations_fr_spec_consistency_extracts_orphans_both_directions() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "sad_only": ["FR-07"], "spec_only": ["FR-08"]}
+    obls = _obligations_from_preflight("fr_spec_consistency", res, target_phase=5)
+    assert {o.rule_id for o in obls} == {"FR-07", "FR-08"}
+    fr07 = next(o for o in obls if o.rule_id == "FR-07")
+    assert "TEST_SPEC.md" in fr07.message
+
+
+def test_obligations_artifact_consistency_reads_error_details() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "errors": 1, "needs_review": 0, "error_details": [
+        {"rule_id": "illegal_forward_ref", "message": "invented ARCHITECTURE.md"},
+    ]}
+    obls = _obligations_from_preflight("artifact_consistency", res, target_phase=2)
+    assert len(obls) == 1
+    assert obls[0].rule_id == "illegal_forward_ref"
+    assert "invented" in obls[0].message
+
+
+def test_obligations_artifact_consistency_missing_error_details_degrades_empty() -> None:
+    """Defensive: a preflight_artifact_consistency return dict from before
+    Round 15 §3 (no error_details key) must not crash the extractor — it
+    degrades to an empty list rather than KeyError."""
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "errors": 1, "needs_review": 0}
+    obls = _obligations_from_preflight("artifact_consistency", res, target_phase=2)
+    assert obls == []
+
+
+def test_obligations_config_liveness_extracts_orphan_keys_with_location() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "orphans": {"KOKORO_URL": "src/config.py:42"},
+           "used_count": 3, "declaration_files": [".env.example"]}
+    obls = _obligations_from_preflight("config_liveness", res, target_phase=4)
+    assert len(obls) == 1
+    assert obls[0].rule_id == "KOKORO_URL"
+    assert obls[0].file == "src/config.py"
+    assert obls[0].line == 42
+
+
+def test_obligations_previous_phase_artifacts_extracts_missing_links() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "missing": ["PLAN->IMPLEMENT: link broken"],
+           "verified": [], "stats": {"total": 4, "verified": 3, "missing": 1}}
+    obls = _obligations_from_preflight(
+        "previous_phase_artifacts", res, target_phase=4)
+    assert len(obls) == 1
+    assert "PLAN->IMPLEMENT" in obls[0].message
+
+
+def test_obligations_bvs_phase_order_extracts_violations() -> None:
+    from core.phase_hooks import _obligations_from_preflight
+
+    res = {"passed": False, "violations": [
+        {"rule": "HR-03", "message": "Phase 5 entered before Phase 4 exit gate"},
+    ]}
+    obls = _obligations_from_preflight("bvs_phase_order", res, target_phase=5)
+    assert len(obls) == 1
+    assert obls[0].rule_id == "HR-03"
+    assert "before Phase 4" in obls[0].message

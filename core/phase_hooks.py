@@ -113,6 +113,103 @@ def _obligations_from_preflight(
                          f"{f.get('file', '?')}:{f.get('line', '?')} — "
                          "resolve before entering the target phase"),
             ))
+    # Round 15 §3: fill in the remaining 7 delayed-blocking preflights that
+    # previously fell through to the generic fallback below despite having
+    # structured, actionable detail in their own return dict. Each branch
+    # uses .get() defensively — a preflight's return shape drifting under
+    # us must degrade to an empty obligation list here, never a crash.
+    elif check_id == "drift_detection":
+        # Use `details` ({drift_type: {items: [{type, location, description}]}}).
+        for _drift_type, _detail in (res.get("details") or {}).items():
+            _items = _detail.get("items") if isinstance(_detail, dict) else None
+            for item in _items or []:
+                out.append(Obligation(
+                    check_id=check_id,
+                    target_phase=target_phase,
+                    rule_id=str(item.get("type", _drift_type)),
+                    file=item.get("location"),
+                    message=str(item.get("description",
+                                          f"{_drift_type} drift detected")),
+                ))
+    elif check_id == "sab_check":
+        # Use `violations` (list of already-formatted strings).
+        for v in res.get("violations") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase,
+                rule_id=check_id, message=str(v),
+            ))
+    elif check_id == "traceability":
+        # Use `untested` / `uncoded` (FR id lists) + attestation status.
+        for fr in res.get("untested") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase, rule_id=str(fr),
+                message=f"{fr} has no test coverage — traceability requires "
+                        "an FR→test link",
+            ))
+        for fr in res.get("uncoded") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase, rule_id=str(fr),
+                message=f"{fr} has no implementation — traceability requires "
+                        "an FR→code link",
+            ))
+        _att = res.get("attestation")
+        if _att and _att not in ("clean", "skipped"):
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase,
+                rule_id="attestation",
+                message=str(res.get("attestation_message")
+                            or f"trace attestation status: {_att}"),
+            ))
+    elif check_id == "fr_spec_consistency":
+        # Use `sad_only` / `spec_only` (FR id lists — symmetric difference).
+        for fr in res.get("sad_only") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase, rule_id=str(fr),
+                message=f"{fr} is declared in SAD.md but missing from "
+                        "TEST_SPEC.md",
+            ))
+        for fr in res.get("spec_only") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase, rule_id=str(fr),
+                message=f"{fr} is declared in TEST_SPEC.md but missing from "
+                        "SAD.md",
+            ))
+    elif check_id == "artifact_consistency":
+        # Use `error_details` (Round 15 §3 additive key on
+        # preflight_artifact_consistency — see that method).
+        for d in res.get("error_details") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase,
+                rule_id=str(d.get("rule_id", check_id)),
+                message=str(d.get("message", "artifact consistency violation")),
+            ))
+    elif check_id == "config_liveness":
+        # Use `orphans` ({env_key: "file:line"}).
+        for key, loc in (res.get("orphans") or {}).items():
+            _file, _, _line = str(loc).rpartition(":")
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase, rule_id=str(key),
+                file=_file or None,
+                line=int(_line) if _line.isdigit() else None,
+                message=f"env key {key} read in code but not declared anywhere",
+            ))
+    elif check_id == "previous_phase_artifacts":
+        # Use `missing` (list of already-formatted phase-link strings).
+        for m in res.get("missing") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase,
+                rule_id=check_id, message=str(m),
+            ))
+    elif check_id == "bvs_phase_order":
+        # Use `violations` (list of {rule, message} dicts).
+        for v in res.get("violations") or []:
+            if not isinstance(v, dict):
+                continue
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase,
+                rule_id=str(v.get("rule", check_id)),
+                message=str(v.get("message", "BVS phase-order violation")),
+            ))
     else:
         # Generic fallback: one obligation per blocking result, carrying the
         # check's own error string. File/line not available.
@@ -1021,7 +1118,14 @@ class PhaseHooks:
             print("   P1/P2 artifact references + module/FR-NFR ownership + "
                   "NFR→ADR coverage + security-design threat model consistent")
         return {"passed": passed, "blocking": blocking,
-                "errors": len(errors), "needs_review": len(reviews)}
+                "errors": len(errors), "needs_review": len(reviews),
+                # Round 15 §3: additive — carries the per-violation detail
+                # that was previously print()-only and discarded, so
+                # preview_next_phase_blocking's obligation extractor can
+                # surface actionable rule_id/message pairs instead of a
+                # generic "artifact_consistency would block" placeholder.
+                "error_details": [{"rule_id": v.rule_id, "message": v.message}
+                                   for v in errors]}
 
     # Source dirs scanned by the reliability/config-liveness preflights —
     # same layout convention as the in-process scanners (lang_scanners).

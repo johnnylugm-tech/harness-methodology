@@ -70,6 +70,91 @@ class TestReliabilityLint:
         assert result["finding_count"] == 0
 
 
+MKSTEMP_BARE = """\
+import os, tempfile
+
+def write_bare(payload):
+    fd, name = tempfile.mkstemp()
+    os.write(fd, payload)
+    os.close(fd)
+"""
+
+MKSTEMP_TRY_FINALLY = """\
+import os, tempfile
+
+def write_try_finally(payload):
+    fd = None
+    try:
+        fd, name = tempfile.mkstemp()
+        os.write(fd, payload)
+        os.close(fd)
+    finally:
+        pass
+"""
+
+MKSTEMP_TRY_EXCEPT_RAISE = """\
+import os, tempfile
+
+def write_try_except_raise(payload):
+    try:
+        fd, name = tempfile.mkstemp()
+        os.write(fd, payload)
+        os.close(fd)
+    except BaseException:
+        os.unlink(name)
+        raise
+"""
+
+MKSTEMP_TRY_EXCEPT_SWALLOW = """\
+import os, tempfile
+
+def write_try_except_swallow(payload):
+    try:
+        fd, name = tempfile.mkstemp()
+        os.write(fd, payload)
+        os.close(fd)
+    except BaseException:
+        pass
+"""
+
+
+@pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep not installed")
+class TestMkstempOutsideTry:
+    """Round 15 §1: py-mkstemp-outside-try must accept try/except...raise as
+    an equivalent-safety alternative to try/finally (fixes the false
+    positive that forced a semantically-empty try/finally wrapper onto
+    taskq's store.py), while still catching a bare mkstemp() and a
+    swallowing except (no raise — genuinely leaks AND hides the error)."""
+
+    def test_bare_mkstemp_flagged(self, tmp_path):
+        project = _project(tmp_path)
+        (project / "src" / "bad.py").write_text(MKSTEMP_BARE, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-mkstemp-outside-try" in rules
+
+    def test_try_finally_not_flagged(self, tmp_path):
+        project = _project(tmp_path)
+        (project / "src" / "ok.py").write_text(MKSTEMP_TRY_FINALLY, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-mkstemp-outside-try" not in rules
+
+    def test_try_except_raise_not_flagged(self, tmp_path):
+        project = _project(tmp_path)
+        (project / "src" / "ok.py").write_text(MKSTEMP_TRY_EXCEPT_RAISE, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-mkstemp-outside-try" not in rules
+
+    def test_try_except_swallow_still_flagged(self, tmp_path):
+        project = _project(tmp_path)
+        (project / "src" / "bad.py").write_text(MKSTEMP_TRY_EXCEPT_SWALLOW, encoding="utf-8")
+        result = PhaseHooks(str(project), phase=4).preflight_reliability_lint()
+        rules = {f["rule"] for f in result["findings"]}
+        assert "py-mkstemp-outside-try" in rules
+
+
 class TestReliabilityLintSkips:
     def test_non_python_language_skips(self, tmp_path):
         project = _project(tmp_path, language="typescript")

@@ -74,9 +74,10 @@ rules:
     severity: WARNING
     message: >
       tempfile.mkstemp() returns an OPEN fd the caller must close — outside a
-      try/finally, any exception before cleanup leaks the fd and the temp file
-      (tts-new audio_converter fd leak). Wrap in try/finally or use
-      NamedTemporaryFile as a context manager.
+      try/finally (or a try/except that cleans up and re-raises), any
+      exception before cleanup leaks the fd and the temp file (tts-new
+      audio_converter fd leak). Wrap in try/finally, or try/except that
+      re-raises, or use NamedTemporaryFile as a context manager.
     patterns:
       - pattern: tempfile.mkstemp(...)
       - pattern-not-inside: |
@@ -84,6 +85,12 @@ rules:
             ...
           finally:
             ...
+      - pattern-not-inside: |
+          try:
+            ...
+          except $EXC:
+            ...
+            raise
 
   - id: py-toctou-exists-then-open
     languages: [python]
