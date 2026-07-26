@@ -52,7 +52,7 @@ an explicit CLI flag is long-standing run-fr-step behavior, locked by
 | `drift_threshold` | `85.0` | M2 drift ensemble score floor (0–100]; every production `PhaseHooks` construction (pre-commit-check, run-phase, finalize-gate, adapter). |
 | `max_fix_rounds` | `3` | run-fr-step CODE-FIX/GATE1 retry budget. |
 | `permission_mode` | `"bypassPermissions"` | permission mode for spawned sub-agents (every FR step). |
-| `timeouts` | `{}` | per-key overlay onto `STALL_TIMEOUTS` (`subprocess`, `task_default`, `task_dev`, `fr_step`, `mutation`, `state_alert_min`, `gitleaks`); unknown keys WARN and are ignored. |
+| `timeouts` | `{}` | per-key overlay onto `STALL_TIMEOUTS` (`subprocess`, `env_check`, `task_default`, `task_dev`, `fr_step`, `mutation`, `state_alert_min`, `gitleaks`); unknown keys WARN and are ignored. |
 | `step_max_turns` | `{}` | per-step overlay onto run-fr-step's `_STEP_MAX_TURNS` (`TDD-RED`, `TDD-GREEN`, `TDD-IMPROVE`, `GATE1`, `GATE1-DELTA`, `CODE-FIX`, `TEST-FIX`, `INFRA-FIX`, `LINT-FIX`, `COVERAGE-FIX`); unknown steps WARN. |
 | `phase_truth_threshold` | `90.0` | HR-11 Phase Truth score floor (migrated from enforcement.json `hr_overrides.HR-11_phase_truth_threshold`, which still works as a legacy fallback with a migration nudge). |
 | `phase_truth_pytest_timeout` | `300` | Phase Truth pytest cap in seconds, floor 30 (migrated from enforcement.json `phase_truth.pytest_timeout_seconds`, same legacy fallback). |

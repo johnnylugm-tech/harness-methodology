@@ -864,7 +864,7 @@ File paths used:
 | `preflight_traceability()` | runs `check_spec_trace.check_traceability()` for FR→code→test coverage | P3 info-only, P4+ blocks if gaps exist |
 | `preflight_tool_registry()` | checks `ToolRegistry.list_tools()` | skipped if not installed |
 | `preflight_fr_spec_consistency()` | cross-checks each FR's [FR-XX] docstring/code references against SAD.md | never blocks (advisory only) |
-| `preflight_reliability_lint()` | v2.9 A2 — checks error-handling pattern coverage, exception-use hygiene | blocks if score below phase threshold |
+| `preflight_reliability_lint()` | v2.9 A2 — checks error-handling pattern coverage, exception-use hygiene, and enforces `PRAGMA_NO_COVER_ALLOWLIST` (exempts only `except BaseException`). `_advance_prechecks` renders `PRAGMA_NO_COVER_GUIDANCE` SSOT on coverage failures and scopes pytest execution to `ProjectLayout.active_test_dir`. | blocks if score below phase threshold |
 | `preflight_config_liveness()` | v2.9 A3 — re-verifies cli_tools/env_vars claimed-present at runtime (PATH / os.environ); claimed-but-missing → BLOCK | blocks if any claimed tool/var missing |
 
 **Monitoring hooks** (append to `self.monitoring_events` + write to `run-phase.log`; M1 kill-switch circuit check on before_* calls):
@@ -1220,7 +1220,8 @@ class KillSwitch:
 | `ab_enforcer.py` | `ABEnforcer` | **REMOVED**. Fully deleted from the codebase. The HR-10 log-count audit is no longer enforced via this module. |
 | `phase_truth_verifier.py` | `PhaseTruthVerifier` | Verifies phase completion truth via independently-reproducible signals — framework BLOCK, pytest, coverage subprocess, previous-phase artifacts, cross-artifact checks, and `sessions_spawn.log` format/A-B coverage checks. |
 | `phase_artifact_enforcer.py` | `PhaseArtifactRegistry`, `Phase` | ASPICE traceability chain enforcement; validates phase artifact dependencies (P2+) |
-| `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser` |
+| `spec_tracking_checker.py` | `SpecTrackingChecker` | Tracks SPEC_TRACKING.md completeness. Delegates parsing to `parsers.SpecTrackingParser`. Exports `resolve_threshold_effective()` to guarantee equivalence between per-component thresholds and overall gate score verdicts (Round 19). |
+| `harness_provenance.py` | `enforcer_sha()` | Provenance attribution module (Round 19). Computes the enforcing framework's Git commit SHA (`-dirty` suffixed if workspace modified) and stamps `harness_sha` on quality gate result artifacts prior to early exit. |
 | `stage_pass_generator.py` | `IntegratedStagePassGenerator` | Generates stage pass certificates; integrates FrameworkEnforcer + ClaimsVerifier |
 | `feedback_hook.py` | `AutoQualityGateWithFeedback` | AutoQualityGate subclass that submits feedback on gate completion |
 | `constitution/__init__.py` | — | Constitution sub-package (used by `preflight_constitution`) |
@@ -1720,6 +1721,14 @@ PhaseHooks("/path/to/project", phase=3)
        └─ postflight_summary()               → {total_frs, approved, fr_results, ...}
 ```
 
+### 4.5 Workflowgen Phase 4 Bug-Hunt Action Policy (`spec_phase4.py`)
+
+**Responsibility**: Defines prompt SSOT and permitted action boundaries for the Phase 4 bug-hunt sub-agent during `HUNT-RESOLVE` (Round 21):
+
+- **Resolved Path**: Sub-agent writes a reproduction test (`repro_test`), modifies project source code to fix the defect, verifies the reproduction test passes (RED→GREEN anti-fabrication requirement), commits with `fix(<module>):` prefix, and updates `bug_hunt_report.json` with `resolution.status = "resolved"`, fix commit SHA, and `repro_test` path.
+- **Refuted Path**: Sub-agent inspects code, identifies existing guards/fallbacks, and cites line numbers as `refute_evidence`.
+- **Scope Boundary**: "DO NOT modify harness/" applies exclusively to the `harness/` submodule. Project source code under test is explicitly within modification scope.
+
 ---
 
 ## 5. Appendix A — Configuration Schemas
@@ -1947,6 +1956,23 @@ CREATE TABLE IF NOT EXISTS effort (
     created_at TEXT DEFAULT (datetime('now'))
 );
 ```
+
+---
+
+### 5.5 `core/harness_config.py` — `STALL_TIMEOUTS` Registry & Overlays
+
+**Responsibility**: Defines system-wide default timeouts (in seconds or minutes) for sub-processes, LLM agents, and lifecycle tasks. Support per-project overrides via `.methodology/harness_config.json` (`values.timeouts`).
+
+| Key | Default | Unit | Description |
+|---|---|---|---|
+| `subprocess` | 300 | Seconds | Standard subprocess execution cap |
+| `env_check` | 900 | Seconds | LLM sub-agent environment check cap (Round 22) |
+| `task_default` | 300 | Seconds | Default task timeout |
+| `task_dev` | 1200 | Seconds | Full LLM development task cap |
+| `fr_step` | 600 | Seconds | Single FR step execution cap |
+| `mutation` | 3600 | Seconds | Full mutation testing gate run cap |
+| `state_alert_min` | 180 | Minutes | Alert threshold for phase progress stall |
+| `gitleaks` | 300 | Seconds | Secrets scanner execution cap |
 
 ---
 
