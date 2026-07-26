@@ -243,10 +243,16 @@ def _override_traceability_dim_score(
                 )
             if _d.score != _framework_score:
                 _changed = True
+            # `_d.threshold` may already carry a gate_score_overrides floor-raise
+            # (harness_bridge.py's "never lower a threshold, only raise it"
+            # invariant, applied to dims before this override runs) — take the
+            # max so a project-level override for this dim is never silently
+            # discarded by the framework's own recomputed threshold_effective.
+            _new_threshold = max(_trace_dim["threshold_effective"], _d.threshold)
             _new_dims.append(dataclasses.replace(
                 _d,
                 score=_framework_score,
-                threshold=_trace_dim["threshold_effective"],
+                threshold=_new_threshold,
             ))
         else:
             _new_dims.append(_d)

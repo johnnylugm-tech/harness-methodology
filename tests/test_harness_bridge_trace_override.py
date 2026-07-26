@@ -96,6 +96,32 @@ def test_bridge_overrides_pessimistic_agent_score():
     assert changed is True
 
 
+def test_bridge_preserves_gate_score_overrides_threshold_floor():
+    """2026-07-26 fix: harness_bridge applies gate_score_overrides as a
+    threshold FLOOR (max(existing, override), never lowered) to `dims`
+    BEFORE calling this helper. If a project's quality_manifest.json raised
+    traceability's threshold above the framework's own threshold_effective
+    (e.g. 90, stricter than the 60% Gate 2 default), the override must win —
+    this helper must not silently discard it by unconditionally overwriting
+    threshold with threshold_effective.
+    """
+    sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")
+    import sys
+    if sys_path not in sys.path:
+        sys.path.insert(0, sys_path)
+    from harness.harness_bridge import _override_traceability_dim_score
+    # Simulate a dim whose threshold was already raised to 90 by the
+    # gate_score_overrides floor-raise step that runs before this helper.
+    dims = [_Dim(name="traceability", score=76.1, threshold=90.0)]
+    with patch("core.quality_gate.spec_tracking_checker.compute_trace_dimension",
+               return_value=_trace_dim_result(76.1, threshold_effective=60.0)):
+        out, _ = _override_traceability_dim_score(dims, "/fake", 2)
+    trace_dim = next(d for d in out if d.name == "traceability")
+    assert trace_dim.threshold == 90.0, (
+        "override floor (90) must win over the framework's threshold_effective (60)"
+    )
+
+
 def test_bridge_no_op_when_scores_already_match():
     """If the agent happens to write the framework's exact score, changed=False."""
     sys_path = str(Path(__file__).resolve().parent.parent).replace("\\", "/")

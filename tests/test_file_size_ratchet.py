@@ -57,7 +57,12 @@ _LINE_CEILING: dict[str, int] = {
     # `threshold_effective` (the threshold of whichever component is binding
     # the min), and the YAML override is dropped for this dim so it can't
     # shadow the fix.
-    "harness/harness_bridge.py": 3075,
+    # 2026-07-26: +6 lines — same fix, follow-up: preserve a
+    # gate_score_overrides threshold floor-raise (applied to dims before this
+    # override runs) instead of unconditionally overwriting threshold with
+    # threshold_effective, which would have silently discarded a project's
+    # intentional stricter-than-default traceability floor.
+    "harness/harness_bridge.py": 3081,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
