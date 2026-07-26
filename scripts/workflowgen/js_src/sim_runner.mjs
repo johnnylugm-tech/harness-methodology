@@ -127,7 +127,14 @@ export function makeHappyResponder(overrides = []) {
         // covers the common `RC=0` / GATE1 helper cases.
         return { pass: true, reason: 'GATE1_VERIFIED_PASS' }
       }
-      if (has('rc')) return { rc: 0 }
+      if (has('rc')) {
+        // RC family (RC_SCHEMA + ENV_CHECK_SCHEMA). ENV_CHECK_SCHEMA
+        // (Round 23) adds a `ready` field for the Bug #127 cross-check;
+        // if the schema declares it, include `ready: true` so the
+        // generic happy responder doesn't return a schema-invalid
+        // `{rc: 0}` to the env-check orchestrator.
+        return has('ready') ? { rc: 0, ready: true } : { rc: 0 }
+      }
       if (has('fr_ids')) return { fr_ids: ['FR-01'], fr_count: 1 }
       if (has('pass_fr_ids')) {
         // Empty fast-path list -> the full per-FR loop runs, which is the

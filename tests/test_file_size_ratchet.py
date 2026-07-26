@@ -390,7 +390,18 @@ _LINE_CEILING: dict[str, int] = {
     # one-liner as a template literal (matching the existing ctxCheckCmd
     # pattern) instead of the old sextuple-escaped nested-quote string,
     # which a manual decode showed was silently mis-concatenating REPO.
-    "scripts/workflowgen/js_blocks.py": 1363,
+    # 2026-07-26: +44 lines — Round 23: render_env_check rewritten to use the
+    # bash-timeout-aware background poll pattern (observed on taskq phase5
+    # wf_4fe2125c-48d: the chained run-env-check + finalize-env-check
+    # legitimately runs past Claude Code Bash tool's 10-min default timeout;
+    # Bash auto-moves to background + returns rc=124, which the sub-agent
+    # mis-reports as the env-check exit code, masking that env_check_result.
+    # json was actually written). Same GATE1-DELTA background dispatch idiom
+    # reused (nohup + kill -0 poll loop + log tail). New ENV_CHECK_SCHEMA
+    # (+ready field) added to _SCHEMA_DEFS for the Bug #127 cross-check.
+    # Replaces the previous one-line synchronous Bash invocation in 5 phase
+    # workflows (phase3/4/5/7/8).
+    "scripts/workflowgen/js_blocks.py": 1407,
 }
 
 

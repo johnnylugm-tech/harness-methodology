@@ -467,7 +467,7 @@ def generate_phase3() -> str:
         "",
         B.WRITE_SCOPE_BLOCK,
         "",
-        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "FR_LIST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "FR_LIST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
         _render_phase3_entry_preflight(),
         B.render_env_check(phase=3),
         B.render_manifest_integrity_phase(phase=3),

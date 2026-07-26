@@ -167,7 +167,7 @@ def generate_phase4() -> str:
         "",
         B.WRITE_SCOPE_BLOCK,
         "",
-        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "CTX_SCHEMA", "DELTA_FAST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA", "DELTA_FAST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
         B.render_entry_preflight(
             phase=4, gate_num=2, gate_owner_phase=3, prev_phase=3,
             extra_note=(

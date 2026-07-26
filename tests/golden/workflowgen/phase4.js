@@ -119,6 +119,14 @@ const RC_SCHEMA = {
   properties: { rc: { type: 'integer', description: 'exact numeric exit code of the command' } },
   required: ['rc'],
 }
+const ENV_CHECK_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exact numeric exit code parsed from the final RC= line in the envcheck log' },
+    ready: { type: 'boolean', description: 'env_check_result.json ready flag cross-check (Bug #127 anti-fabrication)' },
+  },
+  required: ['rc', 'ready'],
+}
 const CTX_SCHEMA = {
   type: 'object',
   properties: {
@@ -201,7 +209,7 @@ if (!(testPlanReport && testPlanReport.pass === true)) {
 // ══════════════════════════════════════════════════════════════════════════
 
 phase('Env Check')
-log('run-env-check + finalize-env-check (root-cause fix: CLI exit code reflects ready flag)')
+log('run-env-check + finalize-env-check (Bug #127 root-cause + bash-timeout-aware background poll)')
 // Bug #127 root-cause fix (2026-06-27): `cmd_run_env_check` now returns
 // exit 0 when ready=true and 1 when ready=false (previously always 0).
 // Workflows check `$?` directly with no LLM orchestrator agent in the loop.
@@ -219,14 +227,48 @@ log('run-env-check + finalize-env-check (root-cause fix: CLI exit code reflects 
 // succeeds; the trailing `; echo RC=$?` captures whichever of the two is
 // authoritative (run-env-check's own failure code if it failed first,
 // otherwise finalize-env-check's).
+// Round 23 (2026-07-26, observed on a downstream project's phase5 workflow run):
+// the chained command legitimately runs past the Claude Code Bash tool's
+// 10-min default timeout — run-env-check spawns an LLM sub-agent with
+// STALL_TIMEOUT=900s (core/harness_config.py::STALL_TIMEOUTS). The Bash
+// tool's response to a timeout hit is "moved to the background" + return
+// rc=124 to the caller, which the sub-agent then mis-reports as the
+// run-env-check exit code (it isn't — the actual sub-process is still
+// running). Symptom: ~10 min elapsed, rc=124, no env_check_result.json
+// cross-check. Fix: launch the chain via Bash with run_in_background:true
+// and a foreground `kill -0 PID` poll loop (same idiom as GATE1-DELTA
+// background dispatch in phase3-8). The Bash tool returns immediately
+// with a task_id; the agent then polls via `kill -0` / log tail and
+// reports the FINAL `RC=` line from the chained command's own stdout
+// (which IS the run-env-check/finalize-env-check exit code — the
+// `; echo "RC=$?"` appended at the end of the chain).
+const envCheckLog = '/tmp/envcheck_phase4.log'
+const envCheckChain = PY + ' ' + REPO + '/harness_cli.py run-env-check --phase 4 --project ' + REPO + ' && ' + PY + ' ' + REPO + '/harness_cli.py finalize-env-check --phase 4 --project ' + REPO + '; echo "RC=$?"'
 const envReport = await agent(
-  'You MUST use the Bash tool. Run exactly this ONE command (single line):\n'
-  + PY + ' ' + REPO + '/harness_cli.py run-env-check --phase 4 --project ' + REPO + ' && ' + PY + ' ' + REPO + '/harness_cli.py finalize-env-check --phase 4 --project ' + REPO + '; echo "RC=$?"\n'
-  + 'Then report via the StructuredOutput tool: rc = the exact numeric exit code echoed on the final RC= line.',
-  { label: 'env-check', phase: 'Env Check', agentType: 'general-purpose', schema: RC_SCHEMA },
+  'YOU ARE THE PHASE-4 ENV-CHECK ORCHESTRATOR (Bash-timeout-aware, background poll).\n'
+  + 'REPO: ' + REPO + '\n'
+  + 'PYTHON: ' + PY + '\n'
+  + 'LOG PATH: /tmp/envcheck_phase4.log\n\n'
+  + 'run-env-check spawns a full LLM sub-agent (max-turns 70) with STALL_TIMEOUT=900s in core/harness_config.py::STALL_TIMEOUTS. A bare synchronous Bash invocation gets auto-moved to background by the Bash tool at its 10-min default timeout and the Bash call returns rc=124 immediately while the actual sub-process keeps running — the rc=124 is NOT the run-env-check exit code. Launch the chain with run_in_background:true so it runs to completion; then poll.\n\n'
+  + '1. Launch (Bash with `run_in_background: true`, `timeout: 1500000` (25 min) — covers 900s stall + 600s finalize buffer):\n'
+  + '   command: `nohup bash -c \'' + envCheckChain + '\' > ' + envCheckLog + ' 2>&1 & echo $!`\n'
+  + '   The Bash tool returns immediately with a task_id AND a shell PID printed in stdout (the `echo $!`). Capture the PID.\n\n'
+  + '2. Poll loop (cap 20 iterations × 60s = 20 min — covers 900s stall + 300s finalize buffer):\n'
+  + '   Each iteration Bash call (`run_in_background: false`, `timeout: 90000`):\n'
+  + '   `sleep 60 && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`\n'
+  + '   When DONE → break out of the loop.\n'
+  + '   If still RUNNING past 20 polls (~20 min) → report "ENV_CHECK: TIMEOUT" via StructuredOutput and stop (do NOT kill the PID — it is still legitimately running; resume by re-running this same step).\n\n'
+  + '3. Authoritative read: `tail -100 ' + envCheckLog + '`; parse the LAST line matching `RC=<integer>`. That integer is the run-env-check/finalize-env-check chain exit code (NOT the Bash tool rc).\n\n'
+  + '4. Cross-check (Bug #127 anti-fabrication): `cat ' + REPO + '/.sessi-work/env_check_result.json` MUST show `\"ready\": true`. If file missing or ready=false → ready=false in the StructuredOutput regardless of RC (the LLM may have self-reported ready=true while the result JSON says otherwise).\n\n'
+  + 'Report via the StructuredOutput tool: { rc: <int from final RC= line>, ready: <bool from env_check_result.json> }.\n\n'
+  + 'SCOPE RULES:\n'
+  + '- ONLY run-env-check + finalize-env-check + read their log + result artifacts.\n'
+  + '- DO NOT modify harness/ (HR-17).',
+  { label: 'env-check', phase: 'Env Check', agentType: 'general-purpose', schema: ENV_CHECK_SCHEMA },
 )
-if (!(envReport && envReport.rc === 0)) {
-  return { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, note: envReport ? 'run-env-check/finalize-env-check exit ' + envReport.rc + ' — read .sessi-work/env_check_result.json' : 'agent returned null (skipped or terminal API error)' }
+if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
+  const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
+  return { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
 }
 
 
