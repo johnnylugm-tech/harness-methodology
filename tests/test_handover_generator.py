@@ -1333,6 +1333,7 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+        cmd_advance_phase(a)
 
     def test_advance_phase_surfaces_obligations_to_handover(self, tmp_path, monkeypatch):
         """Round 14 A: when preview_next_phase_blocking returns obligations,
