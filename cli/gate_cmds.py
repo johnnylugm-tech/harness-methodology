@@ -163,7 +163,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             cmd,
             capture_output=True,
             text=True,
-            timeout=get_timeout("subprocess", project),
+            timeout=get_timeout("env_check", project),
             cwd=str(Path(project).resolve()),
             env=_child_env(),
         )
@@ -193,7 +193,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         if not _fresh:
             print(
                 f"[ERROR] env-check sub-agent timed out after "
-                f"{get_timeout('subprocess', project)}s without writing "
+                f"{get_timeout('env_check', project)}s without writing "
                 f"env_check_result.json.",
                 file=sys.stderr,
             )

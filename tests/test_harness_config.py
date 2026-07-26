@@ -284,13 +284,14 @@ class TestStallTimeouts:
 
     def test_stall_timeouts_dict_complete(self):
         """All keys expected by call sites must be present."""
-        for key in ("subprocess", "task_default", "task_dev", "fr_step",
-                    "mutation", "state_alert_min"):
+        for key in ("subprocess", "env_check", "task_default", "task_dev",
+                    "fr_step", "mutation", "state_alert_min"):
             assert key in STALL_TIMEOUTS, f"missing STALL_TIMEOUTS key: {key}"
             assert STALL_TIMEOUTS[key] > 0
 
     def test_get_timeout_returns_dict_value(self):
         assert get_timeout("subprocess") == 300
+        assert get_timeout("env_check") == 900
         assert get_timeout("task_default") == 300
         assert get_timeout("task_dev") == 1200
         assert get_timeout("fr_step") == 600

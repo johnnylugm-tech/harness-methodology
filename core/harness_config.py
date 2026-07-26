@@ -354,6 +354,13 @@ def is_dim_disabled(dim_name: str, project_root: "str | Path") -> bool:
 
 STALL_TIMEOUTS: dict[str, int] = {
     "subprocess": 300,
+    # env-check spawns a full LLM sub-agent (max-turns 70) that reads the
+    # project's SAD/SRS, probes runtime + CLI tools, and writes
+    # env_check_result.json. Empirically the sub-agent takes ~1:48 on a
+    # warm cache run but ~5:30 on a cold start (workflow entry from a
+    # fresh P4 advance). 300s `subprocess` races that cold path; 900s
+    # buffers it without conflating with full `task_dev` (1200s).
+    "env_check": 900,
     "task_default": 300,
     "task_dev": 1200,
     "fr_step": 600,
