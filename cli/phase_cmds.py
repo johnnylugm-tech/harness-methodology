@@ -1986,7 +1986,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             sc_thresh = 60.0
 
         # 1. pytest + 100% coverage on TDD-governed source
-        src_dir = ProjectLayout(project).active_src_dir
+        from core.phase_hooks import PRAGMA_NO_COVER_ALLOWLIST, PRAGMA_NO_COVER_GUIDANCE
+        _layout = ProjectLayout(project)
+        src_dir = _layout.active_src_dir
+        test_dir = _layout.active_test_dir
         if src_dir.is_dir():
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):
@@ -2009,14 +2012,16 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 print("  [WARN] mypy not installed. Skipping type safety.")
 
             r = subprocess.run(
-                [sys.executable, "-m", "pytest", "--tb=short", "-q",
-                 "--cov=03-development/src", "--cov-fail-under=100"],
+                [sys.executable, "-m", "pytest", str(test_dir), "--tb=short", "-q",
+                 f"--cov={src_dir.relative_to(project)}", "--cov-fail-under=100"],
                 cwd=str(project),
             )
             if r.returncode != 0:
                 print("\n[BLOCKED] TDD test/coverage failure.")
-                print("  Fix: 100% coverage on 03-development/src required.")
-                print("  For genuinely untestable lines add: # pragma: no cover")
+                print(f"  Fix: 100% coverage on {src_dir.relative_to(project)} required.")
+                print(f"  {PRAGMA_NO_COVER_GUIDANCE}")
+                print("  Allowed pragma exemptions: "
+                      + ", ".join(PRAGMA_NO_COVER_ALLOWLIST))
                 # P3-A: Python < 3.11 async coverage hint
                 if sys.version_info < (3, 11):  # type: ignore[reportUnreachable]
                     print(
