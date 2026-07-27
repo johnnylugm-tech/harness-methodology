@@ -62,7 +62,16 @@ _LINE_CEILING: dict[str, int] = {
     # override runs) instead of unconditionally overwriting threshold with
     # threshold_effective, which would have silently discarded a project's
     # intentional stricter-than-default traceability floor.
-    "harness/harness_bridge.py": 3081,
+    # 2026-07-27: +11 lines — Round 24: EnvCheckContext.evaluation_prompt()'s
+    # CLASSIFICATION RULE gains a third bucket for test/dev-only opt-in flags
+    # (env vars a project's docs describe as off/disabled/rejected by default
+    # in production) plus a second worked example. Closes the gap that let
+    # the same documented env var on the same unchanged project state
+    # classify as optional_missing in one workflow run and required in
+    # another (observed: wf_8b3a3f79-12b vs wf_4fe2125c-48d) — the prior rule
+    # only distinguished "has a documented default value" vs "no default",
+    # with no bucket for "intentionally absent by design" opt-in flags.
+    "harness/harness_bridge.py": 3092,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
