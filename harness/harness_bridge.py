@@ -2065,6 +2065,28 @@ class HarnessBridge:
                 },
             ) from exc
 
+        # ── Round 21 站2: the shape contract, enforced ───────────────────────
+        # harness/ssi/schemas/harness_gate_result.schema.json existed from the
+        # start and was loaded by nothing, so it drifted into describing a file
+        # no run produces while every consumer guessed at field names — which is
+        # how the DA-waiver safeguard came to read `tool_score`, then `target`,
+        # neither of which any writer emits. Validate once, here, at the read
+        # that actually drives scoring.
+        from core.quality_gate.gate_result_schema import validate_gate_result
+        _shape = validate_gate_result(raw)
+        if not _shape.valid:
+            _shape_msg = _shape.as_block_message(ctx.gate_num)
+            print(f"\n[BLOCKED] {_shape_msg}", file=sys.stderr)
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"malformed_gate_result": list(_shape.violations)},
+            )
+
         # ── Round 12 站3b: INFRA_FAIL ≠ quality failure ──────────────────────
         # Reject zero scores whose evidence carries a run-gate PRECONDITION-
         # block signature BEFORE any of them can enter the manifest as fake

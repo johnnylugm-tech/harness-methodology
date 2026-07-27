@@ -105,9 +105,20 @@ class TestSSISchemas:
             pytest.fail(f"Invalid JSON in {filename}: {e}")
 
     def test_gate_result_schema_required_fields(self):
+        """The gate-level fields a result must carry for the harness to score it.
+
+        Round 21: this list used to also demand `overall_score` and
+        `meets_target`. Real agents leave both null — finalize-gate recomputes
+        the composite and the verdict, so duplicating that arithmetic is not the
+        agent's job. The old expectation was a second copy of the schema's own
+        required list, so it only ever proved the schema had not been edited; it
+        could not notice that the schema described a file no run produces.
+        tests/test_gate_result_schema.py checks the schema against a real gate
+        result instead.
+        """
         path = SCHEMAS_DIR / "harness_gate_result.schema.json"
         schema = json.loads(path.read_text(encoding="utf-8"))
         required = set(schema.get("required", []))
-        expected = {"overall_score", "meets_target", "quality_complete",
-                    "open_critical_count", "open_high_count", "breakdown"}
+        expected = {"quality_complete", "open_critical_count",
+                    "open_high_count", "breakdown"}
         assert expected.issubset(required), f"Schema missing required fields: {expected - required}"

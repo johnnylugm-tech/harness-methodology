@@ -1,23 +1,37 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "HarnessGateResult",
-  "description": "Output written by Claude to .sessi-work/gate{N}_result.json after inline gate evaluation.",
+  "description": "Output written by Claude to .sessi-work/gate{N}_result.json after inline gate evaluation, then persisted to .methodology/gate{N}_result.json by finalize-gate (which patches composite_score / quality_complete / verdict / passed with its own computed values and syncs framework-owned dimension scores into breakdown). Round 21: this file was never loaded by any code, so it drifted into describing a shape no run has produced — required a per-dimension `passed` nothing writes, forbade the `null` scores CRG-only dimensions actually carry, and omitted the four fields every real breakdown entry does have. It is now validated at load time (core/quality_gate/gate_result_schema.py), which means it must keep describing reality: a mismatch is a bug in whichever side has moved, and both sides are now forced to say so.",
   "type": "object",
-  "required": ["overall_score", "meets_target", "quality_complete", "open_critical_count", "open_high_count", "breakdown"],
+  "required": ["quality_complete", "open_critical_count", "open_high_count", "breakdown"],
   "properties": {
     "overall_score": {
-      "type": "number",
+      "type": ["number", "null"],
       "minimum": 0,
       "maximum": 100,
-      "description": "Weighted composite score across all dimensions."
+      "description": "Agent's own weighted composite. Null is normal and expected: finalize-gate recomputes the composite from breakdown weights and writes it to composite_score, so the agent has no reason to duplicate the arithmetic."
+    },
+    "composite_score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Harness-computed weighted composite, patched in by finalize-gate on persist. Absent in the agent's own .sessi-work write."
     },
     "meets_target": {
-      "type": "boolean",
-      "description": "True when overall_score >= score_gate threshold."
+      "type": ["boolean", "null"],
+      "description": "True when overall_score >= score_gate threshold. Null when the agent defers the verdict to the framework (the normal case — see overall_score)."
     },
     "quality_complete": {
       "type": "boolean",
-      "description": "True when meets_target AND open_critical_count==0 AND open_high_count==0."
+      "description": "True when meets_target AND open_critical_count==0 AND open_high_count==0. Advisory as written by the agent (HR-18): finalize-gate recomputes it and overwrites this field on persist."
+    },
+    "verdict": {
+      "type": "string",
+      "description": "PASS / FAIL, patched in by finalize-gate on persist."
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Top-level pass flag, patched in by finalize-gate on persist. NOTE: this is a gate-level field. There is no per-dimension `passed` — a dimension's outcome is score vs threshold."
     },
     "open_critical_count": {
       "type": "integer",
@@ -29,19 +43,58 @@
       "minimum": 0,
       "description": "Number of unresolved high severity issues."
     },
+    "rounds_used": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Evaluation rounds consumed reaching this result."
+    },
     "breakdown": {
       "type": "object",
       "description": "Per-dimension score detail keyed by dimension name.",
       "additionalProperties": {
         "type": "object",
-        "required": ["score", "threshold", "passed"],
+        "required": ["score", "threshold"],
         "properties": {
-          "score": {"type": "number", "minimum": 0, "maximum": 100},
-          "threshold": {"type": "number", "minimum": 0, "maximum": 100},
-          "passed": {"type": "boolean"},
+          "score": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Null means the framework owns this dimension's score (CRG-only dimensions such as architecture) or no measurement applies (e.g. pytest-benchmark with no benchmarks). Readers MUST handle null explicitly — dict.get(k, default) does not substitute for a present null."
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "The dimension's pass bar. This is the field name — not `target`, which belongs to harness/ssi/scripts/score.py's separate .sessi-work/round_N/ output, and not `tool_score`, which no writer has ever produced."
+          },
+          "tool_output": {
+            "type": "string",
+            "description": "Path to the raw tool output backing this score."
+          },
+          "tool_evidence": {
+            "type": "string",
+            "description": "Quoted excerpt from the tool output that yields the score (checked by _check_tool_evidence)."
+          },
           "issues": {
             "type": "array",
-            "items": {"type": "string"}
+            "items": {"type": "string"},
+            "description": "Human-readable deficiencies found in this dimension."
+          },
+          "findings": {
+            "type": "array",
+            "description": "Structured findings, including framework enrichment (CRG hub nodes, large functions, dead code)."
+          },
+          "devil_advocate": {
+            "type": "boolean",
+            "description": "Mirror of the top-level devil_advocate entry for this Tier 3 dimension."
+          },
+          "da_waiver": {
+            "type": "boolean",
+            "description": "Mirror of the top-level da_waiver entry. Requesting a waiver here does not grant one — see core/quality_gate/da_waiver.py."
+          },
+          "framework_override": {
+            "type": "boolean",
+            "description": "True when the framework, not the agent, supplied this dimension's score."
           }
         }
       }
@@ -51,6 +104,39 @@
       "items": {"type": "string"},
       "description": "Names of dimensions that did not meet their individual thresholds."
     },
+    "devil_advocate": {
+      "type": "object",
+      "description": "Per-Tier-3-dimension flag: was a Devil's Advocate challenge run?",
+      "additionalProperties": {"type": "boolean"}
+    },
+    "da_waiver": {
+      "type": "object",
+      "description": "Per-dimension score-threshold waiver REQUEST. Permission is checked against core.quality_gate.da_waiver.WAIVABLE_DIMENSIONS at collection; necessity is adjudicated in finalize_gate against the framework's own score.",
+      "additionalProperties": {"type": "boolean"}
+    },
+    "devil_advocate_evidence": {
+      "type": "object",
+      "description": "Per-dimension challenge + response prose. The harness checks presence and length, not truth — it is a documentation artifact, not a correctness guarantee.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "challenger_model": {"type": "string"},
+          "challenge": {"type": "string"},
+          "response": {"type": "string"}
+        }
+      }
+    },
+    "tool_outputs": {
+      "type": "object",
+      "description": "Dimension → tool output path map."
+    },
+    "enforcer_sha": {
+      "type": "string",
+      "description": "Harness commit that produced this verdict (Round 19 站3), with a -dirty suffix when the working tree was not clean."
+    },
+    "crg_review_context": {"type": "object"},
+    "crg_impact_radius": {"type": "object"},
+    "crg_affected_flows": {"type": "object"},
     "gate_num": {
       "type": "integer",
       "description": "Gate number this result belongs to."

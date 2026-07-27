@@ -78,7 +78,12 @@ _LINE_CEILING: dict[str, int] = {
     # thrice-repeated effective-threshold expression into one local helper so
     # the verdict, the failing-dimension report, and the waiver decision cannot
     # drift onto different bars.
-    "harness/harness_bridge.py": 3128,
+    # 2026-07-27: +22 lines — Round 21 站2: finalize_gate validates the gate
+    # result against harness_gate_result.schema.json before scoring from it.
+    # The schema had never been loaded by any code, so it drifted into
+    # describing a document no run produces while consumers guessed field
+    # names — the direct cause of the dead DA-waiver safeguard above.
+    "harness/harness_bridge.py": 3150,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

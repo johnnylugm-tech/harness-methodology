@@ -2083,10 +2083,25 @@ class TestFinalizeGate1:
         sessi = tmp_path / ".sessi-work"
         sessi.mkdir(parents=True, exist_ok=True)
         if gate1_result is None:
+            # Round 21 站2: shaped like a gate result an actual run produces
+            # (breakdown of {score, threshold} rows, open_*_count present) so
+            # the schema check at the head of finalize_gate sees real input.
+            # The previous fixture used a `dimensions` map of bare numbers — a
+            # shape no writer emits and which harness_bridge's own dims builder
+            # (which reads `breakdown`) would have scored as no evidence at all.
             gate1_result = {
                 "gate": 1, "phase": phase, "fr_id": fr_id,
                 "score": 95.0, "quality_complete": True,
-                "dimensions": {"linting": 95, "type_safety": 95, "test_coverage": 95},
+                "open_critical_count": 0, "open_high_count": 0,
+                # Distinct scores on purpose: the old `dimensions` map was never
+                # read by the dims builder, so these tests never reached the
+                # identical-scores fabrication circuit breaker. Real per-dimension
+                # tool runs produce natural variance, and that check exists to say so.
+                "breakdown": {
+                    "linting": {"score": 100.0, "threshold": 90},
+                    "type_safety": {"score": 98.5, "threshold": 85},
+                    "test_coverage": {"score": 92.0, "threshold": 80},
+                },
             }
         import json as _json
         (sessi / "gate1_result.json").write_text(_json.dumps(gate1_result))

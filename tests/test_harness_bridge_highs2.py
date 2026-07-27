@@ -178,10 +178,16 @@ class TestCrgEnrichmentSilentDrop:
         Uses Gate 3 (gate_num >= 2) because the CRG enrichment
         code path is only exercised for non-Gate-1 gates."""
         # Write a valid gate3 result so finalize_gate gets past the
-        # JSON-read step.
+        # JSON-read step. Round 21 站2: "valid" now means it satisfies
+        # harness_gate_result.schema.json — this fixture called itself valid
+        # while omitting three required fields, which nothing could tell it
+        # until the schema became executable.
         (Path(gate3_ctx.work_dir) / "gate3_result.json").write_text(
             json.dumps({
                 "overall_score": 85.0,
+                "quality_complete": True,
+                "open_critical_count": 0,
+                "open_high_count": 0,
                 "breakdown": {"linting": {"score": 90.0, "threshold": 90.0}},
             }, indent=2),
             encoding="utf-8",
