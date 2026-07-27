@@ -606,7 +606,18 @@ jobs:
         run: pip install -r harness/requirements.txt || true
 
       - name: Install code-review-graph
-        run: pip install code-review-graph
+        # Round 29: pinned — unpinned always resolves to whatever is latest
+        # on PyPI at CI run-time, while local dev installs are typically a
+        # different, out-of-band channel (e.g. Homebrew) with no version
+        # parity guarantee. A version bump silently changes Leiden
+        # clustering/cohesion-scoring behavior even on byte-identical source
+        # (observed: CI reported architecture_score=66.7 against a committed
+        # crg_baseline_p6.json of 100.0 on the SAME commit — source unchanged,
+        # calibration unchanged). Matches the existing igraph==1.0.0 pin in
+        # requirements.txt for the same reason. Bump deliberately and
+        # re-capture the baseline (finalize-gate --gate 4) when upgrading,
+        # don't drift silently.
+        run: pip install code-review-graph==2.3.6
 
       - name: Detect phase
         id: phase

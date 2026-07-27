@@ -115,7 +115,7 @@ _LINE_CEILING: dict[str, int] = {
     # gained a "Fix:"/re-run remediation line (blocked-message-contract scan).
     # +15: Round 18 站3 added _attestation_content_still_current, the slow-path
     # adjudication that stops the mtime probe from manufacturing no-op commits.
-    "cli/phase_cmds.py": 2825,  # 2026-07-26: +80 — Round 14 A2/A4: cmd_advance_phase now previews P(N+1) entry blocking via PhaseHooks.preview_next_phase_blocking(), threads obligations into HandoverGenerator.write + _advance_fsm, and replaces "Ready to begin Phase N+1" with a pointer to the obligations table (sized to current 2768). 2026-07-26: +33 — Round 15 §2: new cmd_preview_next_phase() + preview-next-phase subparser — a read-only P(N+1) obligation query that never writes state.json/HANDOVER.md/a commit, usable before P(N) exit gate even passes (sized to current 2813).
+    "cli/phase_cmds.py": 2831,  # 2026-07-27: +6 — Round 29: run-phase auto-skips the spawn-substrate preflight probe when CI/GITHUB_ACTIONS is set — CI never dispatches an interactive per-FR loop, so the probe (which requires the claude CLI, never present there) can only ever fail (sized to current 2825→2831). 2026-07-26: +80 — Round 14 A2/A4: cmd_advance_phase now previews P(N+1) entry blocking via PhaseHooks.preview_next_phase_blocking(), threads obligations into HandoverGenerator.write + _advance_fsm, and replaces "Ready to begin Phase N+1" with a pointer to the obligations table (sized to current 2768). 2026-07-26: +33 — Round 15 §2: new cmd_preview_next_phase() + preview-next-phase subparser — a read-only P(N+1) obligation query that never writes state.json/HANDOVER.md/a commit, usable before P(N) exit gate even passes (sized to current 2813).
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -226,7 +226,7 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 13 previously-unlogged broad excepts now print a [WARN]
     # diagnostic.
-    "cli/project_cmds.py": 1973,  # 2026-07-21: +5 lines — fix/init-project-harness-root-path: Add explanatory comment for __file__.parent.parent dynamic path resolution.
+    "cli/project_cmds.py": 1986,  # 2026-07-27: +13 — Round 29: _check_content_quality gained two per-file-type exemptions (MAINTENANCE_LOG.md from the section-count floor, TEST_RESULTS.md from the FR-ref rule) — both files' harness-generated canonical shape was being flagged suspicious by a one-size-fits-all heuristic (sized to current 1973→1986). 2026-07-21: +5 lines — fix/init-project-harness-root-path: Add explanatory comment for __file__.parent.parent dynamic path resolution.
     # 2026-07-21: +38 lines — fix/round-18-dispatch-ssot (Bug C): wrap cmd_amend_sab with a deterministic-tool sessions_spawn.log entry written from the mutation site (covers all callers — standalone amend-sab subcommand + run-fr-step amend-sab delegation + any future caller). Splits the function body into _cmd_amend_sab_impl returning (rc, outcome_tag) and a new _log_amend_sab_outcome helper that mirrors AgentSpawner._log_dispatch's swallowing try/except.
     # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
     # 2026-07-16: Round 12 站0 — agent_spawner crossed the unlisted-file

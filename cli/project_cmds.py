@@ -1140,14 +1140,27 @@ def cmd_audit_structure(args: argparse.Namespace) -> int:
         if len(content.strip()) < 200:
             issues.append("content < 200 chars")
         is_yaml = fpath.name.endswith(".yaml") or fpath.name.endswith(".yml")
-        if not is_yaml and len(_re.findall(r"(?:^|\n)#{1,6} ", content)) < 2:
+        # Round 29: MAINTENANCE_LOG.md's canonical shape (harness/templates/
+        # MAINTENANCE_LOG.md) is a single H1 + an append-only CR table — rows
+        # are appended by `cr-close`, not markdown sections, so it never gains
+        # a 2nd heading even after CRs are processed. The section-count floor
+        # is structurally inapplicable to this file, same reasoning as the
+        # existing YAML exemption above.
+        is_cr_log = fpath.name == "MAINTENANCE_LOG.md"
+        if not is_yaml and not is_cr_log and len(_re.findall(r"(?:^|\n)#{1,6} ", content)) < 2:
             issues.append("< 2 markdown sections")
         # I: require CANONICAL FR-ID form (FR-NN / TASK-NN / NFR-NN, ≥2 digits).
         # Previously accepted 4 variants (FR-01, FR01, fr_01, FR(01)) which
         # masked source-code inconsistencies. Now strict — run canonical_lint
         # to find/fix variants in existing docs.
-        if phase_num in _FR_REF_PHASES and not _re.search(
-            r"\b(?:TASK|FR|NFR)-\d{2,}\b", content
+        # Round 29: TEST_RESULTS.md's canonical shape (harness/templates/
+        # TEST_RESULTS.md) uses TC-XX test-case IDs, never FR/TASK/NFR refs —
+        # this rule doesn't apply to it (harness's own template output would
+        # itself fail this check).
+        if (
+            phase_num in _FR_REF_PHASES
+            and fpath.name != "TEST_RESULTS.md"
+            and not _re.search(r"\b(?:TASK|FR|NFR)-\d{2,}\b", content)
         ):
             issues.append("no [TASK/FR/NFR-NN] canonical references")
         return {"quality": "good" if not issues else "suspicious", "issues": issues}

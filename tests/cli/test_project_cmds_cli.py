@@ -359,11 +359,14 @@ class TestCmdAuditStructure:
         data = json.loads(buf.getvalue())
         cq = data["dimensions"]["content_quality"]
 
-        # P4 TEST_PLAN has FR ref → good; TEST_RESULTS has no FR ref → suspicious
+        # P4 TEST_PLAN has FR ref → good; TEST_RESULTS.md is exempt from the
+        # FR-ref rule (Round 29: its canonical shape uses TC-XX test-case IDs,
+        # never FR/TASK/NFR refs — harness's own template would itself fail
+        # this check) and is otherwise well-formed → good.
         p4 = cq["details"]["P4"]
         p4_files = {f["path"]: f["quality"] for f in p4["files"]}
         assert p4_files["04-testing/TEST_PLAN.md"] == "good"
-        assert p4_files["04-testing/TEST_RESULTS.md"] == "suspicious"  # no FR ref
+        assert p4_files["04-testing/TEST_RESULTS.md"] == "good"
 
         # P6 QUALITY_REPORT has no FR ref — but phase 6 is excluded from FR check
         p6 = cq["details"]["P6"]
@@ -525,7 +528,9 @@ class TestCmdAuditStructure:
         )
 
     def test_p4_fr_reference_still_flags_doc_with_no_reference(self, tmp_path):
-        """A P4 doc with zero FR/NFR references must still be flagged."""
+        """A P4 doc with zero FR/NFR references must still be flagged — except
+        TEST_RESULTS.md, which is exempt from this rule (Round 29: its
+        canonical shape uses TC-XX test-case IDs, never FR/TASK/NFR refs)."""
 
         (tmp_path / "04-testing").mkdir()
         (tmp_path / "04-testing" / "TEST_PLAN.md").write_text(
@@ -541,7 +546,74 @@ class TestCmdAuditStructure:
             for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
         }
         assert files["04-testing/TEST_PLAN.md"] == "suspicious"
+        assert files["04-testing/TEST_RESULTS.md"] == "good"
+
+    def test_test_results_still_flags_when_hollow(self, tmp_path):
+        """TEST_RESULTS.md's FR-ref exemption must not become a blanket
+        immunity — a genuinely thin/hollow file must still be flagged."""
+
+        (tmp_path / "04-testing").mkdir()
+        (tmp_path / "04-testing" / "TEST_RESULTS.md").write_text(
+            "# Test Results\n\ntoo short.\n"
+        )
+
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P4"]["files"]
+        }
         assert files["04-testing/TEST_RESULTS.md"] == "suspicious"
+
+    def test_maintenance_log_fresh_cr_table_is_good(self, tmp_path):
+        """A freshly-initialized MAINTENANCE_LOG.md (harness's own template
+        shape: 1 H1 + an empty CR table header, zero CR rows yet) must not be
+        flagged 'suspicious' — CR rows are appended by `cr-close`, not
+        markdown sections, so this file legitimately never gains a 2nd
+        heading regardless of how many CRs have been processed."""
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"current_phase": 9})
+        )
+        (tmp_path / "09-maintenance").mkdir()
+        (tmp_path / "09-maintenance" / "MAINTENANCE_LOG.md").write_text(
+            "# MAINTENANCE_LOG — Phase 9 Change Request Index\n\n"
+            "> ASPICE SUP.9 (problem resolution) / SUP.10 (change request management).\n"
+            "> Machine state: `.methodology/change_requests/CR-NN.json` — "
+            "this file is the human-readable index.\n"
+            "> Rows are appended automatically by `harness_cli.py cr-close`; "
+            "do not hand-edit closed rows.\n\n"
+            "| CR | Type | Title | Status | FRs | Fix commit | Closed |\n"
+            "|----|------|-------|--------|-----|------------|--------|\n"
+        )
+
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P9"]["files"]
+        }
+        assert files["09-maintenance/MAINTENANCE_LOG.md"] == "good"
+
+    def test_maintenance_log_still_flags_when_hollow(self, tmp_path):
+        """MAINTENANCE_LOG.md's section-count exemption must not become a
+        blanket immunity — a genuinely thin/hollow file must still be
+        flagged."""
+
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"current_phase": 9})
+        )
+        (tmp_path / "09-maintenance").mkdir()
+        (tmp_path / "09-maintenance" / "MAINTENANCE_LOG.md").write_text(
+            "# MAINTENANCE_LOG\n\ntoo short.\n"
+        )
+
+        data = self._audit_json(tmp_path)
+        files = {
+            f["path"]: f["quality"]
+            for f in data["dimensions"]["content_quality"]["details"]["P9"]["files"]
+        }
+        assert files["09-maintenance/MAINTENANCE_LOG.md"] == "suspicious"
 
     # --- Bug 7 regression: P7 artifact list single source of truth ---
     # Before the fix, the P7 list was duplicated in 8+ places (drift_detector,

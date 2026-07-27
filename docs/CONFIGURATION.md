@@ -117,6 +117,8 @@ scans the source and fails on unregistered additions.
 | `OTEL_EXPORTER` | external | OpenTelemetry exporter selector (observability). |
 | `VIRTUAL_ENV` | system | Read to locate the active interpreter's tooling during env checks. |
 | `USER` | system | Default operator id for kill-switch audit logging. |
+| `CI` | system | When set, `run-phase` skips the spawn-substrate preflight probe (Round 29) — CI never dispatches an interactive per-FR loop, so there is no sub-agent substrate to validate, and the probe (which requires the `claude` CLI) can only ever fail there. |
+| `GITHUB_ACTIONS` | system | Same effect as `CI` above — GitHub Actions sets this even when the generic `CI` var is absent. |
 | `METHODOLOGY_CONSTITUTION_PROFILE` | harness | JSON string overriding the on-demand constitution profile (read via a variable name in `constitution/profile.py`, so the AST literal scan can't see it — registered by hand; the scanner's known limit). |
 
 ## Deliberately NOT configurable (anti-backdoor)

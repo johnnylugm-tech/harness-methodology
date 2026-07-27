@@ -1476,7 +1476,20 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     # Probe parameters mirror run-fr-step's real dispatch parameters
     # (same _resolve_phase3_context + values.permission_mode chain) so it
     # measures the substrate the pipeline will actually use.
-    if args.phase in PER_FR_GATE1_PHASES and not getattr(args, "skip_substrate_probe", False):
+    # Round 29: run-phase in CI does structural enforcement only (FSM/drift/
+    # traceability) — it never dispatches an interactive per-FR loop (see
+    # harness_quality_gate.yml: "Gate score evaluation requires an
+    # interactive Claude session — always local"). The substrate probe exists
+    # to protect that interactive dispatch from a broken sandbox; in CI there
+    # is no `claude` CLI and no dispatch to protect, so probing there can only
+    # ever fail (the .sessi-work/ cache is gitignored — CI never has it).
+    _ci_env = os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")
+    if _ci_env:
+        print(
+            "\n[SUBSTRATE PROBE] CI environment detected (CI/GITHUB_ACTIONS) — "
+            "skipping (no interactive per-FR dispatch runs in CI)."
+        )
+    elif args.phase in PER_FR_GATE1_PHASES and not getattr(args, "skip_substrate_probe", False):
         _probe_rc = _run_substrate_probe(project, args.phase)
         if _probe_rc != 0:
             return _probe_rc

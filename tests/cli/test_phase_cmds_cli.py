@@ -205,6 +205,70 @@ class TestRunPhaseNoPostflight:
         assert postflight_called == [], "postflight_all must NOT be called on entry gate failure"
 
 
+class TestRunPhaseCISubstrateProbeSkip:
+    """Round 29: run-phase must skip the spawn-substrate probe in CI — CI never
+    dispatches an interactive per-FR loop (no `claude` CLI is ever installed
+    there), so the probe can only ever fail. See harness_quality_gate.yml's own
+    comment: "Gate score evaluation requires an interactive Claude session —
+    always local." Local dev (no CI/GITHUB_ACTIONS env var) must be unaffected."""
+
+    def _make_project(self, tmp_path: Path) -> Path:
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True)
+        state = {"current_phase": 3, "phase_completed": {}}
+        (meth / "state.json").write_text(json.dumps(state))
+        return tmp_path
+
+    def test_ci_env_skips_probe_entirely(self, tmp_path, monkeypatch):
+        """phase=3 is in PER_FR_GATE1_PHASES — probe would normally fire."""
+        project = self._make_project(tmp_path)
+
+        import harness_cli
+        from core.phase_hooks import PhaseHooks
+
+        monkeypatch.setattr("cli.phase_cmds._verify_entry_gate",
+                            lambda *_, **__: {"passed": True, "gate": "G", "reason": "ok"})
+        monkeypatch.setattr(PhaseHooks, "preflight_all",
+                            lambda _: {"all_passed": True, "details": {}})
+
+        def _boom(*_a, **_kw):
+            raise AssertionError("_run_substrate_probe must not be called in CI")
+
+        monkeypatch.setattr("cli.phase_cmds._run_substrate_probe", _boom)
+        monkeypatch.setenv("CI", "true")
+
+        args = argparse.Namespace(phase=3, project=str(project))
+        rc = harness_cli.cmd_run_phase(args)
+
+        assert rc == 0
+
+    def test_local_env_still_runs_probe(self, tmp_path, monkeypatch):
+        """Without CI/GITHUB_ACTIONS set, local dev behavior is unchanged."""
+        project = self._make_project(tmp_path)
+
+        import harness_cli
+        from core.phase_hooks import PhaseHooks
+
+        monkeypatch.setattr("cli.phase_cmds._verify_entry_gate",
+                            lambda *_, **__: {"passed": True, "gate": "G", "reason": "ok"})
+        monkeypatch.setattr(PhaseHooks, "preflight_all",
+                            lambda _: {"all_passed": True, "details": {}})
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+        called = []
+        monkeypatch.setattr(
+            "cli.phase_cmds._run_substrate_probe",
+            lambda *_a, **_kw: called.append(1) or 0,
+        )
+
+        args = argparse.Namespace(phase=3, project=str(project))
+        rc = harness_cli.cmd_run_phase(args)
+
+        assert rc == 0
+        assert called == [1], "probe must still run locally when no CI env var is set"
+
+
 # =============================================================================
 # _advance_prechecks — TDD block (P3+)
 # =============================================================================

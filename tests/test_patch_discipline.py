@@ -63,7 +63,12 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # of an already-accepted pattern, not a new coupling.
     "tests/cli/test_gate_cmds_cli.py": 59,
     "tests/test_mutation_enforcer.py": 46,
-    "tests/cli/test_phase_cmds_cli.py": 36,
+    "tests/cli/test_phase_cmds_cli.py": 40,
+    # 2026-07-27 Round 29 (+4): TestRunPhaseCISubstrateProbeSkip's 2 tests each
+    # monkeypatch cli.phase_cmds._verify_entry_gate (the same already-accepted
+    # seam TestRunPhaseNoPostflight uses right above it) and
+    # cli.phase_cmds._run_substrate_probe (the new CI-skip's own target —
+    # asserting it is/isn't called is the entire point of these two tests).
     "tests/test_handover_generator.py": 32,  # 2026-07-26 Round 14 A2-t: +4 — test_advance_phase_surfaces_obligations_to_handover monkeypatches cli.phase_cmds._advance_fsm (the seam cmd_advance_phase calls to write out state.json's last_gate/task_background; substantively the public state-write — already a constructor-private wiring seam multiple cmd_advance_phase tests in this file go through — _advance_prechecks (the precondition aggregator — also covered by TestP1MissingDeliverableBlocksAdvance below this file, same seam); the test's OTHER monkeypatches (HandoverGenerator.write, PhaseHooks.preview_next_phase_blocking, subprocess.run, sys.stdout) target PUBLIC class methods / modules and do not count toward the ceiling.
     "tests/test_handover_generator_injection.py": 18,
     "tests/cli/test_push_cmds_cli.py": 17,
