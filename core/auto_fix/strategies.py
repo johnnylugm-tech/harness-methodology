@@ -241,9 +241,21 @@ def fix_hollow_content(context, project_root: Path) -> Tuple[bool, str, float]:
 
 
 def fix_low_coverage(context, project_root: Path) -> Tuple[bool, str, float]:
-    """Generate pytest test stubs for uncovered functions."""
+    """Generate pytest test stubs for uncovered functions.
+
+    Round 20 站2: the test directory comes from ProjectLayout, not from
+    `project_root / "tests"`. This is the third recurrence of the same class
+    (Round 22's advance-phase pytest scope, Round 25's NFR scan), and the worst
+    of the three: the other two READ the wrong directory, this one CREATED it.
+    On a project whose tests live under 03-development/tests/ (the layout
+    ProjectLayout.active_test_dir exists to resolve), it would mkdir a `tests/`
+    at the project root, write stubs into it that the project's own pytest run
+    never collects, and report the coverage deficit fixed — leaving a polluted
+    root directory and an unchanged coverage number.
+    """
+    from core.utils.project_layout import ProjectLayout
     uncovered = context.details.get("uncovered", [])
-    test_dir = project_root / "tests"
+    test_dir = ProjectLayout(project_root).active_test_dir
     test_dir.mkdir(parents=True, exist_ok=True)
     generated = 0
     for func_info in uncovered[:5]:

@@ -83,6 +83,126 @@ def test_no_phase_dir_path_arithmetic_outside_layout():
     )
 
 
+# ── Round 20 站2: the other half of ProjectLayout ────────────────────────────
+#
+# The guard above covers phase directories ("03-development" & friends). The
+# test/src directories were never covered, and that is exactly where the same
+# class kept recurring — three times, each found by a real run rather than by a
+# test:
+#
+#   Round 22 (4aa6ff2)  advance-phase's pytest had no explicit path, so cwd
+#                       discovery also collected the vendored harness/tests/.
+#   Round 25 (7af95ba)  build_traceability's NFR scan read `project / "tests"`,
+#                       empty for 03-development/tests/ layouts, so every NFR
+#                       rendered PENDING. Its own commit message notes the fix
+#                       "was already proven correct at spec_tracking_checker.py"
+#                       — a sibling that had been fixed and not swept.
+#   Round 20 站2        core/auto_fix/strategies.fix_low_coverage did the same
+#                       and then mkdir'd the wrong directory and wrote stubs
+#                       into it, reporting the coverage deficit fixed.
+#
+# What counts as an offence is a path built from a project ROOT, bypassing
+# ProjectLayout. Building from a layout accessor
+# (`ProjectLayout(p).phase3_development_dir / "tests"`) is how the SSOT itself
+# composes paths and is not flagged.
+# Detected on the AST, not by line regex. The first version of this guard
+# scanned text and flagged its own docstring — prose ABOUT the pattern read
+# identically to the pattern. Same lesson as the Round 11 站5 conventions lint:
+# a rule about code shape has to look at code shape.
+_ROOT_NAMES = frozenset({"project", "project_root", "root", "cwd", "repo_root"})
+_LEAF_DIRS = frozenset({"tests", "test", "src"})
+
+
+def _root_relative_test_src_offences(source: str) -> "list[tuple[int, str]]":
+    """(lineno, rendering) for every `<root> / "tests"`-shaped Path division.
+
+    Matches a bare name (`project_root / "tests"`) or an attribute on self
+    (`self.root / "src"`). Deliberately does NOT match a layout accessor —
+    `ProjectLayout(p).phase3_development_dir / "tests"` is how the SSOT itself
+    composes paths, and its left operand is neither a plain root name nor
+    self.root.
+    """
+    import ast as _ast
+    try:
+        tree = _ast.parse(source)
+    except SyntaxError:
+        return []
+    found: list[tuple[int, str]] = []
+    for node in _ast.walk(tree):
+        if not (isinstance(node, _ast.BinOp) and isinstance(node.op, _ast.Div)):
+            continue
+        right = node.right
+        if not (isinstance(right, _ast.Constant) and right.value in _LEAF_DIRS):
+            continue
+        left = node.left
+        if isinstance(left, _ast.Name) and left.id in _ROOT_NAMES:
+            found.append((node.lineno, f"{left.id} / {right.value!r}"))
+        elif (
+            isinstance(left, _ast.Attribute)
+            and left.attr in _ROOT_NAMES
+            and isinstance(left.value, _ast.Name)
+            and left.value.id == "self"
+        ):
+            found.append((node.lineno, f"self.{left.attr} / {right.value!r}"))
+    return found
+
+# Files allowed to build these paths from a root, each with the reason. Anything
+# not listed here must go through ProjectLayout. Keep this list short: every
+# entry is a place the next recurrence can hide.
+_ALLOWED_ROOT_TEST_SRC: dict[str, str] = {
+    "core/utils/project_layout.py":
+        "the SSOT itself — these literals are the definition every other "
+        "module resolves through",
+    "core/quality_gate/spec_coverage.py":
+        "_get_test_directories deliberately collects BOTH the root and the "
+        "canonical location and returns a list; it is a union, not a choice",
+    "scripts/build_traceability.py":
+        "FR-scan branch selection probes both layouts explicitly and warns on "
+        "fallback (Round 25 fixed the NFR scan, which did NOT; the remaining "
+        "references are the intentional predicates)",
+    "scripts/generate_fr_mapping.py":
+        "builds a candidate list of every plausible location, both layouts "
+        "included, and filters by existence",
+    "enforcement/framework_enforcer.py":
+        "if/elif over both layouts — the same explicit two-branch probe",
+    "cli/gate_cmds.py":
+        "one last-resort default when _get_test_directories returns empty, "
+        "immediately adjacent to that call",
+}
+
+
+def test_no_root_relative_test_or_src_dirs_outside_layout():
+    offenders = []
+    for rel, path in _framework_sources():
+        if rel in _ALLOWED_ROOT_TEST_SRC:
+            continue
+        src = path.read_text(encoding="utf-8", errors="replace")
+        for lineno, rendering in _root_relative_test_src_offences(src):
+            offenders.append(f"{rel}:{lineno}: {rendering}")
+    assert not offenders, (
+        "test/src directory built from a project root — use "
+        "ProjectLayout(...).active_test_dir / .active_src_dir "
+        "(core/utils/project_layout.py). A project whose tests live under "
+        "03-development/tests/ silently gets an empty or wrong directory, which "
+        "has now shipped three times (Rounds 22, 25, and 20 站2):\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_every_root_test_src_exemption_is_real_and_justified():
+    """A stale exemption is worse than none: it keeps a file permanently outside
+    the guard after the reason has gone away."""
+    for rel, reason in _ALLOWED_ROOT_TEST_SRC.items():
+        assert (REPO / rel).is_file(), f"exempted file no longer exists: {rel}"
+        assert reason.strip(), f"{rel} exempted with no reason"
+        assert _root_relative_test_src_offences(
+            (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        ), (
+            f"{rel} no longer builds a root-relative test/src path — remove it "
+            f"from _ALLOWED_ROOT_TEST_SRC so the guard covers it again"
+        )
+
+
 def test_no_foreign_project_module_references():
     offenders = []
     for rel, path in _framework_sources():
