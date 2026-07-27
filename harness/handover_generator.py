@@ -284,15 +284,46 @@ class HandoverGenerator:
     def handover_path(self) -> Path:
         return self.project / "HANDOVER.md"
 
+    # The one line of a rendered handover that says WHEN it was written rather
+    # than WHAT it says. Same distinction Round 18 站3 drew for an attestation's
+    # `git_sha`, and for the same reason: comparing it defeats the comparison.
+    _GENERATED_LINE = re.compile(r"^\*\*Generated\*\*: .*$", re.MULTILINE)
+
+    @classmethod
+    def _substantive(cls, content: str) -> str:
+        return cls._GENERATED_LINE.sub("**Generated**: <ts>", content)
+
     def write(self, *args, **kwargs) -> Path:
         """render() + atomic write to ``<project>/HANDOVER.md``.
 
         Kept as the convenience entry point; callers that must publish
         HANDOVER.md together with other state files (advance-phase) call
         render() and stage the content in a StateTransaction instead.
+
+        Skips the write entirely when only the timestamp would change (Round 20
+        站3). A handover is regenerated on every milestone, and its `Generated`
+        line guaranteed a diff even when nothing about the situation had moved —
+        so re-running a milestone always had something to commit. taskq's Phase 4
+        produced three commits with an identical subject
+        ("feat(P4-pre-gate3): all 5 FR(s) Gate1 re-eval PASS; ready for Gate 3"),
+        the last of which changed nothing but two timestamps, and all three
+        landed AFTER Gate 3 had already passed, so even the subject was no
+        longer true.
+
+        The workflow prompt for that milestone calls it "(Idempotent; skip if
+        already snapshotted.)" — a claim about this function that this function
+        did not honour. It does now, at the layer that can actually guarantee it
+        rather than in a sentence addressed to an agent.
         """
         content = self.render(*args, **kwargs)
         path = self.handover_path
+        try:
+            if path.is_file() and self._substantive(
+                path.read_text(encoding="utf-8")
+            ) == self._substantive(content):
+                return path
+        except OSError:
+            pass  # unreadable existing file → fall through and write
         # Atomic write: a SIGKILL/OOM/power-loss mid-flush of plain
         # path.write_text would leave HANDOVER.md truncated or empty,
         # destroying the sole state for resuming a new session.
