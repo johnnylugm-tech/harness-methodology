@@ -132,7 +132,7 @@ def build_traceability(
     # NFR coverage: scan SRS.md + test files; stored on rt for matrix rendering.
     srs_path = ProjectLayout(project).srs_path
     nfr_ids = extract_nfr_ids_from_srs(srs_path)
-    test_nfr_map = scan_test_nfr_coverage(project / "tests") if nfr_ids else {}
+    test_nfr_map = scan_test_nfr_coverage(ProjectLayout(project).active_test_dir) if nfr_ids else {}
     # Use setattr to avoid Pyright complaints about unknown attribute.
     setattr(rt, "nfr_data", {
         "nfr_ids": sorted(nfr_ids),
