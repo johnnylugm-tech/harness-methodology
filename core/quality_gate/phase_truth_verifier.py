@@ -402,11 +402,21 @@ class PhaseTruthVerifier:
         )
 
     def check_session_log(self) -> Tuple[bool, float, str]:
-        """Verify the integrity of sessions_spawn.log.
+        """Structural check on sessions_spawn.log. DIAGNOSTIC ONLY — not scored.
 
-        Enforces JSONL format and malformed-line cap for all phases.
-        A/B reviewer separation (HR-01) only applies to Phase 1, 2, and 6
-        where Agent B collaboration is part of the workflow.
+        Round 21 站3 removed this from verify()'s weighted checks. The file is
+        written by the agent whose work the score judges, it is gitignored, and
+        appending a line to it costs one Bash call — so anything read from it is
+        something the audited party could have authored. It remains callable for
+        forensics (core/doctor.py pairs it with an authenticity heuristic over
+        the same entries), and must not be added back to a verdict: a check
+        whose input its subject controls cannot corroborate that subject.
+
+        The A/B reviewer-separation branch was removed with the scoring. Besides
+        resting on the same writable input, it collected reviewer roles across
+        the WHOLE log without filtering by phase, so a single `architect` entry
+        from any phase satisfied it for phases 1, 2 and 6 alike. HR-01 is
+        enforced by the deliverable review, not by counting log lines.
         """
         log_path = ProjectLayout(self.project_root).sessions_spawn_log
         if not log_path.exists():
@@ -430,29 +440,7 @@ class PhaseTruthVerifier:
         if total_lines > 0 and malformed / total_lines >= 0.5:
             return False, 0.0, f"≥50% malformed JSONL lines ({malformed}/{total_lines})"
 
-        # A/B reviewer check applies only to phases that use Agent B collaboration.
-        if self.phase in (1, 2, 6):
-            fr_reviewers: dict[str, set[str]] = {}
-            for e in valid_entries:
-                role = str(e.get("role", "")).strip()
-                if not role:
-                    continue
-                fr = str(e.get("fr_id", "")).strip()
-                if fr:
-                    if fr not in fr_reviewers:
-                        fr_reviewers[fr] = set()
-                    fr_reviewers[fr].add(role)
-
-            _REVIEWER_ROLES = {"reviewer", "architect", "tech_lead", "qa_lead", "senior_dev"}
-            unreviewed_frs = []
-            for fr, roles in fr_reviewers.items():
-                if not roles.intersection(_REVIEWER_ROLES):
-                    unreviewed_frs.append(fr)
-
-            if unreviewed_frs:
-                return False, 50.0, f"A/B reviewer missing for {len(unreviewed_frs)} FR(s)"
-
-        return True, 100.0, "sessions_spawn.log JSONL structure verified (A/B N/A for this phase)"
+        return True, 100.0, f"sessions_spawn.log JSONL structure verified ({len(valid_entries)} entries)"
 
     def _check_artifact_content_quality(self, artifact_path: Path) -> Dict[str, Any]:
         """Perform basic automated content quality check on an artifact.
@@ -564,29 +552,39 @@ class PhaseTruthVerifier:
         print()
 
         # Execute checks (adjust weights based on Phase).
-        # NOTE: The check_session_log invariant ensures JSONL structure and A/B role coverage.
+        #
+        # Round 21 站3: sessions_spawn.log no longer contributes to this score.
+        # It is written by the same agent the score is judging, it is gitignored
+        # (so no review or CI ever sees it), and appending to it takes one Bash
+        # call — every signal it carried was one the audited party could author.
+        # SKILL.md recorded that decision when HR-10 was withdrawn ("log is
+        # agent-writable, not tamper-evident"); the code kept scoring it at
+        # weight 0.20 anyway, and SAD.md still called it a MUST. taskq's Phase 6
+        # then produced six hand-written entries whose role and phase exactly
+        # matched what the A/B branch below looked for.
+        #
+        # check_session_log is retained as a diagnostic (core/doctor.py runs the
+        # authenticity heuristic over the same file) but must never again be a
+        # term in a verdict: a forger can supply whatever the check reads.
         if self.phase <= 2:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.30),
-                ("Session Log Validation", self.check_session_log, 0.20),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.40),
             ]
         # Phase 3-4: framework block + real pytest/coverage + predecessor + cross-artifact
         elif self.phase <= 4:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.28),
-                ("pytest actually passes", self.check_pytest, 0.24),
-                ("test coverage meets threshold", self.check_coverage, 0.16),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.14),
-                ("Cross-artifact consistency", self.check_cross_artifact, 0.08),
-                ("Session Log Validation", self.check_session_log, 0.10),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.31),
+                ("pytest actually passes", self.check_pytest, 0.27),
+                ("test coverage meets threshold", self.check_coverage, 0.18),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
+                ("Cross-artifact consistency", self.check_cross_artifact, 0.09),
             ]
         # Phase 5-8: framework block + previous phase (non-code phases)
         else:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.50),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.30),
-                ("Session Log Validation", self.check_session_log, 0.20),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.40),
             ]
 
         total_weighted = 0.0

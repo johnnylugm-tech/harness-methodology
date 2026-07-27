@@ -213,7 +213,7 @@ This section uses normative language per **RFC 2119**:
 
 | Rule | RFC 2119 | Enforcement Module | Verification |
 |------|----------|--------------------|-------------|
-| HR-01: A≠B (dispatched as separate sub-agent sessions) | **SHOULD** (workflow) | `harness_cli.py` dispatch & `PhaseTruthVerifier` | Validated by `PhaseTruthVerifier` via `sessions_spawn.log` (verifies JSONL format and A/B reviewer separation for phases 1, 2, and 6). |
+| HR-01: A≠B (dispatched as separate sub-agent sessions) | **SHOULD** (workflow) | `harness_cli.py` dispatch; deliverable review | Enforced by reviewing the deliverable. **Not** verified from `sessions_spawn.log` (Round 21 站3): that file is written by the agent under evaluation and is gitignored, so a reviewer role can be appended to it at will — taskq's P6 did exactly that. The residual signal is a `core/doctor.py` WARN naming entries no dispatch produced. |
 | HR-02: Cannot skip phases | **MUST** | `harness_cli.py` FSM | `state.json` phase ordering |
 | HR-03: Kill switch blocks dispatch | **MUST** | `kill_switch/kill_switch.py` | `kill_switch.status()` check before dispatch |
 | HR-04: HybridWorkflow mode=ON for P2+ | **MUST** | `core/hybrid_workflow.py` | `HybridWorkflow.mode` / `should_review()` (mode != OFF) |
@@ -222,7 +222,7 @@ This section uses normative language per **RFC 2119**:
 | HR-07: Constitution score ≥ phase threshold | **MUST** | `core/quality_gate/constitution/runner.py` | `run_constitution_check()` |
 | HR-08: Gate must pass before phase advance | **MUST** | `harness/harness_bridge.py` | `finalize_gate()` threshold check |
 | HR-09: Claims verifier checks A/B authenticity | **MAY** | `core/quality_gate/stage_pass_generator.py` (standalone script only) | `verify_sessions_spawn_log()` — not wired into the active FSM/finalize-gate path |
-| HR-10: `sessions_spawn.log` entries required | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier` checks for existence and JSONL validity. Log must not be empty. |
+| ~~HR-10: `sessions_spawn.log` entries required~~ **REMOVED** | — | — | Withdrawn: the log is agent-writable and not tamper-evident, so its presence or contents corroborate nothing. SKILL.md recorded this when the rule was dropped; Round 21 站3 removed the scoring the code had kept running at weight 0.20 in the meantime. The log remains an observability trail (run-report, failure corpus, MAST classifier) and a `core/doctor.py` forensic WARN. |
 | HR-11: Phase Truth ≥90% | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier.verify()` |
 | HR-12: A/B review ≤5 rounds | **MUST** | `steering/steering_loop.py` | Round counter in iteration loop |
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
@@ -2259,7 +2259,7 @@ class TaskSplitter:
 
 ### §3.23 — `core/sessions_spawn_logger.py` — Spawn Event Logger
 
-**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log`. This log is consumed by `PhaseTruthVerifier` to enforce HR-10 and HR-01. Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
+**Responsibility**: Records agent spawn events to `.methodology/sessions_spawn.log`. **Observability, not evidence** (Round 21 站3): the file is written by the agent whose work a gate judges and is gitignored, so nothing scores it. Its consumers are diagnostic — `run-report`, the failure corpus export, `core/failure_modes.py`'s MAST classifier, and `core/doctor.py`'s authenticity WARN. Supports two-phase write (PENDING → COMPLETED/FAILED via `log_update()`).
 
 **Public API**:
 
@@ -3183,8 +3183,9 @@ Gate 4 needs my Telegram APPROVE — handle everything else."
 | **P7** | DEVOPS | ARCHITECT | Assess risk per FR (impact × likelihood); draft mitigation plans; populate RISK_REGISTER.md | Review risk assessments; verify mitigation plans are actionable; check RISK_STATUS_REPORT.md |
 | **P8** | DEVOPS | ARCHITECT | Document config per FR (env vars, feature flags, secrets); populate CONFIG_RECORDS.md | Review config records; verify environment parity (dev/staging/prod); confirm no secret leaks |
 
-> All phases: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions).
-> `sessions_spawn.log` is verified by `PhaseTruthVerifier` to ensure JSONL structure and A/B role coverage.
+> All phases: Agent A ≠ Agent B (HR-01 workflow — dispatched as separate sub-agent sessions),
+> enforced by reviewing the deliverable. `sessions_spawn.log` is an observability trail and is
+> not scored (Round 21 站3 — an agent-writable, gitignored file cannot corroborate its own author).
 
 ### Pipeline Exit Codes
 

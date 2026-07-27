@@ -232,15 +232,23 @@ class TestCheckSessionLog:
         assert passed is True
         assert score == 100.0
 
-    def test_ab_reviewer_missing_fails(self, tmp_path):
+    def test_ab_reviewer_absence_is_no_longer_judged_from_this_log(self, tmp_path):
+        """Round 21 站3: A/B coverage is not decided by a file the agent writes.
+
+        This used to score 50.0 when no reviewer role appeared. Two reasons it
+        is gone: the input is agent-writable (taskq's P6 hand-wrote six
+        `role: architect` entries), and the scan collected roles across the
+        whole log without filtering by phase, so one entry from any phase
+        satisfied it everywhere. HR-01 is enforced by the deliverable review.
+        """
         (tmp_path / ".methodology").mkdir(exist_ok=True)
         # 1 FR, only developer
         (tmp_path / ".methodology" / "sessions_spawn.log").write_text('{"fr_id": "FR-1", "role": "developer"}\n')
         v = PhaseTruthVerifier(str(tmp_path), 1)
         passed, score, msg = v.check_session_log()
-        assert not passed
-        assert score == 50.0
-        assert "A/B reviewer missing" in msg
+        assert passed is True
+        assert score == 100.0
+        assert "A/B reviewer missing" not in msg
 
     def test_ab_reviewer_present_passes(self, tmp_path):
         (tmp_path / ".methodology").mkdir(exist_ok=True)
