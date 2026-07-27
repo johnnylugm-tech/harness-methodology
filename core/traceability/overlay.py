@@ -16,6 +16,7 @@ mutated. `render_markdown(merged)` produces a markdown string with
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -143,6 +144,32 @@ def merge_overlay(atomic: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, 
         "requirements": merged_requirements,
         "annotations": annotations_by_fr,
     }
+
+
+# Round 27: PR 13's "is this row manually verified" check was duplicated
+# verbatim in 3 call sites (core/phase_hooks.py x2, core/auto_fix/
+# strategies.py x1), each hand-rolling `row.get("status") == "VERIFIED"`.
+# That exact-match never matches the "✅ verified" / "✅ VERIFIED"
+# convention real overlay authors actually use (see
+# enforcement/framework_enforcer.py's Round 26 fix for why that convention
+# exists) — the filter was silently dead for any overlay using it. Strip
+# leading decoration (emoji/whitespace) and require an EXACT case-folded
+# match to "verified" — not a substring/word search — so a value like
+# "not verified" is correctly rejected rather than false-matched.
+_STATUS_LEADING_DECORATION_RE = re.compile(r"^[^\w]*", re.UNICODE)
+
+
+def is_overlay_row_verified(row: Dict[str, Any]) -> bool:
+    """True if a merged overlay row counts as manually verified — exempt
+    from auto-fix / untested-FR flagging (the PR 13 exemption). Recognizes
+    "VERIFIED" case-insensitively with an optional emoji/punctuation prefix
+    (e.g. "verified", "VERIFIED", "✅ verified"), plus the pre-existing
+    "test_files contains 'Manual'" convention.
+    """
+    status = _STATUS_LEADING_DECORATION_RE.sub("", str(row.get("status", ""))).strip().lower()
+    if status == "verified":
+        return True
+    return "Manual" in str(row.get("test_files", []))
 
 
 # ---------------------------------------------------------------------------

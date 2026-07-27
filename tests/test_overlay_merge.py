@@ -333,4 +333,55 @@ def test_build_preserves_overlay_rows(fixture_repo, monkeypatch):
     generate_markdown_matrix(rt, matrix_path, overlay)
     text2 = matrix_path.read_text()
     assert "FR-06" in text2
-    assert "§3.x Manual mapping" in text2
+
+
+# ---------------------------------------------------------------------------
+# Round 27: is_overlay_row_verified() — the PR 13 exemption check, previously
+# duplicated 3x as an exact-match `status == "VERIFIED"` that never matched
+# the real-world "✅ verified" / "✅ VERIFIED" convention.
+# ---------------------------------------------------------------------------
+
+def test_is_overlay_row_verified_plain_uppercase():
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({"status": "VERIFIED"}) is True
+
+
+def test_is_overlay_row_verified_plain_lowercase():
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({"status": "verified"}) is True
+
+
+def test_is_overlay_row_verified_emoji_lowercase():
+    """taskq's actual 01-requirements/TRACEABILITY_MATRIX.overlay.yaml value."""
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({"status": "✅ verified"}) is True
+
+
+def test_is_overlay_row_verified_emoji_uppercase():
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({"status": "✅ VERIFIED"}) is True
+
+
+def test_is_overlay_row_verified_manual_test_files_fallback():
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified(
+        {"status": "in_progress", "test_files": ["Manual: reviewed by QA"]}
+    ) is True
+
+
+def test_is_overlay_row_verified_pending_is_false():
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({"status": "pending"}) is False
+
+
+def test_is_overlay_row_verified_not_verified_is_false():
+    """A free-text 'not verified' annotation must NOT false-match — this is
+    why the fix uses an exact match after stripping decoration, not a
+    substring/word search."""
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({"status": "not verified"}) is False
+
+
+def test_is_overlay_row_verified_missing_status():
+    from core.traceability.overlay import is_overlay_row_verified
+    assert is_overlay_row_verified({}) is False

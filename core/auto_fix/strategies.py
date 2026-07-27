@@ -30,13 +30,13 @@ def _filter_overlay_gaps(
     untested_set = set(report.get("untested", []))
     try:
         from core.traceability.overlay import (
-            atomic_to_dict, load_overlay, merge_overlay,
+            atomic_to_dict, is_overlay_row_verified, load_overlay, merge_overlay,
         )
         overlay = load_overlay(project_root / "TRACEABILITY_MATRIX.overlay.yaml")
         if overlay:
             merged = merge_overlay(atomic_to_dict(rt), overlay)
             for fr_id, row in merged.get("requirements", {}).items():
-                if row.get("status") == "VERIFIED" or "Manual" in str(row.get("test_files", [])):
+                if is_overlay_row_verified(row):
                     uncoded_set.discard(fr_id)
                     untested_set.discard(fr_id)
     except Exception as e:

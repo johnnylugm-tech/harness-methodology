@@ -421,6 +421,49 @@ class TestReVerifyOverlay:
             f"still_untested. Dispatched untested was: {dispatched_untested}"
         )
 
+    def test_preflight_traceability_recognizes_emoji_prefixed_overlay_status(
+        self, tmp_path,
+    ):
+        """Round 27: overlay status "✅ verified" (the convention real projects
+        actually use — see enforcement/framework_enforcer.py's Round 26 fix
+        for why) must exempt an FR the same way a plain "VERIFIED" literal
+        does. Before the fix, `status == "VERIFIED"` never matched this and
+        the FR was silently NOT exempted."""
+        import yaml
+        from core import phase_hooks as ph_module
+
+        arch = tmp_path / "02-architecture"
+        arch.mkdir(parents=True)
+        (arch / "SAD.md").write_text("FR-09: manually-verified via emoji overlay\n")
+
+        src = tmp_path / "core"
+        src.mkdir()
+        (src / "feat.py").write_text('"""[FR-09]""" def feat(): pass\n')
+
+        (tmp_path / "tests").mkdir()  # no test file → would be untested
+
+        overlay_path = tmp_path / "TRACEABILITY_MATRIX.overlay.yaml"
+        overlay_data = {
+            "schema": "harness/traceability/overlay/v1",
+            "overrides": [
+                {"fr_id": "FR-09", "status": "✅ verified",
+                 "justification": "Verified manually per ASPICE exception"},
+            ],
+        }
+        overlay_path.write_text(yaml.safe_dump(overlay_data), encoding="utf-8")
+
+        hooks = ph_module.PhaseHooks(str(tmp_path), phase=5)
+        result = hooks.preflight_traceability()
+
+        # Scoped to the PR 13 exemption itself — attestation status is a
+        # separate blocking condition this fixture doesn't set up, so
+        # `passed` is not asserted here.
+        assert "FR-09" not in result["untested"], (
+            "FR-09 carries an emoji-prefixed '✅ verified' overlay status; "
+            "the PR 13 exemption must recognize it, not just the bare "
+            "'VERIFIED' literal."
+        )
+
 
 # ── Round 14 A: preview_next_phase_blocking tests ──────────────────────────
 

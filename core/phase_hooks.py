@@ -727,7 +727,7 @@ class PhaseHooks:
         uncoded_set = set(report["uncoded"])
         try:
             from core.traceability.overlay import (
-                atomic_to_dict, load_overlay, merge_overlay,
+                atomic_to_dict, is_overlay_row_verified, load_overlay, merge_overlay,
             )
             overlay = load_overlay(self.project_path / "TRACEABILITY_MATRIX.overlay.yaml")
             if overlay:
@@ -735,7 +735,7 @@ class PhaseHooks:
                 # not the check_traceability report dict. Convert rt → atomic first.
                 merged = merge_overlay(atomic_to_dict(_rt), overlay)
                 for fr_id, row in merged.get("requirements", {}).items():
-                    if row.get("status") == "VERIFIED" or "Manual" in str(row.get("test_files", [])):
+                    if is_overlay_row_verified(row):
                         untested_set.discard(fr_id)
                         uncoded_set.discard(fr_id)
         except Exception as e:
@@ -793,7 +793,8 @@ class PhaseHooks:
                     # do not reappear as untested after auto-fix.
                     try:
                         from core.traceability.overlay import (
-                            atomic_to_dict, load_overlay, merge_overlay,
+                            atomic_to_dict, is_overlay_row_verified,
+                            load_overlay, merge_overlay,
                         )
                         overlay2 = load_overlay(
                             self.project_path / "TRACEABILITY_MATRIX.overlay.yaml"
@@ -803,8 +804,7 @@ class PhaseHooks:
                             _overlay_untested: set = set(report2.get("untested", []))
                             _overlay_uncoded: set = set(report2.get("uncoded", []))
                             for fr_id, row in merged2.get("requirements", {}).items():
-                                if (row.get("status") == "VERIFIED"
-                                        or "Manual" in str(row.get("test_files", []))):
+                                if is_overlay_row_verified(row):
                                     _overlay_untested.discard(fr_id)
                                     _overlay_uncoded.discard(fr_id)
                             report2 = dict(report2)
