@@ -247,11 +247,19 @@ class TestInterruptedTransaction:
 
 class TestGate1Evidence:
     """check 7 (弱點強化 Round 3 J): a manifest quality_complete claim must
-    have a record in at least one of the three co-equal O2 evidence channels
+    have a record in at least one of the O2 evidence channels
     (sentinel .flag / .finalized / gate_timestamps.jsonl). Deliberately
     any-phase: at-rest reconciliation optimizes for zero false positives;
     phase strictness stays at the enforcement sites (push-milestone
     p3-post-gate2, advance-phase).
+
+    Round 20 站4 corrected this docstring's word "co-equal". The channels are
+    not equals: a gate_timestamps row written by GATE1-DELTA's `already done →
+    skip` branch is a shadow of the sentinel channel, because that branch only
+    runs when a sentinel/commit was already found. Accepting it as a separate
+    channel made `has_sentinel or fr_key in ts_frs` read like corroboration
+    from two sources when there was one. Rows are now marked with their source
+    and skip-written rows no longer satisfy a claim on their own.
     """
 
     MANIFEST = {"gate_results": {"gate1": {
@@ -283,6 +291,58 @@ class TestGate1Evidence:
                            manifest=self.MANIFEST)
         (project / ".methodology" / "gate_timestamps.jsonl").write_text(
             json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0}) + "\n",
+            encoding="utf-8",
+        )
+        assert self._findings(project) == []
+
+    def test_finalize_sourced_row_satisfies_the_claim(self, tmp_path):
+        from core.quality_gate.gate1_evidence import EVIDENCE_SOURCE_FINALIZE
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        (project / ".methodology" / "gate_timestamps.jsonl").write_text(
+            json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0,
+                        "source": EVIDENCE_SOURCE_FINALIZE}) + "\n",
+            encoding="utf-8",
+        )
+        assert self._findings(project) == []
+
+    def test_skip_sourced_row_alone_does_not_satisfy_the_claim(self, tmp_path):
+        """Round 20 站4's regression pin.
+
+        A skip row means "run-fr-step found this FR already done and wrote a
+        marker so advance-phase would not exit-14" — no gate ran. Its
+        precondition is that real evidence exists in the sentinel channel, so
+        treating it as independent corroboration is circular. taskq's Phase 4
+        wrote five such rows in 3.1 seconds with zero dispatches behind them.
+        """
+        from core.quality_gate.gate1_evidence import EVIDENCE_SOURCE_SKIP
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        (project / ".methodology" / "gate_timestamps.jsonl").write_text(
+            json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0,
+                        "source": EVIDENCE_SOURCE_SKIP}) + "\n",
+            encoding="utf-8",
+        )
+        found = self._findings(project)
+        assert len(found) == 1 and found[0].severity == "ERROR", (
+            "a skip-sourced row was accepted as independent evidence"
+        )
+
+    def test_skip_row_plus_a_real_sentinel_is_fine(self, tmp_path):
+        """The normal case must stay quiet: skip rows appear precisely when a
+        sentinel exists, and that combination is healthy, not suspicious."""
+        from core.quality_gate.gate1_evidence import (
+            EVIDENCE_SOURCE_SKIP,
+            SENTINEL_FLAG_TEMPLATE,
+        )
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        sentinels = project / ".sessi-work" / "sentinels"
+        sentinels.mkdir(parents=True)
+        (sentinels / SENTINEL_FLAG_TEMPLATE.format(gate=1, phase=3, key="fr01")).touch()
+        (project / ".methodology" / "gate_timestamps.jsonl").write_text(
+            json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0,
+                        "source": EVIDENCE_SOURCE_SKIP}) + "\n",
             encoding="utf-8",
         )
         assert self._findings(project) == []

@@ -1969,13 +1969,24 @@ class TestRunFrStepSkipSideEffects:
         }), encoding="utf-8")
 
     def test_gate_timestamp_recorded_on_gate1_delta_skip(self, tmp_path, monkeypatch):
-        """record_gate_timestamp must be called for GATE1-DELTA skip."""
+        """record_gate_timestamp must be called for GATE1-DELTA skip, and the
+        row must be marked as coming from the SKIP branch.
+
+        Round 20 站4 added the marking. The row exists so
+        _check_gate1_live_coverage does not exit-14 when every FR legitimately
+        skips — but no evaluation ran, so core/doctor.py must not count it as
+        evidence independent of the sentinel whose existence caused the skip in
+        the first place.
+        """
         import harness_cli
         recorded = []
         monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", lambda *a, **k: True)
         from core.quality_gate import gate1_evidence as _ge
-        monkeypatch.setattr(_ge, "record_gate_timestamp",
-                            lambda project, phase, gate, fr_id: recorded.append((phase, gate, fr_id)))
+        monkeypatch.setattr(
+            _ge, "record_gate_timestamp",
+            lambda project, phase, gate, fr_id, source=_ge.EVIDENCE_SOURCE_FINALIZE:
+                recorded.append((phase, gate, fr_id, source)),
+        )
 
         self._make_manifest(tmp_path, "FR-03")
         args = argparse.Namespace(
@@ -1986,7 +1997,9 @@ class TestRunFrStepSkipSideEffects:
         )
         harness_cli.cmd_run_fr_step(args)
 
-        assert (5, 1, "FR-03") in recorded, f"gate timestamp not recorded: {recorded}"
+        assert (5, 1, "FR-03", _ge.EVIDENCE_SOURCE_SKIP) in recorded, (
+            f"gate timestamp not recorded as a skip-sourced row: {recorded}"
+        )
 
     def test_no_gate_timestamp_for_non_delta_skip(self, tmp_path, monkeypatch):
         """record_gate_timestamp must NOT be called for non-DELTA step skips."""

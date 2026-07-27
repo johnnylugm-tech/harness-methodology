@@ -109,12 +109,39 @@ GATE_TIMESTAMPS_MAX_ENTRIES = 200
 GATE1_SCORES_FILE = ".gate1_scores.json"
 
 
-def record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str | None) -> None:
+EVIDENCE_SOURCE_FINALIZE = "finalize"
+EVIDENCE_SOURCE_SKIP = "skip"
+
+
+def record_gate_timestamp(
+    project: Path,
+    phase: int,
+    gate_num: int,
+    fr_id: str | None,
+    source: str = EVIDENCE_SOURCE_FINALIZE,
+) -> None:
     """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
 
-    Called only on SUCCESSFUL gate finalization — not on failed checks — so the file
-    represents genuine completed gates, not attempts.  Trims to the last
-    GATE_TIMESTAMPS_MAX_ENTRIES entries to bound file growth.
+    Trims to the last GATE_TIMESTAMPS_MAX_ENTRIES entries to bound file growth.
+
+    `source` records WHY the row exists, and the distinction matters because
+    core/doctor.py treats this file as evidence:
+
+      "finalize"  a gate was actually evaluated and finalized just now.
+      "skip"      cli/fr_cmds.py's GATE1-DELTA `already done → skip` branch,
+                  which writes a row WITHOUT running an evaluation, so that
+                  _check_gate1_live_coverage does not exit-14 when every FR
+                  legitimately skips.
+
+    A skip row is not independent evidence: the branch that writes it only runs
+    when _fr_step_already_done already found a sentinel or commit — so it is a
+    SHADOW of the sentinel channel, not a second opinion about it. doctor used
+    to accept `has_sentinel or fr_key in ts_frs`, whose `or` reads like two
+    corroborating sources; taskq's Phase 4 wrote five such rows within 3.1
+    seconds with no dispatch behind them (Round 20 站4). Nothing was forged —
+    the skip precondition guarantees real evidence exists elsewhere — but a
+    reader, or the next person to change that check, could not tell the two
+    apart. Now they can.
     """
     import time as _time
     ts_dir = project / ".methodology"
@@ -129,7 +156,10 @@ def record_gate_timestamp(project: Path, phase: int, gate_num: int, fr_id: str |
         except OSError:
             pass
 
-    entry = {"phase": phase, "gate": gate_num, "fr_id": fr_id or "phase", "ts": _time.time()}
+    entry = {
+        "phase": phase, "gate": gate_num, "fr_id": fr_id or "phase",
+        "ts": _time.time(), "source": source,
+    }
     try:
         # Append
         with open(str(ts_file), "a", encoding="utf-8") as f:

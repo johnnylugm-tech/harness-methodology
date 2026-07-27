@@ -245,7 +245,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         #   gate1_evidence.record_gate_timestamp (GATE1-DELTA only) — prevents exit-14 block
         #     from _check_gate1_live_coverage when ALL FRs skip (no code changes)
         if step.upper() == "GATE1-DELTA":
-            gate1_evidence.record_gate_timestamp(project, phase, 1, fr_id)
+            gate1_evidence.record_gate_timestamp(
+                project, phase, 1, fr_id,
+                source=gate1_evidence.EVIDENCE_SOURCE_SKIP,
+            )
         return 0
 
     # 1a. Deterministic tools — skip LLM dispatch

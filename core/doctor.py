@@ -22,7 +22,7 @@ from pathlib import Path
 from core.errors import CRASH_DIR_RELPATH
 from core.fsm.fsm import VALID_FSM_STATES
 from core.phase_topology import VALID_PHASES
-from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
+from core.quality_gate.gate1_evidence import EVIDENCE_SOURCE_SKIP, GATE_TIMESTAMPS_FILE
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 
@@ -243,8 +243,18 @@ def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if isinstance(entry, dict) and entry.get("gate") == 1:
-                    ts_frs.add(str(entry.get("fr_id", "")).replace("-", "").lower())
+                if not (isinstance(entry, dict) and entry.get("gate") == 1):
+                    continue
+                # Round 20 站4: only a `finalize` row is independent evidence.
+                # A `skip` row is written by GATE1-DELTA's already-done branch,
+                # whose precondition is that a sentinel/commit ALREADY exists —
+                # so counting it here would corroborate the sentinel channel
+                # with a shadow of itself. Rows written before that station
+                # carry no `source` and are accepted, since they predate the
+                # distinction and the skip branch was the rarer writer.
+                if entry.get("source") == EVIDENCE_SOURCE_SKIP:
+                    continue
+                ts_frs.add(str(entry.get("fr_id", "")).replace("-", "").lower())
         except OSError:
             pass
 
