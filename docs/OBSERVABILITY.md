@@ -237,6 +237,49 @@ population, not a prediction about this framework's failure distribution —
 do not read this framework's future `summarize()` output against those
 percentages as a target or baseline.
 
+## `.methodology/env_contract.json` — classification, once
+
+Round 20 站1. env-check used to answer two questions with one LLM pass on every
+run:
+
+| | decided by | when |
+|---|---|---|
+| **classification** — does this project run without `FOO`? | the project's docs | changes when the docs change |
+| **verification** — is `FOO` exported right now? | the environment | changes constantly, and is computable |
+
+Only the first needs judgement, and asking for it repeatedly is what let the
+same var be classified two different ways in two runs against identical project
+state (Round 24 / `37adc43`). The classification now lives in a
+version-controlled contract; readiness is computed from it every run by
+`core/quality_gate/env_verify.py`'s probes. No LLM output decides `ready`.
+
+```
+.methodology/env_contract.json
+  source_sha256   sha256 of the SAD + SRS + docker-compose excerpts the
+                  classifier was shown — the staleness trigger
+  env_vars        mandatory   -> absence blocks readiness
+                  has_default -> documented default; absence is fine
+                  dev_opt_in  -> test/dev opt-in; absence is the INTENDED state
+  cli_tools       required tool names, probed via PATH / venv / import
+  enforcer_sha    which harness commit classified (Round 19 站3)
+```
+
+`run-env-check` computes the fingerprint first. Unchanged and a contract
+exists → **no sub-agent is spawned at all**. Changed, absent, or
+`--force-reclassify` → classify as before, then store the classification and
+discard the measurements.
+
+**Reviewing a contract is the point.** It is a normal file in git: read the diff
+when it changes, and correct a wrong classification by editing it. A mistake
+that persists in a reviewable file is strictly better than one that reappears at
+random — which was the previous behaviour.
+
+**When the environment's requirements change without the documents changing**
+(a new service in CI, say), the fingerprint will not move. Use
+`--force-reclassify`. This is the known limit of a document-derived trigger and
+is deliberate: verification still runs every time, so a var that is *classified*
+correctly but *missing* is caught on the next run regardless.
+
 ## What this round deliberately did not build
 
 - A global structured (JSON) logger, or a `print`→`logging` migration.

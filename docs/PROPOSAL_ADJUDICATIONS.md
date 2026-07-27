@@ -10,6 +10,28 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 20(2026-07-27)— 把「多層檢查、同一來源」拆成真正獨立的來源
+
+老闆令檢視 taskq **P4~P5** 的執行紀錄 + harness git history,隨後令針對所提全部問題提「正解 not workaround」。
+
+實測:P4/P5 的 developer dispatch **14 次 0 失敗**(P3 是 27.5%),dispatch 層顯著改善;但同期 harness 仍被改了 **7 次**(Round 20-25),模式與 P3 相同——全部由 taskq 實跑觸發。四個問題共享一個**元模式**,且已跨三輪反覆出現:
+
+> **增加檢查的層數,但所有層讀同一個來源。** 層數給人多重驗證的錯覺,實際的獨立來源只有一個。
+
+| # | 主張 | 判定 | 一句證據 | Re-open condition |
+|---|------|------|----------|---|
+| R20-A | env-check 的 `ready` 由 LLM 自由判定,三層檢查(agent 自報 / exit code / workflow cross-check)全讀同一欄位 | **採納** | 37adc43 自帶對照實證:同一 env var、**同一份未變的 project state**,一次 `optional_missing`(ready=true)、一次 `required+present:false`(false FAIL)。`_verify_env_check_claims` 的 docstring 自陳只驗 `present:true` 單向,**該 bug 的兩種分類都在盲區**。對比 gate 評分鏈有 `harness_bridge.py:970` 的 S4 獨立工具交叉驗證——env-check 無對應機制。觸發 **R16-3** 的 re-open condition(當時明確限定「範圍僅 gate 評分鏈」) | contract 的分類若被發現長期錯誤而無人察覺,表示「進版控即可審查」的前提不成立,需改為每輪強制複核 |
+| R20-A′ | (計畫前提修正)「分類完全由專案文件決定」 | **部分為假,已據實調整設計** | `evaluation_prompt()` 的 CLASSIFICATION RULE 第一條是「Exported in current shell?」——環境狀態混進了分類。故 contract 只固化**文件決定的語意類別**(`mandatory`/`has_default`/`dev_opt_in`),exportedness 每次探測。這更貼 37adc43 的實際病灶(dev-opt-in flag 被誤判為 mandatory) | 若 prompt 的分類規則再度混入環境狀態,需重新劃線 |
+| R20-B | 路徑 SSOT 的 lint 只守 phase 目錄,test/src 目錄完全在守衛外 | **採納,且查出第三個活傷口** | Round 22(`4aa6ff2`)、Round 25(`7af95ba`)是同一 bug 類;後者 commit message 自承「同樣的修法**已在** `spec_tracking_checker.py:391` 證明正確」。本輪查出第三個且最嚴重:`core/auto_fix/strategies.fix_low_coverage` 不只讀錯位置,還 `mkdir` 在錯位置寫 stub 並回報「已修」——活路徑(`STRATEGY_REGISTRY` 派發) | 若 lint 的 allowlist 成長超過 ~8 筆,表示 ProjectLayout 的 accessor 不敷使用,應擴充 accessor 而非放寬 allowlist |
+| R20-C | 里程碑 commit 無冪等性,重跑必產生無資訊 commit | **採納** | taskq P4 三個同 subject 的 `feat(P4-pre-gate3)`,最後一個只改兩個時間戳,且**全部在 Gate 3 PASS 之後**。病因是 HANDOVER 的 `**Generated**` 行保證每次都有 diff;`git_strategy._commit` 早已正確處理「無變化」。與 R18 站3 的 attestation 同形——**是我當輪未掃的同形兄弟** | 若某 milestone 的價值就在「留時間點記號」,需為該類型明確豁免 |
+| R20-D | `gate_timestamps` 的 skip 寫入使 doctor 的兩個「獨立」通道實為一個 | **採納,但定級為設計弱點非活傷口** | taskq P4 有 5 筆 3.1 秒內寫入、零 dispatch 的 row;doctor 用 `has_sentinel or fr_key in ts_frs`,而 skip 分支的前提就是 sentinel 存在。**目前無法據此偽造**(skip 前提要求真實證據),問題在 `or` 讓讀者與未來的修改者誤以為有兩個獨立來源 | 若未來出現不依賴 sentinel 前提的 timestamp 寫入路徑,此弱點立即升級為活傷口 |
+| R20-E′ | ~~`core/quality_gate/spec_coverage.py:23` 的 `project / "tests"` 是殘留同形兄弟~~ | **證偽,撤銷** | `_get_test_directories` 刻意收集 root 與 canonical **兩處**並回傳 list——是聯集不是選擇。`build_traceability.py:67-76`(刻意 fallback + warning)、`generate_fr_mapping.py:49-52`(候選清單)同理。Round 25 修完後**無殘留活傷口**,缺的是防止下一次的機制 | — |
+| R20-F′ | ~~`sessions_spawn.log` 有時間倒序~~ | **證偽,撤銷** | 實測 126 筆**零倒退**。我先前是按 phase 過濾後的顯示順序誤讀 | — |
+
+> **元模式的三次現身**:R19「規則與其 fixture 同源」→ R20-A「三層讀同一個 `ready`」→ R20-D「兩個通道其一是另一個的影子」。共同的判準:**問「這兩個來源能不能彼此矛盾?」不能,就只有一個來源。**
+
+> 順帶修復(由本輪測試逼出,非計畫項):`core/harness_provenance.enforcer_sha()`(R19 站3)docstring 宣稱 "never raises",但 `except (OSError, SubprocessError)` 接不住替身 `subprocess.run` 回傳物件缺 `.stdout` 造成的 `AttributeError`,例外逃進了 gate 指令。已改為 `except Exception`——對「絕不可拋」的函數,窄 except 本身就是缺陷。
+
 ## Round 19(2026-07-26)— 打開封閉的驗證迴路:讓真實 run 的失敗有辦法變成執法
 
 老闆令檢視 taskq **P3 的執行過程與紀錄**、對照 harness git history,探討結構性問題,隨後令針對所提全部問題提「正解 not workaround」。
