@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "e69b266acbef542a7f44a4adc4d7fab73ac8ce3e",
-  "content_sha256": "932e6844274def27c81c4cbe6f0821fdf9944e9c452efa1039d1a0e3ad224423",
+  "git_sha": "a8ab61a10953c621f491acad1eff313c9239c2b5",
+  "content_sha256": "a1b4b24cf7c9ddfec0ccd59e6e7b24551640ad1ff32630666b839c68f7c77b10",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -9,16 +9,17 @@
     "schema_version": "harness/traceability/overlay/v1",
     "project_id": "harness-methodology",
     "completeness": {
-      "total_requirements": 8,
-      "srs_coverage": "62.5%",
+      "total_requirements": 9,
+      "srs_coverage": "55.6%",
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 90,
+      "total_links": 92,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-07",
           "FR-08",
+          "FR-09",
           "FR-99"
         ],
         "fr_without_code": [],
@@ -29,6 +30,7 @@
       "fr_without_srs": [
         "FR-07",
         "FR-08",
+        "FR-09",
         "FR-99"
       ],
       "fr_without_code": [],
@@ -178,6 +180,19 @@
       },
       "FR-08": {
         "fr_id": "FR-08",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_phase_hooks_adapter.py"
+        ],
+        "test_files": [
+          "tests/test_phase_hooks_adapter.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-09": {
+        "fr_id": "FR-09",
         "status": "verified",
         "srs_section": null,
         "code_files": [

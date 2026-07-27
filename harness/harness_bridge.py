@@ -2459,15 +2459,27 @@ class HarnessBridge:
         # Dimensions with score=None (e.g. pytest-benchmark with no benchmark tests)
         # are excluded — the dimension is not yet applicable.
         _gt = ctx.config.get("score_gate", 80) if isinstance(ctx.config, dict) else getattr(ctx.config, 'score_gate', 80)
+
+        def _effective_threshold(d: DimResult) -> float:
+            """The bar this dimension is actually judged against.
+
+            Gate-config value wins over the agent's self-reported breakdown
+            threshold, which wins over the gate-wide floor. Single definition
+            because the pass/fail verdict, the failing-dimension report, and the
+            DA-waiver adjudication must all compare against the same number —
+            three copies of this expression is three chances to drift apart.
+            """
+            return float(_dim_thresholds.get(d.name) or d.threshold or _gt)
+
         _all_dims_pass = all(
-            d.score is not None and d.score >= (_dim_thresholds.get(d.name) or d.threshold or _gt)
+            d.score is not None and d.score >= _effective_threshold(d)
             for d in dims
         ) if dims else False  # empty dims = no evidence = not complete
         _quality_complete = _overall_score >= _gt and _all_dims_pass
 
         if not _all_dims_pass and dims:
             _failing = [f"{d.name}={d.score:.1f}" for d in dims
-                        if d.score is not None and d.score < (_dim_thresholds.get(d.name) or d.threshold or _gt)]
+                        if d.score is not None and d.score < _effective_threshold(d)]
             print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
 
         result = GateResult(
@@ -2484,6 +2496,30 @@ class HarnessBridge:
 
         # DA waivers: zero out threshold for dimensions whose design was justified by a
         # Devil's Advocate challenge (e.g. Orchestrator pattern → architecture score 0 is OK).
+        #
+        # Round 21: `da_waivers` arrives as *requests* — permission- and evidence-checked
+        # at gate-prerequisite time, but not yet adjudicated for necessity. Necessity can
+        # only be decided here, because it compares against the framework's own numbers:
+        # the CRG override above has just replaced the agent's `architecture` entry (which
+        # is JSON null in every real gate result — the agent does not score a CRG-only
+        # dimension), and the thresholds come from the gate config, not the breakdown.
+        # Adjudicating earlier is what let taskq's P6 grant a waiver whose stated premise
+        # ("CRG scores this 0") was false — the framework's own run scored it 100.0.
+        from core.quality_gate.da_waiver import adjudicate_waivers
+        _waiver_verdict = adjudicate_waivers(
+            da_waivers or (),
+            [(d.name, d.score, _effective_threshold(d)) for d in result.dimensions],
+        )
+        for _note in _waiver_verdict.notes:
+            print(f"[Gate {ctx.gate_num}] A3: {_note}", file=sys.stderr)
+        if _waiver_verdict.blocked:
+            raise GateBlockedError(
+                ctx.gate_num,
+                dataclasses.replace(result, quality_complete=False),
+                {"da_waiver": list(_waiver_verdict.notes)},
+            )
+        da_waivers = set(_waiver_verdict.applied)
+
         _effective_dims = result.dimensions
         if da_waivers:
             _effective_dims = [

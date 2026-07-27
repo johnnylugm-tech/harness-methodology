@@ -665,18 +665,29 @@ class TestW2CoverageWarning:
 # Bug 3 — _check_gate4_prerequisites: da_waiver skipped when tool_score ≥ threshold
 # =============================================================================
 
-class TestGate4DaWaiverThresholdCheck:
-    """Bug 3: waiver must only enter da_waivers when tool_score < threshold.
+class TestGate4DaWaiverCollection:
+    """What the pre-finalize collection stage decides — and what it does not.
 
-    Previously the threshold check was absent — a waiver was accepted even when
-    tool_score was already above threshold, which then set
-    da_waiver_needs_human_review=True in quality_manifest.json as a false positive.
+    Round 21 split this: collection answers "is this waiver permitted, and is it
+    evidence-backed?" (both decided by agent-authored input, available now).
+    Whether the waiver is *needed* is decided later, in finalize_gate, against
+    the framework's own scores — see tests/test_da_waiver.py and
+    TestFinalizeGateWaiverAdjudication.
+
+    These tests used to assert necessity here, using a `target` key that no real
+    gate result has ever carried (it came from score.py, which writes a different
+    file). That made them pass against a shape the pipeline never produces.
     """
 
     _LONG = "x" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
 
-    def _make_g4(self, dim: str, score: float, target: float | None) -> dict:
-        """Minimal gate4_result.json satisfying all A3 checks for one waived dim."""
+    def _make_g4(self, dim: str, score: "float | None" = None) -> dict:
+        """Minimal gate4_result.json satisfying all A3 checks for one waived dim.
+
+        Breakdown uses the real field names (`score` / `threshold`, per
+        harness/ssi/schemas/harness_gate_result.schema.json and every gate result
+        an actual run has produced).
+        """
         from cli.gate_cmds import _TIER3_DIMS
 
         devil_advocate = {d: True for d in _TIER3_DIMS}
@@ -684,14 +695,11 @@ class TestGate4DaWaiverThresholdCheck:
             d: {"challenge": self._LONG, "response": self._LONG}
             for d in _TIER3_DIMS
         }
-        bd: dict = {"score": score}
-        if target is not None:
-            bd["target"] = target
         return {
             "devil_advocate": devil_advocate,
             "devil_advocate_evidence": evidence,
             "da_waiver": {dim: True},
-            "breakdown": {dim: bd},
+            "breakdown": {dim: {"score": score, "threshold": 80}},
         }
 
     def _run(self, tmp_path: Path, g4: dict) -> tuple[bool, set]:
@@ -711,55 +719,64 @@ class TestGate4DaWaiverThresholdCheck:
         )
         return _check_gate4_prerequisites(tmp_path)
 
-    def test_waiver_skipped_when_score_above_target(self, tmp_path):
-        """score=100 >= target=80 → dimension already passes → waiver NOT applied."""
+    def test_permitted_evidence_backed_waiver_is_collected(self, tmp_path):
+        """architecture + real DA evidence → request collected for adjudication."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", score=100.0, target=80.0)
-        )
-        assert not blocked
-        assert "architecture" not in da_waivers
-
-    def test_waiver_skipped_at_exact_target(self, tmp_path):
-        """score == target → passes → waiver NOT applied."""
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", score=80.0, target=80.0)
-        )
-        assert not blocked
-        assert "architecture" not in da_waivers
-
-    def test_waiver_applied_when_score_below_target(self, tmp_path):
-        """score=50 < target=80 → dimension fails → waiver IS applied."""
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", score=50.0, target=80.0)
+            tmp_path, self._make_g4("architecture", score=50.0)
         )
         assert not blocked
         assert "architecture" in da_waivers
 
-    def test_waiver_applied_when_target_field_missing(self, tmp_path):
-        """target absent → default float('inf') → waiver IS applied (conservative).
+    def test_collection_does_not_judge_necessity(self, tmp_path):
+        """A high self-reported score does NOT drop the request here.
 
-        The M1 fix: old default was 0.0, which made score >= 0.0 always True
-        and silently discarded every waiver.  float('inf') means 'unknown target
-        → assume waiver is needed'.
+        Necessity is adjudicated in finalize_gate against the framework's own
+        score. Deciding it here would mean deciding it from the agent's own
+        breakdown — for `architecture` that value is always null anyway, because
+        the agent does not score a CRG-only dimension.
         """
         blocked, da_waivers = self._run(
-            tmp_path,
-            self._make_g4("architecture", score=100.0, target=None),
+            tmp_path, self._make_g4("architecture", score=100.0)
         )
         assert not blocked
         assert "architecture" in da_waivers
 
-    def test_waiver_skipped_against_realistic_score_py_breakdown_shape(self, tmp_path):
-        """Round 30 regression pin: score.py's real breakdown shape (score/
-        target/gap/weight/weighted_score — no tool_score/threshold keys at
-        all) must be read correctly, not just a test-invented fixture shape."""
-        g4 = self._make_g4("architecture", score=100.0, target=80.0)
-        g4["breakdown"]["architecture"].update({
-            "gap": 0, "weight": 80, "weighted_score": 8000,
-        })
-        blocked, da_waivers = self._run(tmp_path, g4)
+    def test_null_architecture_score_does_not_crash_collection(self, tmp_path):
+        """The real shape: CRG-only dimensions carry JSON null, not a number."""
+        blocked, da_waivers = self._run(
+            tmp_path, self._make_g4("architecture", score=None)
+        )
         assert not blocked
-        assert "architecture" not in da_waivers
+        assert "architecture" in da_waivers
+
+    def test_waiver_for_non_crg_dimension_is_blocked(self, tmp_path):
+        """A waiver may only target a CRG-scored dimension.
+
+        Without this, two paragraphs of prose zero the threshold of any
+        dimension — including security, whose score IS the finding.
+        """
+        g4 = self._make_g4("architecture", score=50.0)
+        g4["da_waiver"] = {"security": True}
+        g4["devil_advocate"]["security"] = True
+        g4["devil_advocate_evidence"]["security"] = {
+            "challenge": self._LONG, "response": self._LONG,
+        }
+        blocked, da_waivers = self._run(tmp_path, g4)
+        assert blocked
+        assert da_waivers == set()
+
+    def test_non_crg_block_message_carries_remediation(self, tmp_path, capsys):
+        g4 = self._make_g4("architecture", score=50.0)
+        g4["da_waiver"] = {"test_coverage": True}
+        g4["devil_advocate"]["test_coverage"] = True
+        g4["devil_advocate_evidence"]["test_coverage"] = {
+            "challenge": self._LONG, "response": self._LONG,
+        }
+        self._run(tmp_path, g4)
+        err = capsys.readouterr().err
+        assert "not permitted" in err
+        assert "Fix:" in err
+        assert "test_coverage" in err
 
 
 # =============================================================================
@@ -778,15 +795,13 @@ class TestGate3DaWaiverCollection:
 
     _LONG = "y" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
 
-    def _make_g3(self, dim: str, score: float, target: float | None,
+    def _make_g3(self, dim: str, score: "float | None" = None,
                  evidence: bool = True, da_true: bool = True) -> dict:
         g3: dict = {
             "devil_advocate": {dim: da_true},
             "da_waiver": {dim: True},
-            "breakdown": {dim: {"score": score}},
+            "breakdown": {dim: {"score": score, "threshold": 80}},
         }
-        if target is not None:
-            g3["breakdown"][dim]["target"] = target
         if evidence:
             g3["devil_advocate_evidence"] = {
                 dim: {"challenge": self._LONG, "response": self._LONG}
@@ -802,28 +817,21 @@ class TestGate3DaWaiverCollection:
             (sessi / "gate3_result.json").write_text(json.dumps(g3), encoding="utf-8")
         return _collect_da_waivers(tmp_path, 3)
 
-    def test_waiver_applied_below_threshold(self, tmp_path):
+    def test_evidence_backed_waiver_is_collected(self, tmp_path):
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=64.7, target=80.0))
+            tmp_path, self._make_g3("architecture", score=64.7))
         assert not blocked
         assert da_waivers == {"architecture"}
-
-    def test_waiver_skipped_at_or_above_threshold(self, tmp_path):
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=85.0, target=80.0))
-        assert not blocked
-        assert da_waivers == set()
 
     def test_blocked_when_evidence_missing(self, tmp_path):
         """Requested-but-unbacked waiver must fail loudly (fabrication guard)."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=64.7, target=80.0,
-                                    evidence=False))
+            tmp_path, self._make_g3("architecture", score=64.7, evidence=False))
         assert blocked
         assert da_waivers == set()
 
     def test_blocked_when_evidence_too_short(self, tmp_path):
-        g3 = self._make_g3("architecture", score=64.7, target=80.0)
+        g3 = self._make_g3("architecture", score=64.7)
         g3["devil_advocate_evidence"]["architecture"]["response"] = "too short"
         blocked, da_waivers = self._run(tmp_path, g3)
         assert blocked
@@ -831,8 +839,7 @@ class TestGate3DaWaiverCollection:
 
     def test_no_waiver_when_devil_advocate_false(self, tmp_path):
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=64.7, target=80.0,
-                                    da_true=False))
+            tmp_path, self._make_g3("architecture", score=64.7, da_true=False))
         assert not blocked
         assert da_waivers == set()
 
@@ -841,12 +848,12 @@ class TestGate3DaWaiverCollection:
         assert not blocked
         assert da_waivers == set()
 
-    def test_missing_target_defaults_to_waiver_applied(self, tmp_path):
-        """target absent → float('inf') → conservative: waiver applied (M1 parity)."""
+    def test_gate3_waiver_for_non_crg_dimension_is_blocked(self, tmp_path):
+        """The permission check is gate-agnostic — Gate 3 enforces it too."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=100.0, target=None))
-        assert not blocked
-        assert da_waivers == {"architecture"}
+            tmp_path, self._make_g3("readability", score=64.7))
+        assert blocked
+        assert da_waivers == set()
 
     def test_gate4_reader_ignores_gate3_file(self, tmp_path):
         """_collect_da_waivers(project, 4) must not pick up gate3_result.json."""
@@ -854,7 +861,7 @@ class TestGate3DaWaiverCollection:
         sessi = tmp_path / ".sessi-work"
         sessi.mkdir(parents=True, exist_ok=True)
         (sessi / "gate3_result.json").write_text(
-            json.dumps(self._make_g3("architecture", 64.7, 80.0)), encoding="utf-8")
+            json.dumps(self._make_g3("architecture", 64.7)), encoding="utf-8")
         blocked, da_waivers = _collect_da_waivers(tmp_path, 4)
         assert not blocked
         assert da_waivers == set()

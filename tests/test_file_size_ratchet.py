@@ -71,7 +71,14 @@ _LINE_CEILING: dict[str, int] = {
     # another (observed: wf_8b3a3f79-12b vs wf_4fe2125c-48d) — the prior rule
     # only distinguished "has a documented default value" vs "no default",
     # with no bucket for "intentionally absent by design" opt-in flags.
-    "harness/harness_bridge.py": 3092,
+    # 2026-07-27: +36 lines — Round 21 站1: DA-waiver necessity is adjudicated
+    # HERE now (against the framework's own post-CRG scores) instead of in
+    # cli/gate_cmds.py before scoring, where the one waivable dimension is
+    # always null. Adds the adjudication call + its BLOCK path, and lifts the
+    # thrice-repeated effective-threshold expression into one local helper so
+    # the verdict, the failing-dimension report, and the waiver decision cannot
+    # drift onto different bars.
+    "harness/harness_bridge.py": 3128,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

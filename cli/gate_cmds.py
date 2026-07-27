@@ -30,6 +30,7 @@ from core.harness_config import get_timeout, get_value
 from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate import env_contract
 from core.quality_gate import gate1_evidence
+from core.quality_gate.da_waiver import WAIVABLE_DIMENSIONS
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
 from core.quality_gate.cov_utils import _fr_source_files_from_imports  # noqa: F401  (re-export: tests/cli/test_gate_cmds_cli.py imports it from here)
@@ -1227,18 +1228,31 @@ def _load_gate_result_json(project: Path, gate: int) -> dict:
     return {}
 
 def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) -> "tuple[bool, set[str]]":
-    """Collect artifact-backed DA score-threshold waivers from gate{gate}_result.json.
+    """Collect artifact-backed DA score-threshold waiver *requests*.
 
-    A waiver lets a CRG-ONLY dim (e.g. architecture) pass below threshold when
-    the Devil's Advocate challenge concluded the design is intentional
+    A waiver lets a CRG-ONLY dim (architecture) pass below threshold when the
+    Devil's Advocate challenge concluded the design is intentional
     (Orchestrator/hub-and-spoke, small-package Leiden fragmentation). Valid at
     Gate 3 and Gate 4 — finalize_gate's threshold zeroing is gate-agnostic.
 
-    Requires devil_advocate.<dim>=true, da_waiver.<dim>=true, AND real
-    devil_advocate_evidence.<dim> (challenge + response). Returns
-    (blocked, da_waivers): blocked=True only when a requested waiver's DA
-    evidence is missing/insufficient — a requested-but-unbacked waiver must
-    fail loudly (fabrication guard), not be silently dropped.
+    Two conditions are checked HERE, because both are decided by agent-authored
+    input available before scoring:
+
+      1. permission — the dimension is in ``WAIVABLE_DIMENSIONS``
+      2. evidence   — devil_advocate.<dim>=true AND a real
+         devil_advocate_evidence.<dim> (challenge + response)
+
+    Whether a permitted, evidence-backed waiver is *needed* is NOT decided here.
+    That question requires the framework's own score, which does not exist until
+    ``finalize_gate`` runs its independent CRG pass — see
+    ``core.quality_gate.da_waiver.adjudicate_waivers``, called from there. Until
+    Round 21 this function tried to answer it from the agent's breakdown, where
+    the one waivable dimension is always ``null`` (CRG-only, agent does not
+    score it), so the "already passes" safeguard could never fire.
+
+    Returns (blocked, requested): blocked=True when a request is impermissible
+    or its DA evidence is missing/insufficient — an unbacked request must fail
+    loudly (fabrication guard), not be silently dropped.
 
     Note: the .methodology/ candidate can carry a waiver persisted from a
     previous finalize-gate run (parity with the long-standing Gate 4
@@ -1255,6 +1269,20 @@ def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) ->
     for _dim, _waived in _da_waiver_raw.items():
         if not (_waived and devil_advocate.get(_dim, False)):
             continue
+        if _dim not in WAIVABLE_DIMENSIONS:
+            print(
+                f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' is not permitted.\n"
+                f"  A waiver's only documented rationale is CRG's Leiden community detection\n"
+                f"  misreading an intentional hub-and-spoke layout, so it applies only to\n"
+                f"  CRG-scored dimensions ({', '.join(sorted(WAIVABLE_DIMENSIONS))}).\n"
+                f"  '{_dim}' is scored by a tool whose output IS the finding — a low score\n"
+                f"  there is the defect, not a measurement artifact.\n"
+                f"  Fix: remove da_waiver.{_dim} from gate{gate}_result.json and raise the\n"
+                f"  dimension's actual score (fix the code, re-run the tool, re-evaluate).",
+                file=sys.stderr,
+            )
+            blocked = True
+            continue
         _w_problem = _validate_da_evidence(_dim, g)
         if _w_problem:
             print(
@@ -1264,34 +1292,10 @@ def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) ->
             )
             blocked = True
             continue
-        # Only apply the waiver when the dimension is actually below threshold.
-        # If score >= target the dimension already passes; accepting the
-        # waiver would still set da_waiver_needs_human_review = True in
-        # quality_manifest.json, which is a false-positive review flag.
-        # Round 30: breakdown entries (score.py:357-363, and the
-        # evaluate_dimension.md-guided agent writer that produces the actual
-        # gate{N}_result.json) never carry "tool_score"/"threshold" keys —
-        # those were never the real field names. The correct, already-
-        # semantically-equivalent fields are "score" (score MUST equal
-        # tool_score per evaluate_dimension.md R4; for CRG-override dims like
-        # architecture, "score" is the authoritative post-override value —
-        # exactly what this check needs) and "target" (score.py:354,358 —
-        # the dimension's pass threshold, same concept as "threshold").
-        _bd = g.get("breakdown", {}).get(_dim, {})
-        _dim_score = float(_bd.get("score", 0.0))
-        _dim_target = float(_bd.get("target", float("inf")))
-        if _dim_score >= _dim_target:
-            print(
-                f"[Gate {gate}] A3: da_waiver for '{_dim}' skipped — "
-                f"score={_dim_score:.1f} ≥ target={_dim_target:.1f} "
-                "(waiver not needed; dimension already passes).",
-                file=sys.stderr,
-            )
-            continue
         da_waivers.add(_dim)
         print(
-            f"[Gate {gate}] A3: DA waiver active for '{_dim}' "
-            "(score threshold bypassed — artifact-backed DA challenge confirmed intentional design).",
+            f"[Gate {gate}] A3: da_waiver requested for '{_dim}' "
+            "(artifact-backed; necessity adjudicated at finalize-gate against the framework's own score).",
             file=sys.stderr,
         )
     return blocked, da_waivers
