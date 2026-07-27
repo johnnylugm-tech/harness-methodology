@@ -10,6 +10,27 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 21(2026-07-27)— 讓判定用框架自己算出的數字,而不是被判定者的自報值
+
+老闆令檢視 taskq **P6~P8** 的執行紀錄 + harness git history,隨後令針對所提全部問題提「正解 not workaround」。
+
+實測:P6/P7/P8 共 **24 次 dispatch、0 失敗**,dispatch 層已健康;問題全部在**證據層**。四個問題共享一個根源,是 R20 元模式在**時序**面的表現:
+
+> **要求被判定者自己產生「用來判定他」的證據,且判定發生在框架算出真值之前。**
+
+| # | 主張 | 判定 | 一句證據 | Re-open condition |
+|---|------|------|----------|---|
+| R21-A | DA-waiver 的「已及格就跳過」安全閥從未生效,且會 crash | **採納,活傷口** | 安全閥兩次都死,方向相反:Round 30 前讀 `tool_score`(不存在)得 `0.0 >= inf`;Round 30 後讀 `target`(也不存在,來自 `score.py` 的**另一個檔案**)得 `score >= inf`。schema、taskq 全 14 維產物、`harness_bridge.py:2235`、`gate_cmds.py:1698` 四方一致說 `threshold`。Round 30 的測試綠是因為 fixture 照 `score.py` 形狀手建——**R19「規則與 fixture 同源」第五次現身**。同一行還會 crash:`float(_bd.get("score", 0.0))` 遇 JSON null 拋 TypeError(`harness_bridge.py:2235` 正上方就有針對此坑的註解)。**根源不是欄位名而是順序**:裁決跑在 CRG 之前,只能讀 agent 自報的 null,而框架實算 **100.0** | 若未來出現「必須在 finalize 前知道 waiver 結果」的需求,需先證明該需求不能靠框架分數滿足 |
+| R21-A2 | waiver 可歸零**任何**維度的門檻,NFR floor 的 "not waivable" 只是散文 | **採納** | `harness_bridge.py:2488` 的 `dataclasses.replace(d, threshold=0.0) if d.name in da_waivers` 無維度白名單;`evaluate_dimension.md:468-471` 與 `sab_parser.py:150` 都寫 not waivable,無程式碼執行。taskq SAB 有四個 NFR 維度(security 80 / error_handling 80 / readability 80 / performance 75),後三者同時是 Tier-3 DA 維度,evidence 每輪已備妥,只差一個 key。**老闆裁定:只允許 `architecture`** | 若出現第二個 CRG-only 維度,`CRG_ONLY_DIMENSIONS` 隨之擴充(白名單即該集合,一處定義) |
+| R21-B | gate result 的 schema 從未被載入,已漂移成描述不存在的產物 | **採納** | 全 repo 只有 `b_review.schema.json` 有 validator。`harness_gate_result.schema.json` 零載入,於是 required 一個沒人寫的 per-dimension `passed`、把 CRG-only 維度的 `null` score 定為 number、required 真實產物為 null 的 `overall_score`/`meets_target`、漏掉每筆 breakdown 都有的四個欄位。守它的測試是 schema 自己 required 清單的第二份拷貝——只能證明檔案沒被改。**這是 R21-A 的病因**:沒有可執行契約,消費者只能猜欄位名 | 若 schema 與真實產物再度分歧而 parity 測試未紅,表示 fixture 來源退回同源,需重新取真實產物 |
+| R21-C | `sessions_spawn.log` 權重 0.20 計入 Phase Truth,而它 agent 可寫且 gitignored | **採納** | 三方矛盾:`SKILL.md:317` 記 HR-10 **REMOVED**(理由正是「agent-writable, not tamper-evident」)、`SAD.md:225` 記 **MUST**、程式碼仍在兩條活路徑上計分。taskq P6 六筆手寫紀錄(session_id 非 UUID、無信封、duration 0、整秒時間戳、task 存結論),`role=architect`+`phase=6` 恰好命中 A/B 分支,寫入時間在首個 Gate4 PASS commit 前 45 秒。A/B 分支另有獨立缺陷:掃全 log **不分 phase** | 若要恢復任何 spawn-log 計分,前提是先有不可由被評者寫入的來源 |
+| R21-C2 | doctor 的 spawn-log 真實性診斷應否計分 | **明確不計分(設計決策)** | 偽造者能寫紀錄就能寫信封欄位。把它變成 gate 項等於在更外一層重建 R21-C 的缺陷。定位=事後發現,非事前防止 | — |
+| R21-D′ | (計畫外查證)SAB 的 `gate_score_overrides` 是否被 waiver 繞過 | **前提不成立,不修** | grep 全 repo:`gate_score_overrides` 只在 `sab_parser.py` 產生與序列化,**零消費點**——NFR floor 從一開始就沒被套用到 gate 門檻,所以「被 waiver 繞過」不是活傷口。誠實記為獨立缺口,不在本輪範圍 | NFR floor 接線是獨立議題;若要做,先確認它與 `_dim_thresholds` 的合併語意 |
+
+> **順帶查出**(由站2 的 schema 執行化逼出,非計畫項):三個測試 fixture 一直在謊報自己的形狀。`test_handover_generator` 的 gate1 fixture 用 `dimensions` 數字 map,而 dims builder 讀 `breakdown`——那三支測試一直在**零維度證據**下跑 finalize_gate;補上真實 breakdown 後又觸發 identical-scores 反造假斷路器(舊形狀從未走到那裡)。`test_harness_bridge_highs2` 的 gate3 fixture 自稱 "a valid gate3 result" 卻缺三個 required 欄位。
+
+> **本輪第三次遇到「既有測試把缺陷釘成規格」**(前兩次:R19 站2、R20 站1)。這次有一支特別值得記:`test_anti_fabrication.py::test_ab_coverage_rejects_developer_only` 是一支**反造假測試**,而它斷言的檢查讀的是造假者自己能寫的檔案。
+
 ## Round 20(2026-07-27)— 把「多層檢查、同一來源」拆成真正獨立的來源
 
 老闆令檢視 taskq **P4~P5** 的執行紀錄 + harness git history,隨後令針對所提全部問題提「正解 not workaround」。

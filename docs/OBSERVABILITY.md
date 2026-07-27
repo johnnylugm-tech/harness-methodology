@@ -20,8 +20,28 @@ reads it today, and where the deliberate gaps still are.
 One JSON object per line, written by `core/sessions_spawn_logger.py`'s
 `SessionsSpawnLogger.log_spawn()`/`log_update()` on every sub-agent
 dispatch. Existing consumers: `core/quality_gate/gate1_evidence.py`,
-`core/quality_gate/phase_truth_verifier.py`, cross-artifact consistency
-checks — all read via `.get()`, so new fields are additive and safe.
+cross-artifact consistency checks, `run-report`, the failure-corpus export,
+and `core/failure_modes.py`'s MAST classifier — all read via `.get()`, so new
+fields are additive and safe.
+
+> **Observation, not evidence** (Round 21 站3). Nothing scores this file, and
+> nothing may. It is written by the agent whose work a gate judges, it is
+> gitignored so neither review nor CI ever sees it, and appending a line costs
+> one Bash call. `PhaseTruthVerifier` scored it at weight 0.20 until Round 21;
+> taskq's Phase 6 carried six hand-written entries whose `role` and `phase`
+> matched exactly what that check searched for.
+>
+> `core/doctor.py` runs an authenticity heuristic over the same entries — a
+> completion whose `session_id` is neither empty nor a UUID **and** which
+> carries none of the envelope fields below was produced by no dispatch. It
+> emits a **WARN and is deliberately never scored**: whoever can forge an entry
+> can forge the envelope too, so this finds forgery after the fact rather than
+> preventing it. Promoting it to a gate term would rebuild the removed defect
+> one layer out.
+>
+> When you need a signal that cannot be self-authored, use one the framework
+> produces: gate sentinels, the finalize-sourced `gate_timestamps` rows
+> (Round 20 站4), git history, or a tool re-run.
 
 | Field | Type | Present when |
 |---|---|---|
