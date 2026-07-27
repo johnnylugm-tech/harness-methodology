@@ -1265,16 +1265,25 @@ def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) ->
             blocked = True
             continue
         # Only apply the waiver when the dimension is actually below threshold.
-        # If tool_score >= threshold the dimension already passes; accepting
-        # the waiver would still set da_waiver_needs_human_review = True in
+        # If score >= target the dimension already passes; accepting the
+        # waiver would still set da_waiver_needs_human_review = True in
         # quality_manifest.json, which is a false-positive review flag.
+        # Round 30: breakdown entries (score.py:357-363, and the
+        # evaluate_dimension.md-guided agent writer that produces the actual
+        # gate{N}_result.json) never carry "tool_score"/"threshold" keys —
+        # those were never the real field names. The correct, already-
+        # semantically-equivalent fields are "score" (score MUST equal
+        # tool_score per evaluate_dimension.md R4; for CRG-override dims like
+        # architecture, "score" is the authoritative post-override value —
+        # exactly what this check needs) and "target" (score.py:354,358 —
+        # the dimension's pass threshold, same concept as "threshold").
         _bd = g.get("breakdown", {}).get(_dim, {})
-        _tool_score = float(_bd.get("tool_score", 0.0))
-        _threshold = float(_bd.get("threshold", float("inf")))
-        if _tool_score >= _threshold:
+        _dim_score = float(_bd.get("score", 0.0))
+        _dim_target = float(_bd.get("target", float("inf")))
+        if _dim_score >= _dim_target:
             print(
                 f"[Gate {gate}] A3: da_waiver for '{_dim}' skipped — "
-                f"tool_score={_tool_score:.1f} ≥ threshold={_threshold:.1f} "
+                f"score={_dim_score:.1f} ≥ target={_dim_target:.1f} "
                 "(waiver not needed; dimension already passes).",
                 file=sys.stderr,
             )
@@ -1860,6 +1869,19 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         _gp_json["quality_complete"] = result.quality_complete
                         _gp_json["verdict"] = "PASS" if result.quality_complete else "FAIL"
                         _gp_json["passed"] = result.quality_complete
+                        # Round 30: framework-owned dimensions (architecture via the
+                        # independent CRG run, adversarial_review via its own override —
+                        # harness_bridge.py's _CRG_ONLY_DIMS / _override_adversarial_review_
+                        # dim_score) are corrected in-memory on `result.dimensions`, but this
+                        # block re-reads the agent-written file from disk and only ever
+                        # patched 4 top-level fields — the corrected per-dimension score
+                        # never reached the persisted breakdown, so QUALITY_REPORT.md showed
+                        # None for a dimension the framework had actually scored. Sync every
+                        # dimension's score back (a no-op for dims finalize_gate didn't
+                        # touch, since those already match what score.py wrote).
+                        _gp_breakdown = _gp_json.setdefault("breakdown", {})
+                        for _dim_result in result.dimensions:
+                            _gp_breakdown.setdefault(_dim_result.name, {})["score"] = _dim_result.score
                         _payload = json.dumps(_gp_json, indent=2, ensure_ascii=False)
                         _gp_dst.write_text(_payload, encoding="utf-8")
                         # Fix H-E (2026-07-15): also write the per-FR canonical

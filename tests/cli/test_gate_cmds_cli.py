@@ -675,7 +675,7 @@ class TestGate4DaWaiverThresholdCheck:
 
     _LONG = "x" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
 
-    def _make_g4(self, dim: str, tool_score: float, threshold: float | None) -> dict:
+    def _make_g4(self, dim: str, score: float, target: float | None) -> dict:
         """Minimal gate4_result.json satisfying all A3 checks for one waived dim."""
         from cli.gate_cmds import _TIER3_DIMS
 
@@ -684,9 +684,9 @@ class TestGate4DaWaiverThresholdCheck:
             d: {"challenge": self._LONG, "response": self._LONG}
             for d in _TIER3_DIMS
         }
-        bd: dict = {"tool_score": tool_score}
-        if threshold is not None:
-            bd["threshold"] = threshold
+        bd: dict = {"score": score}
+        if target is not None:
+            bd["target"] = target
         return {
             "devil_advocate": devil_advocate,
             "devil_advocate_evidence": evidence,
@@ -711,43 +711,55 @@ class TestGate4DaWaiverThresholdCheck:
         )
         return _check_gate4_prerequisites(tmp_path)
 
-    def test_waiver_skipped_when_tool_score_above_threshold(self, tmp_path):
-        """tool_score=100 >= threshold=80 → dimension already passes → waiver NOT applied."""
+    def test_waiver_skipped_when_score_above_target(self, tmp_path):
+        """score=100 >= target=80 → dimension already passes → waiver NOT applied."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", tool_score=100.0, threshold=80.0)
+            tmp_path, self._make_g4("architecture", score=100.0, target=80.0)
         )
         assert not blocked
         assert "architecture" not in da_waivers
 
-    def test_waiver_skipped_at_exact_threshold(self, tmp_path):
-        """tool_score == threshold → passes → waiver NOT applied."""
+    def test_waiver_skipped_at_exact_target(self, tmp_path):
+        """score == target → passes → waiver NOT applied."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", tool_score=80.0, threshold=80.0)
+            tmp_path, self._make_g4("architecture", score=80.0, target=80.0)
         )
         assert not blocked
         assert "architecture" not in da_waivers
 
-    def test_waiver_applied_when_tool_score_below_threshold(self, tmp_path):
-        """tool_score=50 < threshold=80 → dimension fails → waiver IS applied."""
+    def test_waiver_applied_when_score_below_target(self, tmp_path):
+        """score=50 < target=80 → dimension fails → waiver IS applied."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", tool_score=50.0, threshold=80.0)
+            tmp_path, self._make_g4("architecture", score=50.0, target=80.0)
         )
         assert not blocked
         assert "architecture" in da_waivers
 
-    def test_waiver_applied_when_threshold_field_missing(self, tmp_path):
-        """threshold absent → default float('inf') → waiver IS applied (conservative).
+    def test_waiver_applied_when_target_field_missing(self, tmp_path):
+        """target absent → default float('inf') → waiver IS applied (conservative).
 
-        The M1 fix: old default was 0.0, which made tool_score >= 0.0 always True
-        and silently discarded every waiver.  float('inf') means 'unknown threshold
+        The M1 fix: old default was 0.0, which made score >= 0.0 always True
+        and silently discarded every waiver.  float('inf') means 'unknown target
         → assume waiver is needed'.
         """
         blocked, da_waivers = self._run(
             tmp_path,
-            self._make_g4("architecture", tool_score=100.0, threshold=None),
+            self._make_g4("architecture", score=100.0, target=None),
         )
         assert not blocked
         assert "architecture" in da_waivers
+
+    def test_waiver_skipped_against_realistic_score_py_breakdown_shape(self, tmp_path):
+        """Round 30 regression pin: score.py's real breakdown shape (score/
+        target/gap/weight/weighted_score — no tool_score/threshold keys at
+        all) must be read correctly, not just a test-invented fixture shape."""
+        g4 = self._make_g4("architecture", score=100.0, target=80.0)
+        g4["breakdown"]["architecture"].update({
+            "gap": 0, "weight": 80, "weighted_score": 8000,
+        })
+        blocked, da_waivers = self._run(tmp_path, g4)
+        assert not blocked
+        assert "architecture" not in da_waivers
 
 
 # =============================================================================
@@ -766,15 +778,15 @@ class TestGate3DaWaiverCollection:
 
     _LONG = "y" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
 
-    def _make_g3(self, dim: str, tool_score: float, threshold: float | None,
+    def _make_g3(self, dim: str, score: float, target: float | None,
                  evidence: bool = True, da_true: bool = True) -> dict:
         g3: dict = {
             "devil_advocate": {dim: da_true},
             "da_waiver": {dim: True},
-            "breakdown": {dim: {"tool_score": tool_score}},
+            "breakdown": {dim: {"score": score}},
         }
-        if threshold is not None:
-            g3["breakdown"][dim]["threshold"] = threshold
+        if target is not None:
+            g3["breakdown"][dim]["target"] = target
         if evidence:
             g3["devil_advocate_evidence"] = {
                 dim: {"challenge": self._LONG, "response": self._LONG}
@@ -792,26 +804,26 @@ class TestGate3DaWaiverCollection:
 
     def test_waiver_applied_below_threshold(self, tmp_path):
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", tool_score=64.7, threshold=80.0))
+            tmp_path, self._make_g3("architecture", score=64.7, target=80.0))
         assert not blocked
         assert da_waivers == {"architecture"}
 
     def test_waiver_skipped_at_or_above_threshold(self, tmp_path):
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", tool_score=85.0, threshold=80.0))
+            tmp_path, self._make_g3("architecture", score=85.0, target=80.0))
         assert not blocked
         assert da_waivers == set()
 
     def test_blocked_when_evidence_missing(self, tmp_path):
         """Requested-but-unbacked waiver must fail loudly (fabrication guard)."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", tool_score=64.7, threshold=80.0,
+            tmp_path, self._make_g3("architecture", score=64.7, target=80.0,
                                     evidence=False))
         assert blocked
         assert da_waivers == set()
 
     def test_blocked_when_evidence_too_short(self, tmp_path):
-        g3 = self._make_g3("architecture", tool_score=64.7, threshold=80.0)
+        g3 = self._make_g3("architecture", score=64.7, target=80.0)
         g3["devil_advocate_evidence"]["architecture"]["response"] = "too short"
         blocked, da_waivers = self._run(tmp_path, g3)
         assert blocked
@@ -819,7 +831,7 @@ class TestGate3DaWaiverCollection:
 
     def test_no_waiver_when_devil_advocate_false(self, tmp_path):
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", tool_score=64.7, threshold=80.0,
+            tmp_path, self._make_g3("architecture", score=64.7, target=80.0,
                                     da_true=False))
         assert not blocked
         assert da_waivers == set()
@@ -829,10 +841,10 @@ class TestGate3DaWaiverCollection:
         assert not blocked
         assert da_waivers == set()
 
-    def test_missing_threshold_defaults_to_waiver_applied(self, tmp_path):
-        """threshold absent → float('inf') → conservative: waiver applied (M1 parity)."""
+    def test_missing_target_defaults_to_waiver_applied(self, tmp_path):
+        """target absent → float('inf') → conservative: waiver applied (M1 parity)."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", tool_score=100.0, threshold=None))
+            tmp_path, self._make_g3("architecture", score=100.0, target=None))
         assert not blocked
         assert da_waivers == {"architecture"}
 
@@ -870,6 +882,7 @@ class TestFinalizeGatePersistCompositeScore:
         agent_score: float = 96.9,
         harness_score: float = 97.1288,
         src_json_text: str | None = None,
+        dimensions: list | None = None,
     ) -> int:
         from harness.harness_bridge import GateResult
 
@@ -914,7 +927,7 @@ class TestFinalizeGatePersistCompositeScore:
                 return GateResult(
                     gate_num=gate,
                     score=_harness_score,
-                    dimensions=[],
+                    dimensions=dimensions or [],
                     open_critical=0,
                     open_high=0,
                     quality_complete=True,
@@ -943,6 +956,31 @@ class TestFinalizeGatePersistCompositeScore:
         )
         assert persisted["composite_score"] == round(97.1288, 4), (
             f"expected {round(97.1288, 4)}, got {persisted['composite_score']}"
+        )
+
+    def test_dimension_scores_synced_from_result_dimensions(self, tmp_path, monkeypatch):
+        """Round 30: framework-owned dimension overrides (e.g. architecture via
+        the independent CRG run) are computed correctly in-memory on
+        result.dimensions, but the persisted file must reflect them too — not
+        just the agent's raw (often null) breakdown entry."""
+        from harness.harness_bridge import DimResult
+
+        src = json.dumps({
+            "composite_score": 96.9,
+            "breakdown": {"architecture": {"score": None, "target": 80.0}},
+        })
+        rc = self._run_finalize(
+            tmp_path, monkeypatch,
+            src_json_text=src,
+            dimensions=[DimResult(name="architecture", score=100.0, threshold=80.0)],
+        )
+        assert rc == 0
+        persisted = json.loads(
+            (tmp_path / ".methodology" / "gate1_result.json").read_text()
+        )
+        assert persisted["breakdown"]["architecture"]["score"] == 100.0, (
+            "the framework-computed architecture score must be persisted, "
+            f"not left as the agent's raw value: {persisted['breakdown']}"
         )
 
     def test_malformed_source_json_falls_back_to_verbatim(self, tmp_path, monkeypatch):
