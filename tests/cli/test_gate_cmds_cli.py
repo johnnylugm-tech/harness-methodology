@@ -983,6 +983,35 @@ class TestFinalizeGatePersistCompositeScore:
             f"not left as the agent's raw value: {persisted['breakdown']}"
         )
 
+    def test_adversarial_review_score_synced_at_gate3(self, tmp_path, monkeypatch):
+        """Round 31: confirm the Round 30 sync loop is genuinely gate-agnostic —
+        adversarial_review's override (harness_bridge.py:262,
+        _override_adversarial_review_dim_score) has the identical in-memory-only
+        pattern as architecture's CRG override, flows through the same
+        finalize_gate → result.dimensions path, and Gate 3's elif branch
+        (gate_cmds.py:1808) doesn't divert persistence — so this must be fixed by
+        the same generic loop, not a dimension- or gate-specific patch."""
+        from harness.harness_bridge import DimResult
+
+        src = json.dumps({
+            "composite_score": 96.9,
+            "breakdown": {"adversarial_review": {"score": None, "target": 80.0}},
+        })
+        rc = self._run_finalize(
+            tmp_path, monkeypatch,
+            gate=3,
+            src_json_text=src,
+            dimensions=[DimResult(name="adversarial_review", score=91.0, threshold=80.0)],
+        )
+        assert rc == 0
+        persisted = json.loads(
+            (tmp_path / ".methodology" / "gate3_result.json").read_text()
+        )
+        assert persisted["breakdown"]["adversarial_review"]["score"] == 91.0, (
+            "the framework-computed adversarial_review score must be persisted "
+            f"at Gate 3 too, not left as the agent's raw value: {persisted['breakdown']}"
+        )
+
     def test_malformed_source_json_falls_back_to_verbatim(self, tmp_path, monkeypatch):
         """Malformed gate result JSON → verbatim fallback, not a crash."""
         rc = self._run_finalize(
