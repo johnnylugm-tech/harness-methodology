@@ -353,7 +353,7 @@ def _render_phase3_sync() -> str:
     (covers transient network/auth blips, not a real pre-push gate block)
     followed by a HANDOVER.md-append fallback (never --no-verify without a
     human decision — HR-17) if both attempts fail. Every other migrated
-    phase's Sync is much simpler (render_sync / render_sync_verified);
+    phase's Sync is much simpler (render_sync_verified);
     phase3 accumulated this extra resilience first (its own comments are the
     origin of the "ported from phase3" references throughout the other
     files), so it stays its own renderer rather than forcing the others to

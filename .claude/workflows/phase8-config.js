@@ -544,10 +544,14 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone
   // commit — the same artifact the step-0 GUARD checks. Read git log via a
   // schema proxy; the pusher's prose "P8-PUSH: PASS" is narrative only.
-  const p8VerifyCmd = 'git -C ' + REPO + ' log --oneline --grep="P8" -1'
+  // Round 28: query origin/main, not local HEAD — _commit_and_push commits
+  // locally before attempting the push and does not revert the commit if the
+  // push itself fails, so a local-only grep matched even when nothing reached
+  // origin (retry loop then broke early on a push that never landed).
+  const p8VerifyCmd = 'git -C ' + REPO + ' fetch origin main --quiet && git -C ' + REPO + ' log origin/main --oneline --grep="P8" -1'
   const p8v = await agent(
     'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty); reason = the verbatim stdout (or "empty").',
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty) — this confirms the P8 commit reached origin, not merely local HEAD; reason = the verbatim stdout (or "empty").',
     { label: 'p8-verify-r' + round, phase: 'Final Push', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   p8Ok = !!(p8v && p8v.pass === true)
@@ -558,22 +562,23 @@ if (!p8Ok) return { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUN
 
 log('Phase 8 push-milestone + advance-phase complete. 🎉 Pipeline complete — Phase 9 (Maintenance) begins.')
 
-
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Sync
-// ══════════════════════════════════════════════════════════════════════════
-
+// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
+// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
+// publishes to origin"). This workflow ends right after Advance with no
+// next-phase push queued, so the handover commit was left stranded on
+// local until whatever runs next happened to push it. Publish it now.
 phase('Sync')
-log('Push handover commit (advance-phase commits locally without pushing)')
+log('git push origin main (publish advance handover commit)')
 const syncReport = await agent(
-  'YOU ARE THE SYNC PUSHER. advance-phase wrote a local handover commit. Push it to origin.\n'
-  + 'REPO: ' + REPO + '\n'
-  + '1. `git -C ' + REPO + ' log --oneline -5` — confirm an advance-phase handover commit exists.\n'
-  + '2. `git -C ' + REPO + ' push origin main`\n'
+  'Run EXACTLY this command via Bash:\n'
+  + 'git -C ' + REPO + ' push origin main\n\n'
   + '3. `git -C ' + REPO + ' tag -l \"harness-v*\" | head -3` — confirm any Phase 6 gate4 tag is pushed; if there is a P6 tag but `git push origin --tags` hasn\'t run yet, push tags.\n'
-  + 'SCOPE RULES: ONLY push. DO NOT re-run advance-phase.',
-  { label: 'sync-push', phase: 'Sync', agentType: 'general-purpose' },
+  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
+  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },
 )
+if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
+  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+}
 
 
 return {

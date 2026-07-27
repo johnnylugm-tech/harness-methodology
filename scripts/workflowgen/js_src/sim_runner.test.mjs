@@ -160,6 +160,23 @@ test('phase3 TDD loop: [HARNESS-BUG] banner in the GATE1 log aborts the FR loop 
   assert.match(result.message, /harness-methodology itself crashed/)
 })
 
+// ---- 3c. Sync verdict FAIL branch (Round 28) -------------------------------
+// render_sync_verified()'s regex early-return was zero-covered: every happy
+// pack answers 'SYNC: PASS' (line 62 above), so no test ever exercised the
+// FAIL path — for any of the 6 phases that already used it, and now P8
+// (Round 28 migrated P8 off the unconditional render_sync(), which had no
+// verdict check at all — the one phase-exit push in the pipeline with no
+// safety net). phase7 is the simplest consumer (Sync is its last phase box).
+test('phase7 Sync: a FAIL verdict early-returns an error (post-advance push did not PASS)', async () => {
+  const overrides = [
+    { match: /^sync$/, respond: 'SYNC: FAIL — simulated push rejection' },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase7-risk.js'), makeHappyResponder(overrides))
+  assert.ok(result.error, 'a Sync FAIL must produce a structured error, not a silent pass-through')
+  assert.match(result.error, /post-advance push did not PASS/)
+})
+
 // ---- 4. garbage B response crashes the A/B machine (pinned weakness) -------
 // parseAgentJson THROWS on JSON-less text; runSubTask's fallback
 // `sbrResult.b2 || parseAgentJson(bResult, ...)` therefore escapes as a

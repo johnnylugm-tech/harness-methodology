@@ -129,10 +129,14 @@ def _render_final_push() -> str:
         + "  // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone\n"
         + "  // commit — the same artifact the step-0 GUARD checks. Read git log via a\n"
         + "  // schema proxy; the pusher's prose \"P8-PUSH: PASS\" is narrative only.\n"
-        + "  const p8VerifyCmd = 'git -C ' + REPO + ' log --oneline --grep=\"P8\" -1'\n"
+        + "  // Round 28: query origin/main, not local HEAD — _commit_and_push commits\n"
+        + "  // locally before attempting the push and does not revert the commit if the\n"
+        + "  // push itself fails, so a local-only grep matched even when nothing reached\n"
+        + "  // origin (retry loop then broke early on a push that never landed).\n"
+        + "  const p8VerifyCmd = 'git -C ' + REPO + ' fetch origin main --quiet && git -C ' + REPO + ' log origin/main --oneline --grep=\"P8\" -1'\n"
         + "  const p8v = await agent(\n"
         + "    'Run EXACTLY this command via the Bash tool:\\n`' + p8VerifyCmd + '`\\n'\n"
-        + "    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty); reason = the verbatim stdout (or \"empty\").',\n"
+        + "    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty) — this confirms the P8 commit reached origin, not merely local HEAD; reason = the verbatim stdout (or \"empty\").',\n"
         + "    { label: 'p8-verify-r' + round, phase: 'Final Push', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + "  )\n"
         + "  p8Ok = !!(p8v && p8v.pass === true)\n"
@@ -187,7 +191,7 @@ def generate_phase8() -> str:
         ),
         _render_archive(),
         _render_final_push(),
-        B.render_sync(extra_lines=[
+        B.render_sync_verified(extra_lines=[
             "3. `git -C ' + REPO + ' tag -l \\\"harness-v*\\\" | head -3` — confirm any Phase 6 gate4 tag is pushed; if there is a P6 tag but `git push origin --tags` hasn\\'t run yet, push tags.",
         ]),
         (

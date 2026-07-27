@@ -736,33 +736,19 @@ def render_advance_loop(
     )
 
 
-def render_sync(*, extra_lines: list[str] | None = None) -> str:
-    extra = "".join(f"  + '{line}\\n'\n" for line in (extra_lines or []))
-    return (
-        render_phase_header("Sync")
-        + "log('Push handover commit (advance-phase commits locally without pushing)')\n"
-        + "const syncReport = await agent(\n"
-        + "  'YOU ARE THE SYNC PUSHER. advance-phase wrote a local handover commit. Push it to origin.\\n'\n"
-        + "  + 'REPO: ' + REPO + '\\n'\n"
-        + "  + '1. `git -C ' + REPO + ' log --oneline -5` — confirm an advance-phase handover commit exists.\\n'\n"
-        + "  + '2. `git -C ' + REPO + ' push origin main`\\n'\n"
-        + extra
-        + "  + 'SCOPE RULES: ONLY push. DO NOT re-run advance-phase.',\n"
-        + "  { label: 'sync-push', phase: 'Sync', agentType: 'general-purpose' },\n"
-        + ")\n"
-    )
-
-
-def render_sync_verified() -> str:
+def render_sync_verified(*, extra_lines: list[str] | None = None) -> str:
     """The Bug A fix (2026-07-07) Sync variant: a bare `git push` plus a
     plain-text PASS/FAIL regex verdict check that early-returns an error on
-    FAIL. Real control-flow difference from render_sync() (which fires the
-    agent unconditionally with no verdict check) — not just prose — so it is
-    its own function rather than another render_sync() toggle. No phase-
-    specific content (P5/P7 share this text byte-for-byte); unlike every
-    other phase box this one also has no boxed `// Phase: Sync` divider
+    FAIL. Used by every phase-exit Sync step except P3 (its own bespoke
+    retry/fallback Sync). Round 28: P8 migrated onto this from the old
+    unconditional render_sync() — P8's Sync was the one phase-exit push in
+    the pipeline with no verdict check at all. Optional extra_lines appends
+    phase-specific confirmation steps (e.g. P8's tag-push check) into the
+    same verdict-checked report. Otherwise no phase-specific content; unlike
+    every other phase box this one also has no boxed `// Phase: Sync` divider
     comment in the original files, so it does not call render_phase_header().
     """
+    extra = "".join(f"  + '{line}\\n'\n" for line in (extra_lines or []))
     return (
         "// Bug A fix (2026-07-07): advance-phase intentionally commits the handover\n"
         "// locally without pushing (harness/cli/phase_cmds.py: \"next milestone push\n"
@@ -774,7 +760,8 @@ def render_sync_verified() -> str:
         "const syncReport = await agent(\n"
         "  'Run EXACTLY this command via Bash:\\n'\n"
         "  + 'git -C ' + REPO + ' push origin main\\n\\n'\n"
-        "  + 'Report final outcome as plain text: \"SYNC: PASS\" or \"SYNC: FAIL — <one-line reason>\".',\n"
+        + extra
+        + "  + 'Report final outcome as plain text: \"SYNC: PASS\" or \"SYNC: FAIL — <one-line reason>\".',\n"
         "  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },\n"
         ")\n"
         "if (!/SYNC:\\s*PASS/.test(String(syncReport ?? ''))) {\n"
