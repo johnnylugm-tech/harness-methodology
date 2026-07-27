@@ -227,14 +227,14 @@ log('run-env-check + finalize-env-check (Bug #127 root-cause + bash-timeout-awar
 // succeeds; the trailing `; echo RC=$?` captures whichever of the two is
 // authoritative (run-env-check's own failure code if it failed first,
 // otherwise finalize-env-check's).
-// Round 23 (2026-07-26, observed on taskq phase5-verification wf_4fe2125c-48d):
+// Round 23 (2026-07-26, observed on a downstream project's phase5 workflow run):
 // the chained command legitimately runs past the Claude Code Bash tool's
 // 10-min default timeout — run-env-check spawns an LLM sub-agent with
 // STALL_TIMEOUT=900s (core/harness_config.py::STALL_TIMEOUTS). The Bash
 // tool's response to a timeout hit is "moved to the background" + return
 // rc=124 to the caller, which the sub-agent then mis-reports as the
 // run-env-check exit code (it isn't — the actual sub-process is still
-// running). Symptom: 627s elapsed, rc=124, no env_check_result.json
+// running). Symptom: ~10 min elapsed, rc=124, no env_check_result.json
 // cross-check. Fix: launch the chain via Bash with run_in_background:true
 // and a foreground `kill -0 PID` poll loop (same idiom as GATE1-DELTA
 // background dispatch in phase3-8). The Bash tool returns immediately

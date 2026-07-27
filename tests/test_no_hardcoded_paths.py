@@ -238,6 +238,15 @@ _SHIPPED_SURFACE_DIRS = (
     "templates",
     "harness/prompts",
     "harness/ssi/prompts",
+    # Round 20 站4: generated workflow JS is read by every project's
+    # orchestrator agent, which makes it a shipped surface too — it was simply
+    # never listed. Round 23 (e2b98b6) landed a comment naming a downstream
+    # project and one of its workflow run ids into five of these files; the
+    # generator's own text had since been de-identified, but the artifacts were
+    # not regenerated, so the leak sat in the committed output where no guard
+    # looked. Same shape as this file's other gap (Round 20 站2): the rule
+    # existed, its scope did not reach where the recurrence happened.
+    ".claude/workflows",
 )
 
 
