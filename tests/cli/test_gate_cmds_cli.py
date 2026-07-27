@@ -278,28 +278,81 @@ class TestCmdRunEnvCheck:
             stderr = ""
         monkeypatch.setattr(subprocess, "run", lambda *_, **__: FakeProc())
 
-    def test_ready_true_exits_0(self, tmp_path, monkeypatch):
+    # Round 20 站1 rewrote the three tests below. Their INTENT is unchanged and
+    # still enforced — an environment that is not ready must exit 1, and the
+    # [BLOCKED] message must say so. What changed is where "ready" comes from.
+    #
+    # They used to write `{"ready": true/false}` and assert the exit code
+    # followed it, which pinned the defect: the sub-agent's own assertion WAS
+    # the verdict, with no independent computation anywhere in the three layers
+    # that read it. Round 24 (37adc43) showed that verdict flipping between two
+    # runs against identical project state. `ready` is now computed by
+    # env_contract.evaluate_contract from the stored classification against the
+    # live environment, so these tests drive the classification instead and let
+    # the exit code be derived — which is what makes them able to fail for the
+    # right reason.
+
+    def test_no_required_items_exits_0(self, tmp_path, monkeypatch):
+        """A project whose docs require nothing is ready — nothing to look up."""
         from harness_cli import cmd_run_env_check
-        self._setup_mock_result(tmp_path, '{"ready": true}', monkeypatch)
+        self._setup_mock_result(
+            tmp_path,
+            '{"ready": true, "env_vars": {"required": [], "optional_missing": []}}',
+            monkeypatch,
+        )
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 0
 
-    def test_ready_false_exits_1(self, tmp_path, monkeypatch, capsys):
+    def test_unset_mandatory_var_exits_1(self, tmp_path, monkeypatch, capsys):
+        """A var classified mandatory but absent from the environment blocks —
+        and it blocks on the MEASUREMENT, not on what the agent claimed."""
         from harness_cli import cmd_run_env_check
-        self._setup_mock_result(tmp_path, '{"ready": false}', monkeypatch)
+        monkeypatch.delenv("HARNESS_R20_ABSENT", raising=False)
+        self._setup_mock_result(
+            tmp_path,
+            '{"ready": true, "env_vars": {"required": '
+            '[{"name": "HARNESS_R20_ABSENT", "present": true}]}}',
+            monkeypatch,
+        )
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 1
         out, _ = capsys.readouterr()
         assert "[BLOCKED]" in out
+        assert "HARNESS_R20_ABSENT" in out
+
+    def test_agent_claim_of_ready_cannot_override_the_measurement(
+        self, tmp_path, monkeypatch
+    ):
+        """The regression pin for this whole station.
+
+        The agent asserts ready=true while a var it itself classified as
+        required is not exported. Before Round 20 站1 that assertion WAS the
+        exit code. Now the measurement wins.
+        """
+        from harness_cli import cmd_run_env_check
+        monkeypatch.delenv("HARNESS_R20_LIES", raising=False)
+        self._setup_mock_result(
+            tmp_path,
+            '{"ready": true, "summary": "all good!", "env_vars": {"required": '
+            '[{"name": "HARNESS_R20_LIES", "present": true}]}}',
+            monkeypatch,
+        )
+        args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
+        monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
+        assert cmd_run_env_check(args) == 1
 
     def test_missing_ready_key_exits_1(self, tmp_path, monkeypatch):
+        """No `ready` key at all: with nothing classified, there is also nothing
+        to verify, so this is now the empty-contract case and exits 0. The
+        not-ready path is covered by test_unset_mandatory_var_exits_1 above;
+        what this still pins is that a result without `ready` does not crash."""
         from harness_cli import cmd_run_env_check
         self._setup_mock_result(tmp_path, '{"other": "data"}', monkeypatch)
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
-        assert cmd_run_env_check(args) == 1
+        assert cmd_run_env_check(args) == 0
 
     def test_missing_file_exits_1(self, tmp_path, monkeypatch):
         from harness_cli import cmd_run_env_check
@@ -359,10 +412,19 @@ class TestCmdRunEnvCheck:
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 0
 
-    def test_timeout_with_fresh_artifact_ready_false_exits_1(self, tmp_path, monkeypatch):
-        """Artifact-based fallback must still honor ready=false."""
+    def test_timeout_with_fresh_artifact_unmet_requirement_exits_1(
+        self, tmp_path, monkeypatch
+    ):
+        """The artifact-based timeout fallback must still block a genuinely
+        unready environment. Round 20 站1: it blocks on the measurement of the
+        artifact's classification, not on the `ready` the artifact asserts."""
         from harness_cli import cmd_run_env_check
-        self._setup_timeout(tmp_path, monkeypatch, write_result='{"ready": false}')
+        monkeypatch.delenv("HARNESS_R20_TIMEOUT_ABSENT", raising=False)
+        self._setup_timeout(
+            tmp_path, monkeypatch,
+            write_result='{"ready": true, "env_vars": {"required": '
+                         '[{"name": "HARNESS_R20_TIMEOUT_ABSENT", "present": true}]}}',
+        )
         monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         args = argparse.Namespace(project=str(tmp_path), phase=1, fr_id=None)
         assert cmd_run_env_check(args) == 1

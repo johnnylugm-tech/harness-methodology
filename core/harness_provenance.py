@@ -72,5 +72,13 @@ def enforcer_sha() -> str:
         if dirty.returncode == 0 and dirty.stdout.strip():
             value += "-dirty"
         return value
-    except (OSError, subprocess.SubprocessError):
+    except Exception:  # pylint: disable=broad-exception-caught
+        # Deliberately broad, and the docstring's "never raises" is the reason.
+        # Round 20 站1 found the narrow (OSError, SubprocessError) form leaking
+        # an AttributeError: any caller or test that substitutes subprocess.run
+        # gets a stand-in whose result object need not carry `.stdout`, and the
+        # exception escaped into a gate command. A provenance label failing to
+        # resolve must degrade to "unknown", never take a gate down with it —
+        # so every failure mode belongs in this handler, not just the ones
+        # anticipated when it was written.
         return _UNKNOWN

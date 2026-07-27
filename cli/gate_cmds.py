@@ -28,6 +28,7 @@ from core.atomic_io import atomic_write_json, file_lock, state_lock_path
 from core.canonical_form import canonical_form
 from core.harness_config import get_timeout, get_value
 from core.phase_topology import EXIT_GATE_MAP
+from core.quality_gate import env_contract
 from core.quality_gate import gate1_evidence
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
@@ -135,6 +136,25 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     sf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
     print(f"[SENTINEL] {sf.relative_to(Path(project))} written.")
 
+    # ── Round 20 站1: classification is cached, verification never is ────────
+    # The sub-agent is needed to CLASSIFY (does this project run without FOO?),
+    # a question the project's docs answer. Whether FOO is exported right now is
+    # measured, not judged. When the documents behind a stored classification
+    # have not changed, there is nothing left for an LLM to decide — and asking
+    # it anyway is what produced Round 24's contradiction: the same var, the
+    # same unchanged docs, classified two different ways in two runs.
+    _fingerprint = env_contract.compute_source_fingerprint(
+        ctx.sad_excerpt, ctx.srs_excerpt, ctx.docker_compose_excerpt
+    )
+    _contract = env_contract.load_contract(project)
+    if not getattr(args, "force_reclassify", False) and env_contract.contract_is_current(
+        _contract, _fingerprint
+    ):
+        assert _contract is not None  # contract_is_current is False for None
+        print("[INFO] env_contract.json current (source unchanged) — verifying "
+              "deterministically, no sub-agent needed.")
+        return _finalize_env_result(project, env_contract.evaluate_contract(_contract, project))
+
     # Spawn sub-agent to perform the env check inline.
     # Uses bypassPermissions so the agent can run psql, docker, etc.
     # --setting-sources "" blocks user-level CLAUDE.md/hooks (isolation).
@@ -220,24 +240,56 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
         print("[ERROR] env-check agent fabricated claims:\n  " + "\n  ".join(_fab), file=sys.stderr)
         return 1
 
-    # Bug #127 root-cause fix (2026-06-27): reflect the agent's `ready` flag in
-    # this command's exit code so callers (workflows / CI) can branch on `$?`
-    # without spawning a second sub-agent or parsing free-form LLM output.
-    # Previously the command always returned 0 even when the agent wrote
-    # ready=false, forcing every workflow JS to do its own LLM-orchestrator
-    # judgment pass on the result — fragile and prone to hallucinated failures.
+    # Round 20 站1: distil the agent's CLASSIFICATION into a versioned contract,
+    # then discard its measurements. What it decided (which vars this project
+    # needs) is worth keeping and reviewing; what it observed (which were set at
+    # that moment) is re-measured below and would be stale immediately.
     try:
-        _ready_data = json.loads(result_path.read_text(encoding="utf-8"))
-        _ready = bool(_ready_data.get("ready", False)) if isinstance(_ready_data, dict) else False
-    except (ValueError, OSError):
-        _ready = False
-    if not _ready:
+        _raw_result = json.loads(result_path.read_text(encoding="utf-8"))
+        if not isinstance(_raw_result, dict):
+            raise ValueError("env_check_result.json is not a JSON object")
+    except (ValueError, OSError) as _rr_exc:
+        print(f"[ERROR] env-check result unreadable: {_rr_exc}", file=sys.stderr)
+        return 1
+    from core.harness_provenance import enforcer_sha
+    _new_contract = env_contract.derive_contract_from_result(
+        _raw_result, _fingerprint, enforcer_sha()
+    )
+    _cp = env_contract.write_contract(project, _new_contract)
+    print(f"[INFO] env_contract.json written: {_cp}")
+    return _finalize_env_result(project, env_contract.evaluate_contract(_new_contract, project))
+
+
+def _finalize_env_result(project: str, evaluated: dict) -> int:
+    """Persist a computed env-check result and return the exit code it implies.
+
+    `ready` here is always a MEASUREMENT (env_contract.evaluate_contract), never
+    a sub-agent's assertion — that is the whole point of Round 20 站1. Both paths
+    into this function (contract-current fast path, and post-dispatch) go
+    through it, so there is exactly one place where readiness becomes an exit
+    code.
+
+    Bug #127 (2026-06-27) established that the exit code must reflect readiness
+    so workflows can branch on `$?` instead of parsing free-form LLM output;
+    that contract is unchanged. The result file keeps its original schema, so
+    finalize-env-check and the workflow JS cross-check need no changes.
+    """
+    result_path = Path(project) / ".sessi-work" / "env_check_result.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(evaluated, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    if not evaluated.get("ready"):
         print(
-            f"[BLOCKED] env-check sub-agent wrote ready=false. "
-            f"Re-run after fixing the missing items listed in {result_path}."
+            f"[BLOCKED] env-check: {evaluated.get('summary', 'environment not ready')}.\n"
+            f"  Verified against {env_contract.CONTRACT_RELPATH}; details in {result_path}.\n"
+            f"  Fix: export the missing variable(s) / install the missing tool(s), then\n"
+            f"  re-run: python harness_cli.py run-env-check --phase <N> --project {project}\n"
+            f"  If an item is listed there in error, correct its classification in\n"
+            f"  {env_contract.CONTRACT_RELPATH} (it is a reviewable, version-controlled\n"
+            f"  file) or re-run with --force-reclassify."
         )
         return 1
-
     print(f"[INFO] env-check complete. Result: {result_path}")
     return 0
 
@@ -2376,6 +2428,11 @@ def register(sub) -> None:
     rec.add_argument("--phase",   type=int, required=True, help="Current phase number")
     rec.add_argument("--project", default=".", help="Project root (default: .)")
     rec.add_argument("--fr-id",   default=None, help="FR ID (optional, for FR-scoped checks)")
+    rec.add_argument("--force-reclassify", action="store_true",
+                     help="Re-run the classification sub-agent even when "
+                          ".methodology/env_contract.json is current. Use when the "
+                          "environment's requirements changed without the SAD/SRS/"
+                          "docker-compose text changing.")
     rec.set_defaults(func=cmd_run_env_check)
 
     # finalize-env-check (verify env_check_result.json)

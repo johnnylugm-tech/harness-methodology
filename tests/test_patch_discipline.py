@@ -53,7 +53,15 @@ _FORMS = (
 # one more instance of an already-accepted pattern, not a new coupling.
 _PRIVATE_PATCH_CEILING: dict[str, int] = {
     "tests/test_harness_bridge.py": 66,
-    "tests/cli/test_gate_cmds_cli.py": 58,
+    # 2026-07-27 Round 20 站1 (+1): test_agent_claim_of_ready_cannot_override_
+    # the_measurement is the regression pin for that station — an agent
+    # asserting ready=true while a var it classified as required is unset must
+    # not produce exit 0. It reuses the exact monkeypatch.setattr(
+    # "cli.gate_cmds._verify_env_check_claims", ...) seam the other
+    # TestCmdRunEnvCheck tests already go through (that function shells out to
+    # PATH/venv probes, so every test in this class stubs it); one more instance
+    # of an already-accepted pattern, not a new coupling.
+    "tests/cli/test_gate_cmds_cli.py": 59,
     "tests/test_mutation_enforcer.py": 46,
     "tests/cli/test_phase_cmds_cli.py": 36,
     "tests/test_handover_generator.py": 32,  # 2026-07-26 Round 14 A2-t: +4 — test_advance_phase_surfaces_obligations_to_handover monkeypatches cli.phase_cmds._advance_fsm (the seam cmd_advance_phase calls to write out state.json's last_gate/task_background; substantively the public state-write — already a constructor-private wiring seam multiple cmd_advance_phase tests in this file go through — _advance_prechecks (the precondition aggregator — also covered by TestP1MissingDeliverableBlocksAdvance below this file, same seam); the test's OTHER monkeypatches (HandoverGenerator.write, PhaseHooks.preview_next_phase_blocking, subprocess.run, sys.stdout) target PUBLIC class methods / modules and do not count toward the ceiling.
