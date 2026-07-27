@@ -248,6 +248,30 @@ class TestFrameworkEnforcer:
         assert result["exists"] is True
         assert result["completeness"] < 100
 
+    def test_check_traceability_matrix_phase4_plaintext_verified_counts(self, tmp_path):
+        """Round 26: the real renderer (overlay.py/build_traceability.py) emits
+        plain 'verified' text, never emoji. Phase 4+ completeness must count
+        those rows too, not just emoji-marked ones."""
+        from enforcement.framework_enforcer import FrameworkEnforcer
+        content = "| FR-01 | verified | src/foo.py | tests/test_foo.py | — |\n"
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text(content)
+        fe = FrameworkEnforcer(str(tmp_path), phase=4)
+        result = fe.check_traceability_matrix()
+        assert result["exists"] is True
+        assert result["completeness"] == 100
+
+    def test_check_traceability_matrix_phase4_plaintext_pending_not_compliant(self, tmp_path):
+        """Round 26: plain 'pending' text must NOT be miscounted as verified."""
+        from enforcement.framework_enforcer import FrameworkEnforcer
+        content = "| FR-01 | pending | src/foo.py | — | — |\n"
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "TRACEABILITY_MATRIX.md").write_text(content)
+        fe = FrameworkEnforcer(str(tmp_path), phase=4)
+        result = fe.check_traceability_matrix()
+        assert result["exists"] is True
+        assert result["completeness"] == 0
+
 
 # ===========================================================================
 # cov_utils

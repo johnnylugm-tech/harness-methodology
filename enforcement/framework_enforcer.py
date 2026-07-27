@@ -77,6 +77,16 @@ class EnforcementResult:
         }
 
 
+# Round 26: check_traceability_matrix() originally only recognized emoji
+# markers (✅/❌/⚠️), but the actual matrix renderers (core/traceability/
+# overlay.py, scripts/build_traceability.py) emit plain TraceStatus text
+# ("verified"/"pending"/"failed"/"not_implemented") and have never emitted
+# emoji. These word-boundary patterns recognize that plain-text convention
+# additively, alongside (not instead of) the emoji markers.
+_VERIFIED_WORD_RE = re.compile(r"\bverified\b", re.IGNORECASE)
+_FAILED_WORD_RE = re.compile(r"\b(failed|not_implemented)\b", re.IGNORECASE)
+
+
 class FrameworkEnforcer:
     """
     Framework Enforcement Engine.
@@ -263,9 +273,9 @@ class FrameworkEnforcer:
         for line in content.split("\n"):
             if "src/" in line or ".py" in line:
                 total += 1
-                if any(x in line for x in ["\u274c", "\u26a0\ufe0f"]):
+                if _FAILED_WORD_RE.search(line) or any(x in line for x in ["\u274c", "\u26a0\ufe0f"]):
                     missing_constitution.append(line)
-                if "\u2705" in line:
+                if _VERIFIED_WORD_RE.search(line) or "\u2705" in line:
                     completed += 1
         # Completeness semantics are phase-dependent:
         #
