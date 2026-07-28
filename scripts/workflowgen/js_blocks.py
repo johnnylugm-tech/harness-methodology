@@ -342,41 +342,50 @@ def render_env_check(phase: int) -> str:
     )
 
 
-def render_manifest_integrity_phase(phase: int) -> str:
-    """The checkManifestIntegrity() function definition PLUS its first
-    invocation as the "Manifest Integrity" phase box. Later phases (Advance/
-    Final Push retry loops) call the same function again by name — callers
-    render that invocation separately via render_manifest_integrity_call()."""
+def render_manifest_integrity_fn(phase: int) -> str:
+    """The checkManifestIntegrity() helper definition — no phase box, no call.
+
+    Round 22 站2: this used to also render an entry-point "Manifest Integrity"
+    phase box that ran the check immediately. Two of the three call sites it
+    served are gone:
+
+      - The entry call was redundant. Entry & Preflight runs `run-phase
+        --phase N` immediately before it, and PREFLIGHT_CHECKS[0] in
+        core/phase_hooks.py IS preflight_manifest_integrity — the exact method
+        `check-manifest-integrity` wraps (cli/check_cmds.py).
+      - The Advance-loop call moved into `advance-phase` itself
+        (cli/phase_cmds.py::_advance_prechecks, exit 27), where it also
+        protects every non-workflow caller: a human running advance-phase by
+        hand, a resumed session, CI.
+
+    Only two call sites still need this helper, and both are checks the CLI
+    does not perform for them: phase3's Gate-2 round loop (a fix attempt
+    mid-loop can reintroduce corruption before finalize-gate commits) and
+    phase8's Final Push (push-milestone, not advance-phase).
+    """
     return (
-        render_phase_header("Manifest Integrity")
-        + "// (ported from phase3, 155ec07 + 286ccca)\n"
-        + "// 2026-07-02 incident class: a sub-agent action (bare pytest → harness test\n"
-        + "// CWD leak) can corrupt quality_manifest.json MID-RUN, not just before entry.\n"
-        + "// Detect the three known corruption patterns (fr_ids truncated, traceability\n"
-        + "// cleared, gate1 wiped) at entry AND re-check before the phase-exit push so\n"
-        + "// corruption is never baked into a milestone commit.\n"
-        + "// T1-A (8-phase audit remediation): the previous inline Python one-liner\n"
-        + "// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`\n"
-        + "// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded\n"
-        + "// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own\n"
-        + "// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead.\n"
-        + f"const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase {phase}'\n"
-        + "async function checkManifestIntegrity(phaseLabel, agentLabel) {\n"
-        + "  const verdict = await agent(\n"
-        + "    'Run EXACTLY this command via the Bash tool:\\n`' + integrityCmd + '; echo RC=$?`\\n'\n"
-        + "    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',\n"
-        + "    { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
-        + "  )\n"
-        + "  const ok = !!(verdict && verdict.pass === true)\n"
-        + "  const raw = verdict ? String(verdict.reason ?? '').trim() : 'agent returned null'\n"
-        + "  if (!ok) log('  manifest integrity FAIL [' + agentLabel + ']: ' + raw)\n"
-        + "  return { ok, raw }\n"
-        + "}\n"
-        + "const integrity0 = await checkManifestIntegrity('Manifest Integrity', 'manifest-integrity')\n"
-        + "if (!integrity0.ok) {\n"
-        + "  return { error: 'Manifest Integrity: quality_manifest.json appears corrupted', detail: integrity0.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first)', note: 'Working-tree manifest fails the P4+ shape check (fr_ids/traceability/gate1 per-FR records). A sub-agent likely wrote to it directly. Restore a healthy copy and re-run.' }\n"
-        + "}\n"
-        + "log('  manifest integrity OK')\n"
+        "// (ported from phase3, 155ec07 + 286ccca)\n"
+        "// 2026-07-02 incident class: a sub-agent action (bare pytest → harness test\n"
+        "// CWD leak) can corrupt quality_manifest.json MID-RUN, not just before entry.\n"
+        "// Detect the three known corruption patterns (fr_ids truncated, traceability\n"
+        "// cleared, gate1 wiped) before anything commits .methodology/ wholesale.\n"
+        "// T1-A (8-phase audit remediation): the previous inline Python one-liner\n"
+        "// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`\n"
+        "// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded\n"
+        "// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own\n"
+        "// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead.\n"
+        f"const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase {phase}'\n"
+        "async function checkManifestIntegrity(phaseLabel, agentLabel) {\n"
+        "  const verdict = await agent(\n"
+        "    'Run EXACTLY this command via the Bash tool:\\n`' + integrityCmd + '; echo RC=$?`\\n'\n"
+        "    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',\n"
+        "    { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
+        "  )\n"
+        "  const ok = !!(verdict && verdict.pass === true)\n"
+        "  const raw = verdict ? String(verdict.reason ?? '').trim() : 'agent returned null'\n"
+        "  if (!ok) log('  manifest integrity FAIL [' + agentLabel + ']: ' + raw)\n"
+        "  return { ok, raw }\n"
+        "}\n"
     )
 
 
@@ -702,14 +711,12 @@ def render_advance_loop(
         + "const ADVANCE_MAX_ROUNDS = 5\n"
         + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
         + "  log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
-        + "  // Last-line integrity guard: the phase-exit push commits .methodology/\n"
-        + "  // wholesale — block here so mid-run corruption never reaches git history\n"
-        + "  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).\n"
-        + "  // Re-check every round — a fix attempt in a prior round could reintroduce it.\n"
-        + "  const advIntegrity = await checkManifestIntegrity('Advance', 'advance-integrity-r' + round)\n"
-        + "  if (!advIntegrity.ok) {\n"
-        + "    return { error: 'Advance round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the phase-exit push.' }\n"
-        + "  }\n"
+        + "  // Manifest integrity: enforced by advance-phase itself since Round 22 站2\n"
+        + "  // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command\n"
+        + "  // in its [BLOCKED] message). It runs first, before any other precheck, and\n"
+        + "  // on every round because advance-phase is idempotent — same guarantee the\n"
+        + "  // per-round dispatch here used to buy, minus the dispatch, and now covering\n"
+        + "  // the human/CI callers this loop never could.\n"
         + "  advanceReport = await agent(\n"
         + f"    'YOU ARE THE PHASE-{phase} EXIT ORCHESTRATOR. Advance to Phase {next_phase}. ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"

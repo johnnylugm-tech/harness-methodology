@@ -127,7 +127,12 @@ _LINE_CEILING: dict[str, int] = {
     # gained a "Fix:"/re-run remediation line (blocked-message-contract scan).
     # +15: Round 18 站3 added _attestation_content_still_current, the slow-path
     # adjudication that stops the mtime probe from manufacturing no-op commits.
-    "cli/phase_cmds.py": 2831,  # 2026-07-27: +6 — Round 29: run-phase auto-skips the spawn-substrate preflight probe when CI/GITHUB_ACTIONS is set — CI never dispatches an interactive per-FR loop, so the probe (which requires the claude CLI, never present there) can only ever fail (sized to current 2825→2831). 2026-07-26: +80 — Round 14 A2/A4: cmd_advance_phase now previews P(N+1) entry blocking via PhaseHooks.preview_next_phase_blocking(), threads obligations into HandoverGenerator.write + _advance_fsm, and replaces "Ready to begin Phase N+1" with a pointer to the obligations table (sized to current 2768). 2026-07-26: +33 — Round 15 §2: new cmd_preview_next_phase() + preview-next-phase subparser — a read-only P(N+1) obligation query that never writes state.json/HANDOVER.md/a commit, usable before P(N) exit gate even passes (sized to current 2813).
+    # 2026-07-28 (Round 22 站2): +33 — _advance_prechecks runs
+    # PhaseHooks.preflight_manifest_integrity() first (exit 27), with the
+    # restore command in its [BLOCKED] message. Relocated from workflow JS,
+    # where it cost one sub-agent dispatch per advance round AND left every
+    # non-workflow caller (human, resumed session, CI) unprotected.
+    "cli/phase_cmds.py": 2864,  # 2026-07-27: +6 — Round 29: run-phase auto-skips the spawn-substrate preflight probe when CI/GITHUB_ACTIONS is set — CI never dispatches an interactive per-FR loop, so the probe (which requires the claude CLI, never present there) can only ever fail (sized to current 2825→2831). 2026-07-26: +80 — Round 14 A2/A4: cmd_advance_phase now previews P(N+1) entry blocking via PhaseHooks.preview_next_phase_blocking(), threads obligations into HandoverGenerator.write + _advance_fsm, and replaces "Ready to begin Phase N+1" with a pointer to the obligations table (sized to current 2768). 2026-07-26: +33 — Round 15 §2: new cmd_preview_next_phase() + preview-next-phase subparser — a read-only P(N+1) obligation query that never writes state.json/HANDOVER.md/a commit, usable before P(N) exit gate even passes (sized to current 2813).
     # 2026-07-11: +35 lines — _fr_step_already_done's idempotency grep is now
     # scoped to the current phase's lineage boundary (read from tracked
     # state.json phase_completed), fixing a false "already done" skip on
@@ -432,7 +437,11 @@ _LINE_CEILING: dict[str, int] = {
     # (+ready field) added to _SCHEMA_DEFS for the Bug #127 cross-check.
     # Replaces the previous one-line synchronous Bash invocation in 5 phase
     # workflows (phase3/4/5/7/8).
-    "scripts/workflowgen/js_blocks.py": 1407,
+    # 2026-07-28 (Round 22 站1/站2): +6 net — the ORCH-POST once-per-phase
+    # block and the render_manifest_integrity_fn rationale docstring cost
+    # more generator lines than the two removed call sites saved; the
+    # GENERATED workflow JS shrank by ~150 lines across the 6 phase files.
+    "scripts/workflowgen/js_blocks.py": 1413,
 }
 
 

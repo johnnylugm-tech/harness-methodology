@@ -27,7 +27,6 @@ export const meta = {
   phases: [
     { title: 'Entry & Preflight' },
     { title: 'Env Check' },
-    { title: 'Manifest Integrity' },
     { title: 'Load FRs' },
     { title: 'Per-FR Delta' },
     { title: 'Config Docs' },
@@ -232,18 +231,11 @@ if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   return { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
 }
 
-
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Manifest Integrity
-// ══════════════════════════════════════════════════════════════════════════
-
-phase('Manifest Integrity')
 // (ported from phase3, 155ec07 + 286ccca)
 // 2026-07-02 incident class: a sub-agent action (bare pytest → harness test
 // CWD leak) can corrupt quality_manifest.json MID-RUN, not just before entry.
 // Detect the three known corruption patterns (fr_ids truncated, traceability
-// cleared, gate1 wiped) at entry AND re-check before the phase-exit push so
-// corruption is never baked into a milestone commit.
+// cleared, gate1 wiped) before anything commits .methodology/ wholesale.
 // T1-A (8-phase audit remediation): the previous inline Python one-liner
 // had the truncation-comparison direction inverted (`fr_trace >= fr_ids`
 // instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded
@@ -261,11 +253,6 @@ async function checkManifestIntegrity(phaseLabel, agentLabel) {
   if (!ok) log('  manifest integrity FAIL [' + agentLabel + ']: ' + raw)
   return { ok, raw }
 }
-const integrity0 = await checkManifestIntegrity('Manifest Integrity', 'manifest-integrity')
-if (!integrity0.ok) {
-  return { error: 'Manifest Integrity: quality_manifest.json appears corrupted', detail: integrity0.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first)', note: 'Working-tree manifest fails the P4+ shape check (fr_ids/traceability/gate1 per-FR records). A sub-agent likely wrote to it directly. Restore a healthy copy and re-run.' }
-}
-log('  manifest integrity OK')
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -515,9 +502,9 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   // wholesale — block here so mid-run corruption never reaches git history
   // (2026-07-02: commit 3198402 baked a corrupted manifest into main).
   // Re-check every round — a fix attempt in a prior round could reintroduce it.
-  const advIntegrity = await checkManifestIntegrity('Final Push', 'advance-integrity-r' + round)
-  if (!advIntegrity.ok) {
-    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }
+  const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)
+  if (!pushIntegrity.ok) {
+    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }
   }
   pushReport = await agent(
     'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'

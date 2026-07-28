@@ -374,3 +374,47 @@ for (const name of FR_LOOP_PHASES) {
       + `(got ${counts[0]} vs ${counts[1]}) — a difference means something is back inside the FR loop`)
   })
 }
+
+// ---- 9. manifest integrity lives in advance-phase now (Round 22 站2) -------
+// The check used to run in three places per workflow: an entry-point phase()
+// box (redundant — the run-phase in the box immediately before it executes
+// PREFLIGHT_CHECKS[0], which IS preflight_manifest_integrity), and once per
+// round inside the Advance / Tag & Advance loops. The loop calls moved into
+// advance-phase itself (cli/phase_cmds.py::_advance_prechecks, exit 27),
+// which also covers the callers a workflow loop never could: a human running
+// advance-phase by hand, a resumed session, CI. Two call sites remain because
+// advance-phase does not cover them — phase3's Gate-2 round loop and phase8's
+// Final Push (push-milestone, not advance-phase).
+test('manifest-integrity dispatches survive only where advance-phase cannot cover them', async () => {
+  const expected = {
+    'phase3-implementation.js': false, // Gate 2 precheck PASSes -> round loop skipped
+    'phase4-testing.js': false,
+    'phase5-verification.js': false,
+    'phase6-quality.js': false,
+    'phase7-risk.js': false,
+    'phase8-config.js': true, // Final Push
+  }
+  for (const [name, wantIntegrity] of Object.entries(expected)) {
+    const { result, events } = await runWorkflow(WF(name), makeHappyResponder(happyOverrides()))
+    assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+    const integrity = events.agents.filter((a) => /integrity/.test(a.label))
+    assert.equal(integrity.length > 0, wantIntegrity,
+      `${name} integrity dispatches: ${JSON.stringify(integrity.map((a) => a.label))}`)
+    assert.ok(!events.agents.some((a) => a.label === 'manifest-integrity'),
+      `${name} still runs the entry-point integrity check, which run-phase just performed`)
+    assert.ok(!events.agents.some((a) => /^advance-integrity-r/.test(a.label)),
+      `${name} still spends a dispatch on what advance-phase now enforces itself`)
+  }
+})
+
+test('phase3 Gate 2 round loop still re-checks integrity every round', async () => {
+  // A fix attempt in an earlier round can reintroduce corruption before
+  // finalize-gate commits, and run-gate does not check for it.
+  const overrides = [
+    { match: /^gate2-precheck$/, respond: { pass: false, reason: 'not finalized' } },
+    ...happyOverrides(),
+  ]
+  const { events } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.ok(events.agents.some((a) => /^g2-integrity-r/.test(a.label)),
+    'entering the Gate 2 round loop must still dispatch its per-round integrity check')
+})

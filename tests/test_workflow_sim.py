@@ -69,4 +69,8 @@ def test_sim_testbed_passes():
     # ORCH-POST costs one dispatch per phase, not one per FR, and that the
     # total dispatch count is identical at 5 and 20 FRs. Every prior scenario
     # ran a single FR, so a per-FR dispatch cost was invisible here.
-    assert int(m.group(1)) >= 41, f"sim suite shrank: only {m.group(1)} passing tests (floor 41)"
+    # 41 -> 48 by Round 22 站2: 2 scenarios pinning where manifest-integrity
+    # dispatches may still appear (phase3's Gate-2 loop, phase8's Final Push)
+    # and where they must not (entry point, Advance loop — advance-phase
+    # enforces it itself now).
+    assert int(m.group(1)) >= 48, f"sim suite shrank: only {m.group(1)} passing tests (floor 48)"

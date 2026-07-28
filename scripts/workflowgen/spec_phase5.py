@@ -33,7 +33,7 @@ _HEADER_5 = """\
 """
 
 _META_PHASES_5 = [
-    "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+    "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR Delta", "Verification Docs", "Artifacts Commit", "Milestone",
     "Advance", "Sync",
 ]
@@ -93,7 +93,6 @@ def generate_phase5() -> str:
             ),
         ),
         B.render_env_check(phase=5),
-        B.render_manifest_integrity_phase(phase=5),
         B.render_load_frs(phase=5, include_fr_titles=True),
         B.render_per_fr_delta(
             phase=5,

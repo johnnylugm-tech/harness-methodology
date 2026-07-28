@@ -42,6 +42,16 @@ classification here, sight-unseen, would produce confident-but-wrong
 answers for titles like "Milestones"/"Release Docs"/"Tag & Advance" that
 DO correspond to real plan content under different wording — verified
 individually and deliberately excluded from this registry.
+
+Round 22 站2: "Manifest Integrity" left this registry because it left the
+workflows. Its stated justification was that a human running the plan by
+hand has no equivalent step — which was true, and was the problem: the
+check existed only on the workflow path. It now runs inside advance-phase
+(cli/phase_cmds.py::_advance_prechecks, exit 27), so plan and workflow have
+the same guarantee and neither needs a special-case entry. The two
+remaining call sites advance-phase does not cover — phase3's Gate-2 round
+loop and phase8's Final Push — call the helper without a phase() box of
+their own, so they are invisible to this registry by construction.
 """
 from __future__ import annotations
 
@@ -114,21 +124,6 @@ KNOWN_GAPS: dict[int, dict[str, str]] = {
     },
 }
 
-_MANIFEST_INTEGRITY_REASON = (
-    "checkManifestIntegrity() / check-manifest-integrity has zero "
-    "counterpart anywhere in the plan text. Invented in response to a "
-    "2026-07-02 incident: a sub-agent action (e.g. a bare `pytest` "
-    "leaking the harness's own test CWD) can corrupt "
-    "quality_manifest.json mid-run, not just before phase entry — this "
-    "phase() box re-checks the three known corruption patterns "
-    "(fr_ids truncated, traceability cleared, gate1 wiped) both at entry "
-    "AND immediately before the phase-exit push, so corruption is never "
-    "baked into a milestone commit (commit 3198402 shipped exactly that "
-    "failure once). A human running the plan by hand has no equivalent "
-    "step because a human doesn't dispatch sub-agents that can race the "
-    "manifest file the way a workflow's agent() calls can."
-)
-
 _ARTIFACTS_COMMIT_REASON = (
     "phase() box with zero plan counterpart. The plan's own milestone "
     "push (push-milestone/commit_and_push_gate) sweeps the working tree "
@@ -161,25 +156,21 @@ _SYNC_REASON = (
 RUNTIME_ONLY: dict[int, dict[str, str]] = {
     1: {"Sync": _SYNC_REASON},
     2: {"Sync": _SYNC_REASON},
-    3: {"Manifest Integrity": _MANIFEST_INTEGRITY_REASON, "Sync": _SYNC_REASON},
+    3: {"Sync": _SYNC_REASON},
     4: {
-        "Manifest Integrity": _MANIFEST_INTEGRITY_REASON,
         "Artifacts Commit": _ARTIFACTS_COMMIT_REASON,
         "Sync": _SYNC_REASON,
     },
     5: {
-        "Manifest Integrity": _MANIFEST_INTEGRITY_REASON,
         "Artifacts Commit": _ARTIFACTS_COMMIT_REASON,
         "Sync": _SYNC_REASON,
     },
-    6: {"Manifest Integrity": _MANIFEST_INTEGRITY_REASON, "Sync": _SYNC_REASON},
+    6: {"Sync": _SYNC_REASON},
     7: {
-        "Manifest Integrity": _MANIFEST_INTEGRITY_REASON,
         "Artifacts Commit": _ARTIFACTS_COMMIT_REASON,
         "Sync": _SYNC_REASON,
     },
     8: {
-        "Manifest Integrity": _MANIFEST_INTEGRITY_REASON,
         "Artifacts Commit": _ARTIFACTS_COMMIT_REASON,
         "Sync": _SYNC_REASON,
     },

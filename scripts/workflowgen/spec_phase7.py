@@ -28,7 +28,7 @@ _HEADER_7 = """\
 """
 
 _META_PHASES_7 = [
-    "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+    "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR Delta", "Risk Docs", "Artifacts Commit", "Milestone",
     "Advance", "Sync",
 ]
@@ -83,7 +83,6 @@ def generate_phase7() -> str:
             ),
         ),
         B.render_env_check(phase=7),
-        B.render_manifest_integrity_phase(phase=7),
         B.render_load_frs(phase=7, include_fr_titles=True),
         B.render_per_fr_delta(
             phase=7,

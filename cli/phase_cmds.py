@@ -1700,7 +1700,39 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
       18 = Submodule guard: harness/ has uncommitted edits that would be clobbered
       22 = Ghost paper-trail detected (agent claimed progress but made no code changes) (P3+)
+      27 = quality_manifest.json structurally corrupt — refusing to commit it
     """
+    # ── Manifest integrity — FIRST, because every check below reads the ──
+    # manifest, and because advance-phase commits .methodology/ wholesale.
+    #
+    # Round 22 站2: this check lived only in workflow JS, which spent one
+    # sub-agent dispatch per advance round calling `check-manifest-integrity`
+    # (itself a thin wrapper around this very method). Two consequences: the
+    # dispatch was pure overhead on the workflow path, and every OTHER path
+    # into advance-phase — a human running it by hand, a resumed session, CI —
+    # had no protection at all. tests/test_workflow_plan_alignment.py's own
+    # registry recorded that hole in prose ("A human running the plan by hand
+    # has no equivalent step"). Running it here closes both.
+    from core.phase_hooks import PhaseHooks
+
+    _mi_hooks = PhaseHooks(
+        str(project), phase=completed_phase, enable_kill_switch=False,
+        drift_threshold=get_value(project, "drift_threshold"),
+    )
+    _mi = _mi_hooks.preflight_manifest_integrity()
+    if not _mi.get("passed"):
+        print(
+            "\n[BLOCKED] advance-phase: quality_manifest.json is structurally "
+            "corrupt — refusing to commit it.\n"
+            f"  Detected: {_mi.get('reason') or _mi.get('issues') or 'see the check output above'}\n"
+            "  Fix: verify HEAD's copy is healthy, then restore it:\n"
+            "    git show HEAD:.methodology/quality_manifest.json | head -40\n"
+            "    git checkout HEAD -- .methodology/quality_manifest.json\n"
+            "  Then merge this phase's gate result back into gate_results and "
+            "re-run advance-phase."
+        )
+        return 27
+
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
         inventory_path = project / "TEST_INVENTORY.yaml"

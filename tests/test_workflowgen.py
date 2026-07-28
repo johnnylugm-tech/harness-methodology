@@ -56,11 +56,24 @@ class TestEntryPreflight:
 
 
 class TestManifestIntegrity:
-    def test_defines_function_and_first_call(self):
-        text = B.render_manifest_integrity_phase(phase=8)
+    def test_defines_the_helper_without_calling_it(self):
+        # Round 22 站2: the renderer emits the helper only. Its former entry
+        # call re-ran PREFLIGHT_CHECKS[0], which the run-phase in the previous
+        # phase box had just executed, and its Advance-loop call moved into
+        # advance-phase itself (cli/phase_cmds.py::_advance_prechecks).
+        text = B.render_manifest_integrity_fn(phase=8)
         assert "async function checkManifestIntegrity" in text
-        assert "checkManifestIntegrity('Manifest Integrity', 'manifest-integrity')" in text
         assert "--phase 8" in text
+        assert "await checkManifestIntegrity(" not in text
+        assert "phase('Manifest Integrity')" not in text
+
+    def test_only_the_two_phases_with_an_uncovered_call_site_define_it(self):
+        # phase3's Gate-2 round loop and phase8's Final Push are the two call
+        # sites advance-phase does not cover (a mid-loop fix can reintroduce
+        # corruption before finalize-gate commits; Final Push is
+        # push-milestone, not advance-phase). Everyone else dropped the helper.
+        defines = {p for p in range(3, 9) if "checkManifestIntegrity" in generate(p)}
+        assert defines == {3, 8}, f"unexpected set of phases defining the helper: {defines}"
 
 
 class TestArtifactsCommit:
@@ -113,8 +126,13 @@ class TestPhase8Generation:
         m = re.search(r"phases:\s*\[(.*?)\n  \],", text, re.DOTALL)
         assert m is not None
         titles = re.findall(r"title:\s*'([^']*)'", m.group(1))
+        # Round 22 站2 removed the "Manifest Integrity" box: its entry call
+        # duplicated PREFLIGHT_CHECKS[0], which run-phase had just executed in
+        # the previous box. P8 still defines the helper (its Final Push, a
+        # push-milestone path advance-phase does not cover, calls it) but the
+        # helper is no longer a phase() of its own.
         assert titles == [
-            "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+            "Entry & Preflight", "Env Check", "Load FRs",
             "Per-FR Delta", "Config Docs", "Artifacts Commit", "Archive",
             "Final Push", "Sync",
         ]

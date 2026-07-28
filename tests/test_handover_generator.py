@@ -1480,6 +1480,44 @@ class TestCmdAdvancePhase:
 
     # ── deliverable existence block ─────────────────────────────────────────
 
+    # ── manifest integrity (Round 22 站2) ───────────────────────────────────
+
+    def test_corrupt_manifest_blocks_advance_with_recovery_command(
+        self, tmp_path, monkeypatch,
+    ):
+        """A structurally corrupt manifest blocks advance-phase with exit 27.
+
+        Before Round 22 站2 this check existed only in workflow JS, which spent
+        one sub-agent dispatch per advance round on it — and every other caller
+        (a human running advance-phase by hand, a resumed session, CI) had no
+        protection at all. It runs first here because every later precheck
+        reads the manifest, and because advance-phase commits .methodology/
+        wholesale.
+        """
+        import json
+
+        method_dir = tmp_path / ".methodology"
+        method_dir.mkdir(parents=True)
+        (method_dir / "state.json").write_text(json.dumps({
+            "state": "ACTIVE", "current_phase": 4,
+            "phase_truth_passed": True, "last_gate": 3,
+        }))
+        # state.json says Gate 1 ran; the manifest has no per-FR results.
+        (method_dir / "quality_manifest.json").write_text(json.dumps({
+            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+        }))
+        (method_dir / "phase5_plan.md").touch()
+
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, completed=4, skip_prechecks=False,
+            mock_auditor=False,
+        )
+        assert exit_code == 27, output
+        assert "structurally corrupt" in output
+        # Blocked-message contract (Round 13): a [BLOCKED] on a hot path must
+        # carry something to act on, not just a diagnosis.
+        assert "git checkout HEAD -- .methodology/quality_manifest.json" in output
+
     def test_missing_deliverable_blocks_advance(self, tmp_path, monkeypatch):
         """P4: missing TEST_RESULTS.md → blocked with exit 8."""
         method_dir = tmp_path / ".methodology"
@@ -1493,7 +1531,16 @@ class TestCmdAdvancePhase:
             "state": "ACTIVE", "current_phase": 4, "phase_truth_passed": True, "last_gate": 3,
         }))
         (method_dir / "quality_manifest.json").write_text(json.dumps({
-            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+            # state.json below claims last_gate=3, so gate1 must not be
+            # empty: advance-phase's manifest-integrity precheck (Round 22
+            # 站2) reads "Gate 1 has run, yet no per-FR results" as the
+            # wiped-manifest corruption pattern. These tests are about the
+            # deliverable checks, so the manifest has to describe a state a
+            # real project could be in. fr_ids stays empty on purpose — a
+            # populated list would additionally engage the Gate 1 live
+            # coverage check (exit 14), which is a different test's subject.
+            "fr_ids": [],
+            "gate_results": {"gate1": {"FR-01": {"quality_complete": True}}, "gate3": {}},
         }))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (method_dir / "phase5_plan.md").touch()
@@ -1522,7 +1569,16 @@ class TestCmdAdvancePhase:
             "state": "ACTIVE", "current_phase": 4, "phase_truth_passed": True, "last_gate": 3,
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
-            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+            # state.json below claims last_gate=3, so gate1 must not be
+            # empty: advance-phase's manifest-integrity precheck (Round 22
+            # 站2) reads "Gate 1 has run, yet no per-FR results" as the
+            # wiped-manifest corruption pattern. These tests are about the
+            # deliverable checks, so the manifest has to describe a state a
+            # real project could be in. fr_ids stays empty on purpose — a
+            # populated list would additionally engage the Gate 1 live
+            # coverage check (exit 14), which is a different test's subject.
+            "fr_ids": [],
+            "gate_results": {"gate1": {"FR-01": {"quality_complete": True}}, "gate3": {}},
         }))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (method_dir / "phase5_plan.md").touch()
@@ -1563,7 +1619,16 @@ class TestCmdAdvancePhase:
             "state": "ACTIVE", "current_phase": 4, "phase_truth_passed": True, "last_gate": 3,
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
-            "fr_ids": [], "gate_results": {"gate1": {}, "gate3": {}},
+            # state.json below claims last_gate=3, so gate1 must not be
+            # empty: advance-phase's manifest-integrity precheck (Round 22
+            # 站2) reads "Gate 1 has run, yet no per-FR results" as the
+            # wiped-manifest corruption pattern. These tests are about the
+            # deliverable checks, so the manifest has to describe a state a
+            # real project could be in. fr_ids stays empty on purpose — a
+            # populated list would additionally engage the Gate 1 live
+            # coverage check (exit 14), which is a different test's subject.
+            "fr_ids": [],
+            "gate_results": {"gate1": {"FR-01": {"quality_complete": True}}, "gate3": {}},
         }))
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (method_dir / "phase5_plan.md").touch()

@@ -52,6 +52,7 @@ EX_DISPATCH_STRUCTURALLY_BROKEN = 23
 EX_SUBSTRATE_PREFLIGHT_FAIL = 24
 EX_FR_STEP_INFRA_ABORT = 25
 EX_STATE_CORRUPT = 26
+EX_ADVANCE_MANIFEST_CORRUPT = 27
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -83,6 +84,7 @@ REGISTRY: dict[int, str] = {
     EX_SUBSTRATE_PREFLIGHT_FAIL: "run-phase: spawn-substrate preflight probe FAILED — sub-agents cannot run pytest/git in this environment",
     EX_FR_STEP_INFRA_ABORT: "run-fr-step: a [HARNESS-BUG] banner or INFRA_FAIL precondition-block signature was found in the sub-agent's GATE1 output — aborted before dispatching a fix agent at a problem no code change can resolve",
     EX_STATE_CORRUPT: "[FATAL] .methodology/state.json or quality_manifest.json exists but is not readable/parseable JSON — project data corruption, NOT a harness-methodology bug (see core/state_io.py's StateCorruptError)",
+    EX_ADVANCE_MANIFEST_CORRUPT: "advance-phase: quality_manifest.json parses but its structure is corrupt (truncated fr_ids / cleared traceability / wiped gate1) — refusing to commit it; restore from HEAD and re-run",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
     EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
 }

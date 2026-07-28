@@ -29,7 +29,7 @@ _HEADER_4 = """\
 """
 
 _META_PHASES_4 = [
-    "Entry & Preflight", "Test Plan", "Env Check", "Manifest Integrity",
+    "Entry & Preflight", "Test Plan", "Env Check",
     "Load FRs", "Per-FR Delta", "Coverage", "Bug Hunt", "Artifacts Commit",
     "Gate 3", "Advance", "Sync",
 ]
@@ -177,7 +177,6 @@ def generate_phase4() -> str:
         ),
         _render_test_plan(),
         B.render_env_check(phase=4),
-        B.render_manifest_integrity_phase(phase=4),
         B.render_load_frs(phase=4, include_fr_titles=True),
         B.render_per_fr_delta(
             phase=4,

@@ -32,7 +32,7 @@ _HEADER_3 = """\
 """
 
 _META_PHASES_3 = [
-    "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+    "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR TDD", "Milestones", "Gate 2", "Advance", "Sync",
 ]
 
@@ -470,7 +470,7 @@ def generate_phase3() -> str:
         B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "FR_LIST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
         _render_phase3_entry_preflight(),
         B.render_env_check(phase=3),
-        B.render_manifest_integrity_phase(phase=3),
+        B.render_manifest_integrity_fn(phase=3),
         _render_phase3_load_frs(),
         _render_per_fr_tdd(),
         _render_phase3_milestones(),

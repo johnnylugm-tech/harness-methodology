@@ -30,7 +30,7 @@ _HEADER_6 = """\
 """
 
 _META_PHASES_6 = [
-    "Entry & Preflight", "Manifest Integrity", "Gate 4", "Release Docs",
+    "Entry & Preflight", "Gate 4", "Release Docs",
     "Peer Review", "Tag & Advance", "Sync",
 ]
 
@@ -207,14 +207,12 @@ def _render_phase6_tag_advance() -> str:
         + "const ADVANCE_MAX_ROUNDS = 5\n"
         + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
         + "  log('  Tag & Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
-        + "  // Last-line integrity guard: the phase-exit push commits .methodology/\n"
-        + "  // wholesale — block here so mid-run corruption never reaches git history\n"
-        + "  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).\n"
-        + "  // Re-check every round — a fix attempt in a prior round could reintroduce it.\n"
-        + "  const advIntegrity = await checkManifestIntegrity('Tag & Advance', 'advance-integrity-r' + round)\n"
-        + "  if (!advIntegrity.ok) {\n"
-        + "    return { error: 'Tag & Advance round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the phase-exit push.' }\n"
-        + "  }\n"
+        + "  // Manifest integrity: enforced by advance-phase itself since Round 22 站2\n"
+        + "  // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command\n"
+        + "  // in its [BLOCKED] message). It runs first, before any other precheck, and\n"
+        + "  // on every round because advance-phase is idempotent — same guarantee the\n"
+        + "  // per-round dispatch here used to buy, minus the dispatch, and now covering\n"
+        + "  // the human/CI callers this loop never could.\n"
         + "  advanceReport = await agent(\n"
         + "    'YOU ARE THE PHASE-6 EXIT ORCHESTRATOR. Tag the Gate 4 release + advance to Phase 7. ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
@@ -284,7 +282,6 @@ def generate_phase6() -> str:
         B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
         B.render_json_utils(),
         _render_phase6_entry_preflight(),
-        B.render_manifest_integrity_phase(phase=6),
         B.render_gate_loop(
             gate_num=4, phase=6,
             log_msg="Gate 4 full-project eval (composite ≥85, 14 dims: 12 self-scored + traceability + architecture framework-owned; mutation_testing disabled by default)",

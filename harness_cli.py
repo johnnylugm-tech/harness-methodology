@@ -73,6 +73,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     26  [FATAL] .methodology/state.json or quality_manifest.json exists but
         is not readable/parseable JSON — project data corruption, NOT a
         harness-methodology bug (see core/state_io.py's StateCorruptError)
+    27  advance-phase: quality_manifest.json parses but its structure is
+        corrupt (truncated fr_ids / cleared traceability / wiped gate1) —
+        refusing to commit it; restore from HEAD and re-run
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

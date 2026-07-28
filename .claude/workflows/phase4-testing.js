@@ -25,7 +25,6 @@ export const meta = {
     { title: 'Entry & Preflight' },
     { title: 'Test Plan' },
     { title: 'Env Check' },
-    { title: 'Manifest Integrity' },
     { title: 'Load FRs' },
     { title: 'Per-FR Delta' },
     { title: 'Coverage' },
@@ -270,41 +269,6 @@ if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
   return { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
 }
-
-
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Manifest Integrity
-// ══════════════════════════════════════════════════════════════════════════
-
-phase('Manifest Integrity')
-// (ported from phase3, 155ec07 + 286ccca)
-// 2026-07-02 incident class: a sub-agent action (bare pytest → harness test
-// CWD leak) can corrupt quality_manifest.json MID-RUN, not just before entry.
-// Detect the three known corruption patterns (fr_ids truncated, traceability
-// cleared, gate1 wiped) at entry AND re-check before the phase-exit push so
-// corruption is never baked into a milestone commit.
-// T1-A (8-phase audit remediation): the previous inline Python one-liner
-// had the truncation-comparison direction inverted (`fr_trace >= fr_ids`
-// instead of the harness's actual `fr_ids >= fr_trace`) plus an unfounded
-// `fr_ids >= 2` floor. `check-manifest-integrity` wraps the harness's own
-// (correct, tested) PhaseHooks.preflight_manifest_integrity() instead.
-const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 4'
-async function checkManifestIntegrity(phaseLabel, agentLabel) {
-  const verdict = await agent(
-    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '; echo RC=$?`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',
-    { label: agentLabel, phase: phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
-  )
-  const ok = !!(verdict && verdict.pass === true)
-  const raw = verdict ? String(verdict.reason ?? '').trim() : 'agent returned null'
-  if (!ok) log('  manifest integrity FAIL [' + agentLabel + ']: ' + raw)
-  return { ok, raw }
-}
-const integrity0 = await checkManifestIntegrity('Manifest Integrity', 'manifest-integrity')
-if (!integrity0.ok) {
-  return { error: 'Manifest Integrity: quality_manifest.json appears corrupted', detail: integrity0.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first)', note: 'Working-tree manifest fails the P4+ shape check (fr_ids/traceability/gate1 per-FR records). A sub-agent likely wrote to it directly. Restore a healthy copy and re-run.' }
-}
-log('  manifest integrity OK')
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -655,14 +619,12 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
-  // Last-line integrity guard: the phase-exit push commits .methodology/
-  // wholesale — block here so mid-run corruption never reaches git history
-  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).
-  // Re-check every round — a fix attempt in a prior round could reintroduce it.
-  const advIntegrity = await checkManifestIntegrity('Advance', 'advance-integrity-r' + round)
-  if (!advIntegrity.ok) {
-    return { error: 'Advance round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the phase-exit push.' }
-  }
+  // Manifest integrity: enforced by advance-phase itself since Round 22 站2
+  // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command
+  // in its [BLOCKED] message). It runs first, before any other precheck, and
+  // on every round because advance-phase is idempotent — same guarantee the
+  // per-round dispatch here used to buy, minus the dispatch, and now covering
+  // the human/CI callers this loop never could.
   advanceReport = await agent(
     'YOU ARE THE PHASE-4 EXIT ORCHESTRATOR. Advance to Phase 5. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'

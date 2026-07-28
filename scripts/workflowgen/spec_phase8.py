@@ -32,7 +32,7 @@ _HEADER_8 = """\
 """
 
 _META_PHASES_8 = [
-    "Entry & Preflight", "Env Check", "Manifest Integrity", "Load FRs",
+    "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR Delta", "Config Docs", "Artifacts Commit", "Archive",
     "Final Push", "Sync",
 ]
@@ -106,9 +106,9 @@ def _render_final_push() -> str:
         + "  // wholesale — block here so mid-run corruption never reaches git history\n"
         + "  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).\n"
         + "  // Re-check every round — a fix attempt in a prior round could reintroduce it.\n"
-        + "  const advIntegrity = await checkManifestIntegrity('Final Push', 'advance-integrity-r' + round)\n"
-        + "  if (!advIntegrity.ok) {\n"
-        + "    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: advIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }\n"
+        + "  const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)\n"
+        + "  if (!pushIntegrity.ok) {\n"
+        + "    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }\n"
         + "  }\n"
         + "  pushReport = await agent(\n"
         + "    'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\\n'\n"
@@ -176,7 +176,7 @@ def generate_phase8() -> str:
             ),
         ),
         B.render_env_check(phase=8),
-        B.render_manifest_integrity_phase(phase=8),
+        B.render_manifest_integrity_fn(phase=8),
         B.render_load_frs(phase=8),
         B.render_per_fr_delta(
             phase=8,
