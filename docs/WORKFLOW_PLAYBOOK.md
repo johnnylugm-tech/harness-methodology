@@ -913,6 +913,28 @@ git add harness
 git commit -m "chore: bump harness submodule to <sha>"
 ```
 
+### 13.2b `run-all.js` — 第 9 個生成檔(Round 23)
+
+`.claude/workflows/run-all.js` 涵蓋 Phase 1–8,**一次啟動跑完整條方法論**。它不是第 9 份手寫 spec,而是 `scripts/workflowgen/spec_runall.py` 呼叫**同一組** `generate_phaseN()` 把 8 份 body 內聯進 `async function runPhaseN()`:
+
+```bash
+python3 scripts/workflowgen/generate_workflows.py --write   # 9 個檔一起(8 phase + run-all)
+python3 scripts/workflowgen/generate_workflows.py --check   # 9/9
+```
+
+**改任何一支 phase 生成器都會同時改動 run-all** —— golden(`tests/golden/workflowgen/run-all.js`)會在同一個 commit 的 diff 裡把這個扇出顯示出來,不會延後變成來路不明的第三方重生。
+
+維護時必須知道的四件事:
+
+| 事項 | 說明 |
+|---|---|
+| **只有兩類東西提到頂層** | `resolveRepo`/`REPO`/`PY`(提出去才有「解析一次而非八次」),以及 verdict schema(§5.3 硬性要求 `schema:` 必須是 top-level const,巢狀會壞 parser)。A/B 機器、JSON helper、`checkManifestIntegrity`、phase 專屬常數一律留在 runner 內,靠函式作用域隔離 —— P1 與 P2 各自不同的 `buildBPrompt` 因此不必調和 |
+| **標題一律 `P<N> · ` 前綴** | 8 支重名的 `Entry & Preflight`/`Advance`/`Sync` 在同一個 progress view 裡無法閱讀。前綴同時套用在 `phase()`、`phase: '…'` 與 `phase: <變數>`(`loadFileViaPython` 等 4 處由呼叫端傳入 box 名) |
+| **512 KB 是硬牆** | §4 的上限對 run-all 只有一份餘裕,因此生成時剝除內聯 body 的純註解行(WHY 完整留在 8 支同源檔)。`RUNALL_MAX_BYTES` 是餘裕 ratchet:**撞到時先縮 prompt,不要調高數字** |
+| **起跑點讀 state.json** | `current_phase` 決定從哪個 phase 開始跑到 8;讀不到就**中止**,不猜 —— 猜 Phase 1 會在成熟專案上重跑整個需求階段。中途死掉就重新啟動 run-all,各 phase 自己的 GUARD 會短路已完成的工作 |
+
+**等價性怎麼被鎖住**:`scripts/workflowgen/js_src/sim_runner.test.mjs` §11 對每個 N 斷言「run-all 的 `P<N> ·` dispatch 序列 == 單獨跑 `phaseN-*.js` 的序列」,§12 再用兩向精確差集鎖住唯一允許的差異(6 個 Sync 折進 `advance-phase --push`、多一次 cursor 讀)。**這證明的是 dispatch 序列,不是最終產出物位元組相等** —— 後者只有 live E2E 能證。
+
 ### 13.3 禁止在 submodule 內修補(HR-17)
 
 > **HR-17**(`CONSTITUTION.md` / `SKILL.md`)：**嚴禁從專案端修改

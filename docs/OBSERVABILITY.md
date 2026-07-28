@@ -329,6 +329,28 @@ the work itself.
 When reviewing a workflow change, the question to ask is not "is this check
 useful?" but **"does this cost scale with something it does not depend on?"**
 
+### run-all vs. eight launches (Round 23)
+
+`run-all.js` inlines all eight phase bodies. Measured the same way, P1–P8:
+
+| | FR=5 | FR=20 |
+|---|---|---|
+| eight files launched in sequence | 148 | 178 |
+| `run-all.js` | 143 | 173 |
+
+The −5 is exactly `−6 Sync + 1 state.json cursor read`: six phases fold their
+`git push` into `advance-phase --push`, and run-all reads the starting phase
+once. A seventh saving — `resolveRepo` running once instead of eight times —
+is real but conditional on `args.repo` being absent, so it does not appear
+here (the sim always supplies it).
+
+Read that table the right way round. After Round 22 the cross-phase
+redundancy in a single run was already down to ~10% of the total, so **run-all
+buys unattended determinism across the whole methodology, not throughput.**
+Its per-phase dispatch sequences are pinned equal to the standalone files'
+(`sim_runner.test.mjs` §11) — which is evidence about dispatches, not about
+final artifacts; only a live E2E run can speak to those.
+
 ## What this round deliberately did not build
 
 - A global structured (JSON) logger, or a `print`→`logging` migration.

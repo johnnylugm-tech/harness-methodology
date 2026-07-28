@@ -10,6 +10,37 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 23(2026-07-28)— 一支涵蓋 Phase 1–8 的 workflow(`run-all.js`)
+
+老闆令:基於 dynamic workflow 執行的確定性,產生一支涵蓋 Phase 1–8 的 workflow JS。硬前提:**不動原本 8 支**、**最終產出物與依序跑 8 支一致**(流程控制/中介產物不計)。可考慮省略重複執行,並可為它產出專用的 advance-phase 指令。
+
+**定調(先於一切)**:量測(`sim_runner.mjs`,唯讀)顯示 P1–P8 全程 FR=20 為 **178 次 dispatch**,跨 phase 的可疑重複只有 15–20 次(約 10%)—— Round 22 已經把大宗的 per-FR 重複清掉了。**run-all 的價值是「一次啟動、無人值守的確定性」,不是省 dispatch。** 省下的 5 次是附帶效果,不是賣點;任何把 run-all 當成效能改善來提的後續報告,引用本條駁回。
+
+| # | 主張 / 選項 | 裁決 | 出處 |
+|---|---|---|---|
+| R23-A | 用 playbook §5.6 的巢狀 `workflow()` 組合 8 支 | **否決**,三條證據:§2 的名稱解析是從 cwd **往上**找 `.claude/workflows/`,而 §13.2 的實際執行路徑是 `<project>/harness/.claude/workflows/`(submodule **子**目錄,不在 walk-up 上);taskq 唯讀確認其 `.claude/` 下根本沒有 `workflows/`;全 repo `await workflow(` 命中 0,sim 也沒 mock —— 未經任何驗證的 primitive。改為內聯生成 | `scripts/workflowgen/spec_runall.py` 模組 docstring |
+| R23-B | 內聯 8 份 body 會撞名 / top-level return / 標題重複 | **採納**:每份 body 包成 `async function runPhaseN()`(作用域隔離,連 P1/P2 各自不同的 `buildBPrompt` 都不必調和);`return` 自然變成 runner 回傳值;標題一律加 `P<N> · ` 前綴,來源是各檔自己的 meta 區並斷言命中 | 同上 |
+| R23-C | 檔案大小 | **本輪唯一硬邊界**。playbook §4:>524288 bytes runtime 直接拒絕解析。逐字內聯 ~410 KB(78%),故剝除內聯 body 的純註解行 → 302 KB(58%)。WHY 完整保留在 8 支同源檔與生成器裡。另加 `RUNALL_MAX_BYTES` 餘裕 ratchet:**逼近時的正解是縮 prompt,不是調高數字** | `tests/test_workflow_js_conventions.py` |
+| R23-D | 為 run-all 產出專用 advance 指令 | **採納 `advance-phase --push`**(老闆裁定)。push 歸位到製造那個 commit 的指令裡;預設關閉,8 支輸出位元組不變;唯一消費者是 run-all。push 失敗**不回滾** —— commit 已成立,撤銷它是拿掉durable work 去換一個暫時性網路錯誤 | `cli/phase_cmds.py::cmd_advance_phase`、exit 28 |
+| R23-E | C 級減法:6 支的 Sync box 折進 `--push` | **採納**。實測 178 → 173(−6 sync,+1 cursor)。P3(自訂 retry + MANUAL_REQUIRED fallback)與 P8(另驗 tag 到 origin)**保留** | `sim_runner.test.mjs` §12(兩向精確差集) |
+| R23-F | C 級減法:phase 2–8 省略 `validate-handoff` | **撤銷(我自己提的選項文字有誤)**。`grep -rn "_validate_handoff"` 查證:唯一呼叫者就是 `cmd_validate_handoff` 自己,**advance-phase 完全不跑它** —— 拿掉等於刪掉一個真檢查。形狀與 R22 站2 相同(檢查只活在 prompt 層),正解是歸位進 advance-phase,**但那會改變既有專案的 advance 行為**(現在 advance 成功、下個 phase preflight 才擋的情境將改成 advance 直接擋),不在同一輪塞第二個會擋住既有專案的 CLI 變更 | 待議,見下方 re-open |
+| R23-G | C 級減法:非首個 phase 省略 ENTRY-CHECK | **未實作,待老闆裁決**。我給的兩個前提在站0 都被證偽:`last_gate` **不單調**(`cli/gate_cmds.py:2279` 每次 finalize-gate 直接覆寫,含 per-FR Gate 1)、`quality_complete` **會回退**(`cli/gate_cmds.py:1757`,finalize-gate 的 commit 沒 land 時)。剩下的論證更窄(單次執行內兩點之間沒有任何 finalize-gate 會跑那個 gate)且**省 0 dispatch** | 本條 |
+
+**兩個順帶抓到的活 bug**(都不是計畫預期,都由 run-all 暴露):
+
+1. **`test_node_check_syntax` 是死守衛**:`node --check <file>` 對沒有 package.json `type` 的 `.js` 以 CommonJS 解析,撞到 `export const meta` **仍回 0**。對 8 支 workflow 從來不可能失敗。已改成用 runtime 實際的包裹方式解析 + 負控制。
+2. **`js_lint` 掃描器不認得 regex literal**:`payload.replace(/'/g, …)` 讓它以為那個 `'` 開了字串,之後全部誤判到引號數再平衡為止。8 支檔案是**碰運氣**再平衡的;run-all 接起來後不再平衡,`os.path.getsize` 冒成 `path.*` 違規。危險在於 `comment_line_numbers` 會**刪除**它分類的行 —— 掃描器脫節時一行含 `https://` 的 prompt 可能被當註解刪掉。本次脫節走安全方向(少剝 233 行註解),但暴露是真的。
+
+**誠實邊界(必讀,不可含糊)**:sim 的逐 phase 對照證明的是 **dispatch 序列**一致,**不是最終產出物位元組一致**。兩者之間隔著「同樣的 prompt 送給真 LLM 會做同樣的事」這個假設 —— 那正是這套框架二十多輪在對抗的東西。run-all 的等價性由**結構**(同一組生成器、同一組 prompt、同一組 CLI 指令)保證,由 sim 在 label 層級鎖定,最終產出物一致只有 live E2E 能證。
+
+**re-open 條件**:
+- R23-A:若 Claude Code 官方文件確認 `workflow()` 可吃絕對路徑(而非只吃 name),重新評估組合式方案。
+- R23-C:若 run-all 觸及 `RUNALL_MAX_BYTES`,先做 prompt 減法;連續兩輪都只能靠調高數字通過,則重新評估「一支檔案裝八個 phase」這個形狀本身。
+- R23-F:下一輪可單獨處理 `validate-handoff` 歸位 —— 須先唯讀確認 taskq / integration-test 在各自 phase 邊界上 `validate-handoff` 皆 exit 0,否則歸位會擋住既有專案。
+- R23-G:老闆裁決要做時即可實作(`render_entry_preflight` 加 `entry_check_optional`,預設 False 保位元組相等)。
+
+---
+
 ## Round 22(2026-07-28)— 與 FR 無關的工作被放進了 per-FR 迴圈
 
 老闆令:dynamic workflow 的執行已具備確定性且有效降低 agent 作假,據此對 workflow JS 做**減法工程** ——(1) 減少重複執行 (2) 減少無效或低效的流程檢查 (3) 簡化 advance phase。前提:**不得降低對執行專案的軟體品質**。
