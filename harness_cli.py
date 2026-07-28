@@ -359,6 +359,16 @@ def _dispatch(args: argparse.Namespace, argv: list[str]) -> int:
             file=sys.stderr,
         )
         return EX_HARNESS_BUG
+    finally:
+        # Round 24 站5a: liveness trail. This is the single funnel every CLI
+        # subcommand passes through, so a new subcommand cannot forget to
+        # participate. In `finally` because a command that failed still proves
+        # the harness was running — a stalled run and a failing run need to be
+        # distinguishable. record_heartbeat never raises (see its docstring):
+        # nothing here may change the exit code being returned above.
+        from core.heartbeat import record_heartbeat
+        record_heartbeat(getattr(args, "project", ".") or ".",
+                         getattr(args, "command", None) or "unknown")
 
 
 def _leaked_control_flow_exceptions() -> tuple[type[BaseException], ...]:

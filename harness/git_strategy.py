@@ -49,6 +49,10 @@ _GITIGNORE_ENTRIES: list[str] = [
     # harness runtime (auto-added on first run)
     ".sessi-work/",
     ".methodology/last_block.md",
+    # Round 24 站5a: per-run liveness marker, rewritten after every CLI
+    # command. Tracking it makes every run dirty the tree for no reader —
+    # doctor reads the working copy, never git history.
+    ".methodology/heartbeat.json",
     ".methodology/steering_history.json",
     # build-trace-attestation writes a non-committable mirror alongside the
     # canonical attestation.json; the CLI prints "(gitignored)" for it, so the

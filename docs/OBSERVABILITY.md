@@ -351,6 +351,65 @@ Its per-phase dispatch sequences are pinned equal to the standalone files'
 (`sim_runner.test.mjs` §11) — which is evidence about dispatches, not about
 final artifacts; only a live E2E run can speak to those.
 
+## One time base — and one thing it cannot fix (Round 24 站3)
+
+Every machine-readable timestamp the harness writes comes from
+`core.utils.timefmt.utc_now_iso()`: UTC, ISO 8601, offset always present.
+Enforced by `tests/test_timestamp_convention.py`, an AST scan with **no
+allowlist** (the fix is always one call).
+
+Before this, a single run left three unalignable clocks:
+`sessions_spawn.log` and `last_block.md` in naive LOCAL time, `state.json` and
+`fr_progress.json` in offset-aware UTC, `gate_timestamps.jsonl` in epoch
+floats. Auditing the run-all-by-workflow P1-P8 artifacts, a spawn-log "15:44"
+was compared against a state.json "07:43+00:00" and read as an eight-hour
+stall. The real gap was 1h18m. **An observability layer whose own timestamps
+cannot be lined up answers questions incorrectly rather than declining to
+answer them.**
+
+`gate_timestamps.jsonl` keeps `ts` as an epoch float — `core/doctor.py` does
+arithmetic on it, and a format swap would break every existing project's file.
+It gains an `iso` field alongside; rows written before this station have no
+`iso` and still read.
+
+## Liveness — `.methodology/heartbeat.json` (Round 24 站5a, PARTIAL)
+
+`harness_cli.py::_dispatch` records `{command, utc}` after every subcommand,
+success or failure, in a `finally` — the single funnel every CLI entry passes
+through, so a new subcommand cannot forget to participate. `doctor` WARNs past
+`core.heartbeat.STALL_THRESHOLD_MINUTES` (45) and names the last command.
+
+**What it cannot see, stated plainly because a partial solution that reads as
+complete is worse than none:** an agent that is alive but not calling the
+harness — thinking, waiting on an LLM, or stuck inside a sub-agent dispatch.
+The workflow runtime exposes no heartbeat API. A stale heartbeat is evidence
+of a stall, not proof (a legitimately long single dispatch looks identical);
+a fresh one is not proof of health. The boundary is pinned by
+`tests/test_heartbeat.py::test_heartbeat_cannot_see_an_agent_that_never_calls_the_harness`.
+
+The gap it does close is the one that bit: Phase 6 of the run-all-by-workflow
+run reached `Gate4 PASS 97.4` and made no further progress for 1h18m with
+nothing noticing. The liveness judgement available at that moment was "the
+journal has had no new entry for 3 minutes, treat it as dead" — improvised,
+with no mechanism behind it.
+
+## Two ledgers, not one — the workflow dispatch gap
+
+`run-report` covers **harness-side spawns only** (`core/agent_spawner.py` →
+`sessions_spawn.log`). It does NOT cover the workflow runtime's own `agent()`
+dispatches. Measured on the run-all-by-workflow P1-P8 run:
+
+| Ledger | What it saw |
+|---|---|
+| `sessions_spawn.log` (run-report) | 78 entries, $35.75, 1224 turns |
+| workflow runtime (self-reported) | ~143 `agent()` dispatches; 1,473,527 subagent tokens for the P6-P8 segment alone |
+
+These are different books and cannot be summed. Workflow JS is hermetic (no
+`fs`, no `process`) and its `agent()` calls never touch the harness, so there
+is no correct way for the harness to observe them — only fragile ones (reading
+the runtime's internal journal path). Recorded as a known boundary rather than
+closed with a workaround; see `docs/PROPOSAL_ADJUDICATIONS.md` Round 24.
+
 ## What this round deliberately did not build
 
 - A global structured (JSON) logger, or a `print`→`logging` migration.

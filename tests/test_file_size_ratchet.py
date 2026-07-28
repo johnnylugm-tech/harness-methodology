@@ -369,7 +369,7 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +2 lines — Round 13 站1: exception-swallow ratchet paydown —
     # the artifact line-count except now prints its error before falling
     # back to the no-linecount checklist item.
-    "harness/git_strategy.py": 1299,
+    "harness/git_strategy.py": 1303,
     # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
     # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
     # the SAB block's own authoring-guidance shape.

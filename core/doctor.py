@@ -167,7 +167,49 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # dispatch. Strictly a post-hoc diagnostic — see _check_spawn_log_authenticity.
     findings.extend(_check_spawn_log_authenticity(layout))
 
+    # 11. Liveness (Round 24 站5a). PARTIAL: this sees only whether a harness
+    # command completed recently. It cannot see an agent that is alive but not
+    # calling the harness. See core/heartbeat.py's module docstring.
+    findings.extend(_check_heartbeat(project))
+
     return findings
+
+
+def _check_heartbeat(project: Path) -> list[Finding]:
+    """WARN when no harness command has completed for a long time.
+
+    Round 24 站5a. In the run-all-by-workflow P1-P8 run, Phase 6 reached Gate 4
+    PASS and then made no progress for 1h18m with nothing noticing; the only
+    liveness judgement available at the time was an improvised "the journal has
+    had no new entry for 3 minutes".
+
+    WARN, never ERROR, and the message says what it cannot see: a stale
+    heartbeat is evidence of a stall, not proof of one (a legitimately long
+    single dispatch looks identical), and a fresh one is not proof of health.
+    """
+    from core.heartbeat import (
+        STALL_THRESHOLD_MINUTES,
+        minutes_since,
+        read_heartbeat,
+    )
+    from core.utils.timefmt import utc_now_iso
+
+    beat = read_heartbeat(project)
+    if beat is None:
+        return []  # never run, or pre-migration project — not a finding
+    idle = minutes_since(beat, utc_now_iso())
+    if idle is None or idle < STALL_THRESHOLD_MINUTES:
+        return []
+    return [Finding(
+        "heartbeat", "WARN",
+        f"no harness command has completed for {idle:.0f} min "
+        f"(threshold {STALL_THRESHOLD_MINUTES}); last was "
+        f"{beat.get('command', '?')!r} at {beat.get('utc', '?')}. "
+        f"This detects a stall in the HARNESS layer only — an agent thinking, "
+        f"waiting on an LLM, or stuck inside a sub-agent dispatch is invisible "
+        f"here, and a long single dispatch looks the same as a stall. Check the "
+        f"workflow's own progress before concluding the run is dead."
+    )]
 
 
 # Fields core/agent_spawner.py lifts from the `claude -p --output-format json`

@@ -433,3 +433,77 @@
 - test: tests/test_workflow_js_conventions.py::test_runall_stays_within_its_headroom_ratchet
   bug: "512 KB cliff with no warning track (Round 23 站2). Playbook §4: a workflow file over 524288 bytes is REFUSED by the runtime at parse time — not degraded, not warned about. run-all.js inlines all eight phase bodies, so it absorbs eight files' worth of prompt growth at eight times the rate of any single phase file, and verbatim inlining already reached ~410 KB (78% of the cap) before comment stripping. The existing test_under_512kb_hard_cap only fires at the cliff edge, by which point the fix is a large one under time pressure"
   fixed_in: "Round 23 站2 (RUNALL_MAX_BYTES headroom ratchet sized to the initial 316,547 bytes + 7%, with the policy stated in-file: hitting it means shortening prompts in scripts/workflowgen/, not raising the number. docs/PROPOSAL_ADJUDICATIONS.md R23-C records the re-open condition — two consecutive rounds that can only pass by raising it means the one-file-eight-phases shape itself needs re-evaluating)"
+
+# ── Round 24: 「檢查欄位存在」升級為「檢查內容為真」 ──────────────────
+
+- test: tests/test_block_reason_registry.py::test_every_bridge_detail_key_has_a_registered_remediation
+  bug: "6 of 7 GateBlockedError causes rendered as an EMPTY failure list — exc.details was never read by either consumer, so a tool_score_fabrication block told the agent only to re-run the gate"
+  fixed_in: "Round 24 站1"
+
+- test: tests/test_block_reason_registry.py::test_scan_sees_positionally_passed_details
+  bug: "the registry scan's first version read only node.keywords and reported 6 keys instead of 7 — the da_waiver site passes its details dict positionally"
+  fixed_in: "Round 24 站1"
+
+- test: tests/test_block_reason_registry.py::test_fabrication_reason_names_the_dimensions_and_forbids_a_bare_rerun
+  bug: "the anti-fabrication verdict must reach the agent with the offending dimensions and must not advise re-running the gate"
+  fixed_in: "Round 24 站1"
+
+- test: tests/cli/test_gate_block_diagnostic.py::test_open_critical_only_block_names_its_cause
+  bug: "a gate blocking on open_critical with every dimension passing rendered an empty 'Failing Dimensions' section (run-all-by-workflow P8/FR-05); _format_block_diagnostic had zero test coverage"
+  fixed_in: "Round 24 站1"
+
+- test: tests/cli/test_gate_block_diagnostic.py::test_no_blocked_output_is_ever_an_empty_list_plus_a_bare_rerun
+  bug: "the BLOCKED contract: whatever blocked it, the agent gets a named cause and an actionable fix"
+  fixed_in: "Round 24 站1"
+
+- test: tests/test_quality_report_verify.py::test_gate4_deliverable_generation_failure_fails_the_gate
+  bug: "finalize-gate swallowed a QUALITY_REPORT/RELEASE_NOTES generation crash as [WARN] and passed Gate 4 with the deliverable missing — which is what prompted the agent to hand-make one"
+  fixed_in: "Round 24 站2a"
+
+- test: tests/test_quality_report_verify.py::test_null_score_rendered_as_zero_fail_is_caught
+  bug: "QUALITY_REPORT.md committed 'Mutation Testing | 0/100 | FAIL' while gate4_result.json recorded score=null, excluded_by_feature_flag — a fabricated FAIL that passed peer review"
+  fixed_in: "Round 24 站2b"
+
+- test: tests/test_quality_report_verify.py::test_display_rounding_is_not_a_violation
+  bug: "the equivalence check must tolerate display rounding (94.25287356321839 rendered as 94.3) or it fires on correct reports"
+  fixed_in: "Round 24 站2b"
+
+- test: tests/test_quality_report_verify.py::test_citation_past_end_of_file_is_flagged
+  bug: "Agent B citations were only checked for being a non-empty list; an APPROVE cited QUALITY_REPORT.md:13 for a claim about line 19"
+  fixed_in: "Round 24 站2c"
+
+- test: tests/test_quality_report_verify.py::test_existence_check_does_not_claim_to_verify_support
+  bug: "boundary pin: citation checking is existence-only; verifying that a line SUPPORTS the reason would need a second LLM judgement (Round 21 verdict-before-truth)"
+  fixed_in: "Round 24 站2c"
+
+- test: tests/test_timestamp_convention.py::test_no_timezone_naive_timestamps_in_production_code
+  bug: "three unalignable clocks in one run (naive-local / offset-aware UTC / epoch) made a 1h18m gap read as an eight-hour stall during the Round 24 audit"
+  fixed_in: "Round 24 站3"
+
+- test: tests/test_timestamp_convention.py::test_gate_timestamps_reader_tolerates_rows_without_iso
+  bug: "gate_timestamps.jsonl gained an `iso` field; rows written before that must still read (ts stays an epoch float because doctor does arithmetic on it)"
+  fixed_in: "Round 24 站3"
+
+- test: tests/test_phase_completed_authority.py::test_advance_phase_records_phase_completed_with_an_ancestor_sha
+  bug: "phase_completed had one writer (push-checkpoint, P1/P2 only), so every project carried {1,2} forever and _fr_step_lineage_boundary returned None for phase>=4 — the 2026-07-11 reset-lineage fix only ever worked for phase 3"
+  fixed_in: "Round 24 站4a"
+
+- test: tests/test_phase_completed_authority.py::test_rolled_back_advance_records_no_phase_completed
+  bug: "a handover commit that never landed must not leave a phase_completed entry (same split-brain rule as the B1 rollback)"
+  fixed_in: "Round 24 站4a"
+
+- test: tests/test_phase_completed_authority.py::test_zero_consumer_scan_covers_the_harness_directory
+  bug: "R21-D' declared gate_score_overrides a zero-consumer field from a grep that did not cover harness/harness_bridge.py, where it is applied as a threshold floor (HR-16). Any 'zero consumers' claim must be made with a scan that reads harness/"
+  fixed_in: "Round 24 站4b (retracts R21-D')"
+
+- test: tests/test_heartbeat.py::test_dispatch_records_a_heartbeat_on_failure_too
+  bug: "a failing command still proves the harness was running — a stalled run and a failing run must stay distinguishable"
+  fixed_in: "Round 24 站5a"
+
+- test: tests/test_heartbeat.py::test_heartbeat_cannot_see_an_agent_that_never_calls_the_harness
+  bug: "boundary pin: heartbeat detects a HARNESS-layer stall only. A partial solution that reads as complete would let the next reader conclude liveness is covered"
+  fixed_in: "Round 24 站5a"
+
+- test: tests/test_heartbeat.py::test_minutes_since_refuses_a_naive_timestamp
+  bug: "a pre-migration naive timestamp has an unknown zone; guessing is what produced this round's own eight-hour misreading"
+  fixed_in: "Round 24 站5a"

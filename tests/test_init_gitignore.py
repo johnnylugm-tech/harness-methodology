@@ -30,6 +30,7 @@ _REQUIRED_ENTRIES = {
     ".code-review-graph/",
     ".sessi-work/",
     ".methodology/last_block.md",
+    ".methodology/heartbeat.json",
     ".methodology/steering_history.json",
     ".methodology/trace/attestation.latest.json",
     # Pure debug/trace logs: appended every phase run, read only from the working

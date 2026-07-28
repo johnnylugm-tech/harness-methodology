@@ -177,6 +177,39 @@ harness_cli.py crash-triage --project <project> --open-cr    # file each unfiled
 - `harness_cli.py doctor` WARNs when an untriaged bundle is sitting in
   `.sessi-work/crash/` — a confirmed harness bug nobody has looked at yet.
 
+## Why a gate blocked — the seven causes (Round 24 站1)
+
+`harness_bridge.finalize_gate` raises `GateBlockedError` from ten sites. Nine
+attach a `details` dict whose key names the cause; the tenth is the generic
+`not _gate_passes` path, which blocks on the result itself.
+
+Both consumers of a block event — the agent-facing diagnostic + `last_block.md`
+(`cli/gate_cmds.py::_format_block_diagnostic`) and cross-run failure memory
+(`core/lessons.py::record_gate_block`) — read
+`core.quality_gate.block_reason.derive_block_reasons`. It is the only model of
+"why did this gate block". Before Round 24 they each carried a private copy of
+one filter ("a dimension is below threshold") and never read `details`, so six
+of the seven causes rendered as an EMPTY failure list whose only advice was to
+run the gate again.
+
+| `details` key | Cause | The fix is NOT "re-run" |
+|---|---|---|
+| `tool_score_fabrication` | A claimed dimension score the harness could not reproduce by running the tool itself | Correct — re-running re-rolls the same judgement. Make the claim true or withdraw it |
+| `tool_evidence_missing` | Passing score with no `tool_evidence` / `evidence_file` | Attach the evidence, then re-run finalize-gate |
+| `infra_fail` | Dimension scored zero because its tool could not run | Environment failure, not a code defect — never route to CODE-FIX |
+| `malformed_gate_result` | Gate result file truncated / off-schema | Re-run run-gate to regenerate; do not hand-repair |
+| `crg_independent_failed` | The harness's own CRG measurement failed | Persistent failure is a harness defect (`crash-triage --open-cr`) |
+| `architecture_regression` | Architecture score regressed vs the previous exit gate's baseline | A waiver does not clear a regression |
+| `da_waiver` | Waiver rejected on adjudication — its premise did not match the framework's numbers | Fix the dimension, or rewrite the premise |
+| *(no details)* | Failing dimension, `open_critical`/`open_high` > 0, or composite below the score gate | `derive_block_reasons` falls back to the result itself, so an all-dimensions-passing block still names its cause |
+
+Adding a raise site with a new key without registering it in
+`block_reason._DETAIL_REGISTRY` fails
+`tests/test_block_reason_registry.py`. At runtime an unknown key does NOT
+raise — it renders with a "no remediation registered, file with crash-triage"
+banner, because turning a gate block into a harness crash on the one path
+where the agent most needs information is strictly worse.
+
 ## Exit codes
 
 Single source of truth: **`cli/exit_codes.py`'s `REGISTRY` dict.**

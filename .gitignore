@@ -22,6 +22,7 @@ crg_status.json
 .methodology/effort_metrics.db
 .methodology/decision_logs/
 .methodology/last_block.md
+.methodology/heartbeat.json
 .methodology/steering_history.json
 .methodology/quality_manifest.json
 # NOTE: .methodology/enforcement.json and quality_manifest.example.json are
