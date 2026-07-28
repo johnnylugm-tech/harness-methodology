@@ -1,6 +1,6 @@
 import json
 from scripts.generate_quality_report import (
-    _find_latest_gate_result, _build_dimension_table, generate_quality_report,
+    _find_latest_gate_result, _build_dimension_table, _build_fr_summary, generate_quality_report,
 )
 from cli._shared import gate_result_paths
 
@@ -150,3 +150,55 @@ def test_gate_result_paths_per_fr_returned_first_when_only_present(tmp_path):
     paths = gate_result_paths(tmp_path, 1, fr_id="FR-03")
     resolved = next((p for p in paths if p.exists()), None)
     assert resolved == per_fr
+
+
+def test_dimension_table_excluded_by_feature_flag_score_null():
+    """A dimension disabled via harness_config.json feature flag has
+    score: null + excluded_by_feature_flag: true (schema-documented state,
+    see harness/ssi/schemas/harness_gate_result.schema.json). Must render
+    N/A + EXCLUDED, not crash on `None >= 70` and not fabricate 0/100 FAIL."""
+    gate_result = {
+        "breakdown": {
+            "mutation_testing": {
+                "score": None,
+                "excluded_by_feature_flag": True,
+                "detail": "Disabled via harness_config.json",
+            },
+        },
+    }
+    text = "\n".join(_build_dimension_table(gate_result))
+    assert "N/A" in text
+    assert "EXCLUDED" in text
+    assert "✗ FAIL" not in text
+
+
+def test_dimension_table_framework_owned_score_null():
+    """A framework-owned dimension (e.g. architecture, CRG-scored) or one where
+    no measurement applies (e.g. pytest-benchmark with no benchmarks) can also
+    be score: null without the exclusion flag. Must render N/A + FRAMEWORK-OWNED,
+    not crash and not fabricate 0/100 FAIL."""
+    gate_result = {
+        "breakdown": {
+            "architecture": {"score": None, "detail": "CRG not yet run"},
+        },
+    }
+    text = "\n".join(_build_dimension_table(gate_result))
+    assert "N/A" in text
+    assert "FRAMEWORK-OWNED" in text
+    assert "✗ FAIL" not in text
+
+
+def test_fr_summary_null_score_renders_na_not_crash():
+    """Same null-vs-absent gap as _build_dimension_table, in the per-FR table:
+    result.get("score", "N/A") does not substitute for a present null. Must
+    render N/A, not crash and not leave a bare `None` in the table."""
+    quality_manifest = {
+        "gate_results": {
+            "gate1": {
+                "FR-01": {"score": None, "quality_complete": False},
+            },
+        },
+    }
+    text = "\n".join(_build_fr_summary(quality_manifest))
+    assert "N/A" in text
+    assert "None" not in text

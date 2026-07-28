@@ -113,7 +113,15 @@ def _build_dimension_table(gate_result: dict[str, Any],
 
     for kid, label in items:
         entry = dims.get(kid, {})
-        score = entry.get("score", 0) if isinstance(entry, dict) else 0
+        # entry.get("score", 0) would NOT catch a present-but-null score — .get's
+        # default only applies when the key is absent. Per
+        # harness/ssi/schemas/harness_gate_result.schema.json, score: null is a
+        # documented state (framework-owned dimension, e.g. architecture pre-patch;
+        # or no measurement applies, e.g. pytest-benchmark with no benchmarks; or
+        # excluded via harness_config.json feature flag). Readers MUST handle it
+        # explicitly instead of comparing None >= 70 (TypeError) or defaulting to 0
+        # (renders a disabled/inapplicable dimension as a false FAIL).
+        score = entry.get("score") if isinstance(entry, dict) else None
         detail = entry.get("detail", "") if isinstance(entry, dict) else ""
         if not detail and isinstance(entry, dict):
             detail = entry.get("evidence", "")
@@ -123,9 +131,15 @@ def _build_dimension_table(gate_result: dict[str, Any],
         # PASS (DA-waiver) rather than a bare FAIL.
         if kid in waivers:
             status = "✓ PASS (DA-waiver)"
+            score_display = f"{score}/100" if score is not None else "N/A"
+        elif score is None:
+            excluded = isinstance(entry, dict) and entry.get("excluded_by_feature_flag")
+            status = "⊘ EXCLUDED" if excluded else "⊘ FRAMEWORK-OWNED"
+            score_display = "N/A"
         else:
             status = "✓ PASS" if score >= 70 else "✗ FAIL"
-        lines.append(f"| {label} | {score}/100 | {status} | {detail} |")
+            score_display = f"{score}/100"
+        lines.append(f"| {label} | {score_display} | {status} | {detail} |")
     return lines
 
 
@@ -140,7 +154,10 @@ def _build_fr_summary(quality_manifest: dict[str, Any]) -> list[str]:
         "|-------|-------|--------|",
     ]
     for fr_id, result in gate1.items():
-        score = result.get("score", "N/A") if isinstance(result, dict) else "N/A"
+        # Same null-vs-absent distinction as _build_dimension_table: .get(key, "N/A")
+        # only substitutes when "score" is absent, not when present as None.
+        raw_score = result.get("score") if isinstance(result, dict) else None
+        score = raw_score if raw_score is not None else "N/A"
         passed = result.get("quality_complete", False) if isinstance(result, dict) else False
         status = "✓ PASS" if passed else "—"
         lines.append(f"| {fr_id} | {score} | {status} |")
