@@ -112,36 +112,33 @@ def record_lesson(project: Path, lesson: Lesson) -> Path:
 
 
 def record_gate_block(
-    project: Path, *, gate_num: int, phase: int | None, fr_id: str | None, result
+    project: Path, *, gate_num: int, phase: int | None, fr_id: str | None, result,
+    details: dict | None = None,
 ) -> list[Path]:
-    """Distil a blocked gate into lessons — one per failing dimension (score
-    below its threshold), or one composite lesson if no per-dimension detail.
+    """Distil a blocked gate into lessons — one per reason the gate blocked.
 
     `result` is a harness_bridge.GateResult (duck-typed here to avoid importing
     the bridge into core). Capture is best-effort: the caller wraps it so a
     lesson-store hiccup can never break the gate flow.
+
+    Round 24 站1: reasons come from core.quality_gate.block_reason, the same
+    SSOT cli/gate_cmds.py's diagnostic uses. This function previously carried
+    its own copy of the "dimension below threshold" filter and never saw
+    `details`, so every anti-fabrication block distilled into the same
+    contentless lesson pair — "Gate N blocked: composite 0" / "Resolve the
+    findings above". A lesson whose fix restates its own failure teaches the
+    next run nothing.
     """
+    from core.quality_gate.block_reason import derive_block_reasons
+
     frs = [fr_id] if fr_id else []
-    failing = [
-        d for d in (getattr(result, "dimensions", None) or [])
-        if getattr(d, "score", None) is not None
-        and d.score < getattr(d, "threshold", 0)
-    ]
     paths: list[Path] = []
-    if failing:
-        for d in failing:
-            paths.append(record_lesson(project, Lesson(
-                failure_mode=(f"Gate {gate_num} blocked: {d.name}={d.score:.0f} "
-                              f"below threshold {d.threshold:.0f}"),
-                fix=f"Strengthen {d.name} before re-running Gate {gate_num}",
-                source="gate-block", phase=phase, dimension=d.name, fr_ids=frs)))
-    else:
-        score = getattr(result, "score", None)
-        detail = f" composite {score:.0f}" if isinstance(score, (int, float)) else ""
+    for reason in derive_block_reasons(gate_num, result, details):
+        dimension = reason.items[0] if reason.kind == "dimension_below_threshold" else None
         paths.append(record_lesson(project, Lesson(
-            failure_mode=f"Gate {gate_num} blocked:{detail}",
-            fix=f"Resolve the findings above before re-running Gate {gate_num}",
-            source="gate-block", phase=phase, fr_ids=frs)))
+            failure_mode=f"Gate {gate_num} blocked [{reason.kind}]: {reason.headline}",
+            fix=reason.remediation,
+            source="gate-block", phase=phase, dimension=dimension, fr_ids=frs)))
     return paths
 
 

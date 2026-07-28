@@ -30,6 +30,7 @@ from core.harness_config import get_timeout, get_value
 from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate import env_contract
 from core.quality_gate import gate1_evidence
+from core.quality_gate.block_reason import derive_block_reasons
 from core.quality_gate.da_waiver import WAIVABLE_DIMENSIONS
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
@@ -2249,7 +2250,8 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         try:
             from core.lessons import record_gate_block
             record_gate_block(project_path, gate_num=args.gate, phase=args.phase,
-                              fr_id=fr_id, result=e.result)
+                              fr_id=fr_id, result=e.result,
+                              details=getattr(e, "details", None))
         except Exception as _lessons_exc:  # noqa: BLE001
             print(f"[WARN] finalize-gate: could not record cross-run failure "
                   f"memory for this block: {_lessons_exc}", file=sys.stderr)
@@ -2285,36 +2287,6 @@ def _update_state_checkpoint(
             existing["phase_truth_passed"] = True
         atomic_write_json(state_path, existing)
 
-_DIMENSION_HINTS: dict[str, str] = {
-    "linting":            "Run `ruff check . --fix` (or flake8); resolve all remaining lint errors",
-    "type_safety":        "Run `mypy .`; add missing annotations and fix all type errors",
-    "test_coverage":      "Run `pytest --cov` to find uncovered lines; add unit tests for each gap",
-    "security":           "Fix OWASP-category issues; validate all inputs; remove eval/exec patterns",
-    "secrets_scanning":   "Remove hard-coded secrets; move to env vars / vault; run `gitleaks detect`",
-    "license_compliance": "Run `pip-licenses`; replace or vendor GPL/incompatible dependencies",
-    "mutation_testing":   "Run `mutmut run`; add assertions that kill every surviving mutant",
-    "architecture":       (
-        "Two distinct failure modes — check tool_evidence to identify which applies: "
-        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.3) — "
-        "either file an artifact-backed DA waiver in .sessi-work/gate{N}_result.json "
-        "(devil_advocate + da_waiver + devil_advocate_evidence.architecture; valid at Gate 3 AND Gate 4) "
-        "then re-run finalize-gate, OR reduce cross-package coupling so CRG detects sub-communities; "
-        "for persistent CRG false positives (workflow tooling counted as product code, small-package "
-        "Leiden over-fragmentation) calibrate crg_excludes / crg_cohesion_healthy in "
-        ".methodology/harness_config.json; "
-        "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
-    ),
-    "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
-    "error_handling":     (
-        "CRG flow_coverage score: percent of call-chain flows with at least one specific error handler. "
-        "Use `get_affected_flows` CRG tool to identify which flows lack handlers. "
-        "Fix: add try/except with specific exception types (not bare `except:`) to I/O, "
-        "network, and external service calls. Bare `except:` does NOT improve CRG score."
-    ),
-    "documentation":      "All public APIs need [FR-XX] docstrings with Citations: + line numbers",
-    "performance":        "Profile with cProfile; fix N+1 queries; add caching where needed",
-}
-
 def _format_block_diagnostic(
     exc: "GateBlockedError",
     gate_num: int,
@@ -2323,8 +2295,17 @@ def _format_block_diagnostic(
     max_rounds: int,
     project: Path,
 ) -> str:
-    """Format a structured diagnostic for a gate BLOCKED event; also writes last_block.md."""
-    failing = [d for d in exc.result.dimensions if d.score is not None and d.score < d.threshold]
+    """Format a structured diagnostic for a gate BLOCKED event; also writes last_block.md.
+
+    Round 24 站1: the reason list comes from core.quality_gate.block_reason,
+    not from a local dimension filter. Nine of harness_bridge's ten
+    GateBlockedError sites attach a `details` dict naming the real cause
+    (`tool_score_fabrication` and friends); the old local filter modelled only
+    "a dimension is below threshold" and dropped `exc.details` entirely, so
+    those nine rendered as an empty failure list whose only advice was to run
+    the gate again.
+    """
+    reasons = derive_block_reasons(gate_num, exc.result, getattr(exc, "details", None))
     passing = [d for d in exc.result.dimensions if d.score is not None and d.score >= d.threshold]
 
     lines = [
@@ -2337,22 +2318,13 @@ def _format_block_diagnostic(
         f"  open critical   : {exc.result.open_critical}",
         f"  open high       : {exc.result.open_high}",
         "",
-        f"Failing dimensions ({len(failing)}):",
+        f"Blocking reasons ({len(reasons)}):",
     ]
-    for dim in failing:
-        if dim.score is not None:
-            gap = dim.threshold - dim.score
-            lines.append(
-                f"  [FAIL] {dim.name:<22} score={dim.score:>5.1f}  "
-                f"need={dim.threshold:>5.1f}  gap={gap:>4.1f}"
-            )
-        else:
-            lines.append(
-                f"  [FAIL] {dim.name:<22} score= None  "
-                f"need={dim.threshold:>5.1f}  gap= N/A"
-            )
-        hint = _DIMENSION_HINTS.get(dim.name, "Review dimension-specific issues in SSI output")
-        lines.append(f"         → {hint}")
+    for idx, reason in enumerate(reasons, 1):
+        lines.append(f"  [{idx}] {reason.kind}: {reason.headline}")
+        for item in reason.items:
+            lines.append(f"        • {item}")
+        lines.append(f"        → {reason.remediation}")
 
     if passing:
         lines.append("")
@@ -2378,26 +2350,19 @@ def _format_block_diagnostic(
         f"fr_id: {fr_id or 'n/a'} | rounds: {exc.result.rounds_used} | "
         f"open_critical: {exc.result.open_critical} | open_high: {exc.result.open_high}",
         "",
-        "## Failing Dimensions",
+        f"## Blocking Reasons ({len(reasons)})",
         "",
     ]
-    for dim in failing:
-        hint = _DIMENSION_HINTS.get(dim.name, "Review SSI output")
-        if dim.score is not None:
-            gap = dim.threshold - dim.score
-            report_lines += [
-                f"### {dim.name}",
-                f"- score: {dim.score:.1f} / threshold: {dim.threshold:.1f} (gap: {gap:.1f})",
-                f"- fix: {hint}",
-                "",
-            ]
-        else:
-            report_lines += [
-                f"### {dim.name}",
-                f"- score: None / threshold: {dim.threshold:.1f} (gap: N/A)",
-                f"- fix: {hint}",
-                "",
-            ]
+    for idx, reason in enumerate(reasons, 1):
+        report_lines += [
+            f"### {idx}. {reason.kind}",
+            f"- {reason.headline}",
+        ]
+        report_lines += [f"  - {item}" for item in reason.items]
+        report_lines += [
+            f"- fix: {reason.remediation}",
+            "",
+        ]
     report_lines += [
         "## Resume Commands",
         "",
