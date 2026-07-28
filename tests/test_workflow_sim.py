@@ -73,4 +73,8 @@ def test_sim_testbed_passes():
     # dispatches may still appear (phase3's Gate-2 loop, phase8's Final Push)
     # and where they must not (entry point, Advance loop — advance-phase
     # enforces it itself now).
-    assert int(m.group(1)) >= 48, f"sim suite shrank: only {m.group(1)} passing tests (floor 48)"
+    # 48 -> 51 by Round 22 站3: 3 scenarios pinning that Load FRs costs one
+    # dispatch on a clean read, that phase3 still force-regenerates on attempt
+    # 1 (Fix D, stale lessons), and that a failed read still reaches the regen
+    # path the removed probe used to be the only trigger for.
+    assert int(m.group(1)) >= 51, f"sim suite shrank: only {m.group(1)} passing tests (floor 51)"

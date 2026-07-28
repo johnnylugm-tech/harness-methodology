@@ -50,10 +50,11 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "fixed walk-up one-liner; JS regex-parses REPO=<abs path>"),
     (r"^env-check$", "carrier", "schema",
      "run-env-check && finalize-env-check; RC= line transcribed to rc"),
-    (r"^ctx-check-$", "carrier", "schema",
-     "python json.load probe prints FILE_OK_<size>; pass transcribed"),
+    # Round 22 站3 removed ctx-check-: its `json.load(ctxFile)` probe proved
+    # exactly what the load-ctx-a read below runs and fails on, and on phase3
+    # its verdict was never even read (Fix D short-circuits ahead of it).
     (r"^ctx-regen-$", "carrier", "none",
-     "load-context regen; next ctx-check round is the gate"),
+     "load-context regen; the next load-ctx-a read is the gate"),
     (r"^load-ctx-a$", "carrier", "schema",
      "python prints fr_ids JSON; transcribed into CTX_SCHEMA"),
     (r"^gate1-verify-$", "carrier", "js-regex",

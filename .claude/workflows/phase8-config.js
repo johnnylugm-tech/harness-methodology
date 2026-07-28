@@ -265,36 +265,25 @@ log('load-context --phase 8 → fr_ids')
 // v2.13.1: hardened against agent hallucination (Bug #122).
 let ctx = null
 const ctxFile = REPO + '/.sessi-work/phase8_ctx.json'
+// Round 22 站3: the read used to be preceded by a separate ctx-check
+// dispatch that ran `json.load(ctxFile)` purely to prove the file was
+// parseable. The read below runs `json.load(ctxFile)` too — its failure
+// condition is a superset of the probe's — so the probe could only ever
+// confirm what the next command was about to establish, at the cost of a
+// full sub-agent dispatch per phase. Bug #134's actual fix (parse the
+// JSON rather than stat the file, so a partial write cannot pass) lives
+// in the command below and is unaffected; Bug #136's template-literal
+// quoting likewise. A failed read now routes to the same regen path the
+// probe used to trigger — the two cases it distinguished (file missing
+// vs. file unparseable) had identical handling anyway.
 for (let attempt = 1; attempt <= 3; attempt++) {
-  try {
-    // Bug #134 fix (2026-06-28): validate JSON-parseable, not just non-zero size.
-    // Previous `test -s FILE && echo FILE_OK_<size>` passed for partial writes.
-    // Root-cause: use `python3 -c 'json.load(...)'` so incomplete JSON raises
-    // mid-write → no FILE_OK marker → regen path triggered.
-    // Bug #136 sibling: bash built via template literal (single quotes safe).
-    const ctxCheckCmd = `${PY} -c "import json,os,sys; json.load(open('${ctxFile}')); print('FILE_OK_'+str(os.path.getsize('${ctxFile}')))" || echo FILE_MISSING`
-    const existsVerdict = await agent(
-      `You MUST use the Bash tool. Run exactly:\n${ctxCheckCmd}\nThen report via the StructuredOutput tool: pass = true ONLY if stdout starts with FILE_OK_; reason = the verbatim stdout.`,
-      { label: 'ctx-check-' + attempt, phase: 'Load FRs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
-    )
-    if (!(existsVerdict && existsVerdict.pass === true)) {
-      log('  ctx file missing/invalid (attempt ' + attempt + ') — regenerating')
-      const ctxRegenCmd = `${PY} ${REPO}/harness_cli.py load-context --phase 8 --project ${REPO} --json > ${ctxFile} && ${PY} -c "import json,os; json.load(open('${ctxFile}')); print('REGEN_OK_'+str(os.path.getsize('${ctxFile}')))"`
-      await agent(
-        `You MUST use the Bash tool. Run exactly:\n${ctxRegenCmd}\nReturn the raw stdout as your final message.`,
-        { label: 'ctx-regen-' + attempt, phase: 'Load FRs', agentType: 'general-purpose' },
-      )
-      continue
-    }
-  } catch (e) { log('  ctx-check agent failed: ' + String(e.message ?? e).slice(0, 80)); continue }
-
   // Bug #135 fix (2026-06-28) + v4 schema transport: emit parseable JSON via
   // Python; the agent transcribes the fields into StructuredOutput (AJV-
   // validated, retries on mismatch). No prose parsing left on this path.
   try {
     const ctxParseCmd = `${PY} -c "import json; d=json.load(open('${ctxFile}')); print(json.dumps({'fr_ids':d.get('fr_ids',[]),'fr_count':len(d.get('fr_ids',[]))}))"`
     const ctxResult = await agent(
-      `You MUST use the Bash tool. Run exactly:\n${ctxParseCmd}\nStdout is a single JSON line. Report via the StructuredOutput tool: fr_ids, fr_count = the EXACT values from that JSON line (transcribe, do not recompute).`,
+      `You MUST use the Bash tool. Run exactly:\n${ctxParseCmd}\nThe command FAILS (nonzero exit, Python traceback) when the file is missing or not valid JSON — report that verbatim rather than inventing values. On success stdout is a single JSON line: report via the StructuredOutput tool fr_ids, fr_count = the EXACT values from that line (transcribe, do not recompute).`,
       { label: 'load-ctx-a' + attempt, phase: 'Load FRs', agentType: 'general-purpose', schema: CTX_SCHEMA },
     )
     if (ctxResult && Array.isArray(ctxResult.fr_ids) && ctxResult.fr_ids.length > 0) {
@@ -302,8 +291,16 @@ for (let attempt = 1; attempt <= 3; attempt++) {
       log('  load-ctx OK (schema-validated, ' + ctx.fr_ids.length + ' FRs)')
       break
     }
-    log('  load-ctx returned empty fr_ids (attempt ' + attempt + '): keys=' + Object.keys(ctxResult ?? {}).join(','))
-  } catch (e) { log('  load-ctx agent failed: ' + String(e.message ?? e).slice(0, 80)); continue }
+    log('  load-ctx returned no fr_ids (attempt ' + attempt + '): keys=' + Object.keys(ctxResult ?? {}).join(',') + ' — regenerating ctx file')
+  } catch (e) { log('  load-ctx agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — regenerating ctx file') }
+
+  const ctxRegenCmd = `${PY} ${REPO}/harness_cli.py load-context --phase 8 --project ${REPO} --json > ${ctxFile} && ${PY} -c "import json,os; json.load(open('${ctxFile}')); print('REGEN_OK_'+str(os.path.getsize('${ctxFile}')))"`
+  try {
+    await agent(
+      `You MUST use the Bash tool. Run exactly:\n${ctxRegenCmd}\nReturn the raw stdout as your final message.`,
+      { label: 'ctx-regen-' + attempt, phase: 'Load FRs', agentType: 'general-purpose' },
+    )
+  } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
 if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids

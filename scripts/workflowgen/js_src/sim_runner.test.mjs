@@ -418,3 +418,48 @@ test('phase3 Gate 2 round loop still re-checks integrity every round', async () 
   assert.ok(events.agents.some((a) => /^g2-integrity-r/.test(a.label)),
     'entering the Gate 2 round loop must still dispatch its per-round integrity check')
 })
+
+// ---- 10. ctx load is one dispatch on the happy path (Round 22 站3) ---------
+// A ctx-check probe used to precede the read purely to prove the ctx file was
+// parseable — running `json.load(ctxFile)`, which is exactly what the read
+// itself runs and fails on. On phase3 it was worse than redundant: Fix D's
+// `attempt === 1 ||` short-circuited ahead of the verdict, so the probe ran,
+// answered, and was discarded outright.
+test('Load FRs costs one dispatch when the ctx file reads cleanly', async () => {
+  for (const name of FR_LOOP_PHASES) {
+    const { result, events } = await runWorkflow(WF(name), makeHappyResponder(fastPassOverrides(2)))
+    assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+    const loadFrs = events.agents.filter((a) => a.phase === 'Load FRs')
+    assert.deepEqual(loadFrs.map((a) => a.label), ['load-ctx-a1'],
+      `${name} Load FRs dispatches: ${JSON.stringify(loadFrs.map((a) => a.label))}`)
+  }
+})
+
+test('phase3 Load FRs keeps Fix D: attempt 1 always regenerates first', async () => {
+  // .sessi-work/ is gitignored, so a `git reset --hard` back to a phase-3
+  // entry commit leaves a prior run's phase3_ctx.json — and its `lessons`
+  // field — in place. Attempt 1 must overwrite it before reading.
+  const { events } = await runWorkflow(
+    WF('phase3-implementation.js'), makeHappyResponder(fastPassOverrides(2)))
+  // phase3's gate1-precheck also reports phase 'Load FRs'; filter to the ctx
+  // dispatches, which are what this test is about.
+  const ctxCalls = events.agents
+    .filter((a) => a.phase === 'Load FRs' && /^(ctx-|load-ctx-)/.test(a.label))
+    .map((a) => a.label)
+  assert.deepEqual(ctxCalls, ['ctx-regen-1', 'load-ctx-a1'], JSON.stringify(ctxCalls))
+})
+
+test('a failed ctx read still routes to regeneration', async () => {
+  // The removed probe was the only thing that used to trigger regen. If a
+  // read failure no longer reached that path, a missing ctx file would burn
+  // all three attempts on the same unreadable file.
+  let reads = 0
+  const overrides = [
+    { match: /^load-ctx-a/, respond: () => { reads += 1; return reads === 1 ? {} : { fr_ids: ['FR-01'], fr_count: 1 } } },
+    ...happyOverrides(),
+  ]
+  const { result, events } = await runWorkflow(WF('phase7-risk.js'), makeHappyResponder(overrides))
+  const loadFrs = events.agents.filter((a) => a.phase === 'Load FRs').map((a) => a.label)
+  assert.deepEqual(loadFrs, ['load-ctx-a1', 'ctx-regen-1', 'load-ctx-a2'], JSON.stringify(loadFrs))
+  assert.equal(result.error, undefined, 'the second attempt must recover after regeneration')
+})
