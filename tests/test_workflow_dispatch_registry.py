@@ -41,13 +41,24 @@ sys.path.insert(0, str(REPO))
 
 from scripts.workflow_audit.extract import extract_js_agent_labels  # noqa: E402
 
-PHASE_FILES = sorted((REPO / ".claude" / "workflows").glob("phase*.js"))
+# Round 23 站2: run-all.js inlines all eight bodies, so it carries the same
+# dispatch labels plus its own state.json cursor read. Including it here
+# keeps the registry complete — an unregistered label in run-all is the
+# same blind spot as one in a phase file.
+PHASE_FILES = sorted(
+    [*(REPO / ".claude" / "workflows").glob("phase*.js"),
+     REPO / ".claude" / "workflows" / "run-all.js"]
+)
 
 # (label-literal regex, cls, verdict, note) — first match wins.
 DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     # ── carriers: fixed command + canonical-string / schema transport ──
     (r"^resolve-repo$", "carrier", "js-regex",
      "fixed walk-up one-liner; JS regex-parses REPO=<abs path>"),
+    (r"^phase-cursor$", "carrier", "schema",
+     "python prints state.json current_phase as JSON; transcribed into "
+     "PHASE_SCHEMA. run-all fails closed if it cannot be read — guessing "
+     "Phase 1 would re-run requirements on an advanced project"),
     (r"^env-check$", "carrier", "schema",
      "run-env-check && finalize-env-check; RC= line transcribed to rc"),
     # Round 22 站3 removed ctx-check-: its `json.load(ctxFile)` probe proved

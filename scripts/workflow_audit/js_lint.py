@@ -31,6 +31,7 @@ JS tokenizer is more machinery than this regression lint needs.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 
 _BANNED_PATTERNS: dict[str, re.Pattern[str]] = {
     "import()": re.compile(r"\bimport\s*\("),
@@ -45,29 +46,35 @@ _BANNED_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 
-def strip_comments_and_strings(text: str) -> str:
-    """Blank `//`, `/* */` comments and `'`/`"`/backtick string bodies,
-    keeping newlines and every other byte in place so line numbers in
-    the result still line up 1:1 with the input."""
-    out: list[str] = []
+def _segments(text: str) -> "Iterator[tuple[int, int, str]]":
+    """Yield (start, end, kind) spans that tile `text` exactly once.
+
+    kind is "comment" (`//` or `/* */`), "string" (a `'`/`"`/backtick body
+    including its delimiters) or "code". Both public helpers below consume
+    this one scanner — a second hand-rolled copy of the state machine is
+    exactly the same-shaped-sibling pattern this repo keeps finding drifted
+    (Round 6 站3, Round 8 站1, Round 20 站2).
+    """
     i, n = 0, len(text)
+    code_start = 0
     while i < n:
         two = text[i:i + 2]
-        if two == "//":
-            j = text.find("\n", i)
-            j = n if j == -1 else j
-            out.append(" " * (j - i))
-            i = j
+        if two in ("//", "/*"):
+            if code_start < i:
+                yield (code_start, i, "code")
+            if two == "//":
+                j = text.find("\n", i)
+                j = n if j == -1 else j
+            else:
+                j = text.find("*/", i + 2)
+                j = n if j == -1 else j + 2
+            yield (i, j, "comment")
+            i = code_start = j
             continue
-        if two == "/*":
-            j = text.find("*/", i + 2)
-            j = n if j == -1 else j + 2
-            out.append("".join(ch if ch == "\n" else " " for ch in text[i:j]))
-            i = j
-            continue
-        c = text[i]
-        if c in ("'", '"', "`"):
-            quote = c
+        quote = text[i]
+        if quote in ("'", '"', "`"):
+            if code_start < i:
+                yield (code_start, i, "code")
             j = i + 1
             while j < n:
                 if text[j] == "\\":
@@ -77,12 +84,51 @@ def strip_comments_and_strings(text: str) -> str:
                     j += 1
                     break
                 j += 1
-            out.append("".join(ch if ch == "\n" else " " for ch in text[i:j]))
-            i = j
+            yield (i, j, "string")
+            i = code_start = j
             continue
-        out.append(c)
         i += 1
+    if code_start < n:
+        yield (code_start, n, "code")
+
+
+def strip_comments_and_strings(text: str) -> str:
+    """Blank `//`, `/* */` comments and `'`/`"`/backtick string bodies,
+    keeping newlines and every other byte in place so line numbers in
+    the result still line up 1:1 with the input."""
+    out: list[str] = []
+    for start, end, kind in _segments(text):
+        span = text[start:end]
+        out.append(span if kind == "code"
+                   else "".join(ch if ch == "\n" else " " for ch in span))
     return "".join(out)
+
+
+def comment_line_numbers(text: str) -> set[int]:
+    """1-indexed line numbers whose entire content is comment.
+
+    A line qualifies when it carries at least one non-whitespace comment
+    byte and no non-whitespace byte belonging to code or a string literal.
+
+    Deliberately NOT "the line's first non-space characters are `//`":
+    the generated workflow files embed prompt text inside template
+    literals, and a line of that STRING content may legitimately begin
+    with `//`. Dropping such a line would silently corrupt an agent
+    prompt. Round 23 站2 uses this to strip pure-comment lines out of the
+    combined run-all.js, whose eight inlined phase bodies would otherwise
+    carry 110 KB of duplicated commentary into a file the runtime refuses
+    to parse past 512 KB.
+    """
+    has_comment: set[int] = set()
+    has_other: set[int] = set()
+    line = 1
+    for start, end, kind in _segments(text):
+        for ch in text[start:end]:
+            if ch == "\n":
+                line += 1
+            elif not ch.isspace():
+                (has_comment if kind == "comment" else has_other).add(line)
+    return has_comment - has_other
 
 
 def find_banned_constructs(js_text: str) -> dict[str, list[int]]:

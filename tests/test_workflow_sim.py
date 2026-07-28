@@ -77,4 +77,10 @@ def test_sim_testbed_passes():
     # dispatch on a clean read, that phase3 still force-regenerates on attempt
     # 1 (Fix D, stale lessons), and that a failed read still reaches the regen
     # path the removed probe used to be the only trigger for.
-    assert int(m.group(1)) >= 51, f"sim suite shrank: only {m.group(1)} passing tests (floor 51)"
+    # 51 -> 63 by Round 23 站2: run-all.js joins the testbed with 12 scenarios —
+    # one per phase asserting its inlined section dispatches exactly what the
+    # standalone file does, plus the full run, the state.json cursor, the
+    # fail-closed branch when the cursor cannot be read, and the past-Phase-8
+    # no-op. That per-phase equivalence IS the evidence that one workflow
+    # covering all eight phases behaves like eight separate launches.
+    assert int(m.group(1)) >= 63, f"sim suite shrank: only {m.group(1)} passing tests (floor 63)"

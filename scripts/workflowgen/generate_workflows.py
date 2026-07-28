@@ -34,6 +34,25 @@ GENERATORS = {
     8: (phase_specs.generate_phase8, "phase8-config.js"),
 }
 
+# Composite outputs: generated from the SAME per-phase generators above rather
+# than from a spec of their own, so they cannot drift from what the eight
+# phase files ship. Keyed by name because `--phase` means a methodology phase
+# number (1-8) and run-all is not one.
+COMPOSITES: dict[str, tuple[object, str]] = {}
+
+
+def _composites() -> dict[str, tuple[object, str]]:
+    # Imported lazily: spec_runall imports generate() from this module.
+    if not COMPOSITES:
+        from scripts.workflowgen.spec_runall import generate_runall
+        COMPOSITES["run-all"] = (generate_runall, "run-all.js")
+    return COMPOSITES
+
+
+def generate_composite(name: str) -> str:
+    fn, _ = _composites()[name]
+    return fn()  # type: ignore[operator]
+
 
 def generate(phase: int) -> str:
     if phase not in GENERATORS:
@@ -56,10 +75,16 @@ def main() -> int:
     args = parser.parse_args()
 
     phases = [args.phase] if args.phase else sorted(GENERATORS)
+    targets: list[tuple[str, Path]] = [
+        (generate(p), _target_path(p)) for p in phases
+    ]
+    if not args.phase:
+        targets.extend(
+            (generate_composite(name), WORKFLOWS_DIR / filename)
+            for name, (_, filename) in sorted(_composites().items())
+        )
     any_diff = False
-    for phase in phases:
-        text = generate(phase)
-        target = _target_path(phase)
+    for text, target in targets:
         if args.write:
             target.write_text(text, encoding="utf-8")
             print(f"[workflowgen] wrote {target.relative_to(REPO_ROOT)} ({len(text)} bytes)")
