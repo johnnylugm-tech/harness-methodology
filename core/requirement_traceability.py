@@ -18,6 +18,7 @@ import json
 import uuid
 
 from core.atomic_io import atomic_write_json
+from core.utils.timefmt import utc_now_iso
 
 
 class TraceStatus(Enum):
@@ -63,7 +64,7 @@ class Requirement:
             priority=d.get("priority", "HIGH"),
             status=TraceStatus(d.get("status", TraceStatus.PENDING.value)),
             srs_section=d.get("srs_section"),
-            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else datetime.now(),
+            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else datetime.now(timezone.utc),
             metadata=d.get("metadata") or {},
         )
 
@@ -157,7 +158,7 @@ class TraceLink:
             target_id=d["target_id"],
             link_type=LinkType(d.get("link_type", LinkType.FR_TO_SRS.value)),
             bidirectional=d.get("bidirectional", True),
-            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else datetime.now(),
+            created_at=datetime.fromisoformat(d["created_at"]) if d.get("created_at") else datetime.now(timezone.utc),
             verified_at=datetime.fromisoformat(d["verified_at"]) if d.get("verified_at") else None,
             status=TraceStatus(d.get("status", TraceStatus.PENDING.value)),
             metadata=d.get("metadata") or {},
@@ -291,7 +292,7 @@ class RequirementTraceability:
     def export_report(self, format="standard"):
         report = {
             "project_id": self.project_id,
-            "exported_at": datetime.now().isoformat(),
+            "exported_at": utc_now_iso(),
             "completeness": self.verify_completeness(),
             "traceability_matrix": self.get_traceability_matrix(),
             "all_links": [line.to_dict() for line in self.links],

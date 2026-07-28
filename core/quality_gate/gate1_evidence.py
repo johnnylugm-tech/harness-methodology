@@ -156,9 +156,16 @@ def record_gate_timestamp(
         except OSError:
             pass
 
+    # Round 24 站3: `ts` stays an epoch float — core/doctor.py and
+    # _check_gate1_live_coverage do arithmetic on it, and swapping the format
+    # would break every existing project's file. `iso` is ADDED alongside so a
+    # human (or a cross-artifact audit) can line these rows up against
+    # state.json / sessions_spawn.log without knowing the writer's timezone.
+    from core.utils.timefmt import utc_now_iso
+
     entry = {
         "phase": phase, "gate": gate_num, "fr_id": fr_id or "phase",
-        "ts": _time.time(), "source": source,
+        "ts": _time.time(), "iso": utc_now_iso(), "source": source,
     }
     try:
         # Append

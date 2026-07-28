@@ -22,7 +22,7 @@ import sys
 import json
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).parent))
 import issue_tracker
@@ -126,7 +126,7 @@ def render_header(
     return f"""# Quality Improvement Report
 
 **Project:** `{repo_path.name}`
-**Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+**Generated:** {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}
 **Overall Score:** {overall_score:.1f} / 100 (gate: {score_gate})
 **Recommendation:** {rec_emoji.get(rec, "?")} **{rec.upper()}**
 """

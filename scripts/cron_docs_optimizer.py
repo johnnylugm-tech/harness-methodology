@@ -18,7 +18,7 @@ Trigger:
 import re
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Settings
 WORKSPACE = Path(__file__).parent.parent
@@ -39,7 +39,7 @@ class DocsOptimizer:
         """Run document check/fix"""
         self.dry_run = not fix
 
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Docs Optimizer {'FIX' if fix else 'CHECK'}")
+        print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}] Docs Optimizer {'FIX' if fix else 'CHECK'}")
         print("=" * 50)
 
         # 1. Version consistency check

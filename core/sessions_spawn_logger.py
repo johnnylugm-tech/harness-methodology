@@ -4,7 +4,7 @@
 
 import json
 from pathlib import Path
-from datetime import datetime
+from core.utils.timefmt import utc_now_iso
 from typing import Optional, Dict, Any, List
 
 try:
@@ -92,7 +92,7 @@ class SessionsSpawnLogger:
         log_update calls cannot interleave and lose entries.
         """
         self._ensure_initialized()
-        entry: dict[str, Any] = {"timestamp": datetime.now().isoformat(), "role": role,
+        entry: dict[str, Any] = {"timestamp": utc_now_iso(), "role": role,
                                 "task": task, "session_id": session_id, "status": status}
         if confidence is not None:
             entry["confidence"] = confidence
@@ -120,7 +120,7 @@ class SessionsSpawnLogger:
         for i, entry in enumerate(entries):
             if entry.get("session_id") == session_id:
                 entry.update(updates)
-                entry["_updated_at"] = datetime.now().isoformat()
+                entry["_updated_at"] = utc_now_iso()
                 entries[i] = entry
                 self._write_entries(entries)
                 return entry

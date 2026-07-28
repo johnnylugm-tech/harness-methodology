@@ -21,7 +21,7 @@ import json
 import re
 import subprocess  # nosec B404
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +117,7 @@ def generate_release_notes(project_root: str,
     lines: list[str] = [
         "# Release Notes",
         "",
-        f"> **Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"> **Generated**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"> **Version**: {since or 'development'}",
         "",
         "---",

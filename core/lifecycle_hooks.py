@@ -7,7 +7,6 @@ Each hook has a timeout and required/optional failure semantics.
 """
 
 from __future__ import annotations
-import datetime
 import json
 import logging
 import os
@@ -17,6 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from core.utils.timefmt import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ class HookRunner:
         """Append hook execution result to hooks.log (JSONL)."""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         entry = {
-            "timestamp": datetime.datetime.now().isoformat(),
+            "timestamp": utc_now_iso(),
             "hook": hook.name,
             "event": hook.event.value,
             "success": success,

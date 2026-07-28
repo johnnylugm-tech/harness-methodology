@@ -6,7 +6,7 @@ Task Splitter - Automatic Task Decomposition
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+from core.utils.timefmt import utc_now_iso
 
 
 class TaskStatus(Enum):
@@ -39,7 +39,7 @@ class Task:
     actual_hours: float = 0.0
     output: Any = None
     error: Optional[str] = None
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    created_at: str = field(default_factory=utc_now_iso)
     completed_at: Optional[str] = None
 
 

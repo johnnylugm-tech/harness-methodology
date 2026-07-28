@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, cast
 from core.harness_config import get_value as _get_value
 from core.harness_config import load_harness_config as _load_harness_config
@@ -181,7 +181,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
         "",
         f"> **Version**: v{_HARNESS_VERSION} (project plan)",
         f"> **Project**: {repo_path.name}",
-        f"> **Date**: {datetime.now().strftime('%Y-%m-%d')}",
+        f"> **Date**: {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
         f"> **Framework**: harness-methodology v{_HARNESS_VERSION}",
         f"> **Phase**: {phase} - {phase_names.get(phase, 'Unknown')}",
         f"> **Status**: Full version (including Phase {phase} detailed tasks)",

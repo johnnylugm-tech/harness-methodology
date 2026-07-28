@@ -21,13 +21,14 @@ import re
 import sys
 from pathlib import Path
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 
 from kill_switch import KillSwitch
 from kill_switch.models import MonitorConfig
 from core.atomic_io import atomic_write_json  # Bug #104 fix
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
+from core.utils.timefmt import utc_now_iso
 
 
 class KillSwitchBlockedError(RuntimeError):
@@ -1603,7 +1604,7 @@ class PhaseHooks:
         """Hook: before developer execution. Checks kill-switch circuit."""
         self._check_kill_switch(agent_id)
         self._start_kill_switch_monitoring(agent_id)
-        self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
+        self.monitoring_events.append({"timestamp": utc_now_iso(),
                                         "type": "before_dev", "fr_id": fr_id,
                                         "agent_id": agent_id})
         print(f"\n[MONITORING] Before Dev: {fr_id} agent={agent_id}")
@@ -1615,7 +1616,7 @@ class PhaseHooks:
         self._stop_kill_switch_monitoring(agent_id)
         status = getattr(result, 'status', 'unknown') if result else 'unknown'
         confidence = getattr(result, 'confidence', 0) if result else 0
-        self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
+        self.monitoring_events.append({"timestamp": utc_now_iso(),
                                         "type": "after_dev", "fr_id": fr_id,
                                         "status": status, "confidence": confidence,
                                         "agent_id": agent_id})
@@ -1627,7 +1628,7 @@ class PhaseHooks:
         """Hook: before reviewer execution. Checks kill-switch circuit."""
         self._check_kill_switch(agent_id)
         self._start_kill_switch_monitoring(agent_id)
-        self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
+        self.monitoring_events.append({"timestamp": utc_now_iso(),
                                         "type": "before_rev", "fr_id": fr_id,
                                         "agent_id": agent_id})
         print(f"\n[MONITORING] Before Rev: {fr_id} agent={agent_id}")
@@ -1640,7 +1641,7 @@ class PhaseHooks:
         status = getattr(result, 'status', 'unknown') if result else 'unknown'
         review_status = getattr(result, 'review_status', None) if result else None
         confidence = getattr(result, 'confidence', 0) if result else 0
-        self.monitoring_events.append({"timestamp": datetime.now().isoformat(),
+        self.monitoring_events.append({"timestamp": utc_now_iso(),
                                         "type": "after_rev", "fr_id": fr_id,
                                         "review_status": review_status,
                                         "agent_id": agent_id})
@@ -1678,7 +1679,7 @@ class PhaseHooks:
         old_phase = state.get("current_phase", 0)
         if self.phase and self.phase > old_phase:
             state["current_phase"] = self.phase
-            state["last_update"] = datetime.now().isoformat()
+            state["last_update"] = utc_now_iso()
             # Bug #104 fix: atomic write so the phase advance is durable
             # even if the process is killed mid-write. A truncated
             # state.json here would desync the recorded phase from the
@@ -1873,7 +1874,7 @@ class PhaseHooks:
         """Append to run-phase.log."""
         try:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
             with open(self.log_path, "a") as f:
                 f.write(f"[{ts}] {message}\n")
         except Exception as e:  # pragma: no cover

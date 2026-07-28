@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -260,7 +260,7 @@ def generate_quality_report(project_root: str,
     lines: list[str] = [
         "# Quality Report",
         "",
-        f"> **Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"> **Generated**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"> **Gate**: {gate_num or 'N/A'}",
         f"> **Overall Score**: {overall_score}/100",
         "",

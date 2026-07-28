@@ -41,6 +41,7 @@ from core.quality_gate.cov_utils import _fr_source_files_from_imports  # noqa: F
 from core.quality_gate.spec_coverage import _get_test_directories, _git_test_patterns
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.script_loader import load_harness_script
+from core.utils.timefmt import utc_now_iso
 from harness import tool_checks
 from core.utils.project_layout import ProjectLayout
 from core.quality_gate.mutation_enforcer import compute_mutation_score
@@ -2411,7 +2412,7 @@ def _format_block_diagnostic(
     report_lines = [
         f"# Gate {gate_num} BLOCKED — Phase {phase}",
         "",
-        f"Generated: {__import__('datetime').datetime.now().isoformat()}",
+        f"Generated: {utc_now_iso()}",
         f"fr_id: {fr_id or 'n/a'} | rounds: {exc.result.rounds_used} | "
         f"open_critical: {exc.result.open_critical} | open_high: {exc.result.open_high}",
         "",

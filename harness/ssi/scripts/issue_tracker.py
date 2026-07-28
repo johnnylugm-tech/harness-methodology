@@ -18,7 +18,7 @@ import sys
 import json
 import hashlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 VALID_STATUS = {"open", "fixed", "deferred", "wontfix", "regressed"}
@@ -33,7 +33,7 @@ def _issue_id(dimension: str, file: str, line, message: str) -> str:
 def load(registry_path: str) -> dict:
     p = Path(registry_path)
     if not p.exists():
-        return {"issues": [], "created": datetime.now().isoformat()}
+        return {"issues": [], "created": datetime.now(timezone.utc).isoformat()}
     return json.loads(p.read_text())
 
 

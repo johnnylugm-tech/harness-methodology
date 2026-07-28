@@ -139,7 +139,7 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
     status_lines = [
         "# Plan Generation Status",
         "",
-        f"Generated: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Generated: {__import__('datetime').datetime.now(__import__('datetime').timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
         "Mode: Dynamic",
         "",
         "| Phase | Status | File |",

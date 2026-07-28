@@ -9,7 +9,7 @@ Final report shows trajectory across rounds with per-dimension deltas.
 import sys
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def create_round_snapshot(round_num, scores, overall_score):
@@ -26,7 +26,7 @@ def create_round_snapshot(round_num, scores, overall_score):
     """
     return {
         "round": round_num,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "overall_score": overall_score,
         "dimensions": scores,
     }
