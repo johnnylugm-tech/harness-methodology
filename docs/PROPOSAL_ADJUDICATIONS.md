@@ -10,6 +10,39 @@
 > 賬本同時記錄「**採納**」與「**已建成(already-built)**」條目,不只駁回——前者是下一輪的施工
 > 依據,後者防止未來報告把已完成事項再包裝成 gap 重新提出。
 
+## Round 22(2026-07-28)— 與 FR 無關的工作被放進了 per-FR 迴圈
+
+老闆令:dynamic workflow 的執行已具備確定性且有效降低 agent 作假,據此對 workflow JS 做**減法工程** ——(1) 減少重複執行 (2) 減少無效或低效的流程檢查 (3) 簡化 advance phase。前提:**不得降低對執行專案的軟體品質**。
+
+實測(`sim_runner.mjs`,唯讀):20 FR 的 P3–P8 一輪要 **203 次 sub-agent dispatch**,其中 80 次(41%)是 ORCH-POST,且與 FR 數 1:1 線性增長。根源:
+
+> **一個「與 FR 無關」的動作被放進了 per-FR 迴圈,而迴圈的每一圈是一次完整的 sub-agent dispatch。**
+
+**老闆兩項裁定**:(1) **不加配置開關** —— 只做可證明行為等價或保護更強的結構修正;加開關等於把已證明的冗餘保留成永遠沒人開的死配置(R9 站0 才剛清掉 983 行殭屍設定)。(2) 四站全做,含跨 CLI 層的歸位。
+
+| # | 主張 | 判定 | 一句證據 | Re-open condition |
+|---|------|------|----------|---|
+| R22-A | ORCH-POST 每 FR 一次,其中 `amend-sab` 沒有 FR 語意 | **採納,已做** | `cmd_amend_sab` 根本沒有 `--fr-id` 參數,且 `sab_amender.amend_sab` docstring 自述 "running twice adds nothing on the second call" —— N-1 次是同一個全專案問題重問。taskq(5 FR)的 `sessions_spawn.log` 留下 **35 筆 `tool:amend-sab`**。無人察覺是因為該步是 fire-and-report(無 verdict gate),浪費一次 dispatch 產生不了任何失敗訊號,而先前所有 sim 情境都只跑 1 個 FR ——per-FR 與 per-phase 在那裡成本相同 | 若未來 `amend-sab` 取得 per-FR 語意(接受 `--fr-id` 且結果因 FR 而異),此收斂需重新評估 |
+| R22-B | 入口 Manifest Integrity 與 `run-phase` 的第一項是同一個函式 | **採納,已做** | `check-manifest-integrity` = `PhaseHooks.preflight_manifest_integrity()`,而 `PREFLIGHT_CHECKS[0]` 就是它,由前一個 phase box 的 `run-phase` 執行 | 若 `PREFLIGHT_CHECKS` 不再包含 manifest_integrity,入口檢查需回歸 |
+| R22-C | advance 迴圈每輪的 integrity 檢查放錯層,人手動跑完全不受保護 | **採納,已做** | `_advance_prechecks` 全文無 integrity 檢查,而 advance-phase 會 commit `.methodology/` 全目錄。`test_workflow_plan_alignment.py` 的 registry 自己就寫了 "A human running the plan by hand has no equivalent step",把這個缺口當成合理的 runtime-only 發明歸檔。歸位到 CLI(exit 27)同時消滅 dispatch **與**缺口 | 若出現第三個 advance-phase 不覆蓋的 commit 路徑,該路徑需自己的檢查(目前兩個:phase3 Gate-2 迴圈、phase8 Final Push) |
+| R22-D | ctx-check 驗證的正是 load-ctx 自己會驗的東西 | **採納,已做** | 兩者都跑 `json.load(ctxFile)`,後者的失敗集合是前者的超集,兩種被區分的結果(檔案缺失 / 不可解析)處理方式相同。phase3 更甚:Fix D 的 `attempt === 1 ||` 在讀取 verdict **之前**短路,所以最關鍵的那一輪,probe 跑了、答了、被丟棄。R20 元模式(多層檢查同一來源)的又一實例 | 若 load-ctx 的命令改為吞掉失敗(加 `\|\| echo`),需恢復獨立探測 |
+| R22-E | poll 首輪固定睡滿,不管命令 1 秒就結束 | **採納,已做** | R20 站1 之後 `run-env-check` 在 source 指紋未變時秒級返回(確定性驗證,不 spawn sub-agent),固定 60s 首輪等於每個 phase 白等一分鐘;delta-fastpath 的 30s × N 循序更貴(20 FR ≈ 10 分鐘)。改 backoff,總上限不變。full loop 的 30s/cap60 **不動** —— 那條路真的在跑 TDD | 若 backoff 導致 agent 在 CLI 寫完 log 前誤讀,需重新評估(判定來源仍是 `kill -0` 的 DONE 與最終 `RC=` 行,不是 log 內容) |
+
+**成果(sim 實測,同一測床同一情境)**:
+
+| | FR=5 | FR=20 |
+|---|---|---|
+| 站0 基線 | 113 | 203 |
+| 站4 之後 | 80 | **110** |
+
+P4/P5/P6/P7/P8 現在**完全與 FR 數無關**(14/11/11/11/12)。P3 仍隨 FR 增長(21→51),每 FR 2 次 —— TDD orchestrator 與其獨立 verify,那是真工作,不是重複。
+
+**本輪唯一「等價性由 prompt 保證而非由結構保證」的一項**:R22-A 收斂後,`spec-coverage-check` 從「N 個獨立 agent 各跑一次」變成「一個 agent 在 bash 迴圈內跑 N 次」。守衛能證明 dispatch 數與 `$FR` 迴圈存在於生成輸出,證明不了 agent 真的跑滿 N 圈。該步是 fire-and-report,不影響 gate 判定,故接受;prompt 明寫 `|| true` 續跑並要求回報全部輸出。
+
+**計畫外查證,誠實記錄不修**:P4 的 ORCH-POST 跑在 Per-FR Delta,**早於 bug-hunt**,所以 HUNT-RESOLVE 新增的模組本來就不在它的覆蓋範圍內(Gate 3 的 Architecture Amendment Protocol 兜底)。收斂不改變這件事,搬位置是改行為不是減法,故不做。
+
+**計畫修正兩處**(執行中發現,非事後補述):(1) 計畫說 P5/P7/P8 的 plan 側走執行期模板,實際 `phase_tasks.py:719/901/1014` 直接呼叫 `_fr_carryforward_steps`,漏改會讓 amend-sab 從那三份 plan 完全消失 —— 四個插入點而非一個。(2) 計畫沒提 `spec_phase8.py` 的 Final Push 也有 integrity 檢查;它不是 advance-phase 路徑,故保留(並把誤導的 `advance-integrity-r` 標籤改名為 `finalpush-integrity-r`)。
+
 ## Round 21(2026-07-27)— 讓判定用框架自己算出的數字,而不是被判定者的自報值
 
 老闆令檢視 taskq **P6~P8** 的執行紀錄 + harness git history,隨後令針對所提全部問題提「正解 not workaround」。

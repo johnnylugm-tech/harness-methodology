@@ -441,7 +441,10 @@ _LINE_CEILING: dict[str, int] = {
     # block and the render_manifest_integrity_fn rationale docstring cost
     # more generator lines than the two removed call sites saved; the
     # GENERATED workflow JS shrank by ~150 lines across the 6 phase files.
-    "scripts/workflowgen/js_blocks.py": 1413,
+    # 2026-07-28 (Round 22 站4): +6 — the two background-poll prompts spell out
+    # a backoff sequence and why the flat first interval was wrong, replacing
+    # one-line "sleep 60"/"Poll every 30s" instructions.
+    "scripts/workflowgen/js_blocks.py": 1419,
 }
 
 

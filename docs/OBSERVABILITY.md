@@ -300,6 +300,35 @@ random — which was the previous behaviour.
 is deliberate: verification still runs every time, so a var that is *classified*
 correctly but *missing* is caught on the next run regardless.
 
+## Dispatch cost — what a phase actually spends
+
+A sub-agent dispatch is the unit of cost in a workflow run, and
+`scripts/workflowgen/js_src/sim_runner.mjs` counts them exactly: every
+`agent()` call lands in `events.agents` with its label and phase, so a
+scenario can assert how many dispatches a phase spends and how that number
+moves with the FR count. No live run is needed.
+
+The shape to hold onto: **per-phase work belongs outside the FR loop.** Each
+turn of an FR loop is a full sub-agent — a step that runs a project-wide,
+idempotent command once per FR pays N times for one answer. Before Round 22
+that was 80 of the ~203 dispatches a 20-FR P3–P8 run spent, on a
+fire-and-report step with no verdict gate, so nothing failed and nothing
+flagged it.
+
+Measured on the testbed (happy path, all FRs fast-path PASS):
+
+| | FR=5 | FR=20 |
+|---|---|---|
+| before Round 22 | 113 | 203 |
+| after | 80 | 110 |
+
+P4/P5/P6/P7/P8 are now flat in the FR count. P3 is not, and should not be:
+its per-FR cost is a TDD orchestrator plus an independent verify, which is
+the work itself.
+
+When reviewing a workflow change, the question to ask is not "is this check
+useful?" but **"does this cost scale with something it does not depend on?"**
+
 ## What this round deliberately did not build
 
 - A global structured (JSON) logger, or a `print`→`logging` migration.

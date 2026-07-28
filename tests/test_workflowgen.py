@@ -212,3 +212,41 @@ class TestOrchPostIsPerPhaseNotPerFr:
                 f"the dispatch must not collapse the coverage checks"
             )
             assert "--fr-id $FR" in text
+
+
+class TestPollBackoff:
+    """Round 22 站4 — the first poll interval must not be the long one.
+
+    Both background-poll sites used a flat first sleep sized for their worst
+    case. Since Round 20 station1, `run-env-check` returns in about a second
+    whenever env_contract.json is current (source docs unchanged -> the CLI
+    verifies deterministically and spawns no sub-agent), and an unchanged FR
+    hits GATE1-DELTA's in-CLI short-circuit just as fast. The flat interval
+    made every phase wait a full minute, and the per-FR probe 30s x N, on
+    commands that had already finished.
+    """
+
+    def test_env_check_poll_starts_short_and_backs_off(self):
+        text = B.render_env_check(phase=5)
+        assert "BACKOFF intervals, in seconds: 5, 10, 20, 30" in text
+        assert "sleep <interval>" in text
+        assert "sleep 60 &&" not in text, "flat 60s first poll is back"
+
+    def test_delta_fastpath_poll_starts_short_and_backs_off(self):
+        text = B.render_per_fr_delta(phase=7, forbidden_note="")
+        assert "BACKOFF intervals, in seconds: 5, 10, then 30" in text
+        assert "Cap 42 polls" in text
+        assert "Cap 40 polls" not in text, "the pre-backoff fast-path cap is back"
+
+    def test_the_full_per_fr_loop_keeps_its_flat_interval(self):
+        # Deliberately NOT changed: that path can chain a full TDD cycle on
+        # top of GATE1-DELTA's own retries, so it is genuinely long-running
+        # and a short first sleep buys nothing.
+        text = B.render_per_fr_delta(phase=7, forbidden_note="")
+        assert "Poll every 30s" in text
+        assert "Cap 60 polls" in text
+
+    def test_every_generated_workflow_carries_the_backoff(self):
+        for phase in (4, 5, 7, 8):
+            text = generate(phase)
+            assert "BACKOFF intervals" in text, f"phase{phase} lost the backoff instruction"
