@@ -35,7 +35,6 @@ export const meta = {
     { title: 'P1 · Forward Ref Check' },
     { title: 'P1 · Push' },
     { title: 'P1 · Advance' },
-    { title: 'P1 · Sync' },
     { title: 'P2 · Entry & Preflight' },
     { title: 'P2 · Load Upstream' },
     { title: 'P2 · Sub-Task 1/3 — SAD.md' },
@@ -47,7 +46,6 @@ export const meta = {
     { title: 'P2 · Peer Review' },
     { title: 'P2 · Push' },
     { title: 'P2 · Advance' },
-    { title: 'P2 · Sync' },
     { title: 'P3 · Entry & Preflight' },
     { title: 'P3 · Env Check' },
     { title: 'P3 · Load FRs' },
@@ -66,7 +64,6 @@ export const meta = {
     { title: 'P4 · Artifacts Commit' },
     { title: 'P4 · Gate 3' },
     { title: 'P4 · Advance' },
-    { title: 'P4 · Sync' },
     { title: 'P5 · Entry & Preflight' },
     { title: 'P5 · Env Check' },
     { title: 'P5 · Load FRs' },
@@ -75,13 +72,11 @@ export const meta = {
     { title: 'P5 · Artifacts Commit' },
     { title: 'P5 · Milestone' },
     { title: 'P5 · Advance' },
-    { title: 'P5 · Sync' },
     { title: 'P6 · Entry & Preflight' },
     { title: 'P6 · Gate 4' },
     { title: 'P6 · Release Docs' },
     { title: 'P6 · Peer Review' },
     { title: 'P6 · Tag & Advance' },
-    { title: 'P6 · Sync' },
     { title: 'P7 · Entry & Preflight' },
     { title: 'P7 · Env Check' },
     { title: 'P7 · Load FRs' },
@@ -90,7 +85,6 @@ export const meta = {
     { title: 'P7 · Artifacts Commit' },
     { title: 'P7 · Milestone' },
     { title: 'P7 · Advance' },
-    { title: 'P7 · Sync' },
     { title: 'P8 · Entry & Preflight' },
     { title: 'P8 · Env Check' },
     { title: 'P8 · Load FRs' },
@@ -550,15 +544,7 @@ async function persistApproval(deliverableId, b2) {
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
 }
 
-// ---- runPeerReview: holistic B review of all 4 deliverables + fixer agent ----
-// phase1_plan.md CHECKPOINT-PEER-REVIEW is the Phase 1/2 exit gate: max 5
-// rounds (HR-12); round-5 REJECT escalates to human (orchestrator cannot
-// self-resolve). (2026-07-13: reverted the P-01 advisory relaxation —
-// commit 616f2b5 — which had silently dropped this to 3 rounds + a
-// non-blocking pass-through, never reflected back into the plan's text.)
-// W-02: docCache — only reload docs the fixer reports as modified (not all 4 each round).
 async function runPeerReview(approvedDocs) {
-  // approvedDocs = [{ diskPath, diskPrefix, label }, ...]
   const peerChecklist =
     '- All FRs covered across all deliverables?\n'
     + '- No contradictions between deliverables?\n'
@@ -571,8 +557,6 @@ async function runPeerReview(approvedDocs) {
   for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     log('  --- Round ' + round + '/' + MAX_PEER_ROUNDS + ' ---')
 
-    // W-02: round 1 → load all docs; subsequent rounds → only reload docs modified by fixer.
-    // Fallback to full reload if fixerResult is null or missing modified_files.
     const needsReload = new Set(
       round === 1 || !fixerResult || !fixerResult.modified_files
         ? approvedDocs.map(function (d) { return d.diskPath })
@@ -591,7 +575,6 @@ async function runPeerReview(approvedDocs) {
     }
 
     const bPrompt = buildBPrompt('BUSINESS_ANALYST', 'all 4 P1 deliverables (holistic)', loadedDocs, peerChecklist)
-    // v15: wrap agent() in try/catch + budget guard (Bug #2 + #3 mitigation)
     if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 100000) {
       log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k) -- exiting')
       if (b2 && b2.review_status === 'APPROVE') return { b2, budget_exhausted: true }
@@ -607,8 +590,6 @@ async function runPeerReview(approvedDocs) {
       if (round === MAX_PEER_ROUNDS) return { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
       log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
-    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
-    // Peer review has no single deliverable, so skip --doc-content.
     const sbrResult = await structuredBReview(
       bResult, round, MAX_PEER_ROUNDS, null, 1,
     )
@@ -619,11 +600,6 @@ async function runPeerReview(approvedDocs) {
 
     if (sbrResult.escalation_action === 'approve') {
       log('  Peer Review APPROVED (all gaps low)')
-      // Re-persist approval for all 4 deliverables against THIS round's b2 —
-      // a prior round's fixer may have edited any of them after their
-      // Sub-Task-stage approval was written, leaving that on-disk approval
-      // describing stale content. Peer Review is the final holistic review,
-      // so its verdict is what should be on record for every deliverable.
       for (const d of approvedDocs) {
         await persistApproval(d.diskPath.split('/').pop(), b2)
       }
@@ -636,9 +612,6 @@ async function runPeerReview(approvedDocs) {
         b2: b2, escalation_action: 'escalate_human',
       }
     }
-    // HR-12: round MAX_PEER_ROUNDS REJECT (or unresolved medium/high gaps) →
-    // escalate to human. This is the Phase 1/2 exit gate per phase1_plan.md
-    // — the orchestrator cannot self-resolve past this point.
     if (round === MAX_PEER_ROUNDS) {
       log('  Peer Review did not converge in ' + MAX_PEER_ROUNDS + ' rounds — HR-12 escalation')
       return {
@@ -647,7 +620,6 @@ async function runPeerReview(approvedDocs) {
       }
     }
 
-    // Fixer: address HIGH/MEDIUM gaps; returns modified_files for W-02 selective reload
     const fixerPrompt =
       'YOU ARE PEER REVIEW FIXER. ROUND ' + round + '.\n'
       + 'REPO: ' + REPO + '\n\n'
@@ -679,12 +651,8 @@ async function runPeerReview(approvedDocs) {
 }
 
 
-// ============================================================================
-// PHASE 1 EXECUTION
-// ============================================================================
 
 
-// ---- Preflight (per phase1_plan.md Pre-Phase Preflight) ----
 phase('P1 · Preflight')
 log('Preflight: run-phase 1 + CI wiring + load-context (orchestrator-side retry: max 3 per plan)')
 
@@ -725,11 +693,9 @@ if (!(typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightR
 }
 
 
-// ---- Load PROJECT_BRIEF.md (DOC 1 for Sub-Task 1 B review per phase1_plan.md) ----
 phase('P1 · Load Project Brief')
 log('Read PROJECT_BRIEF.md via Bash cat (max 5 attempts; validate full content)')
 
-// F part 2b: loadFileViaPython (deterministic I/O via Python file_loader.py)
 const projectBriefContent = await loadFileViaPython('PROJECT_BRIEF.md', '# Project Brief', 'Load Project Brief')
 if (projectBriefContent.startsWith('FILE_MISSING') || projectBriefContent.startsWith('ERROR:') || projectBriefContent.length < 200) {
   return {
@@ -742,9 +708,6 @@ if (projectBriefContent.startsWith('FILE_MISSING') || projectBriefContent.starts
 log('  PROJECT_BRIEF content loaded: ' + projectBriefContent.length + ' chars | first line: ' + projectBriefContent.split('\n')[0])
 
 
-// ============================================================================
-// LOAD LEGAL ARTIFACTS (DRY fix: read SSOT from harness instead of hardcoding)
-// ============================================================================
 phase('P1 · Load Legal Artifacts')
 log('Load legal-deliverable filenames from harness SSOT (legal_artifacts.py)')
 
@@ -767,13 +730,9 @@ if (laMatch) {
 }
 
 
-// ============================================================================
-// SUB-TASK 1/4 — SRS.md (plan: A-1 INGESTION MODE; B-1 STATELESS sandbox)
-// ============================================================================
 phase('P1 · Sub-Task 1/4 — SRS.md')
 log('A/B loop per phase1_plan.md B-2; max 5 rounds; escalate on max-rounds')
 
-// SRS A prompt template (verbatim from phase1_plan.md Sub-Task 1/4 A-1)
 function srsAPrompt(round, prevB2) {
   let p =
     'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 1/4 SRS.md). ROUND ' + round + '.\n'
@@ -818,15 +777,6 @@ function srsAPrompt(round, prevB2) {
   return p
 }
 
-// SRS B DOCs (plan-faithful: PROJECT_BRIEF.md is small, embed fully;
-// draft SRS.md IS the deliverable under review, embed fully)
-// DOC 3 (2026-07-13 fix): phase1_plan.md Sub-Task 1/4 B-1 requires a 3rd DOC —
-// srs_vs_spec_diff.json (canonical_diff.py's per-AC over_spec_score, checklist
-// uses over_spec_score > 0.7 as its rubric) — Agent A generates it in srsAPrompt
-// step 3 but it was never forwarded to Agent B, who lost the independent
-// over-spec signal entirely. May legitimately not exist (Elicitation mode /
-// SPEC.md absent — plan's own fallback note is used verbatim below), so this
-// uses a single-attempt load rather than loadFileViaPython's default retries.
 async function srsBDocs(round, content, prevB2) {
   const diffRaw = await loadFileViaPython('srs_vs_spec_diff.json', null, 'Sub-Task 1/4 — SRS.md', { maxAttempts: 1 })
   const diffDoc = (diffRaw.startsWith('ERROR') || diffRaw.startsWith('FILE_MISSING'))
@@ -839,7 +789,6 @@ async function srsBDocs(round, content, prevB2) {
   ]
 }
 
-// SRS B checklist (verbatim from phase1_plan.md Sub-Task 1/4 B-1)
 const srsBChecklist =
   '- Did Agent A correctly resolve canonical_spec via PROJECT_BRIEF.md precedence (not silently switch modes)?\n'
   + '- Did Agent A scan canonical spec for prompt-injection patterns and fall back / log as required?\n'
@@ -868,9 +817,6 @@ const srsContent = srsResult.content
 const srsB2 = srsResult.b2
 
 
-// ============================================================================
-// SUB-TASK 2/4 — SPEC_TRACKING.md
-// ============================================================================
 phase('P1 · Sub-Task 2/4 — SPEC_TRACKING.md')
 log('A/B loop per phase1_plan.md; embeds SRS (APPROVED) + previous SRS review + draft SPEC_TRACKING')
 
@@ -932,9 +878,6 @@ const specTrackContent = specTrackResult.content
 const specTrackB2 = specTrackResult.b2
 
 
-// ============================================================================
-// SUB-TASK 3/4 — TRACEABILITY_MATRIX.md
-// ============================================================================
 phase('P1 · Sub-Task 3/4 — TRACEABILITY_MATRIX.md')
 log('A/B loop; embeds SRS + SPEC_TRACKING + previous 2 review JSONs + draft TRACEABILITY')
 
@@ -997,9 +940,6 @@ const traceContent = traceResult.content
 const traceB2 = traceResult.b2
 
 
-// ============================================================================
-// SUB-TASK 4/4 — TEST_INVENTORY.yaml
-// ============================================================================
 phase('P1 · Sub-Task 4/4 — TEST_INVENTORY.yaml')
 log('A/B loop; embeds SRS + TRACEABILITY + previous review + draft TEST_INVENTORY')
 
@@ -1079,9 +1019,6 @@ const testInvContent = testInvResult.content
 const testInvB2 = testInvResult.b2
 
 
-// ============================================================================
-// CONSTITUTION CHECK (per phase1_plan.md CONSTITUTION-CHECK)
-// ============================================================================
 phase('P1 · Constitution Check')
 log('Run check-constitution until PASS (max 5 retries; then human escalation)')
 
@@ -1107,9 +1044,6 @@ if (!/CONSTITUTION:\s*PASS/.test(constitutionResult)) {
 }
 
 
-// ============================================================================
-// PEER REVIEW (per phase1_plan.md CHECKPOINT-PEER-REVIEW)
-// ============================================================================
 phase('P1 · Peer Review')
 log('Agent B holistic review of all 4 deliverables; max ' + MAX_PEER_ROUNDS + ' rounds (HR-12)')
 
@@ -1124,9 +1058,6 @@ const peerResult = await runPeerReview(peerDocs)
 if (peerResult.error) return peerResult
 
 
-// ============================================================================
-// FORWARD REF CHECK (pre-PUSH — deterministic forward-reference gate, fail fast)
-// ============================================================================
 phase('P1 · Forward Ref Check')
 log('check-artifact-consistency --forward-refs-only (catch invented filenames before 40min push)')
 
@@ -1146,9 +1077,6 @@ if (!/FWDREF:\s*PASS/.test(String(fwdRefRaw ?? ''))) {
 log('  Forward ref check PASSED')
 
 
-// ============================================================================
-// PUSH (per phase1_plan.md B-PUSH)
-// ============================================================================
 phase('P1 · Push')
 log('push-checkpoint --phase 1 (retry until success; NO --no-verify)')
 
@@ -1174,15 +1102,12 @@ if (!/PUSH:\s*PASS/.test(pushResult)) {
 }
 
 
-// ============================================================================
-// ADVANCE (per phase1_plan.md Phase 1 → Phase 2)
-// ============================================================================
 phase('P1 · Advance')
 log('advance-phase --completed 1 + confirm HANDOVER.md reflects Phase 2 entry')
 
 const advanceReport = await agent(
   'Run EXACTLY this command via Bash:\n'
-  + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 1 --project ' + REPO + '\n\n'
+  + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 1 --project ' + REPO + ' --push\n\n'
   + 'Then verify ' + REPO + '/HANDOVER.md exists and reflects Phase 2 entry.\n\n'
   + 'Report final outcome as plain text: "ADVANCE: PASS" or "ADVANCE: FAIL — <one-line reason>".',
   { label: 'advance', phase: 'P1 · Advance', agentType: 'general-purpose' },
@@ -1191,19 +1116,6 @@ if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) }
 }
 
-// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
-// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
-phase('P1 · Sync')
-log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
-  'Run EXACTLY this command via Bash:\n'
-  + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'P1 · Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
-}
 
 
 log('Phase 1 workflow complete. Open .methodology/phase2_plan.md to continue.')
@@ -1456,12 +1368,6 @@ async function persistApproval(deliverableId, b2) {
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
 }
 
-// ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----
-// Drops the v29 MCP read path (failed at large-context stages) in favour of a
-// single-step Bash tool-call running the deterministic `harness_cli.py
-// read-file` + `cat` relay, which does not depend on an MCP server in a
-// headless run. read-file's prefix check is a first-line startswith() (file_
-// loader Bug v8 guard), so all expectPrefix values passed in must lead with "#".
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -1495,10 +1401,6 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       agentType: 'general-purpose',
     })
     const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()
-    // sub-agent runtime sometimes emits a literal <think>...</think> preamble
-    // merged into the same line as the real content (no newline in between),
-    // which defeats the ^-anchored prefix check below even though the agent
-    // DID read the correct file. Strip it before validating.
     const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
     if (text.startsWith('ERROR_LOAD_FAILED')) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')
@@ -1524,9 +1426,6 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
 }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Entry & Preflight
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Entry & Preflight')
 log('ENTRY-CHECK + P1-ARTIFACTS + run-phase 2 + validate-handoff + CI + load-context')
@@ -1560,9 +1459,6 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
 if (!preflightPass) return { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Load Upstream
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Load Upstream')
 log('cat SRS.md + harness templates for embedding into stateless Agent B prompts')
@@ -1577,9 +1473,6 @@ const adrTemplateContent = await loadFileViaPython('harness/templates/ADR.md', '
 log('  harness/templates/ADR.md loaded: ' + adrTemplateContent.length + ' chars')
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Sub-Task 1/3 — SAD.md
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Sub-Task 1/3 — SAD.md')
 log('abLoop: SAD authoring (ARCHITECT A + TECH_LEAD B; max 5 rounds; HR-12 escalate)')
@@ -1618,9 +1511,6 @@ if (!sad.ok) return sad
 let sadContent = sad.content, sadB2 = sad.b2
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Sub-Task 2/3 — ADR.md
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Sub-Task 2/3 — ADR.md')
 log('abLoop: ADR authoring (extract decisions from APPROVED SAD.md; downstream ADR-Constitution gate)')
@@ -1655,7 +1545,6 @@ if (!adr.ok) return adr
 let adrContent = adr.content, adrB2 = adr.b2
 
 
-// ---- Constitution Check — ADR (single-file, per phase2_plan.md CONSTITUTION-CHECK-ADR) ----
 phase('P2 · Constitution Check — ADR')
 log('check-constitution --file ADR.md + check-artifact-consistency (catches stub/low-density AND NFR→ADR coverage gaps before TEST_SPEC/Push depend on it)')
 const adrConstReport = await agent(
@@ -1675,11 +1564,6 @@ const adrConstReport = await agent(
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
   return { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) }
 }
-// Structural gate (2026-07-10 fix): don't just trust the agent's self-report — the
-// original bug was discovered because a P2-produced ADR.md silently lacked NFR-01
-// coverage all the way until the Sync-phase git push (after Push+Advance already
-// succeeded). Verify check-artifact-consistency independently here so a false
-// "PASS" claim can't slip through to Push/Advance.
 {
   const aciVerify = await agent(
     'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
@@ -1692,9 +1576,6 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
 }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Sub-Task 3/3 — TEST_SPEC.md
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Sub-Task 3/3 — TEST_SPEC.md')
 log('abLoop: TEST_SPEC authoring (per-FR test catalog; v2.9.1 B.3 table-row shape; check-test-spec-consistency)')
@@ -1748,9 +1629,6 @@ if (!testSpec.ok) return testSpec
 let testSpecContent = testSpec.content
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: SAB Generation
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · SAB Generation')
 log('SAB-WRITE (canonical template into SAD §5) + SAB-VALIDATE + SAB-GENERATE')
@@ -1775,9 +1653,6 @@ if (!(typeof sabReport === 'string' && /SAB:\s*PASS/.test(sabReport))) {
 }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Constitution Check
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Constitution Check')
 log('check-constitution --phase 2 until PASS (max 5 attempts)')
@@ -1797,12 +1672,6 @@ for (let attempt = 1; attempt <= 5; attempt++) {
 }
 if (!constPass) return { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) }
 
-// T1-B audit fix: re-run check-artifact-consistency AFTER SAB Generation.
-// The ADR constitution check ran aci against forward-refs only (SAB didn't exist
-// yet). Now that SAB is generated, run the full aci to catch SAB-dependent
-// issues (SEC threat owner_module must exist in SAB, NFR targets vs SAB
-// quality_targets, etc.) — this is the SEC-VALIDATE step phase2_plan.md places
-// AFTER SAB Generation.
 log('check-artifact-consistency (post-SAB SEC-VALIDATE)')
 const aciPostSab = await agent(
   'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
@@ -1814,28 +1683,20 @@ if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
 }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Peer Review
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Peer Review')
 log('Agent B (TECH_LEAD) holistic review of all 3 P2 deliverables; max ' + MAX_PEER_ROUNDS + ' rounds (HR-12)')
 let peerB2 = null
 let peerReviewPassed = false
-// W-02 (parity with phase1 runPeerReview): fixer reports which deliverables it
-// edited; only those get reloaded next round instead of all 3 (saves ~2 loadpy
-// agents/round). null → fall back to full reload.
 let peerFixerResult = null
 for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
   log('  --- Peer round ' + round + '/' + MAX_PEER_ROUNDS + ' ---')
-  // v15: budget guard — gracefully exit if running low (Bug #3 mitigation)
   if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 100000) {
     log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k remaining) — exiting gracefully')
     if (peerB2 && peerB2.review_status === 'APPROVE') { log('  exiting with prior APPROVE'); break }
     if (peerB2) return { ok: false, peerB2, budget_exhausted: true }
     return { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true }
   }
-  // v15: wrap agent() in try/catch — API errors (429/network) must not crash workflow (Bug #2)
   let bResult
   try { bResult = await agent(
     buildBPrompt('TECH_LEAD', 'all 3 P2 deliverables (holistic)', [
@@ -1855,8 +1716,6 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     }
     log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue
   }
-  // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
-  // Peer review spans 3 files — no single --doc-content. Pass null.
   const sbrResult = await structuredBReview(
     bResult, round, MAX_PEER_ROUNDS, null, 2,
   )
@@ -1869,13 +1728,10 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
   if (sbrResult.escalation_action === 'escalate_human') {
     return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }
   }
-  // HR-12: round MAX_PEER_ROUNDS without convergence → escalate to human.
   if (round === MAX_PEER_ROUNDS) {
     return { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 }
   }
-  // Holistic gaps span multiple files → dispatch a fixer agent
   log('  Peer review found gaps — dispatching fixer for round ' + (round + 1))
-  // v15: wrap fixer agent() in try/catch — fixer failures should not crash workflow (Bug #2)
   let peerFixerRaw = null
   try {
     peerFixerRaw = await agent(
@@ -1894,18 +1750,12 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
   try { peerFixerResult = parseAgentJson(peerFixerRaw, 'peer-fixer-r' + round) }
   catch (e) { peerFixerResult = null; log('  Peer fixer JSON parse failed — will reload all 3 docs') }
 
-  // W-02: reload only the deliverables the fixer reported editing (fallback: all 3).
   const peerModified = peerFixerResult && Array.isArray(peerFixerResult.modified_files) ? peerFixerResult.modified_files : null
   const peerReload = new Set(peerModified || ['02-architecture/SAD.md', '02-architecture/adr/ADR.md', '02-architecture/TEST_SPEC.md'])
-  // O4: capture pre-reload byte counts so the log can show a real Δ. A modified_files
-  // entry whose reloaded bytes are unchanged (Δ0) means the fixer's Edit was a no-op —
-  // worth seeing rather than trusting the count of "modified" paths blindly.
   const preBytes = { sad: sadContent.length, adr: adrContent.length, test: testSpecContent.length }
   if (peerReload.has('02-architecture/SAD.md')) sadContent = await loadFileViaPython('02-architecture/SAD.md', '# Software Architecture Document', 'Peer Review')
   if (peerReload.has('02-architecture/adr/ADR.md')) adrContent = await loadFileViaPython('02-architecture/adr/ADR.md', '# Architecture Decision Records', 'Peer Review')
   if (peerReload.has('02-architecture/TEST_SPEC.md')) testSpecContent = await loadFileViaPython('02-architecture/TEST_SPEC.md', '# TEST_SPEC.md', 'Peer Review')
-  // F2 (parity with phase1 runPeerReview 566-569): a failed reload must NOT feed an
-  // 'ERROR:' sentinel string into next round's B summary as if it were content.
   for (const [lbl, c] of [['SAD.md', sadContent], ['ADR.md', adrContent], ['TEST_SPEC.md', testSpecContent]]) {
     if (c.startsWith('ERROR:') || c.length < 50) {
       return { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) }
@@ -1920,9 +1770,6 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
 if (peerReviewPassed) log('  → Peer Review PASS (APPROVE)')
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Push
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Push')
 log('push-checkpoint --phase 2 (retry until success)')
@@ -1945,43 +1792,23 @@ for (let attempt = 1; attempt <= 5; attempt++) {
 if (!pushOk) return { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Advance
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P2 · Advance')
-// Approval JSONs (SAD.md/ADR.md/TEST_SPEC.md) are now persisted by abLoop exit
-// (persistApproval helper) — not here. See bc913a0 / pending P2 parity commit.
 log('advance-phase --completed 2 + confirm HANDOVER.md reflects Phase 3 entry')
 const advanceReport = await agent(
   'YOU ARE THE PHASE-2 ADVANCE ORCHESTRATOR.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-  + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 2 --project ' + REPO + '`\n'
+  + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 2 --project ' + REPO + ' --push`\n'
   + '   PHASE-TRUTH (HR-11): if advance-phase fails on Phase Truth (<90%), check phase_truth_verifier output in .sessi-work/, fix the failing phase-link/gate artifact, re-run (max 3, then escalate to human).\n'
   + 'Step 2: Read ' + REPO + '/.methodology/state.json; confirm current_phase = 3 (advance-phase writes atomically).\n'
   + 'Report: "ADVANCE: PASS|FAIL — <details>". PHASE_3_PLAN: ' + REPO + '/.methodology/phase3_plan.md\n\n'
   + 'SCOPE RULES:\n- DO NOT re-do P2.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md.',
   { label: 'advance', phase: 'P2 · Advance', agentType: 'general-purpose' },
 )
-// F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth
-// (<90%); do NOT report "complete" when P3 was never entered.
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) }
 }
 
-// Bug A fix (2026-07-07): advance-phase intentionally commits the handover
-// locally without pushing (harness/cli/phase_cmds.py: "next milestone push
-phase('P2 · Sync')
-log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
-  'Run EXACTLY this command via Bash:\n'
-  + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'P2 · Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
-}
 
 
 log('Phase 2 workflow complete. Open .methodology/phase3_plan.md to continue.')
@@ -2805,7 +2632,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 5 ]`. If Phase 5 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + '`\n'
+    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 5 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_5_PLAN: ' + REPO + '/.methodology/phase5_plan.md\n\n'
@@ -2841,17 +2668,6 @@ if (!advancePass) {
   return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 5 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
 }
 
-phase('P4 · Sync')
-log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
-  'Run EXACTLY this command via Bash:\n'
-  + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'P4 · Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
-}
 
 
 log('Phase 4 workflow complete. Open .methodology/phase5_plan.md to continue.')
@@ -3123,7 +2939,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 6 ]`. If Phase 6 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. D4-GAP: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. Gate 4 (next phase) needs ≥90% but advance only needs 80% — if below 90%, ADD missing test implementations NOW to avoid a Gate 4 surprise.\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 5 --project ' + REPO + '`\n'
+    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 5 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 6 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_6_PLAN: ' + REPO + '/.methodology/phase6_plan.md\n\n'
@@ -3152,17 +2968,6 @@ if (!advancePass) {
   return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 6 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
 }
 
-phase('P5 · Sync')
-log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
-  'Run EXACTLY this command via Bash:\n'
-  + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'P5 · Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
-}
 
 
 log('Phase 5 workflow complete. Open .methodology/phase6_plan.md to continue.')
@@ -3261,9 +3066,6 @@ function parseAgentJson(text, label) {
 }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Entry & Preflight
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P6 · Entry & Preflight')
 log('ENTRY-CHECK Gate3 + P5 artifacts + D4-precheck 90% + run-phase 6 + handoff + CI')
@@ -3287,15 +3089,10 @@ if (!(preflightReport && preflightReport.pass === true)) {
 }
 
 
-// ══════════════════════════════════════════════════════════════════════════
-// Phase: Gate 4
-// ══════════════════════════════════════════════════════════════════════════
 
 phase('P6 · Gate 4')
 log('Gate 4 full-project eval (composite ≥85, 14 dims: 12 self-scored + traceability + architecture framework-owned; mutation_testing disabled by default)')
 let gate4Pass = false, gate4Report = '', gate4Blocked = false
-// Gate 4 pre-flight GUARD: only state.json.last_gate >= 4 proves this gate was
-// truly finalized (SSI dims passed AND Phase Truth passed) — see harness_cli.py finalize-gate.
 {
   const _precheckCmd = `${PY} -c "import json; lg=json.load(open('${REPO}/.methodology/state.json')).get('last_gate'); print(json.dumps({'qc': isinstance(lg,int) and lg >= 4, 'last_gate': lg}))"`
   try {
@@ -3316,7 +3113,6 @@ let gate4Pass = false, gate4Report = '', gate4Blocked = false
 }
 if (!gate4Pass) for (let round = 1; round <= 3; round++) {
   log('  Gate 4 round ' + round + '/3')
-  // v15: wrap agent() in try/catch (Bug #2)
   try { gate4Report = await agent(
     'YOU ARE THE GATE-4 ORCHESTRATOR (Phase 6 — full project quality). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
@@ -3461,7 +3257,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 7 ]`. Also check: `git -C ' + REPO + ' tag -l "harness-v4-*" | head -1`. If Phase 7 is confirmed OR tag already exists, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. GIT-TAG (skip if step 0 found an existing tag): `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it. Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + '`\n'
+    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 7 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_7_PLAN: ' + REPO + '/.methodology/phase7_plan.md\n\n'
@@ -3487,17 +3283,6 @@ if (!advancePass) {
   return { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
 }
 
-phase('P6 · Sync')
-log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
-  'Run EXACTLY this command via Bash:\n'
-  + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'P6 · Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
-}
 
 
 log('Phase 6 workflow complete. Open .methodology/phase7_plan.md to continue.')
@@ -3766,7 +3551,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 8 ]`. If Phase 8 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
-    + '1. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 7 --project ' + REPO + '`\n'
+    + '1. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 7 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
     + '2. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 8 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_8_PLAN: ' + REPO + '/.methodology/phase8_plan.md\n\n'
@@ -3795,17 +3580,6 @@ if (!advancePass) {
   return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 8 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
 }
 
-phase('P7 · Sync')
-log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
-  'Run EXACTLY this command via Bash:\n'
-  + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'P7 · Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
-}
 
 
 log('Phase 7 workflow complete. Open .methodology/phase8_plan.md to continue.')
@@ -4184,4 +3958,4 @@ for (let n = startPhase; n <= 8; n++) {
 }
 
 log('run-all complete — Phase ' + startPhase + ' through Phase 8.')
-return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 78, notes: 'All phases from the state.json cursor through Phase 8 completed.' }
+return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 72, notes: 'All phases from the state.json cursor through Phase 8 completed.' }

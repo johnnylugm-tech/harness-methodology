@@ -511,14 +511,61 @@ for (let n = 1; n <= 8; n += 1) {
     const solo = await runWorkflow(WF(PHASE_FILES[n - 1]), makeHappyResponder(happyOverrides()))
     assert.equal(solo.result.error, undefined, JSON.stringify(solo.result).slice(0, 200))
     const { events } = await runAllFrom1()
-    // `resolve-repo` is the one dispatch that legitimately differs: run-all
+    // `resolve-repo` is one dispatch that legitimately differs: run-all
     // resolves REPO once at top level instead of once per phase. It does not
     // appear here because the sim supplies args.repo, so neither path spawns
     // it — the saving is real but conditional, and invisible to this testbed.
-    assert.deepEqual(phaseLabels(events, n), solo.events.agents.map((a) => a.label),
+    //
+    // The `sync` dispatch is the other, and it IS visible: six phases fold it
+    // into `advance-phase --push` (Round 23 站3). SYNC_FOLDED names them, and
+    // the assertion below is exact in both directions — run-all may drop that
+    // one label from those six and NOTHING else, anywhere.
+    const expected = solo.events.agents
+      .map((a) => a.label)
+      .filter((label) => !(SYNC_FOLDED.includes(n) && label === 'sync'))
+    assert.deepEqual(phaseLabels(events, n), expected,
       `run-all's P${n} dispatch sequence drifted from phase${n}'s`)
   })
 }
+
+// ---- 12. the C-level subtraction, stated as a spec (Round 23 站3) ---------
+// advance-phase --push publishes the handover commit the command itself made,
+// so the six phases that ended with the SHARED Sync block (one `git push`,
+// nothing else) no longer need it. phase3 keeps its bespoke Sync (retry, then
+// a MANUAL_REQUIRED handover note) and phase8 keeps its own (it also verifies
+// the release tag reached origin) — folding either would drop behaviour.
+const SYNC_FOLDED = [1, 2, 4, 5, 6, 7]
+
+test('run-all drops exactly the six foldable Sync dispatches, and nothing else', async () => {
+  const { events } = await runAllFrom1()
+  const solo = []
+  for (const name of PHASE_FILES) {
+    solo.push(await runWorkflow(WF(name), makeHappyResponder(happyOverrides())))
+  }
+  const soloTotal = solo.reduce((n, r) => n + r.events.agents.length, 0)
+  const runAllTotal = events.agents.length
+  // -6 sync dispatches, +1 phase-cursor read.
+  assert.equal(runAllTotal, soloTotal - SYNC_FOLDED.length + 1,
+    `expected ${soloTotal} - 6 + 1 dispatches, got ${runAllTotal}`)
+
+  for (let n = 1; n <= 8; n += 1) {
+    const syncCalls = phaseLabels(events, n).filter((l) => l === 'sync').length
+    assert.equal(syncCalls, SYNC_FOLDED.includes(n) ? 0 : 1,
+      `P${n} sync dispatch count is wrong for the fold policy`)
+  }
+})
+
+test('every folded phase asks advance-phase to publish its own commit', async () => {
+  const src = await readFile(RUNALL, 'utf8')
+  for (const n of SYNC_FOLDED) {
+    assert.ok(src.includes(`advance-phase --completed ${n} --project ' + REPO + ' --push`),
+      `P${n} folds away its Sync box but never passes --push — its handover commit would never reach origin`)
+  }
+  for (const n of [3, 8]) {
+    assert.ok(!src.includes(`advance-phase --completed ${n} --project ' + REPO + ' --push`),
+      `P${n} keeps its own Sync box, so --push would push twice`)
+  }
+})
 
 test('run-all starts at the state.json cursor, not always at Phase 1', async () => {
   const { result, events } = await runWorkflow(RUNALL, makeHappyResponder([cursorAt(7), ...happyOverrides()]))

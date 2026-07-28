@@ -63,6 +63,20 @@ from . import js_blocks as B
 
 PHASES = (1, 2, 3, 4, 5, 6, 7, 8)
 
+# Phases whose Sync box is folded into `advance-phase --push` (Round 23 站3).
+#
+# Those six end with the SAME shared Sync block (js_blocks.render_sync_verified
+# with no extra lines): one dispatch running `git push origin main`, existing
+# only because advance-phase committed the handover without publishing it.
+# With --push the command publishes its own commit and the box has nothing
+# left to do. Six dispatches, and one fewer way to leave a commit stranded.
+#
+# Phase 3 and Phase 8 are NOT in this list and keep their Sync boxes: phase3's
+# is bespoke (retry, then a MANUAL_REQUIRED handover note on second failure)
+# and phase8's additionally verifies the release tag reached origin. Folding
+# either would drop behaviour, not duplicate it.
+_SYNC_FOLDED_INTO_ADVANCE = (1, 2, 4, 5, 6, 7)
+
 # Exact text excised from each phase's generated output and re-emitted once
 # at the top of run-all. `required` items must appear exactly once in every
 # phase; the optional one is absent from phase1/phase2 (verified, not
@@ -126,6 +140,19 @@ def _meta_titles(text: str) -> list[str]:
     return re.findall(r"title: '([^']+)'", text[start:end])
 
 
+def _runall_titles(phase: int, titles: list[str]) -> list[str]:
+    """The boxes run-all actually opens for this phase.
+
+    A title only belongs in run-all's meta if the run reaches it — the sim
+    testbed asserts exactly that. The six phases whose Sync folds into
+    `advance-phase --push` no longer open a Sync box, so declaring one would
+    promise a box that never arrives.
+    """
+    if phase in _SYNC_FOLDED_INTO_ADVANCE:
+        return [t for t in titles if t != "Sync"]
+    return titles
+
+
 def _strip_header_and_meta(text: str) -> str:
     """Everything after the file's header comment and meta object."""
     start = text.index("export const meta = {")
@@ -163,12 +190,33 @@ def _phase_body(phase: int) -> str:
     for definition in B._SCHEMA_DEFS.values():
         body = body.replace(definition, "", 1)
 
+    if phase in _SYNC_FOLDED_INTO_ADVANCE:
+        sync_block = B.render_sync_verified()
+        if body.count(sync_block) != 1:
+            raise AssertionError(
+                f"phase{phase}: expected exactly one shared Sync block to fold "
+                f"into advance-phase --push, found {body.count(sync_block)}. If "
+                f"this phase grew a bespoke Sync, drop it from "
+                f"_SYNC_FOLDED_INTO_ADVANCE instead of loosening this check."
+            )
+        body = body.replace(sync_block, "", 1)
+        advance_cmd = (
+            f"harness_cli.py advance-phase --completed {phase} "
+            "--project ' + REPO + '"
+        )
+        if body.count(advance_cmd) != 1:
+            raise AssertionError(
+                f"phase{phase}: expected exactly one advance-phase invocation "
+                f"to add --push to, found {body.count(advance_cmd)}"
+            )
+        body = body.replace(advance_cmd, advance_cmd + " --push", 1)
+
     prefix = f"P{phase} · "
     # Assert first, rewrite second. The blanket rewrites below prefix every
     # box name; this loop exists only to catch the case they cannot see —
     # a title declared in meta that no code path ever opens, which would
     # leave run-all's meta promising a box the run never reaches.
-    for title in titles:
+    for title in _runall_titles(phase, titles):
         if f"phase('{title}')" not in body and f"phase: '{title}'" not in body:
             raise AssertionError(
                 f"phase{phase}: declared title {title!r} has no phase() call "
@@ -255,7 +303,10 @@ def generate_runall() -> str:
     for phase in PHASES:
         from .generate_workflows import generate
 
-        all_titles.extend(f"P{phase} · {t}" for t in _meta_titles(generate(phase)))
+        all_titles.extend(
+            f"P{phase} · {t}"
+            for t in _runall_titles(phase, _meta_titles(generate(phase)))
+        )
         bodies.append(
             f"async function runPhase{phase}() {{\n{_phase_body(phase)}}}\n"
         )

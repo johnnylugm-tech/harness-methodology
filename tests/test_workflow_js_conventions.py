@@ -19,7 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from scripts.workflow_audit.js_lint import find_banned_constructs, strip_comments_and_strings
+from scripts.workflow_audit.js_lint import (
+    comment_line_numbers,
+    find_banned_constructs,
+    strip_comments_and_strings,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS_DIR = REPO_ROOT / ".claude" / "workflows"
@@ -126,6 +130,47 @@ def test_runall_stays_within_its_headroom_ratchet():
         f"{RUNALL_FILE}: {size} bytes over the {RUNALL_MAX_BYTES}-byte headroom "
         f"ratchet ({100 * size / MAX_BYTES:.0f}% of the runtime cap)"
     )
+
+
+class TestScannerHandlesRegexLiterals:
+    """Round 23 站3 — a `/.../` literal may contain a quote character.
+
+    `persistApproval` does `approvalPayload.replace(/'/g, "'\\''")`. Before
+    the scanner knew about regex literals, that apostrophe opened a phantom
+    string and everything after it was misclassified until the quote count
+    happened to re-balance. In the eight per-phase files it re-balanced by
+    luck; in run-all.js, where eight bodies follow one another, it did not,
+    and Python source inside a bash command string (`os.path.getsize`)
+    surfaced as a live `path.*` violation.
+
+    This matters more than a false positive: comment_line_numbers DELETES
+    what it classifies, so a desynced scanner could drop a prompt line
+    containing `https://` as if it were a comment.
+    """
+
+    REAL_CASE = "const escaped = payload.replace(/'/g, \"'\\\\''\")\nconst after = 1\n"
+
+    def test_quote_inside_a_regex_does_not_open_a_string(self):
+        masked = strip_comments_and_strings(self.REAL_CASE)
+        assert "const after = 1" in masked, (
+            "code after a regex containing an apostrophe was swallowed as string"
+        )
+
+    def test_url_in_a_string_is_not_mistaken_for_a_comment(self):
+        js = "const a = 1\nconst u = 'see https://example.com/x for details'\n"
+        assert comment_line_numbers(js) == set()
+
+    def test_division_is_still_division(self):
+        js = "const half = total / 2\nconst rest = other / 3\n"
+        assert "const half = total / 2" in strip_comments_and_strings(js)
+
+    def test_pure_comment_lines_are_reported(self):
+        js = "// leading note\nconst a = 1 // trailing\n/* block\n   more */\n"
+        assert comment_line_numbers(js) == {1, 3, 4}
+
+    def test_comment_text_inside_a_template_literal_is_not_a_comment(self):
+        js = "const p = `line one\n// not a comment, this is prompt text\n`\n"
+        assert comment_line_numbers(js) == set()
 
 
 def test_node_check_wrapper_actually_rejects_broken_syntax(tmp_path):

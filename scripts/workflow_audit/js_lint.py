@@ -46,11 +46,34 @@ _BANNED_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 
+# A `/` starts a regex literal (rather than division) when the previous
+# significant character cannot end an expression. The standard lexer
+# heuristic; sufficient here because the generated workflow JS never divides
+# by a parenthesised expression at a line start.
+_REGEX_PRECEDERS = set("(,=:[!&|?{};+-*%~^<>") | {"\n"}
+
+
+def _starts_regex(text: str, i: int) -> bool:
+    j = i - 1
+    while j >= 0 and text[j] in " \t":
+        j -= 1
+    if j < 0:
+        return True
+    if text[j] in _REGEX_PRECEDERS:
+        return True
+    # `return /re/`, `typeof /re/`, `case /re/` — keyword, not a value.
+    k = j
+    while k >= 0 and (text[k].isalpha() or text[k] == "_"):
+        k -= 1
+    return text[k + 1:j + 1] in ("return", "typeof", "case", "in", "of", "new", "delete", "void")
+
+
 def _segments(text: str) -> "Iterator[tuple[int, int, str]]":
     """Yield (start, end, kind) spans that tile `text` exactly once.
 
     kind is "comment" (`//` or `/* */`), "string" (a `'`/`"`/backtick body
-    including its delimiters) or "code". Both public helpers below consume
+    including its delimiters), "regex" (a `/.../ ` literal, whose body may
+    legally contain quote characters) or "code". Both public helpers consume
     this one scanner — a second hand-rolled copy of the state machine is
     exactly the same-shaped-sibling pattern this repo keeps finding drifted
     (Round 6 站3, Round 8 站1, Round 20 站2).
@@ -59,6 +82,40 @@ def _segments(text: str) -> "Iterator[tuple[int, int, str]]":
     code_start = 0
     while i < n:
         two = text[i:i + 2]
+        if text[i] == "/" and two not in ("//", "/*") and _starts_regex(text, i):
+            # Regex literal. Round 23 站3 — without this, `.replace(/'/g, ...)`
+            # in the A/B machine's persistApproval left the scanner believing
+            # an apostrophe had opened a string, and everything after it was
+            # misclassified until the count happened to re-balance. In the
+            # eight per-phase files that mis-state resynchronised by luck; in
+            # run-all.js, where eight bodies follow one another, it did not,
+            # and `os.path.getsize` inside a bash command string surfaced as a
+            # live `path.*` violation. A desynced scanner is worse than a
+            # false positive here: comment_line_numbers DELETES what it
+            # classifies, so a prompt line containing `https://` could be
+            # dropped as a comment.
+            if code_start < i:
+                yield (code_start, i, "code")
+            j = i + 1
+            in_class = False
+            while j < n:
+                c = text[j]
+                if c == "\\":
+                    j += 2
+                    continue
+                if c == "\n":  # unterminated — not a regex after all
+                    break
+                if c == "[":
+                    in_class = True
+                elif c == "]":
+                    in_class = False
+                elif c == "/" and not in_class:
+                    j += 1
+                    break
+                j += 1
+            yield (i, j, "regex")
+            i = code_start = j
+            continue
         if two in ("//", "/*"):
             if code_start < i:
                 yield (code_start, i, "code")
@@ -93,9 +150,9 @@ def _segments(text: str) -> "Iterator[tuple[int, int, str]]":
 
 
 def strip_comments_and_strings(text: str) -> str:
-    """Blank `//`, `/* */` comments and `'`/`"`/backtick string bodies,
-    keeping newlines and every other byte in place so line numbers in
-    the result still line up 1:1 with the input."""
+    """Blank `//`, `/* */` comments, `'`/`"`/backtick string bodies and
+    regex literals, keeping newlines and every other byte in place so line
+    numbers in the result still line up 1:1 with the input."""
     out: list[str] = []
     for start, end, kind in _segments(text):
         span = text[start:end]
