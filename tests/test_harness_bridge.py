@@ -300,7 +300,10 @@ class TestFinalizeGate:
         """L2302: the no-weight-config fallback average must skip dims with
         score=None, same as the weighted branch a few lines above it —
         otherwise sum() crashes with TypeError the moment any dimension is
-        not yet applicable (e.g. no benchmark tests)."""
+        not yet applicable (e.g. no benchmark tests). A None-scored dim must
+        also NOT block the gate (fixed alongside the average-skip bug): it's
+        "not yet applicable", not a 0-score failure — the all-dims-pass check
+        now excludes it the same way the composite average does."""
         from harness.harness_bridge import DimResult
         bridge = HarnessBridge()
         # Dict-style dimensions with no "weight" key keep _dim_weights empty,
@@ -316,17 +319,74 @@ class TestFinalizeGate:
         def _fake_enrich(_crg, dims, _project_root, _work_dir, _gate_num):
             return list(dims) + [DimResult(name="pytest_benchmark", score=None, threshold=75.0)], False  # type: ignore[arg-type]
 
-        # A None-scored dim separately fails the (pre-existing, out of scope
-        # here) all-dims-pass check, so the gate blocks — that's expected.
-        # What this test verifies is that computing the composite score no
-        # longer crashes and correctly excludes the None-score dim.
         with patch("harness.harness_bridge._crg_enrich_gate_findings", side_effect=_fake_enrich):
             with patch.object(bridge, "_update_quality_manifest"):
                 with patch.object(bridge, "_log"):
                     with patch.object(bridge, "_effort"):
-                        with pytest.raises(GateBlockedError) as exc_info:
-                            bridge.finalize_gate(ctx)
-        assert exc_info.value.result.score == 90.0  # the None-score dim is excluded from the average
+                        result = bridge.finalize_gate(ctx)
+        assert result.score == 90.0  # the None-score dim is excluded from the average
+        assert result.quality_complete is True  # and excluded from the pass/fail requirement
+
+    def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path):
+        """Real JSON->DimResult path (not an injected DimResult bypassing
+        construction, as the test above uses): a literal `"score": null` in
+        the agent-written breakdown for a dimension that's not yet applicable
+        (e.g. performance with no benchmark cases) must not coerce to 0.0 and
+        must not block Gate 2+. Reproduces the live incident where a Gate 3
+        agent had to fabricate a performance score to avoid this exact block."""
+        config = {"score_gate": 80.0, "dimensions": [{"name": "linting", "threshold": 75.0}]}
+        ctx = self._make_context(tmp_path, gate_num=3, config=config)
+        self._write_result(ctx, {
+            "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {
+                "linting": {"score": 90.0, "threshold": 75.0},
+                "performance": {"score": None, "threshold": 75.0},
+            },
+        })
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    result = bridge.finalize_gate(ctx)
+        assert result.score == 90.0
+        assert result.quality_complete is True
+        perf = next(d for d in result.dimensions if d.name == "performance")
+        assert perf.score is None  # preserved, not coerced to 0.0
+
+    def test_finalize_gate_da_waiver_branch_excludes_none_score(self, tmp_path):
+        """The DA-waiver `_eff_qc` recompute (a second copy of the all-dims-pass
+        predicate, gated behind `if da_waivers`) has the same None-vs-fail bug
+        fixed in the primary path above. A waived dim (readability, genuinely
+        below threshold) plus an unrelated None-scored dim (performance, not
+        yet applicable) must both let the gate pass, once linting also passes."""
+        config = {
+            # Low enough that the composite (readability=0, linting=90,
+            # performance excluded -> average 45.0) still clears the gate —
+            # this test targets the per-dim `_eff_qc` predicate, not the
+            # (already-correct, untouched) composite averaging.
+            "score_gate": 40.0,
+            "dimensions": [
+                {"name": "readability", "threshold": 80.0},
+                {"name": "linting", "threshold": 75.0},
+            ],
+        }
+        ctx = self._make_context(tmp_path, gate_num=4, config=config)
+        self._write_result(ctx, {
+            "quality_complete": False,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {
+                "readability": {"score": 0.0, "threshold": 80.0},
+                "linting": {"score": 90.0, "threshold": 75.0},
+                "performance": {"score": None, "threshold": 75.0},
+            },
+        })
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    result = bridge.finalize_gate(ctx, da_waivers={"readability"})
+        assert result.quality_complete is True
 
     def test_finalize_gate_raises_blocked_on_open_critical(self, tmp_path):
         bridge = HarnessBridge()

@@ -2256,12 +2256,16 @@ class HarnessBridge:
         dims: list[DimResult] = []
         for dim_name, dim_data in raw.get("breakdown", {}).items():
             # `dict.get(k, default)` only substitutes when the key is absent;
-            # an explicit JSON `null` still surfaces as None and crashes `min(None, _)`.
+            # an explicit JSON `null` still surfaces as None. DimResult.score is
+            # Optional[float] and every downstream reader in this function already
+            # guards `is not None` — preserve None here instead of coercing to 0.0,
+            # which used to make a legitimately-inapplicable dimension (e.g.
+            # pytest-benchmark with no benchmarks) look like a real 0-score failure.
             raw_score = dim_data.get("score")
-            score = float(raw_score) if raw_score is not None else 0.0
+            score = float(raw_score) if raw_score is not None else None
             raw_thresh = dim_data.get("threshold")
             threshold = float(raw_thresh) if raw_thresh is not None else 0.0
-            if dim_name == "test_coverage" and _spec_names:
+            if dim_name == "test_coverage" and _spec_names and score is not None:
                 score = min(score, _spec_cap)
             dims.append(DimResult(
                 name=dim_name,
@@ -2493,8 +2497,12 @@ class HarnessBridge:
             """
             return float(_dim_thresholds.get(d.name) or d.threshold or _gt)
 
+        # "Excluded — not yet applicable" (comment above) means a None-scored dim
+        # must not be REQUIRED to prove it passed; `d.score is None or ...` treats
+        # it as vacuously satisfying its own per-dim floor, matching how it's
+        # already excluded from the weighted/simple composite average above.
         _all_dims_pass = all(
-            d.score is not None and d.score >= _effective_threshold(d)
+            d.score is None or d.score >= _effective_threshold(d)
             for d in dims
         ) if dims else False  # empty dims = no evidence = not complete
         _quality_complete = _overall_score >= _gt and _all_dims_pass
@@ -2580,7 +2588,7 @@ class HarnessBridge:
                 _eff_qc = (
                     result.score >= score_gate
                     and result.open_critical == 0
-                    and all(d.score is not None and d.score >= d.threshold for d in _effective_dims)
+                    and all(d.score is None or d.score >= d.threshold for d in _effective_dims)
                 )
             _gate_passes = result.score >= score_gate and _eff_qc
 

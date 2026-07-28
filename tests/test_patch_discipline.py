@@ -52,7 +52,14 @@ _FORMS = (
 # already_done", ...) seam test_gate1_blocked_after_max_rounds already uses —
 # one more instance of an already-accepted pattern, not a new coupling.
 _PRIVATE_PATCH_CEILING: dict[str, int] = {
-    "tests/test_harness_bridge.py": 66,
+    "tests/test_harness_bridge.py": 72,
+    # 2026-07-29 (+6): 2 new finalize_gate regression tests for the null-score
+    # Gate-2+ blocking fix (test_finalize_gate_null_breakdown_score_does_not_
+    # block, test_finalize_gate_da_waiver_branch_excludes_none_score), each
+    # patching bridge._update_quality_manifest/_log/_effort — the exact same
+    # 3-patch seam every other TestFinalizeGate test in this file already uses
+    # to isolate finalize_gate from real manifest/log/effort I/O; not a new
+    # coupling, just two more instances of the established pattern.
     # 2026-07-27 Round 20 站1 (+1): test_agent_claim_of_ready_cannot_override_
     # the_measurement is the regression pin for that station — an agent
     # asserting ready=true while a var it classified as required is unset must
