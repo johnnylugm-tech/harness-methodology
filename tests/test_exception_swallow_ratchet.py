@@ -41,6 +41,14 @@ _SCAN_DIRS = ("cli", "core", "harness", "scripts", "detection")
 _LOG_NAMES = {
     "print", "warn", "warning", "error", "exception",
     "critical", "debug", "info", "log",
+    # Round 24 站4: core.degradation_ledger.record_degradation IS a trace —
+    # it prints a `[DEGRADED]` line to stderr (once per component+what per
+    # process) AND appends to .sessi-work/degradations.jsonl, and its docstring
+    # guarantees it never raises. It was built in Round 13 站1 for exactly the
+    # handlers this ratchet polices, so a handler that calls it is compliant.
+    # Not an allowlist entry: this widens what counts as a trace, it does not
+    # exempt any file. A handler that calls nothing still fails.
+    "record_degradation",
 }
 
 _SUCCESS_SHAPES = (

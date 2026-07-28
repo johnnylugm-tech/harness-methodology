@@ -176,18 +176,20 @@ class TestRollbackLockAndResetDiagnostic:
         block, not after it (a regression could move reset back outside the
         lock while still passing the behavioral test above by coincidence).
 
-        cmd_advance_phase has an EARLIER, unrelated `with file_lock(...)`
-        (the CV-2 state.json read guard, near the top of the function) — use
-        rindex to anchor on the LAST occurrence, which is the rollback one.
+        cmd_advance_phase holds state_lock in more than one place (the CV-2
+        state.json read guard near the top, this rollback, and — since Round 24
+        站4a — the phase_completed write after a successful commit). Anchor on
+        the lock that actually ENCLOSES restore(), i.e. the last one opened
+        before it, rather than on "the last lock in the function": that
+        positional assumption broke the moment a third lock was added below.
         """
         import inspect
 
         src = inspect.getsource(phase_cmds.cmd_advance_phase)
-        assert src.count("with file_lock(state_lock_path(project)):") == 2, (
-            "expected exactly 2 file_lock uses (CV-2 read guard + rollback) — "
-            "this test's rindex anchor assumes that; update it if this changes"
+        restore_pos_probe = src.rindex("_advance_snap.restore()")
+        lock_pos = src.rindex(
+            "with file_lock(state_lock_path(project)):", 0, restore_pos_probe
         )
-        lock_pos = src.rindex("with file_lock(state_lock_path(project)):")
         restore_pos = src.rindex("_advance_snap.restore()")
         reset_pos = src.rindex('"reset", "-q"')
         assert lock_pos < restore_pos < reset_pos, (

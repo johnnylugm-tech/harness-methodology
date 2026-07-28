@@ -559,8 +559,12 @@ class TestPushCheckpointStateJsonWriteBeforePush:
 
         # 1. on-disk content
         sd = json.loads(state_path.read_text(encoding="utf-8"))
-        assert sd["last_push_checkpoint_phase"] == 1
-        assert "last_push_checkpoint" in sd
+        # Round 24 站4b: last_push_checkpoint / last_push_checkpoint_phase were
+        # written here and read nowhere; removed. phase_completed stays — it has
+        # three live readers (_verify_entry_gate, _fr_step_lineage_boundary,
+        # constitution/runner.py).
+        assert "last_push_checkpoint" not in sd
+        assert "last_push_checkpoint_phase" not in sd
         assert sd["phase_completed"]["1"]["sha"] == fake_sha
         assert "timestamp" in sd["phase_completed"]["1"]
         assert sd["existing"] is True

@@ -52,9 +52,16 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     except Exception as _att_err:  # pylint: disable=broad-exception-caught
         print(f"  [WARN] attestation pre-refresh failed: {_att_err}")
 
-    # Bug fix (P8 E2E 2026-07-04): write push-checkpoint sentinel + phase_completed
-    # to state.json BEFORE commit_and_push_p1/p2 so the audit fields land in the
-    # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+    # Bug fix (P8 E2E 2026-07-04): write phase_completed to state.json BEFORE
+    # commit_and_push_p1/p2 so the audit field lands in the pushed commit.
+    # See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+    #
+    # Round 24 站4b: last_push_checkpoint / last_push_checkpoint_phase were
+    # written here and read NOWHERE (re-scanned across cli/, core/, scripts/,
+    # harness/ and the generated workflow JS — the earlier R21-D' scan that
+    # missed harness/harness_bridge.py is why this one names its coverage).
+    # Removed; phase_completed stays because _verify_entry_gate,
+    # _fr_step_lineage_boundary and constitution/runner.py all read it.
     #
     # SHA captured BEFORE push: pre-push HEAD is parent of the new commit. CI
     # uses `phase_completed[N].sha` only for `git merge-base --is-ancestor`
@@ -66,8 +73,6 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     # lets advance-phase proceed as if P{phase} had been pushed.
     state_path = project / ".methodology" / "state.json"
     _pre_push_sha = ""
-    _prev_last_push_checkpoint = None
-    _prev_last_push_checkpoint_phase = None
     _prev_phase_completed_entry = None
     _wrote_checkpoint_state = False
     if state_path.exists():
@@ -87,11 +92,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         try:
             with file_lock(state_lock_path(project)):
                 _state_data = load_state(project)
-                _prev_last_push_checkpoint = _state_data.get("last_push_checkpoint")
-                _prev_last_push_checkpoint_phase = _state_data.get("last_push_checkpoint_phase")
                 _prev_phase_completed_entry = _state_data.get("phase_completed", {}).get(str(phase))
-                _state_data["last_push_checkpoint"] = datetime.now(timezone.utc).isoformat()
-                _state_data["last_push_checkpoint_phase"] = phase
                 _state_data.setdefault("phase_completed", {})[str(phase)] = {
                     "sha": _pre_push_sha,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -124,14 +125,6 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         try:
             with file_lock(state_lock_path(project)):
                 _state_data = load_state(project)
-                if _prev_last_push_checkpoint is None:
-                    _state_data.pop("last_push_checkpoint", None)
-                else:
-                    _state_data["last_push_checkpoint"] = _prev_last_push_checkpoint
-                if _prev_last_push_checkpoint_phase is None:
-                    _state_data.pop("last_push_checkpoint_phase", None)
-                else:
-                    _state_data["last_push_checkpoint_phase"] = _prev_last_push_checkpoint_phase
                 if _prev_phase_completed_entry is None:
                     _state_data.get("phase_completed", {}).pop(str(phase), None)
                 else:

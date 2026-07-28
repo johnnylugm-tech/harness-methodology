@@ -89,7 +89,7 @@ P4/P5/P6/P7/P8 現在**完全與 FR 數無關**(14/11/11/11/12)。P3 仍隨 FR �
 | R21-B | gate result 的 schema 從未被載入,已漂移成描述不存在的產物 | **採納** | 全 repo 只有 `b_review.schema.json` 有 validator。`harness_gate_result.schema.json` 零載入,於是 required 一個沒人寫的 per-dimension `passed`、把 CRG-only 維度的 `null` score 定為 number、required 真實產物為 null 的 `overall_score`/`meets_target`、漏掉每筆 breakdown 都有的四個欄位。守它的測試是 schema 自己 required 清單的第二份拷貝——只能證明檔案沒被改。**這是 R21-A 的病因**:沒有可執行契約,消費者只能猜欄位名 | 若 schema 與真實產物再度分歧而 parity 測試未紅,表示 fixture 來源退回同源,需重新取真實產物 |
 | R21-C | `sessions_spawn.log` 權重 0.20 計入 Phase Truth,而它 agent 可寫且 gitignored | **採納** | 三方矛盾:`SKILL.md:317` 記 HR-10 **REMOVED**(理由正是「agent-writable, not tamper-evident」)、`SAD.md:225` 記 **MUST**、程式碼仍在兩條活路徑上計分。taskq P6 六筆手寫紀錄(session_id 非 UUID、無信封、duration 0、整秒時間戳、task 存結論),`role=architect`+`phase=6` 恰好命中 A/B 分支,寫入時間在首個 Gate4 PASS commit 前 45 秒。A/B 分支另有獨立缺陷:掃全 log **不分 phase** | 若要恢復任何 spawn-log 計分,前提是先有不可由被評者寫入的來源 |
 | R21-C2 | doctor 的 spawn-log 真實性診斷應否計分 | **明確不計分(設計決策)** | 偽造者能寫紀錄就能寫信封欄位。把它變成 gate 項等於在更外一層重建 R21-C 的缺陷。定位=事後發現,非事前防止 | — |
-| R21-D′ | (計畫外查證)SAB 的 `gate_score_overrides` 是否被 waiver 繞過 | **前提不成立,不修** | grep 全 repo:`gate_score_overrides` 只在 `sab_parser.py` 產生與序列化,**零消費點**——NFR floor 從一開始就沒被套用到 gate 門檻,所以「被 waiver 繞過」不是活傷口。誠實記為獨立缺口,不在本輪範圍 | NFR floor 接線是獨立議題;若要做,先確認它與 `_dim_thresholds` 的合併語意 |
+| R21-D′ | (計畫外查證)SAB 的 `gate_score_overrides` 是否被 waiver 繞過 | ~~前提不成立,不修~~ → **本條於 Round 24 站4b 撤銷,見下方 R24-RETRACT-1** | ~~grep 全 repo:零消費點~~ **這個 grep 的判定是錯的** | — |
 
 > **順帶查出**(由站2 的 schema 執行化逼出,非計畫項):三個測試 fixture 一直在謊報自己的形狀。`test_handover_generator` 的 gate1 fixture 用 `dimensions` 數字 map,而 dims builder 讀 `breakdown`——那三支測試一直在**零維度證據**下跑 finalize_gate;補上真實 breakdown 後又觸發 identical-scores 反造假斷路器(舊形狀從未走到那裡)。`test_harness_bridge_highs2` 的 gate3 fixture 自稱 "a valid gate3 result" 卻缺三個 required 欄位。
 
@@ -200,3 +200,90 @@ P4/P5/P6/P7/P8 現在**完全與 FR 數無關**(14/11/11/11/12)。P3 仍隨 FR �
 | R14-2a | CLI 直接讀寫 state.json/quality_manifest,缺 DAO | 讀側真(含一個誤分類活傷口)、寫側假、DAO 動機=YAGNI → 已做(`state_io.py` 收斂 + exit 26) | `docs/ERROR_HANDLING.md` FATAL 列 + `core/state_io.py` |
 | R14-2b | phase_specs.py ~3000 行上帝檔案,改 A 壞 B | 尺寸真、風險敘述誇大 → 老闆裁定列下輪候選;Round 15 執行拆分(見本檔 Round 15 段 / `scripts/workflowgen/spec_*.py`) | 本檔「Round 15」段 |
 | R14-2c | error-dict 與 `exit(1)` 模式不一致,認知負載 | 真但小規模,R13「修邊不修內」決策維持,僅補文件慣例節 | `docs/ERROR_HANDLING.md`「Raise vs. return an error-dict」節 |
+
+---
+
+## Round 24 — 「檢查欄位存在」升級為「檢查內容為真」
+
+> 觸發:`run-all-by-workflow` 的 P1–P8 首次 live E2E(submodule 自 `4921ba4` 起跑,完成至 Phase 9)。
+> 10 個觀察裡 5 個收斂到同一根因,列於下表。
+
+### 根因
+
+**框架檢查的是「欄位存在且格式正確」,不是「欄位內容為真」。**
+
+| 檢查點 | 驗什麼 | 不驗什麼 |
+|---|---|---|
+| `GateBlockedError` 診斷 | `result.dimensions` 裡不及格的維度 | `exc.details` —— 7 種阻擋原因裡有 6 種不在裡面 |
+| `record_gate_block` lessons | 同上同一個 filter(字面不同、語意同構) | 同上 |
+| Agent B `citations` | 是非空 list | 那個 `file:line` 是否存在 |
+| `QUALITY_REPORT.md` | 檔案存在 | 內容是否等於 `gate4_result.json` |
+| exception-swallow ratchet | handler 有沒有 log | log 之後該不該繼續 |
+
+### 產物汙染鏈(本輪最重的實證)
+
+```
+finalize-gate 把 QUALITY_REPORT 生成崩潰吞成 [WARN]
+  → 產物缺失但 Gate 4 照樣 PASS
+  → agent 自行補產物:gate4_result.json 複製到 temp workdir、null→0、重跑腳本
+  → QUALITY_REPORT.md:19 出現 "Mutation Testing | 0/100 | ✗ FAIL"(虛構)
+  → Agent B 讀了它,reason 寫「14 dimensions + Mutation Testing excluded by
+    feature flag」(報告裡沒有這句),citations 指向 :13(那是 Linting),APPROVE
+  → 進 git、進 FINAL_SIGN_OFF、commit 寫 "Gate4 PASS 97.4 — pipeline complete"
+```
+
+權威資料 `gate4_result.json` 全程乾淨(`mutation_testing: {score: null,
+excluded_by_feature_flag: true}`),composite 97.3981 也是用 null 跳過算的。
+**汙染只在人可讀的渲染物** —— 但這正說明:反造假防的是「agent 直接寫分數」,
+防不了「agent 改框架的輸入 / 自己補框架沒產出的東西」。
+
+### 裁決
+
+| 代號 | 主張 | 裁決 | 依據 / 實作 |
+|---|---|---|---|
+| R24-1 | BLOCKED 的真因對 agent 不可見 | **採納,活傷口** | `harness_bridge.py` 10 個 raise 站點、9 個帶 `details`(7 種 key);兩個消費者都只看不及格維度。`core/quality_gate/block_reason.py` 成為唯一模型,兩邊共用 |
+| R24-2a | Gate 4 產物生成失敗被吞成 WARN | **採納,活傷口** | `cli/gate_cmds.py::_generate_gate4_deliverables` 改為 fail-the-gate + `EX_HARNESS_BUG` + degradation ledger |
+| R24-2b | `QUALITY_REPORT.md` 無 render-from-SSOT 守衛 | **採納** | `core/quality_gate/quality_report_verify.py`。**刻意用解析而非重新渲染**:重用渲染器會與被檢查物同源,抓不到渲染器自己的 bug |
+| R24-2c | Agent B citations 從不驗證 | **採納(限縮)** | 只驗「位置存在」(檔案在、行號在範圍內)。**明確不做**語意支持性驗證 —— 那需要第二次 LLM 判定,會把 review 可信度重新建立在被審對象上(R21「判定早於真值」) |
+| R24-3 | 三種時間格式無法對齊 | **採納,活傷口** | 本輪取證時我自己被它誤導過一次(誤判 8 小時空窗,實際 1h18m)。`core/utils/timefmt.utc_now_iso()` + 零 allowlist AST lint;`gate_timestamps.jsonl` 保留 epoch 加 `iso` |
+| R24-4a | `phase_completed` 只在 P1/P2 寫 | **採納,活傷口** | 唯一寫入者是 `cmd_push_checkpoint`。後果:`_fr_step_lineage_boundary` 對 phase ≥ 4 恆為 None,2026-07-11 的修復**自落地起只對 phase 3 有效** |
+| R24-4b | `last_push_checkpoint` / `_phase` 零消費者 | **採納,移除** | 重新以涵蓋 `harness/` 的掃描確認 |
+| **R24-RETRACT-1** | **撤銷 R21-D′** | **原判定的前提為假** | 見下 |
+
+### R24-RETRACT-1:撤銷 R21-D′
+
+R21-D′ 寫「grep 全 repo:`gate_score_overrides` 只在 `sab_parser.py` 產生與序列化,**零消費點**」。
+規劃 Round 24 時我把這句當前提提給老闆,老闆據此裁定刪除該欄位。**查證後前提為假**:
+
+| 位置 | 事實 |
+|---|---|
+| `harness/harness_bridge.py:2281-2284` | `# Apply gate_score_overrides from quality_manifest as threshold floor` |
+| `harness/harness_bridge.py:246` | `_d.threshold` 可能已帶 floor-raise |
+| `harness/harness_bridge.py:2961-2997` | 從 NFR 推導 floors,與 `quality_targets` 取 max |
+| `harness/harness_bridge.py:1656/1670` | `_load_manifest_sab` 讀入;失敗時 log「SAB-derived gate_score_overrides are DISABLED for this gate」 |
+| `SKILL.md:323` HR-16 | 它是**不可豁免的閾值下限**(只升不降) |
+
+它是 NFR→gate 閾值的執法機制,**刪掉等於移除 HR-16**。本輪不碰。
+`run-all-by-workflow` 兩份 Agent B approval 拿它當驗收依據是**正確的**,不是問題。
+
+成因:那次 grep 沒涵蓋 `harness/harness_bridge.py`(它在 submodule 根目錄,不在
+`cli/ core/ scripts/` 的習慣掃描範圍)。**檢查器(grep 的涵蓋面)與被檢查物不同源,
+但檢查器的涵蓋面本身沒被驗證** —— 與 R24-1/R24-2 完全同形,只是這次發生在賬本上。
+
+**紀律(R24-4b-3)**:任何「零消費者」斷言必須用涵蓋 `harness/` 的掃描得出,並在斷言處記下掃描範圍。
+`tests/test_phase_completed_authority.py::test_zero_consumer_scan_covers_the_harness_directory` 把這條變成可執行的。
+
+### 本輪明確不做(附 re-open 條件)
+
+| 項 | 為何不做 | re-open |
+|---|---|---|
+| resume 粒度 phase→task | 需 workflow runtime 支援 task 級 checkpoint。老闆已用「重跑一個 phase」解決(代價:Gate4 重跑一次同分 97.4) | runtime 提供 checkpoint API |
+| workflow dispatch 進 run-report 的帳 | workflow JS 是 hermetic(無 fs),`agent()` 不經 harness spawner。**沒有正解**,只有讀 runtime 內部 journal 這種脆弱做法 | runtime 提供 dispatch 匯出 |
+| P3 dispatch 發散 | 上一輪用「P3 29 次 vs P5 5 次 = 6 倍」論證,但 P3 是唯一跑完整 RED/GREEN/IMPROVE 的 phase,比較不公平,**論據已自行收回**。真正異常的是 3 TIMEOUT + 2 ERROR 全部集中在 P3 —— n=1 | 下次 E2E 重現同樣分佈 |
+| Agent B reason 的語意驗證 | 見 R24-2c 邊界 | 出現不需要 LLM 判定的機械做法 |
+
+### 本輪的驗收指標(下次 E2E 對照)
+
+本輪根因判斷來自 n=1。真正的檢驗是**下一次 live E2E 現場修的 harness bug 數是否下降**
+(本次為 3:`c7a9d9b` 乾淨環境依賴、`5467049` null-score crash、`68209a9` Gate 2+ null-score block)。
+若不降,則「同源驗證失效」的判斷需要修正為「E2E 頻率不足」。

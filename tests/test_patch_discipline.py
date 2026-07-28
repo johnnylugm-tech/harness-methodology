@@ -98,6 +98,12 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     "tests/test_edge_coverage.py": 2,
     "tests/test_feedback_hook.py": 2,
     "tests/test_advance_commit_rollback.py": 1,
+    # 2026-07-29 Round 24 站4: test_phase_completed_authority.py reuses
+    # test_advance_commit_rollback.py's fixture, which stubs
+    # cli.phase_cmds._advance_prechecks — the precondition aggregator, not
+    # the behaviour under test (phase_completed recording after the commit
+    # lands). Same seam, same justification, same ceiling.
+    "tests/test_phase_completed_authority.py": 1,
     "tests/test_generate_full_plan.py": 1,
     "tests/test_harness_bridge_highs2.py": 1,
     "tests/test_kill_switch_complete.py": 1,

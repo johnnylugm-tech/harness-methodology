@@ -46,8 +46,10 @@ from core.phase_topology import (
     VALID_PHASES,
     phase_name,
 )
+from core.degradation_ledger import record_degradation
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
+from core.utils.timefmt import utc_now_iso
 from harness.handover_generator import HandoverGenerator
 
 
@@ -745,6 +747,61 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 pass
             return 6  # same commit-failed exit code as run-fr-step / finalize-gate
 
+        # ── phase_completed (Round 24 站4a) ───────────────────────────────
+        # advance-phase is the authority on "phase N is complete" — it is the
+        # command that verifies the exit gate and writes the handover commit.
+        # Until now the ONLY writer of state.json.phase_completed was
+        # cli/push_cmds.py::cmd_push_checkpoint, which the generated workflows
+        # invoke for P1 and P2 only. Every project therefore had
+        # phase_completed == {1, 2} no matter how far it got: confirmed on the
+        # run-all-by-workflow P1-P8 run, which reached Phase 9 with those two
+        # entries and nothing else.
+        #
+        # The consequence was silent. cli/fr_cmds.py:_fr_step_lineage_boundary
+        # reads phase_completed[phase-1] to scope its idempotency grep to the
+        # current phase's lineage; with no entry it returns None and callers
+        # fall back to an UNSCOPED grep — which is the exact bug the 2026-07-11
+        # fix existed to remove (after a `git reset --hard`, a stale
+        # `refactor(FR-02): IMPROVE` from a reset-away lineage still matched and
+        # the step was skipped as already-done). That fix worked only for
+        # phase 3, where phase-1 == 2 happens to have an entry. Its docstring
+        # described the gap as "projects without reset history", which is not
+        # what was happening.
+        #
+        # SHA: HEAD *after* the handover commit — the commit itself. push_cmds
+        # records the PRE-push HEAD because it writes before creating its
+        # commit. Both satisfy the only consumer contract there is
+        # (`git merge-base --is-ancestor <sha> HEAD`, harness_cli.py CI and
+        # _verify_entry_gate), and each names the repo state at which that
+        # phase completed.
+        _head = subprocess.run(
+            ["git", "-C", str(project), "rev-parse", "HEAD"],
+            capture_output=True, text=True,
+        )
+        if _head.returncode == 0 and _head.stdout.strip():
+            try:
+                with file_lock(state_lock_path(project)):
+                    _sd = load_state(project, lenient=True)
+                    _sd.setdefault("phase_completed", {})[str(args.completed_phase)] = {
+                        "sha": _head.stdout.strip(),
+                        "timestamp": utc_now_iso(),
+                    }
+                    atomic_write_json(
+                        project / ".methodology" / "state.json", _sd
+                    )
+            except Exception as _pc_err:  # pylint: disable=broad-exception-caught
+                record_degradation(
+                    project, "advance-phase",
+                    f"phase_completed[{args.completed_phase}] not recorded",
+                    f"{type(_pc_err).__name__}: {_pc_err}",
+                )
+        else:
+            record_degradation(
+                project, "advance-phase",
+                f"phase_completed[{args.completed_phase}] not recorded",
+                f"git rev-parse HEAD failed: {_head.stderr.strip()}",
+            )
+
         # ── --push (Round 23 站1) ─────────────────────────────────────────
         # Opt-in publication of the handover commit this function just made.
         # Historically advance-phase always stopped at "commit locally", and
@@ -1311,8 +1368,8 @@ def _advance_fsm(project: Path, completed_phase: int,
                     print("  Fix state.json manually or run `advance-phase` with a clean state.")
                     sys.exit(11)
         # Merge into the existing dict rather than replacing it — state.json also
-        # carries fields this function doesn't own (last_push_checkpoint,
-        # phase_completed, ci_readiness_ack, language, test_runner, ...); a bare
+        # carries fields this function doesn't own (phase_completed,
+        # ci_readiness_ack, language, test_runner, ...); a bare
         # replacement here silently discarded them on every advance-phase call.
         state_data.update({
             "state": existing_state,
