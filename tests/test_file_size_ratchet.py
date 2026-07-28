@@ -243,7 +243,7 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 13 previously-unlogged broad excepts now print a [WARN]
     # diagnostic.
-    "cli/project_cmds.py": 1986,  # 2026-07-27: +13 — Round 29: _check_content_quality gained two per-file-type exemptions (MAINTENANCE_LOG.md from the section-count floor, TEST_RESULTS.md from the FR-ref rule) — both files' harness-generated canonical shape was being flagged suspicious by a one-size-fits-all heuristic (sized to current 1973→1986). 2026-07-21: +5 lines — fix/init-project-harness-root-path: Add explanatory comment for __file__.parent.parent dynamic path resolution.
+    "cli/project_cmds.py": 2036,  # 2026-07-28: +50 lines — fix/cli-init-project-step-10b: init-project step 10b auto-installs pyyaml+jsonschema from harness/requirements.txt into project .venv to eliminate first-call ModuleNotFoundError crashes. 2026-07-27: +13 — Round 29: _check_content_quality gained two per-file-type exemptions (MAINTENANCE_LOG.md from section-count floor, TEST_RESULTS.md from FR-ref rule).
     # 2026-07-21: +38 lines — fix/round-18-dispatch-ssot (Bug C): wrap cmd_amend_sab with a deterministic-tool sessions_spawn.log entry written from the mutation site (covers all callers — standalone amend-sab subcommand + run-fr-step amend-sab delegation + any future caller). Splits the function body into _cmd_amend_sab_impl returning (rc, outcome_tag) and a new _log_amend_sab_outcome helper that mirrors AgentSpawner._log_dispatch's swallowing try/except.
     # 2026-07-15 R3: cmd_amend_sab gained PHANTOM block + --strict (~50 lines)
     # 2026-07-16: Round 12 站0 — agent_spawner crossed the unlisted-file
