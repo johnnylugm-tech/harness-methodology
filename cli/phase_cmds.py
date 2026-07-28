@@ -745,6 +745,43 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 pass
             return 6  # same commit-failed exit code as run-fr-step / finalize-gate
 
+        # ── --push (Round 23 站1) ─────────────────────────────────────────
+        # Opt-in publication of the handover commit this function just made.
+        # Historically advance-phase always stopped at "commit locally", and
+        # every generated phase workflow bolted a Sync box on right after
+        # Advance whose entire job was one `git push`. That put the push in
+        # the prompt layer, where only a prompt-following caller gets it —
+        # the same shape Round 22 站2 relocated for manifest integrity.
+        #
+        # Default OFF: the 8 generated phase workflows keep their Sync box and
+        # their output stays byte-identical. run-all.js is the consumer.
+        #
+        # A push failure does NOT roll back. The commit-failure branch above
+        # rolls back because nothing landed in git at all, so state.json would
+        # otherwise claim a phase git history does not record. Here the commit
+        # DID land: undoing it would destroy durable work to recover from a
+        # transient network error. Report and let the operator retry.
+        if getattr(args, "push", False):
+            push_result = subprocess.run(
+                ["git", "-C", str(project), "push", "origin", "HEAD"],
+                capture_output=True, text=True,
+            )
+            if push_result.returncode != 0:
+                _push_cmd = f"git -C {project} push origin HEAD"
+                print(
+                    f"\n[BLOCKED] advance-phase --push: the handover commit "
+                    f"landed locally but the push failed.\n"
+                    f"  Detected: "
+                    f"{(push_result.stdout + push_result.stderr).strip()[:400]}\n"
+                    f"  The advance was NOT rolled back — state.json and the "
+                    f"commit are correct; only publication is missing.\n"
+                    f"  Fix the remote/connectivity error above, then re-run "
+                    f"just the push:\n"
+                    f"    {_push_cmd}"
+                )
+                return 28
+            print("[advance-phase] Pushed the handover commit to origin.")
+
     print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
     # Restore CWD if any internal Python code (hook, library) changed it.
     # Subprocess calls do NOT change the parent process CWD.
@@ -2825,6 +2862,11 @@ def register(sub) -> None:
         help="Phase number that just completed (advance-phase --completed 3 → sets phase 4)",
     )
     adv.add_argument("--project", default=".", help="Project root (default: .)")
+    adv.add_argument(
+        "--push", action="store_true",
+        help="Also push the handover commit to origin (default: commit locally "
+             "only — the next milestone push publishes it)",
+    )
     adv.set_defaults(func=cmd_advance_phase)
 
     # generate-next-plan (checkpoint-based tactical plan generator)

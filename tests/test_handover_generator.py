@@ -1058,6 +1058,13 @@ class TestCmdAdvancePhase:
         a = _Args()
         a.completed_phase = completed  # type: ignore[reportAttributeAccessIssue]
         a.project = str(tmp_path)  # type: ignore[reportAttributeAccessIssue]
+        # Round 23 站1: --push is opt-in. _Args deliberately does NOT declare
+        # `push` unless a test asks for it — that pins the getattr() default
+        # cmd_advance_phase must use, so every pre-existing programmatic
+        # caller (and every other test in this class) keeps the old
+        # commit-locally-only behaviour without being edited.
+        if "push" in kwargs:
+            a.push = kwargs["push"]  # type: ignore[reportAttributeAccessIssue]
 
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
@@ -1108,6 +1115,81 @@ class TestCmdAdvancePhase:
         )
         assert exit_code == 0
         assert "Committed HANDOVER.md" in output
+
+    # ── --push (Round 23 站1) ────────────────────────────────────────────────
+    # advance-phase commits the handover locally and, historically, never
+    # pushed it ("next milestone push publishes to origin"). Every phase
+    # workflow therefore had to bolt a Sync box on after Advance purely to run
+    # `git push` — a push that belongs to the command that created the commit.
+    # `--push` relocates it. Default OFF so the 8 generated phase workflows
+    # keep their current behaviour byte-for-byte.
+
+    @staticmethod
+    def _recording_run(fail_on=None):
+        """subprocess.run stub that records argv and can fail one git verb."""
+        calls: list = []
+
+        def fake_run(cmd, **kw):
+            calls.append(list(cmd))
+
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            r = R()
+            if fail_on and fail_on in cmd:
+                r.returncode = 1  # type: ignore[reportAttributeAccessIssue]
+                r.stderr = "fatal: unable to access remote"  # type: ignore[reportAttributeAccessIssue]
+            return r
+        return fake_run, calls
+
+    def test_push_is_off_by_default(self, tmp_path, monkeypatch):
+        fake_run, calls = self._recording_run()
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run,
+        )
+        assert exit_code == 0
+        assert "Committed HANDOVER.md" in output
+        assert not any("push" in c for c in calls), (
+            f"advance-phase pushed without --push: {calls}"
+        )
+
+    def test_push_flag_pushes_after_the_commit(self, tmp_path, monkeypatch):
+        fake_run, calls = self._recording_run()
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run, push=True,
+        )
+        assert exit_code == 0
+        pushes = [c for c in calls if "push" in c]
+        assert pushes == [["git", "-C", str(tmp_path), "push", "origin", "HEAD"]], (
+            f"unexpected push invocation(s): {pushes}"
+        )
+        # Ordering matters: the commit must exist before it can be published.
+        commit_idx = next(i for i, c in enumerate(calls) if "commit" in c)
+        push_idx = next(i for i, c in enumerate(calls) if "push" in c)
+        assert commit_idx < push_idx
+
+    def test_push_failure_blocks_but_keeps_the_commit(self, tmp_path, monkeypatch):
+        """A failed push must NOT roll the advance back.
+
+        The commit-failure path (exit 6) rolls back because nothing landed in
+        git at all — state.json would otherwise claim a phase git history does
+        not record. A push failure is the opposite situation: the commit DID
+        land locally, so undoing it would destroy durable work and leave the
+        project worse off than simply retrying the push.
+        """
+        fake_run, calls = self._recording_run(fail_on="push")
+        exit_code, output = self._call_advance_phase(
+            monkeypatch, tmp_path, subprocess_run=fake_run, push=True,
+        )
+        assert exit_code == 28
+        assert "[BLOCKED]" in output
+        assert "git -C" in output and "push origin" in output, (
+            "the BLOCKED message must carry the exact retry command"
+        )
+        assert not any("reset" in c for c in calls), (
+            f"a push failure must not trigger the commit rollback path: {calls}"
+        )
 
     # ── git add failure ──────────────────────────────────────────────────────
 

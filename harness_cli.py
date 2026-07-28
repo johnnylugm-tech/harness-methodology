@@ -76,6 +76,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     27  advance-phase: quality_manifest.json parses but its structure is
         corrupt (truncated fr_ids / cleared traceability / wiped gate1) —
         refusing to commit it; restore from HEAD and re-run
+    28  advance-phase --push: the handover commit landed locally but `git
+        push` failed — NOT rolled back; fix connectivity/remote and re-run
+        the push command printed in the [BLOCKED] message
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)
