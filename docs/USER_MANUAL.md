@@ -56,8 +56,11 @@ P1 Requirements → P2 Architecture → P3 Implementation → P4 Testing
 # Python 3.10+
 python3 --version
 
-# PyYAML (for gate config loading)
-pip install pyyaml
+# PyYAML + jsonschema — `init-project` now installs these automatically into
+# the project venv (see step [10b/11] in cli/project_cmds.py::cmd_init_project).
+# The line below is a fallback for manual installs where init-project was
+# skipped (e.g. CI pre-stage, ad-hoc harness-cli invocation).
+pip install -r harness/requirements.txt
 
 # Clone the repo
 git clone https://github.com/johnnylugm-tech/harness-methodology.git

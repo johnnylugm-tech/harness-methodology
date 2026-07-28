@@ -287,6 +287,56 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         # Auto-detect gh availability and offer setup
         _auto_offer_branch_protection(project)
 
+    # 10b. Harness runtime Python deps (pyyaml + jsonschema — required by
+    # `import yaml` in harness/tool_checks.py:123 and other harness CLI imports).
+    # Root-cause fix for the historical "first `python3 harness_cli.py run-phase`
+    # crashes with ModuleNotFoundError: No module named 'yaml'" class of bugs:
+    # init-project now installs these from harness/requirements.txt into the
+    # project venv automatically. USER_MANUAL.md §2.1 previously required the
+    # user to remember `pip install pyyaml`; that step is now obsolete but
+    # stays in the docs as a fallback for non-init-project installs.
+    print("\n[10b/11] Harness runtime Python deps (pyyaml + jsonschema)...")
+    _runtime_pkgs = ("yaml", "jsonschema")
+    _missing: list[str] = []
+    for _p in _runtime_pkgs:
+        try:
+            __import__(_p)
+        except ImportError:
+            _missing.append(_p)
+    if not _missing:
+        print("   OK — all runtime Python deps importable")
+    else:
+        print(f"   Missing: {', '.join(_missing)}")
+        _venv_py = project / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "python"
+        if _venv_py.exists():
+            print(f"   Auto-installing via {_venv_py} -m pip install -r {harness_root / 'requirements.txt'}")
+            _r = subprocess.run(
+                [str(_venv_py), "-m", "pip", "install", "-r", str(harness_root / "requirements.txt")],
+                capture_output=True, text=True, timeout=300,
+            )
+            if _r.returncode != 0:
+                print(f"   [BLOCKED] pip install failed:\n{_r.stderr[-400:]}")
+                return 1
+            # Re-verify — even a successful pip install can leave the import
+            # path stale (PEP 660 editable installs in particular).
+            _still: list[str] = []
+            for _p in _missing:
+                try:
+                    __import__(_p)
+                except ImportError:
+                    _still.append(_p)
+            if _still:
+                print(f"   [BLOCKED] Still missing after install: {_still}")
+                return 1
+            print("   OK — installed and importable")
+        else:
+            print(
+                f"   [BLOCKED] No project venv found.\n"
+                f"   Fix: python3 -m venv .venv && .venv/bin/python -m pip install -r {harness_root}/requirements.txt\n"
+                f"   Then re-run init-project."
+            )
+            return 1
+
     # 11. Gate tool availability (blocking — all Tier 1 tools required before project start).
     # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
     print("\n[11/11] Gate tool availability check...")
