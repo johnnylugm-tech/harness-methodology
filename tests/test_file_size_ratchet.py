@@ -298,7 +298,11 @@ _LINE_CEILING: dict[str, int] = {
     # post-advance `git push origin main` (all 8 workflow JS files already do
     # this; the generated plan prose never described it — SSOT fix, generator
     # source, not the 8 generated phaseN_plan.md files by hand).
-    "scripts/plangen/blocks.py": 1682,
+    # 2026-07-28 (Round 22 站1): +12 lines — _orch_post_once_step() extracted so
+    # `amend-sab` (no --fr-id, idempotent by construction) runs ONCE after the FR
+    # loop instead of once per FR. Net effect on the *generated* plan is a
+    # reduction; the generator grows by the new helper + its rationale docstring.
+    "scripts/plangen/blocks.py": 1694,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
@@ -364,7 +368,13 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-14: +4 lines — generate_phase8_tasks' P8→P9 block (phase 8 has
     # its own hand-written advance text, not the shared _phase_advance_step)
     # now documents the same Sync-phase post-advance push as blocks.py.
-    "scripts/plangen/phase_tasks.py": 1141,
+    # 2026-07-28 (Round 22 站1): +9 lines — P4/P5/P7/P8 each emit the
+    # project-wide ORCH-POST-ONCE tail after their FR loop (P4's three FR-loop
+    # branches share one insertion point at the loop's common exit). P3 is
+    # deliberately excluded: its per-FR amend-sab runs BEFORE that FR's own
+    # GATE1 so the Architecture Amendment Protocol sees the module the FR just
+    # wrote — that one is not a repeat, it is the point.
+    "scripts/plangen/phase_tasks.py": 1150,
     "core/quality_gate/mutation_enforcer.py": 967,
     # 2026-07-17: new god file — Round 15 station5: phase_specs.py (formerly
     # 2985 lines, see git history for its full growth log) was split one

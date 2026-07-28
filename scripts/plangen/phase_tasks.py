@@ -38,6 +38,7 @@ from .blocks import (
     _gate_exit_checkpoint,
     _load_manifest_fr_ids,
     _milestone_push_steps,
+    _orch_post_once_step,
     _p3_milestone_push_steps,
     _phase_advance_step,
     _post_adr_constitution_check,
@@ -630,6 +631,11 @@ def generate_phase4_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
             lines.append("")
             checkpoint_n = 1
 
+        if fr_ids:
+            # Round 22 站1: the FR loop above no longer carries amend-sab —
+            # it takes no --fr-id and is idempotent, so it runs once here.
+            lines.extend(_orch_post_once_step())
+
     lines.extend([
         "### TEST_RESULTS.md Summary",
         "",
@@ -711,6 +717,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
             lines.append("- Confirm ≥80% branch coverage")
             lines.append("")
             lines.extend(_fr_carryforward_steps(fr_id, phase=5))
+        lines.extend(_orch_post_once_step())
     else:
         lines.append("### Verification Items")
         lines.append("(No FR list found — add per-FR verification steps based on SRS.md)")
@@ -893,6 +900,7 @@ def generate_phase7_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
                 lines.append("- Confirm no new defects introduced")
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=7))
+            lines.extend(_orch_post_once_step())
         else:
             lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
             lines.append("")
@@ -1006,6 +1014,7 @@ def generate_phase8_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
                 lines.append(f"- Confirm deployment checklist entries for {fr_id}")
                 lines.append("")
                 lines.extend(_fr_carryforward_steps(fr_id, phase=8))
+            lines.extend(_orch_post_once_step())
         else:
             lines.append("(No FR list found in manifest — run Gate 1 per FR manually)")
             lines.append("")

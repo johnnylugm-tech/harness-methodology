@@ -365,14 +365,6 @@ if (fastProbe && Array.isArray(fastProbe.pass_fr_ids)) {
   for (const fr of fastPassed) {
     gate1Pass.push(fr)
     log('  ' + fr + ' GATE1-DELTA fast-path PASS [manifest qc + p7 timestamp] — full DELTA skipped')
-    await agent(
-      'Run EXACTLY these two commands via the Bash tool, in order:\n'
-      + '`' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + fr + '`\n'
-      + '`' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\n\n'
-      + 'Report the verbatim stdout/stderr of both commands.\n\n'
-      + 'SCOPE RULES:\n- ONLY the two commands above.\n- DO NOT modify harness/.',
-      { label: 'orch-post-' + fr, phase: 'Per-FR Delta', agentType: 'general-purpose' },
-    )
   }
   deltaTodo = frIds.filter((f) => !fastPassed.includes(f))
 } else {
@@ -422,18 +414,20 @@ for (const frId of deltaTodo) {
   const passed = String((verdict && verdict.reason) || '').trim().startsWith('GATE1_VERIFIED_PASS')
   if (passed) {
     gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')
-    await agent(
-      'Run EXACTLY these two commands via the Bash tool, in order:\n'
-      + '`' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '`\n'
-      + '`' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\n\n'
-      + 'Report the verbatim stdout/stderr of both commands.\n\n'
-      + 'SCOPE RULES:\n- ONLY the two commands above.\n- DO NOT modify harness/.',
-      { label: 'orch-post-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose' },
-    )
   } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 }
 if (gate1Fail.length) {
   return { error: 'Phase 7: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+}
+if (gate1Pass.length) {
+  await agent(
+    'Run these commands via the Bash tool, in order. Report the verbatim stdout/stderr of ALL of them.\n'
+    + '1. Per-FR spec coverage — run for EVERY id in the list, and do NOT stop early on a nonzero exit (each `|| true` keeps the loop going; a below-threshold FR is an early warning to report, not a reason to abort):\n'
+    + '`for FR in ' + gate1Pass.join(' ') + '; do ' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id $FR || true; done`\n'
+    + '2. `' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '` (project-wide, runs ONCE — it takes no --fr-id)\n\n'
+    + 'SCOPE RULES:\n- ONLY the two commands above.\n- DO NOT modify harness/.',
+    { label: 'orch-post', phase: 'Per-FR Delta', agentType: 'general-purpose' },
+  )
 }
 
 

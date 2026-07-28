@@ -148,3 +148,49 @@ class TestGenerateFacade:
 
     def test_generators_registry_has_expected_filenames(self):
         assert GENERATORS[8][1] == "phase8-config.js"
+
+
+class TestOrchPostIsPerPhaseNotPerFr:
+    """Round 22 站1 — `amend-sab` must be dispatched once per phase.
+
+    It takes no `--fr-id` (cli/project_cmds.py::cmd_amend_sab) and is
+    idempotent by construction (core/quality_gate/sab_amender.amend_sab), so
+    the N-1 repeats an N-FR phase used to pay for were re-asking the same
+    project-wide question. taskq's 5-FR run left 35 `tool:amend-sab` rows in
+    sessions_spawn.log.
+    """
+
+    # P3 is deliberately excluded: its amend-sab runs inside the per-FR TDD
+    # orchestrator prompt, BEFORE that FR's own GATE1, so the Architecture
+    # Amendment Protocol sees the module the FR just wrote. That one is not
+    # a repeat — it is the point.
+    FR_LOOP_PHASES = (4, 5, 7, 8)
+
+    def test_amend_sab_appears_once_per_generated_workflow(self):
+        for phase in self.FR_LOOP_PHASES:
+            text = generate(phase)
+            assert text.count("amend-sab") == 1, (
+                f"phase{phase} generates {text.count('amend-sab')} amend-sab "
+                f"mentions; it is project-wide and idempotent, so exactly one "
+                f"belongs in the whole workflow"
+            )
+
+    def test_orch_post_label_is_not_fr_scoped(self):
+        for phase in self.FR_LOOP_PHASES:
+            text = generate(phase)
+            assert "label: 'orch-post'" in text
+            assert "'orch-post-' +" not in text, (
+                f"phase{phase} still builds a per-FR orch-post label — that "
+                f"shape is one dispatch per FR"
+            )
+
+    def test_spec_coverage_still_runs_per_fr(self):
+        # The dispatch count dropped; the information must not. The single
+        # agent iterates gate1Pass in a bash loop.
+        for phase in self.FR_LOOP_PHASES:
+            text = generate(phase)
+            assert "for FR in ' + gate1Pass.join(' ') + '" in text, (
+                f"phase{phase} lost the per-FR spec-coverage loop — collapsing "
+                f"the dispatch must not collapse the coverage checks"
+            )
+            assert "--fr-id $FR" in text

@@ -65,4 +65,8 @@ def test_sim_testbed_passes():
     # Floor raised 21 -> 33 by Round 18 站4, which added 13 scenarios: the
     # Gate 2/3/4 PASS semantics (4 per exit gate x 3 gates) that render_gate_
     # loop had zero coverage for, plus the P2 peer-review approval log.
-    assert int(m.group(1)) >= 33, f"sim suite shrank: only {m.group(1)} passing tests (floor 33)"
+    # 33 -> 41 by Round 22 站1: 2 scenarios x 4 FR-loop phases pinning that
+    # ORCH-POST costs one dispatch per phase, not one per FR, and that the
+    # total dispatch count is identical at 5 and 20 FRs. Every prior scenario
+    # ran a single FR, so a per-FR dispatch cost was invisible here.
+    assert int(m.group(1)) >= 41, f"sim suite shrank: only {m.group(1)} passing tests (floor 41)"

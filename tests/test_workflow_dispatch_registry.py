@@ -130,8 +130,10 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^(sync|sync-retry|sync-push|sync-handover-note)$", "mixed", "text-token",
      "git push origin main; /SYNC:\\s*PASS/ prose — hardening candidate "
      "(a git-log proxy carrier would be canonical)"),
-    (r"^orch-post-$", "mixed", "none",
-     "spec-coverage-check + amend-sab fire-and-report (40% advisory floor)"),
+    (r"^orch-post$", "mixed", "none",
+     "spec-coverage-check (per FR, in-prompt bash loop) + one project-wide "
+     "amend-sab; fire-and-report (40% advisory floor). Round 22 站1 collapsed "
+     "this from one dispatch per FR to one per phase"),
     (r"^artifacts-commit$", "carrier", "none",
      "single fixed git add+commit command (|| true); 'nothing to commit' "
      "is a valid outcome, so no verdict gate by design"),

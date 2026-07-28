@@ -321,3 +321,56 @@ test('phase2 peer review: an approved review actually logs PASS', async () => {
     'escalation_action=approve must set peerReviewPassed — otherwise the run '
     + 'log claims no approval happened while the workflow proceeds as if it did')
 })
+
+// ---- 8. dispatch cost is decoupled from FR count (Round 22 站1) ------------
+// ORCH-POST used to render INSIDE both FR loops, so an N-FR phase spent N
+// sub-agent dispatches on a step whose second command (`amend-sab`) takes no
+// --fr-id and is idempotent by construction. Measured before the fix, on the
+// same testbed: P4 21 dispatches at 5 FRs vs 36 at 20; P5/P7/P8 18 vs 33 —
+// i.e. every extra FR cost exactly one extra dispatch. The per-FR INFORMATION
+// is unchanged (spec-coverage-check still runs once per FR, in a bash loop
+// inside the single agent); only the dispatch count moved.
+const FR_LOOP_PHASES = [
+  'phase4-testing.js',
+  'phase5-verification.js',
+  'phase7-risk.js',
+  'phase8-config.js',
+]
+
+function frIds(n) {
+  return Array.from({ length: n }, (_, i) => `FR-${String(i + 1).padStart(2, '0')}`)
+}
+
+/** All FRs fast-path PASS — the branch an established project actually takes. */
+function fastPassOverrides(n) {
+  const ids = frIds(n)
+  return [
+    { match: /^load-ctx/, respond: { fr_ids: ids, fr_count: n } },
+    { match: /^delta-fastpath$/, respond: { pass_fr_ids: ids, fail_fr_ids: [] } },
+    ...happyOverrides(),
+  ]
+}
+
+for (const name of FR_LOOP_PHASES) {
+  test(`${name}: ORCH-POST dispatches once per phase, not once per FR`, async () => {
+    for (const n of [5, 20]) {
+      const { result, events } = await runWorkflow(WF(name), makeHappyResponder(fastPassOverrides(n)))
+      assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+      const orch = events.agents.filter((a) => a.label === 'orch-post')
+      assert.equal(orch.length, 1,
+        `${n} FRs must still cost exactly ONE orch-post dispatch (got ${orch.length})`)
+    }
+  })
+
+  test(`${name}: total dispatch count does not grow with the FR count`, async () => {
+    const counts = []
+    for (const n of [5, 20]) {
+      const { result, events } = await runWorkflow(WF(name), makeHappyResponder(fastPassOverrides(n)))
+      assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+      counts.push(events.agents.length)
+    }
+    assert.equal(counts[0], counts[1],
+      `5 FRs and 20 FRs must cost the same number of dispatches on the fast path `
+      + `(got ${counts[0]} vs ${counts[1]}) — a difference means something is back inside the FR loop`)
+  })
+}

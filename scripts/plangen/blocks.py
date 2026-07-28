@@ -958,6 +958,27 @@ def _fr_carryforward_steps(fr_id: str, phase: int) -> List[str]:
         "- **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
         "  ```bash",
         f"  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {fr_id}",
+        "  ```",
+        "",
+    ]
+
+
+def _orch_post_once_step() -> List[str]:
+    """Project-wide ORCH-POST tail — runs ONCE after the whole FR loop.
+
+    Round 22 站1: `amend-sab` used to sit inside the per-FR ORCH-POST marker,
+    so an N-FR phase ran it N times. It takes no `--fr-id` at all
+    (cli/project_cmds.py::cmd_amend_sab) and is idempotent by construction
+    (core/quality_gate/sab_amender.amend_sab — "running twice adds nothing on
+    the second call"), so every call after the first re-asked the same
+    project-wide question. The workflow JS side collapsed the same way
+    (scripts/workflowgen/js_blocks.py::render_per_fr_delta); plan and JS must
+    stay in step, so both moved in one commit.
+    """
+    return [
+        "- **[ORCH-POST-ONCE]** After the FR loop completes — project-wide, runs ONCE",
+        "  (takes no `--fr-id`; re-running adds nothing):",
+        "  ```bash",
         "  python3 harness_cli.py amend-sab --project .",
         "  ```",
         "",
@@ -1206,7 +1227,6 @@ def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | Non
             "- **[ORCH-POST]** After GATE1-DELTA PASS — orchestrator runs directly:",
             "  ```bash",
             "  python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id {FR-ID}",
-            "  python3 harness_cli.py amend-sab --project .",
             "  ```",
         ]
     else:
@@ -1261,6 +1281,7 @@ def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | Non
         "",
         "---",
         "",
+        *(_orch_post_once_step() if use_carryforward else []),
     ]
 
 

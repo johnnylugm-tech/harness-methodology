@@ -474,20 +474,33 @@ def render_per_fr_delta(
         f"    'YOU ARE THE {verifier_role} for ' + frId + '. Re-evaluate Gate 1 for THIS ONE FR.\\n'\n"
     )
 
-    def _orch_post(indent: str, fr_expr: str) -> str:
-        # ORCH-POST (plan marker, every FR-loop phase — 3/4/5/7/8): fire-and-
+    def _orch_post() -> str:
+        # ORCH-POST (plan marker, every FR-loop phase — 4/5/7/8): fire-and-
         # report, no verdict gate — mirrors Artifacts Commit's style. The 40%
         # threshold is an early-warning floor, not a blocking gate like Gate
         # 3/4's ≥80/90%, so a low score here doesn't fail the phase.
+        #
+        # Round 22 站1: this used to render INSIDE both FR loops — one full
+        # sub-agent dispatch per FR. Its second command, `amend-sab`, has no
+        # --fr-id parameter at all (cli/project_cmds.py::cmd_amend_sab) and is
+        # idempotent by construction (core/quality_gate/sab_amender.amend_sab:
+        # "Idempotent: running twice adds nothing on the second call"), so N-1
+        # of those N dispatches asked the same project-wide question again.
+        # taskq's 5-FR run left 35 `tool:amend-sab` rows in sessions_spawn.log.
+        # The per-FR INFORMATION is preserved — spec-coverage-check still runs
+        # once per FR, in a bash loop inside this single agent; only the
+        # dispatch count is decoupled from the FR count.
         return (
-            f"{indent}await agent(\n"
-            f"{indent}  'Run EXACTLY these two commands via the Bash tool, in order:\\n'\n"
-            f"{indent}  + '`' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + {fr_expr} + '`\\n'\n"
-            f"{indent}  + '`' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '`\\n\\n'\n"
-            f"{indent}  + 'Report the verbatim stdout/stderr of both commands.\\n\\n'\n"
-            f"{indent}  + 'SCOPE RULES:\\n- ONLY the two commands above.\\n- DO NOT modify harness/.',\n"
-            f"{indent}  {{ label: 'orch-post-' + {fr_expr}, phase: 'Per-FR Delta', agentType: 'general-purpose' }},\n"
-            f"{indent})\n"
+            "if (gate1Pass.length) {\n"
+            "  await agent(\n"
+            "    'Run these commands via the Bash tool, in order. Report the verbatim stdout/stderr of ALL of them.\\n'\n"
+            "    + '1. Per-FR spec coverage — run for EVERY id in the list, and do NOT stop early on a nonzero exit (each `|| true` keeps the loop going; a below-threshold FR is an early warning to report, not a reason to abort):\\n'\n"
+            "    + '`for FR in ' + gate1Pass.join(' ') + '; do ' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id $FR || true; done`\\n'\n"
+            "    + '2. `' + PY + ' ' + REPO + '/harness_cli.py amend-sab --project ' + REPO + '` (project-wide, runs ONCE — it takes no --fr-id)\\n\\n'\n"
+            "    + 'SCOPE RULES:\\n- ONLY the two commands above.\\n- DO NOT modify harness/.',\n"
+            "    { label: 'orch-post', phase: 'Per-FR Delta', agentType: 'general-purpose' },\n"
+            "  )\n"
+            "}\n"
         )
 
     return (
@@ -525,7 +538,6 @@ def render_per_fr_delta(
         + "  for (const fr of fastPassed) {\n"
         + "    gate1Pass.push(fr)\n"
         + f"    log('  ' + fr + ' GATE1-DELTA fast-path PASS [manifest qc + p{phase} timestamp] — full DELTA skipped')\n"
-        + _orch_post("    ", "fr")
         + "  }\n"
         + "  deltaTodo = frIds.filter((f) => !fastPassed.includes(f))\n"
         + "} else {\n"
@@ -575,13 +587,13 @@ def render_per_fr_delta(
         + "  const passed = String((verdict && verdict.reason) || '').trim().startsWith('GATE1_VERIFIED_PASS')\n"
         + "  if (passed) {\n"
         + "    gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')\n"
-        + _orch_post("    ", "frId")
         + "  } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
         + mid_milestone_step
         + "}\n"
         + "if (gate1Fail.length) {\n"
         + f"  return {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }}\n"
         + "}\n"
+        + _orch_post()
     )
 
 
