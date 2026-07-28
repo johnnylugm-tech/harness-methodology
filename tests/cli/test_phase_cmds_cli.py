@@ -33,6 +33,9 @@ class TestVerifyEntryGate:
         approvals = project / ".methodology" / "agent_b_approvals"
         approvals.mkdir(parents=True, exist_ok=True)
         docs = _REQUIRED_EMBEDDED_DOCS.get(phase, ["SRS.md"])
+        # Round 24 站2c: an APPROVE's citations must resolve to a real position,
+        # so the fixture creates the file it cites.
+        (project / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         for did in _PHASE_DELIVERABLES.get(phase, []):
             (approvals / f"{did}.json").write_text(json.dumps({
                 "fr": did, "review_status": status,
@@ -536,6 +539,8 @@ class TestAdvancePreChecksAgentB:
 
         # Also need TEST_INVENTORY.yaml for checksum step
         (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        # Round 24 站2c: the cited position must exist.
+        (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE"}))
         self._mock_p1_prechecks(monkeypatch)
         rc = _advance_prechecks(tmp_path, completed_phase=1)
@@ -561,6 +566,8 @@ class TestAdvancePreChecksAgentB:
             )
 
         (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        # Round 24 站2c: the cited position must exist.
+        (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         # Stale/False — must NOT leak into STAGE_PASS.md now that truth_override wins.
         (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE", "phase_truth_passed": False}))
         self._mock_p1_prechecks(monkeypatch)
@@ -701,6 +708,8 @@ class TestAdvancePreChecksAgentB:
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)
         req_docs = _REQUIRED_EMBEDDED_DOCS[6]
+        # Round 24 站2c: _p6_approval cites QUALITY_REPORT.md:1 — it must exist.
+        (tmp_path / "QUALITY_REPORT.md").write_text("fixture line 1\n", encoding="utf-8")
         for did in _PHASE_DELIVERABLES[6]:
             (approvals_dir / f"{did}.json").write_text(
                 self._p6_approval(req_docs), encoding="utf-8"

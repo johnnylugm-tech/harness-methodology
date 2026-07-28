@@ -186,6 +186,9 @@ class TestVerifyAgentBApprovals:
         assert "FR-01" in out or "Missing" in out
 
     def test_all_approved_returns_0(self, tmp_path):
+        # Round 24 站2c: citations must resolve to a real position, so the
+        # fixture creates the file it cites.
+        (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         methodology = tmp_path / ".methodology"
         methodology.mkdir()
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
@@ -264,6 +267,9 @@ class TestVerifyAgentBApprovals:
         assert rc == 1
 
     def test_reads_fr_ids_from_manifest(self, tmp_path):
+        # Round 24 站2c: citations must resolve to a real position, so the
+        # fixture creates the file it cites.
+        (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         methodology = tmp_path / ".methodology"
         methodology.mkdir()
         (methodology / "quality_manifest.json").write_text(
@@ -283,6 +289,9 @@ class TestVerifyAgentBApprovals:
         assert rc == 0
 
     def test_p2_uses_phase_deliverables_not_fr_ids(self, tmp_path):
+        # Round 24 站2c: citations must resolve to a real position, so the
+        # fixture creates the file it cites.
+        (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         """Phase 2 must verify SAD.md/ADR.md/TEST_SPEC.md approvals; --fr-ids must be ignored."""
         approvals_dir = tmp_path / ".methodology" / "agent_b_approvals"
         approvals_dir.mkdir(parents=True)

@@ -31,6 +31,9 @@ from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate import env_contract
 from core.quality_gate import gate1_evidence
 from core.quality_gate.block_reason import derive_block_reasons
+from core.quality_gate.quality_report_verify import verify_quality_report
+from core.degradation_ledger import record_degradation
+from cli.exit_codes import EX_HARNESS_BUG
 from core.quality_gate.da_waiver import WAIVABLE_DIMENSIONS
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
@@ -2119,17 +2122,11 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             # A1-2026-07-07: helper hoisted to module-scope `load_harness_script`
             # (see top of file) so `_run_phase_auditor` and `cmd_audit_phase`
             # share the same code path; this inline definition is removed.
-            try:
-                _qreport_mod = load_harness_script("generate_quality_report.py")
-                _qreport_mod.generate_quality_report(str(Path(args.project).resolve()))
-            except Exception as _qre:
-                print(f"  [WARN] QUALITY_REPORT.md generation skipped: {_qre}")
-
-            try:
-                _rnotes_mod = load_harness_script("generate_release_notes.py")
-                _rnotes_mod.generate_release_notes(str(Path(args.project).resolve()))
-            except Exception as _rne:
-                print(f"  [WARN] RELEASE_NOTES.md generation skipped: {_rne}")
+            _deliverable_rc = _generate_gate4_deliverables(
+                Path(args.project).resolve(), args.phase
+            )
+            if _deliverable_rc is not None:
+                return _deliverable_rc
 
         # ── CRG cross-phase baseline: snapshot metrics for the next exit gate ──
         _project_path = Path(args.project).resolve()
@@ -2286,6 +2283,74 @@ def _update_state_checkpoint(
         if gate_num == EXIT_GATE_MAP.get(_current_phase):
             existing["phase_truth_passed"] = True
         atomic_write_json(state_path, existing)
+
+_GATE4_DELIVERABLES: tuple[tuple[str, str, str], ...] = (
+    ("generate_quality_report.py", "generate_quality_report", "QUALITY_REPORT.md"),
+    ("generate_release_notes.py", "generate_release_notes", "RELEASE_NOTES.md"),
+)
+
+
+def _generate_gate4_deliverables(project: Path, phase: int) -> int | None:
+    """Render Gate 4's deliverables; return an exit code if the gate must fail.
+
+    Round 24 站2a. Both generators used to be wrapped in
+    `except Exception: print("[WARN] ... skipped")`, so Gate 4 passed with a
+    deliverable missing. In the run-all-by-workflow P1-P8 validation run the
+    agent filled that gap itself: it copied gate4_result.json to a temp
+    workdir, rewrote `mutation_testing: {score: null}` to `0`, re-ran the
+    script, and committed a QUALITY_REPORT.md containing a fabricated
+    "Mutation Testing | 0/100 | ✗ FAIL". A required artifact that silently
+    does not exist is an invitation to hand-make one.
+
+    A generator crash is a harness defect, so it exits EX_HARNESS_BUG — Round
+    13 站2a routing keeps it out of a CODE-FIX round against the project.
+
+    Returns None when the gate may proceed.
+
+    Loaded by absolute file path (scripts/ lives under the harness submodule,
+    not the consumer project) — bug fix P6-2026-07-07, hoisted to
+    load_harness_script by A1-2026-07-07.
+    """
+    for script, fn_name, artifact in _GATE4_DELIVERABLES:
+        try:
+            mod = load_harness_script(script)
+            getattr(mod, fn_name)(str(project))
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            record_degradation(
+                project, "finalize-gate",
+                f"{artifact} generation failed", f"{type(exc).__name__}: {exc}",
+            )
+            print(
+                f"\n[BLOCKED] finalize-gate: Gate 4 deliverable {artifact} could not be "
+                f"generated.\n"
+                f"  Detected: {type(exc).__name__}: {exc}\n"
+                f"  This is a harness defect (scripts/{script}), NOT a project quality "
+                f"failure — do not open a code-fix round against the project.\n"
+                f"  Do NOT hand-write {artifact} to fill the gap: finalize-gate is its sole "
+                f"author, and a hand-made copy is not backed by the gate result.\n"
+                f"  Fix the generator, then re-run:\n"
+                f"    python3 harness_cli.py finalize-gate --gate 4 --phase {phase} "
+                f"--project {project}\n"
+                f"  File it with: python3 harness_cli.py crash-triage --open-cr "
+                f"--project {project}"
+            )
+            return EX_HARNESS_BUG
+
+    # Round 24 站2b: the report must agree with the gate result it renders.
+    violations = verify_quality_report(project)
+    if violations:
+        print(
+            "\n[BLOCKED] finalize-gate: QUALITY_REPORT.md disagrees with the gate result "
+            "it claims to render.\n"
+            + "".join(f"  • {v}\n" for v in violations)
+            + "  finalize-gate is this file's sole author. Do not hand-edit it — re-run "
+            "finalize-gate so it re-renders from the gate result.\n"
+            f"    python3 harness_cli.py finalize-gate --gate 4 --phase {phase} "
+            f"--project {project}"
+        )
+        return 1
+    return None
+
 
 def _format_block_diagnostic(
     exc: "GateBlockedError",

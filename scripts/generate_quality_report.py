@@ -55,23 +55,16 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _find_latest_gate_result(project: Path) -> tuple[int, dict[str, Any]]:
     """Find the highest-numbered gate result file in .methodology/ or .sessi-work/.
 
-    .methodology/ is searched first: finalize-gate copies the gate result there and
-    patches composite_score/verdict with the harness-computed values, so it is the
-    committable source of truth. The .sessi-work/ copy is ephemeral and carries the
-    agent's own unpatched self-assessment — reading it first produced the 0/100
-    placeholder QUALITY_REPORT.
+    Round 24 站2b: the search order lives in
+    core.quality_gate.quality_report_verify.find_latest_gate_result, because the
+    verifier that checks this report has to read the SAME authority the renderer
+    read — two copies of "which gate result wins" would make the guard argue with
+    the renderer instead of with the report. Kept as a thin alias so this module's
+    existing callers and tests are unaffected.
     """
-    search_dirs = [project / ".methodology", project / ".sessi-work"]
-    
-    for gate_num in (4, 3, 2, 1):
-        for d in search_dirs:
-            if not d.is_dir():
-                continue
-            result_path = d / f"gate{gate_num}_result.json"
-            data = _load_json(result_path)
-            if data:
-                return gate_num, data
-    return 0, {}
+    from core.quality_gate.quality_report_verify import find_latest_gate_result
+
+    return find_latest_gate_result(project)
 
 
 def _build_dimension_table(gate_result: dict[str, Any],
