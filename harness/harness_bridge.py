@@ -682,14 +682,26 @@ def _crg_enrich_gate_findings(
 # Round 12 站3b — infra-failure signatures inside a dimension's evidence.
 # When run-gate's PRECONDITIONS block (SAB phantom/unregistered modules,
 # manifest corruption), the gate evaluator agent used to follow its STOP
-# RULE and record score=0 with the BLOCK text as tool_evidence — turning
-# an infrastructure failure into a fake quality-zero that entered the
-# manifest and steered CODE-FIX agents at healthy code (2026-07-16 P3:
-# three dimensions uniformly zeroed by a taskq.storage.store phantom
-# block; the fixer only escaped by re-diagnosing from scratch).
+# Round N (2026-07): tighten the INFRA-fail signature registry. The old
+# list contained `[BLOCKED] run-gate` — a generic run-gate prefix that
+# appears not only on real INFRA failures (SAB phantom blocks) but also
+# in any context where a sub-agent mentions or quotes gate1 output that
+# contained that string. The classic false positive (taskq-plus FR-05 P3
+# 2026-07): a workflow sub-agent reading its own GATE1 log and quoting
+# the `[BLOCKED] run-gate` line in its report caused
+# `_classify_infra_or_harness_bug` to mark the dispatch as INFRA and
+# `_abort_dispatch_infra_or_harness_bug` to escalate to human — discarding
+# a real Gate 1 PASS verdict (8/8 dimensions had evaluated and PASSed
+# via the direct CLI). The remaining four signatures are specific to the
+# Architecture Amendment Protocol pathway — they cannot appear in
+# incidental context because the wording is framework-internal to
+# harness-methodology. The original 2026-07-16 incident (three dimensions
+# uniformly zeroed by a taskq.storage.store phantom block) is still
+# caught: the dimensions' evidence carried both
+# "Architecture Amendment Protocol violation" AND
+# "Unregistered modules detected" — both retained signatures.
 _INFRA_FAIL_EVIDENCE_SIGNATURES = (
-    "[BLOCKED] run-gate",
-    "Architecture Amendment Protocol",
+    "Architecture Amendment Protocol violation",
     "Unregistered modules detected",
     "phantom module",
     "Phantom modules",
@@ -704,6 +716,20 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
     the manifest as a quality zero poisons scoring history and dispatches
     code fixers at a non-code problem. Detect and reject the result
     outright so finalize-gate FATALs with an infra diagnosis instead.
+
+    Round N: partial-pollution carve-out. If at least ONE evaluated dimension
+    produced a real (non-zero) score with non-INFRA-pollution evidence, the
+    run-gate DID execute end-to-end; the other dimensions' INFRA-block
+    zeros are partial pollution (one SAB-phantom dimension aborts the run
+    while the rest still score normally) and the whole verdict must NOT
+    be blanket-rejected. The per-dim diagnostic message still surfaces via
+    the partial-pollution diagnostics list so operators see the affected
+    dimensions, but `finalize-gate` proceeds with the real PASS record for
+    the cleanly-evaluated dimensions. Incident: taskq-plus FR-05 P3 (2026-07)
+    — GATE1 hit `[BLOCKED] run-gate` for the SAB phantom dimension while
+    7/8 other dimensions evaluated normally; blanket rejection discarded
+    a real Gate 1 PASS verdict and the workflow escalated to human on
+    false-positive grounds.
     """
     entries: list[tuple[str, float | None, str]] = []
     breakdown = raw.get("breakdown")
@@ -716,19 +742,46 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
         if isinstance(row, dict):
             _ev = " ".join(str(row.get(k, "")) for k in ("tool_evidence", "evidence"))
             entries.append((str(row.get("name", "?")), row.get("score"), _ev))
+    # Partial-pollution carve-out: at least one dimension passed cleanly
+    # (non-zero score AND its evidence contains no INFRA-fail signature).
+    # When present, the gate DID run end-to-end — accept the verdict and
+    # surface partial-pollution info via diagnostics rather than rejecting.
+    has_real_pass = any(
+        (score not in (0, 0.0, None))
+        and not any(sig in (evidence or "") for sig in _INFRA_FAIL_EVIDENCE_SIGNATURES)
+        for _, score, evidence in entries
+    )
     violations: list[str] = []
+    partial_diagnostics: list[str] = []
     for dim, score, evidence in entries:
         if not evidence:
             continue
         matched = [sig for sig in _INFRA_FAIL_EVIDENCE_SIGNATURES if sig in evidence]
         if matched and (score in (0, 0.0, None)):
-            violations.append(
+            msg = (
                 f"dimension {dim!r}: score={score} with run-gate PRECONDITION-block "
                 f"evidence ({matched[0]!r}) — this is an INFRA failure, not a quality "
                 f"measurement. Do NOT dispatch code fixes for it. Fix the precondition "
                 f"run-gate reported (SAB phantom/unregistered module, manifest state), "
                 f"re-run run-gate until its preconditions pass, then re-evaluate."
             )
+            if has_real_pass:
+                # Partial pollution — surface per-dim info but accept the whole verdict.
+                partial_diagnostics.append(msg)
+            else:
+                # Whole-gate pollution — reject so finalize-gate FATALs with infra dx.
+                violations.append(msg)
+    # Attach partial diagnostics as a marker suffix so callers can still surface
+    # them without treating them as blockers. The first violation (if any) carries
+    # the diagnostics block; if no violations, append a synthetic diagnostic-only
+    # entry prefixed with "[partial-pollution]" so it's distinguishable from the
+    # whole-gate rejections (operators looking at finalize-gate output).
+    if partial_diagnostics and not violations:
+        violations.append(
+            "[partial-pollution] " + " | ".join(partial_diagnostics)
+            + " — accepted (at least one dimension PASSed cleanly); fix the "
+            "SAB/manifest preconditions and re-run to clear the partial-pollution marker."
+        )
     return violations
 
 

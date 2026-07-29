@@ -64,7 +64,9 @@ class TestInfraFailPollution:
         """Gate 2+ results use a dimensions list, not a breakdown dict."""
         raw = _result(dimensions=[
             {"name": "architecture", "score": 0,
-             "tool_evidence": "[BLOCKED] run-gate: manifest corrupted"},
+             "tool_evidence":
+             "Architecture Amendment Protocol violation. "
+             "Unregistered modules detected: {'taskq.arch.phantom'}"},
         ])
         violations = _check_infra_fail_pollution(raw)
         assert len(violations) == 1
@@ -80,6 +82,64 @@ class TestInfraFailPollution:
         raw = _result(breakdown={"linting": "not-a-dict"},
                       dimensions=["also-not-a-dict"])
         assert _check_infra_fail_pollution(raw) == []
+
+    def test_partial_infra_pollution_passes_through(self):
+        """Round N: if at least ONE dimension PASSed cleanly while another is
+        INFRA-failed, the run-gate DID execute end-to-end. Blanket-rejecting
+        would discard a real PASS verdict (taskq-plus FR-05 P3 2026-07:
+        GATE1 hit `[BLOCKED] run-gate` for the SAB phantom dimension while
+        7/8 others scored normally; the blanked rejection escalated to human
+        on a false positive). Expect a diagnostic-prefixed marker so
+        operators still see the partial-pollution info, but no whole-gate
+        rejection (the verdict is accepted)."""
+        raw = _result(breakdown={
+            "linting": {"score": 95.0, "tool_evidence": "ruff clean"},
+            "type_safety": {"score": 0, "tool_evidence":
+                            "[BLOCKED] run-gate: Architecture Amendment Protocol violation."},
+        })
+        violations = _check_infra_fail_pollution(raw)
+        # Partial pollution: at least one clean PASS → accept verdict, surface
+        # diagnostic via the [partial-pollution] marker.
+        assert len(violations) == 1
+        assert violations[0].startswith("[partial-pollution]")
+        assert "type_safety" in violations[0]
+
+    def test_all_dims_infra_failed_whole_pollution_kept(self):
+        """Sanity check the partial-pollution carve-out does NOT weaken the
+        whole-gate INFRA-pollution rejection: when EVERY dimension is INFRA-
+        failed with no clean PASS counterpart, the original behaviour is
+        preserved (violations list reflects every affected dimension)."""
+        raw = _result(breakdown={
+            "linting": {"score": 0, "tool_evidence":
+                        "[BLOCKED] run-gate: Architecture Amendment Protocol "
+                        "violation. Unregistered modules detected: {'taskq.foo'}"},
+            "type_safety": {"score": 0, "tool_evidence":
+                            "[BLOCKED] run-gate: Architecture Amendment Protocol violation."},
+            "test_coverage": {"score": 0, "tool_evidence":
+                              "[BLOCKED] run-gate: SAB phantom module 'taskq.bar'"},
+        })
+        violations = _check_infra_fail_pollution(raw)
+        # 3 dims, 0 clean PASS → whole-gate pollution preserved
+        assert len(violations) == 3
+        assert not any(v.startswith("[partial-pollution]") for v in violations)
+
+    def test_partial_with_multiple_infra_dims(self):
+        """Multiple INFRA-failed dimensions + at least one clean PASS → still
+        accepted as partial pollution; the [partial-pollution] marker names
+        every affected dimension for operator visibility."""
+        raw = _result(breakdown={
+            "linting": {"score": 95.0, "tool_evidence": "ruff clean"},
+            "type_safety": {"score": 0, "tool_evidence":
+                            "[BLOCKED] run-gate: Architecture Amendment Protocol violation."},
+            "architecture": {"score": 0, "tool_evidence":
+                             "[BLOCKED] run-gate: phantom module 'taskq.baz'"},
+        })
+        violations = _check_infra_fail_pollution(raw)
+        assert len(violations) == 1
+        marker = violations[0]
+        assert marker.startswith("[partial-pollution]")
+        assert "type_safety" in marker
+        assert "architecture" in marker
 
 
 class TestCheckerEnforcementConfig:
