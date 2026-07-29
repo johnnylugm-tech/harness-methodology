@@ -66,14 +66,22 @@ single source: `harness/toolchains/registry.py`. Adding a language:
 * **零人類介入與極致品質 (Zero Human Intervention & 98.5 Benchmark)**：在 Workflow 模式下（如 `run-all-by-workflow` 實證），開發過程可實現 **全流程零人類介入 (0 次介入)**，從 Phase 1 到 Phase 8 自動貫穿，且最終軟體品質評分達到 **98.5/100** 的極致水準。僅在極端例外狀況下觸發 [SAD.md](SAD.md) §3.18 的 9 項升級條件時才需人工介入。
 * **零指令差錯與標準化**：封裝自動載入 Context、觸發 Preflight、派發 Agent A (Developer) / Agent B (Reviewer)、品質門禁與 Milestone Push，完全免除手動敲下數十條 CLI 指令的記憶負擔與誤操作。
 
-#### 啟動方式
+#### 啟動方式與規格
+
+| 項目 | 說明 / 路徑 |
+|------|------------|
+| **Workflow** | `harness/.claude/workflows/run-all.js` （或 `.claude/workflows/run-all.js`） |
+| **啟動方式** | **Workflow tool `scriptPath`（正規 dynamic workflow）** |
 
 ```bash
-# 一鍵全自動執行 Phase 1 ~ Phase 8
-claude -p "run workflow .claude/workflows/run-all.js"
+# 1. 透過 Workflow Tool (scriptPath) 啟動（推薦標準模式）
+Workflow({ scriptPath: 'harness/.claude/workflows/run-all.js' })
 
-# 或針對特定單一 Phase 進行流轉 (例如 Phase 3)
-claude -p "run workflow .claude/workflows/phase3-implementation.js"
+# 2. 或透過 CLI / Prompt 觸發
+claude -p "run workflow harness/.claude/workflows/run-all.js"
+
+# 3. 或針對特定單一 Phase 進行流轉 (例如 Phase 3)
+Workflow({ scriptPath: 'harness/.claude/workflows/phase3-implementation.js' })
 ```
 
 ---

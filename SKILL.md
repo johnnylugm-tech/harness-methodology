@@ -25,13 +25,18 @@ This framework supports two execution modes. **Claude Code Dynamic Workflow is t
 #### Mode 1: Claude Code Workflow Driven (PRIMARY / RECOMMENDED)
 Automates the end-to-end ASPICE pipeline via `.claude/workflows/*.js` scripts.
 
-* **Primary Trigger**:
-  ```bash
-  # Full Phase 1 to Phase 8 Automated Pipeline:
-  claude -p "run workflow .claude/workflows/run-all.js"
+* **Primary Launch Specification**:
+  | Item | Specification / Path |
+  |------|----------------------|
+  | **Workflow** | `harness/.claude/workflows/run-all.js` (or `.claude/workflows/run-all.js`) |
+  | **Launch Method** | **Workflow tool `scriptPath`（正規 dynamic workflow）** |
 
-  # Or single phase execution (e.g. Phase 3):
-  claude -p "run workflow .claude/workflows/phase3-implementation.js"
+  ```bash
+  # Standard Execution via Workflow Tool scriptPath:
+  Workflow({ scriptPath: 'harness/.claude/workflows/run-all.js' })
+
+  # Single phase execution (e.g. Phase 3):
+  Workflow({ scriptPath: 'harness/.claude/workflows/phase3-implementation.js' })
   ```
 * **Why Workflow Driven?**
   1. **Determinism (確定性控制流)**: Workflow JS enforces strict step-by-step logic, eliminating prompt drift or skipped quality gates by the LLM agent.
@@ -198,12 +203,12 @@ Before advancing to Phase N+1, confirm ALL:
 
 #### Primary: Claude Code Workflow Entry Points (Recommended)
 
-| Intent | Command |
-|--------|---------|
-| **Run Full Pipeline (P1–P8 Auto)** | `claude -p "run workflow .claude/workflows/run-all.js"` |
-| **Run Single Phase (e.g. Phase 3)** | `claude -p "run workflow .claude/workflows/phase3-implementation.js"` |
-| **Run Bug Hunt / CRG Audit** | `claude -p "run workflow .claude/workflows/bug-hunt-crg.js"` |
-| **Run Standalone Mutation Test** | `claude -p "run workflow .claude/workflows/standalone-mutmut.js"` |
+| Intent | Command / Launch Method |
+|--------|-------------------------|
+| **Run Full Pipeline (P1–P8 Auto)** | `Workflow({ scriptPath: 'harness/.claude/workflows/run-all.js' })` |
+| **Run Single Phase (e.g. Phase 3)** | `Workflow({ scriptPath: 'harness/.claude/workflows/phase3-implementation.js' })` |
+| **Run Bug Hunt / CRG Audit** | `Workflow({ scriptPath: 'harness/.claude/workflows/bug-hunt-crg.js' })` |
+| **Run Standalone Mutation Test** | `Workflow({ scriptPath: 'harness/.claude/workflows/standalone-mutmut.js' })` |
 
 ---
 
