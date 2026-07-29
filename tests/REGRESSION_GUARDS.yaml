@@ -507,3 +507,55 @@
 - test: tests/test_heartbeat.py::test_minutes_since_refuses_a_naive_timestamp
   bug: "a pre-migration naive timestamp has an unknown zone; guessing is what produced this round's own eight-hour misreading"
   fixed_in: "Round 24 站5a"
+
+- test: tests/test_test_suite_run_ssot.py::test_all_five_consumers_share_one_execution
+  bug: "one advance-phase ran the project's whole test suite five times in one process, seconds apart, with nothing changing between them (P3 prechecks 55.4s of which 53.7s was pytest; P1-P8 totalled 18 executions)"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_no_module_in_the_advance_path_builds_its_own_pytest_argv
+  bug: "four call sites each hand-rolled the pytest argv, so 'the project's tests' had three definitions and 'the project's source' two — the duplication was downstream of that"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_the_scanner_would_see_a_reintroduced_argv
+  bug: "negative control: an argv scanner that matches nothing proves nothing"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_a_source_edit_between_consumers_forces_a_fresh_run
+  bug: "the shared measurement spans a whole advance-phase; a change inside src/ or tests/ must not be served from the memo, or 'share one execution' becomes 'believe a stale verdict'"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_a_config_edit_also_forces_a_fresh_run
+  bug: "pyproject/.coveragerc/conftest change what the suite reports without any source or test file changing"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_writing_an_unrelated_document_does_not_force_a_rerun
+  bug: "advance-phase writes STAGE_PASS and TRACEABILITY_MATRIX while it runs; if those thrashed the memo the sharing would buy nothing"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_the_reported_coverage_is_exact_not_a_truncated_integer
+  bug: "coverage read from the `TOTAL ... n%` terminal line is truncated — honest for integer thresholds but reports 85.0% when the truth is 85.9%, and is over-strict against a fractional quality_manifest min_coverage"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_a_coveragerc_that_says_dot_does_not_win
+  bug: "with no .coveragerc, read_coveragerc_source returned '.', which pulled the harness's own harness_cli.py shim and conftest.py into the project's coverage denominator (95.98% measured against a project whose source is at 100%)"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_a_js_project_is_not_measured_here
+  bug: "R25-DEFER-1 boundary: js/ts is out of scope this round, so run_suite must decline rather than run pytest against a TypeScript tree — 'not fixing js' must not become 'breaking js'"
+  fixed_in: "Round 25 站1"
+
+- test: tests/test_advance_phase_pytest_scope.py::test_the_scoping_ssot_never_falls_back_to_the_project_root
+  bug: "two of the four old call sites fell back to test_target='.' when the layout directory was absent, which is Round 22's harness/tests collection bug from the other side; a first draft of test_suite_run reproduced it"
+  fixed_in: "Round 25 站1 (re-anchors the Round 22 guard)"
+
+- test: tests/test_enforcement.py::TestFrameworkEnforcer::test_a_coverage_xml_is_not_believed_over_the_code
+  bug: "check_coverage_threshold's coverage.xml fast path returned whatever line-rate it found, so a stale or hand-written XML outranked the actual code — it never fired in practice, but while it existed it was the Round 24 failure shape"
+  fixed_in: "Round 25 站1"
+
+- test: tests/cli/test_phase_cmds_cli.py::TestAdvancePrechecksSubtraction::test_no_network_call_for_submodule_drift
+  bug: "the submodule drift advisory was advance-phase's only network call — a git fetch on every phase transition for a non-blocking WARN, 60% of the wall time of a P1/P2 advance"
+  fixed_in: "Round 25 站3b"
+
+- test: tests/cli/test_phase_cmds_cli.py::TestAdvancePrechecksSubtraction::test_no_hardcoded_python_web_stack_advisory
+  bug: "the fastapi/httpx advisory fired unconditionally for every P3+ advance regardless of project or language and enforced nothing — it told a CLI job-queue tool to pip install fastapi six times"
+  fixed_in: "Round 25 站3a"

@@ -210,6 +210,26 @@ raise — it renders with a "no remediation registered, file with crash-triage"
 banner, because turning a gate block into a harness crash on the one path
 where the agent most needs information is strictly worse.
 
+## Exit 9 has two causes, and the message says which (Round 25)
+
+`_advance_prechecks` returns 9 for a test/coverage shortfall. Until Round 25
+that verdict was rendered by pytest itself (`--cov-fail-under=100`), so a red
+suite and a green suite at 99.9% produced the same nonzero exit and the same
+message. The comparison is now explicit, against the exact coverage percentage
+from the shared suite run, and the `[BLOCKED] TDD test/coverage failure` block
+names which of the two happened:
+
+```
+[BLOCKED] TDD test/coverage failure.
+  Tests did not pass (see output above).        <- red suite
+  Coverage 99.95% < 100%.                       <- green suite, short coverage
+```
+
+The pytest output itself is printed immediately above, so the failing test
+names are in front of the agent either way. Same exit code, because the
+remediation channel is the same (fix the project's tests); different first
+line, because the two are not the same problem.
+
 ## Exit codes
 
 Single source of truth: **`cli/exit_codes.py`'s `REGISTRY` dict.**

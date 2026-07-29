@@ -410,6 +410,36 @@ is no correct way for the harness to observe them — only fragile ones (reading
 the runtime's internal journal path). Recorded as a known boundary rather than
 closed with a workaround; see `docs/PROPOSAL_ADJUDICATIONS.md` Round 24.
 
+## advance-phase's cost model (Round 25)
+
+Measured on the run-all-by-workflow evidence project, warm caches, same tree,
+before and after Round 25:
+
+| completed | before | after | test-suite executions |
+|---|---|---|---|
+| 1 | 1.0s | **0.76s** | 0 → 0 |
+| 2 | 1.1s | **0.50s** | 0 → 0 |
+| 3 | 55.8s | **12.9s** | 5 → 1 |
+| 4 | 45.6s | **13.4s** | 5 → 1 |
+| 5 / 7 / 8 | 23.9s each | **~13.1s each** | 2 → 1 each |
+| **P1–P8 total** | **~187s** | **~78s** | **18 → 6** |
+
+Two facts worth keeping in view when reading these numbers:
+
+* **Essentially all of advance-phase's wall time is the test suite.** Every
+  non-test check in the command — manifest integrity, gate score variance,
+  ghost paper-trail, finalize sentinels, phase auditor, traceability regen, SAB
+  drift, spec-coverage, gitleaks, ruff, mypy, STAGE_PASS — sums to about **2
+  seconds**. Proposals to speed advance-phase up by removing checks are
+  optimising a 2-second budget; the 185 seconds were one suite run counted five
+  times over.
+* **The suite now runs at the first consumer that needs it**, not at a fixed
+  point. At P3 that is the Gate 1 live-coverage check; at P5–P8 it is Phase
+  Truth's framework block. Every later consumer reads the same measurement.
+  `core.quality_gate.test_suite_run.run_suite` is the only place it executes;
+  the memo is per-process, with a content fingerprint over source, tests and
+  test configuration as a tripwire so a mid-run edit cannot be served stale.
+
 ## What this round deliberately did not build
 
 - A global structured (JSON) logger, or a `print`→`logging` migration.

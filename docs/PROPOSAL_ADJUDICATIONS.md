@@ -287,3 +287,119 @@ R21-D′ 寫「grep 全 repo:`gate_score_overrides` 只在 `sab_parser.py` 產�
 本輪根因判斷來自 n=1。真正的檢驗是**下一次 live E2E 現場修的 harness bug 數是否下降**
 (本次為 3:`c7a9d9b` 乾淨環境依賴、`5467049` null-score crash、`68209a9` Gate 2+ null-score block)。
 若不降,則「同源驗證失效」的判斷需要修正為「E2E 頻率不足」。
+
+---
+
+## Round 25 — advance-phase 減法：一次量測，多方判定
+
+老闆令：「針對 advance-phase 進行減法工程 …… 前提：不影響每個階段的最終產出物，
+以及產出物的品質」。盤點 37 項任務後，實測推翻了「檢查太多」這個直覺。
+
+### 量測（run-all-by-workflow 副本，warm cache）
+
+| completed | prechecks | 測試套件執行次數 | pytest 佔耗時 |
+|---|---|---|---|
+| 1 / 2 | 1.0s / 1.1s | 0 | — |
+| 3 | **55.8s** | **5** | 97% |
+| 4 | **45.6s** | **5** | 96% |
+| 5 / 6 / 7 / 8 | 23.9s each | **2** each | 92% |
+
+P1→P8 一輪成功路徑：**18 次全套測試執行、約 187 秒**。所有非測試檢查加起來約 **2 秒**。
+
+### 根因
+
+**不是「檢查太多」，是「執行一次測試」沒有單一實作。** 四個站點各自手刻 pytest argv：
+
+| 站點 | test target | cov target |
+|---|---|---|
+| `gate1_evidence.validate_fr_coverage_immediate` | **無**（靠 pytest rootdir） | `active_src_dir` |
+| `enforcement/framework_enforcer.check_coverage_threshold` | 硬編探測三層 | `.coveragerc` 或 `"."` |
+| `phase_truth_verifier.check_pytest` / `.check_coverage` | `active_test_dir` | `.coveragerc` 或 `"."` |
+| `cli/phase_cmds._advance_prechecks` TDD 區塊 | `active_test_dir` | `src_dir.relative_to` |
+
+P3 的第五條（全綠 + 100%）**邏輯上蘊涵**前四條（全綠、≥70、≥80），且五條在同一
+process 內數秒之隔。
+
+**Round 22 修過其中一個。** `tests/test_advance_phase_pytest_scope.py` 記載其根因
+（harness/ 是 vendored submodule，裸 pytest 會把 `harness/tests/*` 掃進來）。
+`gate1_evidence` 的同形兄弟至今仍是裸呼叫。後果落到真實專案：run-all-by-workflow
+`00e732e` 在 P4 中途手改自己的 `pyproject.toml` 加 `testpaths`/`norecursedirs`
+（commit message 自述「pytest discovered the entire tree including harness/tests/*
+which crashes during collection」），同檔的 `[tool.mypy] exclude = ["^harness/"]`
+是 `mypy .` 逼出的第二個同類補丁。**專案在替框架缺失的 SSOT 打補丁。**
+
+### 裁決
+
+| 代號 | 主張 | 裁決 | 依據 / 實作 |
+|---|---|---|---|
+| R25-1 | 一次 advance-phase 跑五次同一套測試 | **採納，活傷口** | `core/quality_gate/test_suite_run.py` 成為唯一執行點；量測與判定分離，門檻與 exit code 全部不變 |
+| R25-1b | `coverage.xml` fast path 從未命中且讀產物非真值 | **採納，刪除** | 三個消費專案都沒有 coverage.xml；harness 自己的 gate 產出的是 coverage.json。守衛：85% 的 XML 不得產生 passing 85% |
+| R25-1c | 四種 timeout（含 TDD 區塊「沒有 timeout」） | **採納，統一** | `suite_timeout()`。無上限的套件在無人值守執行裡就是沒有上界的停滯（R24 站5a 的同一類） |
+| R25-3a | fastapi/httpx 建議 | **採納，刪除** | 無條件、硬編 Python web stack、WARN-only。本次執行對一個 CLI 佇列工具喊了 6 次 |
+| R25-3b | submodule drift 建議 | **採納，搬到 doctor** | advance-phase 唯一的網路呼叫；佔 P1/P2 全程 60%；阻擋為零 |
+| **R25-2** | **最嚴判定前置** | **自我證偽，不做** | 見下 |
+| R25-2b | block_reason 新增 `test_suite_failed` key | **分類錯誤，不做** | 該 registry 服務 `harness_bridge` 的 `GateBlockedError.details`；advance-phase 從不 raise 它，加 key 等於死碼 |
+| **R25-DEFER-1** | **JS/TS 分支** | **老闆裁定本輪不碰** | 見下 |
+
+### R25-2：我自己的提案被站1 消解
+
+計畫寫「最嚴的 `--cov-fail-under=100` 排在最後，前面已經燒掉 4 次弱判定 → 前置後
+失敗路徑 P3 從 55.4s 降到 ~11s」。**站1 落地後這個前提不再成立**：memo 讓套件在
+最早的消費者（P3 是 gate1_live_cov，P5+ 是 phase_truth 的 framework block）就執行，
+昂貴的部分本來就已經很早。重排最多省 **~2.4s**（P5 全程 13.2s 減去套件 10.8s），
+而且會改變多重失敗時回傳哪一個 exit code。**收益 2 秒、代價是動到 exit code 優先序 —— 不做。**
+
+形狀與 R23 的 C4/C5 相同：提案的前提在實作過程中被自己的前一站證偽。
+
+### R25-DEFER-1：JS/TS 分支
+
+TDD 區塊無語言守衛。站0 實測確認：js/ts 專案在 P3+ 跑 `pytest <ts 測試目錄>` →
+`--cov-fail-under=100` 把「no tests ran」轉成 rc=1 → **exit 9，永久 BLOCKED**。
+目前**無 js/ts 消費專案可觀察**（taskq / integration-test / run-all-by-workflow 皆 python），
+所以這是純讀碼 + tmp 專案實證的推論。**老闆裁定本輪只查證不修。**
+
+`run_suite` 對非 python 專案直接回傳「未量測」而不執行任何東西，所以本輪不會讓它更糟。
+re-open：出現第一個 js/ts 消費專案，或老闆指示。
+
+### 站0 的一項自我證偽
+
+計畫把「`TOTAL … n%` regex 會把 99.6% 讀成 100 → 靜默降標」列為阻擋性前提。**實測證偽**：
+coverage.py 的 term 報表**截斷**且**永不在未達 100% 時印 100%**（99.95% 仍印 `99%`），
+而對整數門檻 `floor(x) >= T ⟺ x >= T` 是恆等的 —— 70/80/100 三個門檻下 regex 與
+精確值**判定完全一致**，截斷只會更嚴不會更鬆。
+
+改讀 coverage 的 JSON `totals.percent_covered` 仍然做，但理由降級為：誠實診斷
+（`85.9%` 而非 `85.0%`）+ 對非整數 `min_coverage` 不過嚴。三個消費專案的
+`min_coverage` 都是整數（80/90/80），所以這是預防性的，不是活傷口。
+
+### 對「workflow 確定性 ⇒ 可取消」的裁決
+
+**因 workflow 確定性而可取消的檢查，數量為零。** 確定性保證的是**順序**
+（workflow JS 是程式碼不是提示詞），不保證**內容**（每一步仍是 LLM agent）。
+防「漏跑／順序錯」的檢查只有 next-phase plan 存在性一項，成本 0 秒，且 R22 站2 的
+方向是把檢查**收進** advance-phase（因為人手跑沒有等價步驟）。
+唯一因確定性可動的是**執行位置**，不是**是否執行**。
+
+### 驗收：不影響品質的可執行定義
+
+在 `/tmp` 的 run-all-by-workflow 副本上跑 `advance-phase --completed 1..8`，
+改前 / 改後：**每個 exit code 相同，每一行 `[BLOCKED]` / `[HR-11]` /
+`[Gate 1 coverage]` / `[PHASE-AUDITOR]` / `[spec-coverage]` / `[Agent B]` 位元組相同**（8/8 phase）。
+
+| completed | 改前 | 改後 |
+|---|---|---|
+| 1 | 1.0s | **0.76s** |
+| 2 | 1.1s | **0.50s** |
+| 3 | 55.8s | **12.9s** |
+| 4 | 45.6s | **13.4s** |
+| 5 / 7 / 8 | 23.9s each | **~13.1s each** |
+| **P1–P8 合計** | **~187s** | **~78s（−58%）** |
+| **測試套件執行次數** | **18** | **6** |
+
+### 本輪明確不做
+
+- 其餘約 12 個 pytest 站點（`stage_pass_generator`、`cross_artifact`、
+  `confidence_scorer`、`auto_fix/strategies`、`harness/toolchains/registry`）不動 ——
+  它們不在 advance-phase 的同一次呼叫裡，一起改是失控重構。
+- gitleaks / ruff / mypy 不刪。它們與 gate 維度重疊但**尺不同**（gate linting 門檻 90
+  ≙ 容 5 個違規，advance 要 0；gate 用 pyright，advance 用 mypy）。刪掉是降標。合計 0.35s。
