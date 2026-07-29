@@ -18,7 +18,32 @@ description: |
 
 This section is **procedural, not descriptive**. It tells you (the main agent) what to DO when the user asks you to perform phase work. Reference material starts at §1.
 
-### 0.1 Entry Procedure — Mandatory First Actions
+### 0.1 Execution Modes & Driver Selection
+
+This framework supports two execution modes. **Claude Code Dynamic Workflow is the PRIMARY recommended driver**.
+
+#### Mode 1: Claude Code Workflow Driven (PRIMARY / RECOMMENDED)
+Automates the end-to-end ASPICE pipeline via `.claude/workflows/*.js` scripts.
+
+* **Primary Trigger**:
+  ```bash
+  # Full Phase 1 to Phase 8 Automated Pipeline:
+  claude -p "run workflow .claude/workflows/run-all.js"
+
+  # Or single phase execution (e.g. Phase 3):
+  claude -p "run workflow .claude/workflows/phase3-implementation.js"
+  ```
+* **Why Workflow Driven?**
+  1. **Determinism (確定性控制流)**: Workflow JS enforces strict step-by-step logic, eliminating prompt drift or skipped quality gates by the LLM agent.
+  2. **Automated State Machine (動態流轉)**: `run-all.js` reads `.methodology/state.json` and advances automatically through P1 to P8 without human prompt manual chaining.
+  3. **Minimal Human Friction**: Requires human intervention only twice (P1 `SRS.md` & P2 `SAD.md` input).
+  4. **Zero Command Errors**: Encapsulates context loading, preflights, Agent A (Developer) / Agent B (Reviewer) dispatching, gate checks, and milestone pushes.
+
+---
+
+#### Mode 2: Manual / Phase Plan Fallback SOP (DEBUGGING & STEP-BY-STEP)
+
+When running without Claude Code Workflows, debugging specific FRs, or verifying single gates, follow this step-by-step procedure:
 
 When the user says "execute Phase N", "start P3", "implement FR-X", or any phase-work request:
 
@@ -169,7 +194,20 @@ Before advancing to Phase N+1, confirm ALL:
 - **Treat evaluate_dimension.md as reference — it is the mandatory tool-execution protocol. Skipping tool steps, using wrong LLM tiers, or fabricating scores without tool output = HR violation. score.py enforces this at machine level.**
 - **NEVER modify files inside `harness/` (the methodology submodule) from the project side.** Bugs found in harness-methodology must be reported to the harness-methodology repo; hotfixes applied directly in the submodule create divergence and are invisible to the upstream. The only permitted change to the submodule is `git submodule update --remote`.
 
-### 0.6 Quick Reference — CLI Entry Points
+### 0.6 Quick Reference — Entry Points
+
+#### Primary: Claude Code Workflow Entry Points (Recommended)
+
+| Intent | Command |
+|--------|---------|
+| **Run Full Pipeline (P1–P8 Auto)** | `claude -p "run workflow .claude/workflows/run-all.js"` |
+| **Run Single Phase (e.g. Phase 3)** | `claude -p "run workflow .claude/workflows/phase3-implementation.js"` |
+| **Run Bug Hunt / CRG Audit** | `claude -p "run workflow .claude/workflows/bug-hunt-crg.js"` |
+| **Run Standalone Mutation Test** | `claude -p "run workflow .claude/workflows/standalone-mutmut.js"` |
+
+---
+
+#### Fallback / Debugging: CLI Entry Points
 
 | Intent | Command |
 |--------|---------|

@@ -56,19 +56,38 @@ single source: `harness/toolchains/registry.py`. Adding a language:
 
 ## Quick Start
 
-### 分步執行（推薦）
+### 1. Claude Code Workflow 啟動（主推薦模式）
 
-人類僅需介入 2 次：提供 SRS.md (P1)、提供 SAD.md (P2)。
-9 項嚴格的人類介入條件見 SAD.md §3.18。
+本框架預設使用 **Claude Code Dynamic Workflow** 作為專案開發的主要控制驅動器（Primary Execution Driver）。透過 `.claude/workflows/` 下的 Workflow JS 腳本，實現全自動、動態流轉的開發管線。
 
-步驟依序執行：
+#### 核心效益 (Why Workflows?)
+* **確定性控制流 (Determinism)**：由 JavaScript 腳本精確控制 phase 推進、內容載入與門禁檢查，確保 LLM Agent 嚴格遵守規範，不會因 Prompt 偏差而遺漏關鍵審核或跳過階段。
+* **全自動動態流轉 (Dynamic Workflow)**：`run-all.js` 會根據 `.methodology/state.json` 自動讀取狀態，實現自 Phase 1 至 Phase 8 的無縫自動推進。
+* **最小化人類介入 (Minimal Human Friction)**：開發過程中人類僅需介入 **2 次**（Phase 1 提供 `SRS.md`、Phase 2 提供 `SAD.md`）。9 項嚴格的人類介入條件見 [SAD.md](SAD.md) §3.18。
+* **零指令差錯與標準化**：封裝自動載入 Context、觸發 Preflight、派發 Agent A (Developer) / Agent B (Reviewer)、品質門禁與 Milestone Push，完全免除手動敲下數十條 CLI 指令的記憶負擔與誤操作。
+
+#### 啟動方式
 
 ```bash
-# One-time project setup
+# 一鍵全自動執行 Phase 1 ~ Phase 8
+claude -p "run workflow .claude/workflows/run-all.js"
+
+# 或針對特定單一 Phase 進行流轉 (例如 Phase 3)
+claude -p "run workflow .claude/workflows/phase3-implementation.js"
+```
+
+---
+
+### 2. 手動 / Phase Plan CLI 分步執行（傳統 / 除錯備用模式）
+
+當你需要手動單步除錯、無 Workflow 環境、或針對特定 FR / Phase 進行單步調試時，可保留採用 `harness_cli.py` 手動指令流：
+
+```bash
+# 1. 專案初始化與動態 Plan 生成 (僅需一次)
 python harness_cli.py init-project --project . --phase 1
 python harness_cli.py plan-all --project .
 
-# Per-phase execution
+# 2. 手動單階段執行 (以 Phase 3 為例)
 python harness_cli.py load-context --phase 3 --project . --json > .sessi-work/phase3_ctx.json
 python harness_cli.py run-phase   --phase 3
 python harness_cli.py run-gate    --gate 1 --phase 3 --fr-id FR-01
