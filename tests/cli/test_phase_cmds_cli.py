@@ -7,6 +7,7 @@ import subprocess
 
 import argparse
 import json
+import pytest
 from pathlib import Path
 from unittest import mock
 from core.quality_gate import gate1_evidence
@@ -332,9 +333,24 @@ class TestAdvancePrechecksTDD:
         # Finalize-gate sentinels — _advance_prechecks verifies these exist
         _write_finalize_sentinels_for_tests(tmp_path)
 
-    def test_pytest_failure_returns_9(self, tmp_path, monkeypatch):
-        """pytest non-zero exit → _advance_prechecks returns 9."""
+    @pytest.mark.parametrize(
+        "suite_passed,suite_coverage,why",
+        [
+            (False, None, "a red test suite"),
+            # 99.947% must not clear a 100% bar. Round 25 moved that comparison
+            # out of pytest's `--cov-fail-under=100` and into an explicit check
+            # against the exact percentage, so the one measurement can also
+            # answer FrameworkEnforcer's 70/80 and Phase Truth's without
+            # re-running the same tests. This pins that the bar survived.
+            (True, 99.94736842105263, "a green suite under 100% coverage"),
+        ],
+    )
+    def test_suite_shortfall_returns_9(
+        self, tmp_path, monkeypatch, suite_passed, suite_coverage, why
+    ):
+        """{why} → _advance_prechecks returns 9."""
         from cli.phase_cmds import _advance_prechecks
+        from core.quality_gate.test_suite_run import SuiteResult
 
         self._make_p3_project(tmp_path)
         _mock_constitution_pass(monkeypatch)
@@ -346,22 +362,23 @@ class TestAdvancePrechecksTDD:
                 "verify": lambda _: {"passed": True, "total_score": 100.0},
             }),
         )
-
-        def _fake_run(cmd, *_, **__):
-            class _FakeResult:
-                pass
-            res = _FakeResult()
-            res.stdout = ""  # type: ignore[reportAttributeAccessIssue]
-            if "pytest" in cmd:
-                res.returncode = 1  # type: ignore[reportAttributeAccessIssue]
-            else:
-                res.returncode = 0  # type: ignore[reportAttributeAccessIssue]
-            return res
-
-        monkeypatch.setattr(subprocess, "run", _fake_run)
+        # Round 25: the TDD block no longer owns a pytest subprocess — it reads
+        # the shared measurement, so that is where the shortfall is injected.
+        monkeypatch.setattr(
+            "core.quality_gate.test_suite_run.run_suite",
+            lambda *a, **kw: SuiteResult(
+                passed=suite_passed, coverage=suite_coverage,
+                test_target="03-development/tests",
+                cov_target="03-development/src",
+                returncode=0 if suite_passed else 1,
+                output="" if suite_passed else "1 failed", ran=True,
+            ),
+        )
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: type(
+            "R", (), {"returncode": 0, "stdout": "", "stderr": ""})())
 
         rc = _advance_prechecks(tmp_path, completed_phase=3)
-        assert rc == 9
+        assert rc == 9, f"{why} must block the advance"
 
     def test_pytest_skipped_when_no_src_dir(self, tmp_path, monkeypatch):
         """No 03-development/src → pytest step skipped, continues to spec-coverage."""

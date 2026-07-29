@@ -86,16 +86,47 @@ def test_scoped_pytest_ignores_harness_tests_sibling(tmp_path):
     assert "test_harness_self" not in r.stdout
 
 
-def test_advance_prechecks_pytest_call_binds_active_test_dir_ssot():
-    """Delegation check: _advance_prechecks must build its pytest cmd from
-    ProjectLayout.active_test_dir (the same SSOT active_src_dir already
-    uses two lines above it), not a bare `pytest` call with no path.
+def test_the_scoping_ssot_never_falls_back_to_the_project_root():
+    """Round 25 re-anchor: the scoping moved, the requirement did not.
+
+    Round 22 pinned this by asserting `active_test_dir` appeared in
+    _advance_prechecks's own source. Round 25 relocated the pytest invocation
+    into core.quality_gate.test_suite_run — one implementation shared by the
+    four call sites that each used to build their own argv — so the string is
+    no longer in that function and a source-text anchor would only be
+    measuring where the code happens to live.
+
+    What actually has to hold is that resolve_targets never yields a target
+    that means "the whole project root". Two of the four old call sites had
+    exactly that fallback (`test_target = "."` when the layout directory was
+    absent), which is the same collection bug from the other direction.
     """
+    from core.quality_gate.test_suite_run import resolve_targets
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as empty:
+        test_target, cov_target = resolve_targets(empty)
+    assert test_target not in (".", ""), (
+        f"resolve_targets fell back to the project root ({test_target!r}) for a "
+        "project with no test directory — pytest would then collect "
+        "harness/tests/ as well (see the RED repro above)"
+    )
+    assert cov_target not in (".", ""), (
+        f"resolve_targets fell back to the project root ({cov_target!r}) for a "
+        "project with no source directory — coverage then counts the harness's "
+        "own files as project source (measured: 95.98% vs the project's 100%)"
+    )
+
+
+def test_advance_prechecks_delegates_its_suite_run_to_the_ssot():
+    """_advance_prechecks must not hand-roll a pytest argv again."""
     src = inspect.getsource(_advance_prechecks)
-    assert "active_test_dir" in src, (
-        "_advance_prechecks must scope its pytest invocation via "
-        "ProjectLayout.active_test_dir — a bare `pytest` call with no "
-        "explicit path also collects harness/tests/ when harness/ is "
-        "vendored inside the project tree (see the RED repro in "
-        "test_bare_pytest_from_project_root_sweeps_in_harness_tests)."
+    assert "run_suite" in src, (
+        "_advance_prechecks must obtain its test/coverage measurement from "
+        "core.quality_gate.test_suite_run.run_suite"
+    )
+    assert '"pytest"' not in src, (
+        "a hand-rolled pytest argv is back in _advance_prechecks — that is how "
+        "one advance-phase came to run the whole suite five times, each with "
+        "its own idea of which directory holds the tests"
     )

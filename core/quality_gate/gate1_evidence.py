@@ -12,14 +12,12 @@ import json
 from pathlib import Path
 
 import re
-import subprocess
 import sys
 import warnings
 from typing import Optional
 
 from core.atomic_io import atomic_write_json
 from core.quality_gate.spec_coverage import _git_test_patterns
-from core.utils.project_layout import ProjectLayout
 
 __all__ = [
     "fr_gate1_commit_sha",
@@ -465,53 +463,36 @@ def fr_code_changed_since_last_gate1(fr_id: str, project: Path, phase: int | Non
 
     return False
 
-def validate_fr_coverage_immediate(
-    project: Path, timeout: int = 120
-) -> Optional[float]:
-    """Run ``pytest --cov`` for the whole project right now and return line coverage %.
+def validate_fr_coverage_immediate(project: Path) -> Optional[float]:
+    """Whole-project line coverage %, measured right now.
 
     Returns:
-        ``None``      — pytest not installed, no tests found, or subprocess error.
-        ``float``     — coverage percentage (0.0 - 100.0), or 0.0 if tests failed.
+        ``None``      — not measurable (no src/tests, pytest missing, timeout).
+        ``float``     — coverage percentage (0.0 - 100.0), or 0.0 if tests
+                        failed and coverage could not be read.
 
-    Single whole-project pytest run (1-2s in practice) is used rather than
-    per-FR scoped runs. Rationale: per-FR coverage is structurally misleading
-    in multi-FR projects — each FR's test only covers its own source files,
-    not the other 7 FRs' files, so a per-FR scope would always report
-    ~1/N of project coverage. Whole-project coverage is the only signal
-    that proves "all source is exercised by tests" (the actual TDD goal).
-    Mirrors the TDD-PRECHECK check in `cli/phase_cmds.py::_advance_prechecks`;
-    advance-phase re-runs the same measurement so the manifest's recorded
-    score is verified live.
+    Whole-project rather than per-FR: each FR's test only covers its own source
+    files, so a per-FR scope would always report ~1/N of project coverage.
+    Whole-project coverage is the only signal that proves "all source is
+    exercised by tests" (the actual TDD goal).
 
+    Round 25: the pytest invocation moved to
+    ``core.quality_gate.test_suite_run.run_suite`` — this function used to
+    hand-roll its own argv with NO test target at all, relying on pytest's
+    rootdir discovery. That is the exact shape Round 22 removed from
+    ``_advance_prechecks`` (a bare call also collects ``harness/tests/*``,
+    since harness/ is vendored inside the project tree); the sibling here was
+    missed then. It is also one of four call sites that each ran the suite
+    separately inside a single advance-phase — see the module docstring of
+    test_suite_run for the measurements.
     """
-    layout = ProjectLayout(project)
-    src_dir = layout.active_src_dir
-    tests_dir = layout.active_test_dir
-    if not src_dir.is_dir():
+    from core.quality_gate.test_suite_run import run_suite
+
+    result = run_suite(project)
+    if not result.ran:
         return None
-    if not tests_dir.is_dir():
-        return None
-    cov_target = layout.get_relative_str(src_dir)
-    cmd = [
-        sys.executable, "-m", "pytest",
-        f"--cov={cov_target}", "--cov-report=term",
-        "--tb=no", "-q",
-    ]
-    try:
-        r = subprocess.run(
-            cmd, capture_output=True, text=True,
-            cwd=str(project), timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    except Exception as exc:
-        print(f"[WARN] validate_fr_coverage_immediate: pytest run failed: {exc}")
-        return None
-    m = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", r.stdout)
-    if m:
-        try:
-            return float(m.group(1))
-        except ValueError:
-            return None
-    return 0.0 if r.returncode == 0 else None
+    if result.coverage is not None:
+        return result.coverage
+    # No coverage number: preserve the pre-Round-25 contract — a green suite
+    # with an unreadable report is 0.0, a red one is "not measured".
+    return 0.0 if result.passed else None

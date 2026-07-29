@@ -2,7 +2,6 @@
 W7 — Gap-fill tests targeting Category C + D (84-86% goal).
 """
 import json
-import subprocess
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -195,53 +194,74 @@ class TestPhaseTruthVerifier:
         assert passed is True
         assert score == 100.0
 
+    # Round 25: check_pytest/check_coverage read one shared suite execution
+    # (core.quality_gate.test_suite_run.run_suite) instead of spawning pytest
+    # themselves, so these supply the measurement rather than mocking
+    # subprocess. Three of these previously passed for the wrong reason —
+    # tmp_path has no source tree, so the old subprocess mock was never even
+    # consulted on the paths that mattered.
+    @staticmethod
+    def _suite(**kwargs):
+        from core.quality_gate.test_suite_run import SuiteResult
+
+        base = dict(
+            passed=True, coverage=100.0, test_target="tests", cov_target="src",
+            returncode=0, output="", ran=True,
+        )
+        base.update(kwargs)
+        return SuiteResult(**base)  # type: ignore[arg-type]
+
     def test_check_pytest_passes(self, tmp_path):
         v = self._make_verifier(tmp_path)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        with patch("core.quality_gate.test_suite_run.run_suite",
+                   return_value=self._suite()):
             passed, score, _ = v.check_pytest()
         assert passed is True
         assert score == 100.0
 
     def test_check_pytest_fails(self, tmp_path):
         v = self._make_verifier(tmp_path)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="FAILED test", stderr="")
+        with patch("core.quality_gate.test_suite_run.run_suite",
+                   return_value=self._suite(passed=False, returncode=1,
+                                            output="1 failed\nFAILED test")):
             passed, score, _ = v.check_pytest()
         assert passed is False
         assert score == 0.0
 
     def test_check_pytest_timeout(self, tmp_path):
         v = self._make_verifier(tmp_path)
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pytest", 120)):
+        with patch("core.quality_gate.test_suite_run.run_suite",
+                   return_value=self._suite(passed=False, coverage=None, returncode=124)):
             passed, score, detail = v.check_pytest()
         assert passed is False
         assert "timed out" in detail
 
-    def test_check_pytest_file_not_found(self, tmp_path):
+    def test_check_pytest_not_runnable(self, tmp_path):
         v = self._make_verifier(tmp_path)
-        with patch("subprocess.run", side_effect=FileNotFoundError("no pytest")):
+        with patch("core.quality_gate.test_suite_run.run_suite",
+                   return_value=self._suite(ran=False, passed=False, coverage=None,
+                                            returncode=127,
+                                            reason="pytest not runnable: no pytest")):
             passed, score, detail = v.check_pytest()
         assert passed is False
-        assert "not found" in detail
+        assert "not runnable" in detail
 
-    def test_check_coverage_parses_total(self, tmp_path):
+    def test_check_coverage_reports_the_measurement(self, tmp_path):
         v = self._make_verifier(tmp_path, phase=3)
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout="TOTAL  100  10  90%\n",
-                stderr=""
-            )
+        with patch("core.quality_gate.test_suite_run.run_suite",
+                   return_value=self._suite(coverage=90.0)):
             passed, score, detail = v.check_coverage()
         assert passed is True
-        assert "90%" in detail
+        assert "90.0%" in detail
 
-    def test_check_coverage_exception(self, tmp_path):
+    def test_check_coverage_unmeasurable(self, tmp_path):
         v = self._make_verifier(tmp_path, phase=3)
-        with patch("subprocess.run", side_effect=Exception("boom")):
+        with patch("core.quality_gate.test_suite_run.run_suite",
+                   return_value=self._suite(ran=False, passed=False, coverage=None,
+                                            reason="boom")):
             passed, score, detail = v.check_coverage()
         assert passed is False
+        assert "boom" in detail
 
     def test_get_manual_checklist_phase3(self, tmp_path):
         v = self._make_verifier(tmp_path, phase=3)

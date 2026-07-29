@@ -55,30 +55,42 @@ def project_with_fr(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_validate_fr_coverage_immediate_parses_total(project_with_fr):
-    """pytest output with TOTAL line is parsed correctly."""
+def _suite(**kwargs):
+    """A SuiteResult with sensible defaults (Round 25 shared suite run)."""
+    from core.quality_gate.test_suite_run import SuiteResult
+
+    base = dict(
+        passed=True, coverage=100.0, test_target="03-development/tests",
+        cov_target="03-development/src", returncode=0, output="", ran=True,
+    )
+    base.update(kwargs)
+    return SuiteResult(**base)  # type: ignore[arg-type]
+
+
+def test_validate_fr_coverage_immediate_returns_the_measured_percentage(project_with_fr):
+    """The measured coverage is passed through unchanged."""
     from core.quality_gate.gate1_evidence import validate_fr_coverage_immediate
-    fake_stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
-    fake_result = mock.Mock(returncode=0, stdout=fake_stdout)
-    with mock.patch("subprocess.run", return_value=fake_result):
+    with mock.patch("core.quality_gate.test_suite_run.run_suite",
+                    return_value=_suite(coverage=100.0)):
         cov = validate_fr_coverage_immediate(project_with_fr)
     assert cov == 100.0
 
 
-def test_validate_fr_coverage_immediate_no_total_returns_zero_on_success(project_with_fr):
-    """No TOTAL line but pytest exit 0 → 0.0 (coverage tool not active)."""
+def test_validate_fr_coverage_immediate_no_coverage_returns_zero_on_success(project_with_fr):
+    """Green suite but no readable coverage report → 0.0 (coverage tool inactive)."""
     from core.quality_gate.gate1_evidence import validate_fr_coverage_immediate
-    fake_result = mock.Mock(returncode=0, stdout="===== test session starts =====\n")
-    with mock.patch("subprocess.run", return_value=fake_result):
+    with mock.patch("core.quality_gate.test_suite_run.run_suite",
+                    return_value=_suite(coverage=None, passed=True)):
         cov = validate_fr_coverage_immediate(project_with_fr)
     assert cov == 0.0
 
 
 def test_validate_fr_coverage_immediate_test_failure_returns_none(project_with_fr):
-    """pytest non-zero exit AND no TOTAL → None (caller BLOCKS)."""
+    """Red suite with no coverage number → None (caller BLOCKS)."""
     from core.quality_gate.gate1_evidence import validate_fr_coverage_immediate
-    fake_result = mock.Mock(returncode=1, stdout="1 failed\n")
-    with mock.patch("subprocess.run", return_value=fake_result):
+    with mock.patch("core.quality_gate.test_suite_run.run_suite",
+                    return_value=_suite(coverage=None, passed=False, returncode=1,
+                                        output="1 failed\n")):
         cov = validate_fr_coverage_immediate(project_with_fr)
     assert cov is None
 
@@ -98,12 +110,11 @@ def test_validate_fr_coverage_immediate_no_tests_returns_none(tmp_path):
 
 
 def test_validate_fr_coverage_immediate_timeout_returns_none(project_with_fr):
-    """subprocess.TimeoutExpired → None (don't block forever)."""
+    """Suite timeout → None (don't block forever, don't invent a 0%)."""
     from core.quality_gate.gate1_evidence import validate_fr_coverage_immediate
-    fake_result = mock.Mock(side_effect=__import__("subprocess").TimeoutExpired(
-        cmd="pytest", timeout=120,
-    ))
-    with mock.patch("subprocess.run", fake_result):
+    with mock.patch("core.quality_gate.test_suite_run.run_suite",
+                    return_value=_suite(coverage=None, passed=False, returncode=124,
+                                        reason="test suite timed out after 300s")):
         cov = validate_fr_coverage_immediate(project_with_fr)
     assert cov is None
 

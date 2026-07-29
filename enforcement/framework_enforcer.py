@@ -17,9 +17,7 @@ Usage::
 """
 
 import re
-import subprocess  # nosec B404
 import sys
-import xml.etree.ElementTree as ET  # nosec B405
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from core.utils.project_layout import ProjectLayout, phase_artifacts
@@ -191,70 +189,44 @@ class FrameworkEnforcer:
         TH-11: >=70% for P3
         TH-12: >=80% for P4+
 
-        Tries coverage.xml first (fast path); falls back to running
-        ``pytest --cov`` directly so projects that never generate coverage.xml
-        (e.g. because CI writes it elsewhere) are not falsely penalised.
+        Round 25: measures via ``core.quality_gate.test_suite_run.run_suite``,
+        which is the one place the project's suite is executed. Two things went
+        with the old body:
+
+        * The ``coverage.xml`` fast path is gone. It never fired — the harness's
+          own gate writes ``coverage.json``, and none of taskq,
+          integration-test or run-all-by-workflow has ever had a coverage.xml —
+          so every run fell through to the slow path anyway. It also read an
+          *artifact* rather than measuring the code, which is the failure shape
+          Round 24 was about: a stale or hand-written XML would have been
+          believed over the source.
+        * The hardcoded ``03-development/tests`` → ``tests`` → ``.`` probe is
+          gone in favour of ProjectLayout. Its coverage target likewise: with
+          no ``.coveragerc``, ``read_coveragerc_source`` returned ``"."``, and
+          measured on the evidence project that pulls the harness's own
+          ``harness_cli.py`` shim and ``conftest.py`` into the denominator
+          (95.98% where the project's source is 100%).
         """
         if self.phase <= 2:
             return {"passed": True, "coverage": 100, "threshold": 0, "message": "No coverage requirement for P1-P2"}
         threshold = 70 if self.phase == 3 else 80
 
-        # ── Fast path: parse existing coverage.xml ────────────────────────
-        for candidate in [
-            self.project_root / "coverage.xml",
-            ProjectLayout(self.project_root).phase3_development_dir / "coverage.xml",
-            self.project_root / "htmlcov" / "coverage.xml",
-        ]:
-            if candidate.exists():
-                try:
-                    tree = ET.parse(candidate)  # nosec B314
-                    coverage = float(tree.getroot().attrib.get("line-rate", 0)) * 100
-                    passed = coverage >= threshold
-                    return {
-                        "passed": passed,
-                        "coverage": coverage,
-                        "threshold": threshold,
-                        "message": f"Coverage {coverage:.1f}% {'>=' if passed else '<'} {threshold}%",
-                    }
-                except Exception:
-                    continue  # malformed XML — try next candidate
+        from core.quality_gate.test_suite_run import run_suite  # pyright: ignore[reportMissingImports]
 
-        # ── Slow path: run pytest --cov directly ──────────────────────────
-        # Respect the project's .coveragerc `source` setting (if present) so
-        # helper/script files are not counted and inflate or deflate results.
-        from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
-        cov_source = read_coveragerc_source(self.project_root)
-        
-        test_target = "."
-        if (ProjectLayout(self.project_root).phase3_development_dir / "tests").is_dir():
-            test_target = "03-development/tests"
-        elif (self.project_root / "tests").is_dir():
-            test_target = "tests"
-            
-        try:
-            # Bug #117 ext: route through sys.executable.
-            proc = subprocess.run(  # nosec B603 B607
-                [sys.executable, "-m", "pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            output = proc.stdout + proc.stderr
-            match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
-            if match:
-                coverage = int(match.group(1))
-                passed = coverage >= threshold
-                return {
-                    "passed": passed,
-                    "coverage": float(coverage),
-                    "threshold": threshold,
-                    "message": f"Coverage {coverage}% {'>=' if passed else '<'} {threshold}%",
-                }
-        except Exception:
-            pass
-
-        return {"passed": False, "coverage": 0, "threshold": threshold, "message": "coverage report not found"}
+        result = run_suite(self.project_root)
+        if not result.ran or result.coverage is None:
+            return {
+                "passed": False, "coverage": 0, "threshold": threshold,
+                "message": result.reason or "coverage report not found",
+            }
+        coverage = result.coverage
+        passed = coverage >= threshold
+        return {
+            "passed": passed,
+            "coverage": coverage,
+            "threshold": threshold,
+            "message": f"Coverage {coverage:.1f}% {'>=' if passed else '<'} {threshold}%",
+        }
 
     def check_traceability_matrix(self) -> Dict:
         """Run check traceability matrix validation."""

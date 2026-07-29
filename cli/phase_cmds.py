@@ -2126,9 +2126,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
         # 1. pytest + 100% coverage on TDD-governed source
         from core.phase_hooks import PRAGMA_NO_COVER_ALLOWLIST, PRAGMA_NO_COVER_GUIDANCE
+        from core.quality_gate.test_suite_run import run_suite
         _layout = ProjectLayout(project)
         src_dir = _layout.active_src_dir
-        test_dir = _layout.active_test_dir
         if src_dir.is_dir():
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):
@@ -2150,14 +2150,22 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             else:
                 print("  [WARN] mypy not installed. Skipping type safety.")
 
-            r = subprocess.run(
-                [sys.executable, "-m", "pytest", str(test_dir), "--tb=short", "-q",
-                 f"--cov={src_dir.relative_to(project)}", "--cov-fail-under=100"],
-                cwd=str(project),
-            )
-            if r.returncode != 0:
+            # Round 25: the suite runs once per advance-phase and every
+            # threshold reads that one measurement. `--cov-fail-under=100` used
+            # to make pytest itself render this verdict; the comparison is now
+            # explicit here, against the exact percentage, so the same number
+            # can also answer FrameworkEnforcer's 70/80 and Phase Truth's
+            # without three more executions of the same tests.
+            _suite = run_suite(project)
+            if _suite.ran and not (_suite.passed and (_suite.coverage or 0.0) >= 100.0):
+                if _suite.output:
+                    print(_suite.output)
                 print("\n[BLOCKED] TDD test/coverage failure.")
-                print(f"  Fix: 100% coverage on {src_dir.relative_to(project)} required.")
+                if not _suite.passed:
+                    print(f"  Tests did not pass ({_suite.reason or 'see output above'}).")
+                else:
+                    print(f"  Coverage {_suite.coverage:.2f}% < 100%.")
+                print(f"  Fix: 100% coverage on {_suite.cov_target} required.")
                 print(f"  {PRAGMA_NO_COVER_GUIDANCE}")
                 print("  Allowed pragma exemptions: "
                       + ", ".join(PRAGMA_NO_COVER_ALLOWLIST))

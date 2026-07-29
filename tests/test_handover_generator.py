@@ -1032,6 +1032,21 @@ class TestCmdAdvancePhase:
                 "core.quality_gate.phase_truth_verifier.PhaseTruthVerifier",
                 _FakeVer,
             )
+            # Round 25: the Gate 1 live-coverage check reads the shared suite
+            # measurement (core.quality_gate.test_suite_run.run_suite) rather
+            # than parsing a pytest TOTAL line out of a faked subprocess. These
+            # tmp_path trees hold stub modules with no real tests, so supply a
+            # green 100% measurement — same intent as the _FakeVer above.
+            from core.quality_gate.test_suite_run import SuiteResult as _SR
+            monkeypatch.setattr(
+                "core.quality_gate.test_suite_run.run_suite",
+                lambda *a, **kw: _SR(
+                    passed=True, coverage=100.0,
+                    test_target="03-development/tests",
+                    cov_target="03-development/src",
+                    returncode=0, output="", ran=True,
+                ),
+            )
             # Phase Auditor and Agent B approval check need real project
             # structure — mock both for tmp_path tests that test advance-phase
             # specific behaviors.

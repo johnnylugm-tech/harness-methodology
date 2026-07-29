@@ -23,31 +23,31 @@ def test_check_constitution_exception(tmp_path):
             assert result["passed"] is False
             assert "mocked error" in result["error"]
 
-def test_check_coverage_threshold_slow_path_success(tmp_path):
-    fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
-    with patch("subprocess.run") as mock_run:
-        mock_proc = MagicMock()
-        mock_proc.stdout = "TOTAL 10 5 85%\n"
-        mock_proc.stderr = ""
-        mock_run.return_value = mock_proc
-        with patch("core.quality_gate.cov_utils.read_coveragerc_source", return_value="."):
-            result = fe.check_coverage_threshold()
-            assert result["passed"] is True
-            assert result["coverage"] == 85.0
-            assert result["threshold"] == 70
+def _measured(coverage: float):
+    """A SuiteResult standing in for one shared suite execution (Round 25)."""
+    from core.quality_gate.test_suite_run import SuiteResult
 
-def test_check_coverage_threshold_slow_path_fail(tmp_path):
+    return SuiteResult(
+        passed=True, coverage=coverage, test_target="tests", cov_target="src",
+        returncode=0, output="", ran=True,
+    )
+
+
+def test_check_coverage_threshold_success(tmp_path):
+    fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
+    with patch("core.quality_gate.test_suite_run.run_suite", return_value=_measured(85.0)):
+        result = fe.check_coverage_threshold()
+    assert result["passed"] is True
+    assert result["coverage"] == 85.0
+    assert result["threshold"] == 70
+
+def test_check_coverage_threshold_fail(tmp_path):
     fe = FrameworkEnforcer(project_root=str(tmp_path), phase=4)
-    with patch("subprocess.run") as mock_run:
-        mock_proc = MagicMock()
-        mock_proc.stdout = "TOTAL 10 5 75%\n"
-        mock_proc.stderr = ""
-        mock_run.return_value = mock_proc
-        with patch("core.quality_gate.cov_utils.read_coveragerc_source", return_value="."):
-            result = fe.check_coverage_threshold()
-            assert result["passed"] is False
-            assert result["coverage"] == 75.0
-            assert result["threshold"] == 80
+    with patch("core.quality_gate.test_suite_run.run_suite", return_value=_measured(75.0)):
+        result = fe.check_coverage_threshold()
+    assert result["passed"] is False
+    assert result["coverage"] == 75.0
+    assert result["threshold"] == 80
 
 def test_check_traceability_matrix_phase3_logic(tmp_path):
     (tmp_path / "01-requirements").mkdir()

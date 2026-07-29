@@ -6,7 +6,7 @@ check_framework_block is excluded (requires full FrameworkEnforcer env).
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import unittest.mock
 
 from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
@@ -88,77 +88,104 @@ class TestGetManualChecklist:
 
 
 # ---------------------------------------------------------------------------
-# check_pytest (subprocess mocked)
+# check_pytest / check_coverage
+#
+# Round 25: both read one shared suite execution
+# (core.quality_gate.test_suite_run.run_suite) instead of each spawning their
+# own pytest. These tests moved from mocking subprocess.run to supplying that
+# measurement, which is the seam the methods actually depend on now.
 # ---------------------------------------------------------------------------
 
+def _suite(**kwargs):
+    from core.quality_gate.test_suite_run import SuiteResult
+
+    base = dict(
+        passed=True, coverage=100.0, test_target="tests", cov_target="src",
+        returncode=0, output="", ran=True,
+    )
+    base.update(kwargs)
+    return SuiteResult(**base)  # type: ignore[arg-type]
+
+
+def _with_suite(result):
+    return patch("core.quality_gate.test_suite_run.run_suite", return_value=result)
+
+
 class TestCheckPytest:
-    @patch("subprocess.run")
-    def test_passes_when_returncode_0(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
-        passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
+    def test_passes_when_suite_is_green(self, tmp_path):
+        with _with_suite(_suite()):
+            passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
         assert passed is True
         assert score == 100.0
 
-    @patch("subprocess.run")
-    def test_fails_when_returncode_nonzero(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=1, stdout="FAILED 2", stderr="")
-        passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
+    def test_fails_when_suite_is_red(self, tmp_path):
+        with _with_suite(_suite(passed=False, returncode=1, output="FAILED 2")):
+            passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
         assert passed is False
         assert score == 0.0
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
-    def test_pytest_not_found(self, _, tmp_path):
-        passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
+    def test_returncode_1_with_no_parsed_failures_still_passes(self, tmp_path):
+        """Pre-Round-25 tolerance, kept verbatim: exit 1 with zero reported
+        failures is a pytest-level complaint, not a failing test."""
+        with _with_suite(_suite(passed=False, returncode=1, output="no failures here")):
+            passed, _, _ = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
+        assert passed is True
+
+    def test_unmeasurable_suite_reports_why(self, tmp_path):
+        with _with_suite(_suite(ran=False, passed=False, coverage=None,
+                                reason="pytest not runnable: missing")):
+            passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
         assert passed is False
-        assert "not found" in details
+        assert score == 0.0
+        assert "not runnable" in details
 
+    def test_timeout_is_named_as_a_timeout(self, tmp_path):
+        with _with_suite(_suite(passed=False, coverage=None, returncode=124)):
+            passed, _, details = PhaseTruthVerifier(str(tmp_path), 3).check_pytest()
+        assert passed is False
+        assert "timed out" in details
 
-# ---------------------------------------------------------------------------
-# check_coverage (subprocess mocked)
-# ---------------------------------------------------------------------------
 
 class TestCheckCoverage:
-    @patch("subprocess.run")
-    def test_parses_total_line(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="TOTAL  500  100  80%", stderr=""
-        )
-        passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+    def test_at_threshold_passes(self, tmp_path):
+        with _with_suite(_suite(coverage=80.0)):
+            passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is True
         assert score == 80.0
-        assert "80%" in details
+        assert "80.0%" in details
 
-    @patch("subprocess.run")
-    def test_parses_fallback_coverage_line(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="some other output coverage: 75% end", stderr=""
-        )
-        passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
-        assert passed is True
-        assert score == 75.0
-        assert "75%" in details
-
-    @patch("subprocess.run")
-    def test_below_threshold_fails(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="TOTAL  500  400  20%", stderr=""
-        )
-        passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+    def test_below_threshold_fails(self, tmp_path):
+        with _with_suite(_suite(coverage=20.0)):
+            passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is False
         assert score == 20.0
 
-    @patch("subprocess.run")
-    def test_no_coverage_output(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(returncode=0, stdout="no match", stderr="")
-        passed, score, _ = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
-        assert passed is False
-        assert score == 0.0
+    def test_exact_percentage_is_reported_not_a_truncated_integer(self, tmp_path):
+        """Round 25: the number comes from coverage's JSON totals, so the
+        details line says 85.9%, not the 85.0% the `TOTAL … n%` terminal line
+        would have yielded. For the integer thresholds here the verdict is the
+        same either way (floor(x) >= T ⟺ x >= T); the reported figure is not.
+        """
+        with _with_suite(_suite(coverage=85.94736842105263)):
+            passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+        assert passed is True
+        assert score == pytest.approx(85.947, abs=0.001)
+        assert "85.9%" in details
 
-    @patch("subprocess.run", side_effect=FileNotFoundError)
-    def test_coverage_not_found(self, _, tmp_path):
-        passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+    def test_unreadable_coverage_report_fails_and_says_so(self, tmp_path):
+        with _with_suite(_suite(coverage=None)):
+            passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
         assert passed is False
         assert score == 0.0
+        assert "unreadable" in details
+
+    def test_unmeasurable_suite_reports_why(self, tmp_path):
+        with _with_suite(_suite(ran=False, coverage=None, passed=False,
+                                reason="coverage target src is not a directory")):
+            passed, score, details = PhaseTruthVerifier(str(tmp_path), 3).check_coverage()
+        assert passed is False
+        assert score == 0.0
+        assert "not a directory" in details
 
     def test_verify_method(self, tmp_path):
         v = PhaseTruthVerifier(str(tmp_path), 3)

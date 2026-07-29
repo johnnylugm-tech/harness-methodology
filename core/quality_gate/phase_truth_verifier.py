@@ -153,22 +153,18 @@ class PhaseTruthVerifier:
 
     def _get_pytest_timeout(self) -> int:
         """SG-5: pytest cap — values.phase_truth_pytest_timeout > legacy
-        enforcement.json > 300s. Floor 30s to prevent footguns.
+        enforcement.json > default. Floor 30s to prevent footguns.
 
         Hardcoded 120s previously caused medium-sized test suites to time out,
         scoring 0 on Phase Truth and blocking P3/P4 advance.
+
+        Round 25: the precedence lives in
+        ``core.quality_gate.test_suite_run.suite_timeout`` so the shared suite
+        run and the js/ts runner calls below cannot drift apart.
         """
-        from core.harness_config import get_value, value_is_configured
-        if value_is_configured(self.project_root, "phase_truth_pytest_timeout"):
-            return max(30, int(get_value(self.project_root, "phase_truth_pytest_timeout")))
-        legacy = self._legacy_enforcement_value(
-            "phase_truth", "pytest_timeout_seconds", "phase_truth_pytest_timeout")
-        if legacy is not None:
-            try:
-                return max(30, int(legacy))
-            except (TypeError, ValueError):
-                pass
-        return max(30, int(get_value(self.project_root, "phase_truth_pytest_timeout")))
+        from core.quality_gate.test_suite_run import suite_timeout
+
+        return suite_timeout(self.project_root)
 
     def check_pytest(self) -> Tuple[bool, float, str]:
         """Check the test suite actually passes; capture structured failure output.
@@ -180,47 +176,26 @@ class PhaseTruthVerifier:
         if project_language(self.project_root) in ("javascript", "typescript"):
             return self._check_tests_js()
 
-        layout = ProjectLayout(self.project_root)
-        test_target = "."
-        if layout.active_test_dir.is_dir():
-            test_target = layout.get_relative_str(layout.active_test_dir)
+        # Round 25: shares one suite execution with check_coverage,
+        # FrameworkEnforcer, gate1_evidence and the _advance_prechecks TDD
+        # block. The secret-scrubbed environment this branch used to build
+        # inline is now the canonical one for all of them.
+        from core.quality_gate.test_suite_run import run_suite
 
-        try:
-            timeout = self._get_pytest_timeout()
-            # Use sys.executable -m pytest so the venv's Python is used (avoids
-            # system PATH pytest pulling in macOS CommandLineTools Python 3.9
-            # when source uses 3.11+ syntax). Bug #117.
-            import os
-            env = os.environ.copy()
-            for k in list(env.keys()):
-                if "SECRET" in k.upper() or "TOKEN" in k.upper() or "KEY" in k.upper() or "JWT" in k.upper():
-                    env.pop(k, None)
-                    
-            result = subprocess.run(  # nosec B603 B607
-                [sys.executable, "-m", "pytest", test_target, "--tb=line", "-q", "--no-header"],
-                cwd=self.project_root,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-
-            failures = _parse_failure_count(result.stdout + result.stderr)
-            passed = result.returncode == 0 or (result.returncode == 1 and failures == 0)
-            score = 100.0 if passed else 0.0
-
-            if passed:
-                details = "pytest all passed"
-            else:
-                details = f"pytest has {failures} failure(s)"
-
-            return passed, score, details
-        except subprocess.TimeoutExpired:
+        result = run_suite(self.project_root)
+        if not result.ran:
+            return False, 0.0, result.reason or "test suite not measurable"
+        if result.returncode == 124:
             return False, 0.0, "pytest execution timed out"
-        except FileNotFoundError:
-            return False, 0.0, "pytest not found"
-        except Exception as e:
-            return False, 0.0, f"Error: {e}"
+
+        failures = _parse_failure_count(result.output)
+        # A returncode of 1 with no parsed failures is a pytest-level complaint
+        # (plugin warning, coverage plugin exit) rather than a failing test —
+        # kept verbatim from the pre-Round-25 behaviour.
+        passed = result.passed or (result.returncode == 1 and failures == 0)
+        score = 100.0 if passed else 0.0
+        details = "pytest all passed" if passed else f"pytest has {failures} failure(s)"
+        return passed, score, details
 
     def _js_runner_argv(self, *, coverage: bool) -> list:
         """vitest/jest argv for test (or coverage) runs — npx --no-install only."""
@@ -307,42 +282,26 @@ class PhaseTruthVerifier:
         if project_language(self.project_root) in ("javascript", "typescript"):
             return self._check_coverage_js(threshold)
 
-        from core.quality_gate.cov_utils import read_coveragerc_source  # pyright: ignore[reportMissingImports]
-        cov_source = read_coveragerc_source(self.project_root)
-        
-        layout = ProjectLayout(self.project_root)
-        test_target = "."
-        if layout.active_test_dir.is_dir():
-            test_target = layout.get_relative_str(layout.active_test_dir)
-            
-        try:
-            # Use sys.executable -m pytest (Bug #117) so coverage is measured
-            # against the same Python interpreter that will run tests in CI.
-            result = subprocess.run(  # nosec B603 B607
-                [sys.executable, "-m", "pytest", test_target, f"--cov={cov_source}", "--cov-report=term-missing", "--tb=no", "-q"],
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                timeout=self._get_pytest_timeout(),
-            )
+        # Round 25: same single suite execution as check_pytest. The number is
+        # coverage's exact `totals.percent_covered` rather than the truncated
+        # `TOTAL … n%` terminal line; for the integer thresholds here the two
+        # agree (floor(x) >= T ⟺ x >= T for integer T), but the reported figure
+        # is now the truth instead of 85.0% standing in for 85.9%.
+        from core.quality_gate.test_suite_run import run_suite
 
-            # Try parsing coverage from output
-            output = result.stdout + result.stderr
+        result = run_suite(self.project_root)
+        if not result.ran:
+            return False, 0.0, result.reason or "coverage not measurable"
+        # An unreadable coverage report stays a failure, as before — but it is
+        # named as such rather than silently reported as 0%.
+        if result.coverage is None:
+            return False, 0.0, f"coverage report unreadable (threshold {threshold}%)"
 
-            coverage_match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
-            if coverage_match:
-                coverage = int(coverage_match.group(1))
-            else:
-                coverage_match = re.search(r" coverage: (\d+)%", output)
-                coverage = int(coverage_match.group(1)) if coverage_match else 0
-
-            passed = coverage >= threshold
-            score = min(100.0, coverage) if passed else coverage
-            details = f"coverage {coverage}% (threshold {threshold}%)"
-
-            return passed, score, details
-        except Exception as e:
-            return False, 0.0, f"Error: {e}"
+        coverage = result.coverage
+        passed = coverage >= threshold
+        score = min(100.0, coverage) if passed else coverage
+        details = f"coverage {coverage:.1f}% (threshold {threshold}%)"
+        return passed, score, details
 
     def check_cross_artifact(self) -> Tuple[bool, float, str]:
         """D3: Cross-artifact consistency validation.

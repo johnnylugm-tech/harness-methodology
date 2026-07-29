@@ -123,28 +123,45 @@ class TestFrameworkEnforcer:
         assert result["passed"] is True
 
     def test_check_coverage_threshold_no_file_phase3(self, tmp_path):
-        """P3 requires coverage report to exist; subprocess is mocked to avoid real test run."""
-        from enforcement.framework_enforcer import FrameworkEnforcer
-        fe = FrameworkEnforcer(str(tmp_path), phase=3)
-        # Mock subprocess.run so the slow-path pytest invocation returns no coverage output
-        with patch("enforcement.framework_enforcer.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(stdout="", stderr="")
-            result = fe.check_coverage_threshold()
-        assert result["passed"] is False
-        assert "not found" in result["message"]
-        assert result["threshold"] == 70
+        """P3 with nothing to measure → not passed, and the reason is named.
 
-    def test_check_coverage_threshold_with_xml(self, tmp_path):
-        xml_content = '''<?xml version="1.0" ?>
-<coverage line-rate="0.85" branch-rate="0.0" version="7.0">
-  <packages/>
-</coverage>'''
-        (tmp_path / "coverage.xml").write_text(xml_content)
+        tmp_path has no source or test directory, so run_suite reports
+        ran=False rather than executing anything. Before Round 25 this test
+        mocked enforcement.framework_enforcer.subprocess.run; the method no
+        longer owns a subprocess call.
+        """
         from enforcement.framework_enforcer import FrameworkEnforcer
         fe = FrameworkEnforcer(str(tmp_path), phase=3)
         result = fe.check_coverage_threshold()
-        assert result["passed"] is True
-        assert result["coverage"] == pytest.approx(85.0, 0.1)
+        assert result["passed"] is False
+        assert result["threshold"] == 70
+        assert result["message"], "a blocked coverage check must say why"
+
+    def test_a_coverage_xml_is_not_believed_over_the_code(self, tmp_path):
+        """BOUNDARY PIN (Round 25) — replaces test_check_coverage_threshold_with_xml.
+
+        check_coverage_threshold used to parse coverage.xml as a fast path and
+        return whatever line-rate it found. That path never fired in practice
+        (the harness's own gate writes coverage.json, and none of taskq /
+        integration-test / run-all-by-workflow has ever had a coverage.xml), but
+        while it existed a stale or hand-written XML outranked the actual code —
+        the Round 24 failure shape, believing an artifact instead of measuring.
+
+        An 85% coverage.xml sitting in a project with nothing to run must NOT
+        produce a passing 85%.
+        """
+        (tmp_path / "coverage.xml").write_text(
+            '<?xml version="1.0" ?>\n'
+            '<coverage line-rate="0.85" branch-rate="0.0" version="7.0">\n'
+            '  <packages/>\n</coverage>'
+        )
+        from enforcement.framework_enforcer import FrameworkEnforcer
+        fe = FrameworkEnforcer(str(tmp_path), phase=3)
+        result = fe.check_coverage_threshold()
+        assert result["passed"] is False
+        assert result["coverage"] != pytest.approx(85.0, 0.1), (
+            "the XML was believed — the fast path is back"
+        )
 
     def test_check_constitution_no_docs(self, tmp_path):
         fe = self._fe(tmp_path)

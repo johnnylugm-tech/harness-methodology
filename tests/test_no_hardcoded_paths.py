@@ -163,8 +163,10 @@ _ALLOWED_ROOT_TEST_SRC: dict[str, str] = {
     "scripts/generate_fr_mapping.py":
         "builds a candidate list of every plausible location, both layouts "
         "included, and filters by existence",
-    "enforcement/framework_enforcer.py":
-        "if/elif over both layouts — the same explicit two-branch probe",
+    # enforcement/framework_enforcer.py was exempted here for an if/elif probe
+    # over both layouts inside check_coverage_threshold. Round 25 replaced that
+    # method's whole body with core.quality_gate.test_suite_run.run_suite, so
+    # the probe is gone and the file is back under the guard.
     "cli/gate_cmds.py":
         "one last-resort default when _get_test_directories returns empty, "
         "immediately adjacent to that call",

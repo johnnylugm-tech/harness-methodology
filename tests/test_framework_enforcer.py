@@ -105,11 +105,24 @@ class TestFrameworkEnforcer:
         assert result["passed"] is False
 
     def test_check_coverage_threshold_passes(self, tmp_path):
-        (tmp_path / "coverage.xml").write_text(
-            '<?xml version="1.0"?><coverage line-rate="0.85"></coverage>'
-        )
+        """85% measured ≥ the P3 threshold of 70.
+
+        Round 25: the measurement arrives from the shared suite run instead of
+        a coverage.xml this test used to plant — reading an artifact was the
+        fast path that has since been deleted (see
+        tests/test_enforcement.py::test_a_coverage_xml_is_not_believed_over_the_code).
+        """
+        from unittest.mock import patch as _patch
+
+        from core.quality_gate.test_suite_run import SuiteResult
+
         fe = FrameworkEnforcer(project_root=str(tmp_path), phase=3)
-        result = fe.check_coverage_threshold()
+        measured = SuiteResult(
+            passed=True, coverage=85.0, test_target="tests", cov_target="src",
+            returncode=0, output="", ran=True,
+        )
+        with _patch("core.quality_gate.test_suite_run.run_suite", return_value=measured):
+            result = fe.check_coverage_threshold()
         assert result["passed"] is True
         assert result["coverage"] == pytest.approx(85.0)
         assert result["threshold"] == 70

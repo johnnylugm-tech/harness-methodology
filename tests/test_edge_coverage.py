@@ -549,10 +549,21 @@ class TestPhaseTruthVerifierEdge:
             assert passed is False
 
     def test_check_pytest_timeout(self, tmp_path):
+        """A timed-out suite is reported as a timeout, not as failing tests.
+
+        Round 25: check_pytest reads the shared measurement, so the timeout
+        arrives as SuiteResult.returncode == 124 instead of a
+        subprocess.TimeoutExpired raised inside the method.
+        """
         from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
-        import subprocess as _sp
+        from core.quality_gate.test_suite_run import SuiteResult
         verifier = PhaseTruthVerifier(str(tmp_path), phase=3)
-        with patch("subprocess.run", side_effect=_sp.TimeoutExpired("pytest", 120)):
+        timed_out = SuiteResult(
+            passed=False, coverage=None, test_target="tests", cov_target="src",
+            returncode=124, output="", ran=True,
+            reason="test suite timed out after 300s",
+        )
+        with patch("core.quality_gate.test_suite_run.run_suite", return_value=timed_out):
             passed, score, details = verifier.check_pytest()
             assert passed is False
             assert "timed out" in details
