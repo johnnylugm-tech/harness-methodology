@@ -17,8 +17,9 @@ pre-B1 ghost states).
 
 import json
 import subprocess
+from pathlib import Path
 
-from core.doctor import run_doctor
+from core.doctor import run_doctor, _check_submodule_behind
 
 
 def _project(tmp_path, state=None, manifest=None, claude_md=None):
@@ -454,3 +455,123 @@ class TestCrashBundles:
         found = self._findings(project)
         assert len(found) == 1
         assert "1 untriaged" in found[0].message
+
+
+class TestSubmoduleBehindOrigin:
+    """Round 25 站3b: relocated from cli/phase_cmds.py::_advance_prechecks.
+
+    The check itself is unchanged — same behind_count, same three cases. What
+    changed is where it runs: it was advance-phase's only network call, on the
+    critical path of every phase transition, blocking nothing. Being a few
+    commits behind origin does not make this phase's work wrong, so it belongs
+    in the at-rest reconciliation command next to _check_git_sync.
+    """
+
+    """Phase 6 improvement #3: advance-phase postflight detects when the
+    harness/ submodule HEAD is behind origin/main (e.g. CI auto-fix landed)
+    and prints an actionable warning. Non-blocking by design.
+    """
+
+    def _setup_submodule(self, tmp_path: Path) -> tuple[Path, Path]:
+        """Create a fake main repo + harness/ submodule with a bare 'origin'
+        remote. Returns (project, sub) where project/harness is a real git
+        submodule that can be ahead/behind by making local commits.
+
+        Uses ``git update-ref`` instead of ``git push`` to populate the bare
+        repo so the test is portable across CI environments where local
+        transport push may be blocked by safe.directory or receive hooks.
+        Commits are made BEFORE the bare clone so the bare repo already holds
+        the commit objects at clone time.
+        """
+        import subprocess as sp
+        proj = tmp_path
+        (proj / ".gitmodules").write_text(
+            '[submodule "harness"]\n\tpath = harness\n\turl = x\n'
+        )
+        sub = proj / "harness"
+        sub.mkdir()
+        for d in [proj, sub]:
+            sp.run(["git", "-C", str(d), "init", "-q"], check=True)
+            sp.run(["git", "-C", str(d), "config", "user.email", "t@t.com"], check=True)
+            sp.run(["git", "-C", str(d), "config", "user.name", "T"], check=True)
+        # Commit FIRST so bare clone gets the object
+        (sub / "x").write_text("a")
+        sp.run(["git", "-C", str(sub), "add", "."], check=True)
+        sp.run(["git", "-C", str(sub), "commit", "-q", "-m", "init"], check=True)
+        # Bare "origin" — cloned AFTER commit so it already has the object
+        bare = tmp_path.parent / (tmp_path.name + "_origin.git")
+        sp.run(["git", "clone", "--bare", str(sub), str(bare)],
+               check=True, capture_output=True)
+        sp.run(["git", "-C", str(sub), "remote", "add", "origin", str(bare)],
+               check=True)
+        # Sync bare/origin HEAD ref to match sub HEAD (transport-independent)
+        head_sha = sp.run(
+            ["git", "-C", str(sub), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        sp.run(
+            ["git", "-C", str(bare), "update-ref", "refs/heads/main", head_sha],
+            check=True,
+        )
+        return proj, sub
+
+
+    def test_no_finding_when_in_sync(self, tmp_path):
+        """HEAD == origin/main → nothing to report."""
+        proj, _sub = self._setup_submodule(tmp_path)
+        assert _check_submodule_behind(proj) == []
+
+    def test_warns_when_origin_is_ahead(self, tmp_path):
+        """origin has commit not in local → "behind" warning printed.
+
+        Simulates a CI-authored commit landing on origin/main by writing
+        a new commit object + updating the bare ref directly with
+        ``git update-ref`` — no push transport required.
+        """
+        import subprocess as sp
+        proj, sub = self._setup_submodule(tmp_path)
+        bare = tmp_path.parent / (tmp_path.name + "_origin.git")
+
+        # Build the "ci-fix" commit in a local clone of bare (no network needed)
+        ci = tmp_path.parent / (tmp_path.name + "_ci")
+        sp.run(["git", "clone", "-q", str(bare), str(ci)], check=True)
+        sp.run(["git", "-C", str(ci), "config", "user.email", "ci@ci.com"], check=True)
+        sp.run(["git", "-C", str(ci), "config", "user.name", "CI"], check=True)
+        (ci / "y").write_text("ci-fix")
+        sp.run(["git", "-C", str(ci), "add", "."], check=True)
+        sp.run(["git", "-C", str(ci), "commit", "-q", "-m", "ci-fix"], check=True)
+        ci_sha = sp.run(
+            ["git", "-C", str(ci), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+        # Inject the new commit objects into bare via git fetch (local path, no network)
+        sp.run(
+            ["git", "-C", str(bare), "fetch", str(ci), "HEAD"],
+            check=True, capture_output=True,
+        )
+
+        # Advance origin/main ref — transport-independent
+        sp.run(
+            ["git", "-C", str(bare), "update-ref", "refs/heads/main", ci_sha],
+            check=True,
+        )
+
+        # Local sub is unchanged → HEAD still at "init", origin/main at "ci-fix"
+        findings = _check_submodule_behind(proj)
+        assert len(findings) == 1
+        assert findings[0].severity == "WARN", "being behind origin blocks nothing"
+        assert "1 commit(s) behind origin/main" in findings[0].message
+        assert "sync-harness" in findings[0].message  # one-shot remediation
+
+
+    def test_silent_when_fetch_fails(self, tmp_path):
+        """No origin access (offline) → silently skip, no error."""
+        proj = tmp_path
+        sub = proj / "harness"
+        sub.mkdir()
+        (sub / ".git").mkdir()  # marker; no remote configured
+        (proj / ".gitmodules").write_text(
+            '[submodule "harness"]\n\tpath = harness\n\turl = x\n'
+        )
+        assert _check_submodule_behind(proj) == []

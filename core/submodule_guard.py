@@ -1,9 +1,10 @@
 """Submodule guard — detect uncommitted edits and remote drift in git submodules.
 
 Root cause (from E2E 2026-06-28): `git submodule update --remote` silently clobbers
-uncommitted edits in a submodule that lives on a detached HEAD. The only existing
-check (`_check_submodule_drift` in harness_cli.py) detects the OPPOSITE problem
-(local behind remote) and only runs as a non-blocking advisory at phase advance.
+uncommitted edits in a submodule that lives on a detached HEAD. The check for the
+OPPOSITE problem (local behind remote) is `core.doctor._check_submodule_behind` —
+non-blocking, and since Round 25 站3b it runs on demand in `doctor` rather than on
+every phase advance, where it was the only network call on the critical path.
 This module provides:
 
   - `check_uncommitted_edits(submodule_path)`: detect files modified, staged, or

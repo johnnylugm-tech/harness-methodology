@@ -172,7 +172,41 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # calling the harness. See core/heartbeat.py's module docstring.
     findings.extend(_check_heartbeat(project))
 
+    # 12. harness/ submodule behind origin (Round 25 站3b). Relocated from
+    # _advance_prechecks, where it was advance-phase's ONLY network call — a
+    # `git fetch` on every single advance, non-blocking, printing the same four
+    # remediation lines whether or not anyone acted on them. It accounted for
+    # 60% of the wall time of a P1 or P2 advance. Nothing about it belongs on
+    # the phase-transition critical path: being a few commits behind origin does
+    # not make this phase's work wrong, and doctor is where at-rest
+    # reconciliation already lives (next to _check_git_sync).
+    findings.extend(_check_submodule_behind(project))
+
     return findings
+
+
+def _check_submodule_behind(project: Path) -> list[Finding]:
+    """WARN when harness/ is behind origin/main. Silent when offline or current.
+
+    Network-touching by nature (core.submodule_sync.behind_count fetches), which
+    is exactly why it lives in an on-demand command rather than in every advance.
+    """
+    sub = project / "harness"
+    if not sub.is_dir():
+        return []
+    try:
+        from core.submodule_sync import behind_count
+        behind = behind_count(sub)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        return [Finding("submodule", "INFO",
+                        f"harness/ drift check skipped: {exc}")]
+    if behind <= 0:
+        return []  # offline (-1) or already up to date (0)
+    return [Finding("submodule", "WARN",
+                    f"harness/ is {behind} commit(s) behind origin/main — CI may "
+                    f"have landed test-fix commits. One-shot sync: "
+                    f"`python3 -m harness.cli sync-harness`, then commit the "
+                    f"submodule bump. Non-blocking: the local checkout still works")]
 
 
 def _check_heartbeat(project: Path) -> list[Finding]:

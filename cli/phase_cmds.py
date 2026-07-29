@@ -2213,21 +2213,14 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         except Exception as _sab_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] SAB pre-advance check error: {_sab_err}")
 
-    # ── P3-B: Phase 4+ integration package advisory (non-blocking) ───────────
-    if completed_phase >= 3:
-        _missing_pkgs = []
-        for _pkg in ("fastapi", "httpx"):
-            try:
-                __import__(_pkg)
-            except ImportError:
-                _missing_pkgs.append(_pkg)
-        if _missing_pkgs:
-            print(
-                f"\n[WARN] Phase {completed_phase + 1} integration packages not installed: "
-                f"{', '.join(_missing_pkgs)}"
-            )
-            print(f"  Install: pip install {' '.join(_missing_pkgs)}")
-            print("  (Non-blocking — integration tests will fail without these)")
+    # Round 25 站3a: the fastapi/httpx "integration packages not installed"
+    # advisory used to sit here. It fired unconditionally for every P3+ advance,
+    # naming two Python web-stack packages regardless of what the project is or
+    # what language it is written in, and enforced nothing. On the
+    # run-all-by-workflow run it told a CLI job-queue tool to `pip install
+    # fastapi` six times. A guess about the next phase's dependencies, with no
+    # evidence behind it and no consequence attached, is noise in the one output
+    # stream the agent is instructed to read verbatim.
 
     # ── Submodule guard (improvement E2) ───────────────────────────────
     # Detect uncommitted edits in harness/ submodule before `git submodule
@@ -2243,8 +2236,12 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
               "pending — it would silently clobber them), then re-run advance-phase.")
         return 18
 
-    # ── Submodule drift advisory (non-blocking) ──────────────────────
-    _check_submodule_drift(project)
+    # Round 25 站3b: the harness/ submodule drift advisory used to run here. It
+    # was advance-phase's only network call (a `git fetch` per advance), it
+    # blocked nothing, and it was 60% of the wall time of a P1/P2 advance. It
+    # now lives in `doctor` as core.doctor._check_submodule_behind — being a few
+    # commits behind origin does not make this phase's work wrong, so it does
+    # not belong on the phase-transition critical path.
 
     # ── Always-regenerate Phase{N}_STAGE_PASS.md ─────────────────────
     # The file is machine-generated from quality_manifest.json + state.json (no LLM).
@@ -2649,31 +2646,6 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
         f" = {cov:.1f}% ≥ {_min_cov:.1f}% ✓ ({len(fr_ids_manifest)} FRs covered)"
     )
     return 0
-
-def _check_submodule_drift(project: Path) -> None:
-    """Phase 6 improvement #3: detect when harness/ submodule HEAD is behind
-    origin/main (e.g. CI auto-fix landed). Prints actionable warning.
-    Non-blocking — silent skip when offline / no origin access.
-
-    J improvement: prefer `harness sync` (one-shot) over manual 4-step process.
-    Delegates to core.submodule_sync.behind_count() for the count.
-    """
-    from core.submodule_sync import behind_count as _behind_count
-    _sub = project / "harness"
-    _behind = _behind_count(_sub)
-    if _behind <= 0:
-        return  # offline (-1) or already up to date (0) → silent
-    print(
-        f"\n[WARN] harness/ submodule is {_behind} commit(s) behind "
-        f"origin/main. CI may have applied test-fix commits."
-    )
-    print("  Quick fix — one-shot sync:")
-    print("    python3 -m harness.cli sync-harness")
-    print("  Or manually:")
-    print(f"    git -C {project}/harness pull --ff-only origin main")
-    print(f"    git -C {project} add harness && git commit -m "
-          f"'chore(harness): bump submodule to latest'")
-    print("  (Non-blocking — local checkout is still functional.)")
 
 def _check_gate_score_variance(project: Path, phase: int) -> int:
     """Check that gate scores within a phase vary across FRs.
