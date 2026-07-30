@@ -83,14 +83,8 @@ _LINE_CEILING: dict[str, int] = {
     # The schema had never been loaded by any code, so it drifted into
     # describing a document no run produces while consumers guessed field
     # names — the direct cause of the dead DA-waiver safeguard above.
-    # 2026-07-29: +8 lines — a dimension's `score: null` (framework-owned /
-    # not-yet-applicable, per harness_gate_result.schema.json) was coerced to
-    # 0.0 at DimResult construction, defeating every downstream `is not None`
-    # guard already written to handle it and making Gate 2+ unconditionally
-    # block on any legitimately-inapplicable dimension. Preserve None through
-    # construction and align the Gate 2+ all-dims-pass predicates with
-    # Gate 1's already-correct "None excludes, not fails" semantics.
-    "harness/harness_bridge.py": 3158,
+    # 2026-07-30: +53 lines — Round N: INFRA-fail detection + partial-pollution carve-out
+    "harness/harness_bridge.py": 3215,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
