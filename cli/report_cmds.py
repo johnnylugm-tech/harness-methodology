@@ -167,6 +167,12 @@ def _gate_provenance_report(project: Path) -> dict:
                 continue
             gates.append({
                 "gate": gate,
+                # Gate 1 is per-FR, so several finalized verdicts coexist and this
+                # row describes ONE of them (the first by sorted FR id). Carrying
+                # the fr_id says which — an unlabelled verdict invites the reader
+                # to take it for the gate's, which is the ambiguity the None it
+                # replaced at least did not have.
+                "fr_id": data.get("fr_id"),
                 "verdict": data.get("verdict") or data.get("passed"),
                 "composite_score": data.get("composite_score") or data.get("overall_score"),
                 "enforcer_sha": data.get("enforcer_sha"),
@@ -319,8 +325,9 @@ def _render_human(report: dict) -> str:
     else:
         for row in gp["gates"]:
             enforcer = row["enforcer_sha"] or "not recorded (result predates Round 19 站3)"
+            scope = f" [{row['fr_id']}]" if row.get("fr_id") else ""
             lines.append(
-                f"  Gate {row['gate']}: verdict={row['verdict']} "
+                f"  Gate {row['gate']}{scope}: verdict={row['verdict']} "
                 f"score={row['composite_score']} enforcer={enforcer}"
             )
         lines.append(

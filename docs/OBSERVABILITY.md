@@ -393,22 +393,64 @@ nothing noticing. The liveness judgement available at that moment was "the
 journal has had no new entry for 3 minutes, treat it as dead" — improvised,
 with no mechanism behind it.
 
-## Two ledgers, not one — the workflow dispatch gap
+## Two substrates, one ledger — partially closed (Round 26)
 
-`run-report` covers **harness-side spawns only** (`core/agent_spawner.py` →
-`sessions_spawn.log`). It does NOT cover the workflow runtime's own `agent()`
-dispatches. Measured on the run-all-by-workflow P1-P8 run:
+The harness dispatches agents two ways, and instrumented one:
 
-| Ledger | What it saw |
-|---|---|
-| `sessions_spawn.log` (run-report) | 78 entries, $35.75, 1224 turns |
-| workflow runtime (self-reported) | ~143 `agent()` dispatches; 1,473,527 subagent tokens for the P6-P8 segment alone |
+| Substrate | Reaches | Records |
+|---|---|---|
+| `run-fr-step` → `core/agent_spawner.spawn()` | per-FR steps (P3, P4) | role, phase, fr_id, status, error_class, **cost, turns, usage, duration** |
+| the workflow script's own `agent()` | everything else — all of P1/P2, every preflight, peer review, orchestration step | role, phase label, status (Round 26) |
 
-These are different books and cannot be summed. Workflow JS is hermetic (no
-`fs`, no `process`) and its `agent()` calls never touch the harness, so there
-is no correct way for the harness to observe them — only fragile ones (reading
-the runtime's internal journal path). Recorded as a known boundary rather than
-closed with a workaround; see `docs/PROPOSAL_ADJUDICATIONS.md` Round 24.
+Measured on taskq-plus P1–P3: **42 spawn-log entries, all of them phase 3**, while
+`.harness/traces/agent_trajectory.jsonl` recorded `phase_1_preflight` and
+`phase_2_preflight` spans right beside them. So `run-report`'s "42 dispatches,
+failure rate 9.52%" was a P3/P4 number presented as the run's — a wrong
+denominator, not a missing detail.
+
+### What Round 26 closed, and what it could not
+
+Every generated workflow now routes its dispatches through a `dispatch()` wrapper
+(injected by `scripts/workflowgen/generate_workflows.py`, 118 call sites in
+run-all). The wrapper buffers a record per dispatch and hands the buffer to the
+NEXT dispatch as a one-line bookkeeping preamble, which calls
+`harness_cli.py log-dispatch --batch`.
+
+**Recovered: the denominator.** Dispatch counts and failure rate now span P1–P8.
+
+**Not recoverable on that substrate: cost, turns, duration.** The Workflow script
+sandbox has no filesystem, no shell, and no clock (`Date.now()` throws), and
+`agent()` returns text rather than the CLI envelope. `loadFileViaPython` — which
+dispatches an entire SHELL WRAPPER AGENT to read one file — is that constraint
+made visible. `run-report` already prints `N/M entries have cost data`; that
+fraction is now the honest statement of the split, not an accident.
+
+### Retraction
+
+This section previously read: *"there is no correct way for the harness to observe
+them — only fragile ones."* That was too strong, and Round 26 disproved it. There
+was a correct way: make the wrapper — which already observes every outcome — pass
+its records to an agent that does have a shell. What is genuinely impossible is
+the cost model, not the observation.
+
+### Properties worth keeping
+
+- **Zero extra dispatches.** A per-call CLI write needs a shell the script lacks;
+  a per-call wrapper agent would double the dispatch count.
+- **No dispatch reports its own outcome.** Records are written by a *different*
+  agent than the one they describe (its successor) — the R21 站3 principle about
+  audit trails the audited party writes.
+- **Failures are recorded**, because the wrapper observes the outcome rather than
+  the dead sub-agent.
+- **The final dispatch of a run is never flushed** — nothing follows it to carry
+  the record. The phase-level `run_phase` trajectory spans remain the crash-safe
+  floor.
+
+Guards: `tests/test_workflow_js_conventions.py` fails on a raw `await agent(`
+beyond the wrapper's own call, on a wrapper declared more than once, and on a
+catch block that rethrows without recording;
+`scripts/workflowgen/js_src/sim_runner.test.mjs` asserts the buffered records
+actually ride along on a later prompt.
 
 ## advance-phase's cost model (Round 25)
 

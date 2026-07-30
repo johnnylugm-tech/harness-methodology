@@ -230,6 +230,39 @@ names are in front of the agent either way. Same exit code, because the
 remediation channel is the same (fix the project's tests); different first
 line, because the two are not the same problem.
 
+## A dispatch's error_class, and what each one routes to (Round 26)
+
+`core.agent_spawner._classify_dispatch_error` labels every failed dispatch, and
+`cli/fr_cmds.py` decides what to do next from that label. Round 26 added two
+classes because the fix loop had been guessing at both.
+
+| `error_class` | Means | Routes to |
+|---|---|---|
+| `STRUCTURAL` | Deterministic environment breakage; retry can never succeed | abort with remediation |
+| `INFRA` | The sub-agent reported a precondition blocker (`INFRA_BLOCKED`) — the tools never ran | abort; **never** CODE-FIX, never an identical re-dispatch |
+| `TURN_BUDGET` | Cut off at its max-turns ceiling; the agent was working, the budget ended | re-dispatch the SAME step once at double the ceiling, recorded in the degradation ledger |
+| `INFRA_ERROR` | Network / auth / rate-limit / model-unavailable | caller's retry policy |
+| `EXECUTION_ERROR` | Everything else | the ordinary fix loop |
+
+Two rules this table encodes, both bought with real incidents:
+
+**A diagnostic may not replace the evidence it describes.** `_validate_inner_json`
+used to overwrite `output` with a one-line synthetic message. Every downstream
+safety net string-matches that field, so the rewrite silently blinded them:
+measured on one real log entry, the agent's own reply classifies as
+`('INFRA', 'Architecture Amendment Protocol violation')` and aborts the fix loop,
+while the synthetic replacement classifies as `None` and the loop dispatches
+CODE-FIX at healthy code. The diagnostic is now additive — diagnostic first
+(humans and the MAST rules key off its phrasing), raw reply after it.
+
+**`INFRA_BLOCKED` is a first-class inner status.** `cli/fr_prompts/gate.py` orders
+a Gate 1 evaluator to report it when run-gate prints `[BLOCKED]`. Until Round 26
+that word existed in exactly one place in the codebase — the prompt asking for it
+— so the report fell through to the commit-required branch, where classification
+depended on whether the agent had volunteered a `"pass": false` key: with it, a
+real blocker was waved through as progress; without it, the same blocker became an
+EXECUTION_ERROR. Same blocker, two outcomes, decided by an optional key.
+
 ## Exit codes
 
 Single source of truth: **`cli/exit_codes.py`'s `REGISTRY` dict.**

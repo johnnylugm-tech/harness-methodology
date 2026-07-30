@@ -559,3 +559,69 @@
 - test: tests/cli/test_phase_cmds_cli.py::TestAdvancePrechecksSubtraction::test_no_hardcoded_python_web_stack_advisory
   bug: "the fastapi/httpx advisory fired unconditionally for every P3+ advance regardless of project or language and enforced nothing — it told a CLI job-queue tool to pip install fastapi six times"
   fixed_in: "Round 25 站3a"
+
+# --- Round 26 (2026-07-30) — taskq-plus P1-P3 diagnosis: seven fixes ----------
+
+- test: tests/test_gate_result_producer_parity.py::TestForwardDirection::test_gate1_prompt_states_every_required_key
+  bug: "gate result schema `required` listed open_critical_count/open_high_count, which NO producer instruction has ever asked for — an agent following the Gate 1 prompt exactly produced a file finalize_gate rejects as malformed_gate_result (taskq-plus P3: FR-01 and FR-04)"
+  fixed_in: "f9bcc30"
+
+- test: tests/test_gate_result_schema.py::TestSchemaMatchesReality::test_every_gate_with_a_producer_has_a_real_fixture
+  bug: "the shape contract was pinned against ONE artifact (taskq's gate4_result.json) while the schema is enforced for all four gates — it agreed with reality by luck"
+  fixed_in: "f9bcc30"
+
+- test: tests/test_infra_fail_separation.py::TestBlockedReportSurvivesToTheGuard::test_the_blocked_quote_reaches_the_round13_guard
+  bug: "_validate_inner_json replaced `output` with a synthetic diagnostic, stripping the [BLOCKED] signatures Round 13's INFRA guard string-matches — the guard went blind in the exact case it was built for, and a 51-turn CODE-FIX was dispatched at an unresolvable SAB phantom"
+  fixed_in: "a4a8fe8"
+
+- test: tests/test_infra_fail_separation.py::TestBlockedReportSurvivesToTheGuard::test_classification_does_not_depend_on_a_volunteered_pass_key
+  bug: "an INFRA_BLOCKED report classified as progress or as EXECUTION_ERROR depending on whether the agent volunteered a `pass: false` key — same blocker, two outcomes"
+  fixed_in: "a4a8fe8"
+
+- test: tests/test_failure_corpus_coverage.py::test_real_failure_shapes_are_classified_CORRECTLY
+  bug: "the corpus ratchet only asked 'did SOME rule match', so a WRONG match was invisible — integration_test.jsonl's INFRA_BLOCKED entry was filed as `specification` from Round 19 until Round 26"
+  fixed_in: "a4a8fe8"
+
+- test: tests/test_sab_binding_prompt.py::TestEveryTddStepCarriesIt::test_declared_paths_reach_the_prompt
+  bug: "the SAB module paths Gate 1 blocks on were invisible to the agent writing the code (build_tdd_green_prompt took no SAB input at all), so divergence surfaced at the gate — taskq-plus P3 relocated FR-02's executor and restarted FR-05 from RED to match a Phase 2 guess"
+  fixed_in: "26cb5a8"
+
+- test: tests/test_sab_binding_prompt.py::TestTheContradictionIsGone::test_red_no_longer_hardcodes_a_module_layout
+  bug: "TDD-RED named `cli.py` as THE CLI entry-point module and taught `cli.main([...])` — a layout the SAB may forbid, and the test file written from it pulled the implementation to the phantom name"
+  fixed_in: "26cb5a8"
+
+- test: tests/test_sab_amender.py::TestLayerChoiceFollowsTheModuleName::test_the_taskq_plus_regression_specifically
+  bug: "_heuristic_layer_choice sent every non-underscore module to layers[-1]; when the last layer is `config` that filed cli/service/storage modules there, leaving SAB.json's layering contradicting the project's own .importlinter order"
+  fixed_in: "26cb5a8"
+
+- test: tests/test_sab_amender.py::TestResolvePhantom::test_a_refused_amendment_writes_nothing
+  bug: "the SAB->code direction had no tooling at all, so a wrong Phase 2 module path was resolved by rewriting production code; --resolve-phantom must refuse without a substantive reason and must not half-write on refusal"
+  fixed_in: "26cb5a8"
+
+- test: tests/test_infra_fail_separation.py::TestTurnBudgetIsOneClassification::test_the_literal_lives_in_exactly_one_place
+  bug: "two classifiers read the same dispatch output and disagreed (log said EXECUTION_ERROR, MAST said dispatch_timeout) because each held its own copy of the max-turns signature — and the classifier that DECIDES was the blind one"
+  fixed_in: "75a210b"
+
+- test: tests/test_fr_cmds_values_wiring.py::TestTurnBudgetEscalation::test_the_retry_gets_double_the_ceiling
+  bug: "a dispatch cut off at its turn ceiling was re-dispatched at the identical ceiling (3 of 3 occurrences in taskq-plus P3, $5.30, 21% of the phase's spend) and a cut-off GATE1 was handed to CODE-FIX"
+  fixed_in: "75a210b"
+
+- test: tests/test_fr_cmds_values_wiring.py::TestTurnBudgetEscalation::test_escalation_survives_an_unstamped_result
+  bug: "a decision that depends on one upstream layer having stamped the entry goes silently dead when that layer changes — the shape that killed Round 13's INFRA guard"
+  fixed_in: "75a210b"
+
+- test: tests/test_gate_verdict_provenance.py::TestProvenanceReadsTheFinalizedVerdict::test_the_draft_no_longer_wins
+  bug: "run-report's gate provenance read the agent's pre-finalize .sessi-work draft, which has no verdict — every Gate 1 reported verdict=None while the persisted per-FR file said PASS"
+  fixed_in: "5bc479f"
+
+- test: tests/test_gate_verdict_provenance.py::TestEnforcerSkewIsVisible::test_a_missing_stamp_is_reported_as_missing_not_as_agreement
+  bug: "phase artifacts recorded no enforcer_sha, so a framework patched mid-run left no trace of the skew (taskq-plus: five commits landed during P1-P3, one fixing the P2 step that had completed seven hours earlier)"
+  fixed_in: "5bc479f"
+
+- test: tests/test_workflow_js_conventions.py::test_every_dispatch_goes_through_the_wrapper
+  bug: "the workflow substrate's agent() dispatches never reached sessions_spawn.log — 42 entries all from phase 3, so run-report's failure rate was a P3/P4 number presented as the run's"
+  fixed_in: "10f7a46"
+
+- test: tests/test_workflow_js_conventions.py::test_the_wrapper_records_before_it_rethrows
+  bug: "a dead sub-agent cannot log itself; if the wrapper's catch block stops recording, failed dispatches vanish from the population again"
+  fixed_in: "10f7a46"

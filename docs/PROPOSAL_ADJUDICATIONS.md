@@ -403,3 +403,102 @@ coverage.py 的 term 報表**截斷**且**永不在未達 100% 時印 100%**（9
   它們不在 advance-phase 的同一次呼叫裡，一起改是失控重構。
 - gitleaks / ruff / mypy 不刪。它們與 gate 維度重疊但**尺不同**（gate linting 門檻 90
   ≙ 容 5 個違規，advance 要 0；gate 用 pyright，advance 用 mypy）。刪掉是降標。合計 0.35s。
+
+---
+
+## Round 26 — 判定所讀的來源，不是產生真值的那一個
+
+老闆令：檢視 taskq-plus 在 P1–P3 的執行紀錄（卡在 P3 的 FR-05）與 harness 的 git
+history，找出其他根本性／結構性問題；然後「針對這些不足提出修復方案（要確認問題
+的根源並採用正解，not workaround）」。
+
+診斷讀了 42 筆 spawn 紀錄、4 份 lessons、9 份 decision log、84 個 trajectory span、
+45 個 commit。七條發現裡有四條是同一個形狀，而這個形狀已經被命名過四次：
+R17（prompt↔gate 漂移母體）、R20（多層檢查同一來源）、R21（判定早於真值）、
+R24（欄位存在 vs 內容為真）。**本輪的新資訊不是它又出現，而是每一輪的修法都在
+「加一層檢查」，而那層檢查讀的來源仍由上游自由改寫。**
+
+| 輪次 | 加了什麼 | 沒動什麼 | 後果 |
+|---|---|---|---|
+| R21 站2 | gate result schema 執行化 | 生產那份檔案的 prompt | schema 必填欄位沒有生產者 |
+| R13 站2a | INFRA 不進 CODE-FIX | 上游會覆寫 `output` | 守衛在它唯一該生效的情境失明 |
+| R19 站1 | 失敗語料 corpus | 「分類正確」的斷言 | 誤配在 corpus 裡躺了七輪 |
+| R19 站3 | gate 產物記 enforcer_sha | phase 產物 / provenance 讀哪個檔 | 跨版本歪斜不可見 + 永遠印 verdict=None |
+
+### 老闆三裁定
+
+1. **7 條一輪做完**（不分批）。
+2. **#4 用生成層統一 wrapper**（重的那個選項），不是只把報表口徑寫誠實。
+3. **#3 的逃生口用顯式架構修正指令**，不是靜默同步、也不是只改 prompt。
+
+### 兩項對診斷報告的自我修正
+
+**修正 1 — #1 的根因比報告講的更簡單，所以正解是減法。** 報告原本框成「一份 schema
+四個 gate、只驗過一個生產者」。掃完所有生產者指示後：`open_critical_count` /
+`open_high_count` **在任何生產者指示裡都不存在** —— 不在 gate-1 prompt、不在
+`evaluate_dimension.md`、不在 phase3/4/6 JS 的 gate-write 指令。R21 站2 用來「保持
+誠實」的 gate-4 fixture 是**碰巧**滿足的單一產物。所以修法是拿掉假必填 + 補生產者
+對賬，不是拆成 per-gate schema。
+
+**修正 2 — #4 不能用「每次呼叫寫一筆 CLI」實作。** Workflow script sandbox 沒有
+filesystem、沒有 shell、`Date.now()` 會 throw。`loadFileViaPython`（為了讀一個檔
+派一整支 SHELL WRAPPER AGENT）就是這個限制的證據。wrapper 只能緩衝 + 讓下一次
+dispatch 帶走，且 cost / turns / duration 在該基座**取不回來** —— 本站取回的是
+**分母**。
+
+### 七條的裁決
+
+| # | 裁決 | 站 |
+|---|---|---|
+| 1 | **接受（減法）** required 去掉兩個孤兒 + 生產者渲染輸出對賬 + gate-1 reality fixture | 站1 `f9bcc30` |
+| 2 | **接受** 診斷改附加不取代；`INFRA_BLOCKED` 首次有消費者；corpus 補「分類正確」斷言 | 站2 `a4a8fe8` |
+| 3 | **接受（含裁定 3）** SAB 綁定路徑進三個 TDD prompt + `--resolve-phantom` + layer 選擇修正 | 站3 `26cb5a8` |
+| 4 | **接受（含裁定 2）** 生成層 wrapper 覆蓋 118 呼叫點 + `log-dispatch` | 站5 `10f7a46` |
+| 5 | **接受** 分類收斂成一個 predicate；max-turns 升階一次並記帳 | 站4 `75a210b` |
+| 6 | **接受（WARN 不 BLOCK）** phase_completed 記 enforcer_sha + load-context 報歪斜 | 站6 `5bc479f` |
+| 7 | **接受** 拆出 `gate_verdict_paths`（只認已定案） | 站6 `5bc479f` |
+
+### 站0 的三個前提：兩個改變了方案
+
+| 前提 | 結果 | 影響 |
+|---|---|---|
+| 每 phase 都有 shell-capable flush 點 | **成立**（9 支 JS 各 1 個 advance-phase agent） | 站5 走全範圍，但最終改用「下一次 dispatch 帶走」而非 advance-phase flush —— 前者的錨點唯一且不依賴特定 agent 被派到 |
+| corpus 是否嵌入現行 `error_output` | **成立，而且更嚴重** | `integration_test.jsonl` 第 2 行逐字就是 `status='INFRA_BLOCKED'`，R19 採進、誤分類至今；`test_real_failure_shapes_are_classified` 只斷言「有分類」，無法偵測誤配 → 站2 多一項交付 |
+| ceiling cap 該不該進 `values` | **不需要新設定鍵** | 改「係數 2、只升一次」，由係數與次數自我界定，避免 R20 站G 剛拿掉的 magic number |
+
+### 本輪順帶挖出的、未在原始七條裡的
+
+1. **`test_ssi_scripts.py::test_gate_result_schema_required_fields` 已刪。** 它把
+   schema 的 required 清單抄成 literal set —— 正是它自己 R21 docstring 指出其前身的
+   毛病。R21 縮短了抄本卻保留了形狀，於是抄本反過來捍衛錯誤清單並會阻擋本輪修法。
+2. **`gate` vs `gate_num`**：同一個 provenance 欄位兩個名字（gate-1 prompt 寫
+   `gate`，gate-4 寫 `gate_num`），無任何消費者從檔案讀它。已在 schema 中記錄
+   → **R26-DEFER-1**。
+3. **`tests_passed` / `tests_failed` / `tests_skipped`**：gate-1 prompt 標為
+   REQUIRED，而 `_check_tests_failed` / `_check_test_skip_ratio` 都是 regex 解析
+   `tool_evidence`，**沒有任何消費者讀這三個欄位**。已記錄
+   → **R26-DEFER-2**（減法屬於 prompt，不屬於本站）。
+4. **R8 站3 的汙染守衛在本輪抓到我一次**：我把外專案名寫進 degradation ledger 的
+   `why` 字串 —— 那會被寫進**消費專案**的產物。守衛是對的，敘事搬回註解。
+5. **R20 站2 的路徑 lint 也抓到我一次**：手拼 `02-architecture/ADR.md`。
+   `ProjectLayout` 補上 `adr_path`。
+
+### 本輪明確不做
+
+- **per-gate schema 拆分**：修正 1 之後前提消失（不是「四個 gate 形狀不同」，是
+  「required 列了沒人被要求寫的欄位」）。
+- **render-from-SSOT 生成 gate-1 prompt 的 JSON 區塊**：考慮過。prompt 的逐欄指引
+  散文（`// REQUIRED: count from pytest summary line`）在 schema 裡沒有家，而 R17 站1
+  對同一類問題選的正是 registry + 完備性 meta-test 路線。採 parity 測試。
+- **`tests_*` 三欄位的減法、`gate`→`gate_num` 統一**：見 R26-DEFER-1/2。動的是全系統
+  派發最頻繁的 prompt，為純命名一致性不值得，且會churn golden。
+
+### 誠實邊界
+
+- 七站全部是**讀碼 + 可執行反證**層級的驗證。**沒有跑過一輪真的 E2E。**
+  「站2 修好後 FR-05 那類 phantom 會被正確中止而不是進 CODE-FIX」是從程式路徑推得。
+- 站3 的 3a 假設「寫碼時看到約束就不會分歧」。反面情境（agent 看到 SAB 路徑但
+  TEST_SPEC 的測試名暗示另一種佈局，兩邊都不滿足）本次無實例，屬推測；若發生，
+  症狀會是 GATE1 spec-coverage 掉分而非 phantom BLOCK。
+- 站5 的最後一次 dispatch 永遠不會被 flush（沒有下一次可以帶走）。
+  `run_phase` trajectory span 仍是崩潰下的下限。
