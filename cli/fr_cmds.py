@@ -409,6 +409,13 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             and _status in _DISPATCH_ERROR_STATUSES
             and _status != "REGRESSION_GUARD"
             and not _is_connector_disabled_failure(result.get("output", ""))
+            # Round 26: a reported precondition blocker (agent_spawner's
+            # _INNER_BLOCKED_SIGNATURES -> error_class "INFRA") is deterministic
+            # — the tools never ran, and an identical re-dispatch cannot change
+            # that. Same reasoning as the connector-disabled carve-out above; the
+            # fix loop's Round 13 站2a short-circuit turns it into an abort with
+            # the operator's remediation instead of a wasted round.
+            and result.get("error_class") != "INFRA"
         )
         if not _step_retryable or _step_attempt == _STEP_RETRY_ATTEMPTS:
             break

@@ -283,7 +283,19 @@ _LINE_CEILING: dict[str, int] = {
     # cost/token fields sitting in the same dict away, so failed dispatches
     # logged no cost: 2 of taskq's 19 failures carried one against 50 of 50
     # successes, while those failures burned 1.30h of wall clock.
-    "core/agent_spawner.py": 1135,
+    # 2026-07-30: +70 lines — Round 26 站2. Three additions, all on the
+    # semantic-failure path that already lives beside spawn(): the
+    # _INNER_BLOCKED_SIGNATURES registry (the INFRA_BLOCKED status the Gate 1
+    # prompt orders and nothing consumed), `blocked_inner_status_in` (one
+    # definition of that test, reachable both from a live inner-JSON read and
+    # from re-derivation over an entry already on disk), and `_error_result`,
+    # which exists so a synthetic diagnostic can no longer REPLACE the
+    # sub-agent's reply — the rewrite that made Round 13's INFRA guard
+    # unreachable in the one case it was built for. Not split out: all three are
+    # dispatch-result classification, and separating them from
+    # _validate_inner_json would put the registry in a different file from its
+    # only reader, which is the shape of defect this station removed.
+    "core/agent_spawner.py": 1205,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

@@ -53,6 +53,36 @@ CORPORA: dict[str, str] = {
 # "stream idle timeout" and "session limit".
 MAX_UNCLASSIFIED = 0
 
+# Round 26 — the ratchet above only asks "did SOME rule match?". It cannot see a
+# WRONG match, and one had been sitting here since Round 19: integration_test's
+# `status='INFRA_BLOCKED'` entry classified as `commit_required_step_no_commit`
+# (MAST specification), which sends a reader — and the fix loop — looking for an
+# agent-logic defect when the truth is an unmet precondition no code change can
+# resolve. The corpus held the evidence for seven rounds and read green the whole
+# time, because "classified" and "classified correctly" are different questions
+# and only the first was being asked. taskq-plus FR-05 then paid for it live on
+# 2026-07-30: a 51-turn CODE-FIX dispatched at an unresolvable SAB phantom.
+#
+# So the judgement a human made about each shape is written down, per entry, in
+# file order. Corpora are append-only (export-failure-corpus appends), so index
+# alignment is stable and importing a new shape forces someone to state what it
+# means — the same forcing function MAX_UNCLASSIFIED applies to coverage.
+EXPECTED_MODES: dict[str, list[str]] = {
+    "taskq_p3.jsonl": [
+        "dispatch_timeout",                     # subtype=error_max_turns
+        "dispatch_timeout",                     # Agent timed out after 600s
+        "destructive_edit_or_mutator_marker",   # regression_flags set
+        "commit_required_step_no_commit",       # TDD-IMPROVE, inner status DONE
+        "infra_error_transient",                # stream idle timeout
+        "infra_error_transient",                # session limit
+    ],
+    "integration_test.jsonl": [
+        "dispatch_timeout",                     # subtype=error_max_turns
+        "infra_precondition_blocked",           # GATE1, inner status INFRA_BLOCKED
+        "commit_required_step_no_commit",       # GATE1, inner status <unset>
+    ],
+}
+
 
 def _load(name: str) -> list[dict]:
     path = CORPUS_DIR / name
@@ -80,6 +110,41 @@ def test_real_failure_shapes_are_classified():
         f"core/failure_modes.py — do NOT raise the ratchet to make this pass "
         f"unless the shape genuinely cannot be classified deterministically:\n"
         + "\n".join(f"  - {e.get('status')}: {str(e.get('error_output'))[:110]}" for e in unexplained)
+    )
+
+
+@pytest.mark.parametrize("name", sorted(CORPORA))
+def test_real_failure_shapes_are_classified_CORRECTLY(name: str):
+    """The other question: not "did a rule match" but "did the RIGHT one".
+
+    A wrong match is worse than no match — UNCLASSIFIED is honest, while
+    `specification` on an infrastructure blocker actively misdirects the reader
+    and the fix loop. Round 19's ratchet could not tell them apart.
+    """
+    expected = EXPECTED_MODES[name]
+    entries = _load(name)
+    assert len(entries) == len(expected), (
+        f"{name} has {len(entries)} entries but {len(expected)} expectations. A newly "
+        f"imported shape needs its mode_id appended to EXPECTED_MODES — state what the "
+        f"shape MEANS, do not pad the list to make this pass."
+    )
+    wrong = [
+        (i, expected[i], classify_entry(e)["mode_id"], str(e.get("error_output"))[:90])
+        for i, e in enumerate(entries)
+        if classify_entry(e)["mode_id"] != expected[i]
+    ]
+    assert not wrong, "\n".join(
+        f"  {name}[{i}]: expected {exp!r}, got {got!r} — {evidence}"
+        for i, exp, got, evidence in wrong
+    )
+
+
+def test_every_corpus_has_per_entry_expectations():
+    """A corpus with no expectations would pass the test above vacuously."""
+    missing = sorted(set(CORPORA) - set(EXPECTED_MODES))
+    assert not missing, (
+        f"corpus file(s) {missing} carry no EXPECTED_MODES entry, so nothing checks "
+        f"whether their shapes classify correctly — only that they classify."
     )
 
 

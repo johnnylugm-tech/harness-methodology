@@ -39,6 +39,20 @@ _FIXTURES_BY_MODE_ID = {
          "error_output": "Commit-required step 'TDD-GREEN' returned empty commit (status='complete')"},
         {"status": "ERROR", "error_class": "EXECUTION_ERROR", "error_output": "some other failure text"},
     ),
+    # Round 26. The hit fixture carries NO error_class on purpose: this rule has
+    # to reach entries already on disk, where the class is re-derived from
+    # error_output alone (the corpus strips it — see
+    # tests/test_failure_corpus_coverage.py). The miss fixture is the same
+    # sentence with a different inner status, which must stay
+    # `commit_required_step_no_commit`: the new rule sits AHEAD of that one in the
+    # registry, so a predicate that were too broad would silently swallow every
+    # missing-commit failure.
+    "infra_precondition_blocked": (
+        {"status": "ERROR",
+         "error_output": "Commit-required step 'GATE1' returned empty commit (status='INFRA_BLOCKED')"},
+        {"status": "ERROR",
+         "error_output": "Commit-required step 'GATE1' returned empty commit (status='<unset>')"},
+    ),
     "structural_env_breakage": (
         {"status": "ERROR", "error_class": "STRUCTURAL"},
         {"status": "ERROR", "error_class": "INFRA_ERROR"},

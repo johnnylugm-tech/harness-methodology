@@ -142,6 +142,98 @@ class TestInfraFailPollution:
         assert "architecture" in marker
 
 
+class TestBlockedReportSurvivesToTheGuard:
+    """Round 26 — replay of taskq-plus's own log entry, end to end.
+
+    Round 13 站2a added `_classify_infra_or_harness_bug` so that an INFRA
+    precondition failure aborts the fix loop instead of dispatching CODE-FIX at
+    healthy code. It works by string-matching the sub-agent's dispatch output
+    against harness_bridge._INFRA_FAIL_EVIDENCE_SIGNATURES. Those signatures live
+    in the verbatim [BLOCKED] quote the GATE1 prompt orders the agent to include.
+
+    `_validate_inner_json` REPLACED that output with a one-line synthetic
+    diagnostic, so the guard was matching a string from which every signature had
+    already been removed. Measured on the real entry (taskq-plus
+    .methodology/sessions_spawn.log, 2026-07-29T21:41:57, exit_code 0,
+    error_class EXECUTION_ERROR, inner_status INFRA_BLOCKED): the guard saw None,
+    and the next dispatch was a CODE-FIX told "sub-agent timeout or error" that
+    burned 51 turns against an unresolvable SAB phantom.
+
+    These pin both halves: the evidence survives, and the classification no longer
+    depends on whether the agent volunteered a `"pass": false` key.
+    """
+
+    # The reply as the FR-05 Gate 1 evaluator actually returned it, trimmed.
+    AGENT_REPLY = (
+        '```json\n'
+        '{\n'
+        '  "status": "INFRA_BLOCKED",\n'
+        '  "gate_score": null,\n'
+        '  "summary": "[BLOCKED] run-gate: SAB phantom module \'taskq_plus.cli.main\'",\n'
+        '  "blocker": "[BLOCKED] run-gate: Architecture Amendment Protocol violation.\\n'
+        'Phantom modules declared in SAB.json but not implemented in codebase: '
+        "['taskq_plus.cli.main']\"\n"
+        '}\n'
+        '```'
+    )
+
+    def _validated(self, reply: str, step: str = "GATE1") -> dict:
+        from core.agent_spawner import _validate_inner_json
+        err = _validate_inner_json({"result": reply}, step)
+        assert err is not None, "a reported blocker must not read as legitimate progress"
+        return err
+
+    def test_the_blocked_quote_reaches_the_round13_guard(self):
+        from cli.fr_cmds import _classify_infra_or_harness_bug
+
+        err = self._validated(self.AGENT_REPLY)
+        verdict = _classify_infra_or_harness_bug(err["output"])
+        assert verdict is not None, (
+            "the INFRA guard saw no signature — the sub-agent's [BLOCKED] quote was "
+            "dropped from `output` again, which routes an unmet precondition into "
+            "CODE-FIX at healthy code"
+        )
+        assert verdict[0] == "INFRA"
+
+    def test_the_synthetic_diagnostic_is_still_there_for_the_reader(self):
+        err = self._validated(self.AGENT_REPLY)
+        assert err["output"].startswith("Sub-agent reported inner status")
+        assert "INFRA_BLOCKED" in err["output"]
+
+    def test_classification_does_not_depend_on_a_volunteered_pass_key(self):
+        """The old coin flip: with `pass: false` the blocker was waved through as
+        progress; without it, it became an EXECUTION_ERROR. Same blocker."""
+        with_pass = self.AGENT_REPLY.replace(
+            '"gate_score": null,', '"gate_score": null,\n  "pass": false,'
+        )
+        assert '"pass": false' in with_pass
+        for reply in (self.AGENT_REPLY, with_pass):
+            err = self._validated(reply)
+            assert err["error_class"] == "INFRA"
+            assert err["inner_status"] == "INFRA_BLOCKED"
+
+    def test_mast_files_it_as_infra_not_specification(self):
+        from core.failure_modes import classify_entry
+
+        err = self._validated(self.AGENT_REPLY)
+        # sessions_spawn.log shape: the spawner's `output` lands in error_output.
+        entry = {"status": "ERROR", "error_output": err["output"],
+                 "regression_flags": {}}
+        verdict = classify_entry(entry)
+        assert verdict["mode_id"] == "infra_precondition_blocked", verdict
+        assert verdict["mast_category"] == "infra"
+
+    def test_a_genuine_missing_commit_is_untouched(self):
+        """The new branch must not swallow the failure mode it sits in front of."""
+        from core.failure_modes import classify_entry
+
+        err = self._validated('{"status": "DONE", "commit": null}', step="TDD-GREEN")
+        assert err["error_class"] == "EXECUTION_ERROR"
+        entry = {"status": "ERROR", "error_output": err["output"],
+                 "regression_flags": {}}
+        assert classify_entry(entry)["mode_id"] == "commit_required_step_no_commit"
+
+
 class TestCheckerEnforcementConfig:
     """Round 12 站3c — per-checker enforcement overlay."""
 

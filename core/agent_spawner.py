@@ -102,6 +102,20 @@ _INNER_NOOP_SIGNATURES: frozenset[str] = frozenset({
     "NOTHING_TO_DO",
 })
 
+# Round 26 — inner statuses meaning "I could not run; here is why", as opposed to
+# the no-op statuses above ("I chose not to run"). `INFRA_BLOCKED` is what
+# cli/fr_prompts/gate.py:66 ORDERS a Gate 1 evaluator to report when run-gate
+# prints [BLOCKED] (SAB phantom / unregistered module — the dimension tools never
+# ran). Until this set existed the word appeared in exactly one place in the
+# codebase: the prompt asking for it. Nothing consumed it, so the report fell
+# through to the commit-required branch below and its classification depended on
+# whether the agent volunteered a `"pass": false` key.
+# Incident and measurements: tests/test_infra_fail_separation.py's
+# TestBlockedReportSurvivesToTheGuard.
+_INNER_BLOCKED_SIGNATURES: frozenset[str] = frozenset({
+    "INFRA_BLOCKED",
+})
+
 # Unattended-execution override, passed via --append-system-prompt on every
 # spawn (Round 12 站0d). Live probe evidence (2026-07-16): --setting-sources
 # "project" ALSO loads the user's global ~/.claude/CLAUDE.md, whose
@@ -281,19 +295,31 @@ def _validate_inner_json(data: dict, step: str | None) -> dict | None:
     _DISPATCH_ERROR_STATUSES check (line 319) catches both transport and
     semantic failures uniformly.
     """
-    inner = _extract_inner_result_json(data.get("result") or "")
+    raw_reply = data.get("result") or ""
+    inner = _extract_inner_result_json(raw_reply)
     inner_status = (inner.get("status") or "").upper()
     if inner_status in _INNER_NOOP_SIGNATURES:
-        summary = inner.get("summary", "") or data.get("result", "")
-        return {
-            "output": (
-                f"Sub-agent exited 0 with semantic no-op status "
-                f"{inner_status!r}: {summary!r}"
-            ),
-            "status": "ERROR",
-            "error_class": "EXECUTION_ERROR",
-            "inner_status": inner_status,
-        }
+        summary = inner.get("summary", "") or raw_reply
+        return _error_result(
+            f"Sub-agent exited 0 with semantic no-op status "
+            f"{inner_status!r}: {summary!r}",
+            raw_reply,
+            error_class="EXECUTION_ERROR",
+            inner_status=inner_status,
+        )
+    # Round 26: checked BEFORE the commit-required branch. A reported blocker is
+    # not a missing commit — there is nothing to commit when the tools never ran —
+    # and its classification must not depend on whether the agent volunteered a
+    # `"pass": false` key alongside it.
+    if inner_status in _INNER_BLOCKED_SIGNATURES:
+        return _error_result(
+            f"Sub-agent reported inner status {inner_status!r}: the step could not "
+            f"run because a precondition failed. Verbatim sub-agent reply follows — "
+            f"it carries the [BLOCKED] diagnostic the prompt asked it to quote.",
+            raw_reply,
+            error_class="INFRA",
+            inner_status=inner_status,
+        )
     if step and step in _COMMIT_REQUIRED_STEPS:
         commit = (inner.get("commit") or "").strip()
         # Fix H: a GATE1/GATE1-DELTA verdict of pass=false is a legitimate
@@ -305,15 +331,55 @@ def _validate_inner_json(data: dict, step: str | None) -> dict | None:
         # malformed output stays on the safe, stricter default).
         is_gate_blocked = step in _GATE_EVAL_STEPS and inner.get("pass") is False
         if not commit and not is_gate_blocked:
-            return {
-                "output": (
-                    f"Commit-required step {step!r} returned empty commit"
-                    f" (status={inner_status or '<unset>'!r})"
-                ),
-                "status": "ERROR",
-                "error_class": "EXECUTION_ERROR",
-                "inner_status": inner_status,
-            }
+            return _error_result(
+                f"Commit-required step {step!r} returned empty commit"
+                f" (status={inner_status or '<unset>'!r})",
+                raw_reply,
+                error_class="EXECUTION_ERROR",
+                inner_status=inner_status,
+            )
+    return None
+
+
+def _error_result(
+    diagnostic: str, raw_reply: str, *, error_class: str, inner_status: str
+) -> dict:
+    """Build the ERROR dict for a semantically-failed dispatch, evidence intact.
+
+    Round 26 — `output` used to be the diagnostic ALONE, discarding the
+    sub-agent's reply. Downstream safety nets string-match this exact field, so
+    replacing it silently defeated them: cli/fr_cmds.py's
+    `_classify_infra_or_harness_bug` scans for
+    harness_bridge._INFRA_FAIL_EVIDENCE_SIGNATURES, which live only in the
+    agent's verbatim [BLOCKED] quote. The diagnostic is therefore ADDITIVE —
+    first, because humans and the core/failure_modes.py rules key off its
+    phrasing, with the raw reply after it.
+    """
+    output = f"{diagnostic}\n\n{raw_reply}" if raw_reply else diagnostic
+    return {
+        "output": output,
+        "status": "ERROR",
+        "error_class": error_class,
+        "inner_status": inner_status,
+    }
+
+
+def blocked_inner_status_in(text: str) -> str | None:
+    """The `_INNER_BLOCKED_SIGNATURES` member named in *text*, if any.
+
+    One definition of "the sub-agent reported a precondition blocker", reachable
+    from both directions: live dispatches, where `_validate_inner_json` reads the
+    status out of the inner JSON; and entries already on disk, where
+    `core/failure_modes._effective_error_class` re-derives the class from
+    `error_output` alone. The corpus strips `error_class` on purpose so a registry
+    fix reaches historical data — which is why Round 19's mis-filed INFRA_BLOCKED
+    entry can be reclassified without rewriting the record.
+    """
+    if not text:
+        return None
+    for status in sorted(_INNER_BLOCKED_SIGNATURES):
+        if status in text:
+            return status
     return None
 
 
@@ -322,16 +388,20 @@ def _classify_dispatch_error(output: str) -> str:
 
     Returns "STRUCTURAL" when the output carries a known deterministic-breakage
     signature (see _STRUCTURAL_FAILURE_SIGNATURES — retrying can never succeed),
-    "INFRA_ERROR" when it signals an environment / API / model / network problem
-    (the model could not be reached or used), else "EXECUTION_ERROR". This lets
-    a run of dispatch ERRORs be recognised as environmental instead of
-    mis-diagnosed as a harness bug. Observability label only: the entry's
-    `status` stays "ERROR", so the spawner's own control flow is unchanged —
-    abort-vs-retry decisions belong to callers (cli/fr_cmds.py reads
+    "INFRA" when the sub-agent itself reported a precondition blocker
+    (_INNER_BLOCKED_SIGNATURES — the tools never ran, so there is no quality
+    verdict and no code to fix), "INFRA_ERROR" when it signals an environment /
+    API / model / network problem (the model could not be reached or used), else
+    "EXECUTION_ERROR". This lets a run of dispatch ERRORs be recognised as
+    environmental instead of mis-diagnosed as a harness bug. Observability label
+    only: the entry's `status` stays "ERROR", so the spawner's own control flow is
+    unchanged — abort-vs-retry decisions belong to callers (cli/fr_cmds.py reads
     is_structurally_broken).
     """
     if is_structurally_broken(output):
         return "STRUCTURAL"
+    if blocked_inner_status_in(output):
+        return "INFRA"
     return "INFRA_ERROR" if output and _INFRA_ERROR_RE.search(output) else "EXECUTION_ERROR"
 
 

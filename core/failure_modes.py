@@ -168,6 +168,27 @@ def _is_structural_env_breakage(entry: dict) -> bool:
     return _effective_error_class(entry) == "STRUCTURAL"
 
 
+def _is_infra_precondition_blocked(entry: dict) -> bool:
+    """The sub-agent reported a precondition blocker — the tools never ran.
+
+    core.agent_spawner._INNER_BLOCKED_SIGNATURES (currently `INFRA_BLOCKED`, the
+    status cli/fr_prompts/gate.py orders a Gate 1 evaluator to report when
+    run-gate itself prints [BLOCKED]). Round 26.
+
+    Ordered ahead of `commit_required_step_no_commit` deliberately: a blocked step
+    also has no commit, so both predicates match the same entry, and the registry's
+    documented "first match wins" makes the ordering the carve-out. It has to be
+    first because the two answers are not equally wrong — `specification` sends the
+    reader (and the fix loop) looking for an agent-logic defect, while the truth is
+    an unmet precondition no code change can resolve. That mis-filing is on record:
+    tests/fixtures/failure_corpus/integration_test.jsonl carries a verbatim
+    `status='INFRA_BLOCKED'` entry imported in Round 19, classified `specification`
+    from then until now, and taskq-plus FR-05 reproduced the live consequence on
+    2026-07-30 — a 51-turn CODE-FIX dispatched at an unresolvable SAB phantom.
+    """
+    return _effective_error_class(entry) == "INFRA"
+
+
 def _is_infra_error(entry: dict) -> bool:
     """Network/auth/rate-limit/model-unavailable signature — the model could
     not be reached or used, distinct from an agent-logic failure."""
@@ -209,6 +230,14 @@ FAILURE_MODE_RULES: tuple[FailureModeRule, ...] = (
         "sub-agent exited 0 with an AWAITING_CONFIRMATION/NOTHING_TO_DO inner "
         "status — claimed completion without making real progress",
         _is_semantic_noop,
+    ),
+    FailureModeRule(
+        "infra_precondition_blocked",
+        MastCategory.INFRA,
+        "the sub-agent reported a precondition blocker (INFRA_BLOCKED) — the "
+        "dimension tools never ran, so there is no quality verdict and no code "
+        "to fix",
+        _is_infra_precondition_blocked,
     ),
     FailureModeRule(
         "commit_required_step_no_commit",
