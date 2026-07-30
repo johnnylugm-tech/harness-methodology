@@ -385,6 +385,8 @@ are not re-opened. This bounds backtracking to a single step.
     gate_score_overrides: {}  # AUTO-DERIVED by parser — omit or leave {}
   
     fr_module_traceability:  # EXAMPLE — one entry per FR
+      # If an FR owns MULTIPLE modules, use a YAML list instead of a single
+      # string, e.g. FR-02: ["app.a", "app.b"] — both forms are supported.
       FR-01: "app.api.webhooks"
   
     architecture_constraints:
