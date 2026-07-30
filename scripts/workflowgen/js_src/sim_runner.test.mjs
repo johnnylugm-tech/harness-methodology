@@ -205,6 +205,34 @@ test('phase8 preflight: schema reply missing `pass` degrades to a structured err
   assert.match(result.error, /preflight/i)
 })
 
+// ---- 5b. loadFileViaPython: agent() throws mid-retry (transport error) -----
+// Bug: js_blocks.py's render_load_file_via_python() called agent() with no
+// try/catch, so a thrown error (API disconnect, rate limit) escaped the
+// retry loop and crashed the whole workflow instead of retrying — even
+// though the loop already has maxAttempts machinery for exactly this class
+// of bad outcome. Every sibling retry loop in this codebase (persistApproval,
+// abLoop, runSubTask, gate loops) already wraps agent()/dispatch() in
+// try/catch (the "Bug #2" convention); loadFileViaPython was the outlier.
+// Targets P2 Peer Review's SAD.md reload (run-all.js: peerReload defaults to
+// all three P2 deliverables when peerModified is unset), the exact call site
+// that crashed in production (label loadpy-02-architecture-SAD-md-a1).
+test('phase2 loadFileViaPython: agent() throwing on attempt 1 retries instead of crashing the workflow', async () => {
+  let loadpyCalls = 0
+  const overrides = [
+    { match: /^loadpy-/, respond: (call) => {
+        loadpyCalls++
+        if (loadpyCalls === 1) throw new Error('API Error: Connection closed mid-response.')
+        const m = call.prompt.match(/--expect-prefix\s+"([^"]+)"/)
+        const heading = m ? m[1].replace(/^#\s*/, '') : 'Simulated Document'
+        return `# ${heading}\n\n` + 'simulated document body for the workflow logic testbed. '.repeat(4)
+      } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase2-architecture.js'), makeHappyResponder(overrides))
+  assert.equal(result.error, undefined, `expected the throw to be retried, got: ${JSON.stringify(result).slice(0, 200)}`)
+  assert.ok(loadpyCalls >= 2, 'the throwing first attempt must be retried, not fatal')
+})
+
 // ---- 6. regression pins for the two testbed-caught migration bugs ----------
 test('phase4 regression pin: p4Mid declarations exist — mid-milestone branch executes without ReferenceError', async () => {
   // 3 FRs, fast-path passes none -> the full loop passes them one by one;

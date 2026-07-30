@@ -486,7 +486,15 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-28 (Round 22 站4): +6 — the two background-poll prompts spell out
     # a backoff sequence and why the flat first interval was wrong, replacing
     # one-line "sleep 60"/"Poll every 30s" instructions.
-    "scripts/workflowgen/js_blocks.py": 1419,
+    # 2026-07-30: +6 — render_load_file_via_python()'s retry loop wraps its
+    # `await agent(...)` call in try/catch (the same idiom persistApproval
+    # already uses). Every sibling retry loop in this file already catches a
+    # thrown agent()/dispatch() error and retries (the "Bug #2" convention);
+    # this was the one outlier, and its uncaught throw crashed a live run-all.js
+    # run 83 dispatches / 3h in on a transient "Connection closed mid-response"
+    # API error, defeating the file's entire unattended-determinism purpose
+    # (Round 23's stated rationale for run-all.js existing at all).
+    "scripts/workflowgen/js_blocks.py": 1425,
 }
 
 

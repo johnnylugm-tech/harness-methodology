@@ -324,11 +324,17 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
     + '- If the command fails, return EXACTLY: ERROR_LOAD_FAILED: ' + filePath
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await dispatch(prompt, {
-      label: 'loadpy-' + relPath.replace(/[\/.]/g, '-') + '-a' + attempt,
-      phase: 'P1 · ' + phaseName,
-      agentType: 'general-purpose',
-    })
+    let res
+    try {
+      res = await dispatch(prompt, {
+        label: 'loadpy-' + relPath.replace(/[\/.]/g, '-') + '-a' + attempt,
+        phase: 'P1 · ' + phaseName,
+        agentType: 'general-purpose',
+      })
+    } catch (e) {
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' agent() threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200))
+      continue
+    }
     const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()
     const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
     if (text.startsWith('ERROR_LOAD_FAILED')) {
@@ -1429,11 +1435,17 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
     + '- If the command fails, return EXACTLY: ERROR_LOAD_FAILED: ' + filePath
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await dispatch(prompt, {
-      label: 'loadpy-' + relPath.replace(/[\/.]/g, '-') + '-a' + attempt,
-      phase: 'P2 · ' + phaseName,
-      agentType: 'general-purpose',
-    })
+    let res
+    try {
+      res = await dispatch(prompt, {
+        label: 'loadpy-' + relPath.replace(/[\/.]/g, '-') + '-a' + attempt,
+        phase: 'P2 · ' + phaseName,
+        agentType: 'general-purpose',
+      })
+    } catch (e) {
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' agent() threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200))
+      continue
+    }
     const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()
     const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
     if (text.startsWith('ERROR_LOAD_FAILED')) {
