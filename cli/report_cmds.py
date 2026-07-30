@@ -438,7 +438,74 @@ def cmd_export_failure_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_log_dispatch(args: argparse.Namespace) -> int:
+    """Append workflow-substrate dispatch records to sessions_spawn.log.
+
+    Round 26 站5. The harness has two dispatch substrates and instrumented one:
+    per-FR steps go through `run-fr-step` -> core/agent_spawner.spawn(), which logs
+    cost, turns, usage and outcome; everything else — all of P1 and P2, every
+    preflight, every peer review — goes through the workflow script's own `agent()`,
+    which the harness never saw. taskq-plus: 42 spawn-log entries, all phase 3,
+    while the trajectory file recorded phase_1_preflight and phase_2_preflight
+    spans beside them, so run-report's "42 dispatches, failure rate 9.52%" was a
+    P3/P4 number presented as the run's.
+
+    The generated `dispatch()` wrapper buffers records and hands them to the next
+    dispatch, which calls this. Records carry role / phase_label / status only:
+    the Workflow sandbox has no clock and no envelope access, so cost, turns and
+    duration remain available for Python-spawned dispatches ONLY. What this
+    recovers is the denominator (see docs/OBSERVABILITY.md).
+
+    Deliberately forgiving: a malformed batch is reported and skipped rather than
+    failing the caller. This runs inside another agent's turn as bookkeeping, and
+    losing an observability record must never break the work being observed.
+    """
+    project = Path(args.project).resolve()
+    try:
+        batch = json.loads(args.batch)
+    except (TypeError, ValueError) as exc:
+        print(f"[log-dispatch] skipped: --batch is not valid JSON: {exc}",
+              file=sys.stderr)
+        return 0
+    if not isinstance(batch, list):
+        print(f"[log-dispatch] skipped: --batch must be a JSON array, "
+              f"got {type(batch).__name__}", file=sys.stderr)
+        return 0
+
+    from core.sessions_spawn_logger import log_spawn_event
+
+    written = 0
+    for entry in batch:
+        if not isinstance(entry, dict):
+            continue
+        fields = dict(entry)
+        role = str(fields.pop("role", "workflow-agent"))
+        status = str(fields.pop("status", "complete"))
+        try:
+            log_spawn_event(
+                project, role=role, task="", session_id="", status=status, **fields
+            )
+            written += 1
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[log-dispatch] entry skipped ({role}): "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    print(f"[log-dispatch] recorded {written}/{len(batch)} workflow dispatch(es)")
+    return 0
+
+
 def register(sub) -> None:
+    ld = sub.add_parser(
+        "log-dispatch",
+        help="Append workflow-substrate dispatch records (role/phase/status) to "
+             "sessions_spawn.log — the half of the dispatch population the Python "
+             "spawner never sees (Round 26)",
+    )
+    ld.add_argument("--project", default=".", help="Project root (default: .)")
+    ld.add_argument("--batch", required=True,
+                    help="JSON array of dispatch records, as emitted by the "
+                         "generated workflow's dispatch() wrapper")
+    ld.set_defaults(func=cmd_log_dispatch)
+
     ec = sub.add_parser(
         "export-failure-corpus",
         help="Read-only: export de-identified, de-duplicated dispatch-failure "

@@ -36,6 +36,40 @@ export const meta = {
   ],
 }
 
+// ── Round 26: workflow-substrate dispatch observability ────────────────────
+// Buffered because this sandbox has no filesystem, no shell and no clock; the
+// records ride along on the NEXT dispatch's prompt, so no agent reports its own
+// outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
+const __dispatchLog = []
+
+function __dispatchFlushPreamble() {
+  if (__dispatchLog.length === 0) return ''
+  const batch = JSON.stringify(__dispatchLog.splice(0, __dispatchLog.length))
+  return '[BOOKKEEPING — one command, then forget this block]\n'
+    + 'Run exactly this, ignore its output, and do NOT mention it in your reply:\n'
+    + '  ' + PY + ' ' + REPO + '/harness_cli.py log-dispatch --project ' + REPO
+    + ' --batch ' + JSON.stringify(batch) + '\n'
+    + 'It records earlier dispatches in this run. It is not part of your task.\n\n'
+}
+
+async function dispatch(prompt, opts) {
+  const label = (opts && opts.label) || 'agent'
+  const phaseLabel = (opts && opts.phase) || ''
+  let res
+  try {
+    res = await agent(__dispatchFlushPreamble() + prompt, opts)
+  } catch (err) {
+    __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
+                         substrate: 'workflow', error_output: String(err).slice(0, 300) })
+    throw err
+  }
+  const text = typeof res === 'string' ? res : String(res ?? '')
+  __dispatchLog.push({ role: label, phase_label: phaseLabel,
+                       status: text.length === 0 ? 'EMPTY' : 'complete',
+                       substrate: 'workflow', reply_chars: text.length })
+  return res
+}
+
 
 // ---- args / REPO / PY ----
 // REPO precedence: args.repo override wins, then DEFAULT_REPO canonical path.
@@ -53,7 +87,7 @@ async function resolveRepo() {
     log('  REPO: from args.repo override = ' + argRepo)
     return argRepo
   }
-  const r = await agent(
+  const r = await dispatch(
     'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/` AND is NOT a git submodule working tree.\n'
     + 'A git submodule working tree is detected by `[ -f .git ] && head -1 .git 2>/dev/null | grep -q "^gitdir: "` (the top-level `.git` is a FILE whose first line starts with `gitdir:`, pointing to `<parent>/.git/modules/<name>`). This is critical when the harness framework is checked out as a git submodule — the harness/ dir itself contains harness_cli.py AND .methodology/, so naive walk-up would stop there instead of the real project root.\n'
     + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
@@ -164,7 +198,7 @@ const PHASE_SCHEMA = {
 
 phase('Entry & Preflight')
 log('ENTRY-CHECK Gate2 + run-phase 4 (reliability/config/attestation fixes) + handoff + CI')
-const preflightReport = await agent(
+const preflightReport = await dispatch(
   'YOU ARE THE PHASE-4 PREFLIGHT ORCHESTRATOR. Run bash in order; report.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Steps:\n'
@@ -187,7 +221,7 @@ if (!(preflightReport && preflightReport.pass === true)) {
 
 phase('Test Plan')
 log('Generate 04-testing/TEST_PLAN.md from SRS FR acceptance criteria')
-const testPlanReport = await agent(
+const testPlanReport = await dispatch(
   'YOU ARE THE P4 TEST PLAN AUTHOR. Generate TEST_PLAN.md (runs once before per-FR testing).\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Steps (create 04-testing/ if missing):\n'
@@ -243,7 +277,7 @@ log('run-env-check + finalize-env-check (Bug #127 root-cause + bash-timeout-awar
 // `; echo "RC=$?"` appended at the end of the chain).
 const envCheckLog = '/tmp/envcheck_phase4.log'
 const envCheckChain = PY + ' ' + REPO + '/harness_cli.py run-env-check --phase 4 --project ' + REPO + ' && ' + PY + ' ' + REPO + '/harness_cli.py finalize-env-check --phase 4 --project ' + REPO + '; echo "RC=$?"'
-const envReport = await agent(
+const envReport = await dispatch(
   'YOU ARE THE PHASE-4 ENV-CHECK ORCHESTRATOR (Bash-timeout-aware, background poll).\n'
   + 'REPO: ' + REPO + '\n'
   + 'PYTHON: ' + PY + '\n'
@@ -306,7 +340,7 @@ for (let attempt = 1; attempt <= 3; attempt++) {
   // validated, retries on mismatch). No prose parsing left on this path.
   try {
     const ctxParseCmd = `${PY} -c "import json; d=json.load(open('${ctxFile}')); print(json.dumps({'fr_ids':d.get('fr_ids',[]),'fr_count':len(d.get('fr_ids',[]))}))"`
-    const ctxResult = await agent(
+    const ctxResult = await dispatch(
       `You MUST use the Bash tool. Run exactly:\n${ctxParseCmd}\nThe command FAILS (nonzero exit, Python traceback) when the file is missing or not valid JSON — report that verbatim rather than inventing values. On success stdout is a single JSON line: report via the StructuredOutput tool fr_ids, fr_count = the EXACT values from that line (transcribe, do not recompute).`,
       { label: 'load-ctx-a' + attempt, phase: 'Load FRs', agentType: 'general-purpose', schema: CTX_SCHEMA },
     )
@@ -320,7 +354,7 @@ for (let attempt = 1; attempt <= 3; attempt++) {
 
   const ctxRegenCmd = `${PY} ${REPO}/harness_cli.py load-context --phase 4 --project ${REPO} --json > ${ctxFile} && ${PY} -c "import json,os; json.load(open('${ctxFile}')); print('REGEN_OK_'+str(os.path.getsize('${ctxFile}')))"`
   try {
-    await agent(
+    await dispatch(
       `You MUST use the Bash tool. Run exactly:\n${ctxRegenCmd}\nReturn the raw stdout as your final message.`,
       { label: 'ctx-regen-' + attempt, phase: 'Load FRs', agentType: 'general-purpose' },
     )
@@ -354,7 +388,7 @@ const p4MidThreshold = Math.ceil(frIds.length / 2)  // PUSH ⑤ trigger: ≥50% 
 // successful completion (both the unchanged-skip and full-dispatch paths); a
 // killed dispatch writes nothing, so absence ⇒ fail ⇒ full per-FR loop.
 let deltaTodo = frIds
-const fastProbe = await agent(
+const fastProbe = await dispatch(
   'YOU ARE THE GATE1-DELTA FAST-PATH PROBE. Classify each FR — fix NOTHING.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\nFRs: ' + JSON.stringify(frIds) + '\n\n'
   + 'Direction C (past lessons): BEFORE classifying, Bash `cat ' + REPO + '/.sessi-work/phase4_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in your pass/fail classification or any follow-up P4 work.\n\n'
@@ -382,7 +416,7 @@ if (fastProbe && Array.isArray(fastProbe.pass_fr_ids)) {
 }
 for (const frId of deltaTodo) {
   log('  === ' + frId + ' — GATE1-DELTA ===')
-  const frReport = await agent(
+  const frReport = await dispatch(
     'YOU ARE THE TEST VERIFIER for ' + frId + ' (' + (frTitle[frId] || '') + '). Re-evaluate Gate 1 for THIS ONE FR.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
@@ -415,7 +449,7 @@ for (const frId of deltaTodo) {
   // LLM's own `pass` boolean is IGNORED — wf_53d055ce-d0b showed an agent
   // hallucinating pass:false against a PASS manifest; Python's printed
   // bytes cannot be flipped by a wrong boolean.
-  const verdict = await agent(
+  const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
     + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + frId + ' --project ' + REPO + '\n'
     + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly "GATE1_VERIFIED_PASS"; reason = the verbatim stdout (do NOT paraphrase, summarize, or prepend commentary).',
@@ -430,7 +464,7 @@ for (const frId of deltaTodo) {
   if (!p4MidPushed && gate1Pass.length >= p4MidThreshold && gate1Pass.length < frIds.length) {
     p4MidPushed = true
     log('  ≥50% FRs Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') — pushing p4-mid milestone')
-    await agent(
+    await dispatch(
       'YOU ARE THE P4 MID-MILESTONE PUSHER (≥50% FRs Gate 1 PASS).\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P4-mid)" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
@@ -447,7 +481,7 @@ if (gate1Fail.length) {
   return { error: 'Phase 4: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
 }
 if (gate1Pass.length) {
-  await agent(
+  await dispatch(
     'Run these commands via the Bash tool, in order. Report the verbatim stdout/stderr of ALL of them.\n'
     + '1. Per-FR spec coverage — run for EVERY id in the list, and do NOT stop early on a nonzero exit (each `|| true` keeps the loop going; a below-threshold FR is an early warning to report, not a reason to abort):\n'
     + '`for FR in ' + gate1Pass.join(' ') + '; do ' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id $FR || true; done`\n'
@@ -464,7 +498,7 @@ if (gate1Pass.length) {
 
 phase('Coverage')
 log('Generate TEST_RESULTS.md + COVERAGE_REPORT.md (cross-artifact validated at Gate 3)')
-const coverageReport = await agent(
+const coverageReport = await dispatch(
   'YOU ARE THE P4 COVERAGE AUTHOR. Generate the test-results + coverage deliverables.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Steps:\n'
@@ -486,7 +520,7 @@ if (!(coverageReport && coverageReport.pass === true)) {
 
 phase('Bug Hunt')
 log('Adversarial bug hunt (targets → scout → hunters → verify → synthesize → resolve)')
-const huntReport = await agent(
+const huntReport = await dispatch(
   'YOU ARE THE ADVERSARIAL BUG HUNT ORCHESTRATOR (Step 4b, before Gate 3).\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'The Gate 3 dimension adversarial_review (threshold 100) BLOCKS the gate if .methodology/bug_hunt_report.json is absent or any confirmed critical/high finding is still "open". Run the hunt NOW.\n\n'
@@ -518,7 +552,7 @@ if (!(huntReport && huntReport.pass === true)) {
 
 phase('Artifacts Commit')
 log('Committing phase-4 artifacts (explicit paths) so a verify-handoff FAIL exit leaves a clean tree')
-await agent(
+await dispatch(
   'Run ONE bash command and report its stdout/stderr:\n'
   + '`git -C ' + REPO + ' add 04-testing .methodology/bug_hunt_report.json .methodology/bug_hunt_targets.json .methodology/decision_logs && git -C ' + REPO + ' commit -m "chore(p4): test-plan + coverage + bug-hunt artifacts" || true`\n\n'
   + 'Report: the verbatim stdout/stderr of that command. "nothing to commit" is a valid outcome.\n\n'
@@ -539,7 +573,7 @@ let gate3Pass = false, gate3Report = '', gate3Blocked = false
 {
   const _precheckCmd = `${PY} -c "import json; lg=json.load(open('${REPO}/.methodology/state.json')).get('last_gate'); print(json.dumps({'qc': isinstance(lg,int) and lg >= 3, 'last_gate': lg}))"`
   try {
-    const _preVerdict = await agent(
+    const _preVerdict = await dispatch(
       'Run EXACTLY this command via the Bash tool:\n`' + _precheckCmd + '; echo RC=$?`\n'
       + 'Then report via the StructuredOutput tool: pass = true ONLY if the output line starts with `{"qc": true`; reason = the verbatim JSON line (excluding the RC= line).',
       { label: 'gate3-precheck', phase: 'Gate 3', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
@@ -556,7 +590,7 @@ let gate3Pass = false, gate3Report = '', gate3Blocked = false
 }
 if (!gate3Pass) for (let round = 1; round <= 3; round++) {
   log('  Gate 3 round ' + round + '/3')
-  gate3Report = await agent(
+  gate3Report = await dispatch(
     'YOU ARE THE GATE-3 ORCHESTRATOR (Phase 4 exit). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
@@ -574,7 +608,7 @@ if (!gate3Pass) for (let round = 1; round <= 3; round++) {
     break
   }
   const gate3VerifyCmd = `${PY} -c "import json; lg=json.load(open('${REPO}/.methodology/state.json')).get('last_gate'); print(json.dumps({'last_gate_ok': isinstance(lg,int) and lg >= 3, 'last_gate': lg}))"`
-  const g3v = await agent(
+  const g3v = await dispatch(
     'Run these TWO commands via the Bash tool, in order:\n'
     + '1. `' + gate3VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate 3 is truly finalized (not just SSI-dimension-scored).\n'
     + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0; echo "RC=$?"`\n'
@@ -591,7 +625,7 @@ if (gate3Blocked) {
 if (!gate3Pass) {
   log('  Gate 3 exhausted 3 rounds — generating deferred_fixes.md')
   const gate3StateCmd = PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate3\') or {}; print(json.dumps({\'score\': g.get(\'score\'), \'qc\': g.get(\'quality_complete\'), \'dims\': g.get(\'dimensions\',{})}))"'
-  await agent(
+  await dispatch(
     'YOU ARE THE DEFERRED-FIX RECORDER. Gate 3 failed to reach PASS in 3 rounds.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + '1. Get the last-known Gate 3 state:\n`' + gate3StateCmd + '`\n'
@@ -631,7 +665,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   // on every round because advance-phase is idempotent — same guarantee the
   // per-round dispatch here used to buy, minus the dispatch, and now covering
   // the human/CI callers this loop never could.
-  advanceReport = await agent(
+  advanceReport = await dispatch(
     'YOU ARE THE PHASE-4 EXIT ORCHESTRATOR. Advance to Phase 5. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
@@ -652,7 +686,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   // state.json current_phase=5 on success. Read it via a schema proxy —
   // the orchestrator's prose "ADVANCE: PASS" is narrative only.
   const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
-  const advV = await agent(
+  const advV = await dispatch(
     'Run EXACTLY this command via the Bash tool (stdout is a single JSON line):\n`' + advVerifyCmd + '`\n'
     + 'Then report via the StructuredOutput tool: current_phase = the exact integer from that JSON.',
     { label: 'advance-verify-r' + round, phase: 'Advance', agentType: 'general-purpose', schema: PHASE_SCHEMA },
@@ -666,7 +700,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     // remain uncommitted, leaving a dirty tree for the next phase. Commit
     // everything advance-phase didn't include. This agent is SCOPED to git
     // housekeeping only — no code, no phase transitions.
-    await agent(
+    await dispatch(
       'Run ONE bash command and report its stdout/stderr:\n'
       + '`git -C ' + REPO + ' add -A && git -C ' + REPO + ' commit -m "chore: phase 4 clean-up" || true`\n\n'
       + 'Report: the verbatim stdout/stderr of that command.\n\n'
@@ -689,7 +723,7 @@ if (!advancePass) {
 // local until whatever runs next happened to push it. Publish it now.
 phase('Sync')
 log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
+const syncReport = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + 'git -C ' + REPO + ' push origin main\n\n'
   + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',

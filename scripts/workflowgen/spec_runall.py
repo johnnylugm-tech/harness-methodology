@@ -169,9 +169,11 @@ def _drop_comment_lines(text: str) -> str:
 
 def _phase_body(phase: int) -> str:
     """One phase's generated code, ready to be a function body."""
-    from .generate_workflows import generate
+    # Round 26: the RAW body — the dispatch wrapper is injected once over the
+    # assembled composite, not eight times into its parts.
+    from .generate_workflows import generate_raw
 
-    text = generate(phase)
+    text = generate_raw(phase)
     titles = _meta_titles(text)
     body = _strip_header_and_meta(text)
 

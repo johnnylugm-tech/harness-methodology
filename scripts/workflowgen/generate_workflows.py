@@ -51,14 +51,55 @@ def _composites() -> dict[str, tuple[object, str]]:
 
 def generate_composite(name: str) -> str:
     fn, _ = _composites()[name]
-    return fn()  # type: ignore[operator]
+    # run-all inlines the per-phase generators' output, which generate() has
+    # already rewritten, so the wrapper must be injected once for the composite
+    # as a whole rather than per inlined section.
+    return _inject_dispatch_wrapper(fn())  # type: ignore[operator]
 
 
-def generate(phase: int) -> str:
+def _inject_dispatch_wrapper(text: str) -> str:
+    """Route every `agent()` call through `dispatch()` (Round 26 站5).
+
+    ONE place decides all 118 call sites. The alternative was editing nine
+    spec_phase* modules, where the same rewrite would have to be repeated and
+    could be forgotten in the tenth — and `tests/test_workflow_js_conventions.py`
+    now fails on a raw `await agent(` in generated output, so a future spec that
+    hand-writes one cannot slip through either.
+
+    Placed after the meta object because `meta` must remain the first statement
+    (test_meta_is_first_statement). A file with no dispatches is left untouched.
+    """
+    if "await agent(" not in text:
+        return text
+    from scripts.workflowgen.spec_shared import render_dispatch_wrapper
+
+    marker = "\n}\n"  # the meta object's closing brace
+    meta_end = text.index("export const meta = {") + 1
+    close = text.index(marker, meta_end) + len(marker)
+    return (
+        text[:close]
+        + render_dispatch_wrapper()
+        + text[close:].replace("await agent(", "await dispatch(")
+    )
+
+
+def generate_raw(phase: int) -> str:
+    """A phase's generated JS BEFORE the dispatch wrapper is injected.
+
+    spec_runall consumes this, not `generate`: run-all inlines the eight phase
+    bodies into one file, so injecting per phase would emit eight copies of
+    `const __dispatchLog` (a duplicate-declaration SyntaxError) and would shift the
+    anchors its excision table matches. The composite injects once, over the
+    assembled file.
+    """
     if phase not in GENERATORS:
         raise KeyError(f"phase {phase} has no workflowgen generator yet (migrated phases: {sorted(GENERATORS)})")
     fn, _ = GENERATORS[phase]
     return fn()
+
+
+def generate(phase: int) -> str:
+    return _inject_dispatch_wrapper(generate_raw(phase))
 
 
 def _target_path(phase: int) -> Path:

@@ -182,3 +182,68 @@ def test_node_check_wrapper_actually_rejects_broken_syntax(tmp_path):
     assert subprocess.run(
         ["node", "--check", str(broken)], capture_output=True, text=True, timeout=30,
     ).returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# Round 26 站5 — every dispatch goes through the observability wrapper
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_every_dispatch_goes_through_the_wrapper(filename):
+    """No raw `await agent(` outside the wrapper's own single call.
+
+    The harness has two dispatch substrates and instrumented one: per-FR steps go
+    through run-fr-step -> core/agent_spawner.spawn(), which logs cost/turns/
+    outcome, while everything the workflow dispatches itself was invisible.
+    taskq-plus: 42 spawn-log entries, all phase 3, so run-report's "42 dispatches,
+    failure rate 9.52%" was a P3/P4 number presented as the run's.
+
+    generate_workflows._inject_dispatch_wrapper rewrites the call sites (118 in
+    run-all), which means a future spec module could still hand-write a raw one.
+    This is the guard that makes that fail instead of silently leaving a hole.
+    """
+    text = _read(filename)
+    if "await dispatch(" not in text:
+        pytest.skip(f"{filename} dispatches no agents")
+    # The wrapper itself must call agent() — that is the one legitimate site.
+    assert text.count("res = await agent(") == 1, (
+        f"{filename}: expected exactly one `res = await agent(` (the wrapper's own "
+        f"call); found {text.count('res = await agent(')}"
+    )
+    assert text.count("await agent(") == 1, (
+        f"{filename}: {text.count('await agent(') - 1} raw `await agent(` call(s) "
+        f"bypass the dispatch() wrapper, so those dispatches never reach "
+        f"sessions_spawn.log"
+    )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_the_wrapper_is_declared_exactly_once(filename):
+    """run-all inlines eight phase bodies; eight copies would be a SyntaxError.
+
+    spec_runall consumes generate_raw() for exactly this reason — the composite is
+    wrapped once, over the assembled file.
+    """
+    text = _read(filename)
+    if "await dispatch(" not in text:
+        pytest.skip(f"{filename} dispatches no agents")
+    assert text.count("async function dispatch(") == 1
+    assert text.count("const __dispatchLog = []") == 1
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_the_wrapper_records_before_it_rethrows(filename):
+    """A dead sub-agent cannot log itself; the wrapper observes the outcome.
+
+    If the catch block ever stops pushing a record, failed dispatches vanish from
+    the population again — which is the exact asymmetry that made the failure rate
+    a P3-only number.
+    """
+    text = _read(filename)
+    if "await dispatch(" not in text:
+        pytest.skip(f"{filename} dispatches no agents")
+    catch_start = text.index("} catch (err) {")
+    catch_end = text.index("throw err", catch_start)
+    assert "__dispatchLog.push(" in text[catch_start:catch_end], (
+        f"{filename}: the wrapper rethrows without recording the failure"
+    )

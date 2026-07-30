@@ -592,3 +592,37 @@ test('run-all does nothing when the project is past Phase 8', async () => {
   assert.equal(result.error, undefined)
   assert.deepEqual(result.phases_run, [])
 })
+
+// ---- 13. Round 26 站5: the dispatch wrapper's bookkeeping actually rides along
+// The wrapper buffers a record per dispatch and hands the buffer to the NEXT
+// dispatch as a preamble — the only way to write anything from a sandbox with no
+// filesystem, no shell and no clock. Inside the sim there is no shell either, so
+// the preamble's PRESENCE in the next prompt is the observable. Without this, the
+// wrapper could be silently dropped and every workflow test would still pass.
+test('round26: dispatch records ride along on the next prompt', async () => {
+  const { events } = await runWorkflow(WF('phase1-requirements.js'),
+                                       makeHappyResponder(happyOverrides()))
+  assert.ok(events.agents.length >= 2, 'need at least two dispatches to observe a flush')
+  assert.ok(
+    !events.agents[0].prompt.includes('[BOOKKEEPING'),
+    'the FIRST dispatch has nothing to flush — an empty buffer must add nothing',
+  )
+  const carriers = events.agents.filter((a) => a.prompt.includes('[BOOKKEEPING'))
+  assert.ok(
+    carriers.length > 0,
+    'no dispatch carried the buffered records — the workflow substrate is invisible '
+    + 'to sessions_spawn.log again (Round 26 站5)',
+  )
+  assert.match(carriers[0].prompt, /harness_cli\.py log-dispatch --project/)
+  assert.match(carriers[0].prompt, /--batch/)
+})
+
+test('round26: every workflow routes its dispatches through the wrapper', async () => {
+  for (const f of ['phase1-requirements.js', 'phase3-implementation.js', 'run-all.js']) {
+    const src = await readFile(WF(f), 'utf8')
+    const raw = (src.match(/await agent\(/g) || []).length
+    assert.equal(raw, 1, `${f}: expected only the wrapper's own agent() call, found ${raw}`)
+    assert.equal((src.match(/async function dispatch\(/g) || []).length, 1,
+                 `${f}: the wrapper must be declared exactly once`)
+  }
+})

@@ -48,6 +48,40 @@ export const meta = {
   ],
 }
 
+// ── Round 26: workflow-substrate dispatch observability ────────────────────
+// Buffered because this sandbox has no filesystem, no shell and no clock; the
+// records ride along on the NEXT dispatch's prompt, so no agent reports its own
+// outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
+const __dispatchLog = []
+
+function __dispatchFlushPreamble() {
+  if (__dispatchLog.length === 0) return ''
+  const batch = JSON.stringify(__dispatchLog.splice(0, __dispatchLog.length))
+  return '[BOOKKEEPING — one command, then forget this block]\n'
+    + 'Run exactly this, ignore its output, and do NOT mention it in your reply:\n'
+    + '  ' + PY + ' ' + REPO + '/harness_cli.py log-dispatch --project ' + REPO
+    + ' --batch ' + JSON.stringify(batch) + '\n'
+    + 'It records earlier dispatches in this run. It is not part of your task.\n\n'
+}
+
+async function dispatch(prompt, opts) {
+  const label = (opts && opts.label) || 'agent'
+  const phaseLabel = (opts && opts.phase) || ''
+  let res
+  try {
+    res = await agent(__dispatchFlushPreamble() + prompt, opts)
+  } catch (err) {
+    __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
+                         substrate: 'workflow', error_output: String(err).slice(0, 300) })
+    throw err
+  }
+  const text = typeof res === 'string' ? res : String(res ?? '')
+  __dispatchLog.push({ role: label, phase_label: phaseLabel,
+                       status: text.length === 0 ? 'EMPTY' : 'complete',
+                       substrate: 'workflow', reply_chars: text.length })
+  return res
+}
+
 
 // ---- REPO auto-resolver (canonical pattern — keep verbatim across phase*.js) ----
 // CWD-INDEPENDENT via sub-agent round-trip + walk-up. See phase3 for rationale.
@@ -62,7 +96,7 @@ async function resolveRepo() {
     log('  REPO: from args.repo override = ' + argRepo)
     return argRepo
   }
-  const r = await agent(
+  const r = await dispatch(
     'You are the REPO RESOLVER. Find the project root by walking up from your current CWD until a directory contains BOTH `harness_cli.py` AND `.methodology/` AND is NOT a git submodule working tree.\n'
     + 'A git submodule working tree is detected by `[ -f .git ] && head -1 .git 2>/dev/null | grep -q "^gitdir: "` (the top-level `.git` is a FILE whose first line starts with `gitdir:`, pointing to `<parent>/.git/modules/<name>`). This is critical when the harness framework is checked out as a git submodule — the harness/ dir itself contains harness_cli.py AND .methodology/, so naive walk-up would stop there instead of the real project root.\n'
     + 'Run EXACTLY this command via Bash (single line, copy-paste verbatim):\n'
@@ -178,7 +212,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
     + '- If the command fails, return EXACTLY: ERROR_LOAD_FAILED: ' + filePath
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await agent(prompt, {
+    const res = await dispatch(prompt, {
       label: 'loadpy-' + relPath.replace(/[\/.]/g, '-') + '-a' + attempt,
       phase: phaseName,
       agentType: 'general-purpose',
@@ -319,7 +353,7 @@ async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum
     + delivFlag
     + ' --quiet'
 
-  const reviewAgent = await agent(
+  const reviewAgent = await dispatch(
     'YOU ARE A DETERMINISTIC B-REVIEW VALIDATOR. Run these steps in order via Bash.\n'
     + '1. Write the raw B-review text to a file (heredoc — verbatim, no modification):\n'
     + '   cat > ' + rawFile + " <<'HEREDOC_END'\n" + bRawText + '\nHEREDOC_END\n'
@@ -389,7 +423,7 @@ async function runSubTask(cfg) {
     const aPrompt = cfg.buildAPrompt(round, b2)
     // v15: wrap agent() in try/catch (Bug #2 mitigation)
     let aResult
-    try { aResult = await agent(aPrompt, {
+    try { aResult = await dispatch(aPrompt, {
       label: 'a-' + cfg.idx + '-r' + round,
       phase: cfg.phaseName,
       agentType: 'general-purpose',
@@ -417,7 +451,7 @@ async function runSubTask(cfg) {
     const bPrompt = buildBPrompt('BUSINESS_ANALYST', cfg.name, bDocs, cfg.bChecklist)
     // v15: wrap agent() in try/catch (Bug #2 mitigation)
     let bResult
-    try { bResult = await agent(bPrompt, {
+    try { bResult = await dispatch(bPrompt, {
       label: 'b-' + cfg.idx + '-r' + round,
       phase: cfg.phaseName,
       agentType: 'general-purpose',
@@ -482,7 +516,7 @@ async function persistApproval(deliverableId, b2) {
   for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS; attempt++) {
     let res
     try {
-      res = await agent(
+      res = await dispatch(
         'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command and emit stdout + exit code verbatim:\n\n' + cmd + '\n\nNo commentary, no preamble, no other tool calls.',
         { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'Persist Approval', agentType: 'general-purpose' },
       )
@@ -550,7 +584,7 @@ async function runPeerReview(approvedDocs) {
       return { error: 'Budget exhausted before Peer Review', budget_exhausted: true }
     }
     let bResult
-    try { bResult = await agent(bPrompt, {
+    try { bResult = await dispatch(bPrompt, {
       label: 'peer-b-r' + round,
       phase: 'Peer Review',
       agentType: 'general-purpose',
@@ -617,7 +651,7 @@ async function runPeerReview(approvedDocs) {
       + '(modified_files: list only the files you actually edited, using their relative paths from the deliverable list above)\n\n'
       + scopeRules('the 4 P1 deliverables (SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml)', null)
     let fixerRaw
-    try { fixerRaw = await agent(fixerPrompt, {
+    try { fixerRaw = await dispatch(fixerPrompt, {
       label: 'peer-fix-r' + round,
       phase: 'Peer Review',
       agentType: 'general-purpose',
@@ -642,7 +676,7 @@ log('Preflight: run-phase 1 + CI wiring + load-context (orchestrator-side retry:
 let preflightReport = ''
 for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
   log('  --- Preflight attempt ' + pfAttempt + '/3 ---')
-  preflightReport = await agent(
+  preflightReport = await dispatch(
     'YOU ARE THE PREFLIGHT ORCHESTRATOR. Your ONLY job is to run EXACTLY 3 bash commands (listed below) and report.\n'
     + 'REPO: ' + REPO + '\n'
     + 'PYTHON: ' + PY + '\n\n'
@@ -700,7 +734,7 @@ phase('Load Legal Artifacts')
 log('Load legal-deliverable filenames from harness SSOT (legal_artifacts.py)')
 
 let LEGAL_ARTIFACTS_HINT = ''
-const laRaw = await agent(
+const laRaw = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + PY + ' ' + REPO + '/harness_cli.py print-legal-artifacts\n\n'
   + 'Read the JSON output. Then report a SINGLE line starting with "LEGAL_HINT: " followed by:\n'
@@ -1039,7 +1073,7 @@ log('Run check-constitution until PASS (max 5 retries; then human escalation)')
 let constitutionResult = ''
 for (let cAttempt = 1; cAttempt <= 5; cAttempt++) {
   log('  --- Constitution attempt ' + cAttempt + '/5 ---')
-  const cR = await agent(
+  const cR = await dispatch(
     'Run EXACTLY this command via Bash:\n'
     + PY + ' ' + REPO + '/harness_cli.py check-constitution --phase 1 --project ' + REPO + '\n\n'
     + 'Report final outcome as plain text: "CONSTITUTION: PASS" or "CONSTITUTION: FAIL — <one-line reason>".\n\n'
@@ -1081,7 +1115,7 @@ if (peerResult.error) return peerResult
 phase('Forward Ref Check')
 log('check-artifact-consistency --forward-refs-only (catch invented filenames before 40min push)')
 
-const fwdRefRaw = await agent(
+const fwdRefRaw = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --forward-refs-only --project ' + REPO + '\n\n'
   + 'Report final outcome as plain text: "FWDREF: PASS" or "FWDREF: FAIL — <one-line reason>".\n\n'
@@ -1106,7 +1140,7 @@ log('push-checkpoint --phase 1 (retry until success; NO --no-verify)')
 let pushResult = ''
 for (let pAttempt = 1; pAttempt <= 5; pAttempt++) {
   log('  --- Push attempt ' + pAttempt + '/5 ---')
-  const pR = await agent(
+  const pR = await dispatch(
     'Run EXACTLY this command via Bash:\n'
     + PY + ' ' + REPO + '/harness_cli.py push-checkpoint --phase 1 --project ' + REPO + '\n\n'
     + 'Report final outcome as plain text: "PUSH: PASS" or "PUSH: FAIL — <one-line reason>".\n\n'
@@ -1131,7 +1165,7 @@ if (!/PUSH:\s*PASS/.test(pushResult)) {
 phase('Advance')
 log('advance-phase --completed 1 + confirm HANDOVER.md reflects Phase 2 entry')
 
-const advanceReport = await agent(
+const advanceReport = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 1 --project ' + REPO + '\n\n'
   + 'Then verify ' + REPO + '/HANDOVER.md exists and reflects Phase 2 entry.\n\n'
@@ -1149,7 +1183,7 @@ if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
 // local until whatever runs next happened to push it. Publish it now.
 phase('Sync')
 log('git push origin main (publish advance handover commit)')
-const syncReport = await agent(
+const syncReport = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + 'git -C ' + REPO + ' push origin main\n\n'
   + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',

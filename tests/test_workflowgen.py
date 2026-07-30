@@ -153,7 +153,25 @@ class TestPhase8Generation:
 
 class TestGenerateFacade:
     def test_generate_dispatches_to_registered_generator(self):
-        assert generate(8) == phase_specs.generate_phase8()
+        """Round 26: the pass-through property moved to `generate_raw`.
+
+        `generate` is now raw + one post-emit step (the dispatch wrapper, injected
+        in ONE place so all 118 call sites are decided together instead of in nine
+        spec modules). Both halves are asserted, so a change to either the routing
+        or the injection is visible here.
+        """
+        from scripts.workflowgen.generate_workflows import generate_raw
+
+        raw = generate_raw(8)
+        assert raw == phase_specs.generate_phase8()
+
+        wrapped = generate(8)
+        assert wrapped != raw
+        assert "async function dispatch(" in wrapped
+        # Every call site the raw text had is now routed through the wrapper, and
+        # the only remaining raw call is the wrapper's own.
+        assert wrapped.count("await dispatch(") == raw.count("await agent(")
+        assert wrapped.count("await agent(") == 1
 
     def test_unmigrated_phase_raises_key_error(self):
         import pytest

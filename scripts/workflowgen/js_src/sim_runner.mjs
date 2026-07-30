@@ -66,7 +66,10 @@ export async function runWorkflow(filePath, respond, opts = {}) {
       schema: options.schema,
       index: agentIndex++,
     }
-    events.agents.push({ label: call.label, phase: call.phase })
+    // Round 26: keep the prompt so a test can assert the dispatch wrapper's
+    // bookkeeping preamble actually rides along (the flush has no other
+    // observable effect inside the sim, which has no shell).
+    events.agents.push({ label: call.label, phase: call.phase, prompt: call.prompt })
     return respond(call, events)
   }
   const fn = new AsyncFunction(
