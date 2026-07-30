@@ -47,6 +47,7 @@ from core.phase_topology import (
     phase_name,
 )
 from core.degradation_ledger import record_degradation
+from core.harness_provenance import enforcer_sha
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
 from core.utils.timefmt import utc_now_iso
@@ -785,6 +786,16 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     _sd.setdefault("phase_completed", {})[str(args.completed_phase)] = {
                         "sha": _head.stdout.strip(),
                         "timestamp": utc_now_iso(),
+                        # Round 26: WHICH framework version produced this phase.
+                        # Gate results have carried this since Round 19 站3; phase
+                        # artifacts did not, so a run whose harness was patched
+                        # mid-flight left no trace of the skew. That happened during
+                        # taskq-plus P1-P3: five framework commits landed between
+                        # 06:02 and 10:24, one of them fixing the very P2 SAB-WRITE
+                        # step that had completed seven hours earlier. Fixing a
+                        # prompt does not retroactively fix the artifact it
+                        # produced, and nothing could say so.
+                        "enforcer_sha": enforcer_sha(),
                     }
                     atomic_write_json(
                         project / ".methodology" / "state.json", _sd

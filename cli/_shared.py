@@ -205,6 +205,41 @@ def gate_result_paths(
     return candidates
 
 
+def gate_verdict_paths(
+    project: Path, gate: int, fr_id: str | None = None
+) -> list[Path]:
+    """Paths carrying a FINALIZED gate verdict, most authoritative first.
+
+    Round 26 — `gate_result_paths` above answers "where is the result I should
+    read right now", and puts `.sessi-work/` first on purpose: that is the fresh
+    in-flight write finalize_gate is about to consume. Reporting asks a different
+    question — "what verdict was recorded" — and the same priority order gives the
+    wrong answer, because the `.sessi-work/` copy is the agent's PRE-finalize
+    draft: it has no `verdict`, no `composite_score`, and no `passed`, since
+    finalize-gate patches those in on persist.
+
+    So `run-report`'s provenance section — built in Round 19 站3 to answer "which
+    harness commit produced each verdict" — reported `verdict=None` for every
+    Gate 1 in existence, while `.methodology/gate_results/gate1/<FR>.json` sat
+    right there saying `verdict: PASS`. It also never passed `fr_id`, so the
+    per-FR canonical file was not even a candidate.
+
+    Order here is finalized-only and reversed accordingly:
+      1. .methodology/gate_results/gate{N}/{fr_id}.json  (per-FR canonical)
+      2. every .methodology/gate_results/gate{N}/*.json  (when no fr_id is given)
+      3. .methodology/gate{N}_result.json                (backward-compat alias)
+    `.sessi-work/` is deliberately absent: a draft is not a verdict.
+    """
+    per_fr_dir = project / ".methodology" / "gate_results" / f"gate{gate}"
+    candidates: list[Path] = []
+    if fr_id:
+        candidates.append(per_fr_dir / f"{fr_id}.json")
+    elif per_fr_dir.is_dir():
+        candidates.extend(sorted(per_fr_dir.glob("*.json")))
+    candidates.append(project / ".methodology" / f"gate{gate}_result.json")
+    return candidates
+
+
 def _run_phase_auditor(project: Path, completed_phase: int) -> int:
     """Run PhaseAuditor (local mode) — replaced deprecated phase_end_audit.py (v2.5.0).
 

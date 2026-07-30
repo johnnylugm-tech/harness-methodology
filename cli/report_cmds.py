@@ -149,10 +149,14 @@ def _gate_provenance_report(project: Path) -> dict:
     written before that station have no enforcer_sha and report None rather
     than being hidden, so a mixed-vintage project reads honestly.
     """
-    from cli._shared import gate_result_paths
+    from cli._shared import gate_verdict_paths
     gates: list[dict] = []
     for gate in (1, 2, 3, 4):
-        for path in gate_result_paths(project, gate):
+        # Round 26: finalized-only. gate_result_paths puts the agent's
+        # pre-finalize .sessi-work draft first — correct for the read that drives
+        # scoring, wrong here, and the reason this section reported verdict=None
+        # for every Gate 1 while the persisted per-FR file said PASS.
+        for path in gate_verdict_paths(project, gate):
             if not path.is_file():
                 continue
             try:

@@ -21,6 +21,7 @@ from core import claude_md
 from core.atomic_io import atomic_write_json
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
 from core.sessions_spawn_logger import SessionsSpawnLogger
+from core.harness_provenance import enforcer_sha
 from core.state_io import load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
@@ -788,11 +789,76 @@ def cmd_load_context(args: argparse.Namespace) -> int:
                     f"Remove the sentinel / fill the placeholders before "
                     f"treating it as a real artifact."
                 )
+    # Round 26: which framework version produced the phases this one builds on.
+    #
+    # Gate results have carried `enforcer_sha` since Round 19 站3; phase artifacts
+    # did not, so a run whose harness was patched mid-flight left no trace of the
+    # skew. taskq-plus P1-P3: five framework commits landed between 06:02 and
+    # 10:24, one of them fixing the very P2 SAB-WRITE step that had completed
+    # seven hours earlier — fixing a prompt does not retroactively fix the artifact
+    # it produced, and FR-01..04's Gate 1 verdicts were stamped by a different
+    # enforcer than FR-05's environment.
+    #
+    # WARN, never BLOCK: patching the framework mid-run is a deliberate operator
+    # choice here. The defect was that the skew was invisible, not that it happened.
+    _skew = _enforcer_skew_warnings(project)
+    if _skew:
+        _warnings.extend(_skew)
+
     if _warnings:
         result["warnings"] = _warnings
 
     print(_json.dumps(result, indent=2, default=str))
     return 0
+
+
+def _enforcer_skew_warnings(project: Path) -> list[str]:
+    """One warning per completed phase produced by a different harness commit.
+
+    Phases recorded before Round 26 carry no `enforcer_sha`; those are reported as
+    "not recorded" rather than as agreement — an unstated gap must not read as
+    coverage. Never raises: provenance reporting may not break load-context.
+    """
+    try:
+        state = load_state(project, lenient=True)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] load-context: enforcer-skew check skipped: {exc}",
+              file=sys.stderr)
+        return []
+    completed = state.get("phase_completed")
+    if not isinstance(completed, dict) or not completed:
+        return []
+
+    current = enforcer_sha()
+    stale: list[str] = []
+    unrecorded: list[str] = []
+    for phase_key in sorted(completed, key=lambda k: str(k)):
+        entry = completed[phase_key]
+        if not isinstance(entry, dict):
+            continue
+        recorded = str(entry.get("enforcer_sha") or "")
+        if not recorded:
+            unrecorded.append(str(phase_key))
+        elif recorded != current:
+            stale.append(f"P{phase_key} by {recorded[:12]}")
+
+    out: list[str] = []
+    if stale:
+        out.append(
+            f"enforcer skew: the current harness is {current[:12]} but "
+            f"{', '.join(stale)} — those phases' artifacts were produced by a "
+            f"different framework version, and a later fix to a prompt or checker "
+            f"does NOT retroactively correct what it already wrote. If a phase you "
+            f"depend on predates a relevant fix, re-run that phase rather than "
+            f"trusting its output."
+        )
+    if unrecorded:
+        out.append(
+            f"enforcer provenance missing for phase(s) {', '.join(unrecorded)} "
+            f"(completed before Round 26 recorded it) — skew for those cannot be "
+            f"determined either way."
+        )
+    return out
 
 
 def cmd_read_file(args: argparse.Namespace) -> int:
