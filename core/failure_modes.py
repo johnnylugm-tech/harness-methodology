@@ -206,10 +206,17 @@ def _is_dispatch_timeout(entry: dict) -> bool:
       - turn budget: the CLI's own `error_max_turns` result subtype, which
         exits non-zero and so arrives as status="ERROR" with that subtype in
         error_output (taskq P3: 2 occurrences, both UNCLASSIFIED before this).
+
+    Round 26 — the turn-budget half delegates to
+    core.agent_spawner.turn_budget_exhausted instead of repeating the literal.
+    Two classifiers read this one output and disagreed: the log recorded
+    EXECUTION_ERROR while this layer read dispatch_timeout, and the classifier
+    that DECIDES what to dispatch next was the one that could not tell.
     """
     if entry.get("status") == "TIMEOUT":
         return True
-    return "error_max_turns" in str(entry.get("error_output") or "")
+    from core.agent_spawner import turn_budget_exhausted
+    return turn_budget_exhausted(str(entry.get("error_output") or ""))
 
 
 # Declarative rule registry — evaluated in order, first match wins. An entry

@@ -271,3 +271,74 @@ class TestCheckerEnforcementConfig:
             {"values": {"checker_enforcement": {"other_checker": "block"}}}
         ))
         assert get_checker_enforcement(tmp_path, "spec_unsatisfiable") == "warn"
+
+
+class TestTurnBudgetIsOneClassification:
+    """Round 26 — the two classifiers over one output no longer disagree.
+
+    sessions_spawn.log recorded `error_class: EXECUTION_ERROR` for all three of
+    taskq-plus P3's turn-budget kills (TDD-RED and TDD-GREEN at turn 41 against a
+    ceiling of 40, CODE-FIX at 51 against 50) while run-report's MAST layer read
+    the SAME text as `dispatch_timeout`. The classifier that decides what to
+    dispatch next was the one that could not tell, so a cut-off GATE1 went to
+    CODE-FIX with the prompt "sub-agent timeout or error — no gate1_result.json
+    was written": a fixer sent at code with no defect. 3 of 42 dispatches, $5.30,
+    21% of that phase's spend.
+    """
+
+    KILL = "Sub-agent failed: subtype=error_max_turns"
+
+    def test_the_spawner_now_names_it(self):
+        from core.agent_spawner import _classify_dispatch_error
+        assert _classify_dispatch_error(self.KILL) == "TURN_BUDGET"
+
+    def test_both_classifiers_read_the_same_signature(self):
+        """One literal, one home — failure_modes delegates to the spawner."""
+        from core.agent_spawner import _classify_dispatch_error, turn_budget_exhausted
+        from core.failure_modes import classify_entry
+
+        entry = {"status": "ERROR", "error_output": self.KILL, "regression_flags": {}}
+        assert turn_budget_exhausted(self.KILL)
+        assert _classify_dispatch_error(self.KILL) == "TURN_BUDGET"
+        assert classify_entry(entry)["mode_id"] == "dispatch_timeout"
+        assert classify_entry(entry)["mast_category"] == "infra"
+
+    def test_the_literal_lives_in_exactly_one_place(self):
+        """A second copy of the signature is how the disagreement started.
+
+        AST rather than a substring scan: the docstring names the subtype for the
+        reader on purpose, and only an executable copy is a second source of truth.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        import core.failure_modes as fm
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fm._is_dispatch_timeout)))
+        fn = tree.body[0]
+        assert isinstance(fn, ast.FunctionDef)
+        body = fn.body[1:] if ast.get_docstring(fn) else fn.body
+        literals = [
+            node.value
+            for stmt in body
+            for node in ast.walk(stmt)
+            if isinstance(node, ast.Constant) and node.value == "error_max_turns"
+        ]
+        assert not literals, (
+            "core/failure_modes._is_dispatch_timeout re-states the max-turns literal "
+            "in executable code instead of calling "
+            "core.agent_spawner.turn_budget_exhausted — two copies of one signature "
+            "is exactly what Round 26 collapsed"
+        )
+        assert "turn_budget_exhausted" in inspect.getsource(fm._is_dispatch_timeout)
+
+    def test_a_wall_clock_timeout_is_still_the_same_mode(self):
+        """Two shapes, one meaning — the entry-level predicate keeps both."""
+        from core.failure_modes import classify_entry
+        entry = {"status": "TIMEOUT", "error_output": "", "regression_flags": {}}
+        assert classify_entry(entry)["mode_id"] == "dispatch_timeout"
+
+    def test_an_ordinary_execution_error_is_untouched(self):
+        from core.agent_spawner import _classify_dispatch_error
+        assert _classify_dispatch_error("AssertionError in test_foo") == "EXECUTION_ERROR"

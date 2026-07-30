@@ -21,6 +21,7 @@ from cli.exit_codes import EX_FR_STEP_INFRA_ABORT
 from core.agent_spawner import (
     _COMMIT_REQUIRED_STEPS,
     is_structurally_broken,
+    turn_budget_exhausted,
 )
 from core.canonical_form import fr_num_str
 from core.degradation_ledger import record_degradation
@@ -322,17 +323,71 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         print(f"[run-fr-step] WARN: values.step_max_turns key(s) {_unknown_steps} "
               f"match no step; valid: {sorted(_STEP_MAX_TURNS)}")
 
+    # Round 26: steps already cut off at their ceiling in THIS invocation. A
+    # re-dispatch at the identical ceiling is what the log shows happening — all
+    # three of taskq-plus P3's turn-budget kills went out again at the same number
+    # — so the second attempt gets the doubled budget once, and only once.
+    _turn_budget_escalated: set[str] = set()
+
     def _max_turns(step_name: str) -> int:
         """Per-step max_turns: explicit --max-turns wins, then per-FR config,
-        then values.step_max_turns (per-project overlay), else _STEP_MAX_TURNS."""
+        then values.step_max_turns (per-project overlay), else _STEP_MAX_TURNS.
+
+        A step in `_turn_budget_escalated` gets twice its resolved ceiling. The
+        factor and the once-per-step bound are the whole limit — no absolute cap
+        constant, because a magic number here would be the same unexplained
+        threshold Round 20 站G removed from doctor.
+        """
         if _explicit_max_turns is not None:
             return _explicit_max_turns
-        if step_name.upper() in ("CODE-FIX", "COVERAGE-FIX") and _fr_code_fix_max_turns:
-            return _fr_code_fix_max_turns
         step = step_name.upper()
-        if step in _turns_overlay:
-            return _turns_overlay[step]
-        return _STEP_MAX_TURNS.get(step, 40)
+        if step in ("CODE-FIX", "COVERAGE-FIX") and _fr_code_fix_max_turns:
+            base = _fr_code_fix_max_turns
+        elif step in _turns_overlay:
+            base = _turns_overlay[step]
+        else:
+            base = _STEP_MAX_TURNS.get(step, 40)
+        return base * 2 if step in _turn_budget_escalated else base
+
+    def _note_turn_budget_kill(step_name: str, result: dict) -> bool:
+        """Record a turn-budget kill so the next dispatch of `step_name` escalates.
+
+        Returns True when this failure was a budget kill (the caller then knows the
+        step ran out of room rather than hitting a code defect). Escalation happens
+        at most once per step: a second kill at the doubled ceiling means the step
+        genuinely cannot finish, and the caller aborts with the normal diagnostic
+        rather than doubling forever.
+        """
+        # Re-derive rather than trust the stamp: same reasoning as
+        # core.failure_modes._effective_error_class — a decision that depends on
+        # one upstream layer having labelled the entry goes silently dead when
+        # that layer changes, and this round exists because exactly that happened
+        # to the INFRA guard.
+        if result.get("error_class") != "TURN_BUDGET" and not turn_budget_exhausted(
+            str(result.get("output") or "")
+        ):
+            return False
+        step = step_name.upper()
+        if step in _turn_budget_escalated:
+            print(f"[run-fr-step] {fr_id} {step}: turn budget exhausted AGAIN at the "
+                  f"escalated ceiling ({_max_turns(step)}) — not escalating further",
+                  file=sys.stderr)
+            return True
+        _turn_budget_escalated.add(step)
+        # The `why` stays generic on purpose: it is written into the CONSUMING
+        # project's ledger, and a framework string that names another project is
+        # the 76b849c prompt-leak shape (tests/test_no_hardcoded_paths.py). The
+        # measured history lives in this file's comments, not in their artifacts.
+        record_degradation(
+            project, component=f"run-fr-step:{step}",
+            what=f"max_turns escalated {_max_turns(step) // 2} -> {_max_turns(step)}",
+            why=f"{fr_id} {step} was cut off at its turn ceiling; re-dispatching at "
+                f"the same ceiling cannot finish what did not fit",
+        )
+        print(f"[run-fr-step] {fr_id} {step}: turn budget exhausted — re-dispatching "
+              f"at {_max_turns(step)} turns (escalation recorded in the degradation "
+              f"ledger). This is NOT a code defect; no fix agent is dispatched.")
+        return True
 
     # All FR steps need shell access:
     #   GATE1/GATE1-DELTA: ruff, pyright, pytest, coverage
@@ -403,9 +458,17 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             permission_mode=_pmode,
         )
         _status = result.get("status")
+        # Round 26: a turn-budget kill is retryable for EVERY step, GATE1 included,
+        # because the remedy is more room rather than a different agent. Handing a
+        # cut-off GATE1 to CODE-FIX sent a fixer at code with no defect — and the
+        # prompt told it "sub-agent timeout or error", a diagnosis the framework had
+        # already contradicted by classifying the kill.
+        _budget_kill = _note_turn_budget_kill(step, result)
         _step_retryable = (
-            step in _COMMIT_REQUIRED_STEPS
-            and step not in ("GATE1", "GATE1-DELTA")
+            (_budget_kill or (
+                step in _COMMIT_REQUIRED_STEPS
+                and step not in ("GATE1", "GATE1-DELTA")
+            ))
             and _status in _DISPATCH_ERROR_STATUSES
             and _status != "REGRESSION_GUARD"
             and not _is_connector_disabled_failure(result.get("output", ""))
@@ -685,6 +748,11 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     setting_sources=phase_ctx["setting_sources"],
                     retry_round=fix_round,  # Fix H-F: surface iteration in sessions_spawn.log
                 )
+                # Round 26: a fix agent cut off at its ceiling did not fail to fix
+                # the code — it ran out of room. Record it so the next fix round
+                # dispatches with the doubled budget instead of walking into the
+                # same wall (taskq-plus FR-05's CODE-FIX died at turn 51 of 50).
+                _note_turn_budget_kill(fix_step_name, fix_result)
                 if fix_result.get("status") in _DISPATCH_ERROR_STATUSES:
                     _fix_output = fix_result.get('output', '')
                     print(f"[run-fr-step] {fix_step_name} failed: "

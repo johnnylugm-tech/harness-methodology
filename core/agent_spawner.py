@@ -364,6 +364,27 @@ def _error_result(
     }
 
 
+# The `claude -p` result subtype for "I ran out of turns". One string, one home:
+# core.failure_modes._is_dispatch_timeout reads it through turn_budget_exhausted()
+# rather than repeating the literal, because Round 26 found the two classifiers
+# over this output disagreeing — sessions_spawn.log recorded EXECUTION_ERROR while
+# run-report's MAST layer read the same text as dispatch_timeout, and the one that
+# DECIDES (agent_spawner -> cli/fr_cmds) was the one that could not tell.
+_TURN_BUDGET_SIGNATURE = "error_max_turns"
+
+
+def turn_budget_exhausted(output: str) -> bool:
+    """True when the dispatch was cut off at its max-turns ceiling.
+
+    Not a code defect and not an environment fault: the agent was working and the
+    budget ended. taskq-plus P3 hit it three times (TDD-RED and TDD-GREEN at
+    turn 41 against a ceiling of 40, CODE-FIX at 51 against 50) — 3 of 42
+    dispatches, $5.30, 21% of that phase's spend — and each re-dispatch went out
+    at the identical ceiling.
+    """
+    return _TURN_BUDGET_SIGNATURE in (output or "")
+
+
 def blocked_inner_status_in(text: str) -> str | None:
     """The `_INNER_BLOCKED_SIGNATURES` member named in *text*, if any.
 
@@ -390,7 +411,9 @@ def _classify_dispatch_error(output: str) -> str:
     signature (see _STRUCTURAL_FAILURE_SIGNATURES — retrying can never succeed),
     "INFRA" when the sub-agent itself reported a precondition blocker
     (_INNER_BLOCKED_SIGNATURES — the tools never ran, so there is no quality
-    verdict and no code to fix), "INFRA_ERROR" when it signals an environment /
+    verdict and no code to fix), "TURN_BUDGET" when it was cut off at its
+    max-turns ceiling (the agent was working; the budget ended — see
+    turn_budget_exhausted), "INFRA_ERROR" when it signals an environment /
     API / model / network problem (the model could not be reached or used), else
     "EXECUTION_ERROR". This lets a run of dispatch ERRORs be recognised as
     environmental instead of mis-diagnosed as a harness bug. Observability label
@@ -402,6 +425,8 @@ def _classify_dispatch_error(output: str) -> str:
         return "STRUCTURAL"
     if blocked_inner_status_in(output):
         return "INFRA"
+    if turn_budget_exhausted(output):
+        return "TURN_BUDGET"
     return "INFRA_ERROR" if output and _INFRA_ERROR_RE.search(output) else "EXECUTION_ERROR"
 
 

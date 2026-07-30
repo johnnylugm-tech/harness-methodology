@@ -257,3 +257,112 @@ def test_cross_artifact_reads_env_then_feature():
     # env must be consulted before the feature flag (per-invocation override)
     assert src.index('environ.get("HARNESS_CROSS_ARTIFACT_COV")') < src.index(
         'get_feature(project_root, "cross_artifact_live_cov")')
+
+
+# ---------------------------------------------------------------------------
+# Round 26 — a turn-budget kill re-dispatches with more room, not a fix agent
+# ---------------------------------------------------------------------------
+
+class TestTurnBudgetEscalation:
+    """taskq-plus P3's three turn-budget kills each went out again at the
+    identical ceiling: TDD-RED and TDD-GREEN at turn 41 against 40, CODE-FIX at
+    51 against 50. 3 of 42 dispatches, $5.30, 21% of the phase's spend, and the
+    log recorded them as EXECUTION_ERROR — so the retry could not tell a budget
+    kill from a code defect.
+    """
+
+    KILL = {
+        "status": "ERROR",
+        "error_class": "TURN_BUDGET",
+        "output": "Sub-agent failed: subtype=error_max_turns",
+    }
+
+    def _dispatches(self, tmp_path, monkeypatch, outcomes):
+        """Run TDD-RED with a spawner replaying `outcomes`; return every kwargs."""
+        import harness_cli
+        from tests.cli.test_fr_cmds_cli import _setup_preflight_fixtures
+
+        _setup_preflight_fixtures(tmp_path, step="TDD-RED")
+        calls: list[dict] = []
+        queue = list(outcomes)
+
+        class _FakeSpawner:
+            def __init__(self, project_path=None):
+                pass
+
+            def spawn(self, **kwargs):
+                calls.append(kwargs)
+                return queue.pop(0) if queue else {"status": "complete", "output": "{}"}
+
+        fake_mod = types.ModuleType("core.agent_spawner")
+        fake_mod.AgentSpawner = _FakeSpawner  # type: ignore[reportAttributeAccessIssue]
+        monkeypatch.setitem(sys.modules, "core.agent_spawner", fake_mod)
+
+        import subprocess as _sp
+
+        class _FakeResult:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        monkeypatch.setattr(_sp, "run", lambda cmd, **kw: _FakeResult())
+
+        args = argparse.Namespace(
+            phase=3, fr_id="FR-01", step="TDD-RED", project=str(tmp_path),
+            srs=None, timeout=None, max_turns=None, max_fix_rounds=None,
+        )
+        harness_cli.cmd_run_fr_step(args)
+        return calls
+
+    def test_the_retry_gets_double_the_ceiling(self, tmp_path, monkeypatch):
+        from cli.fr_cmds import _STEP_MAX_TURNS
+        calls = self._dispatches(tmp_path, monkeypatch, [self.KILL])
+        assert len(calls) >= 2, "a budget kill must be re-dispatched, not abandoned"
+        base = _STEP_MAX_TURNS["TDD-RED"]
+        assert calls[0]["max_turns"] == base
+        assert calls[1]["max_turns"] == base * 2, (
+            "the second attempt went out at the same ceiling — which is what the "
+            "log shows happening three times"
+        )
+
+    def test_escalation_happens_once_not_forever(self, tmp_path, monkeypatch):
+        from cli.fr_cmds import _STEP_MAX_TURNS
+        calls = self._dispatches(tmp_path, monkeypatch, [self.KILL, self.KILL])
+        base = _STEP_MAX_TURNS["TDD-RED"]
+        assert [c["max_turns"] for c in calls][:2] == [base, base * 2]
+        assert all(c["max_turns"] <= base * 2 for c in calls), (
+            "doubling must be bounded by the once-per-step rule, not repeated"
+        )
+
+    def test_the_escalation_is_recorded_in_the_degradation_ledger(self, tmp_path, monkeypatch):
+        self._dispatches(tmp_path, monkeypatch, [self.KILL])
+        ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+        assert ledger.is_file(), "a silently raised budget is an unreviewed decision"
+        body = ledger.read_text(encoding="utf-8")
+        assert "max_turns escalated" in body
+        assert "TDD-RED" in body
+
+    def test_an_ordinary_execution_error_does_not_escalate(self, tmp_path, monkeypatch):
+        """Only a budget kill buys more room; a real failure must not."""
+        from cli.fr_cmds import _STEP_MAX_TURNS
+        err = {"status": "ERROR", "error_class": "EXECUTION_ERROR",
+               "output": "AssertionError in test_fr01"}
+        calls = self._dispatches(tmp_path, monkeypatch, [err])
+        base = _STEP_MAX_TURNS["TDD-RED"]
+        assert all(c["max_turns"] == base for c in calls)
+        assert not (tmp_path / ".sessi-work" / "degradations.jsonl").is_file()
+
+    def test_escalation_survives_an_unstamped_result(self, tmp_path, monkeypatch):
+        """The decision re-derives from the output instead of trusting a stamp.
+
+        A decision that only works when an upstream layer labelled the entry goes
+        silently dead when that layer changes — which is precisely how Round 13's
+        INFRA guard died (an upstream rewrite of the string it read).
+        """
+        from cli.fr_cmds import _STEP_MAX_TURNS
+        unstamped = {"status": "ERROR",
+                     "output": "Sub-agent failed: subtype=error_max_turns"}
+        calls = self._dispatches(tmp_path, monkeypatch, [unstamped])
+        base = _STEP_MAX_TURNS["TDD-RED"]
+        assert len(calls) >= 2
+        assert calls[1]["max_turns"] == base * 2
