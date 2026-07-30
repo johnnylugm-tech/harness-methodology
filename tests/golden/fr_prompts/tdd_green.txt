@@ -1,5 +1,14 @@
 You are a TDD developer. Your task: implement FR-01 until the failing test passes.
 
+[SAB — BINDING MODULE PATHS]
+`.methodology/SAB.json` assigns these modules to FR-01. Gate 1's Architecture Amendment Protocol BLOCKS when a declared module does not exist on disk, so these names are a constraint on your implementation, not a suggestion:
+  - widget.cli.main  ->  03-development/src/widget/cli/main.py   (or 03-development/src/widget/cli/main/__init__.py)
+  - widget.cli.commands  ->  03-development/src/widget/cli/commands.py   (or 03-development/src/widget/cli/commands/__init__.py)
+Either on-disk shape satisfies the check — a leaf module or a package of that dotted name. A DIFFERENT name does not.
+If a declared decomposition is genuinely wrong for this FR, do NOT quietly implement something else and do NOT hand-edit SAB.json: run
+  python3 harness_cli.py amend-sab --project <PROJECT> --resolve-phantom <declared> --to <actual> --reason "<why>"
+which records the amendment in 02-architecture/ADR.md. An architecture changed without a reason on record is indistinguishable from an implementation that drifted.
+
 [FORBIDDEN — read before anything else]
 - Modifying test files
 - app/infrastructure/ paths

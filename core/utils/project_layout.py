@@ -118,6 +118,16 @@ class ProjectLayout:
     def sad_path(self) -> Path:                return self._get_file_path("SAD.md", self.phase2_architecture_dir)
     @property
     def test_spec_path(self) -> Path:          return self._get_file_path("TEST_SPEC.md", self.phase2_architecture_dir)
+    @property
+    def adr_path(self) -> Path:
+        """02-architecture/ADR.md — the architecture decision record.
+
+        Round 26: `amend-sab --resolve-phantom` appends its amendment here, and a
+        writer needs the canonical path even when the file does not exist yet, so
+        this is a plain join rather than `_get_file_path`'s exists-first lookup
+        (which would silently retarget a first write to the project root).
+        """
+        return self.phase2_architecture_dir / "ADR.md"
 
     @property
     def test_plan_path(self) -> Path:              return self.phase4_testing_dir / "TEST_PLAN.md"

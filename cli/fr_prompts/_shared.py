@@ -1,5 +1,6 @@
 """Shared helpers for FR prompt generation."""
 
+import json
 import re
 from pathlib import Path
 
@@ -22,6 +23,76 @@ def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
     )
     m = pat.search(content)
     return (m.group(1) + m.group(2)).strip() if m else ""
+
+
+def _sab_binding_block(project: Path, fr_id: str, src_dir: str) -> str:
+    """The module paths Gate 1 will enforce for `fr_id`, rendered for a prompt.
+
+    Round 26. Gate 1's Architecture Amendment Protocol blocks on a PHANTOM — a
+    module SAB.json declares that the codebase does not have
+    (cli/gate_cmds.py::_check_sab_module_alignment, narrowed to this FR's own
+    modules by _filter_phantoms_for_fr). Phase 2 fixes those dotted names before
+    any code exists, and until now the implementing agent was never shown them:
+    `build_tdd_green_prompt` took no SAB input at all. The divergence therefore
+    surfaced at the gate rather than at the keyboard, and the framework's only
+    exits are "write code at the declared name" or "a human edits SAB.json".
+
+    taskq-plus P3 paid it twice in one phase — `fix(FR-02): relocate executor to
+    service/ to satisfy SAB phantom check`, and FR-05, where SAB declared
+    `taskq_plus.cli.main` while the TDD agent had written a flat
+    `taskq_plus/cli.py`: three GATE1 dispatches on the same phantom, then the FR
+    restarted from RED to rewrite the layout. Every one of the five FRs gated in
+    that phase needed a SAB amendment.
+
+    Returns "" when there is no SAB, no traceability entry for this FR, or the
+    file is unreadable — a prompt must not fail to render because an optional
+    artifact is missing (the gate keeps its own, independent check).
+    """
+    from core.quality_gate.sab_amender import normalize_sab_module_to_dotted
+
+    sab_path = project / ".methodology" / "SAB.json"
+    if not sab_path.is_file():
+        return ""
+    try:
+        sab = json.loads(sab_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(sab, dict):
+        return ""
+
+    entries = (sab.get("fr_module_traceability") or {}).get(fr_id)
+    if isinstance(entries, str):
+        entries = [entries]
+    if not isinstance(entries, list):
+        return ""
+
+    dotted = [d for d in (normalize_sab_module_to_dotted(e) for e in entries) if d]
+    if not dotted:
+        return ""
+
+    lines = [
+        "[SAB — BINDING MODULE PATHS]",
+        f"`.methodology/SAB.json` assigns these modules to {fr_id}. Gate 1's "
+        "Architecture Amendment Protocol BLOCKS when a declared module does not "
+        "exist on disk, so these names are a constraint on your implementation, "
+        "not a suggestion:",
+    ]
+    for name in dotted:
+        rel = name.replace(".", "/")
+        lines.append(f"  - {name}  ->  {src_dir}/{rel}.py   (or {src_dir}/{rel}/__init__.py)")
+    lines += [
+        "Either on-disk shape satisfies the check — a leaf module or a package of "
+        "that dotted name. A DIFFERENT name does not.",
+        "If a declared decomposition is genuinely wrong for this FR, do NOT quietly "
+        "implement something else and do NOT hand-edit SAB.json: run",
+        f"  python3 harness_cli.py amend-sab --project {project} "
+        "--resolve-phantom <declared> --to <actual> --reason \"<why>\"",
+        "which records the amendment in 02-architecture/ADR.md. An architecture "
+        "changed without a reason on record is indistinguishable from an "
+        "implementation that drifted.",
+        "",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _extract_test_spec_names(project: Path, fr_id: str) -> tuple[list[str], str]:

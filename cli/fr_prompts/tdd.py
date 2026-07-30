@@ -3,7 +3,11 @@
 import sys
 from pathlib import Path
 
-from cli.fr_prompts._shared import _extract_srs_fr_section, _extract_test_spec_names
+from cli.fr_prompts._shared import (
+    _extract_srs_fr_section,
+    _extract_test_spec_names,
+    _sab_binding_block,
+)
 
 
 def build_tdd_red_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, src_dir: str) -> str:
@@ -35,6 +39,9 @@ def build_tdd_red_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, 
     return (
         f"You are a TDD developer. Your ONLY task: write failing pytest tests for {fr_id}.\n\n"
         f"{spec_note}"
+        # spec_note ends on a single newline; the block needs its own blank line.
+        f"{chr(10) if spec_note else ''}"
+        f"{_sab_binding_block(project, fr_id, src_dir)}"
         f"{_related_ctx}"
         f"[FORBIDDEN — read before anything else]\n"
         f"- Implementing any source code (test file only)\n"
@@ -93,11 +100,14 @@ def build_tdd_red_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, 
         f"- SUBPROCESS COVERAGE CEILING — critical for GATE1 test_coverage:\n"
         f"  * pytest-cov CANNOT measure coverage of code running inside a subprocess.\n"
         f"    If your test uses `subprocess.run([sys.executable, \"-m\", \"<pkg>\", ...])`,\n"
-        f"    the CLI entry-point modules (cli.py, __main__.py, config.py) will show 0%\n"
-        f"    coverage — no matter how many subprocess tests you write.\n"
+        f"    the entry-point modules will show 0% coverage — no matter how many\n"
+        f"    subprocess tests you write.\n"
         f"  * To achieve >= 80% GATE1 test_coverage, you MUST include in-process tests\n"
-        f"    that call the CLI handler functions directly (e.g. `cli.main([\"submit\", cmd])`\n"
-        f"    or `cli.submit_command(args, cfg)`), capturing stdout via\n"
+        f"    that import and call the handler functions directly. Import them at the\n"
+        f"    module names the [SAB — BINDING MODULE PATHS] block above declares for this\n"
+        f"    FR (if that block is absent, follow SAD.md §2) — a test that imports a\n"
+        f"    module the SAB does not declare pulls the implementation to a name Gate 1\n"
+        f"    will then BLOCK as a phantom. Capture stdout via\n"
         f"    `contextlib.redirect_stdout` + `io.StringIO`.\n"
         f"  * Keep your subprocess acceptance tests — they verify the REAL user-facing\n"
         f"    entry point. Add in-process unit tests for the INTERNAL logic as a separate\n"
@@ -139,6 +149,7 @@ def build_tdd_green_prompt(fr_id: str, phase: int, project: Path, srs_path: Path
         test_content = tf.read_text(encoding="utf-8")
     return (
         f"You are a TDD developer. Your task: implement {fr_id} until the failing test passes.\n\n"
+        f"{_sab_binding_block(project, fr_id, src_dir)}"
         f"[FORBIDDEN — read before anything else]\n"
         f"- Modifying test files\n"
         f"- app/infrastructure/ paths\n\n"
@@ -183,8 +194,12 @@ def build_tdd_improve_prompt(fr_id: str, phase: int, project: Path, srs_path: Pa
         test_content = tf.read_text(encoding="utf-8")[:1500]
     return (
         f"You are a TDD refactorer. Your task: improve {fr_id} WITHOUT breaking tests.\n\n"
+        f"{_sab_binding_block(project, fr_id, src_dir)}"
         f"[FORBIDDEN — read before anything else]\n"
         f"- Modifying test files (any file under tests/)\n"
+        f"- Relocating or renaming any module the [SAB — BINDING MODULE PATHS] block "
+        f"names: a refactor that moves a declared module makes it a phantom, and Gate 1 "
+        f"blocks on that before it scores anything\n"
         f"- Setting enum values to None (e.g. STATUS = None, EXIT = None)\n"
         f"- Changing sys.exit() codes from their current values\n"
         f"- Injecting XX...XX placeholder markers into source files\n\n"

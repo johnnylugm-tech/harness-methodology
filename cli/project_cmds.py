@@ -922,6 +922,35 @@ def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str, Path]:
     """
     project = Path(args.project).resolve()
     strict = getattr(args, "strict", False)
+
+    # Round 26: --resolve-phantom is the SAB -> code direction and does not share
+    # amend_sab's code -> SAB flow. Handled first and returned: mixing an
+    # architecture amendment into the same run as a discovery-append would make
+    # the ADR record ambiguous about which change the reason justifies.
+    _declared = getattr(args, "resolve_phantom", None)
+    if _declared:
+        from core.quality_gate.sab_amender import (
+            PhantomResolutionError,
+            resolve_phantom,
+        )
+        try:
+            summary = resolve_phantom(
+                project,
+                _declared,
+                to=getattr(args, "resolve_to", None),
+                reason=getattr(args, "reason", "") or "",
+                src_dir=args.src_dir,
+                drop=bool(getattr(args, "resolve_drop", False)),
+            )
+        except PhantomResolutionError as exc:
+            print(f"[amend-sab] REFUSED: {exc}", file=sys.stderr)
+            return 1, "resolve_refused", project
+        except Exception as exc:
+            print(f"[amend-sab] resolve-phantom failed: {exc}", file=sys.stderr)
+            return 1, "exception", project
+        print(summary)
+        return 0, "resolved_phantom", project
+
     try:
         from core.quality_gate.sab_amender import (
             amend_sab,
@@ -2002,6 +2031,23 @@ def register(sub) -> None:
     asab.add_argument("--strict", action="store_true",
                     help="Exit non-zero if PHANTOM modules are detected "
                          "(SAB registers modules that src does not implement)")
+    asab.add_argument("--resolve-phantom", metavar="DOTTED",
+                    help="Amend the architecture: retarget or drop a PHANTOM module "
+                         "SAB.json declares (Round 26). Requires --reason, and either "
+                         "--to DOTTED or --drop. Records the amendment in "
+                         "02-architecture/ADR.md — this is the ONLY sanctioned way to "
+                         "change a declared module path; the alternative was writing "
+                         "code to match a Phase 2 guess or hand-editing SAB.json")
+    asab.add_argument("--to", metavar="DOTTED", dest="resolve_to",
+                    help="The module that actually exists, replacing --resolve-phantom")
+    asab.add_argument("--drop", action="store_true", dest="resolve_drop",
+                    help="Remove --resolve-phantom's module from the architecture "
+                         "entirely (use when the FR no longer needs it)")
+    asab.add_argument("--reason", help="Why the declared decomposition changed (>= 20 "
+                                       "chars). Written to ADR.md — an architecture "
+                                       "changed without a recorded reason is "
+                                       "indistinguishable from an implementation that "
+                                       "drifted")
     asab.set_defaults(func=cmd_amend_sab)
 
     # audit-structure

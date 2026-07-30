@@ -375,3 +375,174 @@ class TestAmendSab:
             assert b.get("allowed_dependencies") == a.get("allowed_dependencies")
         # version unchanged
         assert before_sab["version"] == after_sab["version"]
+
+# ---------------------------------------------------------------------------
+# Round 26 — the SAB -> code direction, and the layer choice that was a guess.
+# ---------------------------------------------------------------------------
+
+class TestLayerChoiceFollowsTheModuleName:
+    """A module whose path names a declared layer belongs in that layer.
+
+    Before Round 26 every non-underscore module went to `layers[-1]` ("least
+    risky"), which is only least risky when the last layer is a catch-all. In
+    taskq-plus the last layer is `config`, so an amend run filed `taskq_plus.cli`,
+    `taskq_plus.service` and `taskq_plus.storage` there — leaving SAB.json's own
+    layering in direct contradiction with the `cli > observability > service >
+    storage > models` order that project's NFR-06 enforces via `.importlinter`.
+    """
+
+    LAYERS = {"layers": [{"name": n} for n in
+                         ("models", "storage", "service", "observability", "cli", "config")]}
+
+    @pytest.mark.parametrize("module_path, expected", [
+        ("taskq_plus/cli/main.py", "cli"),
+        ("taskq_plus.service.executor", "service"),
+        ("taskq_plus/storage/atomic.py", "storage"),
+        ("taskq_plus/observability/audit.py", "observability"),
+        # A PACKAGE registered under its own dotted name: the last segment IS
+        # the layer (Round 6 站3's package-style registration shape).
+        ("taskq_plus.cli", "cli"),
+        # Deepest match wins when two segments both name layers.
+        ("taskq_plus/storage/models/row.py", "models"),
+    ])
+    def test_a_declared_layer_in_the_path_wins(self, module_path, expected):
+        from core.quality_gate.sab_amender import _heuristic_layer_choice
+        assert _heuristic_layer_choice(self.LAYERS, module_path) == expected
+
+    def test_the_taskq_plus_regression_specifically(self):
+        """`taskq_plus.cli` must not land in `config` again."""
+        from core.quality_gate.sab_amender import _heuristic_layer_choice
+        assert _heuristic_layer_choice(self.LAYERS, "taskq_plus.cli") != "config"
+
+    def test_underscore_helper_still_prefers_core(self):
+        from core.quality_gate.sab_amender import _heuristic_layer_choice
+        sab = {"layers": [{"name": "core"}, {"name": "infra"}]}
+        assert _heuristic_layer_choice(sab, "pkg/_helper.py") == "core"
+
+    def test_unmatched_path_still_falls_back_to_the_last_layer(self):
+        from core.quality_gate.sab_amender import _heuristic_layer_choice
+        assert _heuristic_layer_choice(self.LAYERS, "taskq_plus/util/misc.py") == "config"
+
+    def test_no_layers_returns_core(self):
+        from core.quality_gate.sab_amender import _heuristic_layer_choice
+        assert _heuristic_layer_choice({}, "pkg/x.py") == "core"
+
+
+class TestResolvePhantom:
+    """The direction `amend_sab` never had: SAB declares, code does not have it.
+
+    The gate's message offers "(a) implement them, OR (b) amend SAB.json" and
+    only (a) had tooling, so taskq-plus P3 resolved a wrong Phase 2 guess by
+    rewriting production code to match it — twice.
+    """
+
+    def _project(self, tmp_path, *, on_disk=("pkg.cli",)):
+        src = tmp_path / "03-development" / "src" / "pkg"
+        src.mkdir(parents=True)
+        (src / "__init__.py").write_text("", encoding="utf-8")
+        for dotted in on_disk:
+            leaf = dotted.split(".")[-1]
+            (src / f"{leaf}.py").write_text("", encoding="utf-8")
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "SAB.json").write_text(json.dumps({
+            "layers": [
+                {"name": "service", "modules": [{"name": "pkg.service"}]},
+                {"name": "cli", "modules": [
+                    {"name": "pkg.cli.main"}, {"name": "pkg.cli.commands"}]},
+            ],
+            "fr_module_traceability": {
+                "FR-05": ["pkg.cli.main", "pkg.cli.commands"],
+                "FR-02": "pkg.service",
+            },
+        }), encoding="utf-8")
+        return tmp_path
+
+    def _sab(self, project):
+        return json.loads((project / ".methodology" / "SAB.json").read_text())
+
+    def test_retarget_rewrites_layer_and_traceability_together(self, tmp_path):
+        from core.quality_gate.sab_amender import resolve_phantom
+        proj = self._project(tmp_path)
+        resolve_phantom(proj, "pkg.cli.main", to="pkg.cli",
+                        reason="FR-05 is one click group; the declared split has no consumer")
+        sab = self._sab(proj)
+        cli_layer = [L for L in sab["layers"] if L["name"] == "cli"][0]
+        dotted = [m["name"] if isinstance(m, dict) else m for m in cli_layer["modules"]]
+        assert "pkg.cli" in dotted and "pkg.cli.main" not in dotted
+        # Leaving traceability behind is how a resolved phantom comes back as an
+        # ownership miss in _filter_phantoms_for_fr.
+        assert "pkg.cli" in sab["fr_module_traceability"]["FR-05"]
+        assert "pkg.cli.main" not in sab["fr_module_traceability"]["FR-05"]
+
+    def test_drop_removes_without_a_replacement(self, tmp_path):
+        from core.quality_gate.sab_amender import resolve_phantom
+        proj = self._project(tmp_path)
+        resolve_phantom(proj, "pkg.cli.commands", to=None, drop=True,
+                        reason="FR-05 no longer needs a separate commands module")
+        sab = self._sab(proj)
+        cli_layer = [L for L in sab["layers"] if L["name"] == "cli"][0]
+        dotted = [m["name"] if isinstance(m, dict) else m for m in cli_layer["modules"]]
+        assert "pkg.cli.commands" not in dotted
+        assert "pkg.cli.commands" not in sab["fr_module_traceability"]["FR-05"]
+
+    def test_the_reason_lands_in_adr(self, tmp_path):
+        from core.quality_gate.sab_amender import resolve_phantom
+        proj = self._project(tmp_path)
+        reason = "FR-05 is one click group; the declared split has no consumer"
+        resolve_phantom(proj, "pkg.cli.main", to="pkg.cli", reason=reason)
+        adr = (proj / "02-architecture" / "ADR.md").read_text(encoding="utf-8")
+        assert "Architecture Amendment" in adr
+        assert reason in adr
+        assert "pkg.cli.main" in adr and "pkg.cli" in adr
+
+    @pytest.mark.parametrize("kwargs, needle", [
+        ({"to": "pkg.cli", "reason": "too short"}, "at least 20 characters"),
+        ({"to": None, "reason": "a perfectly adequate justification here"},
+         "exactly one of"),
+        ({"to": "pkg.cli", "drop": True,
+          "reason": "a perfectly adequate justification here"}, "exactly one of"),
+        ({"to": "pkg.nowhere", "reason": "a perfectly adequate justification here"},
+         "swap one phantom for another"),
+    ])
+    def test_refusals(self, tmp_path, kwargs, needle):
+        from core.quality_gate.sab_amender import (
+            PhantomResolutionError,
+            resolve_phantom,
+        )
+        proj = self._project(tmp_path)
+        with pytest.raises(PhantomResolutionError, match=needle):
+            resolve_phantom(proj, "pkg.cli.main", **kwargs)
+
+    def test_a_module_that_exists_is_not_a_phantom(self, tmp_path):
+        """This is not a rename tool for working code."""
+        from core.quality_gate.sab_amender import (
+            PhantomResolutionError,
+            resolve_phantom,
+        )
+        proj = self._project(tmp_path)
+        with pytest.raises(PhantomResolutionError, match="not a phantom"):
+            resolve_phantom(proj, "pkg.cli", to="pkg.cli",
+                            reason="a perfectly adequate justification here")
+
+    def test_a_refused_amendment_writes_nothing(self, tmp_path):
+        from core.quality_gate.sab_amender import (
+            PhantomResolutionError,
+            resolve_phantom,
+        )
+        proj = self._project(tmp_path)
+        before = (proj / ".methodology" / "SAB.json").read_text(encoding="utf-8")
+        with pytest.raises(PhantomResolutionError):
+            resolve_phantom(proj, "pkg.cli.main", to="pkg.cli", reason="nope")
+        assert (proj / ".methodology" / "SAB.json").read_text(encoding="utf-8") == before
+        assert not (proj / "02-architecture" / "ADR.md").exists()
+
+    def test_an_unknown_module_is_refused(self, tmp_path):
+        from core.quality_gate.sab_amender import (
+            PhantomResolutionError,
+            resolve_phantom,
+        )
+        proj = self._project(tmp_path)
+        with pytest.raises(PhantomResolutionError, match="nothing to amend"):
+            resolve_phantom(proj, "pkg.never.declared", to="pkg.cli",
+                            reason="a perfectly adequate justification here")

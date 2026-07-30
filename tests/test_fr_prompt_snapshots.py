@@ -137,6 +137,25 @@ def _fixture_project(tmp_path: Path) -> tuple[Path, Path]:
         json.dumps({"fr_ids": ["FR-01"], "gate_score_overrides": {}}),
         encoding="utf-8",
     )
+    # Round 26: the TDD prompts render [SAB — BINDING MODULE PATHS] from this
+    # file. Without it the block collapses to "" and the goldens would prove
+    # nothing about the one thing they now guard — that the module paths Gate 1
+    # enforces are visible to the agent WRITING the code. Two entries so the
+    # multi-module case (taskq-plus FR-05's cli.main + cli.commands, the actual
+    # incident) is the one on record.
+    (m_dir / "SAB.json").write_text(
+        json.dumps({
+            "layers": [
+                {"name": "models", "modules": [{"name": "widget.models.item"}]},
+                {"name": "cli", "modules": [
+                    {"name": "widget.cli.main"}, {"name": "widget.cli.commands"}]},
+            ],
+            "fr_module_traceability": {
+                "FR-01": ["widget.cli.main", "widget.cli.commands"],
+            },
+        }),
+        encoding="utf-8",
+    )
 
     srs = layout.srs_path
     srs.parent.mkdir(parents=True, exist_ok=True)

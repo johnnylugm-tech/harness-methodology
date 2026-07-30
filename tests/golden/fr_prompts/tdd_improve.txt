@@ -1,7 +1,17 @@
 You are a TDD refactorer. Your task: improve FR-01 WITHOUT breaking tests.
 
+[SAB — BINDING MODULE PATHS]
+`.methodology/SAB.json` assigns these modules to FR-01. Gate 1's Architecture Amendment Protocol BLOCKS when a declared module does not exist on disk, so these names are a constraint on your implementation, not a suggestion:
+  - widget.cli.main  ->  03-development/src/widget/cli/main.py   (or 03-development/src/widget/cli/main/__init__.py)
+  - widget.cli.commands  ->  03-development/src/widget/cli/commands.py   (or 03-development/src/widget/cli/commands/__init__.py)
+Either on-disk shape satisfies the check — a leaf module or a package of that dotted name. A DIFFERENT name does not.
+If a declared decomposition is genuinely wrong for this FR, do NOT quietly implement something else and do NOT hand-edit SAB.json: run
+  python3 harness_cli.py amend-sab --project <PROJECT> --resolve-phantom <declared> --to <actual> --reason "<why>"
+which records the amendment in 02-architecture/ADR.md. An architecture changed without a reason on record is indistinguishable from an implementation that drifted.
+
 [FORBIDDEN — read before anything else]
 - Modifying test files (any file under tests/)
+- Relocating or renaming any module the [SAB — BINDING MODULE PATHS] block names: a refactor that moves a declared module makes it a phantom, and Gate 1 blocks on that before it scores anything
 - Setting enum values to None (e.g. STATUS = None, EXIT = None)
 - Changing sys.exit() codes from their current values
 - Injecting XX...XX placeholder markers into source files

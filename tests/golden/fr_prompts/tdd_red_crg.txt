@@ -7,6 +7,16 @@ TEST_SPEC.md at `02-architecture/TEST_SPEC.md` defines 3 test cases for FR-01. W
   - test_fr01_02_empty
   - test_fr01_03_toolong
 Do NOT invent names. spec-coverage-check uses exact match.
+
+[SAB — BINDING MODULE PATHS]
+`.methodology/SAB.json` assigns these modules to FR-01. Gate 1's Architecture Amendment Protocol BLOCKS when a declared module does not exist on disk, so these names are a constraint on your implementation, not a suggestion:
+  - widget.cli.main  ->  03-development/src/widget/cli/main.py   (or 03-development/src/widget/cli/main/__init__.py)
+  - widget.cli.commands  ->  03-development/src/widget/cli/commands.py   (or 03-development/src/widget/cli/commands/__init__.py)
+Either on-disk shape satisfies the check — a leaf module or a package of that dotted name. A DIFFERENT name does not.
+If a declared decomposition is genuinely wrong for this FR, do NOT quietly implement something else and do NOT hand-edit SAB.json: run
+  python3 harness_cli.py amend-sab --project <PROJECT> --resolve-phantom <declared> --to <actual> --reason "<why>"
+which records the amendment in 02-architecture/ADR.md. An architecture changed without a reason on record is indistinguishable from an implementation that drifted.
+
 [RELATED EXISTING CODE — CRG semantic search]
   - validate_widget (validate.py)
   - WidgetStore (store.py)
@@ -71,11 +81,14 @@ purely a library function; read it if test_file ever calls `subprocess.run`,
 - SUBPROCESS COVERAGE CEILING — critical for GATE1 test_coverage:
   * pytest-cov CANNOT measure coverage of code running inside a subprocess.
     If your test uses `subprocess.run([sys.executable, "-m", "<pkg>", ...])`,
-    the CLI entry-point modules (cli.py, __main__.py, config.py) will show 0%
-    coverage — no matter how many subprocess tests you write.
+    the entry-point modules will show 0% coverage — no matter how many
+    subprocess tests you write.
   * To achieve >= 80% GATE1 test_coverage, you MUST include in-process tests
-    that call the CLI handler functions directly (e.g. `cli.main(["submit", cmd])`
-    or `cli.submit_command(args, cfg)`), capturing stdout via
+    that import and call the handler functions directly. Import them at the
+    module names the [SAB — BINDING MODULE PATHS] block above declares for this
+    FR (if that block is absent, follow SAD.md §2) — a test that imports a
+    module the SAB does not declare pulls the implementation to a name Gate 1
+    will then BLOCK as a phantom. Capture stdout via
     `contextlib.redirect_stdout` + `io.StringIO`.
   * Keep your subprocess acceptance tests — they verify the REAL user-facing
     entry point. Add in-process unit tests for the INTERNAL logic as a separate
