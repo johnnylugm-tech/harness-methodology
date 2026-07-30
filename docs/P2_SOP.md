@@ -104,6 +104,8 @@ sab:
   gate_score_overrides: {}  # AUTO-DERIVED — 勿手填
 
   fr_module_traceability:
+    # 若一個 FR 合法擁有多個模組，用 YAML list 取代單一字串，
+    # 例如 FR-03: ["app.a", "app.b"] — 兩種寫法下游都支援。
     FR-01: "app.models"
     FR-02: "app.api.webhooks"
 
