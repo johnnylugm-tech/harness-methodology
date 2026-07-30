@@ -104,21 +104,17 @@ class TestSSISchemas:
         except json.JSONDecodeError as e:
             pytest.fail(f"Invalid JSON in {filename}: {e}")
 
-    def test_gate_result_schema_required_fields(self):
-        """The gate-level fields a result must carry for the harness to score it.
-
-        Round 21: this list used to also demand `overall_score` and
-        `meets_target`. Real agents leave both null — finalize-gate recomputes
-        the composite and the verdict, so duplicating that arithmetic is not the
-        agent's job. The old expectation was a second copy of the schema's own
-        required list, so it only ever proved the schema had not been edited; it
-        could not notice that the schema described a file no run produces.
-        tests/test_gate_result_schema.py checks the schema against a real gate
-        result instead.
-        """
-        path = SCHEMAS_DIR / "harness_gate_result.schema.json"
-        schema = json.loads(path.read_text(encoding="utf-8"))
-        required = set(schema.get("required", []))
-        expected = {"quality_complete", "open_critical_count",
-                    "open_high_count", "breakdown"}
-        assert expected.issubset(required), f"Schema missing required fields: {expected - required}"
+    # Round 26 — `test_gate_result_schema_required_fields` removed here, not
+    # relocated. It restated the schema's own `required` list as a literal set,
+    # which its Round 21 docstring already identified as the flaw in its own
+    # predecessor: "a second copy of the schema's own required list, so it only
+    # ever proved the schema had not been edited". Round 21 shortened the copy
+    # and kept the shape, so the copy went on to actively defend a wrong list —
+    # it demanded open_critical_count / open_high_count, which no producer
+    # instruction has ever asked for, and would have blocked the subtraction that
+    # fixes taskq-plus's malformed_gate_result blocks.
+    #
+    # The contract is checked where it can be wrong in both directions instead:
+    #   tests/test_gate_result_schema.py            — schema vs real artifacts
+    #   tests/test_gate_result_producer_parity.py   — schema vs every producer
+    # Neither restates the list; both derive from it.

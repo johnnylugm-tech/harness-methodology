@@ -23,6 +23,50 @@ Evaluate a single quality dimension using **pure tool scoring**.
 
 ---
 
+## Gate result file — required top-level shape
+
+The Gate 2/3/4 write step ("Write `.sessi-work/gate{N}_result.json`") never said what the
+document's top level has to contain, so the only statement of that shape lived in
+`harness/ssi/schemas/harness_gate_result.schema.json` — which `finalize-gate` validates the
+file against. A contract enforced against a writer who was never shown it is not a contract;
+it is a coin flip decided by what the agent happens to volunteer. Round 26 moved the
+declaration here, next to the instruction that produces the file.
+
+`finalize-gate` REJECTS the file (`malformed_gate_result`) when a required key is missing.
+Write at least this:
+
+<!-- GATE_RESULT_SHAPE:START -->
+```json
+{
+  "quality_complete": false,
+  "breakdown": {
+    "<dimension>": {
+      "score": 0,
+      "threshold": 0,
+      "tool_output": ".sessi-work/round_1/tools/<dimension>.txt",
+      "tool_evidence": "<excerpt of the tool output that yields this score>"
+    }
+  },
+  "overall_score": null,
+  "rounds_used": 1,
+  "failing_dimensions": []
+}
+```
+<!-- GATE_RESULT_SHAPE:END -->
+
+- `quality_complete` and `breakdown` are the only REQUIRED top-level keys. Everything else
+  above is optional but conventional; `overall_score: null` is the normal value because
+  `finalize-gate` recomputes the composite itself.
+- `breakdown` needs one entry per dimension you scored, each carrying `score` + `threshold`
+  (a framework-owned dimension carries `score: null` — write the null, do not omit the key).
+- Do NOT invent `open_critical_count` / `open_high_count` to satisfy the schema: they are
+  optional, self-reported, and absent means zero. Write them only when you actually have
+  unresolved CRITICAL/HIGH findings to declare — a non-zero value blocks the gate on purpose.
+- `tests/test_gate_result_producer_parity.py` holds this block and the Gate 1 template in
+  `cli/fr_prompts/gate.py` to the schema's required list, in both directions.
+
+---
+
 ## Step 1: Run Tools
 
 Run all tools for this dimension. Save raw output:

@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "HarnessGateResult",
-  "description": "Output written by Claude to .sessi-work/gate{N}_result.json after inline gate evaluation, then persisted to .methodology/gate{N}_result.json by finalize-gate (which patches composite_score / quality_complete / verdict / passed with its own computed values and syncs framework-owned dimension scores into breakdown). Round 21: this file was never loaded by any code, so it drifted into describing a shape no run has produced — required a per-dimension `passed` nothing writes, forbade the `null` scores CRG-only dimensions actually carry, and omitted the four fields every real breakdown entry does have. It is now validated at load time (core/quality_gate/gate_result_schema.py), which means it must keep describing reality: a mismatch is a bug in whichever side has moved, and both sides are now forced to say so.",
+  "description": "Output written by Claude to .sessi-work/gate{N}_result.json after inline gate evaluation, then persisted to .methodology/gate{N}_result.json by finalize-gate (which patches composite_score / quality_complete / verdict / passed with its own computed values and syncs framework-owned dimension scores into breakdown). Round 21: this file was never loaded by any code, so it drifted into describing a shape no run has produced — required a per-dimension `passed` nothing writes, forbade the `null` scores CRG-only dimensions actually carry, and omitted the four fields every real breakdown entry does have. It is now validated at load time (core/quality_gate/gate_result_schema.py), which means it must keep describing reality: a mismatch is a bug in whichever side has moved, and both sides are now forced to say so. Round 26: `required` also has to describe what a PRODUCER is told to write. It listed open_critical_count / open_high_count, which no producer instruction has ever asked for — not the Gate 1 template in cli/fr_prompts/gate.py, not harness/ssi/prompts/evaluate_dimension.md, not the Gate 2/3/4 write steps in the phase workflows. The single fixture keeping this schema honest (taskq's gate4_result.json) happened to carry them, so validation agreed with reality by luck while obedient agents produced off-schema files: taskq-plus P3 blocked on malformed_gate_result at FR-01 and again at FR-04, passing 8 seconds later only because the retry volunteered fields nothing had requested. required now names only what a producer is instructed to write, and tests/test_gate_result_producer_parity.py holds every producer to it.",
   "type": "object",
-  "required": ["quality_complete", "open_critical_count", "open_high_count", "breakdown"],
+  "required": ["quality_complete", "breakdown"],
   "properties": {
     "overall_score": {
       "type": ["number", "null"],
@@ -36,12 +36,12 @@
     "open_critical_count": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of unresolved critical severity issues."
+      "description": "Number of unresolved critical severity issues. OPTIONAL and self-reported: no producer instruction asks for it, and absence reads as 0 (harness/harness_bridge.py's _first_non_null default). Kept readable rather than ignored because it is the one channel by which an evaluating agent can volunteer bad news — core/quality_gate/block_reason.py turns a non-zero value into an open_critical_findings block. The framework's own critical counts on the BLOCK paths do not come from here; finalize_gate constructs them from its own violation lists."
     },
     "open_high_count": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of unresolved high severity issues."
+      "description": "Number of unresolved high severity issues. Same contract as open_critical_count: optional, self-reported, absent means 0."
     },
     "rounds_used": {
       "type": "integer",
@@ -74,6 +74,21 @@
           "tool_evidence": {
             "type": "string",
             "description": "Quoted excerpt from the tool output that yields the score (checked by _check_tool_evidence)."
+          },
+          "tests_passed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Agent-counted pytest passes. Mandated as REQUIRED by the Gate 1 template (cli/fr_prompts/gate.py) and read by nothing: harness_bridge's _check_tests_failed / _check_test_skip_ratio re-derive both numbers by regex over tool_evidence, because a prose excerpt is harder to fabricate than an integer. Described here so it is documented rather than merely undeclared (see R26-DEFER-2)."
+          },
+          "tests_failed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Agent-counted pytest failures. Same contract as tests_passed — the blocking check parses `N failed` out of tool_evidence, not this field."
+          },
+          "tests_skipped": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Agent-counted pytest skips. Same contract as tests_passed — the skip-ratio WARN parses tool_evidence."
           },
           "issues": {
             "type": "array",
@@ -139,7 +154,11 @@
     "crg_affected_flows": {"type": "object"},
     "gate_num": {
       "type": "integer",
-      "description": "Gate number this result belongs to."
+      "description": "Gate number this result belongs to. Provenance only — no consumer reads it from the file; every code path already knows its gate from GateContext. Gate 2/3/4 results spell it this way."
+    },
+    "gate": {
+      "type": "integer",
+      "description": "Gate 1's spelling of gate_num — cli/fr_prompts/gate.py's template emits `\"gate\": 1`. Two names for one provenance field, neither read from the file; documented rather than silently undescribed (see docs/PROPOSAL_ADJUDICATIONS.md R26-DEFER-1 for the unification)."
     },
     "phase": {
       "type": "integer",
