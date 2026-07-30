@@ -3976,11 +3976,16 @@ log('run-all: reading .methodology/state.json to find the starting phase')
 // stopping and asking. state.json is the same authority advance-phase
 // writes and every phase's Advance box verifies.
 const cursorCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
-const cursor = await dispatch(
-  'Run EXACTLY this command via the Bash tool (stdout is a single JSON line):\n`' + cursorCmd + '`\n'
-  + 'Then report via the StructuredOutput tool: current_phase = the exact integer from that JSON. Do NOT guess a value if the command fails — report the failure.',
-  { label: 'phase-cursor', phase: 'Phase Cursor', agentType: 'general-purpose', schema: PHASE_SCHEMA },
-)
+let cursor
+try {
+  cursor = await dispatch(
+    'Run EXACTLY this command via the Bash tool (stdout is a single JSON line):\n`' + cursorCmd + '`\n'
+    + 'Then report via the StructuredOutput tool: current_phase = the exact integer from that JSON. Do NOT guess a value if the command fails — report the failure.',
+    { label: 'phase-cursor', phase: 'Phase Cursor', agentType: 'general-purpose', schema: PHASE_SCHEMA },
+  )
+} catch (e) {
+  return { error: 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200), note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' }
+}
 if (!(cursor && Number.isInteger(cursor.current_phase))) {
   return { error: 'run-all: could not read current_phase from .methodology/state.json', note: 'Refusing to guess a starting phase. Check the file, then relaunch.' }
 }
@@ -3993,7 +3998,12 @@ log('run-all: starting at Phase ' + startPhase + ' — phases before it already 
 const phasesRun = []
 for (let n = startPhase; n <= 8; n++) {
   log('run-all: ===== Phase ' + n + ' =====')
-  const outcome = await PHASE_RUNNERS[n]()
+  let outcome
+  try {
+    outcome = await PHASE_RUNNERS[n]()
+  } catch (e) {
+    return { error: 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300), phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' }
+  }
   if (outcome && outcome.session_limit_blocked) {
     return { session_limit_blocked: true, phase: n, phases_run: phasesRun, detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — it resumes from state.json and every completed phase short-circuits.' }
   }

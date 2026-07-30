@@ -115,6 +115,40 @@ for (const name of PHASE_FILES) {
   })
 }
 
+// ---- 2b. run-all.js top-level boundary — a thrown agent() must degrade to a
+// structured error, never an unhandled rejection. loadFileViaPython's retry
+// loop already caught this class of failure in one call site (the 2026-07-30
+// incident: 83 dispatches / 3h in, a transient "Connection closed mid-response"
+// crashed the whole unattended run). run-all.js's OWN phase-driver loop
+// (_render_driver() in spec_runall.py) had no equivalent boundary — any
+// uncaught throw from ANY call site inside a phase, known or future, still
+// crashed the entire script. run-all.js was never in PHASE_FILES above, so
+// none of the tests in this file ever exercised it before this test existed.
+test('run-all: phase-cursor agent() throwing degrades to a structured error, not a rejected promise', async () => {
+  const overrides = [
+    { match: /^phase-cursor$/, respond: () => { throw new Error('API Error: Connection closed mid-response.') } },
+  ]
+  const { result } = await runWorkflow(WF('run-all.js'), makeHappyResponder(overrides))
+  assert.ok(result && typeof result === 'object', 'must resolve, not reject')
+  assert.ok(result.error, `expected a structured error return, got: ${JSON.stringify(result).slice(0, 200)}`)
+})
+
+test('run-all: an uncaught throw from inside a phase degrades to a structured error, not a crash', async () => {
+  // Targets phase1's one-shot ENTRY-CHECK/PREFLIGHT dispatch (label 'preflight')
+  // rather than the A/B loop's 'a-1-r1' — that loop already has its own
+  // try/catch (runSubTask, js_blocks.py) and absorbs a single-round throw by
+  // retrying, so it never reaches the boundary this test is pinning. The
+  // one-shot preflight call has no such protection.
+  const overrides = [
+    { match: /^phase-cursor$/, respond: { current_phase: 1 } },
+    { match: /^preflight/, respond: () => { throw new Error('API Error: Connection closed mid-response.') } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('run-all.js'), makeHappyResponder(overrides))
+  assert.ok(result && typeof result === 'object', 'must resolve, not reject')
+  assert.ok(result.error, `expected a structured error return, got: ${JSON.stringify(result).slice(0, 200)}`)
+})
+
 // ---- 3. hallucinated schema verdict (GATE1 verify) --------------------------
 // Round 12 站2a: the verdict is derived from the echoed deterministic stdout
 // ONLY. A hallucinated schema pass:false can no longer veto a PASS manifest
