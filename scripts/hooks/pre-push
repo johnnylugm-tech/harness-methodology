@@ -33,7 +33,23 @@ else
 fi
 
 # Get current Phase (from state.json or default to 1)
-PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+CUR_PHASE=$("$PYTHON" -c "import json; d=json.load(open('.methodology/state.json')); print(d.get('current_phase', 1))" 2>/dev/null || echo "1")
+
+# advance-phase writes a fixed "handover: advance to Phase N" commit but
+# deliberately does NOT push it (crash-safety: a failed push must not leave
+# state.json ahead of a push nobody made — see cmd_advance_phase). When this
+# exact commit is HEAD, the push in flight is publishing Phase (N-1)'s
+# completion, not doing Phase N's own work yet. Checking it against the
+# already-flipped current_phase (N) fires delayed-blocking preflights (e.g.
+# property_spec's execution requirement, fulfill_phase defaults to 4) one
+# phase early, against a commit that has no way to satisfy them — that
+# work belongs to Phase N's own FR implementation, which hasn't run yet.
+HEAD_MSG=$(git log -1 --format=%s 2>/dev/null || echo "")
+if [[ "$HEAD_MSG" =~ ^handover:\ advance\ to\ Phase\ ([0-9]+)$ ]]; then
+    PHASE=$(( ${BASH_REMATCH[1]} - 1 ))
+else
+    PHASE="$CUR_PHASE"
+fi
 
 # Check if Python is available
 if ! "$PYTHON" --version &>/dev/null 2>&1; then
