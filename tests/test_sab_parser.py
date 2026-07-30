@@ -383,6 +383,22 @@ sab:
 <!-- SAB:END -->
 """
 
+_SAD_FR_MODULE_TRACEABILITY_LIST = """\
+<!-- SAB:START -->
+```yaml
+sab:
+  version: "1.0"
+  phase: 3
+  project: "testapp"
+  fr_module_traceability:
+    FR-01: app.models
+    FR-05:
+      - app.cli.main
+      - app.cli.commands
+```
+<!-- SAB:END -->
+"""
+
 
 class TestFrModuleTraceability:
     """Tests for fr_module_traceability parsing and propagation."""
@@ -421,6 +437,31 @@ class TestFrModuleTraceability:
         assert spec is not None
         raw = json.dumps(spec.to_dict())
         assert json.loads(raw)["fr_module_traceability"]["FR-14"] == "app.infrastructure.health"
+
+    def test_parses_list_valued_fr_module_traceability(self, tmp_path):
+        """An FR that legitimately owns multiple modules (SAD §6 maps it to
+        more than one file) must round-trip as a YAML list, not collapse to
+        a single string. Downstream consumers (gate_cmds._filter_phantoms_for_fr,
+        cov_utils.resolve_fr_scoped_src_files) already accept str or list —
+        this pins that the parser itself doesn't silently drop entries."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_FR_MODULE_TRACEABILITY_LIST)
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        assert spec.fr_module_traceability == {
+            "FR-01": "app.models",
+            "FR-05": ["app.cli.main", "app.cli.commands"],
+        }
+
+    def test_to_dict_list_valued_fr_module_traceability_json_serialisable(self, tmp_path):
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_FR_MODULE_TRACEABILITY_LIST)
+        spec = extract_sab_from_sad(sad)
+        assert spec is not None
+        raw = json.dumps(spec.to_dict())
+        assert json.loads(raw)["fr_module_traceability"]["FR-05"] == [
+            "app.cli.main", "app.cli.commands",
+        ]
 
 
 class TestRoundTrip:

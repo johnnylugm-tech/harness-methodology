@@ -339,6 +339,8 @@ def render_canonical_sab_template(
             lines.append("  gate_score_overrides: {}  # AUTO-DERIVED by parser — omit or leave {}")
         elif f.name == "fr_module_traceability":
             lines.append("  fr_module_traceability:  # EXAMPLE — one entry per FR")
+            lines.append("    # If an FR owns MULTIPLE modules, use a YAML list instead of a single")
+            lines.append('    # string, e.g. FR-02: ["app.a", "app.b"] — both forms are supported.')
             lines.append(f'    {fr_id}: "{module_example}"')
         elif f.name == "architecture_constraints":
             lines.append("  architecture_constraints:")

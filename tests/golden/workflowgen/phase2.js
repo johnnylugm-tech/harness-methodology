@@ -695,7 +695,7 @@ const sabReport = await agent(
   + '   - `phase: 2` MUST be a bare int (NOT "2").\n'
   + '   - layers + allowed_dependencies reflect SAD §2 module design (api/service/store style).\n'
   + '   - nfr_traceability: one entry per NFR enumerated from SPEC.md (parse `### NFR-XX:` headings — do not assume a fixed NFR count) with a `type` from the 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability) + measurable `target` + `module`.\n'
-  + '   - fr_module_traceability: one entry per FR enumerated from SPEC.md (parse `### FR-XX:` headings) pointing to a REAL module from SAD §2.\n'
+  + '   - fr_module_traceability: one entry per FR enumerated from SPEC.md (parse `### FR-XX:` headings) pointing to a REAL module from SAD §2. If an FR legitimately owns MULTIPLE modules (e.g. SAD §6 maps it to more than one file), use a YAML list, not a single string — e.g. `FR-05: ["app.cli.main", "app.cli.commands"]`. A single string silently drops every module after the first; both forms are consumed identically downstream.\n'
   + '   - quality_targets (max_complexity/min_coverage/max_coupling), architecture_constraints (no_circular_dependencies), high_risk_modules. Leave advisory_only/gate_score_overrides/nfr_dimension_mapping empty ({} or []).\n'
   + '2. SAB-VALIDATE: `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --validate --project ' + REPO + '`. Must exit 0. Fix unknown NFR type / phase-as-string until PASS.\n'
   + '3. SAB-GENERATE: `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --project ' + REPO + '` (add --overwrite if SAB.json exists). Produces .methodology/SAB.json.\n\n'
