@@ -27,6 +27,7 @@ from core.quality_gate.test_suite_run import (
     run_suite,
     suite_timeout,
     _parse_skipped,
+    _parse_junit_outcomes,
 )
 
 
@@ -49,6 +50,159 @@ class TestParseSkipped:
 
     def test_empty_output_is_zero(self):
         assert _parse_skipped("") == 0
+
+
+class TestParseJunitOutcomes:
+    """Defect A fix: per-test outcome map from --junitxml, keyed
+    "file::name" (module-level) or "file::ClassName.name" (class method) —
+    the granularity core/traceability/scanner.py needs to tell "mentioned
+    inside a test that passed" apart from "mentioned inside a test that was
+    skipped/failed", which a whole-file presence scan can never
+    distinguish. `project` must be a real directory: classname's
+    module-vs-class boundary is resolved against the actual filesystem
+    (see _resolve_classname's docstring for why a fixed string reversal
+    breaks on any class-based test — the majority style in real suites)."""
+
+    def _touch(self, tmp_path, rel_path):
+        p = tmp_path / rel_path
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+        return tmp_path
+
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert _parse_junit_outcomes(tmp_path / "no_such.xml", tmp_path) == {}
+
+    def test_malformed_xml_returns_empty(self, tmp_path):
+        p = tmp_path / "junit.xml"
+        p.write_text("<not><valid", encoding="utf-8")
+        assert _parse_junit_outcomes(p, tmp_path) == {}
+
+    def test_passing_testcase_self_closing(self, tmp_path):
+        project = self._touch(tmp_path, "03-development/tests/test_fr01.py")
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="03-development.tests.test_fr01" '
+            'name="test_fr01_a" time="0.071" />'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        assert _parse_junit_outcomes(p, project) == {
+            "03-development/tests/test_fr01.py::test_fr01_a": "passed"
+        }
+
+    def test_skipped_testcase(self, tmp_path):
+        project = self._touch(tmp_path, "03-development/tests/test_nfr_cross_cutting.py")
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="03-development.tests.test_nfr_cross_cutting" '
+            'name="test_nfr06_a" time="0.000">'
+            '<skipped type="pytest.skip" message="no config">no config</skipped>'
+            '</testcase>'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        assert _parse_junit_outcomes(p, project) == {
+            "03-development/tests/test_nfr_cross_cutting.py::test_nfr06_a": "skipped"
+        }
+
+    def test_failed_testcase(self, tmp_path):
+        project = self._touch(tmp_path, "tests/test_fr02.py")
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="tests.test_fr02" name="test_fr02_a" time="0.01">'
+            '<failure message="assert 1 == 2">traceback here</failure>'
+            '</testcase>'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        assert _parse_junit_outcomes(p, project) == {"tests/test_fr02.py::test_fr02_a": "failed"}
+
+    def test_error_testcase(self, tmp_path):
+        project = self._touch(tmp_path, "tests/test_fr03.py")
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="tests.test_fr03" name="test_fr03_a" time="0.01">'
+            '<error message="collection error">boom</error>'
+            '</testcase>'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        assert _parse_junit_outcomes(p, project) == {"tests/test_fr03.py::test_fr03_a": "error"}
+
+    def test_mixed_outcomes_in_one_file(self, tmp_path):
+        project = self._touch(tmp_path, "tests/test_fr01.py")
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="tests.test_fr01" name="test_a" time="0.01" />'
+            '<testcase classname="tests.test_fr01" name="test_b" time="0.00">'
+            '<skipped message="x">x</skipped></testcase>'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        result = _parse_junit_outcomes(p, project)
+        assert result["tests/test_fr01.py::test_a"] == "passed"
+        assert result["tests/test_fr01.py::test_b"] == "skipped"
+
+    def test_class_based_testcase_resolves_file_not_bogus_subdir(self, tmp_path):
+        """The bug found during live validation against taskq-plus: a
+        naive `classname.replace(".", "/") + ".py"` treats the trailing
+        class-name segment as a subdirectory
+        ("tests/test_fr01/TestFoo.py") instead of recognizing
+        "tests/test_fr01.py" as the real file with "TestFoo" as the
+        class. Confirmed live: taskq-plus's own test_fr01.py has 19
+        classes and this was silently broken for all of them."""
+        project = self._touch(tmp_path, "tests/test_fr01.py")
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="tests.test_fr01.TestTaskSubmissionValidation" '
+            'name="test_valid_command" time="0.01" />'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        result = _parse_junit_outcomes(p, project)
+        assert result == {
+            "tests/test_fr01.py::TestTaskSubmissionValidation.test_valid_command": "passed"
+        }
+
+    def test_class_name_never_mistaken_for_real_directory(self, tmp_path):
+        """Guard the other direction: if a directory happens to exist with
+        the same name as the class (pathological but possible), the file
+        check must still win over a deeper false-positive directory match
+        — this test documents the resolution order rather than asserting
+        a specific edge case fix, since the loop already tries the
+        longest prefix first and returns on the first real .py file."""
+        project = self._touch(tmp_path, "tests/test_fr01.py")
+        (tmp_path / "tests" / "test_fr01").mkdir()  # decoy directory, no .py
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="tests.test_fr01.TestFoo" name="test_x" time="0.01" />'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        result = _parse_junit_outcomes(p, project)
+        assert result == {"tests/test_fr01.py::TestFoo.test_x": "passed"}
+
+    def test_missing_file_falls_back_to_naive_reversal(self, tmp_path):
+        """If no candidate .py exists on disk at all (e.g. deleted between
+        the pytest run and this parse), fall back to the pre-fix behavior
+        rather than raising — best-effort, not a hard failure."""
+        p = tmp_path / "junit.xml"
+        p.write_text(
+            '<testsuites><testsuite>'
+            '<testcase classname="tests.ghost_module" name="test_x" time="0.01" />'
+            '</testsuite></testsuites>',
+            encoding="utf-8",
+        )
+        result = _parse_junit_outcomes(p, tmp_path)
+        assert result == {"tests/ghost_module.py::test_x": "passed"}
+
 
 pytestmark = [pytest.mark.core]
 

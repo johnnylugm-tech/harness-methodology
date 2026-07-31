@@ -39,6 +39,7 @@ from core.traceability.scanner import (  # noqa: E402
     scan_test_nfr_coverage,
     scan_sad_fr_modules,
 )
+from core.quality_gate.test_suite_run import run_suite  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +82,14 @@ def build_traceability(
         setattr(rt, "no_tests_warning",
                 f"No tests directory found under {project}/03-development/tests "
                 f"or {project}/tests — coverage report is empty.")
-    test_fr_map = scan_test_fr_coverage(tests_dir)
+    # Defect A fix: outcome-aware coverage — a requirement mentioned only
+    # inside a skipped/failed test must not count as VERIFIED. run_suite is
+    # memoized per-process (Round 25 SSOT), so this reuses whatever
+    # measurement the current Gate evaluation already took instead of
+    # running pytest again.
+    suite_result = run_suite(project)
+    test_outcomes = suite_result.test_outcomes if suite_result.ran else None
+    test_fr_map = scan_test_fr_coverage(tests_dir, test_outcomes=test_outcomes, project_root=project)
 
     # 4. Merge all FR IDs
     all_frs: Set[str] = set(sad_frs)
@@ -132,7 +140,13 @@ def build_traceability(
     # NFR coverage: scan SRS.md + test files; stored on rt for matrix rendering.
     srs_path = ProjectLayout(project).srs_path
     nfr_ids = extract_nfr_ids_from_srs(srs_path)
-    test_nfr_map = scan_test_nfr_coverage(ProjectLayout(project).active_test_dir) if nfr_ids else {}
+    test_nfr_map = (
+        scan_test_nfr_coverage(
+            ProjectLayout(project).active_test_dir,
+            test_outcomes=test_outcomes, project_root=project,
+        )
+        if nfr_ids else {}
+    )
     # Use setattr to avoid Pyright complaints about unknown attribute.
     setattr(rt, "nfr_data", {
         "nfr_ids": sorted(nfr_ids),
