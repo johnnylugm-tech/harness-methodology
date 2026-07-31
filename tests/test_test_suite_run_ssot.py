@@ -26,7 +26,29 @@ from core.quality_gate.test_suite_run import (
     resolve_targets,
     run_suite,
     suite_timeout,
+    _parse_skipped,
 )
+
+
+class TestParseSkipped:
+    """Defect A2 fix: SuiteResult.skipped, parsed from pytest's own summary
+    line — pytest's exit code is 0 whenever nothing fails, even with skips,
+    so this is the only place that count is available to callers."""
+
+    def test_no_skipped_segment_is_zero(self):
+        assert _parse_skipped("496 passed in 1.23s") == 0
+
+    def test_skipped_segment_is_parsed(self):
+        assert _parse_skipped("496 passed, 5 skipped in 31.29s") == 0 + 5
+
+    def test_skipped_only_no_passed(self):
+        assert _parse_skipped("5 skipped in 0.12s") == 5
+
+    def test_mixed_failed_passed_skipped(self):
+        assert _parse_skipped("1 failed, 2 passed, 5 skipped in 1.23s") == 5
+
+    def test_empty_output_is_zero(self):
+        assert _parse_skipped("") == 0
 
 pytestmark = [pytest.mark.core]
 
