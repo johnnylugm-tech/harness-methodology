@@ -388,8 +388,15 @@ def compute_trace_dimension(project, gate: int) -> dict:
             # test coverage — exclude from the 4c denominator.
             nfr_ids = {n for n in nfr_ids if n != "NFR-99"}
             if nfr_ids:
+                # Defect A fix: outcome-aware coverage. run_suite is
+                # memoized per-process (Round 25 SSOT) — this reuses the
+                # same measurement check_traceability() above already took.
+                from core.quality_gate.test_suite_run import run_suite
+                suite_result = run_suite(project_path)
+                test_outcomes = suite_result.test_outcomes if suite_result.ran else None
                 test_nfr_map = scan_test_nfr_coverage(
-                    ProjectLayout(project_path).active_test_dir
+                    ProjectLayout(project_path).active_test_dir,
+                    test_outcomes=test_outcomes, project_root=project_path,
                 )
                 covered = {n for n in nfr_ids if n in test_nfr_map}
                 nfr_pct = round(len(covered) / len(nfr_ids) * 100, 2)

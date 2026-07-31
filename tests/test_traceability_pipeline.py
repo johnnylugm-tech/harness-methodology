@@ -14,6 +14,20 @@ from core.requirement_traceability import (
     TraceStatus
 )
 from core.phase_hooks import PhaseHooks
+from core.quality_gate.test_suite_run import SuiteResult
+
+
+def _fake_suite_result(test_outcomes):
+    """A SuiteResult stand-in for tests that exercise build_traceability's/
+    check_traceability's status-computation logic — these are unit tests
+    for FR-status mapping, not integration tests of a live pytest run, so
+    they mock run_suite() the same way test_phase_truth_verifier.py does,
+    rather than depending on a real nested pytest subprocess (slow, and
+    environment-dependent on pytest-cov being installed for sys.executable)."""
+    return SuiteResult(
+        passed=True, coverage=100.0, test_target="tests", cov_target="src",
+        returncode=0, output="", ran=True, test_outcomes=test_outcomes,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +198,9 @@ class TestBuildTraceability:
     def test_build_traceability_populates_model(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.build_traceability import build_traceability
-        rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
+        fake = _fake_suite_result({"tests/test_fr_01.py::test_a": "passed"})
+        with patch("scripts.build_traceability.run_suite", return_value=fake):
+            rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
 
         assert "FR-01" in rt.requirements
         assert rt.requirements["FR-01"].status == TraceStatus.VERIFIED
@@ -197,7 +213,9 @@ class TestBuildTraceability:
     def test_build_traceability_links(self, tmp_path):
         proj = self._make_project(tmp_path)
         from scripts.build_traceability import build_traceability
-        rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
+        fake = _fake_suite_result({"tests/test_fr_01.py::test_a": "passed"})
+        with patch("scripts.build_traceability.run_suite", return_value=fake):
+            rt = build_traceability(proj, sad_path=proj / "02-architecture" / "SAD.md")
 
         downstream = rt.get_downstream("FR-01")
         assert len(downstream["code"]) > 0

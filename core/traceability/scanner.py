@@ -60,6 +60,78 @@ def _skip_path(p: Path) -> bool:
     return any(part.endswith(".egg-info") for part in p.parts)
 
 
+def _test_function_ranges(text: str) -> List[Tuple[str, int, int]]:
+    """Return (qualified_name, start_line, end_line) for every `test_*`
+    function, 1-indexed and inclusive. `qualified_name` is
+    `"ClassName.method_name"` for a method inside a `class Test...:` block,
+    or the bare function name at module level — matching how pytest's own
+    JUnit XML `classname` distinguishes the two (a trailing class-name
+    segment beyond the module path). A flat `ast.walk()` would lose this
+    distinction (and would collide two same-named methods in two different
+    classes), which is why this walks `.body` explicitly instead.
+
+    The range starts at the `def` line itself (so a same-line trailing
+    comment like `def test_x():  # NFR-08` is included) through the last
+    line of the function body (so a requirement ID in the docstring is
+    included too). Returns [] on a SyntaxError (e.g. a non-Python test
+    file) — callers must treat that as "no functions found", never as a
+    parse failure to propagate.
+    """
+    import ast
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    ranges: List[Tuple[str, int, int]] = []
+
+    def walk(body: List[ast.stmt], class_prefix: str) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                walk(node.body, class_prefix + node.name + ".")
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name.startswith("test_"):
+                    end = getattr(node, "end_lineno", None) or node.lineno
+                    ranges.append((class_prefix + node.name, node.lineno, end))
+                # Deliberately not recursing into a function's own body —
+                # a nested `def` inside a test function/fixture is not a
+                # separately-collected test case.
+
+    walk(tree.body, "")
+    return ranges
+
+
+def _function_has_any_passing_test(
+    rel: str, qualified_name: str, test_outcomes: Dict[str, str]
+) -> bool:
+    """True if `qualified_name` (bare or "ClassName.method") passed at least
+    once. Matches both the plain key (`"<rel>::<qualified_name>"`) and any
+    `@pytest.mark.parametrize` variant (`"<rel>::<qualified_name>[...]"`,
+    pytest's own bracket-suffixed id) — a bare function-name lookup would
+    otherwise never match ANY parametrized test, since test_outcomes only
+    ever holds the bracketed per-case ids, never the bare name.
+    """
+    key = f"{rel}::{qualified_name}"
+    if test_outcomes.get(key) == "passed":
+        return True
+    prefix = key + "["
+    return any(
+        status == "passed"
+        for outcome_key, status in test_outcomes.items()
+        if outcome_key.startswith(prefix)
+    )
+
+
+def _file_has_any_passing_test(rel: str, test_outcomes: Dict[str, str]) -> bool:
+    """True if at least one `"<rel>::<name>"` key in test_outcomes passed."""
+    prefix = f"{rel}::"
+    return any(
+        status == "passed"
+        for key, status in test_outcomes.items()
+        if key.startswith(prefix)
+    )
+
+
 def _find_sad(project: Path) -> Optional[Path]:
     """Locate SAD.md in canonical locations; returns None if absent."""
     layout = ProjectLayout(project)
@@ -120,34 +192,91 @@ scan_python_fr_annotations = scan_fr_annotations
 
 
 def scan_test_fr_coverage(
-    tests_dir: Path, language: Optional[str] = None
+    tests_dir: Path,
+    language: Optional[str] = None,
+    test_outcomes: Optional[Dict[str, str]] = None,
+    project_root: Optional[Path] = None,
 ) -> Dict[str, List[str]]:
     """Scan test files for FR references. Returns {FR-XX: [test_file]}.
 
-    Project root is inferred as tests_dir.parent so returned paths are
-    relative to the project (not the tests/ directory).
+    Project root defaults to tests_dir.parent so returned paths are
+    relative to the project (not the tests/ directory) — correct for a
+    flat `<root>/tests` layout, but WRONG for a nested layout like
+    `<root>/03-development/tests` (tests_dir.parent is `03-development`,
+    not `<root>`). Pass `project_root` explicitly whenever `test_outcomes`
+    is also passed: the returned relative paths must exactly match the
+    "file::name" keys in test_outcomes, which are always relative to the
+    true project root (where run_suite's pytest subprocess actually ran) —
+    a mismatch here silently empties every result instead of raising.
+
+    `test_outcomes` (from `core.quality_gate.test_suite_run.run_suite(...)
+    .test_outcomes`) makes this outcome-aware: a requirement mentioned only
+    inside a test function that was skipped/failed does NOT count as
+    coverage — only a mention inside a function whose own outcome is
+    "passed" does (matching NFR-09's own rule: VERIFIED requires the test to
+    have "actually ran and passed", not merely exist). `None` (no outcome
+    data — e.g. a non-Python project, since run_suite only measures Python
+    today) preserves the previous presence-only behavior, so callers
+    without live run data are unaffected.
+
+    Raises ValueError if `test_outcomes` is given without `project_root` —
+    silently falling back to `tests_dir.parent` there produced empty
+    results for every nested-layout project instead of a loud error.
     """
+    if test_outcomes is not None and project_root is None:
+        raise ValueError(
+            "scan_test_fr_coverage: project_root is required when test_outcomes "
+            "is provided (tests_dir.parent is only correct for a flat <root>/tests "
+            "layout; a nested layout needs the true root to compute matching keys)."
+        )
     fr_to_tests: Dict[str, List[str]] = {}
     if not tests_dir.is_dir():
         return fr_to_tests
-    project = tests_dir.parent
+    project = project_root if project_root is not None else tests_dir.parent
     language = language or project_language(project)
     for test_file in iter_test_files(tests_dir, language):
-        name_match = TEST_FILENAME_PATTERN.match(test_file.name)
-        if name_match:
-            fr_id = _norm_fr(name_match.group(1))
-            rel = str(test_file.relative_to(project))
-            fr_to_tests.setdefault(fr_id, []).append(rel)
+        rel = str(test_file.relative_to(project))
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
         except Exception as exc:
             print(f"[WARN] traceability scanner: could not read {test_file}, "
                   f"skipping it: {exc}", file=sys.stderr)
+            text = ""
+
+        name_match = TEST_FILENAME_PATTERN.match(test_file.name)
+        if name_match:
+            covered = (
+                _file_has_any_passing_test(rel, test_outcomes)
+                if test_outcomes is not None else True
+            )
+            if covered:
+                fr_id = _norm_fr(name_match.group(1))
+                if rel not in fr_to_tests.setdefault(fr_id, []):
+                    fr_to_tests[fr_id].append(rel)
+
+        if not text:
             continue
-        for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', text, re.IGNORECASE):
-            for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
-                fr_id = _norm_fr(inner_m.group(1))
-                rel = str(test_file.relative_to(project))
+
+        if test_outcomes is None:
+            for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', text, re.IGNORECASE):
+                for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
+                    fr_id = _norm_fr(inner_m.group(1))
+                    if rel not in fr_to_tests.setdefault(fr_id, []):
+                        fr_to_tests[fr_id].append(rel)
+            continue
+
+        lines = text.splitlines()
+        for func_name, start, end in _test_function_ranges(text):
+            segment = "\n".join(lines[start - 1:end])
+            found_ids: Set[str] = set()
+            for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', segment, re.IGNORECASE):
+                for inner_m in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
+                    found_ids.add(_norm_fr(inner_m.group(1)))
+            if not found_ids:
+                continue
+            if not _function_has_any_passing_test(rel, func_name, test_outcomes):
+                continue
+            for fr_id in found_ids:
                 if rel not in fr_to_tests.setdefault(fr_id, []):
                     fr_to_tests[fr_id].append(rel)
     for lst in fr_to_tests.values():
@@ -191,16 +320,41 @@ def extract_nfr_ids_from_srs(srs_path: Optional[Path]) -> Set[str]:
     return {i for i in ids if i}
 
 
-def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
+def scan_test_nfr_coverage(
+    tests_dir: Path,
+    test_outcomes: Optional[Dict[str, str]] = None,
+    project_root: Optional[Path] = None,
+) -> Dict[str, List[str]]:
     """Return {NFR-XX: [relative_test_file, ...]} for NFR mentions in test files.
 
-    Any occurrence of NFR-XX in a test file (comment, docstring, test name)
-    counts as test coverage for that NFR.
+    Project root defaults to tests_dir.parent (correct for a flat
+    `<root>/tests` layout, WRONG for a nested layout like
+    `<root>/03-development/tests`). Pass `project_root` explicitly whenever
+    `test_outcomes` is also passed — see `scan_test_fr_coverage`'s docstring
+    for why a mismatch here silently empties every result.
+
+    `test_outcomes` (from `core.quality_gate.test_suite_run.run_suite(...)
+    .test_outcomes`) makes this outcome-aware: an NFR mentioned only inside
+    a test function that was skipped/failed does NOT count as coverage —
+    only a mention inside a function whose own outcome is "passed" does.
+    This is the direct fix for the bug NFR-09 itself describes: a
+    `pytest.skip()` stub whose docstring cites "NFR-08" used to count as
+    full coverage regardless of whether it ever ran. `None` (no outcome
+    data) preserves the previous presence-only behavior.
+
+    Raises ValueError if `test_outcomes` is given without `project_root` —
+    see `scan_test_fr_coverage`'s docstring for why.
     """
+    if test_outcomes is not None and project_root is None:
+        raise ValueError(
+            "scan_test_nfr_coverage: project_root is required when test_outcomes "
+            "is provided (tests_dir.parent is only correct for a flat <root>/tests "
+            "layout; a nested layout needs the true root to compute matching keys)."
+        )
     nfr_to_tests: Dict[str, List[str]] = {}
     if not tests_dir or not tests_dir.is_dir():
         return nfr_to_tests
-    project = tests_dir.parent
+    project = project_root if project_root is not None else tests_dir.parent
     for test_file in iter_test_files(tests_dir, project_language(project)):
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
@@ -209,10 +363,25 @@ def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
                   f"skipping it: {exc}", file=sys.stderr)
             continue
         rel = str(test_file.relative_to(project))
-        for m in NFR_PATTERN.finditer(text):
-            nfr_id = f"NFR-{int(m.group(1)):02d}"
-            if rel not in nfr_to_tests.setdefault(nfr_id, []):
-                nfr_to_tests[nfr_id].append(rel)
+
+        if test_outcomes is None:
+            for m in NFR_PATTERN.finditer(text):
+                nfr_id = f"NFR-{int(m.group(1)):02d}"
+                if rel not in nfr_to_tests.setdefault(nfr_id, []):
+                    nfr_to_tests[nfr_id].append(rel)
+            continue
+
+        lines = text.splitlines()
+        for func_name, start, end in _test_function_ranges(text):
+            segment = "\n".join(lines[start - 1:end])
+            found_ids = {f"NFR-{int(m.group(1)):02d}" for m in NFR_PATTERN.finditer(segment)}
+            if not found_ids:
+                continue
+            if not _function_has_any_passing_test(rel, func_name, test_outcomes):
+                continue
+            for nfr_id in found_ids:
+                if rel not in nfr_to_tests.setdefault(nfr_id, []):
+                    nfr_to_tests[nfr_id].append(rel)
     for lst in nfr_to_tests.values():
         lst.sort()
     return nfr_to_tests
@@ -225,6 +394,7 @@ def scan_test_nfr_coverage(tests_dir: Path) -> Dict[str, List[str]]:
 def scan_all(
     project: Path,
     sad_path: Optional[Path] = None,
+    test_outcomes: Optional[Dict[str, str]] = None,
 ) -> Dict[str, object]:
     """Run all four scanners and return a flat dict of FR-keyed maps.
 
@@ -235,6 +405,10 @@ def scan_all(
       - fr_to_modules: Dict[str, List[str]] — FR → modules per SAD table rows
       - all_frs: List[str] — union, sorted
       - ghost_frs: List[str] — in code/tests but not in SAD.md
+
+    `test_outcomes` (see `scan_test_fr_coverage`) makes the test-coverage
+    scan outcome-aware; `None` preserves the previous presence-only
+    behavior.
     """
     if sad_path is None:
         sad_path = _find_sad(project)
@@ -243,7 +417,9 @@ def scan_all(
     sad_frs = extract_fr_ids_from_sad(sad_path) if sad_path else []
     fr_to_code = scan_fr_annotations(project, language)
     test_dir = ProjectLayout(project).active_test_dir
-    fr_to_tests = scan_test_fr_coverage(test_dir, language)
+    fr_to_tests = scan_test_fr_coverage(
+        test_dir, language, test_outcomes=test_outcomes, project_root=project
+    )
     fr_to_modules = scan_sad_fr_modules(sad_path) if sad_path else {}
 
     coded = set(fr_to_code.keys())
@@ -272,15 +448,24 @@ def check_traceability(
 ) -> Tuple[Any, Dict]:
     """Content-level FR → code → test check; returns (model, report).
 
-    Import is local so that scanner.py is importable without the model layer
-    (and to keep the dependency arrow scanner → model, never reverse).
+    Imports are local so that scanner.py is importable without the model
+    layer (and to keep the dependency arrow scanner → model, never
+    reverse), and so a non-Python project (test_suite_run.run_suite only
+    measures Python) never pays for an import it cannot use.
     """
     from core.requirement_traceability import (  # noqa: WPS433 (intentional late import)
         RequirementTraceability,
         TraceStatus,
     )
+    from core.quality_gate.test_suite_run import run_suite  # noqa: WPS433
 
-    scan = scan_all(project, sad_path=sad_path)
+    # Defect A fix: outcome-aware coverage (see scan_test_fr_coverage's own
+    # docstring). run_suite is memoized per-process (Round 25 SSOT), so this
+    # reuses whatever measurement the current Gate evaluation already took.
+    suite_result = run_suite(project)
+    test_outcomes = suite_result.test_outcomes if suite_result.ran else None
+
+    scan = scan_all(project, sad_path=sad_path, test_outcomes=test_outcomes)
     sad_frs: List[str] = scan["sad_frs"]  # type: ignore[assignment]
     fr_to_code: Dict[str, List[str]] = scan["fr_to_code"]  # type: ignore[assignment]
     fr_to_tests: Dict[str, List[str]] = scan["fr_to_tests"]  # type: ignore[assignment]
