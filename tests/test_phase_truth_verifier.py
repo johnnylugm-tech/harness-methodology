@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import patch
 import unittest.mock
 
-from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier, InfraSkip
 import json
 
 class TestLoadThreshold:
@@ -294,5 +294,106 @@ class TestCheckSessionLog:
         passed, score, msg = v.check_session_log()
         assert passed is True
         assert score == 100.0
+
+class TestCheckSrsMandatoryReconciliation:
+    """Unit tests for check_srs_mandatory_reconciliation (Defect A2/B fix:
+    reconciles SRS.md's hard boolean-flag / zero-skip ACs against live
+    harness_config.json + pytest skip count — closes the gap where a
+    continuous-percentage Gate dimension can't fail on a single violation).
+    """
+
+    def _write_srs(self, tmp_path, body: str) -> None:
+        reqs = tmp_path / "01-requirements"
+        reqs.mkdir(parents=True, exist_ok=True)
+        (reqs / "SRS.md").write_text(body, encoding="utf-8")
+
+    def _write_config(self, tmp_path, features: dict) -> None:
+        import json
+        meth = tmp_path / ".methodology"
+        meth.mkdir(parents=True, exist_ok=True)
+        (meth / "harness_config.json").write_text(
+            json.dumps({"version": 1, "features": features}), encoding="utf-8"
+        )
+
+    def test_no_srs_raises_infra_skip(self, tmp_path):
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        with pytest.raises(InfraSkip):
+            v.check_srs_mandatory_reconciliation()
+
+    def test_passes_with_no_mandatory_acs(self, tmp_path):
+        self._write_srs(tmp_path, "### NFR-01: Something\n\nNo hard ACs here.\n")
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        passed, score, _ = v.check_srs_mandatory_reconciliation()
+        assert passed is True
+        assert score == 100.0
+
+    def test_fails_on_flag_mismatch(self, tmp_path):
+        self._write_srs(tmp_path, (
+            "### NFR-08: Mutation Testing\n\n"
+            "- `harness_config.json` must set `features.mutation_testing: true`\n"
+        ))
+        self._write_config(tmp_path, {"mutation_testing": False})
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        passed, score, details = v.check_srs_mandatory_reconciliation()
+        assert passed is False
+        assert score == 0.0
+        assert "NFR-08" in details and "mutation_testing" in details
+
+    def test_passes_on_flag_match(self, tmp_path):
+        self._write_srs(tmp_path, (
+            "### NFR-08: Mutation Testing\n\n"
+            "- `harness_config.json` must set `features.mutation_testing: true`\n"
+        ))
+        self._write_config(tmp_path, {"mutation_testing": True})
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        passed, _, _ = v.check_srs_mandatory_reconciliation()
+        assert passed is True
+
+    def test_waived_nfr_exempt_from_flag_check(self, tmp_path):
+        self._write_srs(tmp_path, (
+            "### NFR-08: Mutation Testing（已豁免）\n\n"
+            "**Status**: WAIVED — intentionally disabled.\n\n"
+            "- `harness_config.json` must set `features.mutation_testing: true`\n"
+        ))
+        self._write_config(tmp_path, {"mutation_testing": False})
+        v = PhaseTruthVerifier(str(tmp_path), 3)
+        passed, score, _ = v.check_srs_mandatory_reconciliation()
+        assert passed is True
+        assert score == 100.0
+
+    def test_fails_on_skip_count_violation(self, tmp_path):
+        self._write_srs(tmp_path, (
+            "### NFR-09: Zero Skip\n\n"
+            "- `pytest` output must report **0 skipped**\n"
+        ))
+        with _with_suite(_suite(skipped=5)):
+            v = PhaseTruthVerifier(str(tmp_path), 3)
+            passed, score, details = v.check_srs_mandatory_reconciliation()
+        assert passed is False
+        assert score == 0.0
+        assert "NFR-09" in details and "5 skipped" in details
+
+    def test_passes_when_skip_count_is_zero(self, tmp_path):
+        self._write_srs(tmp_path, (
+            "### NFR-09: Zero Skip\n\n"
+            "- `pytest` output must report **0 skipped**\n"
+        ))
+        with _with_suite(_suite(skipped=0)):
+            v = PhaseTruthVerifier(str(tmp_path), 3)
+            passed, _, _ = v.check_srs_mandatory_reconciliation()
+        assert passed is True
+
+    def test_waived_nfr_exempt_from_skip_check(self, tmp_path):
+        self._write_srs(tmp_path, (
+            "### NFR-09: Zero Skip（已豁免）\n\n"
+            "**Status**: WAIVED — intentionally relaxed.\n\n"
+            "- `pytest` output must report **0 skipped**\n"
+        ))
+        with _with_suite(_suite(skipped=5)):
+            v = PhaseTruthVerifier(str(tmp_path), 3)
+            passed, score, _ = v.check_srs_mandatory_reconciliation()
+        assert passed is True
+        assert score == 100.0
+
 
 pytestmark = pytest.mark.gate

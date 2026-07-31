@@ -195,7 +195,96 @@ class PhaseTruthVerifier:
         passed = result.passed or (result.returncode == 1 and failures == 0)
         score = 100.0 if passed else 0.0
         details = "pytest all passed" if passed else f"pytest has {failures} failure(s)"
+        # Report skip count unconditionally — pytest's exit code is 0 even
+        # when tests are skipped, so `passed` alone can silently hide them.
+        # This does not change `passed`/`score` here: whether a project's own
+        # SRS requires zero skips is reconciled separately (see
+        # check_srs_mandatory_reconciliation), not hardcoded as a global rule.
+        if result.skipped:
+            details += f" ({result.skipped} skipped)"
         return passed, score, details
+
+    def check_srs_mandatory_reconciliation(self) -> Tuple[bool, float, str]:
+        """Reconcile SRS.md's hard-mandatory ACs against live measured state.
+
+        A project's SRS.md can author two kinds of hard, non-negotiable ACs
+        (typically as DERIVED clauses, per Phase 1's own authoring
+        convention): a boolean feature flag ("`harness_config.json` must set
+        `features.X: true`") or a zero-tolerance skip count ("output must
+        report **0 skipped**" / "skipped count is **0**"). Neither is
+        enforced by any continuous/percentage-scored Gate dimension —
+        mutation_testing gets excluded_by_feature_flag when the flag is off,
+        test_assertion_quality is a 0-100 blend a single skip barely moves —
+        so a hard SRS rule can be silently violated forever. This check
+        parses what SRS.md's own NFR sections literally demand and compares
+        it to what the harness's own tools measured, failing loud on any
+        mismatch. An NFR section whose heading or body contains "WAIVED"
+        (the convention this project already uses to retire a requirement
+        deliberately, e.g. NFR-08) is exempt — a documented waiver is not a
+        gap.
+
+        Known scope limit (this increment): reconciles boolean feature-flag
+        ACs and zero-skip-count ACs only. `zero_assert == 0` ACs are not yet
+        reconciled here — that needs a live zero-assert count source this
+        module doesn't currently have plumbed in; tracked as follow-up
+        rather than silently claimed as covered.
+        """
+        import json
+        import re
+
+        layout = ProjectLayout(self.project_root)
+        srs_path = layout.srs_path
+        if not srs_path.is_file():
+            raise InfraSkip("SRS.md not present yet")
+        try:
+            srs_text = srs_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise InfraSkip(f"SRS.md unreadable: {exc}")
+
+        config_path = layout.methodology_dir / "harness_config.json"
+        try:
+            config = (
+                json.loads(config_path.read_text(encoding="utf-8"))
+                if config_path.is_file() else {}
+            )
+        except (OSError, json.JSONDecodeError):
+            config = {}
+        features = config.get("features", {}) if isinstance(config, dict) else {}
+
+        flag_re = re.compile(r"features\.(\w+)\s*:\s*true")
+        skip_zero_re = re.compile(r"skipped count is \*\*0\*\*|report \*\*0 skipped\*\*")
+
+        violations: list[str] = []
+        sections = re.split(r"(?=^###\s+NFR-\d+)", srs_text, flags=re.MULTILINE)
+        for section in sections:
+            m = re.match(r"###\s+(NFR-\d+)", section)
+            if not m:
+                continue
+            nfr_id = m.group(1)
+            if re.search(r"WAIVED", section, re.IGNORECASE):
+                continue  # explicit, documented waiver — not a gap
+
+            for flag_match in flag_re.finditer(section):
+                flag_name = flag_match.group(1)
+                actual = features.get(flag_name)
+                if actual is not True:
+                    violations.append(
+                        f"{nfr_id}: SRS demands features.{flag_name}=true, "
+                        f"harness_config.json has {actual!r}"
+                    )
+
+            if skip_zero_re.search(section):
+                from core.quality_gate.test_suite_run import run_suite
+                result = run_suite(self.project_root)
+                if result.ran and (result.skipped or 0) > 0:
+                    violations.append(
+                        f"{nfr_id}: SRS demands 0 skipped, pytest reported "
+                        f"{result.skipped} skipped"
+                    )
+
+        if violations:
+            return False, 0.0, "SRS-mandatory reconciliation FAILED: " + "; ".join(violations)
+        return True, 100.0, "SRS-mandatory ACs reconciled against live state (no violations)"
 
     def _js_runner_argv(self, *, coverage: bool) -> list:
         """vitest/jest argv for test (or coverage) runs — npx --no-install only."""
@@ -533,17 +622,19 @@ class PhaseTruthVerifier:
         # Phase 3-4: framework block + real pytest/coverage + predecessor + cross-artifact
         elif self.phase <= 4:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.31),
-                ("pytest actually passes", self.check_pytest, 0.27),
-                ("test coverage meets threshold", self.check_coverage, 0.18),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.15),
-                ("Cross-artifact consistency", self.check_cross_artifact, 0.09),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.26),
+                ("pytest actually passes", self.check_pytest, 0.23),
+                ("test coverage meets threshold", self.check_coverage, 0.15),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.13),
+                ("Cross-artifact consistency", self.check_cross_artifact, 0.08),
+                ("SRS-mandatory reconciliation", self.check_srs_mandatory_reconciliation, 0.15),
             ]
         # Phase 5-8: framework block + previous phase (non-code phases)
         else:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.60),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.40),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.42),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.28),
+                ("SRS-mandatory reconciliation", self.check_srs_mandatory_reconciliation, 0.30),
             ]
 
         total_weighted = 0.0

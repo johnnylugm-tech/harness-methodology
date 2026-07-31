@@ -15,6 +15,7 @@ Return-code conventions (negative = harness-internal, not tool exit codes):
   -2  subprocess timed out
   -3  tool executable not found
   -4  unexpected subprocess error
+  -5  required config file missing — tool did not run, NOT a pass
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ def run_tool(
       ("TIMEOUT…", -2) — subprocess timed out
       ("Tool not found…", -3) — executable missing
       ("Error: …", -4) — unexpected exception
+      ("Skipped: …", -5) — required config file missing, tool did not run
     """
     spec = get_tool_spec(tool)
     if spec is None or spec.skip_inline:
@@ -69,7 +71,12 @@ def run_tool(
     if spec.required_config_file and not os.path.isfile(
         os.path.join(root, spec.required_config_file)
     ):
-        return (f"Skipped: {spec.required_config_file} not found in project root", 0)
+        # Bug fix: this used to return rc=0, which `exit-code-binary` (and any
+        # other returncode-based scorer) reads as a full pass — a missing
+        # required config silently scored 100 instead of being unscoreable.
+        # Negative code routes through compute_tool_score's existing
+        # `returncode < 0 → None` guard, consistent with -1/-2/-3/-4 above.
+        return (f"Skipped: {spec.required_config_file} not found in project root", -5)
 
     test_target = root
     if os.path.isdir(os.path.join(root, "03-development", "tests")):

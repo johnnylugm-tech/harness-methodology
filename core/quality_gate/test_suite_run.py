@@ -96,6 +96,13 @@ class SuiteResult:
     `ran` is False when no measurement was possible or appropriate — a non-
     Python project, or a project with no source/test directory yet. Callers
     must decide what that means for them; this module does not.
+
+    `skipped` is the pytest-reported skip count, parsed from the same run
+    `passed` already comes from — pytest's own exit code is 0 whenever no
+    test *fails*, even if some were skipped, so `passed` alone cannot answer
+    "did every test actually run". `None` when no measurement was taken
+    (`ran=False`); an `int` (0 or more) whenever a real pytest invocation
+    happened, matching `coverage`'s None-vs-measured convention.
     """
 
     passed: bool
@@ -106,6 +113,7 @@ class SuiteResult:
     output: str
     ran: bool
     reason: str = ""
+    skipped: int | None = None
 
 
 # project path -> (fingerprint, SuiteResult)
@@ -291,7 +299,21 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
         passed=proc.returncode == 0, coverage=coverage,
         test_target=test_target, cov_target=cov_target,
         returncode=proc.returncode, output=output, ran=True,
+        skipped=_parse_skipped(output),
     )
+
+
+def _parse_skipped(output: str) -> int:
+    """Skip count from pytest's own summary line (e.g. `496 passed, 5 skipped`).
+
+    No `skipped` segment in the summary legitimately means zero — pytest
+    only prints the segment when the count is non-zero — so an absent match
+    is `0`, not `None` (this function is only called when a real pytest run
+    happened; `SuiteResult.skipped` stays `None` for the ran=False paths).
+    """
+    import re
+    m = re.search(r"(\d+) skipped", output)
+    return int(m.group(1)) if m else 0
 
 
 def _read_coverage(json_path: Path) -> float | None:

@@ -530,12 +530,15 @@ class TestScoreExitCodeBinary:
 # ---------------------------------------------------------------------------
 
 class TestRunToolConfigFileGuard:
-    def test_import_linter_returns_pass_when_config_missing(self, tmp_path):
-        # No .importlinter in project root → guard fires → (message, 0) → score 100
+    def test_import_linter_returns_unscoreable_when_config_missing(self, tmp_path):
+        # No .importlinter in project root → guard fires → (message, -5) →
+        # unscoreable (None), NOT a free pass. A missing required config file
+        # must not be silently read as "tool ran and succeeded" by any
+        # returncode-based scorer (e.g. exit-code-binary).
         output, rc = run_tool("import-linter", str(tmp_path))
-        assert rc == 0
+        assert rc == -5
         assert ".importlinter" in output
-        assert compute_tool_score("import-linter", output, rc) == 100.0
+        assert compute_tool_score("import-linter", output, rc) is None
 
     def test_import_linter_proceeds_when_config_present(self, tmp_path):
         # .importlinter exists → guard does NOT fire → normal run attempted
