@@ -80,7 +80,25 @@ def run_tool(
     if spec.cmd is None:
         return "", -1
 
-    cmd = [part.format(root=root, test_target=test_target) for part in spec.cmd]
+    # cov_target: reuse the same resolution core.quality_gate.test_suite_run
+    # already applies for gate1_evidence / FrameworkEnforcer /
+    # PhaseTruthVerifier / cmd_advance_phase's TDD-PRECHECK — a bare `--cov`
+    # (coverage's own "." default) pulls test files and any tmp fixtures the
+    # test run creates into the denominator alongside real source, exactly
+    # the bug test_suite_run.resolve_targets()'s own docstring documents
+    # fixing once before ("--cov=. pulled harness_cli.py ... reported 95.98%
+    # where the project's source is 100%"). Fall back to "." (today's
+    # behavior, unchanged) when the resolved dir doesn't actually exist —
+    # ToolSpec.cmd entries without a {cov_target} token are unaffected either
+    # way.
+    from core.quality_gate.test_suite_run import resolve_targets
+    _, _cov_candidate = resolve_targets(root)
+    cov_target = _cov_candidate if os.path.isdir(os.path.join(root, _cov_candidate)) else "."
+
+    cmd = [
+        part.format(root=root, test_target=test_target, cov_target=cov_target)
+        for part in spec.cmd
+    ]
 
     # Round 16: pytest-family tools run with cwd=root but no PYTHONPATH, so
     # `import <package>` fails collection (test_coverage silently scores 0)

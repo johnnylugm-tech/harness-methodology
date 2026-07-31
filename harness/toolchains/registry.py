@@ -94,7 +94,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "pytest-cov": ToolSpec(
         tool_id="pytest-cov",
-        cmd=("pytest", "{test_target}", "--cov", "--cov-report=term-missing",
+        cmd=("pytest", "{test_target}", "--cov={cov_target}", "--cov-report=term-missing",
              "-q", "--tb=no", "--no-header"),
         timeout=120,
         check_cmd="pytest --version 2>&1 && coverage --version 2>&1",

@@ -634,3 +634,46 @@ class TestRunToolPythonPathInjection:
                                               encoding="utf-8")
         run_tool("pytest-cov", str(tmp_path))
         assert captured["env"] is None
+
+
+class TestRunToolCovTargetScoping:
+    """2026-07-31 regression: production incident where Gate 4's test_coverage
+    scored 97.51% (below the 100% floor) even though 03-development/src/ was
+    at 100% — the bare `--cov` in the pytest-cov ToolSpec measures coverage's
+    own "." default (the whole tree: test files + any tmp fixtures the test
+    run creates), not just source. test_suite_run.resolve_targets()'s own
+    docstring already documents fixing this exact bug once for other
+    consumers ("--cov=. pulled harness_cli.py ... reported 95.98% where the
+    project's source is 100%") — it was never propagated to this ToolSpec.
+    """
+
+    def test_pytest_cov_scopes_to_active_src_dir(self, tmp_path, monkeypatch):
+        captured = {}
+        real_run = __import__("subprocess").run
+
+        def _spy_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
+
+        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        project = _make_src_layout_project(tmp_path)
+        run_tool("pytest-cov", str(project))
+        cov_args = [a for a in captured["cmd"] if a.startswith("--cov=")]
+        assert cov_args == ["--cov=" + os.path.join("03-development", "src")]
+
+    def test_pytest_cov_flat_layout_falls_back_to_dot(self, tmp_path, monkeypatch):
+        captured = {}
+        real_run = __import__("subprocess").run
+
+        def _spy_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
+
+        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        tests_dir = tmp_path / "03-development" / "tests"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test_x.py").write_text("def test_ok():\n    assert True\n",
+                                              encoding="utf-8")
+        run_tool("pytest-cov", str(tmp_path))
+        cov_args = [a for a in captured["cmd"] if a.startswith("--cov=")]
+        assert cov_args == ["--cov=."]

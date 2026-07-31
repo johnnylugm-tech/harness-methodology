@@ -298,7 +298,7 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
         ("ruff",       "ruff",     ["--output-format", "json", "check"]),
         ("mypy",       "mypy",     ["--ignore-missing-imports", "--no-color-output", "--no-error-summary"]),
         ("pyright",    "pyright",  ["--outputjson"]),
-        ("pytest-cov", "pytest",   ["--cov", "--cov-report=term-missing", "-q", "--tb=no", "--no-header"]),
+        ("pytest-cov", "pytest",   ["--cov=.", "--cov-report=term-missing", "-q", "--tb=no", "--no-header"]),
         ("pytest",     "pytest",   ["-q", "--tb=no", "--no-header"]),
         ("gitleaks",   "gitleaks", ["detect"]),
         ("bandit",     "bandit",   ["-r", "-f", "json", "--exit-zero"]),

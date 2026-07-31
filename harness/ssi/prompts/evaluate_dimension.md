@@ -111,10 +111,17 @@ validator needs the marker.
 
 ### test_coverage (Tier 1)
 ```bash
-# python — C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
-python3 -m coverage run -m pytest && python3 -m coverage json -o - \
-  || PYTHONPATH=. python3 -m coverage run -m pytest && python3 -m coverage json -o - \
-  || PYTHONPATH=. python3 -m pytest --cov=. --cov-report=term-missing
+# python — cov target: same resolution core.quality_gate.test_suite_run
+# already applies for other consumers (gate1_evidence, FrameworkEnforcer,
+# PhaseTruthVerifier, advance-phase's TDD-PRECHECK) — a bare `--cov`/`--cov=.`
+# measures coverage's own "." default (test files + any tmp fixtures the
+# test run creates), not just source, and can under-report a project that is
+# genuinely at 100% source coverage.
+COV_TARGET=$(python3 -c "from core.quality_gate.test_suite_run import resolve_targets; print(resolve_targets('.')[1])")
+# C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
+python3 -m coverage run -m pytest --cov="$COV_TARGET" && python3 -m coverage json -o - \
+  || PYTHONPATH=. python3 -m coverage run -m pytest --cov="$COV_TARGET" && python3 -m coverage json -o - \
+  || PYTHONPATH=. python3 -m pytest --cov="$COV_TARGET" --cov-report=term-missing
 
 # javascript / typescript (vitest):
 npx --no-install vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text
