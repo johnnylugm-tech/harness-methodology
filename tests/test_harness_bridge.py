@@ -1061,6 +1061,46 @@ class TestSabClosureGaps:
         assert result.quality_complete is True
         assert result.score == 80.0
 
+    def test_finalize_gate_override_not_discarded_when_yaml_declares_dimension(self, tmp_path):
+        """2026-07-31 regression: production incident where Gate 4 passed
+        test_coverage at 97.51 against threshold=80 even though
+        gate_score_overrides.test_coverage=100.0. Root cause: _dim_thresholds
+        (populated from the gate YAML's own per-dimension threshold — every
+        real gate config declares one) was never synced with the
+        override-raised d.threshold, and _effective_threshold() checks
+        _dim_thresholds FIRST. Unlike the tests above, config["dimensions"]
+        here is NON-EMPTY (mirrors gate4_p6_full.yaml's
+        `test_coverage: threshold: 80`) — that is what every real gate run
+        looks like, and is exactly the shape the tests above never covered.
+        """
+        bridge = HarnessBridge()
+        ctx = GateContext(
+            gate_num=4,
+            config={
+                "gate": 4,
+                "dimensions": [
+                    {"name": "test_coverage", "threshold": 80, "weight": 1.0},
+                ],
+                "score_gate": 85, "max_rounds": 1,
+            },
+            project_root=str(tmp_path), phase=6, fr_id=None,
+            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
+            work_dir=str(tmp_path / ".sessi-work"),
+            sab_data={"gate_score_overrides": {"test_coverage": 100.0}},
+        )
+        # score=97.51 clears the YAML's own threshold=80 but not the
+        # gate_score_overrides floor of 100 — must BLOCK.
+        self._write_gate1_result(ctx, {
+            "test_coverage": {"score": 97.51, "threshold": 80.0, "issues": []},
+        })
+        with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+                with patch.object(bridge, "_update_quality_manifest"):
+                    with patch.object(bridge, "_log"):
+                        with patch.object(bridge, "_effort"):
+                            with pytest.raises(GateBlockedError):
+                                bridge.finalize_gate(ctx)
+
 
 # ===========================================================================
 # _check_tests_failed (S4-B)

@@ -2341,6 +2341,13 @@ class HarnessBridge:
                 if d.name in _overrides else d
                 for d in dims
             ]
+            # _effective_threshold() below checks _dim_thresholds (sourced from the
+            # gate YAML) BEFORE d.threshold — every real gate config declares a
+            # static threshold per dimension, so without this the floor-raise above
+            # never reaches the actual pass/fail decision. Mirror it into
+            # _dim_thresholds so the raised floor is what gets enforced.
+            for _dname, _floor in _overrides.items():
+                _dim_thresholds[_dname] = max(_dim_thresholds.get(_dname, 0.0), float(_floor))
 
         # CRG-ONLY dimension override: the *architecture* dimension is scored by the
         # framework's OWN independent CRG run (community_cohesion), never the agent.

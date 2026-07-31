@@ -52,7 +52,15 @@ _FORMS = (
 # already_done", ...) seam test_gate1_blocked_after_max_rounds already uses —
 # one more instance of an already-accepted pattern, not a new coupling.
 _PRIVATE_PATCH_CEILING: dict[str, int] = {
-    "tests/test_harness_bridge.py": 72,
+    # 2026-07-31 (+5): test_finalize_gate_override_not_discarded_when_yaml_
+    # declares_dimension (the regression pin for the gate_score_overrides
+    # threshold-floor fix) patches bridge._update_quality_manifest/_log/
+    # _effort + module-level _check_tool_evidence/_run_harness_cross_
+    # validation — the exact same 5-patch seam every other TestFinalizeGate/
+    # TestSabClosureGaps test in this file already uses to isolate
+    # finalize_gate from real manifest/log/effort/tool I/O; not a new
+    # coupling, one more instance of the established pattern.
+    "tests/test_harness_bridge.py": 77,
     # 2026-07-29 (+6): 2 new finalize_gate regression tests for the null-score
     # Gate-2+ blocking fix (test_finalize_gate_null_breakdown_score_does_not_
     # block, test_finalize_gate_da_waiver_branch_excludes_none_score), each

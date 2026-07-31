@@ -84,7 +84,13 @@ _LINE_CEILING: dict[str, int] = {
     # describing a document no run produces while consumers guessed field
     # names — the direct cause of the dead DA-waiver safeguard above.
     # 2026-07-30: +53 lines — Round N: INFRA-fail detection + partial-pollution carve-out
-    "harness/harness_bridge.py": 3215,
+    # 2026-07-31: +3 lines — gate_score_overrides floor-raise now also syncs
+    # _dim_thresholds (previously only d.threshold was raised); _effective_
+    # threshold() reads _dim_thresholds FIRST, so a project's SAD.md-declared
+    # coverage/security/etc. floor was silently discarded whenever the gate
+    # YAML also declared that dimension (i.e. every real gate run) — see
+    # test_finalize_gate_override_not_discarded_when_yaml_declares_dimension.
+    "harness/harness_bridge.py": 3218,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
