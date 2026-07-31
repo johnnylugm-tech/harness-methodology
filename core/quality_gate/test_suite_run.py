@@ -103,6 +103,15 @@ class SuiteResult:
     "did every test actually run". `None` when no measurement was taken
     (`ran=False`); an `int` (0 or more) whenever a real pytest invocation
     happened, matching `coverage`'s None-vs-measured convention.
+
+    `test_outcomes` maps `"<relative_test_file>::<test_function_name>"` to
+    one of `"passed"`/`"skipped"`/`"failed"`/`"error"`, parsed from the same
+    run's `--junitxml` output. This is the per-test granularity the
+    traceability scanner needs to tell "a requirement is mentioned inside a
+    test that actually passed" apart from "mentioned inside a test that was
+    skipped/failed" — a whole-file presence check cannot make that
+    distinction. `None` when no measurement was taken; an empty dict is a
+    valid "measured, zero tests" result, distinct from "not measured".
     """
 
     passed: bool
@@ -114,6 +123,7 @@ class SuiteResult:
     ran: bool
     reason: str = ""
     skipped: int | None = None
+    test_outcomes: dict[str, str] | None = None
 
 
 # project path -> (fingerprint, SuiteResult)
@@ -269,12 +279,14 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
     timeout = suite_timeout(project)
     with tempfile.TemporaryDirectory(prefix="harness-cov-") as tmpdir:
         json_path = Path(tmpdir) / "coverage.json"
+        junit_path = Path(tmpdir) / "junit.xml"
         cmd = [
             sys.executable, "-m", "pytest", test_target,
             "--tb=short", "-q",
             f"--cov={cov_target}",
             "--cov-report=term-missing",
             f"--cov-report=json:{json_path}",
+            f"--junitxml={junit_path}",
         ]
         try:
             proc = subprocess.run(  # nosec B603
@@ -295,12 +307,86 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
             )
         output = proc.stdout + proc.stderr
         coverage = _read_coverage(json_path)
+        test_outcomes = _parse_junit_outcomes(junit_path, project)
     return SuiteResult(
         passed=proc.returncode == 0, coverage=coverage,
         test_target=test_target, cov_target=cov_target,
         returncode=proc.returncode, output=output, ran=True,
         skipped=_parse_skipped(output),
+        test_outcomes=test_outcomes,
     )
+
+
+def _resolve_classname(project: Path, classname: str) -> tuple[str, str]:
+    """Split a JUnit `classname` into (relative_file_path, class_qualname).
+
+    pytest reports `classname` as the dotted module path for a module-level
+    test (e.g. `"a.b.test_x"` -> `a/b/test_x.py`), but as
+    `"<dotted module path>.<ClassName>"` for a method inside a
+    `class Test...:` block — a fixed "drop the .py, replace dots with
+    slashes" reversal cannot tell those apart, and silently produces a
+    bogus path (treating the class name as a subdirectory) for every
+    class-based test, which is the majority style in real test suites.
+
+    Resolved by checking the filesystem: try the full dotted path as a file
+    first, then progressively drop trailing segments (treating each as a
+    potential class name) until a real `.py` file under `project` is found.
+    class_qualname is "" for a module-level test, or the dotted remainder
+    (e.g. "TestFoo" or "Outer.Inner" for nested classes) for a method.
+    Falls back to treating the whole classname as the module path (the
+    pre-fix behavior) if no candidate exists on disk — e.g. the file was
+    deleted between the test run and this parse.
+    """
+    parts = classname.split(".")
+    for split_at in range(len(parts), 0, -1):
+        candidate = "/".join(parts[:split_at]) + ".py"
+        if (project / candidate).is_file():
+            return candidate, ".".join(parts[split_at:])
+    return classname.replace(".", "/") + ".py", ""
+
+
+def _parse_junit_outcomes(junit_path: Path, project: Path) -> dict[str, str]:
+    """Per-test outcome map from a `--junitxml` report:
+    `"file::name"` (module-level) or `"file::ClassName.name"` (class
+    method) -> `"passed"` / `"skipped"` / `"failed"` / `"error"`.
+
+    `project` is the true project root (where run_suite's pytest subprocess
+    actually ran, i.e. its `cwd`) — needed to resolve the module-vs-class
+    boundary in `classname` against the real filesystem; see
+    `_resolve_classname`. A `<testcase>` with no `<skipped>`/`<failure>`/
+    `<error>` child is a pass (pytest's own convention: absence of a status
+    child means the test ran clean).
+
+    Returns {} on any parse failure (missing file, malformed XML) — callers
+    must treat that the same as "no outcome data available", never as
+    "zero tests ran".
+    """
+    import xml.etree.ElementTree as ET
+
+    outcomes: dict[str, str] = {}
+    if not junit_path.is_file():
+        return outcomes
+    try:
+        root = ET.parse(junit_path).getroot()
+    except ET.ParseError:
+        return outcomes
+    for testcase in root.iter("testcase"):
+        classname = testcase.get("classname") or ""
+        name = testcase.get("name")
+        if not classname or not name:
+            continue
+        rel, class_qualname = _resolve_classname(project, classname)
+        qualified_name = f"{class_qualname}.{name}" if class_qualname else name
+        if testcase.find("skipped") is not None:
+            status = "skipped"
+        elif testcase.find("failure") is not None:
+            status = "failed"
+        elif testcase.find("error") is not None:
+            status = "error"
+        else:
+            status = "passed"
+        outcomes[f"{rel}::{qualified_name}"] = status
+    return outcomes
 
 
 def _parse_skipped(output: str) -> int:
