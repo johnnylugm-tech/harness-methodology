@@ -2,5 +2,8 @@
   "version": 1,
   "values": {
     "phase_truth_threshold": 70.0
+  },
+  "features": {
+    "mutation_testing": false
   }
 }
