@@ -440,7 +440,14 @@ _LINE_CEILING: dict[str, int] = {
     # threshold post-split — kept as one file (not split further) to match
     # every other phase's one-phase-one-file shape; see spec_phase1.py's own
     # module docstring.
-    "scripts/workflowgen/spec_phase1.py": 917,
+    # 2026-08-01: +2 lines — Defect D/F guard: srsAPrompt gains a
+    # DIMENSION/AC-COVERAGE VALIDATION step (Agent A must check every NFR's
+    # `dimension:` field against evaluate_dimension.md's actual current
+    # roster, and each AC against what that dimension section actually
+    # verifies, instead of blindly transcribing a canonical spec that can
+    # cite a deprecated/nonexistent dimension) and srsBChecklist gains the
+    # matching independent B-reviewer check.
+    "scripts/workflowgen/spec_phase1.py": 919,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
