@@ -34,6 +34,34 @@ class TestPhaseHooksEdge:
         assert result["passed"] is False
         assert "Cannot go backwards" in result["message"]
 
+    def test_preflight_fsm_allows_the_phase_just_closed(self, tmp_path):
+        """current_phase == self.phase + 1 must pass: this is the pre-push
+        hook (Fix B) retrospectively verifying the phase that advance-phase
+        just closed, one phase behind the already-flipped current_phase —
+        not a request to re-enter or redo that phase's work."""
+        from core.phase_hooks import PhaseHooks
+        hooks = PhaseHooks(str(tmp_path), phase=4)
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology/state.json").write_text(
+            json.dumps({"state": "ACTIVE", "current_phase": 5})
+        )
+        result = hooks.preflight_fsm_check()
+        assert result["passed"] is True
+
+    def test_preflight_fsm_two_phases_behind_still_blocks(self, tmp_path):
+        """current_phase == self.phase + 2 must still block — the genuine
+        backwards-navigation mistake this check exists to catch, distinct
+        from the one-phase-behind retrospective-verification case above."""
+        from core.phase_hooks import PhaseHooks
+        hooks = PhaseHooks(str(tmp_path), phase=3)
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology/state.json").write_text(
+            json.dumps({"state": "ACTIVE", "current_phase": 5})
+        )
+        result = hooks.preflight_fsm_check()
+        assert result["passed"] is False
+        assert "Cannot go backwards" in result["message"]
+
     def test_preflight_fsm_no_state_file_p1_auto_init(self, tmp_path):
         """P1 auto-initializes state.json when missing (fresh project)."""
         from core.phase_hooks import PhaseHooks

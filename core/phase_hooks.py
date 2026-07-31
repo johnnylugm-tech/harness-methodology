@@ -503,7 +503,13 @@ class PhaseHooks:
         print(f"   State: {current_state}, Phase: {current_phase}")
         if current_state in ("FREEZE", "PAUSED"):
             return {"passed": False, "state": current_state, "message": f"FSM is {current_state}"}
-        if self.phase and current_phase > self.phase:
+        # current_phase == self.phase + 1 is allowed: this is the pre-push
+        # hook (scripts/hooks/pre-push) retrospectively verifying the phase
+        # advance-phase just closed, one phase behind the already-flipped
+        # current_phase — not a request to re-enter or redo that phase's
+        # work. Only two or more phases behind is a genuine
+        # backwards-navigation mistake.
+        if self.phase and current_phase > self.phase + 1:
             return {"passed": False, "state": current_state,
                     "message": f"Cannot go backwards: current={current_phase}, requested={self.phase}"}
         print("   FSM check passed")

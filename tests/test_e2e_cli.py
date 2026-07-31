@@ -58,6 +58,44 @@ class TestRunPhaseCLI:
         )
         assert "PRE-FLIGHT" in result.stdout
 
+    def test_fsm_one_phase_behind_does_not_report_cannot_go_backwards(self, tmp_path):
+        """Fix B (scripts/hooks/pre-push) computes PHASE=N-1 from a handover
+        commit's message and calls `run-phase --phase (N-1)` while
+        state.json::current_phase is already N (advance-phase flips it before
+        the commit is made). Before this fix, preflight_fsm_check's strict
+        `current_phase > self.phase` unconditionally fired "Cannot go
+        backwards" here, blocking every single handover-commit push. After
+        the fix, one-phase-behind must not trip this message.
+        """
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"state": "ACTIVE", "current_phase": 2})
+        )
+
+        result = _run(["run-phase", "--phase", "1"], tmp_path)
+
+        assert "Cannot go backwards" not in result.stdout + result.stderr, (
+            f"FSM check must not block one-phase-behind (retrospective) checks\n"
+            f"stdout: {result.stdout[:500]}"
+        )
+
+    def test_fsm_two_phases_behind_still_reports_cannot_go_backwards(self, tmp_path):
+        """The genuine backwards-navigation mistake (2+ phases behind) must
+        still be caught — this is the case preflight_fsm_check exists to
+        protect, distinct from the one-phase-behind case above."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "state.json").write_text(
+            json.dumps({"state": "ACTIVE", "current_phase": 3})
+        )
+
+        result = _run(["run-phase", "--phase", "1"], tmp_path)
+
+        assert result.returncode == 1, (
+            f"Expected exit 1 (preflight block), got {result.returncode}\n"
+            f"stdout: {result.stdout[:500]}"
+        )
+        assert "Cannot go backwards" in result.stdout + result.stderr
+
     def test_entry_gate_none_no_crash(self, tmp_path):
         """Bug 3 regression: manifest gate=None → run-phase --phase 8 → exit 10.
 
