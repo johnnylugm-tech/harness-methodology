@@ -99,7 +99,10 @@ _LINE_CEILING: dict[str, int] = {
     # or marks it framework_na. Most of the growth is the 14 new
     # _TOOL_CONTENT_PATTERNS entries and the comments recording which taskq-plus
     # Gate 4 evidence each layer let through.
-    "harness/harness_bridge.py": 3415,
+    # 2026-08-01: +6 lines — Round 27 站1b: pytest-benchmark's content pattern
+    # took three attempts (the two rejected drafts are recorded beside it), and
+    # the comment explaining why is longer than the regex it guards.
+    "harness/harness_bridge.py": 3421,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

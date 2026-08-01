@@ -214,9 +214,15 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
     ],
     "pytest-benchmark": [
         r"Name\s+\(time in ",          # benchmark table header
-        r"benchmark",
+        r"-{3,}\s*benchmark:",         # "----------- benchmark: 2 tests -----------"
         r"no tests ran",
         r"\d+ passed",
+        # Two drafts were rejected here by test_prose_is_not_tool_evidence, both
+        # against taskq-plus's actual N/A sentence: a bare r"benchmark" (the word
+        # appears in "pytest-benchmark" and "--benchmark-only") and then
+        # r"-+\s*benchmark[:\s]", which still matched the "-benchmark " inside
+        # "pytest-benchmark tests". Only the real separator rule — three or more
+        # dashes AND the colon — describes output the tool alone produces.
     ],
     "pytest-cov-integration": [
         r"\d+ passed",

@@ -598,6 +598,69 @@ class TestToolEvidenceContentValidation:
         assert len(violations) == 1
         assert "too small" in violations[0]
 
+    def test_every_registered_tool_has_a_content_pattern(self):
+        """Round 27 站1 — check 3 only runs for tools present in the table.
+
+        17 of 32 registered tools had no entry, so `_validate_tool_content`
+        skipped its structural check entirely for them and any prose over 10
+        characters passed as evidence. code-review-graph is the one deliberate
+        exception: `architecture` is computed by crg_independent inside
+        finalize_gate, so a framework sentence IS its genuine evidence.
+        """
+        from harness.harness_bridge import _TOOL_CONTENT_PATTERNS
+        from harness.toolchains.registry import DIMENSION_TOOLS
+
+        registered = set()
+        for per_dim in DIMENSION_TOOLS.values():
+            for entry in per_dim.values():
+                registered.update([entry] if isinstance(entry, str) else entry.values())
+
+        missing = registered - set(_TOOL_CONTENT_PATTERNS) - {"code-review-graph"}
+        assert not missing, (
+            f"tools with no content pattern accept any prose as tool evidence: "
+            f"{sorted(missing)}"
+        )
+
+    @pytest.mark.parametrize("tool,dim,prose", [
+        # Verbatim from taskq-plus's gate4_result.json — both dimensions the
+        # testbed existed to light up, both accepted, gate PASS at 98.707.
+        ("pytest-benchmark", "performance",
+         "No pytest-benchmark tests exist (--benchmark-only collected 0 tests, "
+         "501 skipped, exit 5) - dimension N/A per protocol (not free 100). "
+         "NFR-01 latency SLAs validated functionally via time.perf_counter()."),
+        ("import-linter", "architecture_constraints",
+         "Layering verified by inspection against SAD section 2.3; no upward "
+         "imports observed in the five-layer tree."),
+        ("system-verification", "execute_verification_target",
+         "All acceptance criteria in SPEC section 8 were reviewed and hold."),
+    ])
+    def test_prose_is_not_tool_evidence(self, tool, dim, prose):
+        """Plausible-sounding prose must not pass as the output of a real tool."""
+        from harness.harness_bridge import _validate_tool_content
+        violations = _validate_tool_content(prose, tool, dim, inline=True)
+        assert violations, f"{tool}: prose accepted as genuine tool output"
+        assert "does not match any expected output pattern" in violations[0]
+
+    @pytest.mark.parametrize("tool,dim,real", [
+        ("pytest-benchmark", "performance",
+         "--------- benchmark: 2 tests ---------\n"
+         "Name (time in ms)      Mean      Max\n"
+         "test_submit_p95      1.9031   2.4410\n"),
+        ("import-linter", "architecture_constraints",
+         "=============\nContracts\n=============\n"
+         "Layered architecture KEPT\n\nContracts: 1 kept, 0 broken.\n"),
+        ("system-verification", "execute_verification_target",
+         "make verify-system\nverify-system: PASS\n"),
+        ("bandit", "security",
+         '{"results": [], "metrics": {"_totals": {"SEVERITY.HIGH": 0}}}'),
+        ("ast-assertions", "test_assertion_quality",
+         '{"total": 103, "asserted": 103, "zero_assert": []}'),
+    ])
+    def test_real_tool_output_still_passes(self, tool, dim, real):
+        """The other half: the new patterns must not reject genuine output."""
+        from harness.harness_bridge import _validate_tool_content
+        assert _validate_tool_content(real, tool, dim, inline=True) == []
+
     def test_ruff_clean_output_accepted(self, tmp_path):
         """Genuine ruff 'all checks passed' output is accepted."""
         from harness.harness_bridge import _validate_tool_content
