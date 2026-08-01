@@ -397,3 +397,65 @@ class TestCheckSrsMandatoryReconciliation:
 
 
 pytestmark = pytest.mark.gate
+
+
+class TestSkipsThatDidNotFireAreStillSkips:
+    """Round 27 站7b — a zero-skip rule enforced as written, not as measured.
+
+    The count check reads what pytest reported on THIS machine. A suite whose
+    skips are conditional — `if not shutil.which(tool): pytest.skip(...)` —
+    measures zero wherever the tooling is present and several everywhere else.
+    One project declared the rule, measured 35 passed / 0 skipped, and had ten
+    `pytest.skip(` calls in the very file that measurement came from.
+    """
+
+    def test_a_conditional_skip_is_found_even_when_it_did_not_fire(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import _skip_sites
+
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_nfr.py").write_text(
+            "import pytest, shutil\n"
+            "def test_layering():\n"
+            "    if not shutil.which('lint-imports'):\n"
+            "        pytest.skip('not installed in this environment')\n"
+            "    assert True\n",
+            encoding="utf-8",
+        )
+        sites = _skip_sites(tmp_path)
+        assert len(sites) == 1
+        assert "test_nfr.py:4" in sites[0]
+
+    def test_marker_forms_are_found_too(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import _skip_sites
+
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_nfr.py").write_text(
+            "import pytest, sys\n"
+            "@pytest.mark.skipif(sys.platform != 'linux', reason='linux only')\n"
+            "def test_rss():\n    assert True\n"
+            "@pytest.mark.xfail\n"
+            "def test_flaky():\n    assert True\n",
+            encoding="utf-8",
+        )
+        assert len(_skip_sites(tmp_path)) == 2
+
+    def test_the_word_in_prose_is_not_a_hit(self, tmp_path):
+        """Parsed, not grepped — otherwise the comment explaining the rule
+        would violate it."""
+        from core.quality_gate.phase_truth_verifier import _skip_sites
+
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_nfr.py").write_text(
+            '"""No test here may pytest.skip — NFR-09 forbids it."""\n'
+            "# a bare pytest.skip( in a comment is not a skip\n"
+            "def test_real():\n    assert True\n",
+            encoding="utf-8",
+        )
+        assert _skip_sites(tmp_path) == []
+
+    def test_no_test_tree_is_silent(self, tmp_path):
+        from core.quality_gate.phase_truth_verifier import _skip_sites
+        assert _skip_sites(tmp_path) == []

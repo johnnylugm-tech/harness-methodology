@@ -281,6 +281,26 @@ class PhaseTruthVerifier:
                         f"{nfr_id}: SRS demands 0 skipped, pytest reported "
                         f"{result.skipped} skipped"
                     )
+                # Round 27 站7b: a skip that did not fire is still a skip.
+                #
+                # The count above is what THIS machine measured. A suite whose
+                # skips are conditional — `if not shutil.which(tool):
+                # pytest.skip(...)`, `if not config.exists(): pytest.skip(...)`
+                # — reports zero wherever the tools and files happen to be
+                # present, and reports several everywhere else. One project
+                # declared a zero-skip rule, was measured at 35 passed / 0
+                # skipped, and had ten `pytest.skip(` calls sitting in the file
+                # that measurement came from. "Zero skips" had come to mean
+                # "this developer's laptop is fully provisioned".
+                #
+                # A project that wrote the rule for itself gets it enforced as
+                # written: the skip calls must not be there at all.
+                for where in _skip_sites(self.project_root):
+                    violations.append(
+                        f"{nfr_id}: SRS demands 0 skipped, but a skip is written "
+                        f"at {where} — it did not fire here, and will fire "
+                        f"wherever its condition holds"
+                    )
 
         if violations:
             return False, 0.0, "SRS-mandatory reconciliation FAILED: " + "; ".join(violations)
@@ -707,6 +727,66 @@ class PhaseTruthVerifier:
             "checks": results,
             "checklist": checklist,
         }
+
+
+def _skip_sites(project_root) -> list[str]:
+    """Every place a skip is WRITTEN in the project's test tree.
+
+    Round 27 站7b. Distinct from "how many skipped this run": a conditional skip
+    reports zero wherever its condition is false, so a suite full of
+    `if not shutil.which(tool): pytest.skip(...)` measures clean on a fully
+    provisioned machine and dirty everywhere else.
+
+    Covers the call form (`pytest.skip(...)`, `skip(...)`) and the marker form
+    (`@pytest.mark.skip`, `@pytest.mark.skipif`, `@pytest.mark.xfail`). Parsed
+    with ast rather than grepped, so the word appearing in a comment or a
+    docstring — including the ones explaining this rule — is not a hit.
+
+    Returns "path:line" strings, empty when the tree is clean or unparseable
+    (an unreadable test tree is not this check's failure to report).
+    """
+    import ast
+    from core.utils.project_layout import ProjectLayout
+
+    def _dotted(node) -> str:
+        parts = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+        return ".".join(reversed(parts))
+
+    try:
+        test_dir = ProjectLayout(project_root).active_test_dir
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[skip-scan] cannot resolve the test directory ({type(exc).__name__}: "
+              f"{exc}) — written-but-unfired skips are NOT being checked this run",
+              file=sys.stderr)
+        return []
+    if not test_dir or not Path(test_dir).is_dir():
+        return []
+
+    sites: list[str] = []
+    for path in sorted(Path(test_dir).rglob("test_*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(Path(project_root)).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = _dotted(node.func)
+                if name in ("pytest.skip", "skip", "pytest.xfail", "xfail"):
+                    sites.append(f"{rel}:{node.lineno} ({name})")
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                for dec in node.decorator_list:
+                    target = dec.func if isinstance(dec, ast.Call) else dec
+                    name = _dotted(target)
+                    if name in ("pytest.mark.skip", "pytest.mark.skipif",
+                                "pytest.mark.xfail"):
+                        sites.append(f"{rel}:{dec.lineno} (@{name})")
+    return sites
 
 
 def _parse_failure_count(output: str) -> int:
