@@ -2788,9 +2788,10 @@ class TestParseSrsFrSectionsMergesJson:
         assert fr["acceptance_criteria"] == []
         assert fr["verification_method"] == ""
 
-    def test_real_srs_md_extracts_all_5_frs(self):
+    def test_real_srs_md_extracts_all_frs(self):
         """Regression against the actual INGESTION MODE SRS.md shipped with
-        the integration-test project. Must extract all 5 FRs (FR-01..FR-05).
+        the current integration-test project. Must extract every FR the
+        project's canonical SPEC.md declares.
 
         INGESTION MODE (phase1_plan.md §[A-1]) is "100% transcribe ... no
         invention" from SPEC.md. implementation_modules / acceptance_criteria
@@ -2802,13 +2803,28 @@ class TestParseSrsFrSectionsMergesJson:
         these as optional (`.get(..., [])`), same contract asserted by
         test_keeps_section_only_fields_when_no_json above. So this test only
         pins the structural (markdown-section) extraction, not JSON-only
-        metadata that INGESTION MODE never produces."""
+        metadata that INGESTION MODE never produces.
+
+        The expected count is read from the hosting project's own SPEC.md
+        (`### FR-NN` headings), not hand-pinned, because this test rotates
+        across integration-test projects as the harness dogfoods successive
+        rounds (taskq: 5 FRs -> taskq-plus: 8 FRs per PROJECT_BRIEF.md's
+        "progressive test-bed round 1 of 3") — a hardcoded count goes stale
+        every rotation the same way an un-regenerated golden does."""
         repo_root = Path(__file__).parent.parent.parent
         srs_path = repo_root / "01-requirements" / "SRS.md"
-        if not srs_path.exists():
-            pytest.skip(f"Real SRS.md not present at {srs_path}")
+        spec_path = repo_root / "SPEC.md"
+        if not srs_path.exists() or not spec_path.exists():
+            pytest.skip(f"Real SRS.md/SPEC.md not present under {repo_root}")
+        expected_fr_count = len(re.findall(
+            r"^### FR-\d+", spec_path.read_text(encoding="utf-8"), re.MULTILINE
+        ))
+        assert expected_fr_count > 0, f"SPEC.md at {spec_path} declares no FRs"
         frs = parse_srs_fr_sections(srs_path)
-        assert len(frs) == 5, f"expected 5 FRs from real SRS.md, got {len(frs)}"
+        assert len(frs) == expected_fr_count, (
+            f"expected {expected_fr_count} FRs from real SRS.md (per "
+            f"{spec_path}), got {len(frs)}"
+        )
         for fr in frs:
             assert fr["fr"].startswith("FR-"), f"bad FR id: {fr}"
             assert isinstance(fr["implementation_modules"], list), \
