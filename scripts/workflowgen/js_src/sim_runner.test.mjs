@@ -1,5 +1,6 @@
-// sim_runner.test.mjs — executes all 8 generated workflow files under the
-// simulation testbed (Round 12 站1). First run of this testbed caught two
+// sim_runner.test.mjs — executes all 9 generated workflow files (the 8 phases
+// and run-all.js) under the simulation testbed (Round 12 站1; run-all joined in
+// Round 27 站6). First run of this testbed caught two
 // LIVE migration regressions the Round-11 equivalence pins (meta.phases /
 // agent labels / CLI-command sets) could not see:
 //   - phase4: p4MidPushed/p4MidThreshold declarations dropped by station-3a
@@ -30,6 +31,24 @@ const PHASE_FILES = [
   'phase7-risk.js',
   'phase8-config.js',
 ]
+
+// Round 27 站6: run-all.js joins the scenarios that sweep every workflow. It was
+// absent for its whole existence, which is backwards — it is the one file an
+// unattended run actually executes, and the eight above are its inputs. The
+// 2026-07-30 incident (a transient transport error 83 dispatches / 3h into a
+// run, taking the whole thing down) happened inside a file no scenario here had
+// ever loaded; the fix commit's own words were "Confirmed sim_runner.test.mjs
+// never exercised run-all.js at all".
+//
+// Kept separate from PHASE_FILES rather than appended to it: the dispatch-count
+// spec below compares run-all's total against the sum of the EIGHT, and folding
+// run-all into that list would have it compared against itself.
+const ALL_WORKFLOW_FILES = [...PHASE_FILES, 'run-all.js']
+
+// run-all reads state.json's cursor before it does anything else, so a sweep
+// that wants it to actually execute phases has to answer that read.
+const sweepOverrides = (name) =>
+  name === 'run-all.js' ? [cursorAt(1), ...happyOverrides()] : happyOverrides()
 
 // ---- happy-path scenario pack ---------------------------------------------
 // Text-verdict protocol tokens measured from the generated files (grep
@@ -83,10 +102,10 @@ async function declaredPhases(file) {
 }
 
 // ---- 1. happy path: every declared phase is reached, no error return ------
-for (const name of PHASE_FILES) {
+for (const name of ALL_WORKFLOW_FILES) {
   test(`happy path — ${name} runs to completion through every declared phase`, async () => {
     const file = WF(name)
-    const { result, events } = await runWorkflow(file, makeHappyResponder(happyOverrides()))
+    const { result, events } = await runWorkflow(file, makeHappyResponder(sweepOverrides(name)))
     assert.ok(result && typeof result === 'object', 'workflow must return an object')
     assert.equal(result.error, undefined,
       `no error on the happy path (got: ${JSON.stringify(result).slice(0, 200)})`)
@@ -106,7 +125,7 @@ for (const name of PHASE_FILES) {
 // ---- 2. null agent (session-limit / terminal API error shape) --------------
 // The runtime returns null from agent() on session limits. Every file must
 // degrade to a structured return — never a throw, never a fall-through.
-for (const name of PHASE_FILES) {
+for (const name of ALL_WORKFLOW_FILES) {
   test(`null-agent — ${name} degrades to a structured error return`, async () => {
     const { result } = await runWorkflow(WF(name), nullResponder)
     assert.ok(result && typeof result === 'object')
@@ -122,8 +141,10 @@ for (const name of PHASE_FILES) {
 // crashed the whole unattended run). run-all.js's OWN phase-driver loop
 // (_render_driver() in spec_runall.py) had no equivalent boundary — any
 // uncaught throw from ANY call site inside a phase, known or future, still
-// crashed the entire script. run-all.js was never in PHASE_FILES above, so
-// none of the tests in this file ever exercised it before this test existed.
+// crashed the entire script. When this test was written it was the ONLY thing
+// here that loaded run-all.js; Round 27 站6 added the file to the happy-path and
+// null-agent sweeps as well, so this case is now the specific one, not the only
+// one.
 test('run-all: phase-cursor agent() throwing degrades to a structured error, not a rejected promise', async () => {
   const overrides = [
     { match: /^phase-cursor$/, respond: () => { throw new Error('API Error: Connection closed mid-response.') } },
