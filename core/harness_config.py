@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import Any
 
 _DEFAULTS: dict[str, Any] = {
-    "mutation_testing": False,
+    "mutation_testing": True,
     "phase4_llm_review": True,
     "crg_architecture": True,
     # Round 9: promoted from the HARNESS_CROSS_ARTIFACT_COV env var (which

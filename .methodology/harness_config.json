@@ -4,6 +4,6 @@
     "phase_truth_threshold": 70.0
   },
   "features": {
-    "mutation_testing": false
+    "mutation_testing": true
   }
 }

@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "a8ab61a10953c621f491acad1eff313c9239c2b5",
-  "content_sha256": "a1b4b24cf7c9ddfec0ccd59e6e7b24551640ad1ff32630666b839c68f7c77b10",
+  "git_sha": "82685731fccad3bbde277120813aea546dc63a8c",
+  "content_sha256": "ce493b432aee5d75101aa90a41b5324d89326b031ef85537722eaa134238b57f",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -9,17 +9,21 @@
     "schema_version": "harness/traceability/overlay/v1",
     "project_id": "harness-methodology",
     "completeness": {
-      "total_requirements": 9,
-      "srs_coverage": "55.6%",
+      "total_requirements": 13,
+      "srs_coverage": "38.5%",
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 92,
+      "total_links": 102,
       "missing_mappings": {
         "fr_without_srs": [
+          "FR-06",
           "FR-07",
           "FR-08",
           "FR-09",
+          "FR-20",
+          "FR-21",
+          "FR-22",
           "FR-99"
         ],
         "fr_without_code": [],
@@ -28,9 +32,13 @@
     },
     "missing": {
       "fr_without_srs": [
+        "FR-06",
         "FR-07",
         "FR-08",
         "FR-09",
+        "FR-20",
+        "FR-21",
+        "FR-22",
         "FR-99"
       ],
       "fr_without_code": [],
@@ -153,13 +161,31 @@
         "status": "verified",
         "srs_section": "SAD.md",
         "code_files": [
+          "tests/test_scanner_unification.py",
           "tests/test_traceability_pipeline.py"
         ],
         "test_files": [
+          "tests/test_scanner_unification.py",
           "tests/test_traceability_pipeline.py"
         ],
         "sad_module": "—",
         "priority": "HIGH"
+      },
+      "FR-06": {
+        "fr_id": "FR-06",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "core/quality_gate/constitution/profile.py",
+          "core/quality_gate/constitution/runner.py"
+        ],
+        "test_files": [
+          "tests/test_constitution_runner.py",
+          "tests/test_constitution_profile.py"
+        ],
+        "sad_module": "§3.x Constitution Profile (per-phase keyword overrides P1–P8)",
+        "priority": "HIGH",
+        "justification": "build_traceability.py does not yet parse constitution profile files; human-owned mapping until PR 4 wires the dimension scan."
       },
       "FR-07": {
         "fr_id": "FR-07",
@@ -204,6 +230,45 @@
         "sad_module": "—",
         "priority": "HIGH"
       },
+      "FR-20": {
+        "fr_id": "FR-20",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_scanner_unification.py"
+        ],
+        "test_files": [
+          "tests/test_scanner_unification.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-21": {
+        "fr_id": "FR-21",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_scanner_unification.py"
+        ],
+        "test_files": [
+          "tests/test_scanner_unification.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
+      "FR-22": {
+        "fr_id": "FR-22",
+        "status": "verified",
+        "srs_section": null,
+        "code_files": [
+          "tests/test_scanner_unification.py"
+        ],
+        "test_files": [
+          "tests/test_scanner_unification.py"
+        ],
+        "sad_module": "—",
+        "priority": "HIGH"
+      },
       "FR-99": {
         "fr_id": "FR-99",
         "status": "verified",
@@ -222,20 +287,6 @@
         ],
         "sad_module": "—",
         "priority": "HIGH"
-      },
-      "FR-06": {
-        "fr_id": "FR-06",
-        "status": "verified",
-        "code_files": [
-          "core/quality_gate/constitution/profile.py",
-          "core/quality_gate/constitution/runner.py"
-        ],
-        "test_files": [
-          "tests/test_constitution_runner.py",
-          "tests/test_constitution_profile.py"
-        ],
-        "sad_module": "§3.x Constitution Profile (per-phase keyword overrides P1–P8)",
-        "justification": "build_traceability.py does not yet parse constitution profile files; human-owned mapping until PR 4 wires the dimension scan."
       },
       "FR-ENF-01": {
         "fr_id": "FR-ENF-01",

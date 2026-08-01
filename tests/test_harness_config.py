@@ -23,7 +23,7 @@ pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
 class TestLoadHarnessConfig:
     def test_missing_file_returns_defaults(self, tmp_path):
         cfg = load_harness_config(tmp_path)
-        assert cfg["mutation_testing"] is False
+        assert cfg["mutation_testing"] is True
         assert cfg["crg_architecture"] is True
         assert cfg["phase4_llm_review"] is True
 
@@ -34,14 +34,14 @@ class TestLoadHarnessConfig:
         )
         cfg = load_harness_config(tmp_path)
         assert cfg["crg_architecture"] is False
-        assert cfg["mutation_testing"] is False  # default intact
+        assert cfg["mutation_testing"] is True  # default intact
         assert cfg["phase4_llm_review"] is True  # default intact
 
     def test_malformed_json_returns_defaults(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text("not json{{{")
         cfg = load_harness_config(tmp_path)
-        assert cfg["mutation_testing"] is False
+        assert cfg["mutation_testing"] is True
         assert cfg["crg_architecture"] is True
 
     def test_unknown_keys_ignored(self, tmp_path):
@@ -120,8 +120,8 @@ class TestGetCrgSettings:
 # ---------------------------------------------------------------------------
 
 class TestGetFeature:
-    def test_mutation_testing_default_false(self, tmp_path):
-        assert get_feature(tmp_path, "mutation_testing") is False
+    def test_mutation_testing_default_true(self, tmp_path):
+        assert get_feature(tmp_path, "mutation_testing") is True
 
     def test_crg_architecture_default_true(self, tmp_path):
         assert get_feature(tmp_path, "crg_architecture") is True
@@ -220,16 +220,15 @@ class TestDimFiltering:
     def test_mutation_testing_dim_disabled_when_flag_off(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"mutation_testing": True}})
+            json.dumps({"version": 1, "features": {"mutation_testing": False}})
         )
         from core.harness_config import is_dim_disabled
-        # mutation_testing=True means NOT disabled
-        assert is_dim_disabled("mutation_testing", str(tmp_path)) is False
-
-    def test_mutation_testing_dim_disabled_when_flag_on_false(self, tmp_path):
-        # default: mutation_testing=False → dim IS disabled
-        from core.harness_config import is_dim_disabled
         assert is_dim_disabled("mutation_testing", str(tmp_path)) is True
+
+    def test_mutation_testing_dim_enabled_by_default(self, tmp_path):
+        # default: mutation_testing=True → dim IS NOT disabled
+        from core.harness_config import is_dim_disabled
+        assert is_dim_disabled("mutation_testing", str(tmp_path)) is False
 
 
 # ---------------------------------------------------------------------------
