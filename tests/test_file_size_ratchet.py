@@ -470,7 +470,13 @@ _LINE_CEILING: dict[str, int] = {
     # verifies, instead of blindly transcribing a canonical spec that can
     # cite a deprecated/nonexistent dimension) and srsBChecklist gains the
     # matching independent B-reviewer check.
-    "scripts/workflowgen/spec_phase1.py": 919,
+    # 2026-08-01: +1 — render_persist_approval(use_schema_verdict=True) needs
+    # VERDICT_SCHEMA declared as a top-level const (playbook §5.3: a
+    # `schema:` value must be top-level, not nested), which phase1 never
+    # needed before switching off the free-text-regex verdict path; one
+    # `B.render_schemas(["VERDICT_SCHEMA"])` call added ahead of
+    # render_persist_approval.
+    "scripts/workflowgen/spec_phase1.py": 920,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
@@ -530,7 +536,22 @@ _LINE_CEILING: dict[str, int] = {
     # run 83 dispatches / 3h in on a transient "Connection closed mid-response"
     # API error, defeating the file's entire unattended-determinism purpose
     # (Round 23's stated rationale for run-all.js existing at all).
-    "scripts/workflowgen/js_blocks.py": 1425,
+    # 2026-08-01: +20 — render_persist_approval()'s use_schema_verdict=True
+    # branch stops trusting the sub-agent's self-reported `res.pass` boolean
+    # and instead regex-matches the canonical `[write-approval] OK` string
+    # inside res.reason (same verdict source gate1-verify- already uses,
+    # closed against the wf_53d055ce-d0b hallucinated-pass class). Root
+    # cause of a live run-all.js Phase 1 crash: a code-review-graph MCP
+    # system-reminder derailed the persistApproval shell-wrapper sub-agent
+    # into replying "Acknowledged..." instead of transcribing CLI stdout,
+    # and the (then) phase1/phase2 free-text regex misread that as failure
+    # 3/3 attempts despite harness_cli.py write-approval succeeding and
+    # self-verifying (write+size+exists) all three times. Fix flips
+    # phase1/phase2's use_schema_verdict False→True (spec_phase1.py L894,
+    # spec_phase2.py L540) so all three callers share this one hardened
+    # branch instead of leaving a third, less-safe variant behind — the
+    # docstring above grew to explain why trusting `pass` was rejected.
+    "scripts/workflowgen/js_blocks.py": 1445,
 }
 
 

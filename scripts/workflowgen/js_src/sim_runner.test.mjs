@@ -90,7 +90,16 @@ function happyOverrides() {
     { match: /^peer-review/, respond: 'Peer review complete.\n' + PEER_JSON },
     { match: /^sbr-/, respond: 'Validation done.\n' + SBR_JSON },
     { match: /^b-\d+-r/, respond: 'B review done.\n' + B_JSON },
-    { match: /^persist|^write-approval/, respond: '[write-approval] OK — wrote approval JSON (137 bytes)' },
+    // persistApproval/writeApprovalJson are schema calls on all three callers
+    // (phase1/phase2/phase6) now — a plain-string respond is silently
+    // skipped by the schema-call guard above (line ~110 in sim_runner.mjs),
+    // which used to fall through to the generic VERDICT_SCHEMA synthesizer's
+    // `{ pass: true, reason: 'GATE1_VERIFIED_PASS' }`. That was invisible
+    // while the workflow trusted `res.pass` (also true), but the fix for
+    // the wf_53d055ce-d0b-class bug (2026-08-01) checks `res.reason` for
+    // the literal `[write-approval] OK` string instead, so the mock must
+    // actually carry it there.
+    { match: /^persist|^write-approval/, respond: { pass: true, reason: '[write-approval] OK — wrote approval JSON (137 bytes)' } },
   ]
 }
 

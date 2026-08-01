@@ -141,7 +141,7 @@ async function persistApproval(deliverableId, b2) {
       log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr.slice(0, 200))
       continue
     }
-    if (res && res.pass === true) {
+    if (res && /\[write-approval\]\s*OK/.test(String(res.reason || ''))) {
       log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')
       return
     }

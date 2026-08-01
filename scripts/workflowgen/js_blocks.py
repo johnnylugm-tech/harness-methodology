@@ -1168,16 +1168,30 @@ def render_persist_approval(
     actual harness minimum of 40 — see module docstring — but preserved
     verbatim since equivalence migration doesn't rewrite prompt/logic policy);
     phase1 and phase6 both use the plain fallback (synthesize_reason=False).
-    `use_schema_verdict=True` is phase6's REAL, behavioral (not cosmetic)
-    difference: phase1/phase2 read a plain string + regex-match `[write-
-    approval] OK`; phase6 already reports through VERDICT_SCHEMA (pass/
-    reason fields) — the safer schema-transport pattern this whole module's
-    gate loops use elsewhere. Preserved as-is, not downgraded to match
-    phase1/2 nor used to silently upgrade them. `label_prefix`/`phase_label`
-    default to phase1/2's own values; phase6 passes its own (`write-
-    approval` / `Peer Review` — it has no dedicated "Persist Approval" phase
-    box, calling this only from within Peer Review) so no agent() label
-    changes and no rename entry is needed for phase6's migration."""
+
+    `use_schema_verdict=True` forces the sub-agent through the
+    StructuredOutput tool (schema: VERDICT_SCHEMA) instead of accepting a
+    free-text reply — this is what stops a distracted sub-agent (e.g. one
+    whose context got an injected MCP-server system-reminder) from just
+    replying "Acknowledged, no further action" and having that count as its
+    final turn. It does NOT trust the schema's self-reported `pass` boolean:
+    success is decided by regex-matching the literal `[write-approval] OK`
+    string inside `res.reason` (which the prompt requires to be the verbatim
+    CLI stdout tail). Trusting a bare self-reported `pass` was tried and
+    reverted elsewhere in this module after it proved unsafe — see
+    `gate1-verify-`'s registry note in test_workflow_dispatch_registry.py
+    ("schema pass ignored — wf_53d055ce-d0b class closed"); this function
+    applies that same already-hardened pattern rather than reintroducing the
+    closed bug class. All three callers (phase1, phase2, phase6) now share
+    this one verdict path via use_schema_verdict=True — run-all.js crash
+    2026-08-01 (persistApproval regex-on-free-text false negative against a
+    real write-approval success) was phase1/phase2's `False` branch; fixed
+    by moving them onto phase6's already-schema'd transport instead of
+    inventing a new one. `label_prefix`/`phase_label` default to phase1/2's
+    own values; phase6 passes its own (`write-approval` / `Peer Review` — it
+    has no dedicated "Persist Approval" phase box, calling this only from
+    within Peer Review) so no agent() label changes and no rename entry is
+    needed for phase6's migration."""
     reason_block = (
         "  const rawReason = String(b2.reason ?? '').trim()\n"
         "  const synthReason = 'Agent B approved ' + deliverableId + ' (review_status=' + (b2.review_status ?? 'APPROVE')\n"
@@ -1198,7 +1212,13 @@ def render_persist_approval(
             "      )\n"
         )
         success_check = (
-            "    if (res && res.pass === true) {\n"
+            # v33: verdict comes from the canonical `[write-approval] OK`
+            # string transcribed into res.reason, not the self-reported
+            # res.pass boolean — same class of bug as gate1-verify- closed
+            # (wf_53d055ce-d0b): a schema-forced tool call still lets the
+            # LLM mis-set a bare boolean, but it cannot fabricate the exact
+            # bytes the CLI printed without actually transcribing them.
+            "    if (res && /\\[write-approval\\]\\s*OK/.test(String(res.reason || ''))) {\n"
             "      log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')\n"
             "      return\n"
             "    }\n"

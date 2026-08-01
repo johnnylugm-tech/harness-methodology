@@ -547,6 +547,9 @@ async function runSubTask(cfg) {
   return { error: cfg.name + ': loop exited unexpectedly' }
 }
 
+
+
+
 async function persistApproval(deliverableId, b2) {
   const approvalPayload = JSON.stringify({
     fr: deliverableId,
@@ -566,19 +569,19 @@ async function persistApproval(deliverableId, b2) {
     let res
     try {
       res = await dispatch(
-        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command and emit stdout + exit code verbatim:\n\n' + cmd + '\n\nNo commentary, no preamble, no other tool calls.',
-        { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'P1 · Persist Approval', agentType: 'general-purpose' },
+        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',
+        { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'P1 · Persist Approval', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
     } catch (e) {
       lastErr = 'agent() threw: ' + (e && e.message ? e.message : String(e))
       log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr.slice(0, 200))
       continue
     }
-    if (typeof res === 'string' && /\[write-approval\]\s*OK/.test(res)) {
+    if (res && /\[write-approval\]\s*OK/.test(String(res.reason || ''))) {
       log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')
       return
     }
-    lastErr = 'CLI did not return OK; got: ' + String(res).slice(0, 400)
+    lastErr = 'CLI did not return OK; got: ' + (res ? String(res.reason ?? '').slice(0, 400) : 'agent returned null')
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
@@ -1369,6 +1372,9 @@ async function abLoop(cfg) {
   return { error: cfg.deliverable + ' loop exhausted unexpectedly' }
 }
 
+
+
+
 async function persistApproval(deliverableId, b2) {
   const rawReason = String(b2.reason ?? '').trim()
   const synthReason = 'Agent B approved ' + deliverableId + ' (review_status=' + (b2.review_status ?? 'APPROVE')
@@ -1392,19 +1398,19 @@ async function persistApproval(deliverableId, b2) {
     let res
     try {
       res = await dispatch(
-        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command and emit stdout + exit code verbatim:\n\n' + cmd + '\n\nNo commentary, no preamble, no other tool calls.',
-        { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'P2 · Persist Approval', agentType: 'general-purpose' },
+        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',
+        { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'P2 · Persist Approval', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
     } catch (e) {
       lastErr = 'agent() threw: ' + (e && e.message ? e.message : String(e))
       log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr.slice(0, 200))
       continue
     }
-    if (typeof res === 'string' && /\[write-approval\]\s*OK/.test(res)) {
+    if (res && /\[write-approval\]\s*OK/.test(String(res.reason || ''))) {
       log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')
       return
     }
-    lastErr = 'CLI did not return OK; got: ' + String(res).slice(0, 400)
+    lastErr = 'CLI did not return OK; got: ' + (res ? String(res.reason ?? '').slice(0, 400) : 'agent returned null')
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
@@ -3063,7 +3069,7 @@ async function persistApproval(deliverableId, b2) {
       log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr.slice(0, 200))
       continue
     }
-    if (res && res.pass === true) {
+    if (res && /\[write-approval\]\s*OK/.test(String(res.reason || ''))) {
       log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')
       return
     }

@@ -891,7 +891,8 @@ def generate_phase1() -> str:
         B.render_scope_rules(),
         B.render_structured_b_review(default_phase_num=1),
         _render_phase1_run_sub_task(),
-        B.render_persist_approval(synthesize_reason=False, use_schema_verdict=False),
+        B.render_schemas(["VERDICT_SCHEMA"]),
+        B.render_persist_approval(synthesize_reason=False, use_schema_verdict=True),
         _render_phase1_run_peer_review(),
         (
             "\n// ============================================================================\n"

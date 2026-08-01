@@ -373,6 +373,20 @@ async function abLoop(cfg) {
   return { error: cfg.deliverable + ' loop exhausted unexpectedly' }
 }
 
+// ---- Gate verdict schemas (flat, top-level consts — playbook §5.2/§5.3) ----
+// Verdict authority rule: heavy orchestrator agents keep prose narrative;
+// their PASS/FAIL is NEVER parsed from that prose. A separate bash-proxy
+// agent reads the harness's own artifact (manifest quality_complete,
+// state.json/git log, CLI exit code) and reports through the schema.
+const VERDICT_SCHEMA = {
+  type: 'object',
+  properties: {
+    pass: { type: 'boolean', description: 'true only if the command output proves PASS' },
+    reason: { type: 'string', description: 'verbatim command output tail (or failure reason)' },
+  },
+  required: ['pass', 'reason'],
+}
+
 // ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----
 // v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-
 // phase PASS) + workflow JS outer-level try/catch retry.
@@ -405,19 +419,19 @@ async function persistApproval(deliverableId, b2) {
     let res
     try {
       res = await dispatch(
-        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command and emit stdout + exit code verbatim:\n\n' + cmd + '\n\nNo commentary, no preamble, no other tool calls.',
-        { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'Persist Approval', agentType: 'general-purpose' },
+        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',
+        { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'Persist Approval', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
     } catch (e) {
       lastErr = 'agent() threw: ' + (e && e.message ? e.message : String(e))
       log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr.slice(0, 200))
       continue
     }
-    if (typeof res === 'string' && /\[write-approval\]\s*OK/.test(res)) {
+    if (res && /\[write-approval\]\s*OK/.test(String(res.reason || ''))) {
       log('  persisted approval: ' + deliverableId + ' (attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ')')
       return
     }
-    lastErr = 'CLI did not return OK; got: ' + String(res).slice(0, 400)
+    lastErr = 'CLI did not return OK; got: ' + (res ? String(res.reason ?? '').slice(0, 400) : 'agent returned null')
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
