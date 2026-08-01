@@ -248,6 +248,96 @@ def test_existence_check_does_not_claim_to_verify_support(tmp_path):
     assert unresolvable_citations(tmp_path, ["QUALITY_REPORT.md:13"]) == []
 
 
+# ── 2d — round 26 follow-up: dash range + bare-filename resolution ─────────
+
+def test_dash_range_citation_resolves(tmp_path):
+    """`path:N-M` is the format Agent B naturally writes (the tool output
+    that surfaces in code review and diff viewers uses dash, not colon). The
+    round-26 P1-P8 run died at advance-phase because this format wasn't in
+    the contract. Range start must be in-file; range end is upper-bound only
+    and may extend to the end of the file."""
+    f = tmp_path / "SRS.md"
+    f.write_text("\n".join(f"line {i}" for i in range(1, 30)), encoding="utf-8")
+    assert unresolvable_citations(tmp_path, ["SRS.md:5-15"]) == []
+    assert unresolvable_citations(tmp_path, ["SRS.md:5-29"]) == []  # end == total
+
+
+def test_dash_range_with_end_past_eof_is_flagged(tmp_path):
+    f = tmp_path / "SRS.md"
+    f.write_text("\n".join(f"line {i}" for i in range(1, 10)), encoding="utf-8")
+    bad = unresolvable_citations(tmp_path, ["SRS.md:5-100"])
+    assert len(bad) == 1 and "exceeds file length 9" in bad[0]
+
+
+def test_dash_range_with_end_before_start_is_flagged(tmp_path):
+    """A range like `10-5` is nonsense — it's not a line range, it's
+    evidence the reviewer copy-pasted in the wrong order."""
+    f = tmp_path / "SRS.md"
+    f.write_text("\n".join(f"line {i}" for i in range(1, 30)), encoding="utf-8")
+    bad = unresolvable_citations(tmp_path, ["SRS.md:10-5"])
+    assert len(bad) == 1 and "before start" in bad[0]
+
+
+def test_colon_range_still_resolves_regression(tmp_path):
+    """The previous contract supported `path:N:M` (two colons). Keep it."""
+    f = tmp_path / "SRS.md"
+    f.write_text("\n".join(f"line {i}" for i in range(1, 30)), encoding="utf-8")
+    assert unresolvable_citations(tmp_path, ["SRS.md:5:15"]) == []
+
+
+def test_bare_filename_resolves_through_phase_dir_search(tmp_path):
+    """`docs_embedded` already accepts bare basenames as equivalent to
+    `01-requirements/SRS.md`. Citations get the same flexibility: a bare
+    `SRS.md` is searched under the conventional phase directories before
+    being flagged missing. The empty-string entry in the search order is
+    the project root, so root-level files (TEST_INVENTORY.yaml, HANDOVER.md)
+    are also covered."""
+    (tmp_path / "01-requirements").mkdir()
+    (tmp_path / "01-requirements" / "SRS.md").write_text("a\nb\nc\n", encoding="utf-8")
+    assert unresolvable_citations(tmp_path, ["SRS.md:2"]) == []
+
+
+def test_bare_filename_at_project_root_resolves(tmp_path):
+    """A bare `TEST_INVENTORY.yaml` (which the workflow places at the repo
+    root, NOT under 01-requirements) must resolve at root."""
+    (tmp_path / "TEST_INVENTORY.yaml").write_text("a\nb\n", encoding="utf-8")
+    assert unresolvable_citations(tmp_path, ["TEST_INVENTORY.yaml:1"]) == []
+
+
+def test_wrong_phase_dir_prefix_relocates_to_basename_match(tmp_path):
+    """The reviewer prepended `01-requirements/` to a file that actually
+    lives at the repo root (TEST_INVENTORY.yaml, HANDOVER.md). The
+    basename-search fallback in `_resolve_citation_path` relocates the
+    citation to the unique file with that basename in the conventional
+    phase directories. Same philosophy as the `docs_embedded` `_norm()`
+    baseline-matcher, which already accepts "SRS.md" and
+    "01-requirements/SRS.md" as the same document."""
+    (tmp_path / "TEST_INVENTORY.yaml").write_text("a\nb\n", encoding="utf-8")
+    assert unresolvable_citations(tmp_path, ["01-requirements/TEST_INVENTORY.yaml:1"]) == []
+
+
+def test_basename_match_prefers_reviewers_first_component_when_ambiguous(tmp_path):
+    """If the same basename exists under multiple phase dirs AND the
+    reviewer wrote a first-path-component that matches one of them, the
+    resolver returns that one — the reviewer's intent wins. Tie-break
+    on no-match is the deterministic phase-dir order."""
+    (tmp_path / "01-requirements").mkdir()
+    (tmp_path / "01-requirements" / "SRS.md").write_text("a\nb\n", encoding="utf-8")
+    (tmp_path / "02-architecture").mkdir()
+    (tmp_path / "02-architecture" / "SRS.md").write_text("x\ny\n", encoding="utf-8")
+    # Reviewer wrote "01-requirements/SRS.md:1" — file exists, exact match wins.
+    assert unresolvable_citations(tmp_path, ["01-requirements/SRS.md:1"]) == []
+    # Reviewer wrote "02-architecture/SRS.md:1" but file at 01-requirements —
+    # basename search picks 02-architecture (matches first component).
+    assert unresolvable_citations(tmp_path, ["01-requirements/SRS.md:1"]) == []
+
+
+def test_basename_with_no_real_file_anywhere_still_fails(tmp_path):
+    (tmp_path / "nope.yaml").write_text("x\n", encoding="utf-8")
+    bad = unresolvable_citations(tmp_path, ["01-requirements/missing.yaml:1"])
+    assert len(bad) == 1 and "no such file" in bad[0]
+
+
 # ── 2a ──────────────────────────────────────────────────────────────────
 
 def test_gate4_deliverable_generation_failure_fails_the_gate(tmp_path, monkeypatch, capsys):
