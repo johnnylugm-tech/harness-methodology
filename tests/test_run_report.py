@@ -171,7 +171,7 @@ class TestDegradationReport:
         assert _degradation_report(tmp_path) == {"available": False}
 
     def test_groups_by_component_and_what(self, tmp_path):
-        ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+        ledger = tmp_path / ".methodology" / "degradations.jsonl"
         _write_jsonl(ledger, [
             {"component": "state-io", "what": "corrupt state.json"},
             {"component": "state-io", "what": "corrupt state.json"},

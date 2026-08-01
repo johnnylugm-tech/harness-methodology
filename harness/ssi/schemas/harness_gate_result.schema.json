@@ -3,22 +3,34 @@
   "title": "HarnessGateResult",
   "description": "Output written by Claude to .sessi-work/gate{N}_result.json after inline gate evaluation, then persisted to .methodology/gate{N}_result.json by finalize-gate (which patches composite_score / quality_complete / verdict / passed with its own computed values and syncs framework-owned dimension scores into breakdown). Round 21: this file was never loaded by any code, so it drifted into describing a shape no run has produced — required a per-dimension `passed` nothing writes, forbade the `null` scores CRG-only dimensions actually carry, and omitted the four fields every real breakdown entry does have. It is now validated at load time (core/quality_gate/gate_result_schema.py), which means it must keep describing reality: a mismatch is a bug in whichever side has moved, and both sides are now forced to say so. Round 26: `required` also has to describe what a PRODUCER is told to write. It listed open_critical_count / open_high_count, which no producer instruction has ever asked for — not the Gate 1 template in cli/fr_prompts/gate.py, not harness/ssi/prompts/evaluate_dimension.md, not the Gate 2/3/4 write steps in the phase workflows. The single fixture keeping this schema honest (taskq's gate4_result.json) happened to carry them, so validation agreed with reality by luck while obedient agents produced off-schema files: taskq-plus P3 blocked on malformed_gate_result at FR-01 and again at FR-04, passing 8 seconds later only because the retry volunteered fields nothing had requested. required now names only what a producer is instructed to write, and tests/test_gate_result_producer_parity.py holds every producer to it.",
   "type": "object",
-  "required": ["quality_complete", "breakdown"],
+  "required": [
+    "quality_complete",
+    "breakdown"
+  ],
   "properties": {
     "overall_score": {
-      "type": ["number", "null"],
+      "type": [
+        "number",
+        "null"
+      ],
       "minimum": 0,
       "maximum": 100,
       "description": "Agent's own weighted composite. Null is normal and expected: finalize-gate recomputes the composite from breakdown weights and writes it to composite_score, so the agent has no reason to duplicate the arithmetic."
     },
     "composite_score": {
-      "type": ["number", "null"],
+      "type": [
+        "number",
+        "null"
+      ],
       "minimum": 0,
       "maximum": 100,
       "description": "Harness-computed weighted composite, patched in by finalize-gate on persist. Absent in the agent's own .sessi-work write."
     },
     "meets_target": {
-      "type": ["boolean", "null"],
+      "type": [
+        "boolean",
+        "null"
+      ],
       "description": "True when overall_score >= score_gate threshold. Null when the agent defers the verdict to the framework (the normal case — see overall_score)."
     },
     "quality_complete": {
@@ -53,10 +65,16 @@
       "description": "Per-dimension score detail keyed by dimension name.",
       "additionalProperties": {
         "type": "object",
-        "required": ["score", "threshold"],
+        "required": [
+          "score",
+          "threshold"
+        ],
         "properties": {
           "score": {
-            "type": ["number", "null"],
+            "type": [
+              "number",
+              "null"
+            ],
             "minimum": 0,
             "maximum": 100,
             "description": "Null means the framework owns this dimension's score (CRG-only dimensions such as architecture) or no measurement applies (e.g. pytest-benchmark with no benchmarks). Readers MUST handle null explicitly — dict.get(k, default) does not substitute for a present null."
@@ -92,7 +110,9 @@
           },
           "issues": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {
+              "type": "string"
+            },
             "description": "Human-readable deficiencies found in this dimension."
           },
           "findings": {
@@ -116,18 +136,24 @@
     },
     "failing_dimensions": {
       "type": "array",
-      "items": {"type": "string"},
+      "items": {
+        "type": "string"
+      },
       "description": "Names of dimensions that did not meet their individual thresholds."
     },
     "devil_advocate": {
       "type": "object",
       "description": "Per-Tier-3-dimension flag: was a Devil's Advocate challenge run?",
-      "additionalProperties": {"type": "boolean"}
+      "additionalProperties": {
+        "type": "boolean"
+      }
     },
     "da_waiver": {
       "type": "object",
       "description": "Per-dimension score-threshold waiver REQUEST. Permission is checked against core.quality_gate.da_waiver.WAIVABLE_DIMENSIONS at collection; necessity is adjudicated in finalize_gate against the framework's own score.",
-      "additionalProperties": {"type": "boolean"}
+      "additionalProperties": {
+        "type": "boolean"
+      }
     },
     "devil_advocate_evidence": {
       "type": "object",
@@ -135,9 +161,15 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "challenger_model": {"type": "string"},
-          "challenge": {"type": "string"},
-          "response": {"type": "string"}
+          "challenger_model": {
+            "type": "string"
+          },
+          "challenge": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          }
         }
       }
     },
@@ -149,9 +181,15 @@
       "type": "string",
       "description": "Harness commit that produced this verdict (Round 19 站3), with a -dirty suffix when the working tree was not clean."
     },
-    "crg_review_context": {"type": "object"},
-    "crg_impact_radius": {"type": "object"},
-    "crg_affected_flows": {"type": "object"},
+    "crg_review_context": {
+      "type": "object"
+    },
+    "crg_impact_radius": {
+      "type": "object"
+    },
+    "crg_affected_flows": {
+      "type": "object"
+    },
     "gate_num": {
       "type": "integer",
       "description": "Gate number this result belongs to. Provenance only — no consumer reads it from the file; every code path already knows its gate from GateContext. Gate 2/3/4 results spell it this way."
@@ -165,8 +203,42 @@
       "description": "Harness phase number."
     },
     "fr_id": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Functional requirement ID if gate is FR-scoped."
+    },
+    "evidence_digest": {
+      "type": "object",
+      "description": "Round 27 站3 — framework-written, never authored by an agent. As S3 clears each tool-scored dimension's evidence, finalize_gate records its sha256, byte count and opening lines here. The verdict is committed and permanent; the evidence it cites usually lives under the gitignored .sessi-work/ and does not survive (taskq-plus's Gate 4: 13 of 14 cited paths are gone). This is what lets a later reader tell whether the file they are looking at is the one the gate read.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "inline"
+            ]
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "head": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

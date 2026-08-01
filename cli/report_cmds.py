@@ -176,6 +176,12 @@ def _gate_provenance_report(project: Path) -> dict:
                 "verdict": data.get("verdict") or data.get("passed"),
                 "composite_score": data.get("composite_score") or data.get("overall_score"),
                 "enforcer_sha": data.get("enforcer_sha"),
+                # Round 27 站3: how many of this verdict's dimensions still carry
+                # proof of what they read. The evidence itself is normally under
+                # the gitignored .sessi-work/ and does not survive the run, so a
+                # low number here means the verdict is no longer checkable.
+                "evidence_digest_count": len(data.get("evidence_digest") or {}),
+                "scored_dimension_count": len(data.get("breakdown") or {}),
             })
             break
     if not gates:
@@ -330,6 +336,19 @@ def _render_human(report: dict) -> str:
                 f"  Gate {row['gate']}{scope}: verdict={row['verdict']} "
                 f"score={row['composite_score']} enforcer={enforcer}"
             )
+            _dg, _dims = row.get("evidence_digest_count", 0), row.get("scored_dimension_count", 0)
+            if _dg:
+                lines.append(f"      evidence digests: {_dg}/{_dims} dimension(s)")
+            elif _dims:
+                lines.append(
+                    f"      evidence digests: 0/{_dims} — this verdict cannot be "
+                    f"re-checked; its evidence was not fingerprinted (pre-Round-27 result)"
+                )
+            if str(row.get("enforcer_sha") or "").endswith("-dirty"):
+                lines.append(
+                    "      WARN: enforcer was a dirty working tree — this verdict "
+                    "corresponds to no commit and cannot be reproduced"
+                )
         lines.append(
             "  NOTE: a log spanning multiple rounds/eras mixes different "
             "code versions — counts are not evidence of the CURRENT "
@@ -339,7 +358,8 @@ def _render_human(report: dict) -> str:
 
     dg = report["degradations"]
     lines.append("")
-    lines.append("## Degradations (.sessi-work/degradations.jsonl)")
+    from core.degradation_ledger import LEDGER_RELPATH as _ledger_rel
+    lines.append(f"## Degradations ({_ledger_rel})")
     if not dg["available"]:
         lines.append("  n/a — ledger not found or empty")
     else:

@@ -268,7 +268,7 @@ def test_gate4_deliverable_generation_failure_fails_the_gate(tmp_path, monkeypat
     assert "Do NOT hand-write" in out
     assert "crash-triage" in out
     assert "[WARN]" not in out
-    ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+    ledger = tmp_path / ".methodology" / "degradations.jsonl"
     assert ledger.is_file(), "a swallowed-then-blocked generation must leave a ledger trail"
 
 

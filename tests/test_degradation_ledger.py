@@ -15,7 +15,7 @@ from core.degradation_ledger import record_degradation
 
 def test_record_degradation_appends_jsonl_entry(tmp_path):
     record_degradation(tmp_path, "test_appends", "coverage fallback to 0", why="pytest --cov timed out")
-    ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+    ledger = tmp_path / ".methodology" / "degradations.jsonl"
     assert ledger.exists()
     entry = json.loads(ledger.read_text(encoding="utf-8").strip())
     assert entry["component"] == "test_appends"
@@ -36,7 +36,7 @@ def test_record_degradation_dedups_stderr_print_but_keeps_appending(tmp_path, ca
     record_degradation(tmp_path, "test_dedups", "same thing")
     err = capsys.readouterr().err
     assert err.count("[DEGRADED]") == 1, "repeated identical degradation must not spam stderr"
-    ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+    ledger = tmp_path / ".methodology" / "degradations.jsonl"
     lines = [line for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(lines) == 3, "every occurrence must still be recorded in the ledger"
 

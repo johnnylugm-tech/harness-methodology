@@ -69,7 +69,7 @@ class TestLoadStateLenientCorrupt:
         d.mkdir()
         (d / "state.json").write_text("{not json", encoding="utf-8")
         load_state(tmp_path, lenient=True)
-        ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+        ledger = tmp_path / ".methodology" / "degradations.jsonl"
         assert ledger.exists()
         entry = json.loads(ledger.read_text(encoding="utf-8").strip())
         assert entry["component"] == "state-io"
@@ -79,7 +79,7 @@ class TestLoadStateLenientCorrupt:
         """A missing file is the normal early-phase case, not a
         degradation — only an existing-but-corrupt file is."""
         load_state(tmp_path, lenient=True)
-        assert not (tmp_path / ".sessi-work" / "degradations.jsonl").exists()
+        assert not (tmp_path / ".methodology" / "degradations.jsonl").exists()
 
 
 class TestLoadQualityManifest:
@@ -114,6 +114,6 @@ class TestLoadQualityManifest:
         (d / "quality_manifest.json").write_text("{bad2", encoding="utf-8")
         load_state(tmp_path, lenient=True)
         load_quality_manifest(tmp_path, lenient=True)
-        ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+        ledger = tmp_path / ".methodology" / "degradations.jsonl"
         lines = [line for line in ledger.read_text(encoding="utf-8").splitlines() if line.strip()]
         assert len(lines) == 2

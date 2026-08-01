@@ -336,7 +336,7 @@ class TestTurnBudgetEscalation:
 
     def test_the_escalation_is_recorded_in_the_degradation_ledger(self, tmp_path, monkeypatch):
         self._dispatches(tmp_path, monkeypatch, [self.KILL])
-        ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+        ledger = tmp_path / ".methodology" / "degradations.jsonl"
         assert ledger.is_file(), "a silently raised budget is an unreviewed decision"
         body = ledger.read_text(encoding="utf-8")
         assert "max_turns escalated" in body
@@ -350,7 +350,7 @@ class TestTurnBudgetEscalation:
         calls = self._dispatches(tmp_path, monkeypatch, [err])
         base = _STEP_MAX_TURNS["TDD-RED"]
         assert all(c["max_turns"] == base for c in calls)
-        assert not (tmp_path / ".sessi-work" / "degradations.jsonl").is_file()
+        assert not (tmp_path / ".methodology" / "degradations.jsonl").is_file()
 
     def test_escalation_survives_an_unstamped_result(self, tmp_path, monkeypatch):
         """The decision re-derives from the output instead of trusting a stamp.

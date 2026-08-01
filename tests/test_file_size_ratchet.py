@@ -102,7 +102,12 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-08-01: +6 lines — Round 27 站1b: pytest-benchmark's content pattern
     # took three attempts (the two rejected drafts are recorded beside it), and
     # the comment explaining why is longer than the regex it guards.
-    "harness/harness_bridge.py": 3421,
+    # 2026-08-01: +37 lines — Round 27 站3: S3 fingerprints each piece of
+    # evidence as it clears it, and finalize_gate persists the digests into the
+    # gate result. taskq-plus's Gate 4 cites 13 tool_output paths under the
+    # gitignored .sessi-work/, all gone now, while the verdict that read them is
+    # committed — the judgement was version-controlled and its evidence was not.
+    "harness/harness_bridge.py": 3458,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

@@ -890,8 +890,16 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
     return violations
 
 
-def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
+def _check_tool_evidence(ctx: "GateContext", raw: dict,
+                         digests: "dict | None" = None) -> list[str]:
     """S3: Verify tool execution evidence in gate result JSON.
+
+    When *digests* is supplied, every piece of evidence that PASSES验证 is
+    fingerprinted into it (Round 27 站3). The digest is taken here rather than
+    later because here is the only moment the evidence is known to exist and to
+    be genuine — taskq-plus's Gate 4 cites 13 tool_output paths under the
+    gitignored .sessi-work/, all of them gone now, while the verdict that read
+    them is committed and permanent.
 
     For dimensions with requires_tool_execution:true in the gate YAML config,
     the result JSON breakdown entry MUST include either:
@@ -994,9 +1002,13 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
                 except OSError as exc:
                     violations.append(f"{dim_name}: cannot read tool_output file: {exc}")
                     continue
-                violations.extend(
-                    _validate_tool_content(content, tool, dim_name, inline=False)
+                _content_problems = _validate_tool_content(
+                    content, tool, dim_name, inline=False
                 )
+                violations.extend(_content_problems)
+                if digests is not None and not _content_problems:
+                    from core.quality_gate.evidence_digest import digest_of_file
+                    digests[dim_name] = digest_of_file(out_path, source=str(tool_output))
         elif tool_evidence:
             evidence_str = str(tool_evidence).strip()
             if len(evidence_str) < 10:
@@ -1005,9 +1017,15 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict) -> list[str]:
                     f"({len(evidence_str)} chars) — must be real tool output snippet"
                 )
             else:
-                violations.extend(
-                    _validate_tool_content(evidence_str, tool, dim_name, inline=True)
+                _content_problems = _validate_tool_content(
+                    evidence_str, tool, dim_name, inline=True
                 )
+                violations.extend(_content_problems)
+                if digests is not None and not _content_problems:
+                    from core.quality_gate.evidence_digest import digest_of_text
+                    digests[dim_name] = digest_of_text(
+                        evidence_str, source="tool_evidence (inline)"
+                    )
         else:
             violations.append(
                 f"{dim_name}: requires tool execution but result JSON has neither "
@@ -2335,7 +2353,26 @@ class HarnessBridge:
         # S3-A (Solution A): content of those files/strings is also validated —
         # stub comments, files that are too small, and content that does not match
         # the expected tool output structure are all rejected.
-        _tool_violations = _check_tool_evidence(ctx, raw)
+        # Round 27 站3: fingerprint each piece of evidence as S3 clears it, and
+        # carry the fingerprints into the result below. The verdict and the proof
+        # of what it read then live in one file and one commit, and cannot be
+        # separated by a cleanup of the gitignored work directory.
+        _evidence_digests: dict = {}
+        _tool_violations = _check_tool_evidence(ctx, raw, _evidence_digests)
+        if _evidence_digests:
+            # Persist immediately, in the same shape the CRG enrichment below
+            # already uses (read → add field → atomic write): the digest is only
+            # true of the files as they are RIGHT NOW, and a later BLOCK on some
+            # other check must not throw away the record of what this run read.
+            try:
+                _gr = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(_gr, dict):
+                    _gr["evidence_digest"] = _evidence_digests
+                    _atomic_write_gate_result(result_path, _gr)
+                    raw["evidence_digest"] = _evidence_digests
+            except (OSError, json.JSONDecodeError) as _exc:
+                print(f"[WARN] could not record evidence digests: {_exc}",
+                      file=sys.stderr)
         if _tool_violations:
             raise GateBlockedError(
                 ctx.gate_num,

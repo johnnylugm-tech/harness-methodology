@@ -111,7 +111,7 @@ class TestUnreadableBundle:
         rc = cr_cmds.cmd_crash_triage(_args(tmp_path))
         assert rc == 0
         assert "no crash bundles found" in capsys.readouterr().out
-        ledger = tmp_path / ".sessi-work" / "degradations.jsonl"
+        ledger = tmp_path / ".methodology" / "degradations.jsonl"
         assert ledger.is_file()
         entry = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
         assert entry["component"] == "crash-triage"

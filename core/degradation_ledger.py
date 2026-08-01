@@ -22,7 +22,14 @@ import sys
 import time
 from pathlib import Path
 
-LEDGER_RELPATH = ".sessi-work/degradations.jsonl"
+# Round 27 站3: was ".sessi-work/degradations.jsonl". .sessi-work is gitignored
+# and is cleaned between phases, so the ledger did not survive the run it
+# described — taskq-plus's log holds 7 turn-budget exhaustions and the ledger
+# was simply absent afterwards, leaving no way to tell "nothing was written"
+# apart from "it was written and then removed". A cross-run audit record has to
+# outlive the work directory it was recording, so it lives beside the other
+# .methodology artefacts a consuming project commits.
+LEDGER_RELPATH = ".methodology/degradations.jsonl"
 
 # Warn once per (component, what) per process — a hot loop hitting the same
 # fallback shouldn't spam stderr once per iteration (same rationale as
