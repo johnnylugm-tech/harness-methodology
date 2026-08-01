@@ -192,11 +192,110 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
         r"Survived",
         r"stryker",
     ],
+    # ── Round 27 站1: the 15 tools that had no pattern at all ────────────────
+    # Without an entry here _validate_tool_content skips check 3 entirely, so any
+    # prose ≥ _TOOL_OUTPUT_MIN_BYTES that does not start with '#' passed as tool
+    # evidence. taskq-plus's Gate 4 shipped "NFR-08 satisfied contractually
+    # (harness surface exists)" and "dimension N/A per protocol" as the evidence
+    # for two dimensions on exactly this gap. `code-review-graph` is deliberately
+    # NOT listed: architecture is framework-owned (crg_independent computes it in
+    # finalize_gate), so a framework sentence IS its legitimate evidence.
+    "bandit": [
+        r'"results"',                  # -f json envelope
+        r'"issue_severity"',
+        r'"metrics"',
+        r"No issues identified",
+    ],
+    "pyright": [
+        r'"generalDiagnostics"',       # --outputjson envelope
+        r'"summary"',
+        r'"errorCount"',
+        r"\d+ errors?, \d+ warnings?",
+    ],
+    "pytest-benchmark": [
+        r"Name\s+\(time in ",          # benchmark table header
+        r"benchmark",
+        r"no tests ran",
+        r"\d+ passed",
+    ],
+    "pytest-cov-integration": [
+        r"\d+ passed",
+        r"TOTAL\s+\d+",
+        r"coverage:",
+        r"no tests ran",
+    ],
+    "import-linter": [
+        r"Contracts?:",                # "Contracts: 3 kept, 0 broken."
+        r"\d+ (kept|broken)",
+        r"lint-imports",
+        r"not found in project root",  # tool_runners' required_config_file message
+    ],
+    "system-verification": [
+        r"verify-system",              # the target's own name in make output
+        r"make(\[\d+\])?:",
+        r"exit=?\s*\d",
+    ],
+    # In-process AST/tree-sitter scanners (harness/lang_scanners/) emit a JSON
+    # object per dimension — same schema across languages, hence one pattern list
+    # shared by the python and js tool ids.
+    "ast-assertions": [r'"total"', r'"asserted"', r'"zero_assert"'],
+    "js-assertions": [r'"total"', r'"asserted"', r'"zero_assert"'],
+    "ast-error-handling": [r'"with_handler"', r'"no_handler"', r'"anti_patterns"'],
+    "js-error-handling": [r'"with_handler"', r'"no_handler"', r'"anti_patterns"'],
+    "ast-docstrings": [r'"documented"', r'"total"', r'"missing"', r"^\{\}$"],
+    "js-doc-coverage": [r'"documented"', r'"total"', r'"missing"', r"^\{\}$"],
+    "readability-v2": [r'"project_score"', r'"files"', r'"lloc"'],
+    "js-mi": [r'"project_score"', r'"files"', r'"lloc"'],
 }
+
+# Score provenance, written into the gate-result breakdown by S4.
+#
+# Round 27 站1: a `score: null` used to mean "nobody has to check this". Five
+# separate layers each waved it through — S4 skipped it, the weighted average
+# dropped it from the denominator (redistributing its weight onto the usually
+# perfect dimensions, so the composite went UP), and _all_dims_pass treated it as
+# vacuously satisfying its own floor. taskq-plus's Gate 4 evidence shows the agent
+# had found the door: "dimension N/A per protocol (not free 100)" — it knew a
+# claimed score gets cross-validated and picked the path that did not.
+#
+# None now means "the FRAMEWORK has to check". Only a None the framework itself
+# reproduced (SCORE_SOURCE_FRAMEWORK_NA) is a genuine not-applicable.
+SCORE_SOURCE_FRAMEWORK = "framework"
+SCORE_SOURCE_FRAMEWORK_NA = "framework_na"
+
+# Dimensions the framework scores itself inside finalize_gate (crg_independent /
+# community_cohesion) rather than by re-running the `tool:` named in the gate
+# YAML. S4 skips them, so they are also outside the set whose None the verdict
+# layer demands the framework verified — one definition for both readers.
+_CRG_OWNED_DIMENSIONS: frozenset[str] = frozenset({"architecture"})
+
+
+def na_is_framework_verified(dim_data: dict) -> bool:
+    """True when this dimension's absent score was reproduced by the framework.
+
+    The single predicate behind both the weighted average and the pass/fail
+    verdict, for the same reason `_effective_threshold` is single: two copies of
+    "is this None allowed" is two chances to drift apart.
+    """
+    return dim_data.get("score_source") == SCORE_SOURCE_FRAMEWORK_NA
+
+
+def _mark_framework_na(dim_entry: dict, tool: str, returncode: int) -> None:
+    """Record that the framework itself reproduced this dimension's absent score."""
+    dim_entry["score"] = None
+    dim_entry["score_source"] = SCORE_SOURCE_FRAMEWORK_NA
+    dim_entry["na_verified_by"] = f"{tool} (rc={returncode})"
 
 # Minimum byte size for a tool_output file to be considered non-stub.
 # Real tool output is always larger than this; pure comment lines are typically
 # under 80 bytes.
+#
+# Round 27 站1 considered raising this and did NOT: the shortest real output a
+# registered tool produces is `{}` / `[]` (2 bytes) — ast-docstrings with nothing
+# to document, ruff on a clean run — so any floor high enough to reject a prose
+# stub also rejects those. The check that actually rejects a stub is check 3, the
+# per-tool content pattern, which this round extended from 17 tools to 31 (every
+# tool except framework-owned code-review-graph).
 _TOOL_OUTPUT_MIN_BYTES: int = 5
 
 
@@ -1092,7 +1191,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     # architecture is scored by the framework's independent CRG run (community_cohesion)
     # inside finalize_gate, not by re-running a tool here. Its tool field is
     # `code-review-graph` (no inline scorer); skip it in cross-validation.
-    _crg_owned = {"architecture"}
+    _crg_owned = _CRG_OWNED_DIMENSIONS
 
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
@@ -1108,11 +1207,24 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                 dim_name, _language, yaml_tool=tool, test_runner=_test_runner
             ) or tool
 
-        agent_score = float(breakdown.get(dim_name, {}).get("score", 0))
+        # `dict.get(k, default)` only substitutes when the KEY is absent; an
+        # explicit JSON null surfaces as None. Round 27 站1: this used to go
+        # straight into float(), which raised TypeError out of finalize_gate —
+        # the call site has no try/except, so one null crashed the whole gate.
+        _dim_entry = breakdown.get(dim_name, {})
+        _raw_agent = _dim_entry.get("score")
+        agent_score: float | None = (
+            float(_raw_agent) if _raw_agent is not None else None
+        )
+        _agent_label = "N/A (agent)" if agent_score is None else f"{agent_score:.1f}"
 
         # Only cross-validate when the agent claims a passing score.
         # If the agent already reports FAIL, there is no fabrication concern.
-        if agent_score < threshold:
+        #
+        # A None is NOT a claim of failure — it is a claim that the dimension does
+        # not apply, and that claim is exactly what the framework has to check
+        # (see na_is_framework_verified). So it falls through to run_tool below.
+        if agent_score is not None and agent_score < threshold:
             continue
 
         output, returncode = run_tool(tool, ctx.project_root)
@@ -1123,7 +1235,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             audit_file.write_text(
                 f"# Harness-executed: {tool}\n"
                 f"# returncode: {returncode}\n"
-                f"# agent_score: {agent_score} | threshold: {threshold}\n\n"
+                f"# agent_score: {_agent_label} | threshold: {threshold}\n\n"
                 f"{output}\n",
                 encoding="utf-8",
             )
@@ -1138,7 +1250,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             _rc_label = _rc_labels.get(returncode, f"rc={returncode}")
             violations.append(
                 f"{dim_name}: tool '{tool}' {_rc_label} — harness cannot "
-                f"cross-validate agent_score={agent_score:.1f}. "
+                f"cross-validate agent_score={_agent_label}. "
                 f"Install '{tool}' so the harness can independently verify the score, "
                 f"or if the tool is genuinely unavailable, the dimension score must be "
                 f"set below threshold ({threshold:.0f}) to reflect that."
@@ -1196,7 +1308,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                 # _tpath is guaranteed to be assigned here: we are in the else-branch
                 # of `if _problem`, which is only reached when _tout was non-empty AND
                 # _tpath.exists() — the pyright possibly-unbound warning is a false positive.
-                if tool == "mutmut" and _tout:
+                if tool == "mutmut" and _tout and agent_score is not None:
                     _kill_rate = _extract_mutmut_kill_rate(
                         (_Path(ctx.project_root) / _tout).read_text(
                             encoding="utf-8", errors="replace"
@@ -1220,7 +1332,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             # a slow run is an exploitable fabrication path → block.
             violations.append(
                 f"{dim_name}: '{tool}' timed out during harness cross-validation — "
-                f"cannot verify agent score {agent_score:.1f}. A passing score must be "
+                f"cannot verify agent score {_agent_label}. A passing score must be "
                 f"independently reproducible; reduce tool runtime or fix the tool, then re-finalize."
             )
             continue
@@ -1239,15 +1351,36 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             # fabrication risk and BLOCK (no free pass for a missing suite). The message is
             # dimension-generic: exit 5 can come from any pytest-family tool (benchmark,
             # integration-cov, or pytest-cov when a conftest import fails).
+            if agent_score is None:
+                # …but an agent that declared N/A and a framework run that agrees is
+                # the one legitimate not-applicable: a project with no performance
+                # requirement genuinely has no benchmarks. It is recorded as
+                # framework-verified, so the verdict layer can tell it apart from an
+                # agent-authored null nobody checked.
+                _mark_framework_na(_dim_entry, tool, returncode)
+                print(f"  [S4] {dim_name}: agent declared N/A — framework ran "
+                      f"'{tool}' and also got no score (exit 5); recorded as "
+                      f"{SCORE_SOURCE_FRAMEWORK_NA}")
+                continue
             violations.append(
                 f"{dim_name}: '{tool}' collected no tests (exit 5) — a passing score for "
-                f"'{dim_name}' (agent={agent_score:.1f}) is unverifiable when its measuring "
+                f"'{dim_name}' (agent={_agent_label}) is unverifiable when its measuring "
                 f"suite does not exist or fails to import. Add/repair the suite, then re-finalize."
             )
             continue
 
         harness_score = compute_tool_score(tool, output, returncode)
         if harness_score is None:
+            if agent_score is None:
+                # Same reasoning as the exit-5 branch: the framework ran the tool
+                # and it too produced no number, so the dimension really is not
+                # applicable — and now it says so with the framework's own run
+                # behind it rather than the agent's word.
+                _mark_framework_na(_dim_entry, tool, returncode)
+                print(f"  [S4] {dim_name}: agent declared N/A — framework ran "
+                      f"'{tool}' and also got no score; recorded as "
+                      f"{SCORE_SOURCE_FRAMEWORK_NA}")
+                continue
             # readability (radon-mi) returns None only when there is NO analysable
             # source (radon availability is already gated by S2 tool_checks.verify_gate_tools).
             # A passing readability score with nothing to analyse is unverifiable.
@@ -1255,7 +1388,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                 violations.append(
                     f"readability: '{tool}' produced no analysable maintainability score "
                     f"(no source files to analyse) — cannot verify agent score "
-                    f"{agent_score:.1f}. A passing readability score requires analysable "
+                    f"{_agent_label}. A passing readability score requires analysable "
                     f"code; add it, then re-finalize."
                 )
             # Other dimensions returning None mean the harness could not re-score
@@ -1263,16 +1396,38 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             # fabrication. Skip rather than falsely blocking the gate (origin behaviour).
             continue
 
+        if agent_score is None:
+            # The agent said "not applicable"; the framework ran the tool and got a
+            # number. The dimension applies after all, and the number the verdict
+            # uses is the one the framework measured. finalize_gate builds its
+            # DimResult list from raw["breakdown"] further down this same function,
+            # so writing back here is what puts it in front of the verdict.
+            #
+            # Deliberately NOT reported as fabrication: the agent made no claim of
+            # passing, so there is nothing it faked. If the framework's number is
+            # below threshold, the ordinary per-dimension floor blocks it — routing
+            # a non-claim through the fabrication path would misname the failure
+            # (the Round 13 辨源 principle).
+            _dim_entry["score"] = harness_score
+            _dim_entry["score_source"] = SCORE_SOURCE_FRAMEWORK
+            _dim_entry.setdefault(
+                "tool_output",
+                str(audit_file.relative_to(_Path(ctx.project_root))),
+            )
+            print(f"  [S4] {dim_name}: agent declared N/A — framework ran '{tool}' "
+                  f"and scored {harness_score:.1f}; using the framework's score")
+            continue
+
         print(
             f"  [S4] {dim_name}: harness={harness_score:.1f} | "
-            f"agent={agent_score:.1f} | threshold={threshold}"
+            f"agent={_agent_label} | threshold={threshold}"
         )
 
         if harness_score < threshold:
             violations.append(
                 f"{dim_name}: fabrication detected — "
                 f"harness ran '{tool}' and scored {harness_score:.1f} "
-                f"(below threshold {threshold}), but agent reported {agent_score:.1f} "
+                f"(below threshold {threshold}), but agent reported {_agent_label} "
                 f"(above threshold). "
                 f"See {audit_file.relative_to(_Path(ctx.project_root))}"
             )
@@ -2557,19 +2712,61 @@ class HarnessBridge:
             """
             return float(_dim_thresholds.get(d.name) or d.threshold or _gt)
 
-        # "Excluded — not yet applicable" (comment above) means a None-scored dim
-        # must not be REQUIRED to prove it passed; `d.score is None or ...` treats
-        # it as vacuously satisfying its own per-dim floor, matching how it's
-        # already excluded from the weighted/simple composite average above.
-        _all_dims_pass = all(
-            d.score is None or d.score >= _effective_threshold(d)
-            for d in dims
-        ) if dims else False  # empty dims = no evidence = not complete
+        # A None-scored dim is "not applicable" and so cannot be REQUIRED to prove
+        # it passed — but Round 27 站1: WHOSE None?
+        #
+        # This used to be a bare `d.score is None or ...`, which let the party being
+        # scored decide it was exempt. S4 above now resolves every agent-authored
+        # null first (running the tool itself and either writing back a real score
+        # or marking it framework_na), so the only Nones that should reach here are
+        # ones the framework reproduced, plus the framework-owned dimensions that
+        # never go through S4 at all (requires_tool_execution: false — traceability,
+        # adversarial_review — whose scores the framework patches in itself).
+        #
+        # Reading score_source rather than trusting that ordering keeps the check
+        # honest if S4 is ever skipped: an unverified null then fails its floor
+        # instead of silently satisfying it.
+        #
+        # Scope is deliberately narrow — ONLY the dimensions S4 can actually
+        # verify (this gate's config declares them AND they name a tool AND they
+        # require tool execution). A None for anything else stays a vacuous pass,
+        # because the framework has no way to check it and being strict where it
+        # cannot check is how a Gate 3 agent was once pushed into fabricating a
+        # performance score (test_finalize_gate_null_breakdown_score_does_not_block).
+        # Too lax lets a declared N/A through unchecked; too strict manufactures
+        # the fabrication it is trying to prevent. The verifiable set is the line
+        # between them.
+        _framework_na_dims = {
+            _name for _name, _entry in raw.get("breakdown", {}).items()
+            if isinstance(_entry, dict) and na_is_framework_verified(_entry)
+        }
+        _cfg_dims = (
+            ctx.config.get("dimensions", []) if isinstance(ctx.config, dict)
+            else [dataclasses.asdict(x) for x in ctx.config.dimensions]
+        )
+        _s4_verifiable = {
+            _d.get("name") for _d in _cfg_dims
+            if _d.get("requires_tool_execution", False) and _d.get("tool")
+            and _d.get("name") not in _CRG_OWNED_DIMENSIONS
+        }
+
+        def _dim_passes(d: DimResult) -> bool:
+            if d.score is not None:
+                return d.score >= _effective_threshold(d)
+            if d.name not in _s4_verifiable:
+                return True  # framework cannot check it — see the note above
+            return d.name in _framework_na_dims
+
+        _all_dims_pass = all(_dim_passes(d) for d in dims) \
+            if dims else False  # empty dims = no evidence = not complete
         _quality_complete = _overall_score >= _gt and _all_dims_pass
 
         if not _all_dims_pass and dims:
             _failing = [f"{d.name}={d.score:.1f}" for d in dims
                         if d.score is not None and d.score < _effective_threshold(d)]
+            _unverified_na = [d.name for d in dims if not _dim_passes(d) and d.score is None]
+            if _unverified_na:
+                _failing += [f"{n}=N/A (unverified)" for n in _unverified_na]
             print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
 
         result = GateResult(

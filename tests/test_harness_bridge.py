@@ -354,6 +354,72 @@ class TestFinalizeGate:
         perf = next(d for d in result.dimensions if d.name == "performance")
         assert perf.score is None  # preserved, not coerced to 0.0
 
+    def test_finalize_gate_blocks_an_unverified_declared_na(self, tmp_path):
+        """Round 27 站1, the other side of the test above.
+
+        There, `performance` was absent from the gate config — the framework has
+        no tool for it and cannot check, so its None stays a vacuous pass (being
+        strict where it cannot check is what once pushed an agent into fabricating
+        a score). HERE the gate config declares it WITH a tool and
+        requires_tool_execution, which is exactly the case S4 resolves: it runs
+        the tool itself and stamps score_source. A null that arrives at the verdict
+        with no such stamp was checked by nobody, and must not satisfy its floor.
+
+        taskq-plus's Gate 4 shipped precisely this shape — mutation_testing and
+        performance both null, both with only agent prose behind them — and passed
+        at 98.707.
+        """
+        config = {"score_gate": 80.0, "dimensions": [
+            {"name": "linting", "threshold": 75.0},
+            {"name": "performance", "threshold": 75.0,
+             "tool": "pytest-benchmark", "requires_tool_execution": True},
+        ]}
+        ctx = self._make_context(tmp_path, gate_num=3, config=config)
+        self._write_result(ctx, {
+            "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {
+                "linting": {"score": 90.0, "threshold": 75.0},
+                # No score_source: nothing verified this.
+                "performance": {"score": None, "threshold": 75.0},
+            },
+        })
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    with pytest.raises(GateBlockedError):
+                        bridge.finalize_gate(ctx)
+
+    def test_finalize_gate_accepts_a_framework_verified_na(self, tmp_path):
+        """The same shape, once S4 has stamped it, passes.
+
+        This is the pair to the test above: the difference between blocked and
+        allowed is who established that the dimension does not apply.
+        """
+        config = {"score_gate": 80.0, "dimensions": [
+            {"name": "linting", "threshold": 75.0},
+            {"name": "performance", "threshold": 75.0,
+             "tool": "pytest-benchmark", "requires_tool_execution": True},
+        ]}
+        ctx = self._make_context(tmp_path, gate_num=3, config=config)
+        self._write_result(ctx, {
+            "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {
+                "linting": {"score": 90.0, "threshold": 75.0},
+                "performance": {"score": None, "threshold": 75.0,
+                                "score_source": "framework_na",
+                                "na_verified_by": "pytest-benchmark (rc=5)"},
+            },
+        })
+        bridge = HarnessBridge()
+        with patch.object(bridge, "_update_quality_manifest"):
+            with patch.object(bridge, "_log"):
+                with patch.object(bridge, "_effort"):
+                    result = bridge.finalize_gate(ctx)
+        assert result.quality_complete is True
+
     def test_finalize_gate_da_waiver_branch_excludes_none_score(self, tmp_path):
         """The DA-waiver `_eff_qc` recompute (a second copy of the all-dims-pass
         predicate, gated behind `if da_waivers`) has the same None-vs-fail bug

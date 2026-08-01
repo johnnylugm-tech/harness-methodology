@@ -90,7 +90,16 @@ _LINE_CEILING: dict[str, int] = {
     # coverage/security/etc. floor was silently discarded whenever the gate
     # YAML also declared that dimension (i.e. every real gate run) — see
     # test_finalize_gate_override_not_discarded_when_yaml_declares_dimension.
-    "harness/harness_bridge.py": 3218,
+    # 2026-08-01: +197 lines — Round 27 站1: an agent-reported `score: null` was
+    # a free pass through five separate layers (S4 skipped it, the weighted
+    # average dropped it from the denominator, _all_dims_pass treated it as
+    # vacuously satisfying its own floor, and 15 of 32 tools had no content
+    # pattern so any prose passed as evidence). None now means "the framework
+    # must check": S4 runs the tool itself and either writes back a real score
+    # or marks it framework_na. Most of the growth is the 14 new
+    # _TOOL_CONTENT_PATTERNS entries and the comments recording which taskq-plus
+    # Gate 4 evidence each layer let through.
+    "harness/harness_bridge.py": 3415,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

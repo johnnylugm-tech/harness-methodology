@@ -922,6 +922,141 @@ class TestHarnessCrossValidation:
         assert "linting" in violations[0]
 
 
+class TestAgentNullIsNotFree:
+    """Round 27 站1 — an agent-reported ``score: null`` is not a free pass.
+
+    The tests above already close "agent claims a passing score the tool cannot
+    confirm" (test_no_benchmark_blocks, test_readability_no_source_blocks). What
+    was still open is the door beside it: declare the dimension INAPPLICABLE and
+    every layer waves it through — S4 skipped it, the weighted average dropped it
+    from the denominator (redistributing its weight to the usually-perfect
+    dimensions, so the composite went UP), and _all_dims_pass treated it as
+    vacuously satisfying its own floor.
+
+    taskq-plus's Gate 4 shows the agent had worked this out: the `performance`
+    evidence reads "dimension N/A per protocol (**not free 100**)" — it knew a
+    claimed score would be cross-validated and picked the door that was not.
+
+    The fix inverts the meaning of None: instead of "nobody has to check", it is
+    "the FRAMEWORK has to check". Only a None the framework itself reproduced
+    counts as genuinely not-applicable.
+
+    Borrows the two fixture builders above rather than subclassing — inheriting
+    would re-run all of TestHarnessCrossValidation's cases under a second name.
+    """
+
+    _make_ctx = staticmethod(TestHarnessCrossValidation._make_ctx)
+    _make_gate_yaml = staticmethod(TestHarnessCrossValidation._make_gate_yaml)
+
+    def test_agent_null_does_not_crash_the_gate(self, tmp_path):
+        """`float(None)` used to raise TypeError out of finalize_gate.
+
+        `breakdown.get(name, {}).get("score", 0)` substitutes the 0 default only
+        when the KEY is absent; an explicit JSON null surfaces as None and went
+        straight into float(). The call site has no try/except (ancestor chain is
+        finalize_gate alone), so a single null crashed the whole gate.
+        """
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "performance", "requires_tool_execution": True,
+             "tool": "pytest-benchmark", "threshold": 75},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"performance": {
+            "score": None,
+            "tool_evidence": "No pytest-benchmark tests exist — dimension N/A per protocol",
+        }}}
+
+        with patch("harness.tool_runners.run_tool", return_value=("no benchmarks ran", 5)):
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+
+        assert isinstance(violations, list)
+
+    def test_agent_null_makes_the_framework_run_the_tool(self, tmp_path):
+        """A declared N/A is a request for verification, not an exemption."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
+             "threshold": 90},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"linting": {"score": None,
+                                         "tool_evidence": "not applicable here"}}}
+
+        with patch("harness.tool_runners.run_tool", return_value=("[]", 0)) as mock_run:
+            _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+
+        mock_run.assert_called_once()
+
+    def test_framework_score_replaces_the_agents_null(self, tmp_path):
+        """When the framework CAN score it, the dimension is applicable after all.
+
+        The framework's number is written back into the breakdown (finalize_gate
+        builds its DimResult list from `raw["breakdown"]` further down the same
+        function), so the score that reaches the verdict is the one the framework
+        measured — not the absence the agent reported.
+        """
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
+             "threshold": 90},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"linting": {"score": None, "tool_evidence": "n/a"}}}
+
+        with patch("harness.tool_runners.run_tool", return_value=("[]", 0)):
+            _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+
+        entry = raw["breakdown"]["linting"]
+        assert entry["score"] == 100.0
+        assert entry["score_source"] == "framework"
+
+    def test_framework_null_too_is_the_only_real_na(self, tmp_path):
+        """pytest-benchmark with no benchmarks is a LEGITIMATE N/A — but only
+        because the framework reproduced it, and it is labelled as such.
+
+        Note exit 5 is a POSITIVE return code, so `rc < 0` cannot be the test for
+        "unscoreable" — `_score_pytest_benchmark` returns None on rc==5. The
+        判準 is "the framework ran it and still got no number".
+        """
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        self._make_gate_yaml(tmp_path, 4, [
+            {"name": "performance", "requires_tool_execution": True,
+             "tool": "pytest-benchmark", "threshold": 75},
+        ])
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"performance": {"score": None, "tool_evidence": "n/a"}}}
+
+        with patch("harness.tool_runners.run_tool",
+                   return_value=("no benchmarks ran", 5)):
+            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+
+        assert violations == []
+        entry = raw["breakdown"]["performance"]
+        assert entry["score"] is None
+        assert entry["score_source"] == "framework_na"
+
+    def test_only_a_framework_verified_na_passes_vacuously(self):
+        """The verdict layer must distinguish the two kinds of None.
+
+        `_all_dims_pass` reads this predicate rather than `d.score is None`, so an
+        agent-authored null can no longer satisfy its own floor by being absent.
+        """
+        from harness.harness_bridge import na_is_framework_verified
+
+        assert na_is_framework_verified({"score": None, "score_source": "framework_na"})
+        assert not na_is_framework_verified({"score": None})
+        assert not na_is_framework_verified({"score": None, "score_source": "agent"})
+
+
 # ---------------------------------------------------------------------------
 # tool_runners: unit tests for score computation
 # ---------------------------------------------------------------------------
