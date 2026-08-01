@@ -19,7 +19,7 @@
 
 ### Phase 4 Overview
 Phase 4 formulates and executes a complete test plan based on Phase 3 code.
-Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (15 dims).
+Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (16 dims).
 
 > **Crash Recovery**: `python3 harness_cli.py resume-fr-phase --phase 4 --project .`
 > prints the next pending step. Each `run-fr-step` auto-pushes to GitHub on completion.
@@ -180,7 +180,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 
 
 ### 🔒 CHECKPOINT-GATE-3: Phase 4 Exit
-> linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100) · composite ≥ 80  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]
+> linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100) · composite ≥ 80  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]
 > HR-08: Phase end requires Quality Gate pass — never advance past a failing gate (max 3 retry rounds, then escalate).
 > _Design note_: HR-08 only appears in P3-P6 (Gate 2/3/4 exits). P5/P7/P8 have no gate-exit checkpoint so HR-08 is correctly absent from those plans.
 
@@ -313,7 +313,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 - `04-testing/COVERAGE_REPORT.md` - Coverage report
 - [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (non-blocking debug trail)
 - Gate 1 PASS for every FR
-- Gate 3 PASS (phase exit, composite ≥ 80, 15 dims)
+- Gate 3 PASS (phase exit, composite ≥ 80, 16 dims)
 
 ### Phase 4 → Phase 5: Verification & Delivery
 
