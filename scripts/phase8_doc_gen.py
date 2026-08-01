@@ -34,6 +34,7 @@ from string import Template
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))  # repo root for core imports
 
+from core.quality_gate import min_coverage_floor  # noqa: E402
 from core.utils.project_layout import ProjectLayout  # noqa: E402
 
 
@@ -84,7 +85,7 @@ def _collect(project: Path) -> dict:
         "phase_truth_passed": state.get("phase_truth_passed", False),
         "frs": frs,
         "fr_summary": ", ".join(f["id"] for f in frs) or "(none)",
-        "min_coverage": (manifest.get("quality_targets", {}) or {}).get("min_coverage", 80),
+        "min_coverage": min_coverage_floor(manifest),
     }
 
 

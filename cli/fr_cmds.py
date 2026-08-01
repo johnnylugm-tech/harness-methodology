@@ -801,15 +801,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     # number (not the agent's possibly-fabricated 66.0) so
                     # the operator knows the actual delta.
                     elif fix_step_name == "COVERAGE-FIX":
-                        # Read min_coverage from manifest (default 80.0,
-                        # same default _check_gate1_live_coverage uses).
+                        from core.quality_gate import min_coverage_floor
                         _mfst = load_quality_manifest(Path(str(project)), lenient=True)
-                        try:
-                            _cov_min = float(
-                                (_mfst.get("quality_targets") or {})
-                                .get("min_coverage", 80.0))
-                        except (ValueError, TypeError):
-                            _cov_min = 80.0
+                        _cov_min = min_coverage_floor(_mfst)
                         try:
                             _live_cov = gate1_evidence.validate_fr_coverage_immediate(
                                 Path(str(project)))

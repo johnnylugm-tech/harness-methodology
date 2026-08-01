@@ -1126,9 +1126,8 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
             set(_manifest_data.get("fr_non_code", []))
             | set(_manifest_data.get("fr_non_python", []))
         )
-        _cov_threshold = int(
-            _manifest_data.get("quality_targets", {}).get("min_coverage", 80)
-        )
+        from core.quality_gate import min_coverage_floor
+        _cov_threshold = int(min_coverage_floor(_manifest_data))
 
         from core.utils.lang_patterns import project_language as _proj_lang
         _language = _proj_lang(Path(project))

@@ -172,3 +172,69 @@ def test_load_context_cli_injects_recalled_lessons(tmp_path: Path) -> None:
         capture_output=True, text=True, cwd=_REPO, timeout=120,
     )
     assert "mutation 55 below 70 in boundary" in r.stdout, r.stdout[-1500:]
+
+
+class TestRecallHappensWhereFailureHappens:
+    """Round 27 站5a — the recall exists, is wired, and fires at the wrong moment.
+
+    `load-context --phase N` calls recall_lessons once at phase entry and drops
+    the text into phase{N}_ctx.json for the entry agent. Two things follow from
+    that being the ONLY call site:
+
+      * entering Phase 3 the lessons directory is empty, so the lessons that
+        phase produces reach nobody until Phase 4 opens;
+      * the call passes no `dimension`, so _relevance's +2 for a dimension match
+        never fires.
+
+    Failure is per-FR and per-dimension. One run recorded 23 test_coverage blocks
+    across five phases, several on the same FR twice running, each fix dispatched
+    knowing nothing about the last.
+    """
+
+    def test_the_fix_prompt_carries_what_already_failed_here(self, tmp_path):
+        from core.lessons import Lesson, record_lesson
+        from cli.fr_prompts.fix import build_code_fix_prompt
+
+        record_lesson(tmp_path, Lesson(
+            source="gate-block", phase=3, dimension="test_coverage",
+            fr_ids=["FR-05"],
+            failure_mode="test_coverage scored 93.0, needs 100.0 (gap 7.0)",
+            fix="Run pytest --cov to find uncovered lines; add unit tests per gap",
+        ))
+        prompt = build_code_fix_prompt(
+            "FR-05", 3, tmp_path, tmp_path / "SRS.md",
+            "tests/test_fr05.py", "src", failing_dims=["test_coverage 93.0 < 100.0"],
+        )
+        assert "Known failure modes from past runs" in prompt
+        assert "scored 93.0" in prompt
+
+    def test_an_unrelated_lesson_is_not_pulled_in(self, tmp_path):
+        """recall_lessons is relevance-gated, so this cannot pad the prompt."""
+        from core.lessons import Lesson, record_lesson
+        from cli.fr_prompts.fix import build_code_fix_prompt
+
+        record_lesson(tmp_path, Lesson(
+            source="gate-block", phase=3, dimension="linting", fr_ids=["FR-99"],
+            failure_mode="ruff found 3 violations", fix="run ruff --fix",
+        ))
+        prompt = build_code_fix_prompt(
+            "FR-05", 3, tmp_path, tmp_path / "SRS.md",
+            "tests/test_fr05.py", "src", failing_dims=["test_coverage 93.0 < 100.0"],
+        )
+        assert "ruff found 3 violations" not in prompt
+
+    def test_no_lessons_yet_is_silent(self, tmp_path):
+        from cli.fr_prompts.fix import build_code_fix_prompt
+        prompt = build_code_fix_prompt(
+            "FR-05", 3, tmp_path, tmp_path / "SRS.md",
+            "tests/test_fr05.py", "src", failing_dims=["test_coverage 93.0 < 100.0"],
+        )
+        assert "Known failure modes" not in prompt
+
+    def test_dimension_is_passed_so_relevance_can_use_it(self, tmp_path):
+        """The +2 dimension bonus in _relevance was unreachable from the only
+        production call site, which passes fr_ids and a limit and nothing else."""
+        import inspect
+        from cli.fr_prompts import _shared
+        src = inspect.getsource(_shared._past_failures_block)
+        assert "dimension=dimension" in src

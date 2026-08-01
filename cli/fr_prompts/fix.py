@@ -9,7 +9,7 @@ from core.phase_hooks import (
 from core.state_io import load_quality_manifest
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
 
-from cli.fr_prompts._shared import _compute_fr_spec_data
+from cli.fr_prompts._shared import _compute_fr_spec_data, _past_failures_block
 
 
 def build_test_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, src_dir: str, tool_snapshot: str | None = None) -> str:
@@ -326,12 +326,22 @@ def build_code_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path,
             f"{tool_snapshot}\n\n"
         )
 
+    # Round 27 站5a: what already failed here, recalled at the moment of the fix
+    # rather than only at phase entry — and keyed on the dimension that blocked,
+    # which the phase-entry recall never passes.
+    _past = _past_failures_block(
+        project, fr_id,
+        dimension=(str(failing_dims[0]).split()[0].lower() if failing_dims else None),
+    )
+    past_section = f"\n{_past}\n\n" if _past else ""
+
     return (
         f"You are a code fixer. Gate 1 FAILED for {fr_id}. Fix the failing dimensions.\n\n"
         f"[FORBIDDEN — read before anything else]\n"
         f"{forbidden}\n\n"
         f"[FAILING DIMENSIONS]\n"
         f"{dims_str}\n"
+        f"{past_section}"
         f"{test_cov_section}"
         f"{snapshot_section}"
         f"{gap}"

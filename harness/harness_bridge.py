@@ -2779,6 +2779,25 @@ class HarnessBridge:
         # Too lax lets a declared N/A through unchecked; too strict manufactures
         # the fabrication it is trying to prevent. The verifiable set is the line
         # between them.
+        # Round 27 站5 investigated settling every d.threshold to
+        # _effective_threshold here, so that core/quality_gate/block_reason.py —
+        # which renders "X scored 98.9, needs {d.threshold}" — would quote the
+        # number that actually judged. The diagnosis holds: a project whose SAB
+        # set quality_targets.min_coverage to 100 produced 23 gate-block lessons
+        # all reading "needs 100.0" while this gate's YAML threshold for
+        # test_coverage was 80, and the two agreeing by coincidence is what kept
+        # it invisible.
+        #
+        # The change was reverted. test_finalize_gate_override_is_floor_not_ceiling
+        # caught it: _effective_threshold prefers _dim_thresholds (which the
+        # gate_score_overrides mirror above writes into) over d.threshold, so
+        # overwriting d.threshold with it LOWERS an agent-set 90 to an
+        # override-set 80 — the floor becoming a ceiling, the exact thing that
+        # test exists to prevent. Making it right means _effective_threshold
+        # taking a max across the three sources instead of first-truthy-wins,
+        # which changes how strictly every Gate 1 judges. That is a bigger,
+        # separate decision than this station. Recorded in
+        # docs/PROPOSAL_ADJUDICATIONS.md as R27-DEFER-1.
         _framework_na_dims = {
             _name for _name, _entry in raw.get("breakdown", {}).items()
             if isinstance(_entry, dict) and na_is_framework_verified(_entry)

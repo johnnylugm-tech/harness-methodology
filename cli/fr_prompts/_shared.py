@@ -8,6 +8,38 @@ from core.quality_gate.spec_coverage import _parse_test_spec
 from core.utils.project_layout import ProjectLayout
 
 
+def _past_failures_block(project: Path, fr_id: str, dimension: str | None = None) -> str:
+    """Lessons from earlier gate blocks on this FR and dimension, for a fix prompt.
+
+    Round 27 站5a. The recall machinery has always existed and always been wired,
+    but only in one place and at one moment: `load-context --phase N` calls
+    `recall_lessons(project, fr_ids=..., limit=5)` once at phase entry, drops the
+    text into `phase{N}_ctx.json`, and the workflow's "Direction C (past lessons)"
+    step tells the entry agent to read it.
+
+    Two consequences, both measurable in a real run. Entering Phase 3 the lessons
+    directory is empty — nothing has been blocked yet — so the fifteen lessons that
+    phase goes on to produce reach nobody until Phase 4 opens. And the call passes
+    no `dimension`, so `_relevance`'s +2 for a dimension match never fires and the
+    limit-5 window is filled by FR overlap and recency alone.
+
+    Failure is per-FR and per-dimension: one run recorded 23 test_coverage blocks
+    across five phases, several on the same FR twice in a row, each time telling
+    the fixer nothing about the last one. This block closes that by recalling at
+    the moment a fix is dispatched, with the dimension that blocked.
+
+    Empty string when nothing is relevant — `recall_lessons` is relevance-gated
+    (score 0 is never returned), so this cannot pad a prompt with noise.
+    """
+    try:
+        from core.lessons import format_lessons_block, recall_lessons
+        return format_lessons_block(
+            recall_lessons(project, fr_ids=[fr_id], dimension=dimension, limit=3)
+        )
+    except Exception:  # pragma: no cover — recall must never break a fix dispatch
+        return ""
+
+
 def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
     """Extract a single FR's full markdown section from SRS.md.
 

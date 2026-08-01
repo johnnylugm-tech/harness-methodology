@@ -13,6 +13,40 @@ from datetime import datetime, timezone
 from typing import Any  # noqa: F401 — may be used by derived classes
 
 
+# The project's own line-coverage floor, from the SAB's quality_targets.
+#
+# Round 27 站5. Four call sites read this independently — cli/phase_cmds.py,
+# cli/gate_cmds.py, cli/fr_cmds.py and scripts/phase8_doc_gen.py — each with its
+# own default, its own coercion (float / int / float-in-a-try) and its own idea
+# of what a malformed value means. Same key, four readings.
+#
+# What it is NOT: the `test_coverage` threshold in the gate YAML. That number
+# drives finalize_gate's per-dimension verdict; THIS one drives the live
+# coverage check Gate 1 runs against the FR's own code. A run where both happen
+# to be present makes the two indistinguishable in the output — a project whose
+# quality_targets said 100 produced 23 gate-block lessons all reading
+# "test_coverage scored 98.9, needs 100.0" while the gate YAML's threshold for
+# that dimension was 80, and nothing in the message said which number had
+# actually blocked, or that they were different numbers from different files.
+DEFAULT_MIN_COVERAGE: float = 80.0
+
+
+def min_coverage_floor(manifest: "dict | None") -> float:
+    """The project's declared line-coverage floor, or the framework default.
+
+    A malformed value falls back rather than raising: this feeds a threshold
+    comparison, and a typo in quality_targets should not crash a gate. It is a
+    FLOOR — callers compare `measured >= floor`.
+    """
+    try:
+        raw = (manifest or {}).get("quality_targets", {}).get(
+            "min_coverage", DEFAULT_MIN_COVERAGE
+        )
+        return float(raw)
+    except (AttributeError, TypeError, ValueError):
+        return DEFAULT_MIN_COVERAGE
+
+
 @dataclass
 class Violation:
     check_type: str

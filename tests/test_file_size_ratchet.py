@@ -107,7 +107,13 @@ _LINE_CEILING: dict[str, int] = {
     # gate result. taskq-plus's Gate 4 cites 13 tool_output paths under the
     # gitignored .sessi-work/, all gone now, while the verdict that read them is
     # committed — the judgement was version-controlled and its evidence was not.
-    "harness/harness_bridge.py": 3458,
+    # 2026-08-01: +19 lines — Round 27 站5: a reverted change, kept as a comment.
+    # Settling d.threshold to _effective_threshold would have made block_reason
+    # quote the number that judged; it also turns gate_score_overrides' floor
+    # into a ceiling, which test_finalize_gate_override_is_floor_not_ceiling
+    # caught. The note is longer than the line it replaces because the next
+    # reader needs to know the diagnosis stands and only the fix was withdrawn.
+    "harness/harness_bridge.py": 3477,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph

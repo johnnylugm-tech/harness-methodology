@@ -2606,10 +2606,8 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
     if not fr_ids_manifest:
         return 0  # Non-FR project or unreadable manifest — skip
 
-    # Read min_coverage from manifest, default 80.0 (matches _check_fr_test_step).
-    _min_cov = float(
-        manifest.get("quality_targets", {}).get("min_coverage", 80.0)
-    )
+    from core.quality_gate import min_coverage_floor
+    _min_cov = min_coverage_floor(manifest)
 
     # DELTA-phase auto-skip: P4/P5/P7/P8 re-run Gate 1 as a delta check. When
     # NO FR's code has changed since its last Gate 1 PASS, the per-FR DELTA
