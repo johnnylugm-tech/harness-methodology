@@ -64,7 +64,16 @@ before writing the capture code, not assumed from training knowledge —
 `duration_seconds`), and `server_tool_use`/`modelUsage`/etc. are out of
 scope (no current consumer).
 
-### `.sessi-work/degradations.jsonl`
+### `.methodology/degradations.jsonl`
+
+**Round 27 站3 moved this out of `.sessi-work/.`** That directory is gitignored
+and is cleaned between phases, so the ledger did not survive the run it
+described: a measured run logged seven turn-budget exhaustions and the ledger
+was simply absent afterwards — leaving no way to tell "never written" from
+"written, then cleaned", which is the one question a ledger exists to answer. A
+cross-run audit record has to outlive the work directory it records.
+`LEDGER_RELPATH` in `core/degradation_ledger.py` is the single source; nothing
+else should spell the path out.
 
 One JSON object per line, written by
 `core/degradation_ledger.record_degradation(project, component, what, why)`
@@ -141,6 +150,15 @@ What it reports, per section:
   (`cost_entries_with_data` / `cost_entries_total`) alongside the total so
   a log mixing pre- and post-station-0 entries never silently reads as
   zero cost.
+- **Gate provenance**: per gate, the finalized verdict, composite and
+  `enforcer_sha` — plus, since **Round 27 站3**, how many of that verdict's
+  dimensions carry an `evidence_digest`, and an explicit WARN when the enforcer
+  ends in `-dirty` (a verdict produced from an uncommitted tree corresponds to
+  no commit and cannot be reproduced). A `0/N` line means the verdict cannot be
+  re-checked: its evidence normally lives under the gitignored `.sessi-work/`
+  and does not survive the run. Measured on a completed project, all four gates
+  read `0/N` and one enforcer was `-dirty` — the finding printed by the tool
+  rather than argued in prose.
 - **Degradations**: total count, grouped by `(component, what)`.
 - **Crash bundles**: total count, untriaged count (prompts
   `crash-triage --open-cr` when non-zero).

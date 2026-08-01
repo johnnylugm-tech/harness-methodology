@@ -625,3 +625,71 @@
 - test: tests/test_workflow_js_conventions.py::test_the_wrapper_records_before_it_rethrows
   bug: "a dead sub-agent cannot log itself; if the wrapper's catch block stops recording, failed dispatches vanish from the population again"
   fixed_in: "10f7a46"
+
+- test: tests/test_anti_fabrication.py::TestAgentNullIsNotFree::test_only_a_framework_verified_na_passes_vacuously
+  bug: "an agent-authored `score: null` was waved through by five layers at once — S4 skipped it, the weighted average dropped it from the denominator (raising the composite), and _all_dims_pass treated it as vacuously satisfying its own floor; the evidence for it read 'dimension N/A per protocol (not free 100)', i.e. the agent knew a claimed score gets cross-validated and picked the door that did not"
+  fixed_in: "575e70b"
+
+- test: tests/test_anti_fabrication.py::TestAgentNullIsNotFree::test_agent_null_does_not_crash_the_gate
+  bug: "float(breakdown[...].get('score', 0)) on an explicit JSON null raised TypeError out of finalize_gate — the call site has no try/except, so one null crashed the whole gate"
+  fixed_in: "575e70b"
+
+- test: tests/test_anti_fabrication.py::TestAgentNullIsNotFree::test_framework_null_too_is_the_only_real_na
+  bug: "a legitimate N/A (pytest-benchmark with no benchmarks, exit 5) must stay possible — being strict where the framework cannot check is what once pushed a Gate 3 agent into fabricating a performance score"
+  fixed_in: "575e70b"
+
+- test: tests/test_anti_fabrication.py::TestToolEvidenceContentValidation::test_every_registered_tool_has_a_content_pattern
+  bug: "17 of 32 registered tools had no entry in _TOOL_CONTENT_PATTERNS, so _validate_tool_content skipped its structural check entirely and any prose over 10 characters passed as tool evidence"
+  fixed_in: "575e70b, 1512314"
+
+- test: tests/test_anti_fabrication.py::TestToolEvidenceContentValidation::test_prose_is_not_tool_evidence
+  bug: "'NFR-08 satisfied contractually (harness surface exists)' and 'dimension N/A per protocol' shipped as the tool evidence for two Gate 4 dimensions"
+  fixed_in: "1512314"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_finalize_gate_blocks_an_unverified_declared_na
+  bug: "a null with no score_source reaching the verdict was checked by nobody and still satisfied its per-dimension floor"
+  fixed_in: "575e70b"
+
+- test: tests/test_sab_parser.py::TestNfrTraceability::test_per_nfr_dimension_field_beats_the_type_guess
+  bug: "a spec's own `dimension:` for an NFR had no route into the parser (the P2 prompt ordered the agent to leave nfr_dimension_mapping empty and no per-entry field existed), so a five-pair keyword table decided instead and got 6 of 12 mappings wrong"
+  fixed_in: "8241707"
+
+- test: tests/test_sab_parser.py::TestNfrTraceability::test_a_dimension_that_does_not_exist_is_refused
+  bug: "a dimension name no gate scores was silently dropped from the mapping — how the previous testbed's NFR-06 (labelled `deployability`) vanished with no message anywhere"
+  fixed_in: "8241707"
+
+- test: tests/test_sab_parser.py::TestNfrTraceability::test_an_honestly_unscoreable_nfr_still_has_a_way_through
+  bug: "refusing an accurate 'this requirement has no automated scorer' would trade it for a plausible-looking wrong dimension"
+  fixed_in: "8241707"
+
+- test: tests/test_sab_parser.py::TestNfrTraceability::test_a_floor_exists_for_dimensions_outside_gate_4
+  bug: "derive_gate_score_overrides consulted gate 4 alone, so architecture_constraints (gate 1 only) and execute_verification_target (gate 2 only) got floor=None and were skipped — a correct mapping produced no override at all"
+  fixed_in: "8241707"
+
+- test: tests/test_sab_parser.py::TestNfrTraceability::test_the_type_table_reaches_the_dimensions_it_used_to_orphan
+  bug: "five enforceable type values could name five dimensions, leaving 11 of 16 unreachable by any NFR — including every one the second testbed was written to light up"
+  fixed_in: "8241707"
+
+- test: tests/test_evidence_digest.py::TestS3RecordsWhatItCleared::test_the_digest_survives_the_evidence
+  bug: "13 of 14 Gate 4 dimensions cited a tool_output under the gitignored .sessi-work/, all since cleaned, while the verdict that read them is committed and permanent — the judgement was version-controlled and its evidence was not"
+  fixed_in: "e17ed0d"
+
+- test: tests/test_evidence_digest.py::TestS3RecordsWhatItCleared::test_rejected_evidence_is_not_fingerprinted
+  bug: "a digest asserts 'this passed', so recording one for content the gate refused would vouch for rejected evidence"
+  fixed_in: "e17ed0d"
+
+- test: tests/test_evidence_digest.py::TestLedgerOutlivesTheWorkDirectory::test_the_ledger_is_not_in_the_gitignored_work_dir
+  bug: "the degradation ledger lived in .sessi-work/, so a run recording 7 turn-budget exhaustions left no ledger afterwards and no way to tell 'never written' from 'written then cleaned'"
+  fixed_in: "e17ed0d"
+
+- test: tests/test_toolchain_registry.py::TestRegistryCompleteness::test_the_three_dimension_registries_agree
+  bug: "architecture_constraints, execute_verification_target and integration_coverage were scored by the gates and absent from evaluate_dimension.md — and Phase 1's dimension validation (40bedac) checks declared dimensions against exactly that roster"
+  fixed_in: "888e369"
+
+- test: tests/test_lessons.py::TestRecallHappensWhereFailureHappens::test_the_fix_prompt_carries_what_already_failed_here
+  bug: "lessons were recalled once at phase entry with no dimension, so the 23 test_coverage blocks one run produced across five phases each told the next fixer nothing"
+  fixed_in: "2450ffc"
+
+- test: tests/test_phase_truth_verifier.py::TestSkipsThatDidNotFireAreStillSkips::test_a_conditional_skip_is_found_even_when_it_did_not_fire
+  bug: "a zero-skip AC was enforced by pytest's reported count, so a suite with nine conditional pytest.skip() calls measured 0 skipped on a fully provisioned machine"
+  fixed_in: "333348f"

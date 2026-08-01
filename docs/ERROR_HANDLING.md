@@ -263,6 +263,38 @@ depended on whether the agent had volunteered a `"pass": false` key: with it, a
 real blocker was waved through as progress; without it, the same blocker became an
 EXECUTION_ERROR. Same blocker, two outcomes, decided by an optional key.
 
+## A dimension's score_source, and who is allowed to say "not applicable" (Round 27)
+
+A gate-result breakdown entry may carry `score: null`. Round 27 站1 made that
+mean one specific thing, recorded in a sibling `score_source` field written by
+the framework — never by an agent.
+
+| `score_source` | Written when | Effect on the verdict |
+|---|---|---|
+| *(absent)* | The agent reported a number, or reported `null` and nothing checked it | A number is judged normally. **An unchecked `null` fails its floor** — it was verified by nobody |
+| `framework` | The agent reported `null`; S4 ran the tool itself and got a score | The framework's number is written back into the breakdown and judged |
+| `framework_na` | The agent reported `null`; S4 ran the tool and it too produced no score (`pytest --benchmark-only` exit 5, a scorer returning None) | Genuinely not applicable — excluded from the composite and vacuously passes, with `na_verified_by` naming the tool and returncode |
+
+The rule behind the table: **`null` used to mean "nobody has to check this" and
+now means "the framework has to check this".** It was previously waved through by
+five layers at once — S3 accepted any prose ≥10 characters as evidence, S4's
+`if agent_score < threshold: continue` skipped it, the weighted average dropped
+it from the denominator (which *raised* the composite by redistributing its
+weight onto the perfect dimensions), and `_all_dims_pass` treated it as
+"vacuously satisfying its own per-dim floor". A measured Gate 4 shipped
+`mutation_testing: null` with the evidence "NFR-08 satisfied contractually
+(harness surface exists)" and `performance: null` with "dimension N/A per
+protocol (**not free 100**)". That parenthetical is the whole finding: the agent
+knew a claimed score gets cross-validated, and picked the door that did not.
+
+The strictness is scoped to dimensions S4 can actually verify — the gate config
+declares them, they name a tool, they require tool execution. A `null` outside
+that set still passes vacuously, because being strict where the framework cannot
+check is exactly what once pushed a Gate 3 agent into fabricating a performance
+score (`test_finalize_gate_null_breakdown_score_does_not_block`). Too lax lets a
+declared N/A through unchecked; too strict manufactures the fabrication it means
+to prevent.
+
 ## Exit codes
 
 Single source of truth: **`cli/exit_codes.py`'s `REGISTRY` dict.**

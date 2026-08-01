@@ -502,3 +502,64 @@ dispatch 帶走，且 cost / turns / duration 在該基座**取不回來** —�
   症狀會是 GATE1 spec-coverage 掉分而非 phantom BLOCK。
 - 站5 的最後一次 dispatch 永遠不會被 flush（沒有下一次可以帶走）。
   `run_phase` trajectory span 仍是崩潰下的下限。
+
+---
+
+## Round 27 — 判定的裁量權在被判定的一方手上
+
+老闆令：檢視 taskq-plus P1–P8 的執行過程與 harness 的 git history，探討是否有**其他**根本性或結構性問題（承 Round 26 的七條之外）。
+
+**本輪的定調事實**：這一次 taskq-plus 跑完了 P1–P8（147 commits、329 dispatches、$137.57、10.5M in / 1.1M out tokens、Gate 2/3/4 全 PASS），同期 harness 產生 **15 個修復 commit**，每一個的 body 都寫著「observed live on taskq-plus」。**一輪真 E2E 抓出 15 個活 bug，而它們在 6462 個單元測試 + 151 個守衛全綠下存活。** 這不是測試不足，是測試看不到的那一面。
+
+而 taskq-plus 是**專為點亮前一輪五個無信號維度而設計的測床**。Gate 4 跑完，五個目標維度**一個都沒點亮**，composite 98.707 PASS。
+
+### 三條根本問題
+
+| # | 主張 | 裁決 | 出處 |
+|---|---|---|---|
+| R27-1 | 維度的「不適用」由被評分方自宣告，且不適用比低分划算 | **採納**。`score: null` 被五層各自放行：S3 只要 ≥10 字元散文即通過（`_TOOL_CONTENT_PATTERNS` 涵蓋 17/32 工具）；S4 的 `if agent_score < threshold: continue` 讓 null 跳過交叉驗證——實測它其實是 `float(None)` **拋 TypeError**，而呼叫點無 try（AST 確認祖先鏈只有 `finalize_gate`）；加權時 None 的權重被重分配給其他滿分維度，composite **上升**；`_all_dims_pass` 註解逐字寫 "vacuously satisfying its own per-dim floor"。**None 改為「框架必須自己驗」的觸發條件** | `575e70b`、`1512314` |
+| R27-2 | NFR 只能落到 16 個維度中的 5 個，而 prompt 明文禁止規格覆寫 | **採納（兩者都做，老闆裁定）**。`_NFR_TYPE_TO_DIM` 五項，11 個維度無 NFR 可達；P2 prompt 逐字 "Leave … nfr_dimension_mapping empty"。SPEC 為 12 條 NFR 各寫 `dimension:` + 一整段鐵律，實測 **12 錯 6**。改為 per-NFR `dimension:` 直達 + 不存在即 raise + type 表擴充六項 | `8241707` |
+| R27-3 | 證據的壽命短於判定的壽命 | **採納**。Gate 4 的 **13/14** 個 `tool_output` 指向 gitignore 的 `.sessi-work/`，全部已消失，而判定本身版控且永久。S3 在判定當下驗過檔案存在（它有 `if not out_path.exists()` 分支）——證據是事後消失的。改為 S3 通過的當下取指紋寫進判定本身 | `e17ed0d` |
+
+### 六條具體缺陷
+
+| # | 缺陷 | 裁決 | 出處 |
+|---|---|---|---|
+| R27-D | 第三個 registry（`evaluate_dimension.md` 的 `### ` headers）缺三個維度 | **採納**。`architecture_constraints`（gate 1 權重 0.25）/ `execute_verification_target` / `integration_coverage` 有 gate 評分、無 agent 指示。**而 40bedac 剛加的 P1 dimension 驗證比對的正是這份缺三個的清單**——檢查建在不完整的名冊上 | `888e369` |
+| R27-E | lessons 召回時機 | **採納（範圍縮小）**。我的原始診斷「零消費者」**是錯的**（grep 的 `--include` 被 shell 吃掉，漏了 `cli/project_cmds.py:754`）。真實缺口更窄：只有 phase 入口一個召回點、不傳 `dimension`，而失敗是 per-FR per-dimension（一輪 23 筆 test_coverage 橫跨五個 phase） | `2450ffc` |
+| R27-F | `quality_targets.min_coverage` 四處讀取、四種行為 | **採納**。收斂成 `min_coverage_floor()`，並在其中寫明它與 gate yaml 的 `test_coverage` threshold 是**不同的東西** | `2450ffc` |
+| R27-G | sim 測床不涵蓋唯一真正被執行的檔案 | **採納**。`PHASE_FILES` 從無 run-all.js。場景 70 → 72 | `6cc4929` |
+| R27-H | 零 skip 由執行期計數判定，看不見條件式 skip | **採納**。實測某專案 35 passed / 0 skipped，同一檔案裡有 **9 個 `pytest.skip(`**。加 AST 靜態掃描 | `333348f` |
+| R27-I | 消費專案 main 上的探針 commit（`PROBE-SUBJECT-XYZ`） | **不做，前提不成立**。汙染 registry 掃的是**框架**檔案，而該字串全 repo 零命中——它來自 ad-hoc 探測，不是 shipped surface。加一個永遠不會命中的 token 是死守衛 | 本條 |
+
+### 撤回與未做（前提被自己證偽）
+
+1. **對我自己診斷報告的更正：「lessons 零消費者」是錯的。** 見 R27-E。鏈路自始至終是通的。
+2. **R27-DEFER-1 — 讓 `block_reason` 引用判定用的門檻。** 診斷成立：`block_reason.py:220` render 的是 `d.threshold`（agent 寫的），判定用的是 `_effective_threshold()`；某專案 23 筆 lessons 全寫 "needs 100.0" 而該 gate yaml 的 threshold 是 80，**兩個數字巧合相同正是它隱形的原因**。修法（把 `d.threshold` settle 成 effective）被 `test_finalize_gate_override_is_floor_not_ceiling` 抓到：`_effective_threshold` 優先 `_dim_thresholds`（override 的 mirror），覆寫會把 agent 的 90 **降到** override 的 80——floor 變成 ceiling。正解是 `_effective_threshold` 改取三源最大值而非 first-truthy-wins，那會改變每一個 Gate 1 的嚴格度，是更大的獨立決定。**理由留在程式碼裡**。
+3. **站7a（NFR 測試消失 = regression）未做**：需要測試函式粒度的跨輪基準。實測 `attestation.json` 的 matrix 是 **FR → code_files 清單**，到不了函式。計畫已預先標記此前提未查證並約定「若不足則縮」。
+4. **站1 的 `_TOOL_OUTPUT_MIN_BYTES` 提高被撤回**：最短的真實工具輸出是 `{}` / `[]`（2 bytes，ast-docstrings 無可記錄 / ruff 乾淨），任何擋得住散文的門檻也誤傷它們。守門的是 check 3。
+5. **站2 的模板列舉 18 個維度名被撤回**：模板逐字嵌進 `templates/SAD.md`、每份 phase plan 與 P2 prompt，落在 phase2_plan.md 的那份讓 `mutation_testing` 這個字撞上一個為「修復建議」設計的檢查。prompt 與 parser 錯誤訊息各列一次已足。
+
+### 守衛在本輪抓到我五次（全部是守衛對）
+
+| 守衛 | 抓到什麼 |
+|---|---|
+| `test_shipped_surfaces_carry_no_foreign_project_tokens`（R8 站3） | 把消費專案名寫進會 ship 到每個專案的 prompt 散文，**兩次** |
+| `test_evaluate_dimension_python_commands_use_module_form` | 裸 `pytest` 而非 `python3 -m pytest` |
+| `test_finalize_gate_override_is_floor_not_ceiling` | 見上方 R27-DEFER-1 |
+| `test_no_silent_fail_open`（R7 站1 的 exception-swallow ratchet） | `_skip_sites` 的 `except: return []` 靜默 fail-open |
+| `test_prose_is_not_tool_evidence`（**本輪自己寫的**） | pytest-benchmark 的內容樣式前兩版都會誤中它要拒絕的那句散文 |
+
+最後一項值得單獨記：**站1 補了 14 個工具樣式卻沒有任何測試斷言它們生效**，表可以是空的而測試照樣全綠。站1b 補上後，用逐字的真實散文當 fixture，當場抓出我自己的缺陷——`r"benchmark"` 這個字同時出現在 "pytest-benchmark" 和 "--benchmark-only" 裡，**用來認證真輸出的字，出現在它要拒絕的那句話中**。
+
+### 誠實邊界
+
+- 九站全部是**讀碼 + 可執行反證 + 唯讀冒煙**級別。**本輪同樣沒有跑一輪真的 E2E。** 「R27-1 修好後 agent 不再有動機把維度標 N/A」是行為推論——但修法**不依賴 agent 的行為假設**：它把裁量權從 agent 手上拿走交給框架自己跑工具，無論哪個 agent 執行結果都相同。這是本輪設計的主要自我約束。
+- **本輪的三條根本問題可能被「換了執行者」解釋掉**：15 個修復 commit 掛 Sonnet 5 / Claude，Round 26 是我。同一個框架、不同 agent，暴露的問題面不同。要排除這個解釋，需要用同一份 SPEC 再跑一輪對照——那是目前唯一沒有的資料。
+- R27-3 的指紋保存的是「這是不是 gate 讀的那個檔案」，**不是原文**。刻意不複製：每輪把 `coverage.json` 複製進消費專案會無限成長。
+
+### re-open 條件
+
+- **R27-DEFER-1**：老闆裁定要統一門檻語意時，`_effective_threshold` 改取三源最大值，並同輪重跑所有現存專案的 Gate 1 對照。
+- **R27-I**：若該探針字串日後出現在框架的 shipped surface（生成器、prompt、模板），立即加進 registry。
+- **站7a**：若 attestation 的 matrix 日後帶測試函式粒度（例如吸收 `SuiteResult.test_outcomes`，ed02bbe 已有該資料），「NFR 測試消失 = regression」即可實作。
