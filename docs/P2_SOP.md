@@ -68,7 +68,8 @@ sab:
 
   nfr_traceability:
     NFR-01:
-      type: performance       # 8 個合法 type（見下方）
+      type: performance       # 合法 type 見下方；enforceable 者各對應一個 gate 維度
+      dimension: performance  # OPTIONAL 但優先 — 直接指名 gate 維度，抄自 SRS.md
       target: "p95 < 200ms"  # ">=N" 或 "≥N" 會 raise gate floor
       module: app.processing.pipeline
     NFR-02:
@@ -99,6 +100,35 @@ sab:
       type: usability        # advisory
       target: "first-time user task < 5 min"
       module: docs.quickstart
+    # Round 27 站2b：以下 6 個 type 是本輪新增的。在此之前 enforceable 只有
+    # 5 個，因此 16 個 gate 維度中有 11 個沒有任何 NFR 說得出口——包含
+    # architecture_constraints / license_compliance / mutation_testing /
+    # integration_coverage / execute_verification_target。規格寫了
+    # `dimension:` 也沒有欄位可以承接，框架只好用關鍵字猜。
+    NFR-09:
+      type: layering
+      target: "lint-imports exit 0"
+      module: app.layers
+    NFR-10:
+      type: licensing
+      target: "deps ∈ {MIT, BSD-2/3, Apache-2.0}"
+      module: requirements.txt
+    NFR-11:
+      type: mutation
+      target: "≥70"
+      module: app.service
+    NFR-12:
+      type: integration
+      target: "integration suite line coverage ≥ 80"
+      module: tests.integration
+    NFR-13:
+      type: verifiability
+      target: "make verify-system exit 0"
+      module: Makefile
+    NFR-14:
+      type: documentation
+      target: "100% public docstrings with [FR-XX] citation"
+      module: cross-cutting
 
   advisory_only: []  # AUTO-FILLED — 勿手填
   gate_score_overrides: {}  # AUTO-DERIVED — 勿手填
@@ -327,7 +357,7 @@ Review criteria:
 4. ADR rationale: technology choices justified with objective criteria?
 5. SRS-SAD consistency: no contradictions between spec and design?
 6. SAB block passed `python3 scripts/generate_sab.py --validate --project .` (exit 0)?
-7. SAB block `phase` is int (not quoted string)? All NFR `type` values from 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?
+7. SAB block `phase` is int (not quoted string)? All NFR `type` values legal — see the example above, or run `python3 -c "from core.quality_gate.sab_parser import ALL_NFR_TYPES; print(ALL_NFR_TYPES)"` (the list widened in Round 27; no count is restated here because every hand-copy of it drifted)? Every NFR that SRS.md gives a `dimension:` for carries that same value verbatim?
 
 **CRG criteria (5 universal rules):**
 8. SUBDIRECTORY BOUNDARY: subdirectories used to control CRG community boundaries? PASS=2+ level, WARN=>5 files flat, REJECT=10+ files flat

@@ -222,6 +222,40 @@ sab:
 <!-- SAB:END -->
 """
 
+# Round 27 站2: per-NFR `dimension:` — what SPEC.md actually states, carried
+# through instead of re-derived. NFR-01 deliberately omits it so the type table
+# still has to answer for one entry.
+_SAD_PER_NFR_DIMENSION = """\
+<!-- SAB:START -->
+```yaml
+sab:
+  version: "1.0"
+  phase: 2
+  project: "testapp"
+  nfr_traceability:
+    NFR-01:
+      type: performance
+      target: "p95 < 200ms"
+      module: app.pipeline
+    NFR-06:
+      type: maintainability
+      dimension: architecture_constraints
+      target: "lint-imports exit 0"
+      module: app.layers
+    NFR-07:
+      type: maintainability
+      dimension: license_compliance
+      target: "all deps MIT/BSD/Apache-2.0"
+      module: requirements.txt
+    NFR-08:
+      type: testability
+      dimension: mutation_testing
+      target: "≥70"
+      module: app.service
+```
+<!-- SAB:END -->
+"""
+
 _SAD_BOTH_NFR_FIELDS = """\
 <!-- SAB:START -->
 ```yaml
@@ -230,7 +264,10 @@ sab:
   phase: 2
   project: "testapp"
   nfr_dimension_mapping:
-    NFR-01: reliability
+    # Round 27 站2: was `reliability` — a TYPE name, not a dimension name, and
+    # nothing checked. That this fixture could carry it for as long as it did is
+    # the defect this station closes, so the value is now a real dimension.
+    NFR-01: error_handling
   nfr_traceability:
     NFR-01:
       type: performance
@@ -271,8 +308,9 @@ class TestNfrTraceability:
         sad = tmp_path / "SAD.md"
         sad.write_text(_SAD_BOTH_NFR_FIELDS)
         spec = extract_sab_from_sad(sad)
-        # NFR-01 type is 'performance' but explicit mapping says 'reliability' → must keep 'reliability'
-        assert spec.nfr_dimension_mapping.get("NFR-01") == "reliability"  # type: ignore[reportOptionalMemberAccess]
+        # NFR-01's type is 'performance' but the explicit mapping says
+        # 'error_handling' → the explicit value must survive.
+        assert spec.nfr_dimension_mapping.get("NFR-01") == "error_handling"  # type: ignore[reportOptionalMemberAccess]
         # NFR-02 only in traceability, but auto-derive did NOT run → absent from dim mapping
         assert "NFR-02" not in spec.nfr_dimension_mapping  # type: ignore[reportOptionalMemberAccess]
 
@@ -301,22 +339,101 @@ class TestNfrTraceability:
         assert d["nfr_traceability"]["NFR-02"]["module"] == "app.security"
 
     def test_nfr_type_to_dim_maps_to_real_gate_dimensions(self):
-        """The 5 enforceable NFR types must map to ACTUAL gate-14 dimensions; the 3
-        advisory types (no scoring tool) are tracked separately, never faked into the map."""
-        from core.quality_gate.sab_parser import _NFR_ADVISORY_TYPES
-        _GATE_14_DIMS = {
-            "linting", "type_safety", "test_coverage", "security", "secrets_scanning",
-            "license_compliance", "mutation_testing", "architecture", "readability",
-            "error_handling", "documentation", "performance", "integration_coverage",
-            "test_assertion_quality",
-        }
-        for t in ("performance", "security", "maintainability", "reliability", "testability"):
-            assert t in _NFR_TYPE_TO_DIM, f"Missing enforceable type: {t}"
-            assert _NFR_TYPE_TO_DIM[t] in _GATE_14_DIMS, \
-                f"{t}→{_NFR_TYPE_TO_DIM[t]} is not a real gate dimension"
+        """Every enforceable NFR type must map to a dimension some gate actually scores.
+
+        Round 27 站2: the 14-dimension set used to be a literal here, which is the
+        same fixture-and-rule-from-different-sources shape Round 19 closed
+        elsewhere — a dimension renamed in the YAML would leave this test green
+        while the mapping pointed at nothing. It now reads the gate configs.
+        """
+        from core.quality_gate.sab_parser import (
+            _NFR_ADVISORY_TYPES, scoreable_dimension_names,
+        )
+        real = scoreable_dimension_names()
+        assert {"performance", "security", "readability", "error_handling",
+                "test_assertion_quality"} <= set(_NFR_TYPE_TO_DIM.values())
+        for t, dim in _NFR_TYPE_TO_DIM.items():
+            assert dim in real, f"{t}→{dim} is not a dimension any gate scores"
         for t in ("deployability", "scalability", "usability"):
             assert t in _NFR_ADVISORY_TYPES
             assert t not in _NFR_TYPE_TO_DIM
+
+    def test_the_type_table_reaches_the_dimensions_it_used_to_orphan(self):
+        """Round 27 站2b — the fallback vocabulary, widened.
+
+        Five enforceable type values could name five dimensions, so eleven of
+        sixteen were unreachable by any NFR — including every one taskq-plus's
+        SPEC was written to light up. With no way to say it, the framework
+        keyword-matched instead and got six of twelve mappings wrong.
+
+        Station 2a makes `dimension:` the direct route and imposes no allowlist
+        on it — an NFR may name any dimension a gate scores, including
+        linting/test_coverage, because raising a floor on those is a legitimate
+        thing for a project to want. This table is only the fallback for specs
+        that state a `type:` and no dimension, so it covers the ones an NFR
+        plausibly describes, not all sixteen.
+        """
+        reachable = set(_NFR_TYPE_TO_DIM.values())
+        for dim in ("architecture_constraints", "license_compliance",
+                    "mutation_testing", "integration_coverage",
+                    "execute_verification_target", "documentation"):
+            assert dim in reachable, f"no NFR type can name {dim} without an explicit dimension:"
+
+    def test_per_nfr_dimension_field_beats_the_type_guess(self, tmp_path):
+        """Round 27 站2a — what the spec states outranks what the framework infers.
+
+        The P2 prompt used to order the agent to leave nfr_dimension_mapping
+        empty, so a `dimension:` written in SPEC.md had no way to reach the
+        parser at all and a five-entry keyword table decided instead.
+        """
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_PER_NFR_DIMENSION)
+        spec = extract_sab_from_sad(sad)
+        assert spec.nfr_dimension_mapping["NFR-06"] == "architecture_constraints"
+        assert spec.nfr_dimension_mapping["NFR-07"] == "license_compliance"
+        assert spec.nfr_dimension_mapping["NFR-08"] == "mutation_testing"
+        # NFR-01 has no `dimension:` — the type table still answers for it.
+        assert spec.nfr_dimension_mapping["NFR-01"] == "performance"
+
+    def test_a_dimension_that_does_not_exist_is_refused(self, tmp_path):
+        """Silently dropping it is what made the previous round's NFR-06 vanish."""
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_PER_NFR_DIMENSION.replace(
+            "dimension: architecture_constraints", "dimension: deployability"))
+        with pytest.raises(RuntimeError, match="not a dimension any gate scores"):
+            extract_sab_from_sad(sad)
+
+    def test_an_honestly_unscoreable_nfr_still_has_a_way_through(self, tmp_path):
+        """`dimension: none` is the honest channel and must not raise.
+
+        Without it, the refusal above would punish an accurate statement that a
+        requirement has no automated scorer — closing the honest path is how you
+        get a plausible-looking wrong dimension instead.
+        """
+        sad = tmp_path / "SAD.md"
+        sad.write_text(_SAD_PER_NFR_DIMENSION.replace(
+            "dimension: architecture_constraints", "dimension: none"))
+        spec = extract_sab_from_sad(sad)
+        assert "NFR-06" not in spec.nfr_dimension_mapping
+
+    def test_a_floor_exists_for_dimensions_outside_gate_4(self):
+        """Round 27 站2 — derive_gate_score_overrides only ever consulted gate 4.
+
+        architecture_constraints appears only in gate 1 and
+        execute_verification_target only in gate 2, so both scored `floor is
+        None` and were skipped: even a correct mapping produced no threshold
+        floor. Measured on a probe SAD during station 0 — gate_score_overrides
+        came back {} with NFR-01 correctly mapped to architecture_constraints.
+        """
+        from core.quality_gate.sab_parser import derive_gate_score_overrides
+        got = derive_gate_score_overrides(
+            {"NFR-06": "architecture_constraints",
+             "NFR-12": "execute_verification_target"},
+            {"NFR-06": {"type": "maintainability", "target": "lint-imports exit 0"},
+             "NFR-12": {"type": "testability", "target": "make verify-system"}},
+        )
+        assert got == {"architecture_constraints": 100.0,
+                       "execute_verification_target": 100.0}
 
     def test_derive_gate_score_overrides_standard_floor(self):
         """NFR-mapped dimension → its standard gate-4 threshold floor; free-form

@@ -22,11 +22,13 @@ CONTRACT (single source of truth — do not duplicate in templates/docs):
                fr_module_traceability (dict)
                architecture_constraints (list)
                high_risk_modules (list)
-  NFR types: 8 legal values in nfr_traceability[*].type:
-               Enforceable (mapped to gate dim):
-                 performance, security, maintainability, reliability, testability
-               Advisory (no scoring tool, auto-added to advisory_only):
-                 deployability, scalability, usability
+  NFR types: see nfr_type_vocabulary() — enforceable values map to a gate
+             dimension, advisory ones have no scoring tool and are auto-added to
+             advisory_only. Not restated here: the list changed in Round 27 and
+             every hand-copy of it then disagreed with the table.
+  NFR dimension: nfr_traceability[*].dimension names the gate dimension
+             directly and outranks the type guess. `none` = no automated scorer;
+             a name no gate scores raises rather than being silently dropped.
 
 For the canonical template, call render_canonical_sab_template() — do not
 hand-write the YAML anywhere else.  SABSpec is the type-level authority for
@@ -108,12 +110,34 @@ class SABSpec:
 # Canonical map from SAD.md nfr_traceability `type` values to ACTUAL harness gate
 # dimension names (must exist in the gate config 14-dimension set — otherwise the NFR
 # maps to a non-existent dimension and is silently un-enforced).
+#
+# Round 27 站2b: this table had five entries, so five of sixteen dimensions were
+# the only ones any NFR could name — and every dimension taskq-plus's SPEC was
+# written to light up (architecture_constraints, license_compliance,
+# mutation_testing, integration_coverage, execute_verification_target) was in
+# the other eleven. That SPEC stated `dimension:` for all twelve of its NFRs;
+# with no way for those words to reach the parser, the framework keyword-matched
+# from `type:` instead and got six of twelve wrong.
+#
+# The direct route is now `dimension:` on the NFR entry itself (see
+# extract_sab_from_sad), which accepts any dimension a gate scores. This table
+# remains the fallback for specs that give a `type:` and nothing else, so it
+# covers the dimensions an NFR plausibly describes — not all sixteen. The ones
+# absent by design (linting / type_safety / test_coverage / secrets_scanning /
+# architecture) are what the framework applies to every project regardless; a
+# project that genuinely wants a floor on one of them says so with `dimension:`.
 _NFR_TYPE_TO_DIM: dict[str, str] = {
     "performance":     "performance",             # native gate dimension
     "security":        "security",                # native gate dimension
     "maintainability": "readability",             # radon-mi maintainability index
     "reliability":     "error_handling",          # try/except coverage ≈ reliability
     "testability":     "test_assertion_quality",  # assertion quality ≈ testability
+    "layering":        "architecture_constraints",  # import-linter layer contracts
+    "licensing":       "license_compliance",      # dependency licence allowlist
+    "mutation":        "mutation_testing",        # mutmut kill rate
+    "integration":     "integration_coverage",    # cross-module suite coverage
+    "verifiability":   "execute_verification_target",  # make verify-system
+    "documentation":   "documentation",           # docstring coverage
 }
 
 # NFR types with NO corresponding automated scoring tool. They are still recorded in
@@ -122,6 +146,11 @@ _NFR_TYPE_TO_DIM: dict[str, str] = {
 _NFR_ADVISORY_TYPES: frozenset[str] = frozenset(
     {"deployability", "scalability", "usability"}
 )
+
+# Values of a per-NFR `dimension:` that mean "there is no automated scorer for
+# this" — accepted and skipped rather than refused, so an accurate statement is
+# never punished into becoming a plausible wrong answer.
+_NFR_NO_DIMENSION: frozenset[str] = frozenset({"none", "n/a", "na", "-"})
 
 # Standard gate-4 dimension thresholds — the floor an NFR-backed dimension must
 # clear. Read from gate4_p6_full.yaml, the file HarnessBridge actually scores
@@ -143,6 +172,54 @@ _GATE1_DIMENSION_STANDARD: dict[str, float] = load_gate_thresholds(1)
 # Free-form targets like "p95 < 3s" are intentionally NOT parsed (different semantics).
 _NFR_TARGET_NUM_RE = re.compile(r"(?:≥|>=)\s*(\d+(?:\.\d+)?)")
 
+# The standard floor for every dimension ANY gate scores, gate 4 first.
+#
+# Round 27 站2: derive_gate_score_overrides consulted gate 4 alone, and three
+# dimensions are not in gate 4 at all — architecture_constraints lives only in
+# gate 1, execute_verification_target only in gate 2. Their floor came back None
+# and the loop skipped them, so even a correct NFR mapping produced no override.
+# Measured during station 0 on a probe SAD: NFR-01 mapped to
+# architecture_constraints and gate_score_overrides was {}.
+#
+# Gate 4 keeps precedence where it declares a dimension (it is the full-project
+# audit, and its numbers are what the existing overrides were calibrated
+# against); the earlier gates only fill in what gate 4 never scores.
+_ALL_GATE_DIMENSION_STANDARD: dict[str, float] = {
+    **load_gate_thresholds(3),
+    **load_gate_thresholds(2),
+    **_GATE1_DIMENSION_STANDARD,
+    **_GATE_DIMENSION_STANDARD,
+}
+
+
+def nfr_type_vocabulary() -> tuple[list[str], list[str]]:
+    """The legal `type:` values, as (enforceable, advisory) sorted lists.
+
+    Round 27 站2b: the vocabulary was hand-listed in six places — this module's
+    docstring, the canonical template, two spots in spec_phase2.py's P2 prompt,
+    plangen's artifact_parsers, and P2_SOP.md — each of which said "8 legal
+    values". Widening the table would have left five of those saying otherwise,
+    so the generators now interpolate this instead of restating it.
+    """
+    return sorted(_NFR_TYPE_TO_DIM), sorted(_NFR_ADVISORY_TYPES)
+
+
+def nfr_type_vocabulary_inline() -> str:
+    """The same vocabulary as one slash-separated string for prompt text."""
+    enforceable, advisory = nfr_type_vocabulary()
+    return "/".join(enforceable + advisory)
+
+
+def scoreable_dimension_names() -> frozenset[str]:
+    """Every dimension name some gate config actually scores.
+
+    The one answer to "is this a real dimension" — read from the YAML the gates
+    are driven by, so a dimension renamed there cannot leave a stale allowlist
+    behind (the Round 18 站2 rule, and the reason the 14-name literal that used
+    to live in test_sab_parser.py is gone).
+    """
+    return frozenset(_ALL_GATE_DIMENSION_STANDARD)
+
 
 def derive_gate_score_overrides(nfr_dim_mapping: dict, nfr_traceability: dict) -> dict:
     """(7) SAB enforcement: turn NFR-backed dimensions into gate_score_overrides
@@ -152,7 +229,7 @@ def derive_gate_score_overrides(nfr_dim_mapping: dict, nfr_traceability: dict) -
     """
     overrides: dict = {}
     for nfr_id, dim in nfr_dim_mapping.items():
-        floor = _GATE_DIMENSION_STANDARD.get(dim)
+        floor = _ALL_GATE_DIMENSION_STANDARD.get(dim)
         if floor is None:
             continue
         v = nfr_traceability.get(nfr_id)
@@ -216,14 +293,55 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
     nfr_traceability = sab_data.get("nfr_traceability", {})
     nfr_dim_mapping = sab_data.get("nfr_dimension_mapping", {})
 
-    # Auto-derive nfr_dimension_mapping from nfr_traceability when mapping is absent.
-    # Explicit nfr_dimension_mapping in the SAB block always takes precedence.
+    # Resolve each NFR to a gate dimension, most specific source first:
+    #   1. an explicit block-level nfr_dimension_mapping
+    #   2. `dimension:` on the NFR's own traceability entry  (Round 27 站2a)
+    #   3. the _NFR_TYPE_TO_DIM fallback keyed on `type:`
+    #
+    # (2) is what a spec means when it writes `- **dimension**: license_compliance`
+    # under an NFR. Before this, the P2 prompt ordered the agent to leave
+    # nfr_dimension_mapping empty and there was no per-entry field, so those words
+    # had no route into the parser at all and (3) — five keyword pairs — decided
+    # instead. taskq-plus stated a dimension for all twelve of its NFRs and the
+    # framework got six of them wrong.
     if not nfr_dim_mapping and nfr_traceability:
-        nfr_dim_mapping = {
-            nfr_id: _NFR_TYPE_TO_DIM[v.get("type", "").lower()]
-            for nfr_id, v in nfr_traceability.items()
-            if isinstance(v, dict) and v.get("type", "").lower() in _NFR_TYPE_TO_DIM
-        }
+        nfr_dim_mapping = {}
+        for nfr_id, v in nfr_traceability.items():
+            if not isinstance(v, dict):
+                continue
+            declared = str(v.get("dimension", "") or "").strip().lower()
+            if declared in _NFR_NO_DIMENSION:
+                # The honest channel: this requirement has no automated scorer.
+                # It must not raise — closing this path is how you get a
+                # plausible-looking wrong dimension in place of an accurate
+                # statement that there is none.
+                continue
+            if declared:
+                nfr_dim_mapping[nfr_id] = declared
+                continue
+            _type = str(v.get("type", "") or "").lower()
+            if _type in _NFR_TYPE_TO_DIM:
+                nfr_dim_mapping[nfr_id] = _NFR_TYPE_TO_DIM[_type]
+
+    # Refuse a dimension no gate scores instead of dropping it.
+    #
+    # Silent omission is what made the previous testbed's NFR-06 disappear: it
+    # was labelled `deployability`, nothing scores that, and the entry simply was
+    # not in the mapping — 10 NFRs, 8 mapped, no message anywhere. A name that
+    # looks like a dimension but is not one is a mistake worth stopping P2 for;
+    # `dimension: none` (above) remains the way to say there is no scorer.
+    _real = scoreable_dimension_names()
+    _bogus = {n: d for n, d in nfr_dim_mapping.items() if d not in _real}
+    if _bogus:
+        raise RuntimeError(
+            "Invalid nfr dimension in SAB block ({}): {} — not a dimension any "
+            "gate scores. Valid: {}. Use `dimension: none` when the requirement "
+            "genuinely has no automated scorer.".format(
+                sad_path,
+                ", ".join(f"{n}={d!r}" for n, d in sorted(_bogus.items())),
+                ", ".join(sorted(_real)),
+            )
+        )
 
     # NFR types with no scoring tool → advisory_only (honestly surfaced, not enforced).
     advisory_only = sorted({
@@ -263,12 +381,14 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
 # hand-writing YAML. The template is generated from SABSpec dataclass fields so
 # adding a new field propagates automatically to every rendered template.
 
-_NFR_TYPES_ENFORCEABLE: tuple[str, ...] = (
-    "performance", "security", "maintainability", "reliability", "testability",
-)
-_NFR_TYPES_ADVISORY: tuple[str, ...] = (
-    "deployability", "scalability", "usability",
-)
+# Round 27 站2b: these were two hand-written tuples stating the same thing as
+# _NFR_TYPE_TO_DIM's keys and _NFR_ADVISORY_TYPES' members. Widening the mapping
+# table left them behind for the length of one edit, and validate_sab_block —
+# which rejects "unknown NFR type" against ALL_NFR_TYPES — would have refused
+# every new type the parser had just learned to map. Derived now, so there is
+# one place a type is legal.
+_NFR_TYPES_ENFORCEABLE: tuple[str, ...] = tuple(sorted(_NFR_TYPE_TO_DIM))
+_NFR_TYPES_ADVISORY: tuple[str, ...] = tuple(sorted(_NFR_ADVISORY_TYPES))
 ALL_NFR_TYPES: tuple[str, ...] = _NFR_TYPES_ENFORCEABLE + _NFR_TYPES_ADVISORY
 
 # Set of top-level fields rendered explicitly before the dataclass loop.
@@ -290,8 +410,8 @@ def render_canonical_sab_template(
         '<!-- SAB:START -->\\n```yaml\\n' + render_canonical_sab_template() + '```\\n<!-- SAB:END -->'
 
     Generated dynamically from SABSpec dataclass fields so the template can
-    never drift.  All 8 legal NFR type values are enumerated explicitly — no
-    ellipsis allowed.
+    never drift.  Every legal NFR type value is enumerated explicitly from
+    nfr_type_vocabulary() — no ellipsis, and no count restated in prose.
     """
     lines: list[str] = []
     lines.append("sab:")
@@ -323,14 +443,28 @@ def render_canonical_sab_template(
         elif f.name == "nfr_dimension_mapping":
             lines.append("  nfr_dimension_mapping: {}  # OPTIONAL — auto-derived from nfr_traceability.type")
         elif f.name == "nfr_traceability":
+            _enforceable, _advisory = nfr_type_vocabulary()
             lines.append("  nfr_traceability:")
             lines.append(f"    {nfr_id}:")
-            lines.append("      # type MUST be one of 8 legal values listed below:")
+            lines.append(f"      # type MUST be one of {len(_enforceable) + len(_advisory)} legal values listed below:")
             lines.append("      # Enforceable (mapped to gate dim):")
-            lines.append("      #   performance, security, maintainability, reliability, testability")
+            lines.append(f"      #   {', '.join(_enforceable)}")
             lines.append("      # Advisory (no scoring tool, auto-added to advisory_only):")
-            lines.append("      #   deployability, scalability, usability")
+            lines.append(f"      #   {', '.join(_advisory)}")
             lines.append("      type: performance")
+            # The legal dimension names are deliberately NOT enumerated here.
+            # This template is embedded verbatim into templates/SAD.md, every
+            # phase plan and the P2 prompt, so a list of eighteen names appears
+            # in each — and one of those copies landed the word "mutation_testing"
+            # in phase2_plan.md, where a check meant for "the plan gives fix
+            # advice for mutation_testing" matched it. The prompt lists them for
+            # the agent at authoring time and the parser's refusal message lists
+            # them at failure time; those are the two moments the list is useful.
+            lines.append("      # dimension: OPTIONAL and PREFERRED — the gate dimension this NFR")
+            lines.append("      #   is scored by, copied verbatim from SPEC.md's own `dimension:`")
+            lines.append("      #   for this NFR. Outranks the type guess above. `none` = no")
+            lines.append("      #   automated scorer. A name no gate scores is REFUSED (the error")
+            lines.append("      #   lists the legal names), never silently dropped.")
             lines.append('      target: "p95 < 200ms"  # use \">=N\" or \"≥N\" to raise the gate floor')
             lines.append("      module: app.processing.pipeline")
         elif f.name == "advisory_only":

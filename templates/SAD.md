@@ -155,12 +155,17 @@ sab:
 
   nfr_traceability:
     NFR-01:
-      # type MUST be one of 8 legal values listed below:
+      # type MUST be one of 14 legal values listed below:
       # Enforceable (mapped to gate dim):
-      #   performance, security, maintainability, reliability, testability
+      #   documentation, integration, layering, licensing, maintainability, mutation, performance, reliability, security, testability, verifiability
       # Advisory (no scoring tool, auto-added to advisory_only):
       #   deployability, scalability, usability
       type: performance
+      # dimension: OPTIONAL and PREFERRED — the gate dimension this NFR
+      #   is scored by, copied verbatim from SPEC.md's own `dimension:`
+      #   for this NFR. Outranks the type guess above. `none` = no
+      #   automated scorer. A name no gate scores is REFUSED (the error
+      #   lists the legal names), never silently dropped.
       target: "p95 < 200ms"  # use ">=N" or "≥N" to raise the gate floor
       module: app.processing.pipeline
 

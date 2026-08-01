@@ -4,8 +4,21 @@ scripts/workflowgen/spec_shared.py for the cross-phase _render_meta.
 """
 from __future__ import annotations
 
+from core.quality_gate.sab_parser import (
+    nfr_type_vocabulary_inline,
+    scoreable_dimension_names,
+)
+
 from . import js_blocks as B
 from .spec_shared import _render_meta
+
+# Round 27 站2: the P2 prompt used to spell out both lists. When the type table
+# widened, a hand-written copy here would have kept telling the agent the old
+# eight were all there was — and the `dimension:` field it must now read would
+# not exist in the instructions at all. Interpolated from the parser that
+# consumes the answer.
+_NFR_TYPES = nfr_type_vocabulary_inline()
+_NFR_DIMENSIONS = "/".join(sorted(scoreable_dimension_names()))
 
 _HEADER_2 = """\
 // Phase 2 — Architecture Design (faithful to .methodology/phase2_plan.md v2.12.0)
@@ -137,7 +150,7 @@ def _render_phase2_subtask1_sad() -> str:
         + "  ],\n"
         + "  checklist:\n"
         + "    '- Every FR maps to ≥1 module?\\n- NFRs addressed (latency/security/cost)?\\n- No circular dependencies?\\n- Data flow diagrams consistent?\\n'\n"
-        + "    + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: \"2\"`\\n- All NFR `type` values from legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability)?\\n'\n"
+        + "    + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: \"2\"`\\n- All NFR `type` values from legal values (" + _NFR_TYPES + ")?\\n- Every NFR that SRS.md gives a `dimension:` for carries that same value in nfr_traceability?\\n'\n"
         + "    + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\\n- ≤15 files/dir, no god-module, no flat dump?\\n'\n"
         + "    + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?\\n- Each threat\\'s `verified_by` is a single test name (no comma-separated list) — split into a separate T-NN entry per additional test?',\n"
         + "})\n"
@@ -289,7 +302,8 @@ def _render_phase2_sab_generation() -> str:
         + "  + '1. SAB-WRITE: Edit ' + REPO + '/02-architecture/SAD.md §5 — replace the `<!-- SAB:START -->` placeholder with a real `sab:` YAML block. CONTRACT (parsed by sab_parser.py):\\n'\n"
         + "  + '   - `phase: 2` MUST be a bare int (NOT \"2\").\\n'\n"
         + "  + '   - layers + allowed_dependencies reflect SAD §2 module design (api/service/store style).\\n'\n"
-        + "  + '   - nfr_traceability: one entry per NFR enumerated from SPEC.md (parse `### NFR-XX:` headings — do not assume a fixed NFR count) with a `type` from the 8 legal values (performance/security/maintainability/reliability/testability/deployability/scalability/usability) + measurable `target` + `module`.\\n'\n"
+        + "  + '   - nfr_traceability: one entry per NFR enumerated from SPEC.md (parse `### NFR-XX:` headings — do not assume a fixed NFR count) with a `type` from the legal values (" + _NFR_TYPES + ") + measurable `target` + `module`.\\n'\n"
+        + "  + '   - nfr_traceability[*].dimension: REQUIRED whenever SRS.md/SPEC.md states a `dimension:` for that NFR — copy it VERBATIM, do not re-derive it from the type. This is the gate dimension the requirement is scored by, and the spec is the authority on it; the `type` keyword table is only a fallback for NFRs that state no dimension. Legal: " + _NFR_DIMENSIONS + ", or `none` when the requirement genuinely has no automated scorer. A name outside that list is REFUSED by the parser, not ignored.\\n'\n"
         + "  + '   - fr_module_traceability: one entry per FR enumerated from SPEC.md (parse `### FR-XX:` headings) pointing to a REAL module from SAD §2. If an FR legitimately owns MULTIPLE modules (e.g. SAD §6 maps it to more than one file), use a YAML list, not a single string — e.g. `FR-05: [\"app.cli.main\", \"app.cli.commands\"]`. A single string silently drops every module after the first; both forms are consumed identically downstream.\\n'\n"
         + "  + '   - quality_targets (max_complexity/min_coverage/max_coupling), architecture_constraints (no_circular_dependencies), high_risk_modules. Leave advisory_only/gate_score_overrides/nfr_dimension_mapping empty ({} or []).\\n'\n"
         + "  + '2. SAB-VALIDATE: `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --validate --project ' + REPO + '`. Must exit 0. Fix unknown NFR type / phase-as-string until PASS.\\n'\n"
