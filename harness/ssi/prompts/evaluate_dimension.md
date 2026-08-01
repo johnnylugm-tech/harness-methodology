@@ -305,6 +305,55 @@ _PROJECT_ROOT=$(pwd)
 > `adjusted = round(killed / (killed + survived − confirmed_equivalent) × 100, 1)`.
 > Use the raw score for the gate; note the adjusted score and equivalent IDs in `gaps`.
 
+### architecture_constraints (Tier 1 — Gate 1 only, tool-scored: import-linter)
+
+**Gate 1 scores this at weight 0.25 — a quarter of the per-FR verdict.** The
+harness runs the project's declared layer contracts:
+```bash
+lint-imports          # reads .importlinter from the project root
+```
+**Score formula:** exit 0 → 100, any other exit → 0. **No `.importlinter` in the
+project root → the dimension is UNSCOREABLE (None), not a pass.** A missing
+config used to return exit 0, which an exit-code scorer read as a perfect 100:
+a project that had never declared a layer contract collected a quarter of Gate 1
+for free. Create the file before the first Gate 1, not after — a contract that
+appears late was never enforced on the FRs that passed before it.
+
+> A project without layers may legitimately have no contract. Say so by leaving
+> the file absent and letting the dimension read None; do not fabricate a
+> single-`forbidden` contract to turn it green.
+
+### integration_coverage (Tier 2 — tool-scored: pytest-cov-integration / vitest-jest)
+
+**Line coverage of the SOURCE TREE, measured while running only the integration
+suite** — not the pass rate of that suite, and not the coverage of the tests
+themselves:
+```bash
+# python:
+python3 -m pytest 03-development/tests/integration --cov=03-development/src --cov-report=term-missing -q --tb=no --no-header
+# javascript / typescript:
+vitest run tests/integration --coverage      # or the jest equivalent
+```
+**Score formula:** the reported TOTAL line coverage percentage. A missing
+integration suite makes pytest exit 4/5 with no coverage table → score 0, which
+blocks: an agent-claimed pass for a suite that does not exist is unverifiable.
+
+> Scope the `--cov` target at the whole source tree. Narrowing it to the handful
+> of modules the integration tests happen to touch reports a high number for a
+> small denominator: `--cov=<pkg>.cli` over two files can read 100 while the NFR
+> asked for ≥80 across all of `src`. The measurement must answer the question the
+> requirement asked.
+
+### execute_verification_target (Tier 1 — Gate 2 only, tool-scored: system-verification)
+
+**Does the project's own end-to-end verification target actually run?**
+```bash
+make verify-system
+```
+**Score formula:** exit 0 → 100, any other exit → 0. The target is the project's
+declaration of what "the system works" means end to end (full suite + a CLI or
+API smoke path); the harness only checks that the declaration executes cleanly.
+
 ### architecture (Tier 3 — CRG-ONLY, framework-owned)
 
 **Scored by the framework's OWN independent CRG run — not the LLM, not the agent.**

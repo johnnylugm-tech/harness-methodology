@@ -44,6 +44,21 @@ def _load_gate_dimensions():
 GATE_DIMS = _load_gate_dimensions()
 
 
+def _all_gate_dimension_names() -> set:
+    """Every dimension name any gate declares, tool-scored or framework-owned.
+
+    GATE_DIMS above keeps only requires_tool_execution ones, which is right for
+    the R8 wiring checks but wrong as a denominator for "does the roster agree"
+    (Round 27 站4) — traceability and adversarial_review would drop out of the
+    comparison entirely and the check would have nothing to say about them.
+    """
+    names = set()
+    for cfg_path in sorted(GATE_CONFIG_DIR.glob("gate*.yaml")):
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+        names.update(d["name"] for d in cfg.get("dimensions", []))
+    return names
+
+
 class TestRegistryCompleteness:
     def test_gate_configs_found(self):
         assert len(list(GATE_CONFIG_DIR.glob("gate*.yaml"))) == 4
@@ -96,6 +111,62 @@ class TestRegistryCompleteness:
     def test_all_tool_ids_match_spec_keys(self):
         for tool_id, spec in TOOL_SPECS.items():
             assert spec.tool_id == tool_id
+
+    # Dimensions the framework computes for itself at finalize time, so the
+    # agent-facing prompt has nothing to tell an agent about them.
+    # `adversarial_review` is also framework-owned but keeps a section saying
+    # exactly that, which is why it is not listed here.
+    _FRAMEWORK_ONLY_DIMENSIONS = {"traceability"}
+
+    def test_the_three_dimension_registries_agree(self):
+        """Round 27 站4 — gate YAML, DIMENSION_TOOLS and evaluate_dimension.md.
+
+        The two above already reconcile the first two. The third — the prompt's
+        `### <dimension>` sections — had no check at all, and was missing
+        architecture_constraints, execute_verification_target and
+        integration_coverage: three dimensions the gates score and no agent was
+        ever told how to score.
+
+        That gap had already been consumed. Commit 40bedac added a Phase-1 step
+        validating each NFR's declared `dimension:` against this file's headers,
+        so taskq-plus's `dimension: architecture_constraints` — a name gate 1
+        scores at weight 0.25 — was about to be reported to its author as a
+        dimension that does not exist. A check is only as good as the roster it
+        reads.
+        """
+        import re
+
+        md = (Path(__file__).resolve().parent.parent / "harness" / "ssi" /
+              "prompts" / "evaluate_dimension.md").read_text(encoding="utf-8")
+        documented = set(re.findall(r"^### ([a-z_]+)", md, re.M))
+        in_yaml = _all_gate_dimension_names()
+        in_registry = set(DIMENSION_TOOLS["python"])
+
+        assert not in_registry - documented, (
+            "dimensions the registry scores with no section in "
+            f"evaluate_dimension.md: {sorted(in_registry - documented)} — an "
+            "agent asked to score them has no instructions, and Phase 1's "
+            "dimension validation will call them nonexistent"
+        )
+        assert (in_yaml - documented) <= self._FRAMEWORK_ONLY_DIMENSIONS, (
+            "gate dimensions with no section in evaluate_dimension.md: "
+            f"{sorted((in_yaml - documented) - self._FRAMEWORK_ONLY_DIMENSIONS)}"
+        )
+        assert not documented - in_yaml, (
+            "evaluate_dimension.md documents dimensions no gate scores: "
+            f"{sorted(documented - in_yaml)}"
+        )
+
+    def test_framework_only_dimensions_really_are_framework_only(self):
+        """The allowlist above is an exemption, so it must be earned: anything
+        on it must be a dimension no agent is asked to run a tool for."""
+        for _cfg, dim in GATE_DIMS:
+            if dim["name"] in self._FRAMEWORK_ONLY_DIMENSIONS:
+                assert not dim.get("requires_tool_execution", False), (
+                    f"{dim['name']} is exempted from needing prompt instructions "
+                    f"but requires_tool_execution is true — an agent IS asked to "
+                    f"run a tool for it"
+                )
 
 
 class TestResolution:
