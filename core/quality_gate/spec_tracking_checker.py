@@ -393,7 +393,21 @@ def compute_trace_dimension(project, gate: int) -> dict:
                 # same measurement check_traceability() above already took.
                 from core.quality_gate.test_suite_run import run_suite
                 suite_result = run_suite(project_path)
-                test_outcomes = suite_result.test_outcomes if suite_result.ran else None
+                # _parse_junit_outcomes returns {} on parse failure OR when
+                # pytest's collection phase aborted before any testcase ran
+                # (its own classname is empty, so the parser skips it — see
+                # _parse_junit_outcomes L376-377). Per its docstring,
+                # callers must treat {} as "no outcome data available",
+                # never as "zero tests ran" — otherwise the outcome-aware
+                # scanner below would report 0% NFR coverage on a project
+                # whose tests cannot even be collected, masking the real
+                # failure (the test file itself) and falsely blocking the
+                # gate on traceability instead of on the collection error.
+                test_outcomes = (
+                    suite_result.test_outcomes
+                    if (suite_result.ran and suite_result.test_outcomes)
+                    else None
+                )
                 test_nfr_map = scan_test_nfr_coverage(
                     ProjectLayout(project_path).active_test_dir,
                     test_outcomes=test_outcomes, project_root=project_path,

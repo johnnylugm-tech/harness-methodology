@@ -463,7 +463,17 @@ def check_traceability(
     # docstring). run_suite is memoized per-process (Round 25 SSOT), so this
     # reuses whatever measurement the current Gate evaluation already took.
     suite_result = run_suite(project)
-    test_outcomes = suite_result.test_outcomes if suite_result.ran else None
+    # _parse_junit_outcomes returns {} on parse failure OR when pytest's
+    # collection phase aborted (its own classname is empty so the parser
+    # skips it). Per its docstring callers must treat {} as "no outcome
+    # data available", otherwise the outcome-aware scanner would report
+    # 0% FR coverage on a project whose tests cannot even be collected,
+    # masking the real failure behind a spurious traceability miss.
+    test_outcomes = (
+        suite_result.test_outcomes
+        if (suite_result.ran and suite_result.test_outcomes)
+        else None
+    )
 
     scan = scan_all(project, sad_path=sad_path, test_outcomes=test_outcomes)
     sad_frs: List[str] = scan["sad_frs"]  # type: ignore[assignment]
