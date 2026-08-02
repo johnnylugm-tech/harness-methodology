@@ -569,3 +569,32 @@ under different exemption lists are distinguishable from the artifacts alone.
 `DIMENSION_EXCLUSION_FILES` records `license_compliance: None` positively —
 scancode takes its exclusions on the command line, and saying so is what stops
 the next reader treating it as an omission.
+
+## `.methodology/mutation_score.json` — the framework's own mutation number (Round 31)
+
+Written by `compute_mutation_score` (i.e. by `harness_cli.py mutation-test-score`),
+read by S4 and by `_patch_mutation_score` at finalize. Before this existed, the
+`mutation_testing` score in every gate result was a number an agent typed.
+
+| field | why it is there |
+|---|---|
+| `score` / `killed` / `survived` | the verdict, straight out of the sqlite cache |
+| `paths_to_mutate` | the scope the number was taken on |
+| `paths_to_exclude` | basenames dropped from the mutant pool — written by the party being scored |
+| `mutated_files` | the denominator as a count, so a shrinking scope is visible without re-deriving it |
+| `cache_sha256` | which `.mutmut-cache` produced this |
+| `enforcer_sha` | which harness computed it (Round 19) |
+| `generated_at` | UTC, per Round 24 站3 |
+
+A missing or unreadable artifact BLOCKS a passing `mutation_testing` claim; a
+present one overrides whatever the gate result said, marked
+`framework_override: true` — the same shape the trace dimension has used since
+PR 4.
+
+`setup.cfg` is registered in `DIMENSION_EXCLUSION_FILES`, so its digest travels
+into the verdict beside the tool outputs and an untracked one is an S6
+violation. The `[mutmut]` section carries both halves of the denominator.
+
+`.methodology/mutation_survivors.json` gained `reported_total`: what mutmut said,
+beside what the framework parsed. See ERROR_HANDLING.md, "A parse failure is not
+an absence".

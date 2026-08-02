@@ -764,3 +764,71 @@
 - test: tests/test_denominator_protection.py::test_the_scan_scope_change_stays_withdrawn
   bug: "WITHDRAWAL guard, not a fix: the plan to exclude .sessi-work/ and __pycache__ from the framework's gitleaks run used a flag that does not exist (--exclude-path; 8.30.1 takes --source/--no-git/--config/--baseline-path) and targeted an invocation that never sees those paths (git mode scans commits, and .sessi-work is gitignored — probe: '1 commits scanned, ~20 bytes' vs ~56 under --no-git). The unknown flag made the scan exit non-zero, which that code reads as 'secrets detected', turning 6 unrelated advance-precheck tests red. This test keeps the measurements attached to the absence"
   fixed_in: "2fd950d"
+
+- test: tests/test_mutmut_report.py::test_survivors_parse_the_range_form_mutmut_actually_prints
+  bug: "`mutmut results` collapses consecutive survivor ids into ranges (mutmut/cache.py:ranges → '233-245, 248'), and _parse_mutmut_survivors accepted only bare comma-separated integers. A live Gate 2 whose own banner read 'Survived 🙁 (308)' wrote survivor_count 0 into .methodology/mutation_survivors.json, and bug-hunt-targets (cli/check_cmds.py) read that zero as 'no leads' — 308 behaviours no test asserts, recorded as none. Verified against the real artifact after the fix: 308 parsed, per-file counts matching the agent's independently hand-written table"
+  fixed_in: "6e5cc6f"
+
+- test: tests/test_mutmut_report.py::test_the_frameworks_own_score_message_is_parseable_by_the_framework
+  bug: "the anti-fabrication cross-check could not read the string the framework's own mutation-test-score prints. Measured, _extract_mutmut_kill_rate returned None for the agent's tool_output, for raw `mutmut results`, AND for 'killed=240 survived=308 score=43.8'; the only format it parsed ('Killed 240 Survived 308') is emitted by nothing in this system. A cross-check that has never fired on a real input is not a cross-check"
+  fixed_in: "6e5cc6f"
+
+- test: tests/test_mutmut_report.py::test_the_producer_uses_the_shared_formatter
+  bug: "four parsers of mutmut output lived in three files with four incompatible ideas of the format. The formatter now sits beside the parser so a round-trip test holds them together instead of two regexes agreeing by luck; this pins compute_mutation_score to the shared formatter rather than a re-written f-string next to it"
+  fixed_in: "6e5cc6f"
+
+- test: tests/test_mutation_score_provenance.py::test_a_passing_claim_without_the_framework_artifact_is_blocked
+  bug: "mutation_testing is tier-1 and objective_primary and was the only tier-1 dimension whose number the framework never produced: compute_mutation_score had zero production callers, its CLI wrapper was merely suggested in a prompt, and the score that reached a live Gate 2 came from agent prose that passed content validation because the mutmut pattern list contains the bare word 'mutmut'. Abstaining ('we cannot establish the score') must not resolve to 'the claimed score stands'"
+  fixed_in: "125e24f"
+
+- test: tests/test_mutation_score_provenance.py::test_mutmut_is_on_the_inline_skip_list_its_comment_already_claims
+  bug: "mutmut's ToolSpec carried skip_inline=False directly under the comment naming it as skip-list, so S4 spawned a bare `mutmut run` from the project root with a 1800s budget whenever an agent claimed a passing score — the one invocation evaluate_dimension.md tells agents never to issue, because outside the framework's temp workdir mutmut 2.x's hardcoded `python` runner fails on any host without that symlink. It also made the kill-rate cross-check inside the rc==-1 branch unreachable"
+  fixed_in: "125e24f"
+
+- test: tests/test_mutation_score_provenance.py::test_compute_mutation_score_writes_the_artifact
+  bug: "wiring guard. Round 30 needed three separate counter-proofs because helpers had tests and their call sites did not, so unwiring them left the suite green — the same gap that let Round 29 ship write_paths_to_mutate with zero callers"
+  fixed_in: "125e24f"
+
+- test: tests/test_mutation_score_provenance.py::test_the_patch_replaces_the_agents_number
+  bug: "S4 blocking a fabricated claim is not enough on its own: without framework_override the verdict still RECORDS whatever the agent wrote. mutation_testing now follows the trace dimension's pattern — the framework's own run is the number in the artifact of record, and the denominator (scope, excluded paths, mutated file count) travels with it"
+  fixed_in: "125e24f"
+
+- test: tests/test_mutation_cache_resume.py::test_a_prior_cache_is_carried_into_the_workdir
+  bug: "compute_mutation_score's TimeoutExpired branch has promised since Bug v26 that 'next run will resume', and no run ever did: every call opens a fresh mktemp workdir and mutmut reads .mutmut-cache from its cwd, while all five copy2 calls in that module copy outward. On taskq-advance the agent gave up on the framework path and ran mutmut file by file, accumulating the project cache by hand ('plugins.py targeted run: 100 mutants' → 'Cumulative cache: 548'), because every framework retry restarted from zero inside a 60-minute cap"
+  fixed_in: "ea7e06e"
+
+- test: tests/test_mutation_cache_resume.py::test_a_corrupt_cache_is_not_inherited
+  bug: "resuming makes an unusable cache the NEW run's problem — sqlite raises 'file is not a database' out of _count_mutmut_results and a run that would have worked reports an error. Caught by an existing test (test_stale_cache_removed_when_workdir_cache_absent) whose 14-byte cache the naive copy carried into the workdir; a partially-written cache is exactly what the timeout path can leave behind"
+  fixed_in: "ea7e06e"
+
+- test: tests/test_mutation_cache_resume.py::test_the_precheck_still_starts_from_nothing
+  bug: "run_mutation_precheck answers 'are there ANY survivors right now'; a verdict inherited from a previous source tree answers a different question. Its fresh-run contract is deliberate and asymmetric with compute_mutation_score's, so a future 'make these consistent' sweep must not make them wrongly consistent"
+  fixed_in: "ea7e06e"
+
+- test: tests/test_mutation_score_provenance.py::test_the_gate_actually_calls_the_drift_check
+  bug: "the mutation scope is generated once, at the P2→P3 handoff, and was never reconciled again — backwards for how a missing scope_layers gets noticed, since Gate 2 (P3) is where the cost shows up. taskq-advance's setup.cfg was hand-written, its header claimed the framework had generated it (the wording does not match what write_paths_to_mutate writes), and it mutated the whole package against a SAB naming two layers. Confirmed live after the fix: scope_drift reports the disagreement on that project"
+  fixed_in: "60b235d"
+
+- test: tests/test_denominator_protection.py::test_the_mutation_denominator_has_an_entry
+  bug: "[mutmut] paths_to_exclude drops files from the mutant pool and is written by the party being scored — the same shape as .gitleaksignore, which Round 30 站6 registered. mutation_testing was missing from DIMENSION_EXCLUSION_FILES because that registry was built from the dimension that happened to have a dot-file rather than from the question the registry asks"
+  fixed_in: "60b235d"
+
+- test: tests/test_tool_scan_scope.py::test_source_scanners_are_pointed_at_the_source_not_the_project_root
+  bug: "S4 ran `pyright {root}` / `bandit -r {root}` while evaluate_dimension.md tells the agent to scan src/. Measured on the blocked project: 4917 .py files under the root (4344 .venv, 537 vendored harness) against 21 files of real source. Two denominators compared for equality — and in practice the harness side timed out at 60s first, which S4 reported as tool_score_fabrication. The framework's own mis-scoping was charged to the agent"
+  fixed_in: "d2f4b9c"
+
+- test: tests/test_tool_scan_scope.py::test_secrets_scanning_still_covers_the_whole_repository
+  bug: "counter-case for the {src_target} sweep: gitleaks must keep scanning everything a commit could carry, so narrowing every scanner to src/ would have shrunk the secrets denominator instead of correcting it"
+  fixed_in: "d2f4b9c"
+
+- test: tests/test_tool_scan_scope.py::test_a_project_with_no_resolvable_source_records_a_degradation
+  bug: "run_tool's existing cov_target path falls back to '.' when nothing resolves. A silent fallback would leave the scan-scope fix looking applied on exactly the layouts where it does nothing — the shape Round 29 站2 shipped and Round 30 had to measure to discover"
+  fixed_in: "d2f4b9c"
+
+- test: tests/test_tool_scan_scope.py::test_the_prompt_and_the_toolspec_scan_the_same_thing
+  bug: "nothing compared what the prompt told the agent to scan with what the ToolSpec re-ran, so the drift had no way to surface except as a timeout. Prompt says `pyright src/`; the spec said {root}"
+  fixed_in: "d2f4b9c"
+
+- test: tests/test_mutmut_report.py::test_survivors_reach_the_bug_hunt_manifest
+  bug: "end-to-end chain guard for the range bug: `mutmut results` → parse → mutation_survivors.json → bug-hunt-targets. Asserted through the whole chain rather than at either end, because the artifact looked well-formed the entire time it was empty — survivor_count 0 next to a raw banner reading 308, and Gate 3 reading that zero as 'no leads'"
+  fixed_in: "6e5cc6f"

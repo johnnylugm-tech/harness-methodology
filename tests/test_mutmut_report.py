@@ -140,6 +140,55 @@ def test_the_frameworks_own_score_message_is_parseable_by_the_framework():
     assert abs(rate - 43.8) < 0.1, rate
 
 
+# ── end to end: mutmut output → artifact → bug-hunt manifest ────────────
+
+def test_survivors_reach_the_bug_hunt_manifest(tmp_path):
+    """The whole chain the range bug severed. `mutmut results` → parse →
+    mutation_survivors.json → bug-hunt-targets, asserted on a real per-file
+    shape rather than at either end alone: the artifact looked well-formed the
+    entire time it was empty."""
+    import argparse
+    import json
+
+    from core.quality_gate.mutation_enforcer import _write_survivors_artifact
+
+    meth = tmp_path / ".methodology"
+    meth.mkdir()
+    (meth / "state.json").write_text(
+        json.dumps({"state": "RUNNING", "current_phase": 4, "language": "python"}),
+        encoding="utf-8",
+    )
+    _write_survivors_artifact(
+        tmp_path, "mutmut",
+        _parse_mutmut_survivors(REAL_RESULTS_OUTPUT),
+        raw=REAL_RESULTS_OUTPUT,
+    )
+
+    artifact = json.loads(
+        (meth / "mutation_survivors.json").read_text(encoding="utf-8")
+    )
+    assert artifact["survivor_count"] == 18
+    assert artifact["reported_total"] == 18, (
+        "what the tool said must sit beside what we parsed — that pairing is "
+        "the only thing that makes a silent parse failure visible"
+    )
+
+    rc = harness_cli.cmd_bug_hunt_targets(argparse.Namespace(project=str(tmp_path)))
+    assert rc == 0
+    targets = json.loads(
+        (meth / "bug_hunt_targets.json").read_text(encoding="utf-8")
+    )
+    assert targets["sources"]["mutation_survivors"] == 18, (
+        f"Gate 3's bug hunt still reads zero leads: {targets['sources']}"
+    )
+    reasons = {t["path"]: t["reasons"] for t in targets["high_risk"]}
+    assert any(
+        r == "mutation_survivors:13" for rs in reasons.values() for r in rs
+    ), (
+        f"the survivor-dense file did not reach the hunt manifest: {reasons}"
+    )
+
+
 # ── legacy free-text shapes ─────────────────────────────────────────────
 # Moved verbatim from tests/test_harness_bridge_oracle.py (Round 31 站2) along
 # with the parsing they cover. Nothing in this repo emits these, but a human

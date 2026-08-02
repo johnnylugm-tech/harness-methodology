@@ -420,3 +420,54 @@ Both writers record both fields; `core.doctor._check_enforcer_provenance` is the
 reader, and WARNs (never ERRORs) when a recorded `enforcer_sha` no longer
 resolves. An unreachable enforcer does not make a verdict wrong — it makes the
 question the field was added for unanswerable, which is worth exactly one WARN.
+
+## A parse failure is not an absence (Round 31)
+
+Round 30 ruled that a checker which cannot run must not return the value that
+means "ran, clean". Round 31 found the same shape one level down, in parsers:
+
+> **`None` / `[]` / `0.0` out of a parser means "this text carries no such
+> information", never "the information is that there is none."**
+
+Three parsers of `mutmut` output were measured against real inputs:
+
+| parser | expected | real input |
+|---|---|---|
+| `_count_mutmut_results` (sqlite) | `Mutant.status` | correct |
+| `_parse_mutmut_survivors` | `10, 24` | **0 of 308** — mutmut prints ranges |
+| `_extract_mutmut_kill_rate` | `Killed 240` | **None** on all three real formats |
+| `tool_runners._score_mutmut` | `Killed: 240` | dead — nothing emits it |
+
+The consequences were invisible precisely because each abstention looked like a
+result. A run whose own banner read `Survived 🙁 (308)` wrote `survivor_count: 0`
+into `mutation_survivors.json`, and Gate 3's bug-hunt manifest read that zero as
+"no leads".
+
+Three rules follow.
+
+1. **One module per external format.** `core/quality_gate/mutmut_report.py`
+   holds every mutmut format, with the formatter beside the parser so a
+   round-trip test binds producer to consumer. Four parsers in three files is
+   how a system stops being able to read itself.
+2. **Record what the tool said next to what you parsed.**
+   `mutation_survivors.json` now carries `reported_total` — the count mutmut
+   printed — alongside the list. `survivor_count: 0` beside a raw banner saying
+   308 is self-refuting, and nobody could see it because only one of the two
+   numbers was a field.
+3. **Never compare against a format you do not produce.** The framework's own
+   `mutation-test-score` prints `killed=N survived=N score=X`, and the
+   framework's own anti-fabrication check could not read it. If a check has
+   never fired on a real input, it is not a check.
+
+### The measurer's failure is not the measured party's fault
+
+The same round found S4 running `pyright {root}` — 4917 files, of which 4344
+were a committed `.venv` — against a prompt telling the agent to scan `src/`.
+It timed out, and the timeout was reported to the agent as
+`tool_score_fabrication` with the remediation "Install 'pyright'", for a tool
+that was installed.
+
+> When the framework cannot complete its own measurement, the block must say
+> so in the framework's own voice and route to the framework's own budget
+> (`harness_config values.timeouts`). Return code `-2` (timed out) and `-3`
+> (not found) are different findings and no longer share a sentence.

@@ -739,3 +739,89 @@ re-open 要拿量測，不是拿計畫。
   `harness-bug-fixer <bot@harness.local>` 已經在 taskq-advance 的 run 中直接 push 到
   harness main（`7154768`），繞過老闆選定的「分支 + PR + 人工 merge」邊界；這條路徑目前
   **完全沒有機械執法**。
+
+---
+
+## Round 31 — mutation_testing：框架擁有工具，卻不擁有數字
+
+觸發：taskq-advance 卡在 P3 Gate 2（表面訊息 `mutation_testing 43.8 < 70`）。
+拆開整條路徑後，真正的問題不是專案測試寫得不夠好。
+
+### 根源
+
+> **判定的來源與判定的範圍，都不在框架手上。**
+> `mutation_testing` 是唯一一個「框架擁有工具、卻不擁有數字」的 tier-1 維度；
+> `type_safety` / `security` 則是「框架擁有數字、卻不擁有範圍」。
+> 兩者共用同一個後果：**框架量不出來時，代價由被判定方承擔。**
+
+Round 30 的立則是「棄權不得等於通過」。本輪是它的前一步：棄權之前，先問這個數字是誰算的、
+算在什麼上面。
+
+### 七項發現（全部有量測值）
+
+| # | 發現 | 量測 |
+|---|---|---|
+| 1 | `compute_mutation_score` 零生產呼叫者 | 全樹 grep；分數來自 agent 手寫散文，因 mutmut 樣式含 `r"mutmut"` 而通過內容驗證 |
+| 2 | 四個 mutmut 解析器，三個讀不懂真實輸出 | `_extract_mutmut_kill_rate` 對三種真實輸入全回 `None`；唯一讀得懂的格式系統裡沒有東西產生 |
+| 3 | survivor 清單恆為空 | 真實輸出 `Survived 🙁 (308)` → 解析 0；`ranges()` 把連號摺成 `233-245` |
+| 4 | partial-cache resume 是假承諾 | workdir 是全新 mktemp，五處 `copy2` 全是往外複製 |
+| 5 | 範圍生成一次後無人對賬 | setup.cfg 手寫且標頭自稱框架生成（文字與 `write_paths_to_mutate` 不符） |
+| 6 | gate config 的 `mutation_testing` 區塊是死的 | `median_runs` / `timeout_per_run` 零程式消費者 |
+| 7 | S4 掃描範圍與 prompt 不同 | 專案根 4917 個 `.py`（`.venv` 4344 + vendored harness 537）vs 真實原始碼 21 個 |
+
+**站0 之後追加的第八項**：mutmut 的 ToolSpec 帶 `skip_inline=False`，就寫在指名它為 skip-list
+的註解正下方。S4 因此真的會從專案根 spawn 裸 `mutmut run`（1800s 預算）—— 正是
+`evaluate_dimension.md` 叫 agent 永遠不要下的那道指令；同時也讓 `rc == -1` 分支裡的
+kill-rate 交叉檢查永遠不可達。站0 測試的安全網當場抓到。
+
+### 站0 前提查證
+
+- **P1 成立** —— `compute_mutation_score` 在組訊息那一刻已握有 killed/survived/scope/excludes，
+  產物寫入器該放在那裡，與 `_write_survivors_artifact` 並列。
+- **P2 成立** —— `_finalize_gate_cross_checks` 的 traceability `framework_override` 前例可原形複用。
+- **P3 部分為假** —— `resolve_targets` 的 `cov_target` 不必然是單一路徑：在本 repo 它回傳
+  `.coveragerc [run] source` 的多行區塊，而 `run_tool` 隨後用 `isdir()` 檢查把它丟掉。
+  因此 `{src_target}` 必須展開成 N 個 argv 條目，單一 `str.format` 表達不了。
+
+### 兩項減法
+
+- **gate config 的 `mutation_testing` 三鍵刪除**，不實作。實作意味著每個 gate 跑三次 mutmut ——
+  數小時 —— 去平滑一個由確定性 sqlite 計數得出的數字；**沒有變異可取中位數**。
+  誠實的狀態是「我們跑一次」，現在設定用沉默說出這件事。
+  re-open 條件：拿出 run-to-run 變異的量測。
+- **`_score_mutmut` + 三條 regex 刪除**（連同五條測試）。格式是幻想的，且 mutmut 上 skip-list
+  之後本來就不可達（`compute_tool_score` 對所有負 rc 回 `None`）。理由留在原本類別的位置。
+
+`objective_primary` **保留**：它活在 SCORE FILE 的旗標上（score.py R4 用它固定
+`score == tool_score`），與這裡刪掉的 gate-config 鍵是不同檔案的不同欄位。把兩者混為一談，
+正是那個死鍵看起來像承重牆的原因。
+
+### 一個過程錯誤，記在這裡
+
+站3 的第一次反證我用 `git restore` 撤銷探針，**連帶把該站自己未 commit 的修改一起還原了**。
+探針本身有效，撤銷方式無效。**未 commit 的工作做反證時，必須反向套用同一筆編輯，而不是重置檔案。**
+（與 Round 30 的 `b12166b` 同科：驗證動作本身要能承受它自己。）
+
+### 誠實邊界
+
+- 七站全部是**讀碼 + 單元/整合測試 + 可執行反證 + 一次唯讀冒煙**。**沒有跑真的 E2E。**
+- **本輪不會讓 taskq-advance 的 mutation 分數變高，我也不主張它會。** 43.8 是真實的測試不足；
+  站1–站5 只讓 308 個 survivor 從「記成 0」變成可行動的清單。真正解開此刻 BLOCK 的是站6。
+- 站4 的漂移對賬**會讓 taskq-advance 現有的手寫 setup.cfg 立刻 BLOCK**（唯讀冒煙已確認會觸發）。
+  這是正確的，但代價是老闆得決定：改 SAB 讓兩者一致，或接受目前的整包範圍。
+- 站2 讓 gate 由「agent 分數」轉為「框架分數」。產物不存在的專案會由 PASS 轉 BLOCK ——
+  預期且正確，但確實是行為變更。
+- `pytest-benchmark` 仍用 `{root}` 當 pytest 路徑。那是 test-target 問題不是 source-scope 問題，
+  留給真正處理它的那一輪。
+
+### 唯讀冒煙（taskq-advance，工作樹前後皆 56 筆未變）
+
+```
+reported_total : 308
+parsed         : 308
+   plugins.py 77  dag.py 71  breaker.py 54  task_store.py 44
+   executor.py 34  cache.py 14  cache_store.py 9  breaker_store.py 5
+scope_drift    : setup.cfg [mutmut] paths_to_mutate is .../taskq_plus, but the
+                 SAB's mutation_testing NFR scopes it to .../service, .../storage
+```
+逐檔數字與 agent 當初手寫的表格完全一致 —— 解析器對上了一份獨立產生的真值。
