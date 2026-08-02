@@ -10,6 +10,7 @@ from core.quality_gate.sab_parser import (
 )
 
 from . import js_blocks as B
+from . import spec_shared as S
 from .spec_shared import _render_meta
 
 # Round 27 站2: the P2 prompt used to spell out both lists. When the type table
@@ -555,6 +556,8 @@ def generate_phase2() -> str:
         (
             "\nlog('Phase 2 workflow complete. Open .methodology/phase3_plan.md to continue.')\n"
             "return {\n"
+            + S.render_phase_complete_marker()
+            +
             "  phase: 2,\n"
             "  peer_review_status: peerB2 ? peerB2.review_status : 'unknown',\n"
             "  push_status: pushOk ? 'PASS' : 'unknown',\n"

@@ -5,6 +5,7 @@ scripts/workflowgen/spec_shared.py for the cross-phase _render_meta.
 from __future__ import annotations
 
 from . import js_blocks as B
+from . import spec_shared as S
 from .spec_shared import _render_meta
 
 _HEADER_6 = """\
@@ -305,6 +306,8 @@ def generate_phase6() -> str:
         (
             "\nlog('Phase 6 workflow complete. Open .methodology/phase7_plan.md to continue.')\n"
             "return {\n"
+            + S.render_phase_complete_marker()
+            +
             "  phase: 6,\n"
             "  gate4_status: gate4Pass ? 'PASS' : 'unknown',\n"
             "  // Pre-existing latent bug fixed 2026-07-02: this line referenced `peerReport`,\n"

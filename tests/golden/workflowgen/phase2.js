@@ -977,6 +977,7 @@ if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
 
 log('Phase 2 workflow complete. Open .methodology/phase3_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 2,
   peer_review_status: peerB2 ? peerB2.review_status : 'unknown',
   push_status: pushOk ? 'PASS' : 'unknown',

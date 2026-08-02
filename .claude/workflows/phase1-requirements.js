@@ -1217,4 +1217,4 @@ if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
 
 
 log('Phase 1 workflow complete. Open .methodology/phase2_plan.md to continue.')
-return { status: 'OK', phase: 1, message: 'Phase 1 complete; advance to Phase 2' }
+return { phase_complete: true, status: 'OK', phase: 1, message: 'Phase 1 complete; advance to Phase 2' }

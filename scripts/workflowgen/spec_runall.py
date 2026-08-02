@@ -60,6 +60,7 @@ import re
 from scripts.workflow_audit.js_lint import comment_line_numbers
 
 from . import js_blocks as B
+from .spec_shared import PHASE_COMPLETE_KEY
 
 PHASES = (1, 2, 3, 4, 5, 6, 7, 8)
 
@@ -301,6 +302,23 @@ def _render_driver(all_titles: list[str]) -> str:
         "  if (outcome && outcome.error) {\n"
         "    return { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, "
         "phase: n, phases_run: phasesRun, detail: outcome }\n"
+        "  }\n"
+        "  // Round 28 — fail CLOSED, like the cursor read above. The two branches\n"
+        "  // above name the outcomes this driver recognises; this one covers every\n"
+        "  // outcome it does not. runPhase3 returns `harness_bug_detected` and\n"
+        "  // `dispatch_structurally_broken` for conditions no later phase can\n"
+        "  // recover from, and neither carries an `error` key — so before this,\n"
+        "  // a run in which harness itself crashed on FR-01 walked on through P4-P8\n"
+        "  // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.\n"
+        f"  if (!outcome || outcome.{PHASE_COMPLETE_KEY} !== true) {{\n"
+        "    return { error: 'run-all stopped in Phase ' + n + ': the phase returned without "
+        "reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || "
+        "'no message'), "
+        "phase: n, phases_run: phasesRun, detail: outcome, "
+        f"note: 'A phase sets {PHASE_COMPLETE_KEY} only on its single success exit. Anything else "
+        "— a terminal abort such as a harness crash or a broken dispatch environment, or a shape "
+        "this driver does not recognise — stops the run rather than advancing on an unfinished "
+        "phase.' }\n"
         "  }\n"
         "  phasesRun.push(n)\n"
         "}\n"

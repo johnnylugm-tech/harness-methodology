@@ -518,6 +518,7 @@ if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
 
 log('Phase 6 workflow complete. Open .methodology/phase7_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 6,
   gate4_status: gate4Pass ? 'PASS' : 'unknown',
   // Pre-existing latent bug fixed 2026-07-02: this line referenced `peerReport`,

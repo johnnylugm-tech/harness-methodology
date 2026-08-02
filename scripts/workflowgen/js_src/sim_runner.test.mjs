@@ -718,3 +718,50 @@ test('round26: every workflow routes its dispatches through the wrapper', async 
                  `${f}: the wrapper must be declared exactly once`)
   }
 })
+
+// ---- 14. Round 28: the workflow runtime handles NOTHING ---------------------
+// Measured against the runtime, not assumed: its entire error behaviour is
+// "terminate the run". It does not retry, isolate, degrade, or resume across
+// sessions; a throw the script does not catch produces no result at all
+// (docs/WORKFLOW_PLAYBOOK.md §4/§6.3). Every bit of fault tolerance therefore
+// has to be IN the generated JS, which makes these three assertions the spec
+// for what "the workflow survived" means.
+
+// 14a. A terminal abort flag must actually stop the pipeline.
+// runPhase3 detects two conditions no downstream phase can recover from and
+// returns a flag for each. run-all's phase loop read neither: both objects
+// carry no `error` key, so the loop pushed the phase onto phases_run and went
+// on to Phase 4. A run in which harness itself crashed on FR-01 reported
+// `phases_run: [3,4,5,6,7,8]` and no error — the sixth appearance of "the
+// detector was built, the consumer never read it".
+const TERMINAL_FLAG_CASES = [
+  {
+    flag: 'harness_bug_detected',
+    reply: 'FR-01 GATE1: FAIL — harness-methodology bug detected, escalate to human '
+      + '(see [HARNESS-BUG] message and its crash bundle path)',
+    why: 'harness-methodology itself crashed — no later phase can be trusted',
+  },
+  {
+    flag: 'dispatch_structurally_broken',
+    reply: 'FR-01 GATE1: FAIL — [FATAL] FR-01 GATE1: sub-agent dispatch is structurally '
+      + 'broken — Claude Code reports claude.ai connectors are disabled',
+    why: 'no sub-agent can be dispatched at all — every later phase would fail identically',
+  },
+]
+
+for (const { flag, reply, why } of TERMINAL_FLAG_CASES) {
+  test(`round28: run-all stops when Phase 3 returns ${flag}`, async () => {
+    const { result, events } = await runWorkflow(RUNALL, makeHappyResponder(
+      [cursorAt(3), { match: /^tdd-/, respond: reply }, ...happyOverrides()]))
+    const laterBoxes = events.phases.filter((p) => /^P[4-8] · /.test(p))
+    assert.deepEqual(laterBoxes, [],
+      `${flag}: ${why}, yet run-all entered ${laterBoxes.length} later-phase box(es) `
+      + `(${laterBoxes.slice(0, 3).join(', ')})`)
+    assert.deepEqual(result.phases_run, [],
+      `${flag}: Phase 3 aborted, so it must not be recorded as run — got `
+      + JSON.stringify(result.phases_run))
+    assert.ok(result.error || result[flag],
+      `${flag}: run-all returned a success shape after a terminal abort — `
+      + JSON.stringify(result).slice(0, 200))
+  })
+}

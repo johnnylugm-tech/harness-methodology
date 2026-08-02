@@ -5,6 +5,7 @@ scripts/workflowgen/spec_shared.py for the cross-phase _render_meta.
 from __future__ import annotations
 
 from . import js_blocks as B
+from . import spec_shared as S
 from .spec_shared import _render_meta
 
 _HEADER_8 = """\
@@ -196,6 +197,8 @@ def generate_phase8() -> str:
         ]),
         (
             "\nreturn {\n"
+            + S.render_phase_complete_marker()
+            +
             "  phase: 8,\n"
             "  fr_count: frIds.length,\n"
             "  gate1_pass: gate1Pass,\n"

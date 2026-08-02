@@ -1164,7 +1164,7 @@ if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
 
 
 log('Phase 1 workflow complete. Open .methodology/phase2_plan.md to continue.')
-return { status: 'OK', phase: 1, message: 'Phase 1 complete; advance to Phase 2' }
+return { phase_complete: true, status: 'OK', phase: 1, message: 'Phase 1 complete; advance to Phase 2' }
 }
 
 async function runPhase2() {
@@ -1868,6 +1868,7 @@ if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
 
 log('Phase 2 workflow complete. Open .methodology/phase3_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 2,
   peer_review_status: peerB2 ? peerB2.review_status : 'unknown',
   push_status: pushOk ? 'PASS' : 'unknown',
@@ -2293,6 +2294,7 @@ if (!syncPass) {
 
 log('Phase 3 workflow complete. Open .methodology/phase4_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 3,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
@@ -2727,6 +2729,7 @@ if (!advancePass) {
 
 log('Phase 4 workflow complete. Open .methodology/phase5_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 4,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
@@ -3027,6 +3030,7 @@ if (!advancePass) {
 
 log('Phase 5 workflow complete. Open .methodology/phase6_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 5,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
@@ -3343,6 +3347,7 @@ if (!advancePass) {
 
 log('Phase 6 workflow complete. Open .methodology/phase7_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 6,
   gate4_status: gate4Pass ? 'PASS' : 'unknown',
   peer_review_status: (peerVerdict && Array.isArray(peerVerdict.verdicts) && peerVerdict.verdicts.every(v => v.review_status === 'APPROVE')) ? 'APPROVE' : 'unknown',
@@ -3640,6 +3645,7 @@ if (!advancePass) {
 
 log('Phase 7 workflow complete. Open .methodology/phase8_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 7,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
@@ -3959,6 +3965,7 @@ if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
 
 
 return {
+  phase_complete: true,
   phase: 8,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
@@ -4019,6 +4026,16 @@ for (let n = startPhase; n <= 8; n++) {
   }
   if (outcome && outcome.error) {
     return { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, phase: n, phases_run: phasesRun, detail: outcome }
+  }
+  // Round 28 — fail CLOSED, like the cursor read above. The two branches
+  // above name the outcomes this driver recognises; this one covers every
+  // outcome it does not. runPhase3 returns `harness_bug_detected` and
+  // `dispatch_structurally_broken` for conditions no later phase can
+  // recover from, and neither carries an `error` key — so before this,
+  // a run in which harness itself crashed on FR-01 walked on through P4-P8
+  // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.
+  if (!outcome || outcome.phase_complete !== true) {
+    return { error: 'run-all stopped in Phase ' + n + ': the phase returned without reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || 'no message'), phase: n, phases_run: phasesRun, detail: outcome, note: 'A phase sets phase_complete only on its single success exit. Anything else — a terminal abort such as a harness crash or a broken dispatch environment, or a shape this driver does not recognise — stops the run rather than advancing on an unfinished phase.' }
   }
   phasesRun.push(n)
 }

@@ -9,6 +9,34 @@ station1 commit message for the verification method.
 from __future__ import annotations
 
 
+# Round 28 — a phase outcome is a CONTINUE only if it says so.
+#
+# run-all's phase loop decided "did this phase succeed" by looking for the two
+# keys it happened to know about: `session_limit_blocked` and `error`. runPhase3
+# also returns `harness_bug_detected` and `dispatch_structurally_broken` — two
+# conditions no later phase can recover from — and the loop read neither, because
+# neither object carries an `error` key. Measured in the sim testbed: with harness
+# itself crashed on FR-01, run-all entered ten P4 boxes and returned
+# `phases_run: [3,4,5,6,7,8]` with no error at all.
+#
+# Enumerating the abort flags in the loop would repeat the mistake in a new place:
+# the next phase spec to invent a flag is under no obligation to tell the driver.
+# So the default is inverted. Each phase's single success exit carries this
+# marker, and the loop stops on everything else — a known abort, an abort added
+# later, or a shape nobody anticipated. Fail closed, matching the cursor read
+# directly above it, which already refuses to guess a starting phase.
+#
+# Distinct from state.json's `phase_completed` (Round 24 站4): that records what
+# advance-phase committed to disk. This is the in-memory handshake between one
+# runPhaseN and the driver that called it, and never leaves the run.
+PHASE_COMPLETE_KEY = "phase_complete"
+
+
+def render_phase_complete_marker() -> str:
+    """First line inside every phase's final (success) return object."""
+    return f"  {PHASE_COMPLETE_KEY}: true,\n"
+
+
 def _render_meta(*, name: str, description: str, phases: list[str]) -> str:
     lines = ["export const meta = {", f"  name: '{name}',"]
     lines.append(f"  description: '{description}',")

@@ -476,7 +476,11 @@ _LINE_CEILING: dict[str, int] = {
     # needed before switching off the free-text-regex verdict path; one
     # `B.render_schemas(["VERDICT_SCHEMA"])` call added ahead of
     # render_persist_approval.
-    "scripts/workflowgen/spec_phase1.py": 920,
+    # 2026-08-02 (Round 28 站1): 920 -> 921. One import line
+    # (`from . import spec_shared as S`) so phase1's final return can carry the
+    # shared phase-completion marker; the eight spec modules each gained the
+    # same line, and this is the only one that was already at its ceiling.
+    "scripts/workflowgen/spec_phase1.py": 921,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

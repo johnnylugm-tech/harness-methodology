@@ -761,6 +761,7 @@ if (!syncPass) {
 
 log('Phase 3 workflow complete. Open .methodology/phase4_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 3,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,

@@ -574,6 +574,7 @@ if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
 
 log('Phase 7 workflow complete. Open .methodology/phase8_plan.md to continue.')
 return {
+  phase_complete: true,
   phase: 7,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,

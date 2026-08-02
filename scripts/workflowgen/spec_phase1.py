@@ -11,6 +11,7 @@ decision to accept a dated _LINE_CEILING entry here instead.
 from __future__ import annotations
 
 from . import js_blocks as B
+from . import spec_shared as S
 from .spec_shared import _render_meta
 
 _HEADER_1 = """\
@@ -914,7 +915,7 @@ def generate_phase1() -> str:
         B.render_sync_verified(),
         (
             "\nlog('Phase 1 workflow complete. Open .methodology/phase2_plan.md to continue.')\n"
-            "return { status: 'OK', phase: 1, message: 'Phase 1 complete; advance to Phase 2' }\n"
+            "return { " + S.PHASE_COMPLETE_KEY + ": true, status: 'OK', phase: 1, message: 'Phase 1 complete; advance to Phase 2' }\n"
         ),
     ]
     return "\n".join(p for p in parts if p is not None)
