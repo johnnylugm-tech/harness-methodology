@@ -389,6 +389,59 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
               f"ledger). This is NOT a code defect; no fix agent is dispatched.")
         return True
 
+    # Round 30 站5 — the wall-clock half of the same idea.
+    #
+    # Round 29 站5 made a wall-clock timeout visible (error_class + a ledger
+    # line) and left the retry unchanged: "retrying with identical prompt", same
+    # ceiling. taskq-advance's P3 shows what that buys — 12 of its 18 failed
+    # dispatches were 600.0s timeouts, four of them consecutive on FR-02 at
+    # ten-minute intervals, every one re-dispatched into the same wall. Two hours
+    # of wall time whose only outcome was the same failure four times.
+    #
+    # The turn-budget path already had the answer next door: a step cut off at
+    # its ceiling gets that ceiling doubled once. The same reasoning applies
+    # verbatim — "re-dispatching at the same ceiling cannot finish what did not
+    # fit" — and the only reason wall-clock did not have it is that nobody wrote
+    # it. Once per step, same as turns: a second timeout at the doubled budget
+    # means the step genuinely cannot finish, and the caller aborts normally.
+    _wallclock_escalated: set[str] = set()
+
+    def _timeout_for(step_name: str) -> int:
+        """Per-step wall-clock budget, doubled once after a timeout.
+
+        No absolute cap constant: the factor and the once-per-step bound are the
+        whole limit, and a magic ceiling here would be the unexplained threshold
+        Round 20 站G removed from doctor. A project that needs a different base
+        sets it through values.timeouts / fr_config, the channels _fr_timeout
+        already reads.
+        """
+        return _fr_timeout * 2 if step_name.upper() in _wallclock_escalated else _fr_timeout
+
+    def _note_wallclock_kill(step_name: str, result: dict) -> bool:
+        """Record a wall-clock timeout so the next dispatch of `step_name` gets
+        longer. Returns True when this failure was a timeout."""
+        if result.get("status") != "TIMEOUT":
+            return False
+        step = step_name.upper()
+        if step in _wallclock_escalated:
+            print(f"[run-fr-step] {fr_id} {step}: timed out AGAIN at the escalated "
+                  f"budget ({_timeout_for(step)}s) — not escalating further",
+                  file=sys.stderr)
+            return True
+        _wallclock_escalated.add(step)
+        # Generic `why` for the same reason as the turn-budget ledger entry
+        # above: it is written into the CONSUMING project's ledger.
+        record_degradation(
+            project, component=f"run-fr-step:{step}",
+            what=f"task_timeout escalated {_fr_timeout} -> {_timeout_for(step)}",
+            why=f"{fr_id} {step} hit its wall-clock budget; re-dispatching at the "
+                f"same budget cannot finish what did not fit",
+        )
+        print(f"[run-fr-step] {fr_id} {step}: wall-clock timeout — re-dispatching "
+              f"with {_timeout_for(step)}s (escalation recorded in the degradation "
+              f"ledger). This is NOT a code defect; no fix agent is dispatched.")
+        return True
+
     # All FR steps need shell access:
     #   GATE1/GATE1-DELTA: ruff, pyright, pytest, coverage
     #   TDD-RED/GREEN/IMPROVE: pytest to verify fail/pass
@@ -451,7 +504,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             phase=phase,
             fr_id=fr_id,
             phase_sop_override="",
-            task_timeout=_fr_timeout,
+            task_timeout=_timeout_for(step),
             max_turns=_max_turns(step),
             mcp_config=phase_ctx["mcp_config"],
             setting_sources=phase_ctx["setting_sources"],
@@ -464,6 +517,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         # prompt told it "sub-agent timeout or error", a diagnosis the framework had
         # already contradicted by classifying the kill.
         _budget_kill = _note_turn_budget_kill(step, result)
+        # Round 30 站5: same treatment for the wall-clock half. A timeout is a
+        # budget kill too — the agent was working when the clock ran out — so it
+        # is retryable for every step and escalates the budget once.
+        _budget_kill = _note_wallclock_kill(step, result) or _budget_kill
         _step_retryable = (
             (_budget_kill or (
                 step in _COMMIT_REQUIRED_STEPS

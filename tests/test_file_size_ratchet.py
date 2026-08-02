@@ -263,7 +263,14 @@ _LINE_CEILING: dict[str, int] = {
     # the SAME step instead of handing a cut-off evaluator to CODE-FIX. Both live
     # here because both are this function's retry decisions; the shared
     # classification they read is in core/agent_spawner.
-    "cli/fr_cmds.py": 2040,
+    # 2026-08-02: +51 — Round 30 站5: _timeout_for / _note_wallclock_kill give
+    # the wall-clock budget the same once-per-step escalation the turn budget
+    # has had since Round 26. Round 29 站5 made a timeout visible and left the
+    # retry at the identical ceiling; taskq-advance P3 then spent 12 of its 18
+    # failed dispatches on 600s timeouts, four consecutive on FR-02, each
+    # re-dispatched into the same wall. Sized as a mirror of the turn-budget
+    # pair immediately above it (sized to current 2040 -> 2091).
+    "cli/fr_cmds.py": 2091,
     # 2026-07-21: +4 lines — review fix on fix/fr-step-already-done-cascade: reverted the sub-change that relaxed `if not committed: return False` to only fire for GATE1/GATE1-DELTA (it let TDD-RED/TDD-GREEN mark themselves done from a leftover, uncommitted artifact alone — reproduced live; commit evidence is a hard requirement again for every step). The GATE1 sentinel+quality_complete cascade already covers the phase-boundary scenario (FR-02 GREEN commits pre-dating the boundary) that relaxation was meant to fix, so no expressiveness is lost. Also replaced the multi-tag docstring scan's 4 unanchored substring patterns with a `[...]`-bracket-anchored, exact-tag-set match (`re.findall(r"\[([^\]]*)\]", text)` + membership check) — the substring version could false-positive match an unrelated prose comment like "# see FR-03, FR-09" with no enclosing brackets at all (also reproduced live).
     # 2026-07-21: +15 lines — fix/round-18-dispatch-ssot (Bug B): import `PRAGMA_NO_COVER_ALLOWLIST` alongside `PRAGMA_NO_COVER_GUIDANCE` and render the allowlist verbatim in the COVERAGE-FIX prompt so future widening of the tuple auto-propagates; replace the contradictory `raise NotImplementedError` example with one that matches the SSOT (`except BaseException: pass`).
     # 2026-07-21: +1 line — fix/round-18-dispatch-ssot (Bug A): add `"AMEND-SAB"` key to `_FR_STEP_COMMIT_PATTERNS` so `_fr_step_already_done` short-circuits a re-run whose amend-sab commit is already in git log.
