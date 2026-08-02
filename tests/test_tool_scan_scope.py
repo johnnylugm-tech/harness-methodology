@@ -103,6 +103,28 @@ def test_secrets_scanning_still_covers_the_whole_repository(project, monkeypatch
     assert str(project) in argv, argv
 
 
+def test_the_prompt_and_the_toolspec_scan_the_same_thing():
+    """The parity that was missing. evaluate_dimension.md is what the agent
+    follows; the ToolSpec is what S4 re-runs. They were `src/` and `{root}`,
+    and nothing compared them — so the drift could only surface as a timeout."""
+    from pathlib import Path as _P
+
+    prompt = (_P(__file__).resolve().parents[1]
+              / "harness" / "ssi" / "prompts" / "evaluate_dimension.md"
+              ).read_text(encoding="utf-8")
+    for tool, invocation in (("pyright", "pyright src/"), ("bandit", "bandit -r src/")):
+        assert invocation in prompt, (
+            f"the prompt no longer tells the agent to run `{invocation}`; "
+            f"update this pairing rather than deleting it"
+        )
+        spec = tr.get_tool_spec(tool)
+        assert spec is not None and spec.cmd is not None
+        assert "{src_target}" in spec.cmd, (
+            f"the prompt scans src/ for {tool} and the ToolSpec scans "
+            f"{spec.cmd} — two denominators, one comparison"
+        )
+
+
 def test_a_project_with_no_resolvable_source_records_a_degradation(
     tmp_path, monkeypatch
 ):

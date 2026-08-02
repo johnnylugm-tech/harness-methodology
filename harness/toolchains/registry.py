@@ -9,9 +9,17 @@ harness_cli._TOOL_CHECK_COMMANDS): same commands, same timeouts, same check
 probes. Resolution for language="python" passes the gate-YAML `tool:` field
 through unchanged, so existing projects see zero behavioral difference.
 
-Command templates use two placeholders, expanded by tool_runners.run_tool:
+Command templates use placeholders expanded by tool_runners.run_tool:
   {root}         absolute project root
   {test_target}  resolved test directory (03-development/tests > tests > root)
+  {src_target}   the project's own source dir(s) — expands to N argv entries,
+                 since a coverage source may name several. Source scanners take
+                 this, not {root}: S4 compares its score against the agent's,
+                 and evaluate_dimension.md points the agent at src/, so aiming
+                 the harness at the whole repo compared two different
+                 denominators — and on a real project timed out before it could
+                 (Round 31 站6). {root} is still correct for gitleaks, which
+                 must scan everything a commit could carry.
 
 R8 contract (harness/ssi/scripts/score.py): every requires_tool_execution
 dimension must produce a non-null tool_score. A language may therefore only be
@@ -69,7 +77,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     # ── Python toolchain ─────────────────────────────────────────────────────
     "ruff": ToolSpec(
         tool_id="ruff",
-        cmd=("ruff", "check", "{root}", "--output-format", "json", "--exit-zero"),
+        cmd=("ruff", "check", "{src_target}", "--output-format", "json", "--exit-zero"),
         timeout=30,
         check_cmd=f"ruff --version 2>&1 || {sys.executable} -m ruff --version 2>&1",
         human_name="ruff",
@@ -77,7 +85,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "mypy": ToolSpec(
         tool_id="mypy",
-        cmd=("mypy", "{root}", "--ignore-missing-imports",
+        cmd=("mypy", "{src_target}", "--ignore-missing-imports",
              "--no-color-output", "--no-error-summary"),
         timeout=60,
         check_cmd="mypy --version 2>&1",
@@ -86,7 +94,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "pyright": ToolSpec(
         tool_id="pyright",
-        cmd=("pyright", "{root}", "--outputjson"),
+        cmd=("pyright", "{src_target}", "--outputjson"),
         timeout=60,
         check_cmd="pyright --version 2>&1",
         human_name="pyright",
@@ -122,7 +130,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     "bandit": ToolSpec(
         tool_id="bandit",
         # --exit-zero: always exit 0 so returncode doesn't mask JSON output
-        cmd=("bandit", "-r", "{root}", "-f", "json", "--exit-zero"),
+        cmd=("bandit", "-r", "{src_target}", "-f", "json", "--exit-zero"),
         timeout=60,
         check_cmd="bandit --version 2>&1",
         human_name="bandit",
@@ -130,7 +138,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "radon-cc": ToolSpec(
         tool_id="radon-cc",
-        cmd=("radon", "cc", "{root}", "-j", "--min", "A"),
+        cmd=("radon", "cc", "{src_target}", "-j", "--min", "A"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-cc)",
@@ -138,7 +146,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "readability-v2": ToolSpec(
         tool_id="readability-v2",
-        cmd=(sys.executable, "-m", "harness.toolchains.readability_v2", "{root}"),
+        cmd=(sys.executable, "-m", "harness.toolchains.readability_v2", "{src_target}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (readability-v2)",
@@ -146,7 +154,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "radon-mi": ToolSpec(
         tool_id="radon-mi",
-        cmd=(sys.executable, "-m", "harness.toolchains.radon_mi_ast_stripped", "{root}"),
+        cmd=(sys.executable, "-m", "harness.toolchains.radon_mi_ast_stripped", "{src_target}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-mi)",

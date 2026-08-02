@@ -1402,14 +1402,35 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             # Tool unavailable (rc=-2 timeout, rc=-3 not-found, rc=-4 error).
             # The agent cannot legitimately claim a passing tool-based score
             # when the harness cannot independently verify the tool runs.
+            # Round 31 站6: -2 and -3 used to share one sentence, and that
+            # sentence was "Install '<tool>'". A timeout means the tool IS
+            # installed and did not finish, so the remediation pointed at the
+            # one thing that was already true — measured on a real Gate 2,
+            # where `pyright` timed out at 60s against 4917 files and the block
+            # told the agent to install pyright.
+            _how = {
+                -2: (
+                    f"'{tool}' is installed and did not finish inside its "
+                    f"budget. Narrow what it scans, or raise the budget via "
+                    f"harness_config values.timeouts — do NOT lower the score "
+                    f"to work around a framework-side timeout."
+                ),
+                -3: (
+                    f"Install '{tool}' so the harness can independently verify "
+                    f"the score. If it is genuinely unavailable, the dimension "
+                    f"score must be set below threshold ({threshold:.0f}) to "
+                    f"reflect that."
+                ),
+            }.get(returncode, (
+                f"'{tool}' failed inside the harness (rc={returncode}); this is "
+                f"a framework-side fault, not an agent one — see the audit file "
+                f"in .sessi-work/harness_verification/."
+            ))
             _rc_labels = {-2: "timed out", -3: "not found", -4: "error"}
             _rc_label = _rc_labels.get(returncode, f"rc={returncode}")
             violations.append(
                 f"{dim_name}: tool '{tool}' {_rc_label} — harness cannot "
-                f"cross-validate agent_score={_agent_label}. "
-                f"Install '{tool}' so the harness can independently verify the score, "
-                f"or if the tool is genuinely unavailable, the dimension score must be "
-                f"set below threshold ({threshold:.0f}) to reflect that."
+                f"cross-validate agent_score={_agent_label}. {_how}"
             )
             continue
 

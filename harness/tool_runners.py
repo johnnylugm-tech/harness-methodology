@@ -32,6 +32,46 @@ from harness.toolchains import get_tool_spec
 _ARTIFACT_MARKER = "\n=== TOOL_OUTPUT_ARTIFACT ===\n"
 
 
+def _resolve_src_targets(root: str, cov_target: str) -> list:
+    """The directories a source scanner should be pointed at.
+
+    Round 31 站6. S4 exists to re-run the tool the agent ran and compare the
+    two scores — which only means anything if both sides look at the same
+    files. The specs said ``{root}``. Measured on the project this round came
+    from: 4917 .py files under the root (4344 of them a committed .venv, 537
+    the vendored harness) against 21 files of actual source, while
+    evaluate_dimension.md tells the agent to scan ``src/``. pyright timed out
+    at 60s and S4 reported the timeout as tool_score_fabrication with "Install
+    'pyright'" — for a tool that was installed. The harness's own inability to
+    measure became an accusation against the measured party.
+
+    Falls back to the project root when nothing resolves, and records that in
+    the degradation ledger. A silent fallback would leave the fix looking
+    applied on exactly the layouts it does not work for — the shape Round 29's
+    station 2 shipped.
+    """
+    import os as _os
+
+    candidates = [c for c in (cov_target or "").split() if c not in ("", ".")]
+    resolved = [
+        _os.path.join(root, c) for c in candidates
+        if _os.path.isdir(_os.path.join(root, c))
+    ]
+    if resolved:
+        return resolved
+
+    from core.degradation_ledger import record_degradation
+    record_degradation(
+        root, "gate:scan-scope",
+        f"no source directory resolved (coverage target {cov_target!r}); "
+        f"source scanners fall back to the whole project root",
+        why=("the harness then scans dependencies and any vendored harness "
+             "alongside the project's own code, which is neither what the "
+             "agent scanned nor what the score is supposed to describe"),
+    )
+    return [root]
+
+
 def run_tool(
     tool: str,
     project_root: str,
@@ -97,10 +137,20 @@ def run_tool(
     _, _cov_candidate = resolve_targets(root)
     cov_target = _cov_candidate if os.path.isdir(os.path.join(root, _cov_candidate)) else "."
 
-    cmd = [
-        part.format(root=root, test_target=test_target, cov_target=cov_target)
-        for part in spec.cmd
-    ]
+    # {src_target} expands to N argv entries, not one token (Round 31 站6).
+    # resolve_targets' cov_target is a coverage SOURCE, which .coveragerc may
+    # declare as several directories on separate lines; a single str.format
+    # substitution would hand the tool one path made of all of them.
+    src_targets = _resolve_src_targets(root, cov_target)
+
+    cmd: list[str] = []
+    for part in spec.cmd:
+        if part == "{src_target}":
+            cmd.extend(src_targets)
+            continue
+        cmd.append(
+            part.format(root=root, test_target=test_target, cov_target=cov_target)
+        )
 
     # Round 16: pytest-family tools run with cwd=root but no PYTHONPATH, so
     # `import <package>` fails collection (test_coverage silently scores 0)

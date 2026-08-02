@@ -113,7 +113,12 @@ _LINE_CEILING: dict[str, int] = {
     # into a ceiling, which test_finalize_gate_override_is_floor_not_ceiling
     # caught. The note is longer than the line it replaces because the next
     # reader needs to know the diagnosis stands and only the fix was withdrawn.
-    "harness/harness_bridge.py": 3573,
+    "harness/harness_bridge.py": 3594,
+    # 2026-08-03 (Round 31 站6): +21 more — the S4 remediation text for a tool
+    # that timed out is no longer the text for a tool that is missing. They
+    # shared one sentence, and that sentence was "Install '<tool>'", which is
+    # what a real Gate 2 told an agent about an installed pyright that had run
+    # out of budget scanning 4917 files.
     # 2026-08-03 (Round 31 站4): +18 more — the scope-drift check in
     # _mutation_artifact_violations and the mutation_testing entry in
     # DIMENSION_EXCLUSION_FILES. A score is only meaningful over the scope it
