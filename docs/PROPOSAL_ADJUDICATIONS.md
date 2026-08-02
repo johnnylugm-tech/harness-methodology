@@ -563,3 +563,48 @@ dispatch 帶走，且 cost / turns / duration 在該基座**取不回來** —�
 - **R27-DEFER-1**：老闆裁定要統一門檻語意時，`_effective_threshold` 改取三源最大值，並同輪重跑所有現存專案的 Gate 1 對照。
 - **R27-I**：若該探針字串日後出現在框架的 shipped surface（生成器、prompt、模板），立即加進 registry。
 - **站7a**：若 attestation 的 matrix 日後帶測試函式粒度（例如吸收 `SuiteResult.test_outcomes`，ed02bbe 已有該資料），「NFR 測試消失 = regression」即可實作。
+
+---
+
+## Round 28 — 執行基座的失敗，沒有人在接
+
+老闆令：評估並強化所有 workflow JS 的錯誤處理（容錯）與自動修復機制；**先探討 Claude Workflow tool runtime 本身遇到 blocking 問題或錯誤的處理能力**。目標是 workflow 執行中遇到 harness bug（含 workflow JS bug）能主動修復、驗證、發 PR，再從 blocked 節點續跑。
+
+**定調（先於一切）**：runtime 對錯誤只有一種處理方式 —— **終止整個 run**。它不重試、不隔離、不降級、不跨 session 續跑；script 沒接住的 throw 直接結束 run 且**不產生任何結果**（`docs/WORKFLOW_PLAYBOOK.md` §4/§6.3）。所以容錯與自動修復 **100% 必須寫在生成的 JS 裡**——這不是設計選擇，是基座的性質。本輪處理的就是「基座只會死，而我們只在一個檔案裡接住了它」。
+
+### 三個活傷口（全部以 sim 測床實測，非論述）
+
+| # | 傷口 | 量測 |
+|---|---|---|
+| R28-1 | run-all 的 phase 迴圈只認得 `session_limit_blocked` 與 `error`；`harness_bug_detected` / `dispatch_structurally_broken` 兩個旗標**沒有 `error` 鍵**，迴圈從未讀過 | harness 在 FR-01 崩潰後，run-all 進了 **10 個 P4 box**，回傳 `phases_run: [3,4,5,6,7,8]`、`error: undefined`。生產樹中這兩個旗標**零消費者** |
+| R28-2 | 八支獨立 phase JS **沒有頂層邊界**；run-all 有（Round 23 給了 driver 一個 per-phase try/catch），來源檔沒有 | 逐一在每個 dispatch label 注入 transport error：**84/217 逃逸**（run-all 0/85）。P4 14/16、P5 12/13、P7 12/13、P8 13/14 |
+| R28-3 | `[HARNESS-BUG]` 與 `[FATAL]` 結構性 dispatch 失效**只在 P3 偵測**；P4/P5/P7/P8 各有自己的 per-FR Gate 1 迴圈，兩者都沒有 | `grep -c HARNESS-BUG`：phase3 = 5，其餘 phase 檔 = 0。後果是 harness 崩潰被當 code-quality FAIL 送進 CODE-FIX |
+
+| # | 主張 / 選項 | 裁決 | 出處 |
+|---|---|---|---|
+| R28-A | 把兩個終止旗標名稱補進 run-all 的迴圈 | **否決**。那是在新的一層重犯同一個錯：下一個發明旗標的 phase spec 沒有義務通知 driver。改為 **fail closed** —— phase 只有在它唯一的成功出口標記 `phase_complete: true` 才算完成，其餘一律停。與正上方那個「讀不到 cursor 就中止、不猜」的分支同一原則 | `spec_shared.PHASE_COMPLETE_KEY` |
+| R28-B | 邊界寫進八個 spec 模組 | **否決**，改在 `generate()` 這一層（與 dispatch wrapper 同一個插槽）：一處決定八支，不存在會被遺忘的第九支。且**只套 `generate` 不套 `generate_raw`**，run-all 位元組不變也不會被雙重包裹 | `generate_workflows._wrap_top_level_boundary` |
+| R28-C | 邊界要不要重新縮排 body | **否決**。逐字拼接，body 與生成器輸出位元組相同 —— golden diff 可讀，run-all 的等價斷言仍在比對同樣的東西 | 同上 |
+| R28-D | 終止偵測複製到四支 delta 迴圈 | **否決複製**，抽成 `render_terminal_abort_detectors`，兩個 host 共用；`step` 是參數，所以 P5 的中止不會宣稱自己發生在 GATE1 | `js_blocks.py` |
+| R28-E | workflow 在中止當下寫 `blocked_node.json` | **撤銷，前提為假**。sandbox 無檔案系統、無 shell、無時鐘；唯一的寫入通道（Round 26 的 bookkeeping preamble）搭在**下一次** dispatch 上，而終止時定義上沒有下一次。非崩潰的終止情境，座標本來就在 state.json + GUARD/sentinel 短路裡 —— 那正是重啟便宜的原因 | 站4 commit body |
+| R28-F | crash bundle 的位置 | **採納（站4 的真正內容）**。bundle 是 harness bug 診斷的唯一輸入，卻住在 `.sessi-work/`（整個 gitignore，且是每支 workflow 的 SCOPE RULES 叫 agent 自清的暫存區）。Round 27 站3 為同一理由搬走了降級賬本，**漏了 crash bundle**。搬到 `.methodology/crash/`，舊路徑唯讀相容，`crash_bundle_paths()` 為唯一列舉器（原本 doctor / run-report / crash-triage 各自 glob 一次） | `core/errors.py` |
+
+### 自動修復（L2）—— 本輪未實作，老闆已裁定形狀
+
+老闆選定「**分支修復 + 發 PR，人工 merge**」。實作前必須先承認三條硬約束，它們改變方案形狀：
+
+1. **HR-17 現行罰則是「終止」**，禁止一切對 `harness/` 的寫入。但它禁的實質是「submodule 內偷改、上游看不見、永久 diverge」（playbook §13.3）。正解是把 HR-17 從「禁止一切寫入」改成「**只允許一條可稽核路徑**：開分支 → 改 `scripts/workflowgen/` 或 `core/` → 全套 gate 綠 → push → PR」，並機械執法（禁手改生成物、禁在 main 上 commit、禁 `--no-verify`）。這是憲法變更，需老闆核准後才動。
+2. **「resume 回被 block 的節點」只有一種情況成立**：修的是 Python 且**同 session**。修 workflow JS（或跑 `git submodule update --remote`）會改變 script 位元組，runtime 的 resume cache 從第一個改動的 `agent()` 起全部失效 —— 那是重跑不是續跑。所以正解不是修 resume，而是**讓重啟等於續跑**（GUARD/sentinel/state cursor，本輪 R28-1/2/3 讓中止點變得乾淨可辨，是這件事的前置）。
+3. **workflow 不能中途等人**（§4 無 mid-run input），所以「發 PR」只能是預先授權的政策，或由 workflow 結束後的外層執行。
+
+### 誠實邊界
+
+- 五站全部是**讀碼 + sim 實測 + 可執行反證**級別。**本輪同樣沒有跑一輪真的 E2E。** sim 模擬的是 runtime 的 API 形狀，不是 OS sandbox、權限牆、真子行程或真 LLM 行為。
+- R28-2 的 84/217 是**在 sim 的 happy-path 情境下可達的 label 集合**上量的。真實執行可能走到 sim 沒覆蓋的分支，那裡的逃逸點不在這個數字裡 —— 邊界本身涵蓋整個檔案，但**數字是下界不是總數**。
+- 本輪關掉了一個 sim 自己標記為「pinned current behavior」的弱點（`parseAgentJson` 的 PARSE_FAIL 逃逸）。那條測試的註解早就寫著 graceful-degrade 是待辦項；修它的是站2 的邊界，不是針對 A/B 機器的特例。
+
+### re-open 條件
+
+- **L2 自動修復**：老闆核准 HR-17 窄豁免的具體條文後開新一輪；未核准前，workflow 遇到 harness bug 的正確行為就是本輪的「乾淨中止 + 可讀的 crash bundle」。
+- **R28-E**：若 Workflow runtime 日後提供任何 script 端的持久化原語（檔案、KV、或中止時的 hook），`blocked_node.json` 的前提即成立，重新評估。
+- **R28-2 的數字**：跑過一輪真 E2E 後，用實際走過的 label 集合重算逃逸率，替換這個下界。

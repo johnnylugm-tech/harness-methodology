@@ -173,6 +173,30 @@ export const meta = { name: 'my-workflow', __proto__: {} }   // ❌ reserved key
 | ≤ 1000 agents total per run | runaway backstop |
 | ≤ 4096 items per parallel/pipeline 呼叫 | 超過是顯式 error |
 
+### 4.1 Runtime 的錯誤處理能力 = 終止（Round 28 量測）
+
+**runtime 對錯誤只有一種反應：結束整個 run。** 它不重試、不隔離失敗的 stage、
+不降級、不跨 session 續跑。這決定了一件事:**所有容錯都必須寫在生成的 JS 裡**。
+
+| 情境 | runtime 行為 | harness 端的對策 |
+|------|-------------|-----------------|
+| script 頂層 throw / unhandled rejection | run 死,**不產生任何結果** —— 沒有 phase、沒有原因、沒有續跑點 | `generate_workflows._wrap_top_level_boundary` 給每支生成的 phase JS 一個頂層 try/catch;run-all 另有 driver 的 per-phase try/catch |
+| `agent()` 內部 reject(transient transport error) | 原樣往上拋,runtime 不接 | 同上。這是 2026-07-30 那次「83 個 dispatch / 3 小時後整個 run 死掉」的形狀 |
+| `agent()` resolve 成 null / 空字串(session limit) | 正常回傳,**不是錯誤** | 每個呼叫點自己判 `length < 10` → `session_limit_blocked` |
+| phase 回傳了 driver 不認得的形狀 | runtime 不管 | run-all fail closed:只有 `phase_complete: true` 才續跑(§13.2) |
+| 檔案 > 512 KB | 拒絕解析 | `RUNALL_MAX_BYTES` 餘裕 ratchet |
+
+**量測方法(可重跑)**:`sim_runner.test.mjs` 對每支檔案的每個 dispatch label
+逐一注入一個 rejecting `agent()`,數有幾個會逃逸成 unhandled throw。Round 28
+之前:八支獨立 phase JS **84/217 逃逸**,run-all **0/85** —— 差別就是 run-all
+有 driver 的 try/catch 而它們沒有。
+
+> **推論(重要)**:因為 runtime 不跨 session resume,而**同 session 的 resume 又
+> 要求 script 位元組不變**(§6.3),修好一個 workflow JS bug 之後**不可能真的
+> resume** —— cache 從第一個改動的 `agent()` 起全部失效。正解不是去修 resume,
+> 而是**讓重新啟動等於續跑**:state.json cursor + 各 phase 的 GUARD/sentinel
+> 短路。這也是為什麼「乾淨的中止點」比「聰明的重試」重要。
+
 ---
 
 ## 5. Script API — agent / parallel / pipeline / phase / log

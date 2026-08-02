@@ -693,3 +693,23 @@
 - test: tests/test_phase_truth_verifier.py::TestSkipsThatDidNotFireAreStillSkips::test_a_conditional_skip_is_found_even_when_it_did_not_fire
   bug: "a zero-skip AC was enforced by pytest's reported count, so a suite with nine conditional pytest.skip() calls measured 0 skipped on a fully provisioned machine"
   fixed_in: "333348f"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "run-all's phase loop recognised session_limit_blocked and error, and runPhase3 also returns harness_bug_detected and dispatch_structurally_broken — neither of which carries an error key. Measured: with harness itself crashed on FR-01, run-all entered ten P4 boxes and returned phases_run [3,4,5,6,7,8] with no error. Outside the sim the two flags had zero consumers anywhere in the tree. Guarded scenarios are sim_runner.test.mjs section 14a; floor raised 63 -> 91 across Round 28"
+  fixed_in: "b70c1c8"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "the Workflow runtime catches nothing — an agent() call that REJECTS propagates out of the script and ends the run with no result at all, no phase, no reason, no resume point. run-all's driver wraps each runPhaseN call (Round 23); the eight files it is generated from had no boundary. Swept by throwing at every dispatch label: 84 of their 217 killed the run, against 0 of run-all's 85. Guarded scenarios are sim_runner.test.mjs section 14b, one sweep per workflow file"
+  fixed_in: "3880371"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "[HARNESS-BUG] and [FATAL] structurally-broken-dispatch — the two per-FR conditions no fix agent can resolve — were detected only in Phase 3's TDD loop. P4/P5/P7/P8 run their own per-FR Gate 1 loops and had neither, so a harness crash in any of the four read as an ordinary GATE1 FAIL and routed to CODE-FIX, dispatching a fix agent at a defect not in the project's code. grep -c HARNESS-BUG over the generated workflows was 5 for phase3 and 0 for every other phase file. Guarded scenarios are sim_runner.test.mjs section 14c"
+  fixed_in: "93c3073"
+
+- test: tests/test_crash_triage.py::TestBundleLocation::test_bundles_are_written_to_the_durable_location
+  bug: "crash bundles — the only input to a harness-bug diagnosis (traceback, argv, repro_command, harness_git_sha) — were written under .sessi-work/crash/, gitignored wholesale and the scratch area every workflow's SCOPE RULES tell agents to clean up after themselves. Round 27 站3 measured the same loss for gate tool evidence (13 of 14 paths already gone) and moved the degradation ledger out; the crash bundles were left behind"
+  fixed_in: "1c158dd"
+
+- test: tests/test_crash_triage.py::TestBundleLocation::test_bundles_at_the_pre_round28_path_are_still_triaged
+  bug: "a relocation that only moves the writer tells every project that crashed under the older harness that it is clean, while its bundles sit on disk — silent blindness in the one tool whose job is to notice"
+  fixed_in: "1c158dd"

@@ -83,4 +83,12 @@ def test_sim_testbed_passes():
     # fail-closed branch when the cursor cannot be read, and the past-Phase-8
     # no-op. That per-phase equivalence IS the evidence that one workflow
     # covering all eight phases behaves like eight separate launches.
-    assert int(m.group(1)) >= 63, f"sim suite shrank: only {m.group(1)} passing tests (floor 63)"
+    # 63 -> 91 by Round 28: 2 scenarios pinning that a terminal abort flag stops
+    # run-all (it read neither, and walked P4-P8 after harness crashed on FR-01);
+    # 9 sweeps, one per workflow file, throwing at every dispatch label in turn
+    # (84 of the eight standalone files' 217 labels killed the run outright,
+    # against 0 of run-all's 85); and 8 pinning the [HARNESS-BUG] and
+    # structurally-broken-dispatch exits in the four per-FR delta loops that had
+    # neither. This is the first coverage of the runtime's ONLY error behaviour —
+    # terminating the run — as opposed to the null-return shape it already had.
+    assert int(m.group(1)) >= 91, f"sim suite shrank: only {m.group(1)} passing tests (floor 91)"

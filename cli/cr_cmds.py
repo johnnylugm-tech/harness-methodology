@@ -439,7 +439,7 @@ def register(sub) -> None:
 
     ct = sub.add_parser(
         "crash-triage",
-        help="Group harness-methodology's own crash bundles (.sessi-work/crash/) by "
+        help="Group harness-methodology's own crash bundles (.methodology/crash/) by "
              "cause; --open-cr files each unfiled cause as a CR-BUG",
     )
     ct.add_argument("--project", default=".", help="Project root (default: .)")

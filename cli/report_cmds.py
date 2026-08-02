@@ -366,7 +366,8 @@ def _render_human(report: dict) -> str:
 
     cr = report["crash_bundles"]
     lines.append("")
-    lines.append("## Crash bundles (.sessi-work/crash/)")
+    from core.errors import CRASH_DIR_RELPATH
+    lines.append(f"## Crash bundles ({CRASH_DIR_RELPATH}/)")
     if not cr["available"]:
         lines.append("  n/a — no crash directory or no bundles")
     else:

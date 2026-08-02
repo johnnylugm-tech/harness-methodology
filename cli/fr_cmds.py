@@ -921,7 +921,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 print(
                     "  [run-fr-step] Every round's failure classified as UNKNOWN — "
                     "this may not be a quality problem. Check "
-                    ".sessi-work/degradations.jsonl and .sessi-work/crash/ for a "
+                    ".methodology/degradations.jsonl and .methodology/crash/ for a "
                     "harness-side cause before re-running CODE-FIX."
                 )
             return 2  # BLOCKED
