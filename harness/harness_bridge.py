@@ -890,6 +890,18 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
     return violations
 
 
+# Round 30 站6 — dimensions whose score can be moved by an exclusion file, and
+# the file that moves it. `None` means "this dimension has no exclusion channel"
+# and is a POSITIVE statement, not an omission: scancode (license_compliance)
+# takes its exclusions on the command line, so there is no file to fingerprint,
+# and recording that here is what stops the next reader assuming it was
+# forgotten. A new scored dimension belongs in this table with one or the other.
+DIMENSION_EXCLUSION_FILES: "dict[str, str | None]" = {
+    "secrets_scanning": ".gitleaksignore",
+    "license_compliance": None,
+}
+
+
 def _check_tool_evidence(ctx: "GateContext", raw: dict,
                          digests: "dict | None" = None) -> list[str]:
     """S3: Verify tool execution evidence in gate result JSON.
@@ -960,14 +972,25 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
     # version control.  An untracked exclusion file means the score on a
     # fresh clone would be different — the denominator is in the scorer's
     # hands, not the framework's.
-    _exclusion_files: dict[str, str] = {
-        "secrets_scanning": ".gitleaksignore",
-    }
-    _project_root_path = _Path(ctx.project_root)
-    for _dim_name, _excl_file in _exclusion_files.items():
-        _excl_path = _project_root_path / _excl_file
+    #
+    # Round 30 站6: fingerprinted as well as tracked. `.gitleaksignore` is
+    # committed and still the score moves when a line is added to it — the file
+    # being in git says nothing about which version of it produced this verdict.
+    # The digest goes into evidence_digest beside the tool outputs (Round 27
+    # 站3's channel), so two verdicts scored under different exemption lists are
+    # distinguishable from the artifacts alone.
+    for _dim_name, _excl_file in DIMENSION_EXCLUSION_FILES.items():
+        if _excl_file is None:
+            continue
+        _excl_path = _Path(ctx.project_root) / _excl_file
         if not _excl_path.is_file():
             continue
+        if digests is not None:
+            from core.quality_gate.evidence_digest import digest_of_file
+            digests[f"{_dim_name}::{_excl_file}"] = digest_of_file(
+                _excl_path, source=f"{_excl_file} (score-altering exclusions)"
+            )
+        _project_root_path = _Path(ctx.project_root)
         import subprocess as _sp  # bound before the try: the except reads it
         try:
             _tracked = _sp.run(

@@ -2196,10 +2196,28 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         # 0.1 Secrets Scanning (gitleaks)
         # Runs outside src_dir.is_dir() intentionally: gitleaks scans the whole
         # repo (docs, configs, history), not just the source tree.
+        #
+        # Round 30 站6: but NOT its own output and not build artefacts.
+        # taskq-advance's .gitleaksignore carries 8 fingerprint exemptions; 3 of
+        # them silence findings inside `.sessi-work/round_1/tools/secrets.json`
+        # — gitleaks' own report from the previous round — and 2 more silence
+        # `__pycache__/*.pyc` mirrors of a test fixture. Neither is a secret in
+        # the project; both are the scan reading its own exhaust. The correct
+        # fix is scope, not a growing list of per-finding waivers: every waiver
+        # is a hole that stays open for real findings on the same file, and the
+        # waiver file itself is where a denominator quietly shrinks.
+        _gl_excludes = [
+            f"--exclude-path={p}" for p in (
+                ".sessi-work",       # this scanner's own prior output
+                "__pycache__",       # build artefacts, re-derived from source
+                ".venv", "node_modules",
+            )
+            if (project / p).exists()
+        ]
         if shutil.which("gitleaks"):
             try:
                 _gl_r = subprocess.run(
-                    ["gitleaks", "detect", "--source", "."],
+                    ["gitleaks", "detect", "--source", ".", *_gl_excludes],
                     cwd=str(project),
                     capture_output=True,
                     text=True,
