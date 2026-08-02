@@ -930,9 +930,32 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         return True, score, msg
 
     except subprocess.TimeoutExpired:
+        # Bug v26: publish partial workdir cache so the next
+        # compute_mutation_score call resumes from it. mutmut 2.x's
+        # `get_cached_mutation_statuses` (`mutmut/__init__.py:709-720`) skips
+        # any mutant whose status is not UNTESTED, so a partial cache from a
+        # timed-out run is a free head-start — without this, every retry
+        # starts from zero and can never finish a large scope on slow
+        # runtimes (Python 3.11 + mutmut 2.x + service+storage scope ~700
+        # mutants routinely blows the 60-minute STALL_TIMEOUTS["mutation"]
+        # cap). An empty / missing workdir_cache means the run never even
+        # started evaluating — don't publish a zero-byte file (mutmut will
+        # treat it as a fresh empty cache and skip the resume path).
+        partial_msg = ""
+        if workdir_cache.exists() and workdir_cache.stat().st_size > 0:
+            try:
+                shutil.copy2(workdir_cache, cache_file)
+                partial_msg = (
+                    f" (partial cache ({workdir_cache.stat().st_size} bytes) "
+                    "published to .mutmut-cache; next run will resume)"
+                )
+            except OSError as exc:
+                partial_msg = f" (partial-cache publish failed: {exc})"
         return False, 0.0, (
-            "mutmut timed out after 60 minutes. Consider excluding "
-            "data-only files via paths_to_exclude in setup.cfg."
+            "mutmut timed out after 60 minutes."
+            + partial_msg
+            + " Consider excluding data-only files via paths_to_exclude in "
+            "setup.cfg."
         )
     except Exception as e:
         return False, 0.0, f"Error running mutmut: {e}"

@@ -451,7 +451,18 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 967,
+    "core/quality_gate/mutation_enforcer.py": 990,
+    # 2026-08-02 (Bug v26 P3 Gate 2 plateau): +23 lines —
+    # compute_mutation_score's TimeoutExpired branch now publishes the
+    # partial workdir cache to the project root so the next call resumes
+    # from it via mutmut 2.x's get_cached_mutation_statuses skip. Without
+    # this, mutmut-on-Python-3.11 + SPEC §10 service+storage scope
+    # routinely blows the 60-minute STALL_TIMEOUTS["mutation"] cap and
+    # every retry starts from zero (which is exactly the failure shape
+    # that bit run-all-by-workflow P1-P8 R1/R2/R3 in a row). The 23-line
+    # block is the docstring + shutil.copy2 + message variant — kept
+    # verbose because the message is what the LLM evaluator reads when
+    # the gate fails again.
     # 2026-07-17: new god file — Round 15 station5: phase_specs.py (formerly
     # 2985 lines, see git history for its full growth log) was split one
     # module per phase (spec_phase1.py .. spec_phase8.py, spec_shared.py for

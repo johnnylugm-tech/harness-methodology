@@ -12,6 +12,7 @@ can invoke pytest through mutmut).
 """
 import configparser
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -945,6 +946,133 @@ def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatc
     assert not ok
     assert score == 0.0
     assert not (tmp_path / ".mutmut-cache").exists()
+
+
+def test_compute_mutation_score_publishes_partial_cache_on_timeout(tmp_path, monkeypatch):
+    """Bug v26 (2026-08-02 P3 Gate 2 plateau): when mutmut runs out of the
+    STALL_TIMEOUTS["mutation"] cap (60 min on Python 3.11 + mutmut 2.x +
+    service+storage scope), the workdir cache holds the partial mutants it
+    already evaluated. Without this publish, every retry starts from zero —
+    which is exactly what bit the run-all-by-workflow P1-P8 run for 3 rounds
+    in a row. mutmut 2.x's get_cached_mutation_statuses
+    (`mutmut/__init__.py:709-720`) skips non-UNTESTED mutants, so a partial
+    cache is a free head-start: publish it so the next call resumes."""
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            # Pretend mutmut evaluated 2 mutants before the watchdog fired.
+            _make_fake_mutmut_cache(
+                Path(cwd) / ".mutmut-cache",
+                ["ok_killed", "ok_killed"],
+            )
+            raise subprocess.TimeoutExpired(cmd, 3600)
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+
+    assert not ok, f"timeout must return ok=False; got {(ok, score, msg)}"
+    assert score == 0.0
+    # The contract: project-root cache now exists with the partial data so
+    # the next run can resume.
+    assert (tmp_path / ".mutmut-cache").exists(), (
+        "partial cache must be published to project root on timeout"
+    )
+    # Spot-check the published cache has the same schema the workdir had.
+    import sqlite3
+    published = sqlite3.connect(str(tmp_path / ".mutmut-cache"))
+    n = published.execute("SELECT COUNT(*) FROM Mutant").fetchone()[0]
+    assert n == 2, f"expected 2 partial mutants in published cache, got {n}"
+    # And the message tells the operator about the resume affordance.
+    assert "partial cache" in msg, f"timeout msg must mention partial cache; got: {msg!r}"
+    assert "resume" in msg, f"timeout msg must mention resume affordance; got: {msg!r}"
+
+
+def test_compute_mutation_score_does_not_publish_empty_cache_on_timeout(tmp_path, monkeypatch):
+    """Bug v26 negative case: if mutmut timed out before evaluating ANY
+    mutants, the workdir cache is empty / missing. Publishing a zero-byte
+    file would make mutmut treat it as a fresh empty cache on the next
+    run (the resume path only skips non-UNTESTED rows, not 'cache file
+    present but empty'). Skip the publish."""
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            # Workdir cache is created by mutmut but never gets a row written
+            # because it timed out on first evaluation — leave it absent.
+            raise subprocess.TimeoutExpired(cmd, 3600)
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, _score, msg = me.compute_mutation_score(tmp_path)
+
+    assert not ok
+    assert "partial cache" not in msg, (
+        f"timeout with empty workdir cache must NOT mention partial cache; got: {msg!r}"
+    )
+    assert not (tmp_path / ".mutmut-cache").exists(), (
+        "empty workdir cache must NOT be published (would shadow resume)"
+    )
+
+
+def test_compute_mutation_score_general_exception_does_not_publish(tmp_path, monkeypatch):
+    """Bug v26 negative case: TimeoutExpired is the only path that gets the
+    partial-cache treatment. A generic Exception (e.g. mutmut not installed
+    after shutil.which passes the check) must NOT publish — it didn't run
+    long enough to have meaningful partial state, and publishing would
+    confuse downstream callers into thinking there's resume data."""
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            # Simulate the workdir cache getting populated then a non-timeout
+            # crash (e.g. disk full on the cache copy).
+            _make_fake_mutmut_cache(Path(cwd) / ".mutmut-cache", ["ok_killed"])
+            raise OSError("disk full")
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    ok, score, _msg = me.compute_mutation_score(tmp_path)
+
+    assert not ok
+    assert score == 0.0
+    assert not (tmp_path / ".mutmut-cache").exists(), (
+        "non-timeout exceptions must not publish partial cache"
+    )
 
 
 # ---------------------------------------------------------------------------
