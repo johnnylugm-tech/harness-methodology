@@ -10,7 +10,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import os
+
 HARNESS_CLI = Path(__file__).parent.parent / "harness_cli.py"
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def _run(
@@ -18,11 +21,18 @@ def _run(
     project: Path,
     env: "dict | None" = None,
 ) -> subprocess.CompletedProcess:
+    env_vars = (env or os.environ).copy()
+    existing_pythonpath = env_vars.get("PYTHONPATH", "")
+    env_vars["PYTHONPATH"] = (
+        f"{FIXTURES_DIR}:{existing_pythonpath}"
+        if existing_pythonpath
+        else str(FIXTURES_DIR)
+    )
     return subprocess.run(
         [sys.executable, str(HARNESS_CLI)] + args + ["--project", str(project)],
         capture_output=True,
         text=True,
-        env=env,
+        env=env_vars,
     )
 
 
