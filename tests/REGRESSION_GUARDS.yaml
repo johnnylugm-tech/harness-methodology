@@ -713,3 +713,50 @@
 - test: tests/test_crash_triage.py::TestBundleLocation::test_bundles_at_the_pre_round28_path_are_still_triaged
   bug: "a relocation that only moves the writer tells every project that crashed under the older harness that it is clean, while its bundles sit on disk — silent blindness in the one tool whose job is to notice"
   fixed_in: "1c158dd"
+
+# ── Round 29 (3743fc2 and follow-ups) — registered retroactively in Round 30 ──
+# Round 29's closeout station never ran: no ledger entry, no docs, and none of
+# its four new behaviours registered here. Which of its seven stations actually
+# landed could only be established by diffing the commit file by file.
+
+- test: tests/test_abstain_is_not_a_pass.py::test_s3_blocks_when_the_gate_config_is_missing
+  bug: "four gate-config consumers resolved project_root/harness/gate_configs/ — a path that exists in NO consumer project, where the harness is a submodule at <project>/harness and the configs are at <project>/harness/harness/gate_configs. All four returned [] or (True, []) on a miss, i.e. 'no violations found'. Measured across taskq, taskq-plus, integration-test, run-all-by-workflow and taskq-advance: the path is absent in all five, and nothing copies it. S3 evidence authenticity, S4 framework cross-validation, S2 tool availability and Gate 4's CRG-recon requirement had therefore been reporting all-clear in every consumer run since they were written. Live proof in taskq-advance's Gate 2: integration_coverage scored 80/60 PASS citing a tool_output file that does not exist"
+  fixed_in: "3743fc2 (Round 29 站1), 5305b8a (Round 30 站3: the abstain paths it left behind)"
+
+- test: tests/test_gate_verdict_provenance.py::TestEnforcerSkewIsVisible::test_both_writers_also_record_the_enforcer_surface
+  bug: "enforcer_sha is a MUTABLE identifier: taskq-advance's 8 Gate 1 results, its Gate 2 result and both state.json.phase_completed entries all name 01bb3bb4, which a rebase of the harness submodule on 2026-08-02 left reachable from nothing (merge-base --is-ancestor: NO; branch --contains: empty). enforcer_surface records git object IDs for the three enforcement paths instead, which survive a rebase — measured identical across 01bb3bb4 and its replacement 7154768, and correctly different from the pre-fix base c5971cd. Round 29 wrote the field into both writers and pinned neither"
+  fixed_in: "3743fc2 (Round 29 站4), 28071bc (Round 30 站4: the reader and the pins)"
+
+# ── Round 30 ──
+
+- test: tests/test_sab_field_producer_parity.py::test_consumed_sab_field_is_named_in_the_p2_prompt
+  bug: "scope_layers had a validator (sab_parser) and a consumer (mutmut_scope) and NO producer: scripts/workflowgen/spec_phase2.py was never touched, so the P2 agent was never told the field exists. resolve_mutation_scope therefore returned None for every project and mutation testing kept covering the whole source tree — taskq-advance mutated 3384 lines against a SPEC that limited NFR-08 to service/ + storage/ (1846), and Gate 2 timed out three times on code the spec had excluded from its own budget. Eighth appearance of 'the detector was built, the consumer never read it', and the first inside the commit that was fixing it"
+  fixed_in: "ea83369"
+
+- test: tests/test_mutmut_scope_wiring.py::test_advance_phase_actually_calls_the_generator
+  bug: "write_paths_to_mutate had zero callers while its own file header promised 'auto-generated ... during advance-phase P2→P3 handoff' and 'Human edits will be overwritten on the next P2→P3 advance' — a hook that did not exist and a behaviour nothing enforced. Deleting the wiring line from cmd_advance_phase left 12 of 12 tests in its own file green until this test existed"
+  fixed_in: "7f304d6"
+
+- test: tests/test_mutmut_scope_wiring.py::test_derived_scope_resolves_to_real_directories
+  bug: "resolve_mutation_scope returned MODULE paths with no source root ('taskq_plus/service, taskq_plus/storage') while every consumer resolves them against the PROJECT root, so compute_mutation_score aborted on `src_dir.exists()` before mutmut ever ran — a populated scope_layers would have scored mutation_testing 0 anyway, the same verdict with a different message. Invisible because the only test asserted the returned string and never resolved it against a filesystem. paths_to_mutate is also comma-separated and both callers did `cwd / <the whole comma string>`"
+  fixed_in: "7f304d6"
+
+- test: tests/test_abstain_is_not_a_pass.py::test_s2_is_not_switched_off_by_an_environment_variable
+  bug: "63b9399 added `if os.environ.get('CI') or os.environ.get('GITHUB_ACTIONS'): return True, []` to verify_gate_tools to unbreak harness's own CI after Round 29 站1 made it fail closed — reintroducing, one commit later, the abstain-reads-as-pass shape station 1 existed to remove, and making it settable by anyone (CI=1 locally disables tool verification for a whole run). Measured: the full suite passes with the bypass removed under CI=true GITHUB_ACTIONS=true; 877c1bb had already moved the one dependent test to a monkeypatch and left the production branch it made redundant"
+  fixed_in: "5305b8a"
+
+- test: tests/test_enforcer_surface.py::test_run_doctor_actually_runs_the_check
+  bug: "a verdict naming an enforcer commit that no longer resolves had no reader. Removing the one wiring line from run_doctor left 46 of 46 tests green until this test existed — the same gap that let Round 29 ship enforcer_surface written by two writers and read by nobody"
+  fixed_in: "28071bc"
+
+- test: tests/test_wallclock_escalation.py::test_the_second_dispatch_gets_a_bigger_budget
+  bug: "Round 29 站5 made a wall-clock timeout visible (error_class + ledger line) and left the retry at the identical ceiling — 'retrying with identical prompt'. taskq-advance P3: 12 of 18 failed dispatches were 600.0s timeouts, four consecutive on FR-02 at ten-minute intervals, each re-dispatched into the same wall. Two hours of wall time producing the same failure four times, while the turn-budget path next door had doubled its ceiling once since Round 26"
+  fixed_in: "2dce3c4"
+
+- test: tests/test_denominator_protection.py::test_changing_the_exclusion_list_changes_the_fingerprint
+  bug: "an exclusion file being tracked by git says nothing about WHICH version of it produced a verdict: taskq-advance scored secrets_scanning 100 on a .gitleaksignore with 8 fingerprint exemptions, and adding a line to a committed one moves the score with no trace in the artifacts"
+  fixed_in: "b12166b"
+
+- test: tests/test_denominator_protection.py::test_the_scan_scope_change_stays_withdrawn
+  bug: "WITHDRAWAL guard, not a fix: the plan to exclude .sessi-work/ and __pycache__ from the framework's gitleaks run used a flag that does not exist (--exclude-path; 8.30.1 takes --source/--no-git/--config/--baseline-path) and targeted an invocation that never sees those paths (git mode scans commits, and .sessi-work is gitignored — probe: '1 commits scanned, ~20 bytes' vs ~56 under --no-git). The unknown flag made the scan exit non-zero, which that code reads as 'secrets detected', turning 6 unrelated advance-precheck tests red. This test keeps the measurements attached to the absence"
+  fixed_in: "2fd950d"

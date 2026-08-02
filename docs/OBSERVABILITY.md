@@ -536,3 +536,36 @@ and `traceparent`-propagation ideas verbatim; both were re-verified and
 re-declined as repeat proposals with unmet re-open conditions — see
 `docs/PROPOSAL_ADJUDICATIONS.md` for the adjudication ledger any future
 report should check first.
+
+---
+
+## Round 30 additions
+
+**A wall-clock timeout escalates its budget, once.** Round 29 made a timeout
+visible (`error_class: "TIMEOUT"` plus a ledger line) and left the retry at the
+identical ceiling. taskq-advance P3: 12 of 18 failed dispatches were 600.0s
+timeouts, four consecutive on FR-02 at ten-minute intervals, each re-dispatched
+into the same wall — two hours of wall time producing the same failure four
+times. `cli/fr_cmds.py` now mirrors the turn-budget pair that had been next door
+since Round 26: `_timeout_for` / `_note_wallclock_kill`, doubled once per step,
+ledger entry in the same words (`task_timeout escalated A -> B`). A second
+timeout at the doubled budget aborts normally — the bound is as load-bearing as
+the escalation.
+
+**The mutation scope travels with the score.** `compute_mutation_score`'s
+message carries the effective `paths_to_mutate`. taskq-advance recorded
+`mutation_testing 0` three times with no artifact anywhere stating that 3384
+lines were mutated against a SPEC limiting the dimension to 1846 — the number
+that explains the verdict was the one number the verdict did not carry. The
+scope itself is now derived from the SAB at the P2→P3 handoff and written into
+`setup.cfg`, so it is also in a commit a human can review; a scope that has to
+fall back to the whole tree records a degradation naming what was missing.
+
+**The exclusion list that moves a score is fingerprinted into the verdict.**
+`.gitleaksignore` being tracked by git (Round 29) says nothing about *which
+version* of it produced this verdict. Its digest now goes into `evidence_digest`
+beside the tool outputs, keyed `<dimension>::<file>`, so two verdicts scored
+under different exemption lists are distinguishable from the artifacts alone.
+`DIMENSION_EXCLUSION_FILES` records `license_compliance: None` positively —
+scancode takes its exclusions on the command line, and saying so is what stops
+the next reader treating it as an omission.

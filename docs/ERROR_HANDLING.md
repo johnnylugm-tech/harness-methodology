@@ -338,3 +338,85 @@ was never the only signal a caller has.
   methods, `crg_integration.py`'s helpers) into one shape — each already
   has callers that know its specific fields; merging them would touch
   every call site for a stylistic gain with no behavior change.
+
+---
+
+## Abstaining is not passing (Round 30)
+
+A check that could not run must not return the value that means "I ran and found
+nothing". This is the sharpest form of the pattern this repo keeps paying for,
+and it has now recurred inside the commit that was fixing it.
+
+**The rule.** A checker has three possible answers, and the framework must be
+able to tell them apart:
+
+| Answer | Shape | Who decides next |
+|---|---|---|
+| ran, clean | empty violations | the gate proceeds |
+| ran, found something | violations, with remediation | the agent or the operator fixes it |
+| **could not run** | a violation naming the reason, **or** an exception | never silently the first row |
+
+**How to pick between the last two:**
+
+- **Missing framework-owned asset → BLOCK with a diagnostic.** The four gate
+  YAMLs are tracked by `git ls-files`; their absence means the checkout is
+  broken, not that the project has no configuration. Same for anything else the
+  framework ships and depends on.
+- **Caller-contract violation → let it raise.** `gate_num` outside 1-4 comes
+  from the framework's own call sites, never from user input. Round 29 caught
+  that `ValueError` in three places and returned `[]` / `(True, [])` — a
+  programming error reported as "no fabrication found". The Round 28 crash
+  boundary exists for exactly this and names the caller in a crash bundle.
+- **A genuine environment gap the run can survive → degrade AND record.**
+  `record_degradation`, not a `logging.debug` nobody reads. "We could not check"
+  is a fact about the verdict, and the ledger is where the next reader looks.
+
+**Never an environment variable.** `63b9399` added
+`if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"): return True, []`
+to `verify_gate_tools` to unbreak harness's own CI, citing `phase_cmds.py`'s
+substrate-probe CI skip as precedent. The justification does not transfer: that
+probe needs an interactive `claude` CLI which GitHub Actions genuinely cannot
+have and the CI workflow's own comments call "always local". Tool availability
+is different — CI can install ruff, and a consumer's CI-run gate scoring without
+its tools verified is precisely what S2 exists to prevent. It was also settable
+by anyone: `CI=1` disabled tool verification for a whole local run.
+
+When a check breaks the framework's own test suite, the skip belongs in the test
+layer (monkeypatch the checker), not in a production branch. Guarded by
+`tests/test_abstain_is_not_a_pass.py`, which pins all four gate-config consumers
+behaviourally: given a config they cannot read, do they block or do they pass?
+
+**Not turned into a tree-wide ratchet, and why.** The scan run for this rule
+found 179 `if not <path>.exists(): return <empty>` / `except: return <empty>`
+sites across `cli/ core/ harness/ scripts/`. Most are correct — a `_read_json`
+returning `{}` for a missing file is a *reader*, and its caller decides what an
+empty result means. The distinction between a reader and a checker is semantic;
+AST cannot make it, and a ratchet would be 179 false positives that get silenced
+within a round. Re-open when there is a mechanical discriminator.
+
+## `enforcer_surface` — provenance that survives a rebase (Round 29/30)
+
+`enforcer_sha` (Round 19 站3) records the harness commit that produced a verdict.
+It is a **mutable** identifier. taskq-advance's 8 Gate 1 results, its Gate 2
+result and both `state.json.phase_completed` entries all name `01bb3bb4`; a
+rebase of the harness submodule left that commit reachable from nothing.
+
+`enforcer_surface` records `git rev-parse HEAD:<path>` for the three paths that
+actually produce verdicts — `core/quality_gate`, `harness/harness_bridge.py`,
+`harness/gate_configs`. Measured across the real rebase:
+
+| commit | `core/quality_gate` | `harness_bridge.py` | `gate_configs` |
+|---|---|---|---|
+| `01bb3bb4` (orphaned) | `99ba0a38` | `1c5a000f` | `6800e4b4` |
+| `7154768` (replacement) | `99ba0a38` | `1c5a000f` | `6800e4b4` |
+| `c5971cd` (pre-fix base) | `36d32b5d` | `1c5a000f` | `6800e4b4` |
+
+Identical across the rebase, and correctly different from the base. The commit's
+own tree hash does **not** work (`7f19c4f4` vs `9e72df80` for the same pair) —
+a rebase moves the commit onto a different base, so the whole-tree hash changes
+even when the enforcing code did not.
+
+Both writers record both fields; `core.doctor._check_enforcer_provenance` is the
+reader, and WARNs (never ERRORs) when a recorded `enforcer_sha` no longer
+resolves. An unreachable enforcer does not make a verdict wrong — it makes the
+question the field was added for unanswerable, which is worth exactly one WARN.

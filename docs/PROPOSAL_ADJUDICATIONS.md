@@ -608,3 +608,134 @@ dispatch 帶走，且 cost / turns / duration 在該基座**取不回來** —�
 - **L2 自動修復**：老闆核准 HR-17 窄豁免的具體條文後開新一輪；未核准前，workflow 遇到 harness bug 的正確行為就是本輪的「乾淨中止 + 可讀的 crash bundle」。
 - **R28-E**：若 Workflow runtime 日後提供任何 script 端的持久化原語（檔案、KV、或中止時的 hook），`blocked_node.json` 的前提即成立，重新評估。
 - **R28-2 的數字**：跑過一輪真 E2E 後，用實際走過的 label 集合重算逃逸率，替換這個下界。
+
+---
+
+## Round 29 — 補記（本節由 Round 30 寫入）
+
+Round 29（`3743fc2`，已在 origin/main）的收口站**沒有執行**：賬本、`docs/*`、
+`tests/REGRESSION_GUARDS.yaml` 一項未動。後果不是文件缺漏，而是**七站裡哪三站沒做完，
+只能靠逐檔 diff 才看得出來**。以下是 Round 30 逐檔對賬的結果。
+
+| 站 | 計畫 | 實際落地 | 缺口由 R30 補 |
+|---|---|---|---|
+| 站1 反造假層復活 | 4 站點收斂 SSOT + 棄權→BLOCK + 12 測試檔遷移 | 全做 | 站3（它自己新造的三條棄權） |
+| 站2a `scope_layers` | 驗證器 **+ P2 prompt 生產者 + golden** | 只有驗證器 | 站1 |
+| 站2b 生成器 | 生成器 **+ advance-phase 接線 + 手改偵測** | 只有生成器（零呼叫者） | 站2 |
+| 站2c 生效範圍進證據 | 賬本 + 證據 | 只有賬本 | 站2 |
+| 站3 棄權盤點 | 盤點 + 立則（或縮編但**進賬本**） | docstring 修正；掃描結論未落盤 | 站3 |
+| 站4 provenance | `enforcer_surface` **+ doctor 對賬** | 只有前半，且零測試 | 站4 |
+| 站5 timeout | 賬本 + **預算升級** | 只有賬本 | 站5 |
+| 站6 分母 | VCS guard + 掃描範圍 + 指紋 | 只有 VCS guard | 站6（指紋做了，掃描範圍撤銷） |
+| 站7 收口 | docs ×4 + guards + 冒煙 | **零** | 本節 |
+
+**R29 的三個活問題，都在它自己的修復裡**：
+
+1. `scope_layers` 零生產者 —— 驗證器與消費者齊備，`spec_phase2.py` 未動。母體第八次現身，
+   且是第一次發生在修母體的那個 commit 裡。
+2. `write_paths_to_mutate` 零呼叫者，且 docstring 承諾一個不存在的接線行為。
+3. 三條新的靜默棄權：`CI` env 旁路（`63b9399`，一個 commit 之後就把站1 剛拆掉的形狀裝回去）、
+   兩處 `except ValueError: return []`、一處 `except Exception → logging.debug`。
+
+**`63b9399` → `877c1bb` 的修過頭病史**值得單獨記：第一次修 CI 把 failure-closed 一起關掉，
+第二次才救回來（commit message 逐字 "**preserve** failure-closed YAML parsing while skipping
+physical tool checks in CI"）。一個為了讓 CI 變綠而加的旁路，代價是兩次 commit 加一次回退。
+
+**R29 未預告的副作用**：站1 讓 harness 自己的 CI 轉紅。計畫預告了「現存專案的 gate 會從
+PASS 變 BLOCK」，沒預告 CI 這條。
+
+**R29 計畫外的正面發現（`7ab7b0a`）**：`_parse_junit_outcomes()` 回 `{}` 有兩義
+（解析失敗 / collection 中止），三個呼叫端只處理 `not ran` 分支 → 空 dict 進 scanner →
+collection 一掛就報 0% NFR traceability。**在 taskq-advance P3 Gate 2 現場複現**
+（pydantic v2 decorator typo）。這是站1 復活後才浮出來的下游問題，修得對。
+
+---
+
+## Round 30 — 把半座的機制接上，並清掉修復自己造的棄權
+
+### 母體，第七次
+
+> **檢查器的「找不到就 `return []`」與測試的「只造它找得到的佈局」，是同一個假設的兩半。**
+
+前六次的處方都是「加一層守衛」。這次的處方是**棄權不得等於通過** —— 一個跑不起來的檢查，
+回傳值必須與「檢查過、沒問題」不同。
+
+### 七站裁決
+
+| # | 判定 | 依據 |
+|---|---|---|
+| 站1 `scope_layers` 生產者 | **做** | 全樹 grep 零生產者；插入點與 `dimension:` 條款同形同位，+8/-4 無 ripple |
+| 站2 生成器接線 + 單一來源 | **做** | 零呼叫者；並在接線過程中量出 R29 的第二個活 bug（見下） |
+| 站3 三條棄權 | **做** | 逐行讀碼；CI 旁路的移除以全套測試在 `CI=true` 下綠為證 |
+| 站3 通案 ratchet | **不做** | 掃描命中 **179** 處，絕大多數合法（`_read_json` 回 `{}` 是 reader 不是 checker）。checker/reader 之別是語意的，AST 做不出來；硬做就是 179 個偽陽性，一輪內必被消音 |
+| 站4 doctor 對賬 | **做** | `core/doctor.py` 未動、`grep enforcer_surface tests/` 零命中 |
+| 站5 預算升級 | **做** | 12/18 實測；可比照的實作就在隔壁 |
+| 站6 指紋 + registry | **做** | committed ≠ 哪一版 |
+| 站6 掃描範圍 | **撤銷** | 見下 |
+
+### 站2 的意外收穫：R29 的修復本身跑不起來
+
+接線時把 fixture 解到真實檔案系統上，量出：
+
+```
+paths            = 'taskq_plus/service, taskq_plus/storage'
+cwd / paths      = <project>/taskq_plus/service, taskq_plus/storage
+src_dir.exists() = False
+```
+
+派生出的路徑**沒有 source root**，而 `compute_mutation_score` 正是在這個檢查上中止。
+也就是說：**即使 `scope_layers` 被填了，Gate 2 仍然會得到 `mutation_testing 0`** ——
+同樣的判定，換一句訊息。R29 站2 會「看起來做了」而什麼都沒改變。
+
+沒被發現的原因單一而具體：**唯一那條測試斷言的是回傳的字串，從未把它解到檔案系統上**。
+本輪 `tests/test_mutmut_scope_wiring.py` 的每一條測試都會 resolve。
+
+第二個同源缺陷：`paths_to_mutate` 一直是逗號分隔，而兩個呼叫端都做
+`cwd / <整串逗號字串>`。`mutate_dirs()` 現在是唯一把設定值變成真目錄的地方。
+
+### 站6 掃描範圍 —— 撤銷，兩個前提都錯
+
+1. **`--exclude-path` 不存在**。gitleaks 8.30.1 的 `detect` 只有
+   `--source / --no-git / --config / --baseline-path / --gitleaks-ignore-path`；路徑
+   allowlist 在 `.gitleaks.toml` 裡。我假設了旗標而沒有讀 `--help`。未知旗標讓 process
+   非零退出，而這段程式把非零讀成「偵測到 secrets」→ 6 個不相關的 advance-precheck 測試轉紅。
+2. **即使旗標存在也是空操作**。這個呼叫是 git 模式，掃的是 **commits**，而 `.sessi-work/`
+   是 gitignored，不在任何 commit 裡。探針實測：
+
+   ```
+   gitleaks detect --source .            → "1 commits scanned, ~20 bytes"
+   gitleaks detect --source . --no-git   → "~56 bytes"
+   ```
+
+   taskq-advance `.gitleaksignore` 裡那 3 條 `.sessi-work` 與 2 條 `__pycache__`
+   fingerprint，來自 **agent 自己的工作樹掃描**，框架既沒發出也無法從這裡限縮。
+
+**診斷仍然成立**（那些 waiver 是掃描器在消音自己的排泄物），**但我伸手去搬的槓桿沒接在上面**。
+撤銷連同兩項量測寫在呼叫點與 `test_the_scan_scope_change_stays_withdrawn` 裡 ——
+re-open 要拿量測，不是拿計畫。
+
+### 一個過程錯誤，記在這裡
+
+`b12166b` **是在紅的測試上 commit 的**。我的驗證指令用 `&&` 串在 `tail` 後面，
+於是讀到的是 `tail` 的退出碼而不是 pytest 的，7 個失敗直接跳過。修正見 `2fd950d`。
+教訓不是「要看輸出」，是**驗證指令本身要讓失敗有辦法傳出來**。
+
+### 誠實邊界
+
+- 七站全部是**讀碼 + 單元/整合測試 + 可執行反證**。**沒有跑一輪真的 E2E。**
+- **「接上 `scope_layers` 後 taskq-advance 的 Gate 2 就會過」是推論，不是量測。** 範圍從
+  3384 行降到 1846 行是否落在 60 分鐘預算內，我沒實跑 mutmut 量過。若仍超時，下一步是
+  SPEC §10 的範圍修訂或預算調整 —— 那是老闆的決定，不是框架的 workaround。
+- 站3 的 179 處掃描結果**只有總數與分佈進了賬本**，逐條分類沒有。要立則需要先有辦法機械地
+  區分 checker 與 reader，本輪沒有。
+
+### re-open 條件
+
+- **站3 通案 ratchet**：找到能機械區分 checker/reader 的判準時（例如呼叫端把回傳值當
+  violations 用 vs 當資料用的型別標註）。
+- **站6 掃描範圍**：框架若改用 `--no-git` 模式掃描，排除清單應寫進生成的 `.gitleaks.toml`，
+  屆時替換那條 withdrawal 測試而不是刪掉它。
+- **L2 治理**：維持 Round 28 的裁決 —— 待老闆核准 HR-17 窄豁免條文。本輪期間
+  `harness-bug-fixer <bot@harness.local>` 已經在 taskq-advance 的 run 中直接 push 到
+  harness main（`7154768`），繞過老闆選定的「分支 + PR + 人工 merge」邊界；這條路徑目前
+  **完全沒有機械執法**。
