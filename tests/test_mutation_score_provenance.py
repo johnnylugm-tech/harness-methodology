@@ -273,6 +273,32 @@ def test_a_scope_that_matches_the_sab_reports_no_drift(tmp_path):
     assert scope_drift(tmp_path) is None
 
 
+def test_the_gate_actually_calls_the_drift_check(project):
+    """The R30 trap, guarded: scope_drift can be perfect and never run.
+    Driven through the real S4 entry point rather than asserting on source."""
+    (project / ".methodology" / "mutation_score.json").write_text(
+        json.dumps({"score": 92.0, "killed": 46, "survived": 4,
+                    "paths_to_mutate": "03-development/src/app/service",
+                    "paths_to_exclude": [], "mutated_files": 3,
+                    "cache_sha256": "deadbeef"}),
+        encoding="utf-8",
+    )
+    (project / ".methodology" / "SAB.json").write_text(
+        json.dumps(_sab_scoped_to(("service", "storage"))), encoding="utf-8"
+    )
+    for d in ("service", "storage"):
+        (project / "03-development" / "src" / "app" / d).mkdir(parents=True)
+    (project / "setup.cfg").write_text(
+        "[mutmut]\npaths_to_mutate = 03-development/src/app\n", encoding="utf-8"
+    )
+
+    violations = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    assert violations and "disagrees with the SAB" in " ".join(violations), (
+        f"a score above threshold sailed through on a scope the SAB does not "
+        f"declare: {violations}"
+    )
+
+
 def test_no_sab_scope_declared_is_not_drift(tmp_path):
     """A project that legitimately mutates everything must not be blocked by a
     check whose whole purpose is disagreement between two declarations."""

@@ -113,7 +113,12 @@ _LINE_CEILING: dict[str, int] = {
     # into a ceiling, which test_finalize_gate_override_is_floor_not_ceiling
     # caught. The note is longer than the line it replaces because the next
     # reader needs to know the diagnosis stands and only the fix was withdrawn.
-    "harness/harness_bridge.py": 3555,
+    "harness/harness_bridge.py": 3573,
+    # 2026-08-03 (Round 31 站4): +18 more — the scope-drift check in
+    # _mutation_artifact_violations and the mutation_testing entry in
+    # DIMENSION_EXCLUSION_FILES. A score is only meaningful over the scope it
+    # was taken on, and setup.cfg's [mutmut] section is where both halves of
+    # that denominator live — written by the party being scored.
     # 2026-08-03 (Round 31 站2): +5 net — _mutation_artifact_violations
     # (~65 lines) replaced _extract_mutmut_kill_rate (~30) and two branches
     # that had been unreachable since the guard above them started catching

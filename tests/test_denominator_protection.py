@@ -64,7 +64,9 @@ def test_every_dimension_states_its_exclusion_file_or_states_it_has_none():
     assert DIMENSION_EXCLUSION_FILES, "an empty registry protects nothing"
     for dim, path in DIMENSION_EXCLUSION_FILES.items():
         assert isinstance(dim, str) and dim
-        assert path is None or (isinstance(path, str) and path.startswith(".")), (
+        assert path is None or (
+            isinstance(path, str) and path and not path.startswith("/")
+        ), (
             f"{dim}: give a project-root-relative exclusion file, or None to "
             f"state positively that this dimension has no exclusion channel"
         )
@@ -72,6 +74,15 @@ def test_every_dimension_states_its_exclusion_file_or_states_it_has_none():
         "scancode takes exclusions on the command line — recording that as None "
         "is what stops the next reader reading it as an omission"
     )
+
+
+def test_the_mutation_denominator_has_an_entry():
+    """Round 31 站4. setup.cfg's [mutmut] paths_to_exclude drops files from the
+    mutant pool and is written by the party being scored — the same shape as
+    .gitleaksignore, which is why that one is already here. It was missing
+    because the registry was built from the dimension that had a dot-file, not
+    from the question the registry asks."""
+    assert DIMENSION_EXCLUSION_FILES.get("mutation_testing") == "setup.cfg"
 
 
 # ── the digest ──────────────────────────────────────────────────────────

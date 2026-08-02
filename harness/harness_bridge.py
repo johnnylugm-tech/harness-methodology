@@ -511,6 +511,15 @@ def _mutation_artifact_violations(
             f"score it should carry cannot be established. {_how}"
         ]
 
+    # Round 31 站4: the score is only meaningful over the scope it was taken
+    # on. The generator runs once at the P2→P3 handoff, so a SAB corrected
+    # mid-P3 — the normal way a missing scope_layers gets noticed, since Gate 2
+    # is where the cost shows up — leaves setup.cfg saying something else.
+    from core.quality_gate.mutmut_scope import scope_drift
+    drift = scope_drift(ctx.project_root)
+    if drift:
+        return [f"{dim_name}: mutation scope disagrees with the SAB — {drift}"]
+
     if framework_score < threshold and (
         agent_score is None or agent_score >= threshold
     ):
@@ -936,6 +945,15 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
 DIMENSION_EXCLUSION_FILES: "dict[str, str | None]" = {
     "secrets_scanning": ".gitleaksignore",
     "license_compliance": None,
+    # Round 31 站4: setup.cfg's [mutmut] section carries BOTH halves of the
+    # mutation denominator — paths_to_mutate (what is in scope) and
+    # paths_to_exclude (basenames dropped from the mutant pool, written by the
+    # party being scored). Digesting the whole file covers both, which is the
+    # right granularity: a verdict has to be readable back to the scope it was
+    # taken on. Not a dot-file, so the entry is a project-root-relative path
+    # rather than a hidden one — the registry's contract is "which file can
+    # move this dimension's score", not "which dotfile".
+    "mutation_testing": "setup.cfg",
 }
 
 

@@ -168,6 +168,76 @@ def mutate_dirs(cwd: Path, paths_to_mutate: str) -> list[Path]:
     ]
 
 
+def read_paths_to_mutate(project_root: "str | Path") -> Optional[str]:
+    """The ``[mutmut] paths_to_mutate`` currently configured, or None."""
+    cfg = configparser.ConfigParser()
+    cfg.read(str(Path(project_root) / "setup.cfg"), encoding="utf-8")
+    if not cfg.has_section("mutmut"):
+        return None
+    value = cfg.get("mutmut", "paths_to_mutate", fallback="")
+    return value.strip() or None
+
+
+def _as_path_set(paths: Optional[str]) -> set:
+    return {p.strip().strip("/") for p in (paths or "").split(",") if p.strip()}
+
+
+def scope_drift(project_root: "str | Path") -> Optional[str]:
+    """Report a ``setup.cfg`` mutation scope that disagrees with the SAB.
+
+    Round 31 站4. The scope is generated once, at the P2→P3 handoff
+    (``cli.phase_cmds._regenerate_mutmut_scope``), and until now was never
+    reconciled again. A project that corrects its SAB mid-P3 — which is the
+    normal way a missing ``scope_layers`` gets noticed, since Gate 2 is where
+    the cost shows up — keeps whatever ``setup.cfg`` said, and nothing
+    anywhere compares the two. On the project that motivated this round the
+    file was hand-written, its header claimed the framework had generated it
+    (the wording does not match what :func:`write_paths_to_mutate` writes), and
+    it mutated the whole package against a SAB that named two layers.
+
+    Returns a message when the two disagree, else None. **Reporting, not
+    rewriting**: the scope is a decision about what the project is judged on,
+    and a decision silently rewritten during a gate run is a decision nobody
+    reviewed. The caller blocks and prints the regeneration command.
+
+    None when the SAB declares no ``scope_layers`` — a project may legitimately
+    mutate everything, and a check whose whole subject is disagreement between
+    two declarations must not fire when only one exists.
+    """
+    import json
+
+    root = Path(project_root)
+    sab_path = root / ".methodology" / "SAB.json"
+    if not sab_path.is_file():
+        return None
+    try:
+        sab = json.loads(sab_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(root)
+    src_root = layout.get_relative_str(layout.phase3_development_dir / "src")
+
+    derived = resolve_mutation_scope(sab, src_root)
+    if not derived:
+        return None
+
+    configured = read_paths_to_mutate(root)
+    if _as_path_set(configured) == _as_path_set(derived):
+        return None
+
+    return (
+        f"setup.cfg [mutmut] paths_to_mutate is "
+        f"{configured or '(unset — the whole source tree is mutated)'}, but "
+        f"the SAB's mutation_testing NFR scopes it to {derived}. The scope "
+        f"decides what this dimension is judged on, so the framework reports "
+        f"the disagreement instead of silently picking one: re-run "
+        f"`advance-phase --completed-phase 2` to regenerate setup.cfg, or "
+        f"amend the SAB's scope_layers if the wider scope is intended."
+    )
+
+
 def write_paths_to_mutate(
     project_root: str | Path,
     paths: str,
