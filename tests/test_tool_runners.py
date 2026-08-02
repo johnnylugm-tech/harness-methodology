@@ -29,7 +29,6 @@ from harness.tool_runners import (
     _score_assertion_quality,
     _score_error_handling_coverage,
     _score_docstring_coverage,
-    _score_mutmut,
     _score_exit_code_binary,
 )
 
@@ -489,27 +488,16 @@ pytestmark = pytest.mark.mutation_oracle
 
 
 # ---------------------------------------------------------------------------
-# _score_mutmut (commit 631782b regression: Timeout mutants were ignored)
-# ---------------------------------------------------------------------------
-
-class TestScoreMutmut:
-    def test_basic_kill_rate(self):
-        assert _score_mutmut("Killed: 8\nSurvived: 2", 0) == 80.0
-
-    def test_timeout_counts_as_survived(self):
-        # 7 killed / (7 + 2 survived + 1 timeout) = 70%
-        assert _score_mutmut("Killed: 7\nSurvived: 2\nTimeout: 1", 0) == 70.0
-
-    def test_all_timeout_no_killed_returns_zero(self):
-        assert _score_mutmut("Killed: 0\nTimeout: 5", 0) == 0.0
-
-    def test_no_mutants_returns_zero(self):
-        assert _score_mutmut("", 0) == 0.0
-
-    def test_only_killed_returns_100(self):
-        assert _score_mutmut("Killed: 10\nSurvived: 0", 0) == 100.0
-
-
+# _score_mutmut was deleted in Round 31 站2 along with its ToolSpec cmd.
+#
+# It parsed "Killed: 8\nSurvived: 2" — a format nothing in this system emits;
+# `mutmut results` prints a per-file breakdown and the framework's own
+# mutation-test-score prints "killed=8 survived=2 score=80.0". It was also
+# unreachable in practice the moment mutmut went onto the inline skip list,
+# because compute_tool_score returns None for every negative return code.
+# mutation_testing's score now comes from .methodology/mutation_score.json;
+# the formats live in core/quality_gate/mutmut_report.py and are covered by
+# tests/test_mutmut_report.py.
 # ---------------------------------------------------------------------------
 # _score_exit_code_binary
 # ---------------------------------------------------------------------------

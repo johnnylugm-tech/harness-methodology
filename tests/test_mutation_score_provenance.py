@@ -164,6 +164,61 @@ def test_a_claim_that_contradicts_the_artifact_is_blocked(project):
     assert violations and "43.8" in " ".join(violations), violations
 
 
+# ── 2b. the producers are actually wired ─────────────────────────────────
+# Round 30 cost three separate counter-proofs to this exact trap: a helper
+# with tests, a call site with none, so unwiring it left the suite green.
+
+def test_compute_mutation_score_writes_the_artifact():
+    import inspect
+
+    from core.quality_gate.mutation_enforcer import compute_mutation_score
+
+    assert "_write_score_artifact" in inspect.getsource(compute_mutation_score), (
+        "the artifact the gate blocks on has no producer — the same shape as "
+        "Round 29's write_paths_to_mutate, which was written and never called"
+    )
+
+
+def test_finalize_patches_the_framework_score_into_the_verdict():
+    import inspect
+
+    from cli.gate_cmds import _finalize_gate_cross_checks
+
+    assert "_patch_mutation_score" in inspect.getsource(_finalize_gate_cross_checks), (
+        "S4 can block on the artifact and the verdict still record the agent's "
+        "number; the override is what makes the recorded score the framework's"
+    )
+
+
+def test_the_patch_replaces_the_agents_number(tmp_path):
+    from cli.gate_cmds import _patch_mutation_score
+
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / ".sessi-work").mkdir()
+    (tmp_path / ".methodology" / "mutation_score.json").write_text(
+        json.dumps({"score": 43.8, "killed": 240, "survived": 308,
+                    "paths_to_mutate": "src/app", "paths_to_exclude": [],
+                    "mutated_files": 8}),
+        encoding="utf-8",
+    )
+    result = tmp_path / ".sessi-work" / "gate2_result.json"
+    result.write_text(
+        json.dumps({"breakdown": {"mutation_testing": {"score": 100.0}}}),
+        encoding="utf-8",
+    )
+
+    _patch_mutation_score(tmp_path, 2)
+
+    patched = json.loads(result.read_text(encoding="utf-8"))
+    entry = patched["breakdown"]["mutation_testing"]
+    assert entry["score"] == 43.8
+    assert entry["framework_override"] is True
+    assert "compute_mutation_score" in entry["tool_evidence"]
+    assert "8 files" in entry["tool_evidence"], (
+        f"the denominator must travel with the score: {entry['tool_evidence']}"
+    )
+
+
 # ── 3. the scope must still agree with the SAB ───────────────────────────
 
 def _sab_scoped_to(layer_dirs):

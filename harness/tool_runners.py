@@ -31,11 +31,6 @@ from harness.toolchains import get_tool_spec
 # file (ToolSpec.output_artifact) — scorers split on it to get the report JSON.
 _ARTIFACT_MARKER = "\n=== TOOL_OUTPUT_ARTIFACT ===\n"
 
-# Pre-compiled patterns for _score_mutmut (avoid per-call regex compilation).
-_MUTMUT_KILLED_RE = re.compile(r"Killed: (\d+)")
-_MUTMUT_SURVIVED_RE = re.compile(r"Survived: (\d+)")
-_MUTMUT_TIMEOUT_RE = re.compile(r"Timeout: (\d+)")
-
 
 def run_tool(
     tool: str,
@@ -540,21 +535,6 @@ def _score_exit_code_binary(output: str, returncode: int) -> float:
         return 100.0
     return 0.0
 
-def _score_mutmut(output: str, returncode: int) -> float:
-    """Score mutmut run output."""
-    killed_m = _MUTMUT_KILLED_RE.search(output)
-    survived_m = _MUTMUT_SURVIVED_RE.search(output)
-    timeout_m = _MUTMUT_TIMEOUT_RE.search(output)
-    killed = int(killed_m.group(1)) if killed_m else 0
-    survived = int(survived_m.group(1)) if survived_m else 0
-    # Timed-out mutants were not killed; count them as survived so the
-    # score reflects the true kill rate (excluding them inflates the score).
-    timeout = int(timeout_m.group(1)) if timeout_m else 0
-    total = killed + survived + timeout
-    if total == 0:
-        return 0.0
-    return round(100.0 * killed / total, 1)
-
 
 # Scorer functions keyed by ToolSpec.scorer id (toolchain registry). Multiple
 # tools may share one scorer (e.g. eslint-family tools added per language).
@@ -581,5 +561,4 @@ _SCORERS: dict[str, Callable[[str, int], Optional[float]]] = {
     "coverage-summary": _score_coverage_summary,
     "js-bench":         _score_js_bench,
     "exit-code-binary": _score_exit_code_binary,
-    "mutmut":           _score_mutmut,
 }

@@ -209,14 +209,21 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     # (Solution-A content validation still applies to their evidence files).
     # mutmut 2.5.x hardcodes `python` in time_test_suite() (__main__.py:527):
     # if only python3 exists the check passes but Phase 4+ needs `ln -s`.
+    # Round 31 站2: skip_inline was False directly under the comment above
+    # naming mutmut as skip-list, so S4 really did spawn a bare `mutmut run`
+    # from the project root — the one invocation evaluate_dimension.md tells
+    # agents never to issue, because outside the framework's temp workdir
+    # mutmut 2.x's hardcoded `python` runner fails on any host without that
+    # symlink. cmd/scorer are gone with it: mutation_testing's score comes from
+    # .methodology/mutation_score.json, written by compute_mutation_score,
+    # which owns the workdir isolation, the SAB-derived scope and the sqlite
+    # read. check_cmd stays — S2 still verifies mutmut is installed.
     "mutmut": ToolSpec(
         tool_id="mutmut",
-        cmd=("mutmut", "run"),
         timeout=1800,
         check_cmd="mutmut --help 2>&1",
         human_name="mutmut",
-        scorer="mutmut",
-        skip_inline=False,
+        skip_inline=True,
     ),
     "import-linter": ToolSpec(
         tool_id="import-linter",

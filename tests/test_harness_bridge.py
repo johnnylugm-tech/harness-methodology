@@ -1626,6 +1626,16 @@ class TestS4ToolUnavailable:
         tout = tmp_path / "03-development" / "mutmut_results.txt"
         tout.parent.mkdir(parents=True)
         tout.write_text("Killed 12 out of 15 mutants — kill rate: 80.0%")
+        # Round 31 站2: for mutmut the tool_output file is audit only. The
+        # score comes from the artifact the framework wrote, so a passing
+        # claim needs one — this test is about rc=-1 not blocking on its own,
+        # which it still isn't.
+        (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".methodology" / "mutation_score.json").write_text(
+            '{"score": 80.0, "killed": 12, "survived": 3, '
+            '"paths_to_mutate": "src", "mutated_files": 4}',
+            encoding="utf-8",
+        )
 
         with patch("harness.tool_runners.run_tool", return_value=("", -1)):
             violations = _run_harness_cross_validation(ctx, raw)

@@ -252,9 +252,21 @@ for f, d in r.get('files', {}).items():
 > {"success": true, "score": 87.5, "message": "killed=14 survived=2 score=87.5",
 >  "cache_path": "/abs/path/.mutmut-cache"}
 > ```
-> Use the `score` field as `tool_score`. If `success` is `false`, treat
-> the dimension as blocked — surface `message` in the gate report and
-> write `tool_score=0` per the "mutmut unavailable" path below.
+> **The command also writes `.methodology/mutation_score.json`, and THAT file is
+> the score.** The gate reads it directly and overwrites whatever
+> `mutation_testing.score` you wrote with the number the framework computed
+> (`framework_override: true`, same as `traceability`). Two consequences:
+>
+> * If the artifact is missing, a passing `mutation_testing` claim is BLOCKED —
+>   the framework will not accept a number it did not compute. Run the command.
+> * Do not spend turns transcribing or defending the number. Your job on this
+>   dimension is to make the score go up by killing surviving mutants; the
+>   survivor list is in `.methodology/mutation_survivors.json`.
+>
+> Still write `tool_score` and a `tool_output` file: they are the audit trail
+> the gate keeps beside its own measurement. If `success` is `false`, surface
+> `message` in the gate report and write `tool_score=0` per the "mutmut
+> unavailable" path below.
 >
 > The framework's `compute_mutation_score` covers all the historical workarounds
 > (editable-install detection, paths_to_exclude, data-only file exclusion, cwd

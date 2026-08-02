@@ -528,6 +528,81 @@ def _write_survivors_artifact(
         pass
 
 
+#: Where the framework records the mutation score it computed itself.
+#: Project-root-relative; also spelled in harness_bridge's S4 check and in
+#: evaluate_dimension.md, all three via this constant or a citation of it.
+MUTATION_SCORE_ARTIFACT = ".methodology/mutation_score.json"
+
+
+def _write_score_artifact(
+    project: Path,
+    *,
+    killed: int,
+    survived: int,
+    score: float,
+    paths_to_mutate: str,
+    paths_to_exclude: "list[str]",
+    mutated_files: int,
+    cache_path: Path,
+) -> None:
+    """Record the score THIS function computed, for the gate to read.
+
+    Round 31 站2. `mutation_testing` is tier-1 and `objective_primary: true`,
+    and it was the only tier-1 dimension whose number the framework never
+    produced: this function had zero production callers, its CLI wrapper was
+    merely *suggested* in a prompt, and the score that reached a live Gate 2
+    came from a prose file the agent wrote by hand. The gate could not tell a
+    transcription from a measurement because there was nothing to compare
+    against.
+
+    The denominator travels with the numerator on purpose (Round 27 站7):
+    `paths_to_exclude` removes files from the mutant pool and is written by the
+    party being scored, so the verdict has to carry which files were actually
+    mutated, not just the ratio that survived them.
+
+    Best-effort: a failed artifact write must not change the score this run
+    computed — but it does leave a ledger line, because a missing artifact is
+    what the gate blocks on.
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    from core.harness_provenance import enforcer_sha
+
+    cache_sha = None
+    if cache_path.exists():
+        import hashlib
+        try:
+            cache_sha = hashlib.sha256(cache_path.read_bytes()).hexdigest()
+        except OSError:
+            cache_sha = None
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tool": "mutmut",
+        "score": score,
+        "killed": killed,
+        "survived": survived,
+        "paths_to_mutate": paths_to_mutate,
+        "paths_to_exclude": sorted(paths_to_exclude),
+        "mutated_files": mutated_files,
+        "cache_sha256": cache_sha,
+        "enforcer_sha": enforcer_sha(),
+    }
+    out = project / MUTATION_SCORE_ARTIFACT
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_json.dumps(payload, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+    except OSError as exc:
+        from core.degradation_ledger import record_degradation
+        record_degradation(
+            str(project), "mutation:score-artifact",
+            f"could not write {MUTATION_SCORE_ARTIFACT} ({exc})",
+            why="the gate blocks a passing mutation claim without this file",
+        )
+
+
 def _parse_mutmut_survivors(results_output: str) -> list:
     """Parse `mutmut results` output into survivor entries.
 
@@ -1018,6 +1093,20 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
             # a stale score from a prior run.
             if cache_file.exists():
                 cache_file.unlink()
+
+        # Round 31 站2: the framework records its own number. Written after the
+        # cache is published so cache_sha256 fingerprints the artifact the gate
+        # and any downstream reader will actually see.
+        _write_score_artifact(
+            project,
+            killed=killed, survived=survived, score=score,
+            paths_to_mutate=paths_to_mutate,
+            paths_to_exclude=all_excludes,
+            mutated_files=sum(
+                len(list(d.rglob("*.py"))) for d in src_dirs if d.is_dir()
+            ),
+            cache_path=cache_file,
+        )
         return True, score, msg
 
     except subprocess.TimeoutExpired:

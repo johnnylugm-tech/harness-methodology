@@ -38,7 +38,7 @@ import harness_cli  # noqa: F401  entry-first load order
 from core.quality_gate.mutation_enforcer import (  # noqa: E402
     _parse_mutmut_survivors,
 )
-from harness.harness_bridge import _extract_mutmut_kill_rate  # noqa: E402
+from core.quality_gate.mutmut_report import kill_rate  # noqa: E402
 
 pytestmark = [pytest.mark.core]
 
@@ -132,12 +132,61 @@ def test_the_frameworks_own_score_message_is_parseable_by_the_framework():
 
     msg = format_score_message(killed=240, survived=308, score=43.8,
                                scope="03-development/src/myapp")
-    rate = _extract_mutmut_kill_rate(msg)
+    rate = kill_rate(msg)
     assert rate is not None, (
         f"the anti-fabrication cross-check cannot read the string the "
         f"framework's own mutation-test-score prints: {msg!r}"
     )
     assert abs(rate - 43.8) < 0.1, rate
+
+
+# ── legacy free-text shapes ─────────────────────────────────────────────
+# Moved verbatim from tests/test_harness_bridge_oracle.py (Round 31 站2) along
+# with the parsing they cover. Nothing in this repo emits these, but a human
+# may paste output from another mutmut version into a tool_output file.
+
+def test_kill_rate_counts_form_exact():
+    """Killed 70 Survived 30 → 70.0.  Kills division and addition mutations."""
+    assert kill_rate("Killed 70 Survived 30 mutation tests") == 70.0
+
+
+def test_kill_rate_counts_form_is_float_division():
+    """Killed 1 Survived 2 → 33.33...  Verifies float division (not int)."""
+    result = kill_rate("Killed 1 Survived 2")
+    assert result is not None
+    assert abs(result - 33.333) < 0.01
+
+
+def test_kill_rate_percentage_form():
+    """'mutation score: 75%' → 75.0.  Kills regex and float() conversion."""
+    assert kill_rate("Results: mutation score: 75%") == 75.0
+
+
+def test_kill_rate_percentage_form_with_decimal():
+    """'mutation score: 66.7%' → 66.7.  Kills decimal group in regex."""
+    result = kill_rate("mutation score 66.7%")
+    assert result is not None
+    assert abs(result - 66.7) < 0.01
+
+
+def test_kill_rate_counts_form_wins_over_percentage():
+    """Both formats present → counts win.  Kills fallthrough."""
+    assert kill_rate("Killed 80 Survived 20\nmutation score: 50%") == 80.0
+
+
+def test_kill_rate_zero_total_returns_none():
+    """Killed 0 Survived 0 → total=0 → None.  Kills the total > 0 guard."""
+    assert kill_rate("Killed 0 Survived 0") is None
+
+
+def test_kill_rate_no_match_returns_none():
+    """No parseable data → None.  Kills the None return path."""
+    assert kill_rate("no relevant content here") is None
+
+
+def test_kill_rate_is_case_insensitive():
+    """'killed 5 survived 5' → 50.0.  Kills IGNORECASE flag removal."""
+    assert kill_rate("killed 5 survived 5") == 50.0
 
 
 def test_score_message_round_trips():

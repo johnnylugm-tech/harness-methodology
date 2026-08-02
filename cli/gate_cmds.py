@@ -1650,6 +1650,47 @@ def _stamp_enforcer_provenance(project_path: Path, gate: int) -> None:
                   file=sys.stderr)
 
 
+def _patch_mutation_score(project_path: Path, gate: int) -> None:
+    """Replace the agent's mutation_testing score with the framework's.
+
+    Round 31 站2. Absence is handled by S4, which blocks a passing claim with
+    no artifact behind it; here a missing file simply means there is nothing
+    to patch (the dimension may be disabled, or the gate may already be
+    failing). What must never happen is the reverse — a verdict recording a
+    number the framework did not compute — which is what every mutation score
+    in this repo's history has been.
+    """
+    artifact = project_path / ".methodology" / "mutation_score.json"
+    result = project_path / ".sessi-work" / f"gate{gate}_result.json"
+    if not artifact.is_file() or not result.is_file():
+        return
+    try:
+        data = json.loads(artifact.read_text(encoding="utf-8"))
+        score = float(data["score"])
+        gr = json.loads(result.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        print(f"[WARN] could not patch mutation score into result: {exc}",
+              file=sys.stderr)
+        return
+
+    entry = gr.setdefault("breakdown", {}).setdefault("mutation_testing", {})
+    entry["score"] = score
+    entry["tool_evidence"] = (
+        f"framework: compute_mutation_score → killed={data.get('killed')} "
+        f"survived={data.get('survived')} score={score} "
+        f"[scope: {data.get('paths_to_mutate')}, "
+        f"{data.get('mutated_files')} files, "
+        f"excluded: {data.get('paths_to_exclude') or 'none'}]"
+    )
+    entry["framework_override"] = True
+    try:
+        result.write_text(json.dumps(gr, indent=2, ensure_ascii=False),
+                          encoding="utf-8")
+    except OSError as exc:
+        print(f"[WARN] could not write patched mutation score: {exc}",
+              file=sys.stderr)
+
+
 def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
     """I-5/I-6: Gates 2-4 D4 spec-coverage + PR 4 trace dimension.
 
@@ -1670,6 +1711,16 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
             print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
             print("  Fix: add test cases for the uncovered TEST_SPEC.md sections, then re-run.")
             return 1
+
+    # ── Round 31 站2: mutation_testing's score is the framework's ────
+    # Same shape as the trace override below: the agent has no standing to
+    # author this number. compute_mutation_score reads the sqlite cache after
+    # running mutmut with the framework's workdir isolation and SAB-derived
+    # scope; whatever it wrote into .methodology/mutation_score.json is what
+    # the verdict records. S4 already blocks a passing claim that the artifact
+    # does not support — this is the other half: the recorded number.
+    if args.gate >= 2:
+        _patch_mutation_score(project_path, args.gate)
 
     # ── I-6: PR 4 closed-loop trace dimension (Gates 2-4) ───────────
     # Fuses 4a (FR→code→test, 100% over IN_PROGRESS+VERIFIED FRs) with

@@ -113,13 +113,23 @@ _LINE_CEILING: dict[str, int] = {
     # into a ceiling, which test_finalize_gate_override_is_floor_not_ceiling
     # caught. The note is longer than the line it replaces because the next
     # reader needs to know the diagnosis stands and only the fix was withdrawn.
-    "harness/harness_bridge.py": 3550,
+    "harness/harness_bridge.py": 3555,
+    # 2026-08-03 (Round 31 站2): +5 net — _mutation_artifact_violations
+    # (~65 lines) replaced _extract_mutmut_kill_rate (~30) and two branches
+    # that had been unreachable since the guard above them started catching
+    # every negative return code except -1. S4 for mutmut now reads the
+    # framework's own score artifact instead of parsing the agent's prose.
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
     # explaining the delegation) instead of a locally re-implemented rglob
     # loop that had silently diverged (never skipped __pycache__).
-    "cli/gate_cmds.py": 2569,
+    "cli/gate_cmds.py": 2588,
+    # 2026-08-03 (Round 31 站2): +19 lines — _patch_mutation_score, the
+    # mutation_testing half of the framework_override pattern the trace
+    # dimension has used since PR 4. The agent has no standing to author a
+    # number the framework computes itself; without this the verdict recorded
+    # whatever the agent wrote even when S4 had the real figure in hand.
     # 2026-07-11: +26 lines — cmd_advance_phase now refreshes the
     # traceability attestation before its handover commit (mirrors the
     # existing push_cmds.py refresh in push-checkpoint/push-milestone), and
@@ -465,7 +475,14 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1090,
+    "core/quality_gate/mutation_enforcer.py": 1170,
+    # 2026-08-03 (Round 31 站2): +80 lines — MUTATION_SCORE_ARTIFACT and
+    # _write_score_artifact. mutation_testing is tier-1 and objective_primary,
+    # and it was the only tier-1 dimension whose number the framework never
+    # produced: compute_mutation_score had zero production callers and the
+    # score that reached a live Gate 2 was prose an agent wrote by hand. The
+    # artifact carries the denominator too (paths_to_mutate, paths_to_exclude,
+    # mutated_files) because the party being scored writes the exclusion list.
     # 2026-08-02 (Bug v26 P3 Gate 2 plateau): +23 lines —
     # compute_mutation_score's TimeoutExpired branch now publishes the
     # partial workdir cache to the project root so the next call resumes

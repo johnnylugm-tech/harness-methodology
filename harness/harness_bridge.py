@@ -462,18 +462,73 @@ def filter_enabled_dimensions(
     ]
 
 
-def _extract_mutmut_kill_rate(content: str) -> "float | None":
-    """The kill rate carried by *content*, or None when it carries none.
+def _mutation_artifact_violations(
+    ctx: "GateContext", dim_name: str, agent_score: "float | None",
+    threshold: float,
+) -> list[str]:
+    """S4 for mutation_testing: the score is the framework's, or the gate blocks.
 
-    Round 31 站1: delegates to :mod:`core.quality_gate.mutmut_report`, which
-    also spells the message ``compute_mutation_score`` emits. The version that
-    lived here accepted ``Killed 240`` — a format nothing in this system
-    produces — and returned None for the agent's tool_output, for raw
-    ``mutmut results``, AND for the framework's own score line. A cross-check
-    that never parsed a real input is not a cross-check.
+    Round 31 站2. mutmut is the one tool the framework runs end-to-end itself —
+    temp workdir, setup.cfg rewrite, interpreter pinning, scope from the SAB —
+    and `compute_mutation_score` is where the authoritative number comes out of
+    the sqlite cache. It had zero production callers. What reached a live
+    Gate 2 instead was an agent-written prose file that passed content
+    validation because the mutmut pattern list contains the bare word "mutmut",
+    carrying a number nothing could check.
+
+    So the framework's own artifact is the source. Three outcomes:
+
+    * absent / unreadable / malformed → BLOCK, naming the command that writes
+      it. Abstaining is not passing (Round 30): "we could not establish the
+      score" must never resolve to "the claimed score stands".
+    * present, and the framework's score clears the threshold → fine, whatever
+      the agent wrote; the caller patches the real number into the breakdown.
+    * present, framework's score BELOW threshold while the agent claimed a
+      pass → BLOCK. That is the same rule S4 applies to every other tool
+      (harness says fail, agent says pass), with the artifact standing in for
+      a re-run that would cost an hour.
     """
-    from core.quality_gate.mutmut_report import kill_rate
-    return kill_rate(content)
+    from core.quality_gate.mutation_enforcer import MUTATION_SCORE_ARTIFACT
+
+    _how = (
+        f"Run `python3 harness_cli.py mutation-test-score --project .` — it "
+        f"runs mutmut with the framework's workdir isolation and writes "
+        f"{MUTATION_SCORE_ARTIFACT}. Do not run `mutmut run` yourself."
+    )
+    path = Path(ctx.project_root) / MUTATION_SCORE_ARTIFACT
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        framework_score = float(data["score"])
+    except FileNotFoundError:
+        return [
+            f"{dim_name}: no framework-computed score — {MUTATION_SCORE_ARTIFACT} "
+            f"is missing, so the recorded score is whatever the agent wrote. "
+            f"{_how}"
+        ]
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        return [
+            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} is unreadable ({exc}) — the "
+            f"score it should carry cannot be established. {_how}"
+        ]
+
+    if framework_score < threshold and (
+        agent_score is None or agent_score >= threshold
+    ):
+        _claim = "N/A (agent)" if agent_score is None else f"{agent_score:.1f}"
+        return [
+            f"{dim_name}: framework-computed score {framework_score:.1f} is "
+            f"below threshold {threshold:.0f}, but the gate result claims "
+            f"{_claim}. The framework's own run is the score for this "
+            f"dimension; write {framework_score:.1f} and fix the tests that "
+            f"let those mutants live."
+        ]
+
+    print(
+        f"  [S4] {dim_name}: framework-computed score {framework_score:.1f} "
+        f"[scope: {data.get('paths_to_mutate', '?')}, "
+        f"{data.get('mutated_files', '?')} files] ✓"
+    )
+    return []
 
 
 def _validate_tool_content(
@@ -1385,47 +1440,16 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                     f"  [S4] {dim_name}: '{tool}' skip-list — tool_output file verified "
                     f"(format OK); not re-run (too slow)"
                 )
-                # mutmut: cross-check computed kill_rate vs agent_score (±5% tolerance).
-                # mutmut is too slow to re-run, but we CAN verify the kill_rate that is
-                # derivable from its tool_output and compare it to the agent's claimed score.
-                # _tpath is guaranteed to be assigned here: we are in the else-branch
-                # of `if _problem`, which is only reached when _tout was non-empty AND
-                # _tpath.exists() — the pyright possibly-unbound warning is a false positive.
-                if tool == "mutmut" and _tout and agent_score is not None:
-                    _kill_rate = _extract_mutmut_kill_rate(
-                        (_Path(ctx.project_root) / _tout).read_text(
-                            encoding="utf-8", errors="replace"
-                        )
+            # Round 31 站2: for mutmut the tool_output file above is AUDIT, not
+            # the score. The number comes from the artifact the framework wrote
+            # itself; a committed prose file that merely looks like tool output
+            # is exactly what passed here before.
+            if tool == "mutmut":
+                violations.extend(
+                    _mutation_artifact_violations(
+                        ctx, dim_name, agent_score, threshold
                     )
-                    if _kill_rate is not None and abs(_kill_rate - agent_score) > 5.0:
-                        violations.append(
-                            f"{dim_name}: tool_output kill_rate={_kill_rate:.1f}% "
-                            f"≠ agent_score={agent_score:.1f} (diff > 5 pp) — "
-                            f"suspected fabrication; re-run mutmut and report the actual score."
-                        )
-                    elif _kill_rate is not None:
-                        print(
-                            f"  [S4] {dim_name}: mutmut kill_rate={_kill_rate:.1f}% "
-                            f"≈ agent_score={agent_score:.1f} ✓"
-                        )
-            continue
-        if returncode == -2:
-            # Timed out — a passing score MUST be independently reproducible. A tool
-            # that cannot finish within budget cannot confirm the agent's claim, and
-            # a slow run is an exploitable fabrication path → block.
-            violations.append(
-                f"{dim_name}: '{tool}' timed out during harness cross-validation — "
-                f"cannot verify agent score {_agent_label}. A passing score must be "
-                f"independently reproducible; reduce tool runtime or fix the tool, then re-finalize."
-            )
-            continue
-        if returncode in (-3, -4):
-            # -3 not-found (already guarded by S2 tool_checks.verify_gate_tools before finalize) /
-            # -4 tool error (framework-side, not agent-controllable) — warn only.
-            print(
-                f"  [S4-WARN] {dim_name}: '{tool}' cross-validation skipped "
-                f"(returncode={returncode}) — verify manually"
-            )
+                )
             continue
 
         if returncode == 5:

@@ -1,15 +1,19 @@
 """Oracle tests for harness/harness_bridge.py pure helper functions.
 
 Gap: test_harness_bridge.py has 50% presence-only assertions ('in result', 'is not None').
-     Pure helpers (_extract_mutmut_kill_rate, _validate_tool_content,
-     _check_tests_failed, _check_test_skip_ratio) had no exact-value assertions.
+     Pure helpers (_validate_tool_content, _check_tests_failed,
+     _check_test_skip_ratio) had no exact-value assertions.
 
 Design rule: expected values hard-coded.  Never re-derive from the mutated source.
+
+Round 31 站2: the eight _extract_mutmut_kill_rate cases moved to
+tests/test_mutmut_report.py with the parser they now test. That helper's only
+production caller was S4's mutmut branch, which no longer parses free text at
+all — the score comes from the framework's own artifact.
 """
 import pytest
 
 from harness.harness_bridge import (
-    _extract_mutmut_kill_rate,
     _validate_tool_content,
     _check_tests_failed,
     _check_test_skip_ratio,
@@ -17,59 +21,6 @@ from harness.harness_bridge import (
     _extract_fr_section,
     _parse_spec_names_for_fr,
 )
-
-
-# ─── _extract_mutmut_kill_rate ────────────────────────────────────────────────
-
-def test_extract_kill_rate_format_a_exact():
-    """Killed 70 Survived 30 → 70.0.  Kills division and addition mutations."""
-    result = _extract_mutmut_kill_rate("Killed 70 Survived 30 mutation tests")
-    assert result == 70.0
-
-
-def test_extract_kill_rate_format_a_rounding():
-    """Killed 1 Survived 2 → 33.33...  Verifies float division (not int)."""
-    result = _extract_mutmut_kill_rate("Killed 1 Survived 2")
-    assert result is not None
-    assert abs(result - 33.333) < 0.01
-
-
-def test_extract_kill_rate_format_b_percentage():
-    """'mutation score: 75%' → 75.0.  Kills regex and float() conversion."""
-    result = _extract_mutmut_kill_rate("Results: mutation score: 75%")
-    assert result == 75.0
-
-
-def test_extract_kill_rate_format_b_with_decimal():
-    """'mutation score: 66.7%' → 66.7.  Kills decimal group in regex."""
-    result = _extract_mutmut_kill_rate("mutation score 66.7%")
-    assert result is not None
-    assert abs(result - 66.7) < 0.01
-
-
-def test_extract_kill_rate_format_a_prefers_over_b():
-    """Both formats present → Format A (Killed/Survived) wins.  Kills fallthrough."""
-    content = "Killed 80 Survived 20\nmutation score: 50%"
-    result = _extract_mutmut_kill_rate(content)
-    assert result == 80.0   # 80/(80+20), not 50
-
-
-def test_extract_kill_rate_zero_total_returns_none():
-    """Killed 0 Survived 0 → total=0 → None.  Kills total > 0 guard."""
-    result = _extract_mutmut_kill_rate("Killed 0 Survived 0")
-    assert result is None
-
-
-def test_extract_kill_rate_no_match_returns_none():
-    """No parseable data → None.  Kills None return path."""
-    result = _extract_mutmut_kill_rate("no relevant content here")
-    assert result is None
-
-
-def test_extract_kill_rate_case_insensitive():
-    """'killed 5 survived 5' (lowercase) → 50.0.  Kills IGNORECASE flag removal."""
-    result = _extract_mutmut_kill_rate("killed 5 survived 5")
-    assert result == 50.0
 
 
 # ─── _validate_tool_content ───────────────────────────────────────────────────
