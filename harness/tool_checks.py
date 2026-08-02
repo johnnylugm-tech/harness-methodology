@@ -13,7 +13,6 @@ remains here. Dimension names that don't map to a dedicated tool
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 
@@ -138,9 +137,6 @@ def verify_gate_tools(
         cfg.get("dimensions", []), target_root
     )
 
-    if os.environ.get("HARNESS_SKIP_TOOL_CHECKS") == "1":
-        return True, []
-
     missing: list[str] = []
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")
@@ -164,8 +160,6 @@ def verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
     project setup rather than deep inside Gate 3/4. CRG and the other SSI tools
     are hard dependencies — there is no graceful degradation.
     """
-    if os.environ.get("HARNESS_SKIP_TOOL_CHECKS") == "1":
-        return True, []
     all_missing: list[str] = []
     seen: set[str] = set()
     for gate_num in (1, 2, 3, 4):

@@ -94,7 +94,6 @@ def test_verify_gate_tools_still_checks_inside_ci(tmp_path, monkeypatch):
     (tests/cli/test_phase_cmds_cli.py monkeypatches verify_all_gate_tools);
     this test pins that the production path keeps checking.
     """
-    monkeypatch.delenv("HARNESS_SKIP_TOOL_CHECKS", raising=False)
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     cfg_path = tmp_path / "gate1_per_fr.yaml"
