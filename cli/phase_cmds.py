@@ -2197,27 +2197,29 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         # Runs outside src_dir.is_dir() intentionally: gitleaks scans the whole
         # repo (docs, configs, history), not just the source tree.
         #
-        # Round 30 站6: but NOT its own output and not build artefacts.
-        # taskq-advance's .gitleaksignore carries 8 fingerprint exemptions; 3 of
-        # them silence findings inside `.sessi-work/round_1/tools/secrets.json`
-        # — gitleaks' own report from the previous round — and 2 more silence
-        # `__pycache__/*.pyc` mirrors of a test fixture. Neither is a secret in
-        # the project; both are the scan reading its own exhaust. The correct
-        # fix is scope, not a growing list of per-finding waivers: every waiver
-        # is a hole that stays open for real findings on the same file, and the
-        # waiver file itself is where a denominator quietly shrinks.
-        _gl_excludes = [
-            f"--exclude-path={p}" for p in (
-                ".sessi-work",       # this scanner's own prior output
-                "__pycache__",       # build artefacts, re-derived from source
-                ".venv", "node_modules",
-            )
-            if (project / p).exists()
-        ]
+        # Round 30 站6 — WITHDRAWN, both halves of the reasoning were wrong.
+        #
+        # The plan called for excluding .sessi-work/ and __pycache__ here,
+        # because taskq-advance's .gitleaksignore silences 3 findings inside
+        # gitleaks' own prior report and 2 inside .pyc mirrors of a test
+        # fixture. Two measurements killed it:
+        #   - `--exclude-path` does not exist. gitleaks 8.30.1 `detect` takes
+        #     --source/--no-git/--config/--baseline-path; path allowlists live
+        #     in .gitleaks.toml, not on the command line. The flag was assumed,
+        #     not checked, and it made this call exit non-zero → rc 20 "secrets
+        #     detected" on 6 tests.
+        #   - The invocation below never sees those paths anyway. This is git
+        #     mode, which scans COMMITS: with .sessi-work/ gitignored, a probe
+        #     reports "1 commits scanned, ~20 bytes" versus ~56 for the same
+        #     tree under --no-git. Those .gitleaksignore entries come from the
+        #     AGENT's own working-tree run, which the framework does not issue
+        #     and cannot scope from here.
+        # What survives is in harness_bridge: the exclusion file must be tracked
+        # (Round 29) and its digest travels with the verdict (this round).
         if shutil.which("gitleaks"):
             try:
                 _gl_r = subprocess.run(
-                    ["gitleaks", "detect", "--source", ".", *_gl_excludes],
+                    ["gitleaks", "detect", "--source", "."],
                     cwd=str(project),
                     capture_output=True,
                     text=True,

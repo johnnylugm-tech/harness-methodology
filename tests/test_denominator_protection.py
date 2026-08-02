@@ -118,19 +118,35 @@ def test_no_exclusion_file_means_no_digest_entry(tmp_path, monkeypatch):
 
 # ── the scan's own scope ────────────────────────────────────────────────
 
-def test_the_frameworks_gitleaks_run_excludes_its_own_output(tmp_path):
-    """Scope, not waivers. Asserted against the call site because building a
-    project that actually runs gitleaks would test gitleaks, not this decision.
+def test_the_scan_scope_change_stays_withdrawn(tmp_path):
+    """Round 30 站6's third piece was WITHDRAWN. This pins the reason.
+
+    The plan was to exclude .sessi-work/ and __pycache__ from the framework's
+    gitleaks run, because taskq-advance's .gitleaksignore silences 3 findings
+    inside gitleaks' own prior report and 2 inside .pyc mirrors of a fixture.
+    Both halves of that reasoning turned out to be wrong:
+
+      - `--exclude-path` does not exist. gitleaks 8.30.1 `detect` takes
+        --source / --no-git / --config / --baseline-path; path allowlists live
+        in .gitleaks.toml. The flag was assumed rather than checked, and it made
+        the call exit non-zero → rc 20 "secrets detected" on 6 unrelated tests.
+      - The invocation is git mode, which scans COMMITS. With .sessi-work/
+        gitignored it is not in any commit: a probe reports "1 commits scanned,
+        ~20 bytes" against ~56 for the same tree under --no-git. Those
+        .gitleaksignore entries come from the AGENT's own working-tree run,
+        which the framework neither issues nor can scope from here.
+
+    Re-open only with a measurement, not a plan: if the framework ever runs
+    gitleaks in --no-git mode, the exclusions belong in a generated
+    .gitleaks.toml, and this test should be replaced rather than deleted.
     """
     import cli.phase_cmds as pc
 
     src = inspect.getsource(pc)
-    assert '"gitleaks", "detect", "--source", ".", *_gl_excludes' in src, (
-        "the framework's gitleaks invocation stopped passing exclusions"
+    assert '"gitleaks", "detect", "--source", "."' in src
+    # Matches the ARGUMENT form (a string literal in the arg list), not the
+    # flag name in the docstring above — which quotes it on purpose.
+    assert '"--exclude-path' not in src and "f\"--exclude-path" not in src, (
+        "gitleaks has no --exclude-path flag; passing one makes the scan exit "
+        "non-zero, which this code reads as 'secrets detected'"
     )
-    for path in (".sessi-work", "__pycache__"):
-        assert f'"{path}",' in src or f'"{path}"' in src, (
-            f"{path} is back in the secrets-scan scope — findings there are the "
-            f"scanner reading its own exhaust, and each one becomes a "
-            f"fingerprint waiver that also silences real findings on that file"
-        )
