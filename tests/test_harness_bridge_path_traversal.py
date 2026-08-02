@@ -21,6 +21,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import core.quality_gate.gate_thresholds as _gt
+
 import pytest
 
 from harness.harness_bridge import (
@@ -36,12 +38,12 @@ from harness.harness_bridge import (
 def project_with_gate_config(tmp_path: Path) -> Path:
     """
     Create a project skeleton with a gate3 config so _check_tool_evidence
-    can find a `gate3_*.yaml` to load. Mirrors harness/gate_configs/
-    layout; only the dimensions we exercise are kept.
+    can find a `gate3_*.yaml` to load.  Uses gate_config_path() resolver;
+    callers must monkeypatch `core.quality_gate.gate_thresholds.gate_config_path`
+    to return this config.
     """
-    cfg_dir = tmp_path / "harness" / "gate_configs"
-    cfg_dir.mkdir(parents=True)
-    (cfg_dir / "gate3_p4_exit.yaml").write_text(
+    cfg_path = tmp_path / "gate3_p4_exit.yaml"
+    cfg_path.write_text(
         "gate_num: 3\n"
         "score_gate: 75.0\n"
         "dimensions:\n"
@@ -71,10 +73,12 @@ def ctx(project_with_gate_config: Path) -> GateContext:
 
 class TestCheckToolEvidencePathContainment:
     def test_parent_traversal_in_tool_output_is_rejected(
-        self, ctx: GateContext,
+        self, ctx: GateContext, monkeypatch,
     ):
         """`tool_output: ../../etc/passwd` joined to project_root must
         not be read — the resolved path escapes project_root."""
+        cfg_path = Path(ctx.project_root) / "gate3_p4_exit.yaml"
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         raw = {
             "breakdown": {
                 "linting": {
@@ -94,9 +98,13 @@ class TestCheckToolEvidencePathContainment:
             f"violation; got {violations!r}"
         )
 
-    def test_absolute_path_tool_output_is_rejected(self, ctx: GateContext):
+    def test_absolute_path_tool_output_is_rejected(
+        self, ctx: GateContext, monkeypatch,
+    ):
         """An absolute tool_output (e.g. `/etc/passwd`) must be rejected
         the same way as a parent-traversal."""
+        cfg_path = Path(ctx.project_root) / "gate3_p4_exit.yaml"
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         raw = {
             "breakdown": {
                 "linting": {
@@ -113,11 +121,13 @@ class TestCheckToolEvidencePathContainment:
         )
 
     def test_symlink_escape_tool_output_is_rejected(
-        self, ctx: GateContext, tmp_path: Path,
+        self, ctx: GateContext, tmp_path: Path, monkeypatch,
     ):
         """A symlink inside project_root that points outside it must
         be rejected by the containment check (`resolve()` follows the
         symlink, so the resolved path is outside project_root)."""
+        cfg_path = Path(ctx.project_root) / "gate3_p4_exit.yaml"
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         # Create a real file outside the project
         outside_dir = tmp_path.parent / "outside_secret"
         outside_dir.mkdir(exist_ok=True)
@@ -154,11 +164,13 @@ class TestCheckToolEvidencePathContainment:
             outside_dir.rmdir()
 
     def test_valid_tool_output_inside_project_still_works(
-        self, ctx: GateContext,
+        self, ctx: GateContext, monkeypatch,
     ):
         """Sanity guard: a tool_output path that genuinely lives inside
         project_root must still be read normally (no false-positive
         containment rejection)."""
+        cfg_path = Path(ctx.project_root) / "gate3_p4_exit.yaml"
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         project_root = Path(ctx.project_root)
         evidence_dir = project_root / "evidence"
         evidence_dir.mkdir(exist_ok=True)
@@ -188,7 +200,7 @@ class TestCheckToolEvidencePathContainment:
 
 class TestRunHarnessCrossValidationPathContainment:
     def test_parent_traversal_in_skip_list_tool_output_is_rejected(
-        self, ctx: GateContext,
+        self, ctx: GateContext, monkeypatch,
     ):
         """The S4 cross-validation's skip-list branch (mutmut/scancode)
         must also reject tool_output paths that escape project_root."""
@@ -198,8 +210,8 @@ class TestRunHarnessCrossValidationPathContainment:
         # we need run_tool to return (-1) to enter the skip-list branch.
         project_root = Path(ctx.project_root)
         # Override the gate config to use mutmut (a skip-list tool)
-        cfg_dir = project_root / "harness" / "gate_configs"
-        (cfg_dir / "gate3_p4_exit.yaml").write_text(
+        cfg_path = project_root / "gate3_p4_exit.yaml"
+        cfg_path.write_text(
             "gate_num: 3\n"
             "score_gate: 75.0\n"
             "dimensions:\n"
@@ -207,6 +219,7 @@ class TestRunHarnessCrossValidationPathContainment:
             "      weight: 0.10, tool: mutmut,  requires_tool_execution: true }\n",
             encoding="utf-8",
         )
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
 
         # run_tool returns (-1) → skip-list branch
         with patch(

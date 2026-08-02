@@ -40,7 +40,7 @@ _warned: set[tuple[str, str]] = set()
 def record_degradation(project: "str | Path", component: str, what: str, why: str = "") -> None:
     """Record a graceful degradation: print a `[DEGRADED]` line to stderr
     (once per component+what per process) and append a JSON record to
-    `<project>/.sessi-work/degradations.jsonl`. Never raises — a failure
+    `<project>/.methodology/degradations.jsonl`. Never raises — a failure
     to write the ledger must not be worse than the degradation it was
     trying to record.
     """

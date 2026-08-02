@@ -915,29 +915,36 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
     import yaml as _yaml
     from pathlib import Path as _Path
 
-    # Load gate config to find requires_tool_execution dimensions
-    cfg_path = None
-    for pattern in [
-        f"gate{ctx.gate_num}_p*.yaml",
-        f"gate{ctx.gate_num}_*.yaml",
-    ]:
-        import glob as _glob
-        candidates = _glob.glob(
-            str(_Path(ctx.project_root) / "harness" / "gate_configs" / pattern)
-        )
-        if candidates:
-            cfg_path = _Path(candidates[0])
-            break
+    # Round 29 Station 1: use the single-source-of-truth resolver instead of
+    # project_root-relative globbing.  The old path (project/harness/gate_configs)
+    # was one level too high when the harness is checked out as a git submodule
+    # (the actual path is project/harness/harness/gate_configs).  SSOT resolver:
+    # core.quality_gate.gate_thresholds.gate_config_path() — uses __file__ so it
+    # always lands on the framework's own shipped configs.
+    from core.quality_gate.gate_thresholds import gate_config_path as _gcp
 
-    if not cfg_path or not cfg_path.exists():
-        return []  # No config — cannot enforce
+    try:
+        cfg_path = _gcp(ctx.gate_num)
+    except ValueError:
+        return []  # unknown gate_num — caller contract violation, not a config gap
+
+    if not cfg_path.exists():
+        # Round 29 Station 1: gate configs are framework-owned assets tracked by
+        # git ls-files.  Missing → checkout is corrupt.  Return a blocking
+        # violation instead of silently returning [] (which the old code did
+        # and was indistinguishable from "no violations").
+        return [
+            f"S3 gate config not found: {cfg_path} "
+            f"(gate {ctx.gate_num}). Expected framework-owned asset — "
+            f"is the harness checkout intact?"
+        ]
 
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except (ImportError, _yaml.YAMLError, OSError):
-        # Narrow except: yaml errors + read errors only. Bare Exception would
-        # also swallow KeyboardInterrupt / SystemExit and unrelated bugs.
-        return []
+    except (_yaml.YAMLError, OSError) as exc:
+        return [
+            f"S3 gate config unreadable: {cfg_path} ({exc})"
+        ]
 
 
     cfg["dimensions"] = filter_enabled_dimensions(
@@ -946,6 +953,42 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
 
     violations: list[str] = []
     breakdown = raw.get("breakdown", {})
+
+    # Round 29 Station 6: exclusion files that alter a dimension's score
+    # (e.g. .gitleaksignore for secrets_scanning) must themselves be in
+    # version control.  An untracked exclusion file means the score on a
+    # fresh clone would be different — the denominator is in the scorer's
+    # hands, not the framework's.
+    _exclusion_files: dict[str, str] = {
+        "secrets_scanning": ".gitleaksignore",
+    }
+    _project_root_path = _Path(ctx.project_root)
+    for _dim_name, _excl_file in _exclusion_files.items():
+        _excl_path = _project_root_path / _excl_file
+        if not _excl_path.is_file():
+            continue
+        try:
+            import subprocess as _sp
+            _tracked = _sp.run(
+                ["git", "ls-files", "--error-unmatch", _excl_file],
+                cwd=str(_project_root_path),
+                capture_output=True, text=True, timeout=10,
+            )
+            if _tracked.returncode != 0:
+                violations.append(
+                    f"S6 {_excl_file} exists but is not tracked by git — "
+                    f"the {_dim_name} score depends on an exclusion file "
+                    f"that is absent on a fresh clone. "
+                    f"Either commit it or remove the exclusion entries."
+                )
+        except Exception:
+            # git not available — skip the VCS check.  This is a
+            # non-blocking best-effort guard; a git failure here is
+            # never more important than the gate evaluation itself.
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "S6 exclusion file VCS check skipped", exc_info=True
+            )
 
     # Evidence format patterns are keyed by the RESOLVED tool id — a TS
     # project's linting evidence is eslint JSON, not ruff output.
@@ -1166,24 +1209,28 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     import yaml as _yaml
     from pathlib import Path as _Path
 
-    cfg_path = None
-    for pattern in [f"gate{ctx.gate_num}_p*.yaml", f"gate{ctx.gate_num}_*.yaml"]:
-        import glob as _glob
-        candidates = _glob.glob(
-            str(_Path(ctx.project_root) / "harness" / "gate_configs" / pattern)
-        )
-        if candidates:
-            cfg_path = _Path(sorted(candidates)[0])
-            break
+    # Round 29 Station 1: use gate_config_path() instead of project_root-relative
+    # globbing (same fix as _check_tool_evidence above).
+    from core.quality_gate.gate_thresholds import gate_config_path as _gcp
 
-    if not cfg_path or not cfg_path.exists():
+    try:
+        cfg_path = _gcp(ctx.gate_num)
+    except ValueError:
         return []
+
+    if not cfg_path.exists():
+        return [
+            f"S4 gate config not found: {cfg_path} "
+            f"(gate {ctx.gate_num}). Expected framework-owned asset — "
+            f"is the harness checkout intact?"
+        ]
 
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"  [S4-WARN] cross-validation disabled: failed to parse {cfg_path.name}: {exc}")
-        return []
+    except (_yaml.YAMLError, OSError) as exc:
+        return [
+            f"S4 gate config unreadable: {cfg_path} ({exc})"
+        ]
 
     cfg["dimensions"] = filter_enabled_dimensions(
         cfg.get("dimensions", []), ctx.project_root
@@ -3407,16 +3454,11 @@ class HarnessBridge:
     def _load_config(self, gate_num: int) -> GateConfig:
         """Load the YAML configuration for a specific gate."""
         import yaml  # type: ignore[import-untyped]
-        names = {1: "gate1_per_fr.yaml", 2: "gate2_p3_exit.yaml",
-                 3: "gate3_p4_exit.yaml", 4: "gate4_p6_full.yaml"}
-        # Validate gate_num up front so a typo (5, 0, -1) raises
-        # ValueError with a clear message instead of an uncaught
-        # KeyError from the names dict.
-        if gate_num not in names:
-            raise ValueError(
-                f"gate_num must be one of {sorted(names)}; got {gate_num}"
-            )
-        config_path = Path(__file__).parent / "gate_configs" / names[gate_num]
+        # Round 29 Station 1: use the SSOT resolver + name registry instead of
+        # a local copy of the names dict.  gate_config_path() validates gate_num
+        # with the same ValueError shape the old inline check had.
+        from core.quality_gate.gate_thresholds import gate_config_path
+        config_path = gate_config_path(gate_num)
         with open(config_path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         return GateConfig.from_dict(raw, gate_num)

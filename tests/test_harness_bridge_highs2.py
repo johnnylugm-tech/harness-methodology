@@ -165,7 +165,7 @@ class TestFinalizeGateJsonDecodeError:
 
 class TestCrgEnrichmentSilentDrop:
     def test_crg_enrichment_exception_logs_warning(
-        self, gate3_ctx: GateContext, caplog,
+        self, gate3_ctx: GateContext, caplog, monkeypatch,
     ):
         """When _crg_enrich_gate_findings raises (MCP failure,
         import error, etc.), the finalize_gate handler currently
@@ -177,6 +177,24 @@ class TestCrgEnrichmentSilentDrop:
 
         Uses Gate 3 (gate_num >= 2) because the CRG enrichment
         code path is only exercised for non-Gate-1 gates."""
+        # ── Round 45: monkeypatch gate_config_path to avoid loading the
+        # LIVE gate3_p4_exit.yaml which has 14 requires_tool_execution:true
+        # dimensions. The test's gate3_result.json only has one dim entry
+        # (linting), so _check_tool_evidence would block with violations
+        # before the CRG enrichment code is ever reached. Return a minimal
+        # config matching the test's gate3_result.json shape.
+        import core.quality_gate.gate_thresholds as _gt
+        _cfg_path = Path(gate3_ctx.work_dir) / "gate3_p4_exit.yaml"
+        _cfg_path.write_text(
+            "gate_num: 3\n"
+            "score_gate: 75.0\n"
+            "dimensions:\n"
+            "  - { name: linting, tier: 1, threshold: 90, weight: 0.10,\n"
+            "      tool: ruff,  requires_tool_execution: false }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _cfg_path)
+
         # Write a valid gate3 result so finalize_gate gets past the
         # JSON-read step. Round 21 站2: "valid" now means it satisfies
         # harness_gate_result.schema.json — this fixture called itself valid

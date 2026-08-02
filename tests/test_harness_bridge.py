@@ -238,7 +238,25 @@ class TestFinalizeGate:
         result_path = Path(ctx.work_dir) / f"gate{ctx.gate_num}_result.json"
         result_path.write_text(json.dumps(data), encoding="utf-8")
 
-    def test_finalize_gate_returns_gate_result_on_pass(self, tmp_path):
+    def _patch_gate_config(self, tmp_path, monkeypatch):
+        """Monkeypatch gate_config_path to return a minimal config with no
+        requires_tool_execution:true dimensions, so _check_tool_evidence
+        finds nothing to validate and returns []."""
+        import yaml as _yaml
+        import core.quality_gate.gate_thresholds as _gt
+        _minimal_cfg = tmp_path / "gate_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({
+            "gate": 2, "dimensions": [
+                {"name": "linting", "threshold": 100},
+                {"name": "type_safety", "threshold": 100},
+                {"name": "test_coverage", "threshold": 100},
+                {"name": "secrets_scanning", "threshold": 100},
+            ]
+        }))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
+    def test_finalize_gate_returns_gate_result_on_pass(self, tmp_path, monkeypatch):
+        self._patch_gate_config(tmp_path, monkeypatch)
         bridge = HarnessBridge()
         ctx = self._make_context(tmp_path, gate_num=2)
         self._write_result(ctx, {
@@ -274,10 +292,11 @@ class TestFinalizeGate:
                     with pytest.raises(GateBlockedError, match="Gate 2 BLOCKED"):
                         bridge.finalize_gate(ctx)
 
-    def test_finalize_gate_explicit_false_recomputes_pass(self, tmp_path):
+    def test_finalize_gate_explicit_false_recomputes_pass(self, tmp_path, monkeypatch):
         """D (Bug 3): an explicit quality_complete:false must NOT bypass the fallback
         recompute. With passing score + all dims above threshold, the gate passes
         despite the agent writing false."""
+        self._patch_gate_config(tmp_path, monkeypatch)
         bridge = HarnessBridge()
         ctx = self._make_context(tmp_path, gate_num=2)
         self._write_result(ctx, {
@@ -296,7 +315,7 @@ class TestFinalizeGate:
         # Recomputed from dims (all pass, score >= gate) → quality_complete True
         assert result.quality_complete is True
 
-    def test_finalize_gate_simple_average_skips_none_scores(self, tmp_path):
+    def test_finalize_gate_simple_average_skips_none_scores(self, tmp_path, monkeypatch):
         """L2302: the no-weight-config fallback average must skip dims with
         score=None, same as the weighted branch a few lines above it —
         otherwise sum() crashes with TypeError the moment any dimension is
@@ -304,6 +323,7 @@ class TestFinalizeGate:
         also NOT block the gate (fixed alongside the average-skip bug): it's
         "not yet applicable", not a 0-score failure — the all-dims-pass check
         now excludes it the same way the composite average does."""
+        self._patch_gate_config(tmp_path, monkeypatch)
         from harness.harness_bridge import DimResult
         bridge = HarnessBridge()
         # Dict-style dimensions with no "weight" key keep _dim_weights empty,
@@ -327,13 +347,14 @@ class TestFinalizeGate:
         assert result.score == 90.0  # the None-score dim is excluded from the average
         assert result.quality_complete is True  # and excluded from the pass/fail requirement
 
-    def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path):
+    def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path, monkeypatch):
         """Real JSON->DimResult path (not an injected DimResult bypassing
         construction, as the test above uses): a literal `"score": null` in
         the agent-written breakdown for a dimension that's not yet applicable
         (e.g. performance with no benchmark cases) must not coerce to 0.0 and
         must not block Gate 2+. Reproduces the live incident where a Gate 3
         agent had to fabricate a performance score to avoid this exact block."""
+        self._patch_gate_config(tmp_path, monkeypatch)
         config = {"score_gate": 80.0, "dimensions": [{"name": "linting", "threshold": 75.0}]}
         ctx = self._make_context(tmp_path, gate_num=3, config=config)
         self._write_result(ctx, {
@@ -391,12 +412,13 @@ class TestFinalizeGate:
                     with pytest.raises(GateBlockedError):
                         bridge.finalize_gate(ctx)
 
-    def test_finalize_gate_accepts_a_framework_verified_na(self, tmp_path):
+    def test_finalize_gate_accepts_a_framework_verified_na(self, tmp_path, monkeypatch):
         """The same shape, once S4 has stamped it, passes.
 
         This is the pair to the test above: the difference between blocked and
         allowed is who established that the dimension does not apply.
         """
+        self._patch_gate_config(tmp_path, monkeypatch)
         config = {"score_gate": 80.0, "dimensions": [
             {"name": "linting", "threshold": 75.0},
             {"name": "performance", "threshold": 75.0,
@@ -420,12 +442,13 @@ class TestFinalizeGate:
                     result = bridge.finalize_gate(ctx)
         assert result.quality_complete is True
 
-    def test_finalize_gate_da_waiver_branch_excludes_none_score(self, tmp_path):
+    def test_finalize_gate_da_waiver_branch_excludes_none_score(self, tmp_path, monkeypatch):
         """The DA-waiver `_eff_qc` recompute (a second copy of the all-dims-pass
         predicate, gated behind `if da_waivers`) has the same None-vs-fail bug
         fixed in the primary path above. A waived dim (readability, genuinely
         below threshold) plus an unrelated None-scored dim (performance, not
         yet applicable) must both let the gate pass, once linting also passes."""
+        self._patch_gate_config(tmp_path, monkeypatch)
         config = {
             # Low enough that the composite (readability=0, linting=90,
             # performance excluded -> average 45.0) still clears the gate —
@@ -467,10 +490,11 @@ class TestFinalizeGate:
                     with pytest.raises(GateBlockedError):
                         bridge.finalize_gate(ctx)
 
-    def test_finalize_gate_updates_manifest(self, tmp_path):
+    def test_finalize_gate_updates_manifest(self, tmp_path, monkeypatch):
         """_update_quality_manifest runs for real (弱點強化 Round 2 Station
         H) — asserts the manifest file is actually updated with the gate's
         score/quality_complete, not just that the private method was called."""
+        self._patch_gate_config(tmp_path, monkeypatch)
         bridge = HarnessBridge()
         ctx = self._make_context(tmp_path, gate_num=2)
         self._write_result(ctx, {
@@ -1514,18 +1538,19 @@ class TestS4ToolUnavailable:
             ssi_schemas_dir=str(tmp_path), work_dir=str(tmp_path / ".sessi-work"),
         )
 
-    def _fake_cfg(self, tmp_path, dims: list[dict]):
+    def _fake_cfg(self, tmp_path, monkeypatch, dims: list[dict]):
         import yaml
-        cfg_dir = tmp_path / "harness" / "gate_configs"
-        cfg_dir.mkdir(parents=True)
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = tmp_path / "gate3_p4_exit.yaml"
         cfg = {"gate": 3, "dimensions": dims}
-        (cfg_dir / "gate3_p4_exit.yaml").write_text(yaml.dump(cfg))
+        cfg_path.write_text(yaml.dump(cfg))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
 
-    def test_tool_not_found_blocks_passing_agent_score(self, tmp_path):
+    def test_tool_not_found_blocks_passing_agent_score(self, tmp_path, monkeypatch):
         """rc=-3 (not found) + agent_score(85) >= threshold(80) → blocked."""
         from harness.harness_bridge import _run_harness_cross_validation
         ctx = self._make_ctx(tmp_path)
-        self._fake_cfg(tmp_path, [
+        self._fake_cfg(tmp_path, monkeypatch, [
             {"name": "readability", "tool": "radon-mi", "threshold": 80,
              "requires_tool_execution": True},
         ])
@@ -1538,11 +1563,11 @@ class TestS4ToolUnavailable:
         assert "radon-mi" in violations[0]
         assert "not found" in violations[0]
 
-    def test_tool_not_found_below_threshold_skipped(self, tmp_path):
+    def test_tool_not_found_below_threshold_skipped(self, tmp_path, monkeypatch):
         """rc=-3 + agent_score(50) < threshold(80) → not cross-validated (no violation)."""
         from harness.harness_bridge import _run_harness_cross_validation
         ctx = self._make_ctx(tmp_path)
-        self._fake_cfg(tmp_path, [
+        self._fake_cfg(tmp_path, monkeypatch, [
             {"name": "readability", "tool": "radon-mi", "threshold": 80,
              "requires_tool_execution": True},
         ])
@@ -1553,11 +1578,11 @@ class TestS4ToolUnavailable:
 
         assert violations == []
 
-    def test_tool_timeout_blocks_passing_agent_score(self, tmp_path):
+    def test_tool_timeout_blocks_passing_agent_score(self, tmp_path, monkeypatch):
         """rc=-2 (timeout) + agent_score(90) >= threshold(75) → blocked."""
         from harness.harness_bridge import _run_harness_cross_validation
         ctx = self._make_ctx(tmp_path)
-        self._fake_cfg(tmp_path, [
+        self._fake_cfg(tmp_path, monkeypatch, [
             {"name": "performance", "tool": "pytest-benchmark", "threshold": 75,
              "requires_tool_execution": True},
         ])
@@ -1569,11 +1594,11 @@ class TestS4ToolUnavailable:
         assert len(violations) == 1
         assert "timed out" in violations[0]
 
-    def test_tool_error_blocks_passing_agent_score(self, tmp_path):
+    def test_tool_error_blocks_passing_agent_score(self, tmp_path, monkeypatch):
         """rc=-4 (unexpected error) + agent_score(95) >= threshold(80) → blocked."""
         from harness.harness_bridge import _run_harness_cross_validation
         ctx = self._make_ctx(tmp_path)
-        self._fake_cfg(tmp_path, [
+        self._fake_cfg(tmp_path, monkeypatch, [
             {"name": "error_handling", "tool": "ast-error-handling", "threshold": 80,
              "requires_tool_execution": True},
         ])
@@ -1585,11 +1610,11 @@ class TestS4ToolUnavailable:
         assert len(violations) == 1
         assert "error" in violations[0]
 
-    def test_skip_list_tool_rc_minus1_still_works(self, tmp_path):
+    def test_skip_list_tool_rc_minus1_still_works(self, tmp_path, monkeypatch):
         """rc=-1 (skip-list) is NOT blocked by this check — it has its own validation."""
         from harness.harness_bridge import _run_harness_cross_validation
         ctx = self._make_ctx(tmp_path)
-        self._fake_cfg(tmp_path, [
+        self._fake_cfg(tmp_path, monkeypatch, [
             {"name": "mutation_testing", "tool": "mutmut", "threshold": 70,
              "requires_tool_execution": True},
         ])

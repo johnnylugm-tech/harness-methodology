@@ -32,9 +32,22 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-__all__ = ["harness_root", "enforcer_sha"]
+__all__ = ["harness_root", "enforcer_sha", "enforcer_surface", "ENFORCER_SURFACE_PATHS"]
 
 _UNKNOWN = "unknown"
+
+# Round 29 Station 4: the three paths whose code is the producer of every gate
+# verdict.  Recording their git object IDs (tree or blob hash) alongside
+# enforcer_sha makes provenance survive rebase — while the commit SHA becomes
+# unreachable, the subtree/blob hashes of the enforcement surface are unchanged
+# (verified experimentally: 01bb3bb4 → 7154768 rebase, same three IDs).
+# This list is deliberately explicit and short — adding a path requires
+# justifying why its code materially changes gate verdicts.
+ENFORCER_SURFACE_PATHS: tuple[str, str, str] = (
+    "core/quality_gate",
+    "harness/harness_bridge.py",
+    "harness/gate_configs",
+)
 
 
 def harness_root() -> Path:
@@ -73,12 +86,42 @@ def enforcer_sha() -> str:
             value += "-dirty"
         return value
     except Exception:  # pylint: disable=broad-exception-caught
-        # Deliberately broad, and the docstring's "never raises" is the reason.
-        # Round 20 站1 found the narrow (OSError, SubprocessError) form leaking
-        # an AttributeError: any caller or test that substitutes subprocess.run
-        # gets a stand-in whose result object need not carry `.stdout`, and the
-        # exception escaped into a gate command. A provenance label failing to
-        # resolve must degrade to "unknown", never take a gate down with it —
-        # so every failure mode belongs in this handler, not just the ones
-        # anticipated when it was written.
+        # Deliberately broad — see docstring.
         return _UNKNOWN
+
+
+@lru_cache(maxsize=1)
+def enforcer_surface() -> dict[str, str]:
+    """Return ``{path: git_object_id}`` for each enforcement-surface path.
+
+    The object ID is the output of ``git rev-parse HEAD:<path>`` — a tree hash
+    for directories, a blob hash for files.  These survive rebase (verified
+    experimentally in Round 29 Station 4) and answer "did the enforcement code
+    change?" even when the commit SHA is unreachable.
+
+    Returns ``{"<path>": "unknown", ...}`` on any failure.  Never raises.
+    """
+    root = harness_root()
+    result: dict[str, str] = {}
+    for rel_path in ENFORCER_SURFACE_PATHS:
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", f"HEAD:{rel_path}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                result[rel_path] = proc.stdout.strip()
+            else:
+                result[rel_path] = _UNKNOWN
+        except Exception:
+            # Same reasoning as enforcer_sha() above — provenance metadata
+            # must never be able to block a gate.  Every failure mode
+            # degrades to "unknown" for this path.  Logged at DEBUG so it
+            # is visible when needed but silent in normal operation.
+            result[rel_path] = _UNKNOWN
+            import logging
+            logging.getLogger(__name__).debug(
+                "enforcer_surface: git rev-parse failed for %s", rel_path,
+                exc_info=True,
+            )
+    return result

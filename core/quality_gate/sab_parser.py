@@ -518,6 +518,12 @@ def validate_sab_block(sad_path) -> list[str]:
         return [f"No <!-- SAB:START -->...<!-- SAB:END --> block found in {sad_path}"]
 
     errors: list[str] = []
+    # Round 29 Station 2a: collect valid layer names for scope_layers validation
+    valid_layer_names: set[str] = {
+        lyr.get("name", "")
+        for lyr in spec.layers
+        if isinstance(lyr, dict) and lyr.get("name")
+    }
     for nfr_id, nfr in spec.nfr_traceability.items():
         if not isinstance(nfr, dict):
             errors.append(f"nfr_traceability.{nfr_id} is not a mapping (got {type(nfr).__name__})")
@@ -528,4 +534,16 @@ def validate_sab_block(sad_path) -> list[str]:
                 f"nfr_traceability.{nfr_id}.type={nfr_type!r} is not a legal NFR type. "
                 f"Legal types: {', '.join(ALL_NFR_TYPES)}"
             )
+        # Round 29 Station 2a: scope_layers must reference existing layer names.
+        # An unknown layer name means the SAB drifted or was hand-edited
+        # incorrectly — raise rather than silently dropping the scope.
+        declared_scope = nfr.get("scope_layers", [])
+        if isinstance(declared_scope, list):
+            for sl in declared_scope:
+                if sl not in valid_layer_names:
+                    errors.append(
+                        f"nfr_traceability.{nfr_id}.scope_layers: "
+                        f"{sl!r} is not a declared layer name. "
+                        f"Valid layers: {', '.join(sorted(valid_layer_names))}"
+                    )
     return errors

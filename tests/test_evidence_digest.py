@@ -23,11 +23,12 @@ def _ctx(root: Path, gate: int = 4) -> GateContext:
     )
 
 
-def _gate_yaml(root: Path, gate: int, dims: list[dict]) -> None:
+def _gate_yaml(tmp_path: Path, gate: int, dims: list[dict], monkeypatch) -> None:
     import yaml
-    cfg = root / "harness" / "gate_configs"
-    cfg.mkdir(parents=True, exist_ok=True)
-    (cfg / f"gate{gate}_p6_full.yaml").write_text(yaml.dump({"gate": gate, "dimensions": dims}))
+    import core.quality_gate.gate_thresholds as _gt
+    cfg_path = tmp_path / f"gate{gate}_p6_full.yaml"
+    cfg_path.write_text(yaml.dump({"gate": gate, "dimensions": dims}))
+    monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
 
 
 class TestDigestPrimitives:
@@ -57,11 +58,11 @@ class TestDigestPrimitives:
 
 
 class TestS3RecordsWhatItCleared:
-    def test_a_digest_is_taken_for_evidence_that_passes(self, tmp_path):
+    def test_a_digest_is_taken_for_evidence_that_passes(self, tmp_path, monkeypatch):
         _gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
-        ])
+        ], monkeypatch)
         out = tmp_path / ".sessi-work" / "tools" / "linting.txt"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("All checks passed!\n", encoding="utf-8")
@@ -72,13 +73,13 @@ class TestS3RecordsWhatItCleared:
         assert _check_tool_evidence(_ctx(tmp_path), raw, digests) == []
         assert digests["linting"]["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
 
-    def test_the_digest_survives_the_evidence(self, tmp_path):
+    def test_the_digest_survives_the_evidence(self, tmp_path, monkeypatch):
         """The whole point: delete the file, and the verdict can still say what
         it read. This is the taskq-plus Gate 4 situation, replayed."""
         _gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
-        ])
+        ], monkeypatch)
         out = tmp_path / ".sessi-work" / "tools" / "linting.txt"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text("All checks passed!\n", encoding="utf-8")
@@ -93,13 +94,13 @@ class TestS3RecordsWhatItCleared:
         assert recorded["linting"]["sha256"]
         assert "All checks passed" in recorded["linting"]["head"]
 
-    def test_rejected_evidence_is_not_fingerprinted(self, tmp_path):
+    def test_rejected_evidence_is_not_fingerprinted(self, tmp_path, monkeypatch):
         """A digest asserts "this passed", so failing content must not get one —
         otherwise the record would vouch for evidence the gate refused."""
         _gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
-        ])
+        ], monkeypatch)
         raw = {"breakdown": {"linting": {
             "score": 100.0,
             "tool_evidence": "Reviewed the code by hand and it looked clean to me."}}}
@@ -108,12 +109,12 @@ class TestS3RecordsWhatItCleared:
         assert violations
         assert digests == {}
 
-    def test_digests_are_optional(self, tmp_path):
+    def test_digests_are_optional(self, tmp_path, monkeypatch):
         """Callers that only want the verdict pass nothing and see no change."""
         _gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
-        ])
+        ], monkeypatch)
         raw = {"breakdown": {"linting": {
             "score": 100.0, "tool_evidence": "All checks passed!"}}}
         assert _check_tool_evidence(_ctx(tmp_path), raw) == []

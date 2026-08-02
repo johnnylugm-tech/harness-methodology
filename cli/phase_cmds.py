@@ -47,7 +47,7 @@ from core.phase_topology import (
     phase_name,
 )
 from core.degradation_ledger import record_degradation
-from core.harness_provenance import enforcer_sha
+from core.harness_provenance import enforcer_sha, enforcer_surface
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
 from core.utils.timefmt import utc_now_iso
@@ -796,6 +796,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         # prompt does not retroactively fix the artifact it
                         # produced, and nothing could say so.
                         "enforcer_sha": enforcer_sha(),
+                        "enforcer_surface": enforcer_surface(),
                     }
                     atomic_write_json(
                         project / ".methodology" / "state.json", _sd

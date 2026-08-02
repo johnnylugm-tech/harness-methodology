@@ -1484,17 +1484,14 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     else:
         try:
             import yaml as _yaml
-            import glob as _b3glob
-            _crg_cfg_files = sorted(_b3glob.glob(
-                str(project / "harness" / "gate_configs" / "gate4_*.yaml")
-            ))
+            from core.quality_gate.gate_thresholds import gate_config_path as _gcp4
+            _crg_cfg_path = _gcp4(4)
             _crg_recon_required = False
-            for _crg_cfg_path in _crg_cfg_files:
+            if _crg_cfg_path.exists():
                 try:
-                    _crg_cfg = _yaml.safe_load(Path(_crg_cfg_path).read_text(encoding="utf-8"))
+                    _crg_cfg = _yaml.safe_load(_crg_cfg_path.read_text(encoding="utf-8"))
                     if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
                         _crg_recon_required = True
-                        break
                 except Exception as _b3_cfg_exc:
                     print(f"[Gate 4] B3: skipping {_crg_cfg_path} (parse error: {_b3_cfg_exc})",
                           file=sys.stderr)
@@ -1615,7 +1612,7 @@ def _stamp_enforcer_provenance(project_path: Path, gate: int) -> None:
     Readers must use `.get("enforcer_sha")`; every result written before this
     station lacks the field.
     """
-    from core.harness_provenance import enforcer_sha
+    from core.harness_provenance import enforcer_sha, enforcer_surface
     for path in gate_result_paths(project_path, gate):
         if not path.exists():
             continue
@@ -1624,6 +1621,7 @@ def _stamp_enforcer_provenance(project_path: Path, gate: int) -> None:
             if not isinstance(data, dict):
                 continue
             data["enforcer_sha"] = enforcer_sha()
+            data["enforcer_surface"] = enforcer_surface()
             path.write_text(json.dumps(data, indent=2, ensure_ascii=False),
                             encoding="utf-8")
         except (OSError, json.JSONDecodeError) as exc:

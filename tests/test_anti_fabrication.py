@@ -220,79 +220,79 @@ class TestCommitIntervals:
 class TestToolEvidence:
     """_check_tool_evidence validates tool_output / tool_evidence in result JSON."""
 
-    def test_missing_tool_evidence_blocked(self):
+    def test_missing_tool_evidence_blocked(self, tmp_path, monkeypatch):
         from harness.harness_bridge import _check_tool_evidence
         from harness.harness_bridge import GateContext
+        import core.quality_gate.gate_thresholds as _gt
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: Path("/nonexistent/gate3_p4_exit.yaml"))
         ctx = GateContext(
-            gate_num=3, config={}, project_root="/nonexistent",
+            gate_num=3, config={}, project_root=str(tmp_path),
             phase=4, fr_id=None,
             ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
             work_dir="", sab_data={},
         )
-        # No tool_output or tool_evidence → violation
+        # No tool_output or tool_evidence -> violation
         raw = {"breakdown": {"secrets_scanning": {"score": 90, "threshold": 100}}}
-        # This will fail to find the YAML config since /nonexistent doesn't exist
-        # — empty violations list is expected for missing config
         violations = _check_tool_evidence(ctx, raw)
-        # With no config file, returns [] (cannot enforce)
-        assert violations == []
+        assert violations != [], (
+            "Missing gate config must return violations (not found error), not []"
+        )
+        assert "not found" in " ".join(str(v) for v in violations)
 
-    def test_tool_evidence_accepted(self):
+    def test_tool_evidence_accepted(self, tmp_path, monkeypatch):
         from harness.harness_bridge import _check_tool_evidence, GateContext
-        import tempfile
         import yaml
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            (root / "harness" / "gate_configs").mkdir(parents=True)
-            (root / "harness" / "gate_configs" / "gate3_p4_exit.yaml").write_text(
-                yaml.dump({
-                    "gate": 3, "dimensions": [
-                        {"name": "secrets_scanning", "requires_tool_execution": True},
-                    ]
-                })
-            )
-            ctx = GateContext(
-                gate_num=3, config={}, project_root=str(root),
-                phase=4, fr_id=None,
-                ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
-                work_dir="", sab_data={},
-            )
-            # Has tool_evidence
-            raw = {"breakdown": {"secrets_scanning": {
-                "score": 90, "threshold": 100,
-                "tool_evidence": "gitleaks detect: 0 secrets found in 45 files",
-            }}}
-            violations = _check_tool_evidence(ctx, raw)
-            assert violations == [], f"Expected no violations, got {violations}"
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = tmp_path / "gate3_p4_exit.yaml"
+        cfg_path.write_text(
+            yaml.dump({
+                "gate": 3, "dimensions": [
+                    {"name": "secrets_scanning", "requires_tool_execution": True},
+                ]
+            })
+        )
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
+        ctx = GateContext(
+            gate_num=3, config={}, project_root=str(tmp_path),
+            phase=4, fr_id=None,
+            ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+            work_dir="", sab_data={},
+        )
+        # Has tool_evidence
+        raw = {"breakdown": {"secrets_scanning": {
+            "score": 90, "threshold": 100,
+            "tool_evidence": "gitleaks detect: 0 secrets found in 45 files",
+        }}}
+        violations = _check_tool_evidence(ctx, raw)
+        assert violations == [], f"Expected no violations, got {violations}"
 
-    def test_short_tool_evidence_rejected(self):
+    def test_short_tool_evidence_rejected(self, tmp_path, monkeypatch):
         from harness.harness_bridge import _check_tool_evidence, GateContext
-        import tempfile
         import yaml
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            (root / "harness" / "gate_configs").mkdir(parents=True)
-            (root / "harness" / "gate_configs" / "gate3_p4_exit.yaml").write_text(
-                yaml.dump({
-                    "gate": 3, "dimensions": [
-                        {"name": "secrets_scanning", "requires_tool_execution": True},
-                    ]
-                })
-            )
-            ctx = GateContext(
-                gate_num=3, config={}, project_root=str(root),
-                phase=4, fr_id=None,
-                ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
-                work_dir="", sab_data={},
-            )
-            # tool_evidence too short (3 chars)
-            raw = {"breakdown": {"secrets_scanning": {
-                "score": 90, "threshold": 100,
-                "tool_evidence": "ok",
-            }}}
-            violations = _check_tool_evidence(ctx, raw)
-            assert len(violations) == 1
-            assert "too short" in violations[0]
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = tmp_path / "gate3_p4_exit.yaml"
+        cfg_path.write_text(
+            yaml.dump({
+                "gate": 3, "dimensions": [
+                    {"name": "secrets_scanning", "requires_tool_execution": True},
+                ]
+            })
+        )
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
+        ctx = GateContext(
+            gate_num=3, config={}, project_root=str(tmp_path),
+            phase=4, fr_id=None,
+            ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+            work_dir="", sab_data={},
+        )
+        # tool_evidence too short (3 chars)
+        raw = {"breakdown": {"secrets_scanning": {
+            "score": 90, "threshold": 100,
+            "tool_evidence": "ok",
+        }}}
+        violations = _check_tool_evidence(ctx, raw)
+        assert len(violations) == 1
+        assert "too short" in violations[0]
 
 
 # ---------------------------------------------------------------------------
@@ -562,13 +562,11 @@ class TestToolEvidenceContentValidation:
         )
 
     @staticmethod
-    def _make_gate_yaml(root: Path, gate: int, dims: list[dict]) -> None:
+    def _make_gate_yaml(root: Path, gate: int, dims: list[dict]) -> Path:
         import yaml
-        cfg_dir = root / "harness" / "gate_configs"
-        cfg_dir.mkdir(parents=True, exist_ok=True)
-        (cfg_dir / f"gate{gate}_p4_exit.yaml").write_text(
-            yaml.dump({"gate": gate, "dimensions": dims})
-        )
+        cfg_path = root / f"gate{gate}_p4_exit.yaml"
+        cfg_path.write_text(yaml.dump({"gate": gate, "dimensions": dims}))
+        return cfg_path
 
     # ------------------------------------------------------------------
     # _validate_tool_content — unit tests
@@ -704,12 +702,14 @@ class TestToolEvidenceContentValidation:
     # _check_tool_evidence integration — stub file in tool_output
     # ------------------------------------------------------------------
 
-    def test_stub_file_tool_output_blocked(self, tmp_path):
+    def test_stub_file_tool_output_blocked(self, tmp_path, monkeypatch):
         """A stub tool_output file (comment header) is blocked by _check_tool_evidence."""
         from harness.harness_bridge import _check_tool_evidence
-        self._make_gate_yaml(tmp_path, 3, [
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = self._make_gate_yaml(tmp_path, 3, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff"},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         # Write a stub file
         out_dir = tmp_path / ".sessi-work" / "tool_outputs"
         out_dir.mkdir(parents=True)
@@ -725,12 +725,14 @@ class TestToolEvidenceContentValidation:
         assert len(violations) == 1
         assert "stub marker" in violations[0]
 
-    def test_stub_inline_tool_evidence_blocked(self, tmp_path):
+    def test_stub_inline_tool_evidence_blocked(self, tmp_path, monkeypatch):
         """A stub inline tool_evidence (comment) is blocked."""
         from harness.harness_bridge import _check_tool_evidence
-        self._make_gate_yaml(tmp_path, 3, [
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = self._make_gate_yaml(tmp_path, 3, [
             {"name": "secrets_scanning", "requires_tool_execution": True, "tool": "gitleaks"},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=3)
         raw = {"breakdown": {"secrets_scanning": {
             "score": 100, "threshold": 100,
@@ -740,12 +742,14 @@ class TestToolEvidenceContentValidation:
         assert len(violations) == 1
         assert "stub marker" in violations[0]
 
-    def test_real_tool_evidence_passes(self, tmp_path):
+    def test_real_tool_evidence_passes(self, tmp_path, monkeypatch):
         """Genuine gitleaks inline evidence passes."""
         from harness.harness_bridge import _check_tool_evidence
-        self._make_gate_yaml(tmp_path, 3, [
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = self._make_gate_yaml(tmp_path, 3, [
             {"name": "secrets_scanning", "requires_tool_execution": True, "tool": "gitleaks"},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=3)
         raw = {"breakdown": {"secrets_scanning": {
             "score": 100, "threshold": 100,
@@ -773,23 +777,23 @@ class TestHarnessCrossValidation:
         )
 
     @staticmethod
-    def _make_gate_yaml(root: Path, gate: int, dims: list[dict]) -> None:
+    def _make_gate_yaml(root: Path, gate: int, dims: list[dict]) -> Path:
         import yaml
-        cfg_dir = root / "harness" / "gate_configs"
-        cfg_dir.mkdir(parents=True, exist_ok=True)
-        (cfg_dir / f"gate{gate}_p6_full.yaml").write_text(
-            yaml.dump({"gate": gate, "dimensions": dims})
-        )
+        cfg_path = root / f"gate{gate}_p6_full.yaml"
+        cfg_path.write_text(yaml.dump({"gate": gate, "dimensions": dims}))
+        return cfg_path
 
-    def test_no_fabrication_agent_below_threshold_accepted(self, tmp_path):
+    def test_no_fabrication_agent_below_threshold_accepted(self, tmp_path, monkeypatch):
         """Agent score below threshold — no fabrication concern, no violations."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"linting": {"score": 70}}}  # agent already says FAIL
 
@@ -800,15 +804,17 @@ class TestHarnessCrossValidation:
         assert violations == []
         mock_run.assert_not_called()
 
-    def test_fabrication_detected_blocks(self, tmp_path):
+    def test_fabrication_detected_blocks(self, tmp_path, monkeypatch):
         """Agent claims PASS but harness score < threshold → fabrication detected."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"linting": {"score": 95}}}  # agent claims PASS
 
@@ -826,15 +832,17 @@ class TestHarnessCrossValidation:
         assert "fabrication detected" in violations[0]
         assert "linting" in violations[0]
 
-    def test_harness_passes_threshold_no_violation(self, tmp_path):
+    def test_harness_passes_threshold_no_violation(self, tmp_path, monkeypatch):
         """Both agent and harness score ≥ threshold → no violation."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"linting": {"score": 95}}}  # agent claims 95
 
@@ -844,7 +852,7 @@ class TestHarnessCrossValidation:
 
         assert violations == []
 
-    def test_skiplist_tool_requires_output_file(self, tmp_path):
+    def test_skiplist_tool_requires_output_file(self, tmp_path, monkeypatch):
         """S4 hardened: skip-list tools (scancode) require a real tool_output file.
 
         Without a committed file, a high agent score is unverifiable → block.
@@ -853,11 +861,13 @@ class TestHarnessCrossValidation:
         skip_inline=False so the harness now runs it directly. scancode remains skip-list.
         """
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "license_compliance", "requires_tool_execution": True, "tool": "scancode",
              "threshold": 80},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
 
         # (a) no tool_output → blocked (scancode is skip_inline=True — harness cannot re-run it)
@@ -875,15 +885,17 @@ class TestHarnessCrossValidation:
         v_ok = _run_harness_cross_validation(ctx, raw_ok)  # type: ignore[reportArgumentType]
         assert v_ok == []
 
-    def test_tool_timeout_blocks(self, tmp_path):
+    def test_tool_timeout_blocks(self, tmp_path, monkeypatch):
         """S4 hardened: a timed-out tool now BLOCKS (passing score must be reproducible)."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "type_safety", "requires_tool_execution": True, "tool": "mypy",
              "threshold": 85},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"type_safety": {"score": 95}}}
 
@@ -894,15 +906,17 @@ class TestHarnessCrossValidation:
         assert len(violations) == 1
         assert "timed out" in violations[0]
 
-    def test_no_benchmark_blocks(self, tmp_path):
+    def test_no_benchmark_blocks(self, tmp_path, monkeypatch):
         """Layer 1c: pytest-benchmark exit 5 (no benchmarks) BLOCKS a passing perf score."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "performance", "requires_tool_execution": True, "tool": "pytest-benchmark",
              "threshold": 75},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"performance": {"score": 90}}}
 
@@ -912,16 +926,18 @@ class TestHarnessCrossValidation:
         assert len(violations) == 1
         assert "no tests" in violations[0] and "unverifiable" in violations[0]
 
-    def test_readability_no_source_blocks(self, tmp_path):
+    def test_readability_no_source_blocks(self, tmp_path, monkeypatch):
         """Layer B2: radon-mi returns None (no analysable source) → a passing
         readability score is unverifiable and BLOCKS (no free 100)."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "readability", "requires_tool_execution": True, "tool": "radon-mi",
              "threshold": 80},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"readability": {"score": 95}}}
 
@@ -932,15 +948,17 @@ class TestHarnessCrossValidation:
         assert len(violations) == 1
         assert "readability" in violations[0] and "no analysable" in violations[0]
 
-    def test_architecture_skipped_crg_owned(self, tmp_path):
+    def test_architecture_skipped_crg_owned(self, tmp_path, monkeypatch):
         """Layer 3: architecture is framework-CRG-owned in finalize → skipped by S4."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "architecture", "requires_tool_execution": True, "tool": "code-review-graph",
              "threshold": 80},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"architecture": {"score": 95}}}
 
@@ -950,17 +968,19 @@ class TestHarnessCrossValidation:
         assert violations == []
         mock_run.assert_not_called()  # architecture skipped before any tool run
 
-    def test_multiple_dims_one_fabricated(self, tmp_path):
+    def test_multiple_dims_one_fabricated(self, tmp_path, monkeypatch):
         """Only the dimension whose harness score < threshold is reported."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "linting",     "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
             {"name": "type_safety", "requires_tool_execution": True, "tool": "mypy",
              "threshold": 85},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {
             "linting":     {"score": 95},  # claims PASS
@@ -1011,7 +1031,7 @@ class TestAgentNullIsNotFree:
     _make_ctx = staticmethod(TestHarnessCrossValidation._make_ctx)
     _make_gate_yaml = staticmethod(TestHarnessCrossValidation._make_gate_yaml)
 
-    def test_agent_null_does_not_crash_the_gate(self, tmp_path):
+    def test_agent_null_does_not_crash_the_gate(self, tmp_path, monkeypatch):
         """`float(None)` used to raise TypeError out of finalize_gate.
 
         `breakdown.get(name, {}).get("score", 0)` substitutes the 0 default only
@@ -1021,11 +1041,13 @@ class TestAgentNullIsNotFree:
         """
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "performance", "requires_tool_execution": True,
              "tool": "pytest-benchmark", "threshold": 75},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"performance": {
             "score": None,
@@ -1037,15 +1059,17 @@ class TestAgentNullIsNotFree:
 
         assert isinstance(violations, list)
 
-    def test_agent_null_makes_the_framework_run_the_tool(self, tmp_path):
+    def test_agent_null_makes_the_framework_run_the_tool(self, tmp_path, monkeypatch):
         """A declared N/A is a request for verification, not an exemption."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"linting": {"score": None,
                                          "tool_evidence": "not applicable here"}}}
@@ -1055,7 +1079,7 @@ class TestAgentNullIsNotFree:
 
         mock_run.assert_called_once()
 
-    def test_framework_score_replaces_the_agents_null(self, tmp_path):
+    def test_framework_score_replaces_the_agents_null(self, tmp_path, monkeypatch):
         """When the framework CAN score it, the dimension is applicable after all.
 
         The framework's number is written back into the breakdown (finalize_gate
@@ -1065,11 +1089,13 @@ class TestAgentNullIsNotFree:
         """
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
              "threshold": 90},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"linting": {"score": None, "tool_evidence": "n/a"}}}
 
@@ -1080,7 +1106,7 @@ class TestAgentNullIsNotFree:
         assert entry["score"] == 100.0
         assert entry["score_source"] == "framework"
 
-    def test_framework_null_too_is_the_only_real_na(self, tmp_path):
+    def test_framework_null_too_is_the_only_real_na(self, tmp_path, monkeypatch):
         """pytest-benchmark with no benchmarks is a LEGITIMATE N/A — but only
         because the framework reproduced it, and it is labelled as such.
 
@@ -1090,11 +1116,13 @@ class TestAgentNullIsNotFree:
         """
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
 
-        self._make_gate_yaml(tmp_path, 4, [
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
             {"name": "performance", "requires_tool_execution": True,
              "tool": "pytest-benchmark", "threshold": 75},
         ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"performance": {"score": None, "tool_evidence": "n/a"}}}
 
@@ -1199,13 +1227,13 @@ class TestHermesReceiptIntegrity:
     Gate 4 is fully automated — composite_score >= score_gate is the sole criterion."""
 
     @staticmethod
-    def _make_prerequisites(tmp_path: Path) -> None:
+    def _make_prerequisites(tmp_path: Path, monkeypatch=None) -> None:
         """Create the minimum Gate 4 prerequisite files (minus the receipt)."""
         import yaml
+        import core.quality_gate.gate_thresholds as _gt
         # Gate 4 config (no crg.reconnaissance so B3 is skipped)
-        cfg_dir = tmp_path / "harness" / "gate_configs"
-        cfg_dir.mkdir(parents=True)
-        (cfg_dir / "gate4_p6_full.yaml").write_text(
+        cfg_path = tmp_path / "gate4_p6_full.yaml"
+        cfg_path.write_text(
             yaml.dump({
                 "gate": 4,
                 "score_gate": 85,
@@ -1213,6 +1241,8 @@ class TestHermesReceiptIntegrity:
                 "crg": {},
             })
         )
+        if monkeypatch is not None:
+            monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         # Per-dim score files (B2)
         scores_dir = tmp_path / ".sessi-work" / "round_1" / "scores"
         scores_dir.mkdir(parents=True)
@@ -1240,10 +1270,10 @@ class TestHermesReceiptIntegrity:
         meth.mkdir(parents=True, exist_ok=True)
         (meth / "issues.json").write_text(json.dumps({"issues": ["finding-1"]}))
 
-    def test_receipt_not_required_null_composite(self, tmp_path):
+    def test_receipt_not_required_null_composite(self, tmp_path, monkeypatch):
         """Receipt with composite_score: null does NOT block — receipt is no longer required."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prerequisites(tmp_path)
+        self._make_prerequisites(tmp_path, monkeypatch)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
             "ts": "2026-05-19T12:00:00Z",
@@ -1253,10 +1283,10 @@ class TestHermesReceiptIntegrity:
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
-    def test_receipt_not_required_zero_composite(self, tmp_path):
+    def test_receipt_not_required_zero_composite(self, tmp_path, monkeypatch):
         """Receipt with composite_score: 0 does NOT block — receipt is no longer required."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prerequisites(tmp_path)
+        self._make_prerequisites(tmp_path, monkeypatch)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
             "ts": "2026-05-19T12:00:00Z",
@@ -1266,10 +1296,10 @@ class TestHermesReceiptIntegrity:
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
-    def test_valid_composite_score_passes(self, tmp_path):
+    def test_valid_composite_score_passes(self, tmp_path, monkeypatch):
         """All Gate 4 prerequisites (A2–B3) satisfied → not blocked."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prerequisites(tmp_path)
+        self._make_prerequisites(tmp_path, monkeypatch)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
             "ts": "2026-05-19T12:00:00Z",
@@ -1279,10 +1309,10 @@ class TestHermesReceiptIntegrity:
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"All prerequisites satisfied should not block Gate 4, got blocked={blocked}"
 
-    def test_receipt_not_required_bool_composite(self, tmp_path):
+    def test_receipt_not_required_bool_composite(self, tmp_path, monkeypatch):
         """Receipt with composite_score: true does NOT block — receipt is no longer required."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prerequisites(tmp_path)
+        self._make_prerequisites(tmp_path, monkeypatch)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text(json.dumps({
             "ts": "2026-05-19T12:00:00Z",
@@ -1292,19 +1322,19 @@ class TestHermesReceiptIntegrity:
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
-    def test_receipt_not_required_invalid_json(self, tmp_path):
+    def test_receipt_not_required_invalid_json(self, tmp_path, monkeypatch):
         """Invalid JSON receipt does NOT block — receipt is no longer required."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prerequisites(tmp_path)
+        self._make_prerequisites(tmp_path, monkeypatch)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text("not valid json {{{")
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt is no longer required — Gate 4 is fully automated"
 
-    def test_missing_receipt_not_blocked(self, tmp_path):
+    def test_missing_receipt_not_blocked(self, tmp_path, monkeypatch):
         """Missing receipt does NOT block — receipt is no longer required."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prerequisites(tmp_path)
+        self._make_prerequisites(tmp_path, monkeypatch)
         # No receipt file at all
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Missing receipt must not block — A1 check removed"
@@ -1314,12 +1344,12 @@ class TestCRGReconCheck:
     """Gate 4 B3: .sessi-work/crg_reconnaissance.json must exist when reconnaissance: true."""
 
     @staticmethod
-    def _make_prereqs_with_crg_config(tmp_path: Path, *, recon: bool) -> None:
+    def _make_prereqs_with_crg_config(tmp_path: Path, *, recon: bool, monkeypatch=None) -> None:
         """Write minimum Gate 4 prerequisites with optional crg.reconnaissance."""
         import yaml
-        cfg_dir = tmp_path / "harness" / "gate_configs"
-        cfg_dir.mkdir(parents=True)
-        (cfg_dir / "gate4_p6_full.yaml").write_text(
+        import core.quality_gate.gate_thresholds as _gt
+        cfg_path = tmp_path / "gate4_p6_full.yaml"
+        cfg_path.write_text(
             yaml.dump({
                 "gate": 4,
                 "score_gate": 85,
@@ -1327,6 +1357,8 @@ class TestCRGReconCheck:
                 "crg": {"reconnaissance": recon},
             })
         )
+        if monkeypatch is not None:
+            monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
         # Receipt (valid composite_score)
         meth = tmp_path / ".methodology"
         meth.mkdir(parents=True, exist_ok=True)
@@ -1359,34 +1391,34 @@ class TestCRGReconCheck:
         }))
         (meth / "issues.json").write_text(json.dumps({"issues": ["f1"]}))
 
-    def test_missing_recon_file_blocked(self, tmp_path):
+    def test_missing_recon_file_blocked(self, tmp_path, monkeypatch):
         """B3: reconnaissance: true with no crg_reconnaissance.json → blocked."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prereqs_with_crg_config(tmp_path, recon=True)
+        self._make_prereqs_with_crg_config(tmp_path, recon=True, monkeypatch=monkeypatch)
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert blocked, "Missing crg_reconnaissance.json should block Gate 4 (B3)"
 
-    def test_empty_recon_file_blocked(self, tmp_path):
+    def test_empty_recon_file_blocked(self, tmp_path, monkeypatch):
         """B3: reconnaissance: true with empty crg_reconnaissance.json → blocked."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prereqs_with_crg_config(tmp_path, recon=True)
+        self._make_prereqs_with_crg_config(tmp_path, recon=True, monkeypatch=monkeypatch)
         (tmp_path / ".sessi-work" / "crg_reconnaissance.json").write_text("")
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert blocked, "Empty crg_reconnaissance.json should block Gate 4 (B3)"
 
-    def test_populated_recon_file_passes(self, tmp_path):
+    def test_populated_recon_file_passes(self, tmp_path, monkeypatch):
         """B3: non-empty crg_reconnaissance.json passes the check."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prereqs_with_crg_config(tmp_path, recon=True)
+        self._make_prereqs_with_crg_config(tmp_path, recon=True, monkeypatch=monkeypatch)
         recon_file = tmp_path / ".sessi-work" / "crg_reconnaissance.json"
         recon_file.write_text(json.dumps({"nodes": 42}))
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"Populated crg_reconnaissance.json should not block Gate 4, got blocked={blocked}"
 
-    def test_no_recon_config_skips_check(self, tmp_path):
+    def test_no_recon_config_skips_check(self, tmp_path, monkeypatch):
         """B3: crg.reconnaissance: false → no B3 enforcement."""
         from cli.gate_cmds import _check_gate4_prerequisites
-        self._make_prereqs_with_crg_config(tmp_path, recon=False)
+        self._make_prereqs_with_crg_config(tmp_path, recon=False, monkeypatch=monkeypatch)
         blocked, _ = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"reconnaissance: false should not block Gate 4, got blocked={blocked}"
 
@@ -1425,5 +1457,54 @@ class TestABCoveragePerDeliverable:
         passed, score, msg = v.check_session_log()
         assert passed
         assert score == 100.0
+
+    # ------------------------------------------------------------------
+    # Round 29 站0 red test 1: submodule layout — checker must NOT return []
+    # ------------------------------------------------------------------
+
+    def test_submodule_layout_checker_finds_config(self, tmp_path, monkeypatch):
+        """With a fixture at the correct submodule path (harness/harness/gate_configs),
+        _check_tool_evidence MUST find the config and report violations for a
+        dimension with requires_tool_execution:true and no tool_evidence.
+        Current (buggy) code reads project_root/harness/gate_configs (one level
+        too high) so it returns [] — this test is RED until Station 1 fixes it.
+        """
+        from harness.harness_bridge import _check_tool_evidence, GateContext
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml
+
+        cfg_dir = tmp_path / "harness" / "harness" / "gate_configs"
+        cfg_dir.mkdir(parents=True)
+        cfg_path = cfg_dir / "gate3_p4_exit.yaml"
+        cfg_path.write_text(yaml.dump({
+            "gate": 3, "dimensions": [
+                {"name": "secrets_scanning", "requires_tool_execution": True,
+                 "threshold": 100},
+            ]
+        }))
+
+        # Monkeypatch gate_config_path to return the fixture path — this is
+        # what the FIXED code will call; the CURRENT code ignores it.
+        monkeypatch.setattr(_gt, "gate_config_path", lambda gate_num: cfg_path)
+
+        ctx = GateContext(
+            gate_num=3, config={}, project_root=str(tmp_path),
+            phase=4, fr_id=None,
+            ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+            work_dir="", sab_data={},
+        )
+        raw = {"breakdown": {"secrets_scanning": {
+            "score": 100, "threshold": 100,
+            # No tool_evidence and no tool_output — should be a violation
+        }}}
+        violations = _check_tool_evidence(ctx, raw)
+        assert violations != [], (
+            "Round 29 Station 1 RED: _check_tool_evidence returned [] "
+            "because it reads project_root/harness/gate_configs (wrong path) "
+            "instead of gate_config_path() (correct submodule path). "
+            "The fixture exists at harness/harness/gate_configs/ — "
+            "the checker should have found it."
+        )
+
 
 pytestmark = pytest.mark.mutation_oracle

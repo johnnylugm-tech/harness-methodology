@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from pathlib import Path
 
 __all__ = [
     "DIM_FALLBACK_CHECKS",
@@ -122,25 +121,24 @@ def verify_gate_tools(
     language = get_project_language(target_root)
     import yaml as _yaml
     cfg_path = None
-    # Try phase-specific name first, then generic pattern
-    for pattern in [
-        f"gate{gate_num}_p*.yaml",
-        f"gate{gate_num}_*.yaml",
-    ]:
-        import glob as _glob
-        candidates = _glob.glob(
-            str(Path(project) / "harness" / "gate_configs" / pattern)
-        )
-        if candidates:
-            cfg_path = Path(candidates[0])
-            break
-    if not cfg_path or not cfg_path.exists():
-        return True, []  # No config to check — pass
+    # Round 29 Station 1: use gate_config_path() instead of project_root-relative
+    # globbing.  Old path project/harness/gate_configs/ was one level too high
+    # in submodule layouts.
+    from core.quality_gate.gate_thresholds import gate_config_path as _gcp
+    try:
+        cfg_path = _gcp(gate_num)
+    except ValueError:
+        return True, []
+
+    if not cfg_path.exists():
+        return False, [
+            f"gate config not found: {cfg_path} (gate {gate_num}). "
+            f"Expected framework-owned asset — is the harness checkout intact?"
+        ]
 
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"[WARN] verify_gate_tools: could not parse {cfg_path}: {exc}")
+    except (_yaml.YAMLError, OSError) as exc:
         return False, [f"gate config unreadable: {cfg_path.name} ({exc})"]
 
     from harness.harness_bridge import filter_enabled_dimensions

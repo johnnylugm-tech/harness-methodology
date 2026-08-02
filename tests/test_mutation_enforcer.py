@@ -69,6 +69,74 @@ def test_resolve_mutmut_workdir_subdir_override(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Round 29 Station 2: SAB scope_layers → paths_to_mutate
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_mutmut_workdir_derives_scope_from_sab(tmp_path):
+    """When setup.cfg has no [mutmut] section, scope is derived from SAB
+    scope_layers (Round 29 Station 2c).  Without SAB, falls back to full src/.
+    """
+    # Create SAB.json with scope_layers declaring service + storage only.
+    (tmp_path / ".methodology").mkdir()
+    import json as _json
+    sab = {
+        "nfr_dimension_mapping": {"NFR-08": "mutation_testing"},
+        "nfr_traceability": {
+            "NFR-08": {
+                "type": "mutation",
+                "dimension": "mutation_testing",
+                "target": "mutation score >= 70 over service/ + storage/",
+                "scope_layers": ["service", "storage"],
+                "module": "taskq_plus.service.executor",
+            }
+        },
+        "layers": [
+            {"name": "service", "modules": [
+                {"name": "taskq_plus.service.executor"},
+                {"name": "taskq_plus.service.breaker"},
+                "taskq_plus.service",
+            ]},
+            {"name": "storage", "modules": [
+                {"name": "taskq_plus.storage.task_store"},
+                "taskq_plus.storage",
+            ]},
+            {"name": "cli", "modules": ["taskq_plus.cli"]},
+        ],
+    }
+    (tmp_path / ".methodology" / "SAB.json").write_text(_json.dumps(sab))
+
+    cwd, paths = _resolve_mutmut_workdir(tmp_path)
+    assert cwd == tmp_path
+    # Should derive service + storage from SAB scope_layers, NOT fall back
+    # to the entire 03-development/src.
+    assert paths == "taskq_plus/service, taskq_plus/storage", (
+        f"Round 29 Station 2 RED: expected scope derived from SAB "
+        f"scope_layers, got {paths!r}"
+    )
+
+
+def test_resolve_mutmut_workdir_setup_cfg_wins_over_sab(tmp_path):
+    """setup.cfg [mutmut] paths_to_mutate takes precedence over SAB scope."""
+    (tmp_path / "setup.cfg").write_text(
+        "[mutmut]\npaths_to_mutate = custom/path\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".methodology").mkdir()
+    import json as _json
+    (tmp_path / ".methodology" / "SAB.json").write_text(_json.dumps({
+        "nfr_dimension_mapping": {"NFR-08": "mutation_testing"},
+        "nfr_traceability": {
+            "NFR-08": {"scope_layers": ["service"]}
+        },
+        "layers": [{"name": "service", "modules": ["taskq_plus.service"]}],
+    }))
+
+    cwd, paths = _resolve_mutmut_workdir(tmp_path)
+    assert paths == "custom/path"
+
+
+# ---------------------------------------------------------------------------
 # _abs_paths_to_mutate
 # ---------------------------------------------------------------------------
 

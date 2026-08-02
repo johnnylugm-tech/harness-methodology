@@ -48,11 +48,9 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
     """Return ``(cwd, paths_to_mutate)`` resolved from project ``setup.cfg``.
 
     Reads ``[mutmut] paths_to_mutate`` from the project-root ``setup.cfg``.
-    If that path lives inside a subdirectory that has its own ``setup.cfg``
-    with a ``[mutmut]`` section (e.g. for ``paths_to_exclude`` overrides),
-    the working directory is switched to that subdirectory so mutmut picks
-    up the local config.  Falls back to ``03-development/src`` when no
-    ``[mutmut]`` section exists at all.
+    If the key is absent, attempts to derive the scope from the SAB's
+    ``scope_layers`` (Round 29 Station 2c).  Falls back to
+    ``03-development/src`` only when neither source declares a scope.
     """
     root_cfg = configparser.ConfigParser()
     root_cfg.read(str(project / "setup.cfg"))
@@ -60,9 +58,46 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
     layout = ProjectLayout(project)
     default_paths = layout.get_relative_str(layout.phase3_development_dir / "src")
     paths: str = default_paths
-    if root_cfg.has_section("mutmut"):
-        paths = root_cfg.get("mutmut", "paths_to_mutate", fallback=default_paths)
 
+    if root_cfg.has_section("mutmut") and root_cfg.has_option("mutmut", "paths_to_mutate"):
+        paths = root_cfg.get("mutmut", "paths_to_mutate", fallback=default_paths)
+    else:
+        # Round 29 Station 2c: try SAB scope_layers before falling back to
+        # the entire src/ — mutating code the SPEC explicitly excluded from
+        # the budget is what blocks Gate 2 on medium-sized projects.
+        _sab_path = project / ".methodology" / "SAB.json"
+        if _sab_path.exists():
+            _scope = None
+            try:
+                from core.quality_gate.mutmut_scope import resolve_mutation_scope  # noqa: F811
+                import json as _json2
+                _sab = _json2.loads(_sab_path.read_text(encoding="utf-8"))
+                _scope = resolve_mutation_scope(_sab)
+            except Exception:
+                from core.degradation_ledger import record_degradation
+                record_degradation(
+                    project, "mutation:scope",
+                    f"SAB.json exists but could not be read — "
+                    f"falling back to full source tree ({default_paths})",
+                    why="Fix the SAB.json syntax error so mutation scope can be derived"
+                )
+            if _scope:
+                from core.degradation_ledger import record_degradation
+                record_degradation(
+                    project, "mutation:scope",
+                    f"derived paths_to_mutate={_scope!r} from SAB scope_layers "
+                    f"(setup.cfg [mutmut] was absent)",
+                )
+                paths = _scope
+            else:
+                from core.degradation_ledger import record_degradation
+                record_degradation(
+                    project, "mutation:scope",
+                    f"no declared scope in SAB or setup.cfg; "
+                    f"mutating entire source tree ({default_paths}) — "
+                    f"this may exceed the mutation testing budget",
+                    why="Add scope_layers to the mutation_testing NFR in SAB"
+                )
     cwd = project
     parts = Path(paths).parts
     # If the configured path is nested (e.g. 03-development/src), check

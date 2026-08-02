@@ -2293,6 +2293,25 @@ class TestFinalizeGate1:
         _sentinel_dir.mkdir(parents=True, exist_ok=True)
         (_sentinel_dir / f"g{gate}_p{phase}_{_sentinel_key}.flag").write_text("test")
 
+        # Monkeypatch gate_config_path to return a minimal config without
+        # requires_tool_execution:true dimensions. The live gate1_per_fr.yaml
+        # has requires_tool_execution:true on every dimension, and the test
+        # result JSON does not carry tool_output/tool_evidence — S3/S4 would
+        # block on evidence gaps unrelated to what these tests verify.
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml as _yaml
+        _minimal_cfg = tmp_path / "gate1_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({
+            "gate": 1,
+            "dimensions": [
+                {"name": "linting", "threshold": 90},
+                {"name": "type_safety", "threshold": 85},
+                {"name": "test_coverage", "threshold": 80},
+                {"name": "architecture_constraints", "threshold": 90},
+            ],
+        }))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         # Disable git ops
         monkeypatch.setattr("cli._shared._make_git",
                             lambda args, project: __import__("harness.git_strategy").git_strategy.GitStrategy(project, enabled=False))
@@ -2490,22 +2509,40 @@ class TestGate4Prerequisites:
 
         return tmp_path
 
-    def test_all_prerequisites_met_not_blocked(self, tmp_path):
+    def test_all_prerequisites_met_not_blocked(self, tmp_path, monkeypatch):
         """When all prerequisites are satisfied, returns False (not blocked)."""
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml as _yaml
+        _minimal_cfg = tmp_path / "gate4_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({"gate": 4, "dimensions": []}))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         assert _check_gate4_prerequisites(project)[0] is False
 
-    def test_missing_hermes_receipt_not_blocked(self, tmp_path):
+    def test_missing_hermes_receipt_not_blocked(self, tmp_path, monkeypatch):
         """Hermes receipt is no longer required (A1 removed) — Gate 4 proceeds without it."""
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml as _yaml
+        _minimal_cfg = tmp_path / "gate4_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({"gate": 4, "dimensions": []}))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         # Receipt file is never created — A1 check removed, missing receipt must NOT block
         assert not (project / ".methodology" / "hermes_g4_receipt.json").exists()
         assert _check_gate4_prerequisites(project)[0] is False
 
-    def test_tier1_dim_using_claude_allowed(self, tmp_path):
+    def test_tier1_dim_using_claude_allowed(self, tmp_path, monkeypatch):
         """A2 accepts Claude for all dims — model name is no longer restricted."""
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml as _yaml
+        _minimal_cfg = tmp_path / "gate4_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({"gate": 4, "dimensions": []}))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         import copy as _copy
         import json as _json
         from cli.gate_cmds import _check_gate4_prerequisites
@@ -2529,8 +2566,14 @@ class TestGate4Prerequisites:
         result_file.write_text(_json.dumps(data))
         assert _check_gate4_prerequisites(project)[0] is True
 
-    def test_a4_high_score_confirmations_removed(self, tmp_path):
+    def test_a4_high_score_confirmations_removed(self, tmp_path, monkeypatch):
         """A4 removed: a project with NO high_score_confirmations is not blocked."""
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml as _yaml
+        _minimal_cfg = tmp_path / "gate4_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({"gate": 4, "dimensions": []}))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         import copy as _copy
         import json as _json
         from cli.gate_cmds import _check_gate4_prerequisites
@@ -2580,8 +2623,14 @@ class TestGate4Prerequisites:
         assert blocked is True
         assert "architecture" not in waivers
 
-    def test_missing_issue_registry_no_longer_blocks(self, tmp_path):
+    def test_missing_issue_registry_no_longer_blocks(self, tmp_path, monkeypatch):
         """A5 is advisory now — a missing issue_registry file does NOT block Gate 4."""
+        import core.quality_gate.gate_thresholds as _gt
+        import yaml as _yaml
+        _minimal_cfg = tmp_path / "gate4_minimal.yaml"
+        _minimal_cfg.write_text(_yaml.dump({"gate": 4, "dimensions": []}))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         (project / ".methodology" / "issue_registry.json").unlink()

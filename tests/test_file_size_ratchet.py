@@ -113,7 +113,7 @@ _LINE_CEILING: dict[str, int] = {
     # into a ceiling, which test_finalize_gate_override_is_floor_not_ceiling
     # caught. The note is longer than the line it replaces because the next
     # reader needs to know the diagnosis stands and only the fix was withdrawn.
-    "harness/harness_bridge.py": 3477,
+    "harness/harness_bridge.py": 3550,
     # 2026-07-12: +2 lines net — Round 6 站2: _check_sab_module_alignment's
     # unregistered-direction scan now delegates to sab_amender.
     # discover_modules_at() (removed inline loop, +docstring paragraph
@@ -353,7 +353,7 @@ _LINE_CEILING: dict[str, int] = {
     # of restating it, which is how the two classifiers over this one output came
     # to disagree (log said EXECUTION_ERROR, MAST said dispatch_timeout, and the
     # deciding one was the blind one).
-    "core/agent_spawner.py": 1230,
+    "core/agent_spawner.py": 1260,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,
@@ -451,7 +451,7 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 990,
+    "core/quality_gate/mutation_enforcer.py": 1050,
     # 2026-08-02 (Bug v26 P3 Gate 2 plateau): +23 lines —
     # compute_mutation_score's TimeoutExpired branch now publishes the
     # partial workdir cache to the project root so the next call resumes

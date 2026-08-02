@@ -702,7 +702,7 @@ class TestGate4DaWaiverCollection:
             "breakdown": {dim: {"score": score, "threshold": 80}},
         }
 
-    def _run(self, tmp_path: Path, g4: dict) -> tuple[bool, set]:
+    def _run(self, tmp_path: Path, g4: dict, monkeypatch) -> tuple[bool, set]:
         from cli.gate_cmds import _check_gate4_prerequisites
 
         sessi = tmp_path / ".sessi-work"
@@ -717,17 +717,34 @@ class TestGate4DaWaiverCollection:
             json.dumps({"round": 1, "dim": "architecture", "score": 80.0}),
             encoding="utf-8",
         )
+        # B3 check: monkeypatch gate_config_path to return a minimal config
+        # that does NOT require crg.reconnaissance, so tests don't need a
+        # live CRG bridge artifact.
+        import yaml as _yaml
+        import core.quality_gate.gate_thresholds as _gt
+        _minimal_cfg = tmp_path / "gate4_p6_full.yaml"
+        _minimal_cfg.write_text(_yaml.dump({
+            "gate": 4,
+            "dimensions": [
+                {"name": "linting", "threshold": 100},
+                {"name": "type_safety", "threshold": 100},
+                {"name": "test_coverage", "threshold": 100},
+                {"name": "secrets_scanning", "threshold": 100},
+            ],
+        }))
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
+
         return _check_gate4_prerequisites(tmp_path)
 
-    def test_permitted_evidence_backed_waiver_is_collected(self, tmp_path):
+    def test_permitted_evidence_backed_waiver_is_collected(self, tmp_path, monkeypatch):
         """architecture + real DA evidence → request collected for adjudication."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", score=50.0)
+            tmp_path, self._make_g4("architecture", score=50.0), monkeypatch
         )
         assert not blocked
         assert "architecture" in da_waivers
 
-    def test_collection_does_not_judge_necessity(self, tmp_path):
+    def test_collection_does_not_judge_necessity(self, tmp_path, monkeypatch):
         """A high self-reported score does NOT drop the request here.
 
         Necessity is adjudicated in finalize_gate against the framework's own
@@ -736,20 +753,20 @@ class TestGate4DaWaiverCollection:
         the agent does not score a CRG-only dimension.
         """
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", score=100.0)
+            tmp_path, self._make_g4("architecture", score=100.0), monkeypatch
         )
         assert not blocked
         assert "architecture" in da_waivers
 
-    def test_null_architecture_score_does_not_crash_collection(self, tmp_path):
+    def test_null_architecture_score_does_not_crash_collection(self, tmp_path, monkeypatch):
         """The real shape: CRG-only dimensions carry JSON null, not a number."""
         blocked, da_waivers = self._run(
-            tmp_path, self._make_g4("architecture", score=None)
+            tmp_path, self._make_g4("architecture", score=None), monkeypatch
         )
         assert not blocked
         assert "architecture" in da_waivers
 
-    def test_waiver_for_non_crg_dimension_is_blocked(self, tmp_path):
+    def test_waiver_for_non_crg_dimension_is_blocked(self, tmp_path, monkeypatch):
         """A waiver may only target a CRG-scored dimension.
 
         Without this, two paragraphs of prose zero the threshold of any
@@ -761,18 +778,18 @@ class TestGate4DaWaiverCollection:
         g4["devil_advocate_evidence"]["security"] = {
             "challenge": self._LONG, "response": self._LONG,
         }
-        blocked, da_waivers = self._run(tmp_path, g4)
+        blocked, da_waivers = self._run(tmp_path, g4, monkeypatch)
         assert blocked
         assert da_waivers == set()
 
-    def test_non_crg_block_message_carries_remediation(self, tmp_path, capsys):
+    def test_non_crg_block_message_carries_remediation(self, tmp_path, capsys, monkeypatch):
         g4 = self._make_g4("architecture", score=50.0)
         g4["da_waiver"] = {"test_coverage": True}
         g4["devil_advocate"]["test_coverage"] = True
         g4["devil_advocate_evidence"]["test_coverage"] = {
             "challenge": self._LONG, "response": self._LONG,
         }
-        self._run(tmp_path, g4)
+        self._run(tmp_path, g4, monkeypatch)
         err = capsys.readouterr().err
         assert "not permitted" in err
         assert "Fix:" in err

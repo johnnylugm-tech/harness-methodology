@@ -697,7 +697,29 @@ class AgentSpawner:
                 timeout_result: dict[str, Any] = {
                     "output": f"Agent timed out after {task_timeout}s",
                     "status": "TIMEOUT",
+                    "error_class": "TIMEOUT",
                 }
+                # Round 29 Station 5: record wall-clock timeout in the
+                # degradation ledger so it is visible in run-report and
+                # MAST classification — previously these timeouts left
+                # no trace beyond the dispatch log.
+                if self.project_path:
+                    try:
+                        from core.degradation_ledger import record_degradation
+                        record_degradation(
+                            self.project_path,
+                            f"agent:{role}:{phase or '?'}",
+                            f"wall-clock timeout at {task_timeout}s",
+                        )
+                    except Exception:
+                        # degradation ledger write is best-effort; must not
+                        # block dispatch.  Failure is benign — the timeout
+                        # is already recorded in the dispatch log.
+                        import logging as _logging
+                        _logging.getLogger(__name__).debug(
+                            "record_degradation failed for agent timeout",
+                            exc_info=True,
+                        )
                 post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
                 regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
                 self._log_dispatch(
