@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from core.harness_config import get_timeout
+from core.quality_gate.mutmut_report import format_score_message
 from core.quality_gate.mutmut_scope import mutate_dirs
 from core.utils.project_layout import ProjectLayout
 
@@ -512,6 +513,12 @@ def _write_survivors_artifact(
     }
     if raw is not None:
         payload["raw"] = raw[-5000:]
+        # Round 31 站1: what the tool itself said, beside what we parsed. The
+        # artifact that recorded `survivor_count: 0` next to a raw banner
+        # reading `Survived (308)` was self-refuting, and nobody could see it
+        # because only one of the two numbers was a field.
+        from core.quality_gate.mutmut_report import parse_reported_total
+        payload["reported_total"] = parse_reported_total(raw)
     try:
         out = project / ".methodology" / "mutation_survivors.json"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -524,26 +531,14 @@ def _write_survivors_artifact(
 def _parse_mutmut_survivors(results_output: str) -> list:
     """Parse `mutmut results` output into survivor entries.
 
-    mutmut 2.x groups surviving mutant IDs under per-file headers:
-        ---- core/foo.py (2) ----
-        10, 24
-    Returns [{file, mutant_id, line: None, mutator: None}]. Unrecognized
-    formats yield [] — the raw output is preserved alongside by the caller.
+    Round 31 站1: the parsing itself lives in
+    :mod:`core.quality_gate.mutmut_report`, the one place that knows mutmut's
+    formats. The version that lived here accepted only bare comma-separated
+    ids and so read every real run — mutmut collapses consecutive ids into
+    ranges — as having no survivors.
     """
-    survivors: list = []
-    current_file: "str | None" = None
-    for line in results_output.splitlines():
-        header = re.match(r"^-{2,}\s+(.+?)\s+\((\d+)\)\s+-{2,}$", line.strip())
-        if header:
-            current_file = header.group(1)
-            continue
-        if current_file and re.match(r"^\d+(?:\s*,\s*\d+)*$", line.strip()):
-            for mid in re.findall(r"\d+", line):
-                survivors.append({
-                    "file": current_file, "line": None,
-                    "mutant_id": mid, "mutator": None,
-                })
-    return survivors
+    from core.quality_gate.mutmut_report import parse_survivors
+    return parse_survivors(results_output)
 
 
 def _count_mutmut_results(cache_path: Path) -> tuple[int, int]:
@@ -996,13 +991,19 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         # dimension to 1846 — the number that explains the verdict was the one
         # number the verdict did not carry. This string is the tool_evidence the
         # gate reads, so the scope is now inside the judgement itself.
-        _scope_note = f" [scope: {paths_to_mutate}]"
+        # Round 31 站1: spelled by mutmut_report.format_score_message, whose
+        # parser sits beside it — the gate's own cross-check could not read the
+        # f-string that used to live here.
         if total == 0:
             score = 0.0
-            msg = f"mutmut produced 0 mutants. Score = 0.{_scope_note}"
+            msg = (f"mutmut produced 0 mutants. Score = 0. "
+                   f"[scope: {paths_to_mutate}]")
         else:
             score = round(100.0 * killed / total, 1)
-            msg = f"killed={killed} survived={survived} score={score}{_scope_note}"
+            msg = format_score_message(
+                killed=killed, survived=survived, score=score,
+                scope=paths_to_mutate,
+            )
 
         # Bug #105: PUBLISH the workdir cache to project root. The LLM agent
         # evaluating mutation_testing reads `mutmut results` from this path.

@@ -463,35 +463,17 @@ def filter_enabled_dimensions(
 
 
 def _extract_mutmut_kill_rate(content: str) -> "float | None":
-    """Parse a mutmut tool_output file and return the computed kill rate (0-100).
+    """The kill rate carried by *content*, or None when it carries none.
 
-    Supports both v2 and v3 output formats:
-      - "Killed XX Survived YY"  (plain text or table)
-      - "mutation score: NN%"    (summary line)
-
-    Returns None when no parseable statistics are found (e.g. empty output or
-    an unrecognised format — treated as a non-blocking parse failure).
+    Round 31 站1: delegates to :mod:`core.quality_gate.mutmut_report`, which
+    also spells the message ``compute_mutation_score`` emits. The version that
+    lived here accepted ``Killed 240`` — a format nothing in this system
+    produces — and returned None for the agent's tool_output, for raw
+    ``mutmut results``, AND for the framework's own score line. A cross-check
+    that never parsed a real input is not a cross-check.
     """
-    import re as _re
-
-    # Format A: explicit "Killed N" and "Survived N" counts
-    killed_m = _re.search(r'\bKilled\s+(\d+)', content, _re.IGNORECASE)
-    survived_m = _re.search(r'\bSurvived\s+(\d+)', content, _re.IGNORECASE)
-    if killed_m and survived_m:
-        killed = int(killed_m.group(1))
-        survived = int(survived_m.group(1))
-        total = killed + survived
-        if total > 0:
-            return killed / total * 100.0
-
-    # Format B: explicit "mutation score: NN%" / "mutation score NN%"
-    score_m = _re.search(
-        r'mutation\s+score[:\s]+(\d+(?:\.\d+)?)\s*%', content, _re.IGNORECASE
-    )
-    if score_m:
-        return float(score_m.group(1))
-
-    return None
+    from core.quality_gate.mutmut_report import kill_rate
+    return kill_rate(content)
 
 
 def _validate_tool_content(

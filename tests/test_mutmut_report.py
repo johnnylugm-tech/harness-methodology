@@ -53,9 +53,9 @@ To show a mutant:
     mutmut show <id>
 
 
-Survived \U0001f641 (17)
+Survived \U0001f641 (18)
 
----- /tmp/proj/src/myapp/service/breaker.py (12) ----
+---- /tmp/proj/src/myapp/service/breaker.py (13) ----
 
 233-245
 
@@ -67,18 +67,28 @@ Survived \U0001f641 (17)
 
 def test_survivors_parse_the_range_form_mutmut_actually_prints():
     survivors = _parse_mutmut_survivors(REAL_RESULTS_OUTPUT)
-    assert len(survivors) == 17, (
+    assert len(survivors) == 18, (
         f"parsed {len(survivors)} survivors from output whose own banner says "
-        f"17 — mutmut collapses consecutive ids into ranges (233-245), and a "
+        f"18 — mutmut collapses consecutive ids into ranges (233-245), and a "
         f"parser that only accepts bare integers reports every run as clean"
     )
     per_file = {}
     for s in survivors:
         per_file[s["file"]] = per_file.get(s["file"], 0) + 1
     assert per_file == {
-        "/tmp/proj/src/myapp/service/breaker.py": 12,
+        "/tmp/proj/src/myapp/service/breaker.py": 13,
         "/tmp/proj/src/myapp/storage/task_store.py": 5,
     }, f"per-file counts must match each header's own number: {per_file}"
+
+
+def test_the_banner_total_is_recorded_beside_what_was_parsed():
+    """`survivor_count: 0` sitting next to a raw banner reading
+    `Survived (308)` was self-refuting, and invisible because only one of the
+    two numbers was a field."""
+    from core.quality_gate.mutmut_report import parse_reported_total
+
+    assert parse_reported_total(REAL_RESULTS_OUTPUT) == 18
+    assert parse_reported_total("no banner here") is None
 
 
 def test_the_per_file_header_count_is_checked_against_the_ids_parsed():
