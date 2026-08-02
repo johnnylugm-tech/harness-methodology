@@ -110,6 +110,7 @@ def test_s2_is_not_switched_off_by_an_environment_variable(tmp_path, monkeypatch
         "dimensions:\n  - {name: linting, tool: ruff, requires_tool_execution: true}\n",
         encoding="utf-8",
     )
+    monkeypatch.delenv("HARNESS_SKIP_TOOL_CHECKS", raising=False)
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr(_gt, "gate_config_path", lambda _n: cfg)

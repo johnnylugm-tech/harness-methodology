@@ -45,6 +45,11 @@ def _cwd_pinned_to_harness_root(monkeypatch):
     monkeypatch.chdir(_HARNESS_ROOT)
 
 
+@pytest.fixture(autouse=True)
+def _skip_tool_checks_in_tests(monkeypatch):
+    monkeypatch.setenv("HARNESS_SKIP_TOOL_CHECKS", "1")
+
+
 # ---------------------------------------------------------------------------
 # Improvement I: make_sab_from_sad fixture factory
 # ---------------------------------------------------------------------------
