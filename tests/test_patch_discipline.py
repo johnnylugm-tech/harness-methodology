@@ -84,7 +84,19 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # PATH/venv probes, so every test in this class stubs it); one more instance
     # of an already-accepted pattern, not a new coupling.
     "tests/cli/test_gate_cmds_cli.py": 59,
-    "tests/test_mutation_enforcer.py": 46,
+    # 2026-08-03 (+6): Bug #142's run_mutation_precheck wiring test
+    # (test_run_mutation_precheck_passes_autoload_disabled_env_to_mutmut_run)
+    # monkeypatches _resolve_mutmut_workdir/_is_editable_install/
+    # _read_paths_to_exclude/_detect_data_only_files/_abs_paths_to_mutate/
+    # _resolve_test_dir — the exact same 6-private-name seam every other
+    # run_mutation_precheck test in this file already uses to isolate the
+    # function from real filesystem/tool-detection I/O (e.g.
+    # test_run_mutation_precheck_promotes_workdir_cache_on_success just
+    # above it). Deliberately does NOT stub _copy_setup_cfg_to_workdir like
+    # its siblings do — that call must run for real so the workdir's
+    # setup.cfg exists when the new env-computation helper reads it back.
+    # Not a new coupling, one more instance of the established pattern.
+    "tests/test_mutation_enforcer.py": 52,
     "tests/cli/test_phase_cmds_cli.py": 40,
     # 2026-07-27 Round 29 (+4): TestRunPhaseCISubstrateProbeSkip's 2 tests each
     # monkeypatch cli.phase_cmds._verify_entry_gate (the same already-accepted

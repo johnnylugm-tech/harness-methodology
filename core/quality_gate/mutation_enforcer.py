@@ -396,6 +396,69 @@ def _copy_setup_cfg_to_workdir(
         cp.write(f)
 
 
+_XDIST_TOKEN_RE = re.compile(r"^(-n(\d+|auto)?|--numprocesses(=.*)?|--dist(=.*)?)$")
+_COV_TOKEN_RE = re.compile(r"^--cov(=.*)?$")
+
+
+def _resolved_workdir_runner(workdir: str) -> str:
+    """Read back the [mutmut] runner _copy_setup_cfg_to_workdir already wrote
+    into *workdir*/setup.cfg. "" on any read failure — callers must still
+    apply PYTEST_DISABLE_PLUGIN_AUTOLOAD in that case, never skip it."""
+    cp = configparser.ConfigParser()
+    try:
+        cp.read(str(Path(workdir) / "setup.cfg"), encoding="utf-8")
+    except (OSError, configparser.Error):
+        return ""
+    return cp.get("mutmut", "runner", fallback="")
+
+
+def _mutmut_subprocess_env(workdir: str) -> dict:
+    """Environment for the ``mutmut run`` subprocess (Bug #142).
+
+    Default-deny: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 stops pytest from
+    auto-loading every pytest11-entry-point plugin installed in this venv.
+    Pytest's own core plugins (assertion rewriting, capsys, monkeypatch,
+    etc.) and anything explicitly passed via -p are unaffected. Without
+    this, an unrelated autoloaded plugin can crash mutmut's ephemeral
+    workdir or silently mis-report a mutant as killed/survived based on
+    stale fingerprints — a project's ``[mutmut] runner`` carried
+    ``--testmon``; pytest-testmon's incremental-fingerprint hook tried to
+    read a file inside mutmut's temp workdir and crashed with
+    IsADirectoryError, burning three Gate 2 rounds at score=0 with zero
+    mutants evaluated.
+
+    Explicit allow-list: flags already present in the FINAL resolved
+    [mutmut] runner are the only signal of demand for a specific plugin's
+    functionality; re-enable exactly that via PYTEST_ADDOPTS (pytest
+    prepends it to every invocation, including mutmut's internal ones). A
+    demand this map doesn't recognise fails loudly with pytest's own
+    "unrecognized arguments" error, surfaced in the existing
+    stdout/stderr-capturing failure message — strictly better than silent
+    corruption or an INTERNALERROR wall.
+    """
+    env = os.environ.copy()
+    env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+
+    runner = _resolved_workdir_runner(workdir)
+    try:
+        tokens = shlex.split(runner)
+    except ValueError:
+        tokens = runner.split()
+
+    needed = []
+    if any(_XDIST_TOKEN_RE.match(t) for t in tokens):
+        needed.append("xdist")
+    if any(_COV_TOKEN_RE.match(t) for t in tokens):
+        needed.append("pytest_cov")
+
+    if needed:
+        addopts = " ".join(f"-p {name}" for name in needed)
+        prior = env.get("PYTEST_ADDOPTS", "").strip()
+        env["PYTEST_ADDOPTS"] = f"{prior} {addopts}".strip() if prior else addopts
+
+    return env
+
+
 def _apply_mutmut_to_workdir(mutant_id: Union[str, int], workdir: str) -> None:
     """Safely apply a mutmut mutant INSIDE the workdir (Bug #42 safety).
 
@@ -717,6 +780,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
         r = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
+            env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
             timeout=get_timeout("mutation", project),  # 60 min hard cap — mutation testing is meaningless if it hangs
         )
 
@@ -727,6 +791,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
                 f"STDERR:\n{r.stderr.strip()}"
             )
 
+        # mutmut results reads .mutmut-cache only — no pytest invocation, no env= needed (Bug #142)
         res = subprocess.run(
             ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
             timeout=30,
@@ -879,6 +944,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
 
         r = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
+            env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
             timeout=get_timeout("mutation", project),
         )
         # mutmut 2.x exit codes:
@@ -895,6 +961,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
                 f"STDERR:\n{r.stderr.strip()[-2000:]}"
             )
 
+        # mutmut results reads .mutmut-cache only — no pytest invocation, no env= needed (Bug #142)
         res = subprocess.run(
             ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
             timeout=30,

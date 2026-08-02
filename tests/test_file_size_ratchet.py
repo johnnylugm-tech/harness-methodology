@@ -465,7 +465,7 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1050,
+    "core/quality_gate/mutation_enforcer.py": 1090,
     # 2026-08-02 (Bug v26 P3 Gate 2 plateau): +23 lines —
     # compute_mutation_score's TimeoutExpired branch now publishes the
     # partial workdir cache to the project root so the next call resumes
@@ -477,6 +477,18 @@ _LINE_CEILING: dict[str, int] = {
     # block is the docstring + shutil.copy2 + message variant — kept
     # verbose because the message is what the LLM evaluator reads when
     # the gate fails again.
+    # 2026-08-03 (Bug #142): +67 lines — mutmut's `mutmut run` subprocess
+    # inherited the full parent environment with no override, so any
+    # pytest11-autoloaded plugin installed in the invoking venv (e.g.
+    # pytest-testmon) loaded into the mutant-evaluation pytest process.
+    # testmon crashed fingerprinting a file inside mutmut's ephemeral
+    # workdir (IsADirectoryError), burning three P3 Gate 2 rounds at
+    # score=0 with zero mutants evaluated. _mutmut_subprocess_env sets
+    # PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 (default-deny) and re-enables only
+    # the plugins the resolved [mutmut] runner's own flags demonstrably
+    # need (xdist for -n/--dist, pytest_cov for --cov) via PYTEST_ADDOPTS
+    # — so taskq-advance's `-n 8 --dist=loadfile` parallelism keeps
+    # working while unrelated autoloaded plugins no longer can.
     # 2026-07-17: new god file — Round 15 station5: phase_specs.py (formerly
     # 2985 lines, see git history for its full growth log) was split one
     # module per phase (spec_phase1.py .. spec_phase8.py, spec_shared.py for

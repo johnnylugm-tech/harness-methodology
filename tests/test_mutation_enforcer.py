@@ -28,6 +28,7 @@ from core.quality_gate.mutation_enforcer import (
     _find_source_setup_cfg,
     _paths_to_exclude_flag,
     _count_mutmut_results,
+    _mutmut_subprocess_env,
 )
 
 
@@ -569,6 +570,122 @@ def test_copy_setup_cfg_leaves_custom_runner_alone(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
+# Bug #142: mutmut's pytest invocation inherits the full parent environment
+# with no override, so any pytest11-autoloaded plugin installed in the
+# invoking venv (e.g. pytest-testmon) loads into the mutant-evaluation
+# pytest process. testmon crashed fingerprinting a source file inside
+# mutmut's ephemeral workdir (IsADirectoryError), burning three Gate 2
+# rounds at score=0 with zero mutants evaluated before a single mutant was
+# scored. Fix: default-deny (PYTEST_DISABLE_PLUGIN_AUTOLOAD=1) + explicit
+# allow-list driven by flags already present in the resolved [mutmut]
+# runner string.
+# ---------------------------------------------------------------------------
+
+
+def test_mutmut_subprocess_env_disables_plugin_autoload_by_default(tmp_path):
+    """Plain default runner (no custom flags) → PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+    set, no PYTEST_ADDOPTS added."""
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    env = _mutmut_subprocess_env(str(workdir))
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    assert "PYTEST_ADDOPTS" not in env
+
+
+def test_mutmut_subprocess_env_reenables_xdist_when_runner_has_dash_n(tmp_path):
+    """Custom runner with `-n 8 --dist=loadfile` (taskq-advance's actual
+    runner shape) must re-enable xdist via PYTEST_ADDOPTS, or parallel test
+    execution silently breaks under autoload-disable."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text(
+        "[mutmut]\nrunner = /path/to/venv/bin/python -m pytest -n 8 --dist=loadfile -x --tb=no -q\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    env = _mutmut_subprocess_env(str(workdir))
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    assert "-p xdist" in env["PYTEST_ADDOPTS"]
+
+
+def test_mutmut_subprocess_env_reenables_cov_when_runner_has_cov_flag(tmp_path):
+    """--cov=pkg in the runner must re-enable pytest_cov. Uses an absolute
+    venv path (not a bare "python3 -m pytest" prefix) so the runner is
+    classified custom and preserved verbatim by _copy_setup_cfg_to_workdir
+    (Bug #116's prefix-normalisation would otherwise strip --cov before this
+    code ever sees it — the runner shape every real generated setup.cfg
+    actually uses, see Bug #91)."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text(
+        "[mutmut]\nrunner = /path/to/venv/bin/python -m pytest --cov=taskq_plus -q\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    env = _mutmut_subprocess_env(str(workdir))
+    assert "-p pytest_cov" in env["PYTEST_ADDOPTS"]
+
+
+def test_mutmut_subprocess_env_no_addopts_side_effect_on_default_runner(tmp_path):
+    """The well-known-runner normalisation path (sys.executable -m pytest,
+    no extra flags) must not add PYTEST_ADDOPTS — asserts the negative so a
+    future change to the token regexes can't silently start matching `-m`
+    or `pytest` themselves."""
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")  # no source cfg
+    env = _mutmut_subprocess_env(str(workdir))
+    assert "PYTEST_ADDOPTS" not in env
+
+
+def test_mutmut_subprocess_env_preserves_parent_pytest_addopts(tmp_path, monkeypatch):
+    """A developer's own shell-level PYTEST_ADDOPTS must be appended to, not
+    clobbered by, the xdist/cov re-enable — losing it would silently change
+    unrelated pytest behaviour the developer relies on outside mutmut."""
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--strict-markers")
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text(
+        "[mutmut]\nrunner = /path/to/venv/bin/python -m pytest -n 4 -q\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    env = _mutmut_subprocess_env(str(workdir))
+    assert "--strict-markers" in env["PYTEST_ADDOPTS"]
+    assert "-p xdist" in env["PYTEST_ADDOPTS"]
+
+
+def test_mutmut_subprocess_env_regression_testmon_incident_bug_142(tmp_path):
+    """Regression for the reproduced incident (taskq-advance Gate 2, three
+    rounds at score=0): a project's runner carried an absolute venv path
+    (`/path/to/venv/bin/python -m pytest --testmon -x --tb=no -q`), which
+    did not match _WELL_KNOWN_RUNNERS' relative-form prefixes and was left
+    untouched (correct — Bug #91/#116 territory). The crash class this fix
+    prevents is NOT specific to testmon: any pytest11-autoloaded plugin the
+    runner doesn't explicitly ask for is now excluded by
+    PYTEST_DISABLE_PLUGIN_AUTOLOAD=1, so a plugin never mentioned in the
+    runner string (like the testmon example below) gets no PYTEST_ADDOPTS
+    re-enable and cannot autoload into the mutant-evaluation pytest process
+    — this test asserts that outcome, not a testmon-specific detector."""
+    src_cfg = tmp_path / "setup.cfg"
+    src_cfg.write_text(
+        "[mutmut]\nrunner = /path/to/venv/bin/python -m pytest --testmon -x --tb=no -q\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    _copy_setup_cfg_to_workdir(tmp_path, str(workdir), "/abs/path/tests")
+    env = _mutmut_subprocess_env(str(workdir))
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    # No allow-list entry recognises "--testmon" — nothing re-enables it.
+    assert env.get("PYTEST_ADDOPTS", "") == "" or "testmon" not in env["PYTEST_ADDOPTS"]
+
+
+# ---------------------------------------------------------------------------
 # _resolve_test_dir
 # ---------------------------------------------------------------------------
 
@@ -843,6 +960,42 @@ def test_run_mutation_precheck_no_partial_cache_left_on_failure(tmp_path, monkey
     assert not (tmp_path / ".mutmut-cache").exists(), (
         "partial .mutmut-cache was left behind after precheck failure"
     )
+
+
+def test_run_mutation_precheck_passes_autoload_disabled_env_to_mutmut_run(tmp_path, monkeypatch):
+    """Bug #142 wiring: the `mutmut run` subprocess.run call inside
+    run_mutation_precheck must receive env= with plugin autoload disabled.
+    _copy_setup_cfg_to_workdir runs for real (not stubbed) so the workdir's
+    setup.cfg exists when _mutmut_subprocess_env reads it back."""
+    import core.quality_gate.mutation_enforcer as me
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+
+    captured: list[dict] = []
+
+    def fake_run(cmd, **kwargs):
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        if cmd[0] == "mutmut" and cmd[1] == "run":
+            captured.append(kwargs)
+        return R()
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _p: str(tmp_path / "src"))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tmp_path / "tests"))
+    monkeypatch.setattr(me.shutil, "which", lambda _cmd: "/usr/bin/mutmut")
+
+    me.run_mutation_precheck(tmp_path)
+
+    assert captured, "mutmut run was never invoked"
+    assert captured[0]["env"]["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
 
 
 def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
@@ -1312,6 +1465,39 @@ def test_compute_mutation_score_uses_sys_executable_for_runner(tmp_path, monkeyp
     assert f"runner = {sys.executable} -m pytest" in workdir_cfg, (
         f"runner not pinned to sys.executable; got:\n{workdir_cfg}"
     )
+
+
+def test_compute_mutation_score_passes_autoload_disabled_env_to_mutmut_run(tmp_path, monkeypatch):
+    """Bug #142 wiring: the `mutmut run` subprocess.run call inside
+    compute_mutation_score must receive env= with plugin autoload disabled.
+    Mirrors test_compute_mutation_score_uses_sys_executable_for_runner's
+    pattern — real workdir path, _copy_setup_cfg_to_workdir runs for real."""
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src" / "pkg"
+    src.mkdir(parents=True)
+    (src / "mod.py").write_text("def f():\n    return 1\n")
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_x(): pass\n")
+    (tmp_path / "setup.cfg").write_text("[metadata]\nname=proj\n")
+
+    captured: list[dict] = []
+
+    def fake_run(cmd, **kwargs):
+        cwd = kwargs.get("cwd", "")
+        is_run = isinstance(cmd, list) and len(cmd) >= 2 and cmd[1] == "run"
+        if is_run and cwd.startswith("/tmp/_mutmut_score."):
+            captured.append(kwargs)
+        return _R(0, "", "")
+
+    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+
+    me.compute_mutation_score(tmp_path)
+
+    assert captured, "mutmut run was never invoked"
+    assert captured[0]["env"]["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
 
 
 def test_compute_mutation_score_no_mutmut_returns_zero(tmp_path, monkeypatch):

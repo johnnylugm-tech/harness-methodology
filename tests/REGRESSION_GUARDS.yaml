@@ -26,6 +26,10 @@
   bug: "Bug #108: mutation score must come from the sqlite cache (authoritative), not mutmut stdout"
   fixed_in: "3e33833"
 
+- test: tests/test_mutation_enforcer.py::test_mutmut_subprocess_env_regression_testmon_incident_bug_142
+  bug: "Bug #142: mutmut run subprocess inherited the full parent environment with no override, so any pytest11-autoloaded plugin installed in the invoking venv (e.g. pytest-testmon) loaded into the mutant-evaluation pytest process and could crash mutmut's ephemeral workdir or silently corrupt the killed/survived count"
+  fixed_in: "pending"
+
 - test: tests/test_mutation_enforcer.py::test_copy_setup_cfg_reads_nested_layout_and_promotes_pythonpath_bug_106b
   bug: "Bug #106b: nested-layout setup.cfg pythonpath not rewritten to absolute — breaks pytest imports in workdir"
   fixed_in: "3e33833"

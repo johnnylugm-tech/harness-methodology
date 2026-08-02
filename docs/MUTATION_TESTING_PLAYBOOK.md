@@ -344,6 +344,7 @@ The runner is limited to the 110 tests that cover the mutated modules. Running t
 | `ModuleNotFoundError` during stats | test imports module missing | Check virtualenv and PYTHONPATH |
 | Kill rate suddenly drops | Marker missing on test file | Check `pytestmark = pytest.mark.mutation_oracle` |
 | Cache has stale results | Old run partial; added new tests | `rm .mutmut-cache && mutmut run -b 10` |
+| `INTERNALERROR` / mutant evaluation crashes inside the workdir | An autoloaded pytest11 plugin (e.g. pytest-testmon) incompatible with mutmut's ephemeral workdir layout got pulled in via the invoking venv | The framework sets `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` on the `mutmut run` subprocess by default (Bug #142, `core/quality_gate/mutation_enforcer.py::_mutmut_subprocess_env`). A custom runner's own flags (`-n`/`--dist` for xdist, `--cov` for pytest_cov) are re-enabled automatically via `PYTEST_ADDOPTS`; a different plugin's flag will fail loudly with pytest's "unrecognized arguments" instead — add it to the allow-list in `_mutmut_subprocess_env` if it's needed. |
 
 ---
 
