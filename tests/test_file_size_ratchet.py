@@ -555,7 +555,13 @@ _LINE_CEILING: dict[str, int] = {
     # spec_phase2.py L540) so all three callers share this one hardened
     # branch instead of leaving a third, less-safe variant behind — the
     # docstring above grew to explain why trusting `pass` was rejected.
-    "scripts/workflowgen/js_blocks.py": 1445,
+    # 2026-08-02 (Round 28 站3): 1445 -> 1504. render_terminal_abort_detectors
+    # moved here from spec_phase3.py, which shrank 520 -> 493 in the same
+    # commit: the [HARNESS-BUG] and structurally-broken-dispatch exits existed
+    # only in Phase 3's TDD loop, and the four phases that run their own per-FR
+    # loop through render_per_fr_delta now share the one implementation. Net
+    # +32 lines across the two files for four call sites that had none.
+    "scripts/workflowgen/js_blocks.py": 1504,
 }
 
 

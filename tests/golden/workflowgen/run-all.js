@@ -2498,6 +2498,15 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
+  const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
+  if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+    log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+    return { dispatch_structurally_broken: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
+  }
+  if (/\[HARNESS-BUG\]/.test(frReportText)) {
+    log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
+    return { harness_bug_detected: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+  }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
     + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + frId + ' --project ' + REPO + '\n'
@@ -2906,6 +2915,15 @@ for (const frId of deltaTodo) {
   if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
     return { session_limit_blocked: true, phase: 5, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+  }
+  const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
+  if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+    log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+    return { dispatch_structurally_broken: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
+  }
+  if (/\[HARNESS-BUG\]/.test(frReportText)) {
+    log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
+    return { harness_bug_detected: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -3524,6 +3542,15 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
     return { session_limit_blocked: true, phase: 7, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
+  const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
+  if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+    log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+    return { dispatch_structurally_broken: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
+  }
+  if (/\[HARNESS-BUG\]/.test(frReportText)) {
+    log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
+    return { harness_bug_detected: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+  }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
     + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + frId + ' --project ' + REPO + '\n'
@@ -3831,6 +3858,15 @@ for (const frId of deltaTodo) {
   if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
     return { session_limit_blocked: true, phase: 8, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+  }
+  const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
+  if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+    log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+    return { dispatch_structurally_broken: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
+  }
+  if (/\[HARNESS-BUG\]/.test(frReportText)) {
+    log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
+    return { harness_bug_detected: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'

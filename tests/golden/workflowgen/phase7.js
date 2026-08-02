@@ -406,6 +406,33 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
     return { session_limit_blocked: true, phase: 7, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
+  // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
+  // (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints "[FATAL] <fr> <step>:
+  // sub-agent dispatch is structurally broken — claude.ai connectors are disabled" to
+  // stderr and returns exit code 23). A sub-agent reading its own GATE1-DELTA log and seeing
+  // that banner will escalate to human with "FAIL — structurally broken dispatch" even
+  // when the gate has not yet run a single evaluation round. The harness-side
+  // _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer
+  // for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but the TDD dispatches AND the
+  // first-round prompt path do NOT have it. Continuing to dispatch the remaining FRs in
+  // that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.
+  // Abort once the structural signal is observed.
+  const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
+  if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+    log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+    return { dispatch_structurally_broken: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
+  }
+  // L1.6 (Round 13 站0): detect a [HARNESS-BUG] banner (core/errors.py's crash
+  // boundary — harness_cli.py's main() converting an uncaught exception into this
+  // signal instead of a bare traceback) surfaced via the sub-agent reading its own
+  // GATE1-DELTA log. Unlike the structurally-broken-dispatch signature above (a known,
+  // human-actionable env-var cause), this means harness-methodology itself crashed —
+  // the FR loop cannot proceed until a human fixes the harness bug, and treating it
+  // as a code-quality FAIL would send CODE-FIX at a defect that isn't there.
+  if (/\[HARNESS-BUG\]/.test(frReportText)) {
+    log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
+    return { harness_bug_detected: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+  }
   // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness
   // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A
   // sub-agent can report PASS even when finalize-gate raised GateBlockedError,

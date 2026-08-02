@@ -475,11 +475,10 @@ for (const frId of frIds) {
     // that banner will escalate to human with "FAIL — structurally broken dispatch" even
     // when the gate has not yet run a single evaluation round. The harness-side
     // _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer
-    // for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but TDD-RED/GREEN/IMPROVE
-    // dispatches AND the GATE1 first-round prompt path do NOT have it. Continuing to
-    // dispatch FR-02..FR-05 in that state burns ~5min and ~50K tokens per FR on
-    // identically-broken dispatches. Abort once the structural signal is observed.
-    // FIX-N: workflow JS L1 [FATAL] detection — abort loop on connector-disabled signature.
+    // for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but the TDD dispatches AND the
+    // first-round prompt path do NOT have it. Continuing to dispatch the remaining FRs in
+    // that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.
+    // Abort once the structural signal is observed.
     const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
     if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
       log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
@@ -491,7 +490,7 @@ for (const frId of frIds) {
     // GATE1 log. Unlike the structurally-broken-dispatch signature above (a known,
     // human-actionable env-var cause), this means harness-methodology itself crashed —
     // the FR loop cannot proceed until a human fixes the harness bug, and treating it
-    // as a code-quality GATE1 FAIL would send CODE-FIX at a defect that isn't there.
+    // as a code-quality FAIL would send CODE-FIX at a defect that isn't there.
     if (/\[HARNESS-BUG\]/.test(frReportText)) {
       log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
       return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }

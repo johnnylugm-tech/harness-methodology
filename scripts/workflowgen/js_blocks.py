@@ -455,6 +455,64 @@ def render_load_frs(phase: int, *, include_fr_titles: bool = False) -> str:
     )
 
 
+def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> str:
+    """The two per-FR conditions no fix agent can resolve (Round 13 站0/站2).
+
+    Both were written for Phase 3's TDD loop and stayed there. P4, P5, P7 and P8
+    run their own per-FR Gate 1 loops through `render_per_fr_delta` and had
+    neither: harness crashing during any of those four was read as an ordinary
+    GATE1 FAIL, which routes to CODE-FIX — a fix agent sent at a defect that is
+    not in the project's code. Round 28 moves the pair here so every per-FR loop
+    gets the same two exits from the same source.
+
+    `indent` differs by host (P3's loop body sits one level deeper than the
+    delta loop's); `step` names the step in the operator-facing message, so a
+    P5 abort does not claim to have happened in GATE1.
+    """
+    i = indent
+    return (
+        f"{i}// L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent\n"
+        f"{i}// (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints \"[FATAL] <fr> <step>:\n"
+        f"{i}// sub-agent dispatch is structurally broken — claude.ai connectors are disabled\" to\n"
+        f"{i}// stderr and returns exit code 23). A sub-agent reading its own {step} log and seeing\n"
+        f"{i}// that banner will escalate to human with \"FAIL — structurally broken dispatch\" even\n"
+        f"{i}// when the gate has not yet run a single evaluation round. The harness-side\n"
+        f"{i}// _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer\n"
+        f"{i}// for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but the TDD dispatches AND the\n"
+        f"{i}// first-round prompt path do NOT have it. Continuing to dispatch the remaining FRs in\n"
+        f"{i}// that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.\n"
+        f"{i}// Abort once the structural signal is observed.\n"
+        f"{i}const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)\n"
+        f"{i}if (/structurally broken dispatch environment/i.test(frReportText) || "
+        f"/\\[FATAL\\][^\\n]*dispatch is structurally broken/i.test(frReportText)) {{\n"
+        f"{i}  log('  ' + frId + ' reports [FATAL] structurally broken dispatch "
+        f"(claude.ai connectors disabled) — aborting remaining FRs')\n"
+        f"{i}  return {{ dispatch_structurally_broken: true, phase: {phase}, fr_id: frId, gate1Pass, "
+        f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: dispatch is structurally broken "
+        f"(env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset "
+        f"ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL "
+        f"in the shell that launches this process, then re-run via "
+        f"Workflow({{scriptPath, resumeFromRunId}}).' }}\n"
+        f"{i}}}\n"
+        f"{i}// L1.6 (Round 13 站0): detect a [HARNESS-BUG] banner (core/errors.py's crash\n"
+        f"{i}// boundary — harness_cli.py's main() converting an uncaught exception into this\n"
+        f"{i}// signal instead of a bare traceback) surfaced via the sub-agent reading its own\n"
+        f"{i}// {step} log. Unlike the structurally-broken-dispatch signature above (a known,\n"
+        f"{i}// human-actionable env-var cause), this means harness-methodology itself crashed —\n"
+        f"{i}// the FR loop cannot proceed until a human fixes the harness bug, and treating it\n"
+        f"{i}// as a code-quality FAIL would send CODE-FIX at a defect that isn't there.\n"
+        f"{i}if (/\\[HARNESS-BUG\\]/.test(frReportText)) {{\n"
+        f"{i}  log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, "
+        f"aborting remaining FRs')\n"
+        f"{i}  return {{ harness_bug_detected: true, phase: {phase}, fr_id: frId, gate1Pass, "
+        f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: harness-methodology itself "
+        f"crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project "
+        f"quality issue; a human must diagnose and fix the harness bug before this FR can "
+        f"proceed.' }}\n"
+        f"{i}}}\n"
+    )
+
+
 def render_per_fr_delta(
     *,
     phase: int,
@@ -582,6 +640,7 @@ def render_per_fr_delta(
         + "    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
         + f"    return {{ session_limit_blocked: true, phase: {phase}, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }}\n"
         + "  }\n"
+        + render_terminal_abort_detectors(phase=phase, indent="  ", step="GATE1-DELTA")
         + "  // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness\n"
         + "  // quality_manifest — NOT the sub-agent's self-reported \"GATE1: PASS\" string. A\n"
         + "  // sub-agent can report PASS even when finalize-gate raised GateBlockedError,\n"

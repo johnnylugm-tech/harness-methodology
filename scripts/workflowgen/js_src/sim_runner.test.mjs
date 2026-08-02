@@ -773,6 +773,35 @@ for (const { flag, reply, why } of TERMINAL_FLAG_CASES) {
   })
 }
 
+// 14c. The two unfixable conditions are detected in EVERY per-FR loop.
+// [HARNESS-BUG] (harness crashed) and [FATAL] structurally-broken dispatch (no
+// sub-agent can be spawned) were written for Phase 3's TDD loop and stayed
+// there for their whole existence. P4, P5, P7 and P8 run their own per-FR
+// Gate 1 loops and had neither: harness crashing during any of those four read
+// as an ordinary GATE1 FAIL, which routes to CODE-FIX — a fix agent dispatched
+// at a defect that is not in the project's code.
+const DELTA_PHASE_FILES = {
+  4: 'phase4-testing.js',
+  5: 'phase5-verification.js',
+  7: 'phase7-risk.js',
+  8: 'phase8-config.js',
+}
+
+for (const [n, file] of Object.entries(DELTA_PHASE_FILES)) {
+  for (const { flag, reply } of TERMINAL_FLAG_CASES) {
+    test(`round28: ${file} per-FR loop aborts on ${flag}`, async () => {
+      const { result } = await runWorkflow(WF(file), makeHappyResponder(
+        [{ match: /^delta-FR-/, respond: reply.replace('GATE1', 'GATE1-DELTA') }, ...happyOverrides()]))
+      assert.equal(result[flag], true,
+        `${file}: ${flag} not raised — the failure would be routed to CODE-FIX as a `
+        + `code-quality FAIL. Got: ${JSON.stringify(result).slice(0, 200)}`)
+      assert.equal(result.phase, Number(n), 'the abort must name the phase it happened in')
+      assert.match(result.message, /GATE1-DELTA/,
+        'the message must name the step that actually ran, not P3\'s GATE1')
+    })
+  }
+}
+
 // 14b. No dispatch may kill the run.
 // A rejecting `agent()` is not exotic: it is what a transient transport error
 // looks like. run-all wraps each phase call in try/catch (Round 23), so it
