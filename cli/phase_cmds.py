@@ -250,6 +250,86 @@ def cmd_preview_next_phase(args: argparse.Namespace) -> int:
     return 1
 
 
+def _regenerate_mutmut_scope(project: Path) -> bool:
+    """Render `[mutmut] paths_to_mutate` into setup.cfg from the SAB. P2→P3 only.
+
+    Returns True when setup.cfg was written, so the caller stages it in the
+    advance commit: the mutation scope is a DECISION, and a decision that lands
+    in an untracked working-tree file is a decision nobody reviewed.
+    taskq-advance had no setup.cfg at all, mutated 3384 lines against a SPEC
+    that limited NFR-08 to 1846, and recorded that as `mutation_testing 0/70`
+    three times with no artifact anywhere stating the scope.
+
+    Runs at the handoff rather than at mutation time because the SAB is final at
+    P2 exit while Gate 2 is at P3 exit — generating here puts the derived scope
+    in the P3 commit, ahead of every reader who needs it, and leaves
+    ``_resolve_mutmut_workdir`` with a single source to read.
+
+    Never raises: a scope that cannot be derived is a degradation to record, not
+    a reason to block a phase advance that has already passed every gate.
+    """
+    from core.quality_gate.mutmut_scope import (
+        resolve_mutation_scope,
+        write_paths_to_mutate,
+    )
+
+    sab_path = project / ".methodology" / "SAB.json"
+    if not sab_path.exists():
+        return False
+
+    layout = ProjectLayout(project)
+    src_root = layout.get_relative_str(layout.phase3_development_dir / "src")
+    try:
+        sab = json.loads(sab_path.read_text(encoding="utf-8"))
+        paths = resolve_mutation_scope(sab, src_root)
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError) as exc:
+        record_degradation(
+            project, "mutation:scope",
+            f"SAB.json could not be read for mutation scope ({exc})",
+            why="mutation testing will cover the whole source tree",
+        )
+        return False
+
+    if not paths:
+        # Not an error — a project may legitimately mutate everything. It is
+        # still a ledger line: "we mutated the whole tree" is the most common
+        # reason Gate 2 exceeds its time budget, and the ledger is where the
+        # next reader looks for why a run was slow.
+        record_degradation(
+            project, "mutation:scope",
+            f"no scope_layers on the mutation_testing NFR; "
+            f"mutation testing will cover all of {src_root}",
+            why="declare scope_layers in the SAB when the spec limits the scope",
+        )
+        return False
+
+    # Refuse to write a scope naming directories the project does not have.
+    # setup.cfg would otherwise be a config that makes compute_mutation_score
+    # abort, and the failure would surface at Gate 2 pointing at mutmut.
+    missing = [
+        p for p in (x.strip() for x in paths.split(","))
+        if p and not (project / p).is_dir()
+    ]
+    if missing:
+        record_degradation(
+            project, "mutation:scope",
+            f"SAB scope_layers resolve to non-existent director(ies) {missing}",
+            why="setup.cfg left unchanged; fix the layer→module mapping in the SAB",
+        )
+        return False
+
+    wrote, previous = write_paths_to_mutate(project, paths)
+    if wrote and previous is not None:
+        record_degradation(
+            project, "mutation:scope",
+            f"setup.cfg [mutmut] paths_to_mutate replaced: {previous!r} -> {paths!r}",
+            why="the SAB owns this value; a hand edit does not survive P2→P3",
+        )
+    if wrote:
+        print(f"  [P2→P3] setup.cfg [mutmut] paths_to_mutate → {paths}")
+    return wrote
+
+
 def cmd_advance_phase(args: argparse.Namespace) -> int:
     """Advance to next phase: update state.json atomically.
 
@@ -528,6 +608,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # `harness_cli.py manifest` manually). Surface the reason rather than
     # silent-skip — we have been bitten by silent skips before.
     _manifest_regenerated = False
+    _setup_cfg_written = False
     if args.completed_phase == 2:
         sad_path = ProjectLayout(project).sad_path
         if sad_path.exists():
@@ -610,6 +691,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 f"    python3 harness_cli.py manifest --fr-ids FR-XX [...] --sad {sad_path}",
                 file=sys.stderr,
             )
+        _setup_cfg_written = _regenerate_mutmut_scope(project)
 
     # P7→P8: deterministic baseline for CONFIG_RECORDS.md / RELEASE_CHECKLIST.md.
     # LLM agents had been authoring these from scratch and stalling in P8 (4 stalls
@@ -675,6 +757,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             (project / "00-summary" / f"Phase{args.completed_phase}_STAGE_PASS.md").exists(),
             (project / ".methodology" / f"phase{args.completed_phase}_plan.md").exists(),
             attestation_exists=(project / ".methodology" / "trace" / "attestation.json").exists(),
+            setup_cfg_written=_setup_cfg_written,
         )
         _commit_failure: Optional[str] = None
         add_result = subprocess.run(
@@ -1282,6 +1365,7 @@ def _advance_commit_targets(
     stage_pass_exists: bool = False,
     plan_exists: bool = True,
     attestation_exists: bool = False,
+    setup_cfg_written: bool = False,
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -1328,6 +1412,12 @@ def _advance_commit_targets(
         targets.append(f"00-summary/Phase{completed_phase}_STAGE_PASS.md")
     if attestation_exists:
         targets.append(".methodology/trace/attestation.json")
+    if setup_cfg_written:
+        # Round 30 站2: the P2→P3 handoff renders [mutmut] paths_to_mutate from
+        # the SAB. Only staged when it was actually written this run — same
+        # missing-pathspec hazard as the entries above, and staging an unchanged
+        # file would put a no-op into every advance commit.
+        targets.append("setup.cfg")
     if next_phase == 8:
         targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
     return targets

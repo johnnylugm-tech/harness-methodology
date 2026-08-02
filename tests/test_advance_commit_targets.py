@@ -82,3 +82,28 @@ def test_omits_attestation_when_absent():
         attestation_exists=False,
     )
     assert ".methodology/trace/attestation.json" not in targets
+
+
+def test_includes_setup_cfg_when_mutation_scope_was_written():
+    """Round 30 站2 — the mutation scope is a REVIEWABLE decision.
+
+    setup.cfg's `[mutmut] paths_to_mutate` is regenerated from the SAB at the
+    P2→P3 handoff. If it is not staged in the same advance commit, the decision
+    "we will mutate these layers and not those" lands in an untracked working-
+    tree file: taskq-advance had no setup.cfg at all, mutated 3384 lines instead
+    of the 1846 its SPEC limited Gate 2 to, and nothing in the repo recorded why.
+
+    Same conditional-exists shape as manifest/attestation above — a project that
+    declares no scope has no file to stage, and an explicit `git add` of a
+    missing pathspec fails the whole commit.
+    """
+    written = _advance_commit_targets(
+        2, 3, manifest_regenerated=False, fr_progress_exists=False,
+        setup_cfg_written=True,
+    )
+    not_written = _advance_commit_targets(
+        2, 3, manifest_regenerated=False, fr_progress_exists=False,
+        setup_cfg_written=False,
+    )
+    assert "setup.cfg" in written
+    assert "setup.cfg" not in not_written

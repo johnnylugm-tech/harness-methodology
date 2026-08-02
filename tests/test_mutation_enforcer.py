@@ -73,67 +73,44 @@ def test_resolve_mutmut_workdir_subdir_override(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_mutmut_workdir_derives_scope_from_sab(tmp_path):
-    """When setup.cfg has no [mutmut] section, scope is derived from SAB
-    scope_layers (Round 29 Station 2c).  Without SAB, falls back to full src/.
+def test_resolve_mutmut_workdir_reads_only_setup_cfg(tmp_path):
+    """Round 30 站2 — ONE source at mutation time.
+
+    Round 29 had this function parse SAB.json when setup.cfg carried no key, so
+    the scope was decided in two places with no rule for disagreement. The SAB
+    is still the upstream SSOT; it reaches setup.cfg at the P2→P3 handoff
+    (cli/phase_cmds.py::_regenerate_mutmut_scope), which is also the only place
+    the derived value can land in a reviewable commit.
+
+    A SAB sitting next to a scope-less setup.cfg must therefore change nothing.
     """
-    # Create SAB.json with scope_layers declaring service + storage only.
-    (tmp_path / ".methodology").mkdir()
     import json as _json
-    sab = {
-        "nfr_dimension_mapping": {"NFR-08": "mutation_testing"},
-        "nfr_traceability": {
-            "NFR-08": {
-                "type": "mutation",
-                "dimension": "mutation_testing",
-                "target": "mutation score >= 70 over service/ + storage/",
-                "scope_layers": ["service", "storage"],
-                "module": "taskq_plus.service.executor",
-            }
-        },
-        "layers": [
-            {"name": "service", "modules": [
-                {"name": "taskq_plus.service.executor"},
-                {"name": "taskq_plus.service.breaker"},
-                "taskq_plus.service",
-            ]},
-            {"name": "storage", "modules": [
-                {"name": "taskq_plus.storage.task_store"},
-                "taskq_plus.storage",
-            ]},
-            {"name": "cli", "modules": ["taskq_plus.cli"]},
-        ],
-    }
-    (tmp_path / ".methodology" / "SAB.json").write_text(_json.dumps(sab))
-
-    cwd, paths = _resolve_mutmut_workdir(tmp_path)
-    assert cwd == tmp_path
-    # Should derive service + storage from SAB scope_layers, NOT fall back
-    # to the entire 03-development/src.
-    assert paths == "taskq_plus/service, taskq_plus/storage", (
-        f"Round 29 Station 2 RED: expected scope derived from SAB "
-        f"scope_layers, got {paths!r}"
-    )
-
-
-def test_resolve_mutmut_workdir_setup_cfg_wins_over_sab(tmp_path):
-    """setup.cfg [mutmut] paths_to_mutate takes precedence over SAB scope."""
-    (tmp_path / "setup.cfg").write_text(
-        "[mutmut]\npaths_to_mutate = custom/path\n",
-        encoding="utf-8",
-    )
     (tmp_path / ".methodology").mkdir()
-    import json as _json
     (tmp_path / ".methodology" / "SAB.json").write_text(_json.dumps({
         "nfr_dimension_mapping": {"NFR-08": "mutation_testing"},
-        "nfr_traceability": {
-            "NFR-08": {"scope_layers": ["service"]}
-        },
+        "nfr_traceability": {"NFR-08": {"scope_layers": ["service"]}},
         "layers": [{"name": "service", "modules": ["taskq_plus.service"]}],
     }))
 
     cwd, paths = _resolve_mutmut_workdir(tmp_path)
-    assert paths == "custom/path"
+    assert cwd == tmp_path
+    assert paths == "03-development/src", (
+        "mutation time must read setup.cfg only — a live SAB parse here is the "
+        "second source Round 30 站2 removed"
+    )
+
+
+def test_resolve_mutmut_workdir_reads_the_generated_setup_cfg(tmp_path):
+    """The value the P2→P3 generator wrote is the value mutation time uses."""
+    (tmp_path / "setup.cfg").write_text(
+        "[mutmut]\npaths_to_mutate = 03-development/src/taskq_plus/service, "
+        "03-development/src/taskq_plus/storage\n",
+        encoding="utf-8",
+    )
+    _cwd, paths = _resolve_mutmut_workdir(tmp_path)
+    assert paths == (
+        "03-development/src/taskq_plus/service, 03-development/src/taskq_plus/storage"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +188,7 @@ def test_detect_data_only_files_excludes_known_names(tmp_path):
     (tmp_path / "config.py").write_text("X = 1\n", encoding="utf-8")
     (tmp_path / "constants.py").write_text("Y = 2\n", encoding="utf-8")
     (tmp_path / "__init__.py").write_text("", encoding="utf-8")
-    result = _detect_data_only_files(tmp_path)
+    result = _detect_data_only_files([tmp_path])
     assert "config.py" in result
     assert "constants.py" in result
     assert "__init__.py" in result
@@ -222,7 +199,7 @@ def test_detect_data_only_files_keeps_logic_files(tmp_path):
         "def run():\n    if True:\n        return 1\n",
         encoding="utf-8",
     )
-    result = _detect_data_only_files(tmp_path)
+    result = _detect_data_only_files([tmp_path])
     assert "engine.py" not in result
 
 
@@ -232,7 +209,7 @@ def test_detect_data_only_files_handles_tab_indent(tmp_path):
         "def run():\n\tif True:\n\t\treturn 1\n",
         encoding="utf-8",
     )
-    result = _detect_data_only_files(tmp_path)
+    result = _detect_data_only_files([tmp_path])
     assert "tab_logic.py" not in result
 
 
@@ -242,7 +219,7 @@ def test_detect_data_only_files_handles_two_space_indent(tmp_path):
         "def run():\n  if True:\n    return 1\n",
         encoding="utf-8",
     )
-    result = _detect_data_only_files(tmp_path)
+    result = _detect_data_only_files([tmp_path])
     assert "two_space.py" not in result
 
 

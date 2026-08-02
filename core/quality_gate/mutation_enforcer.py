@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from core.harness_config import get_timeout
+from core.quality_gate.mutmut_scope import mutate_dirs
 from core.utils.project_layout import ProjectLayout
 
 # Basenames that are almost certainly data-only (no logic to mutate).
@@ -47,10 +48,20 @@ _DATA_ONLY_NAMES: frozenset[str] = frozenset({
 def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
     """Return ``(cwd, paths_to_mutate)`` resolved from project ``setup.cfg``.
 
-    Reads ``[mutmut] paths_to_mutate`` from the project-root ``setup.cfg``.
-    If the key is absent, attempts to derive the scope from the SAB's
-    ``scope_layers`` (Round 29 Station 2c).  Falls back to
-    ``03-development/src`` only when neither source declares a scope.
+    Reads ``[mutmut] paths_to_mutate`` from the project-root ``setup.cfg``,
+    falling back to ``03-development/src`` when the key is absent.
+
+    Round 30 站2 — ONE source. Round 29 added a second read path here (parse
+    SAB.json at mutation time when setup.cfg had no key), which meant the scope
+    was decided in two places: a generated setup.cfg AND a live SAB parse, with
+    no rule for which wins when they disagree. Two sources for one decision is
+    the shape this repo keeps paying for. setup.cfg is now the only value read
+    at mutation time; the SAB remains the upstream SSOT and reaches it through
+    ``core.quality_gate.mutmut_scope`` at the P2→P3 handoff, where the result
+    lands in a commit a human can review.
+
+    The "no declared scope" degradation moved to that generator too: recording
+    it here fired once per mutation run and said nothing new each time.
     """
     root_cfg = configparser.ConfigParser()
     root_cfg.read(str(project / "setup.cfg"))
@@ -59,45 +70,9 @@ def _resolve_mutmut_workdir(project: Path) -> tuple[Path, str]:
     default_paths = layout.get_relative_str(layout.phase3_development_dir / "src")
     paths: str = default_paths
 
-    if root_cfg.has_section("mutmut") and root_cfg.has_option("mutmut", "paths_to_mutate"):
+    if root_cfg.has_section("mutmut"):
         paths = root_cfg.get("mutmut", "paths_to_mutate", fallback=default_paths)
-    else:
-        # Round 29 Station 2c: try SAB scope_layers before falling back to
-        # the entire src/ — mutating code the SPEC explicitly excluded from
-        # the budget is what blocks Gate 2 on medium-sized projects.
-        _sab_path = project / ".methodology" / "SAB.json"
-        if _sab_path.exists():
-            _scope = None
-            try:
-                from core.quality_gate.mutmut_scope import resolve_mutation_scope  # noqa: F811
-                import json as _json2
-                _sab = _json2.loads(_sab_path.read_text(encoding="utf-8"))
-                _scope = resolve_mutation_scope(_sab)
-            except Exception:
-                from core.degradation_ledger import record_degradation
-                record_degradation(
-                    project, "mutation:scope",
-                    f"SAB.json exists but could not be read — "
-                    f"falling back to full source tree ({default_paths})",
-                    why="Fix the SAB.json syntax error so mutation scope can be derived"
-                )
-            if _scope:
-                from core.degradation_ledger import record_degradation
-                record_degradation(
-                    project, "mutation:scope",
-                    f"derived paths_to_mutate={_scope!r} from SAB scope_layers "
-                    f"(setup.cfg [mutmut] was absent)",
-                )
-                paths = _scope
-            else:
-                from core.degradation_ledger import record_degradation
-                record_degradation(
-                    project, "mutation:scope",
-                    f"no declared scope in SAB or setup.cfg; "
-                    f"mutating entire source tree ({default_paths}) — "
-                    f"this may exceed the mutation testing budget",
-                    why="Add scope_layers to the mutation_testing NFR in SAB"
-                )
+
     cwd = project
     parts = Path(paths).parts
     # If the configured path is nested (e.g. 03-development/src), check
@@ -159,12 +134,17 @@ def _read_paths_to_exclude(cwd: Path) -> list[str]:
     return raw.split() if raw.strip() else []
 
 
-def _detect_data_only_files(src_dir: Path) -> list[str]:
+def _detect_data_only_files(src_dirs: "list[Path]") -> list[str]:
     """Auto-detect data-only ``.py`` files that have no mutate-able logic.
 
     Returns **basenames** (mutmut matches ``paths_to_exclude`` on basename).
     Files matching ``_DATA_ONLY_NAMES`` are excluded immediately; for the
     rest a heuristic counts logic-keyword lines at any indentation level.
+
+    Round 30 站2: takes the LIST of mutate roots. `paths_to_mutate` has always
+    been comma-separated, and both callers used to hand this a single
+    `cwd / <the whole comma string>` — a directory that cannot exist once a
+    project declares more than one, so the scan silently returned nothing.
     """
     excludes: list[str] = []
     # ``\s+`` covers 2-space, 4-space, and tab-indented code.
@@ -172,17 +152,18 @@ def _detect_data_only_files(src_dir: Path) -> list[str]:
         r"^\s+(if |for |while |with |return |raise |try:|except |assert )",
         re.MULTILINE,
     )
-    for py_file in src_dir.rglob("*.py"):
-        basename = py_file.name
-        if basename in _DATA_ONLY_NAMES:
-            excludes.append(basename)
-            continue
-        try:
-            text = py_file.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        if not _logic_re.search(text):
-            excludes.append(basename)
+    for src_dir in src_dirs:
+        for py_file in src_dir.rglob("*.py"):
+            basename = py_file.name
+            if basename in _DATA_ONLY_NAMES:
+                excludes.append(basename)
+                continue
+            try:
+                text = py_file.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if not _logic_re.search(text):
+                excludes.append(basename)
     return sorted(set(excludes))
 
 
@@ -658,12 +639,10 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
 
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
 
-    paths_list = [p.strip() for p in paths_to_mutate.split(",") if p.strip()]
-    missing = [p for p in paths_list if not (cwd / p).exists()]
+    src_dirs = mutate_dirs(cwd, paths_to_mutate)
+    missing = [str(p.relative_to(cwd)) for p in src_dirs if not p.exists()]
     if missing:
         return False, f"paths_to_mutate contains missing entries: {missing}"
-
-    src_dir = cwd / paths_to_mutate
 
     # --- Bug F: editable install detection ---
     if _is_editable_install(project):
@@ -679,7 +658,7 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
     declared_excludes = _read_paths_to_exclude(cwd)
 
     # --- Bug F: auto-detect data-only files ---
-    auto_excludes = _detect_data_only_files(src_dir)
+    auto_excludes = _detect_data_only_files(src_dirs)
     # Declared excludes take precedence — don't duplicate.
     auto_excludes = [e for e in auto_excludes if e not in frozenset(declared_excludes)]
 
@@ -852,11 +831,13 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         )
 
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
-    src_dir = cwd / paths_to_mutate
-    if not src_dir.exists():
+    src_dirs = mutate_dirs(cwd, paths_to_mutate)
+    missing = [str(p.relative_to(cwd)) for p in src_dirs if not p.exists()]
+    if not src_dirs or missing:
         return False, 0.0, (
-            f"Source directory {src_dir} does not exist; "
-            "mutmut did not run — check [mutmut] paths_to_mutate in setup.cfg."
+            f"paths_to_mutate names {missing or 'nothing'} which does not exist "
+            f"under {cwd}; mutmut did not run — check [mutmut] paths_to_mutate "
+            f"in setup.cfg (regenerated from the SAB at the P2→P3 handoff)."
         )
 
     if _is_editable_install(project):
@@ -866,7 +847,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         )
 
     declared_excludes = _read_paths_to_exclude(cwd)
-    auto_excludes = _detect_data_only_files(src_dir)
+    auto_excludes = _detect_data_only_files(src_dirs)
     auto_excludes = [e for e in auto_excludes if e not in frozenset(declared_excludes)]
     abs_mutate = _abs_paths_to_mutate(cwd, paths_to_mutate)
 
@@ -942,12 +923,19 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
                 f"Cache may be corrupt or unreadable."
             )
 
+        # Round 30 站2: the SCOPE travels with the score. taskq-advance's Gate 2
+        # recorded mutation_testing=0 three times with no artifact anywhere
+        # stating that 3384 lines were mutated against a SPEC that limited the
+        # dimension to 1846 — the number that explains the verdict was the one
+        # number the verdict did not carry. This string is the tool_evidence the
+        # gate reads, so the scope is now inside the judgement itself.
+        _scope_note = f" [scope: {paths_to_mutate}]"
         if total == 0:
             score = 0.0
-            msg = "mutmut produced 0 mutants. Score = 0."
+            msg = f"mutmut produced 0 mutants. Score = 0.{_scope_note}"
         else:
             score = round(100.0 * killed / total, 1)
-            msg = f"killed={killed} survived={survived} score={score}"
+            msg = f"killed={killed} survived={survived} score={score}{_scope_note}"
 
         # Bug #105: PUBLISH the workdir cache to project root. The LLM agent
         # evaluating mutation_testing reads `mutmut results` from this path.
