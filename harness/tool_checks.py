@@ -118,16 +118,10 @@ def verify_gate_tools(
     # state_root when given (init-project: configs come from the harness
     # checkout), else project itself.
     import os
-    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
-        return True, []
-
     target_root = state_root or project
     language = get_project_language(target_root)
     import yaml as _yaml
     cfg_path = None
-    # Round 29 Station 1: use gate_config_path() instead of project_root-relative
-    # globbing.  Old path project/harness/gate_configs/ was one level too high
-    # in submodule layouts.
     from core.quality_gate.gate_thresholds import gate_config_path as _gcp
     try:
         cfg_path = _gcp(gate_num)
@@ -144,6 +138,9 @@ def verify_gate_tools(
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     except (_yaml.YAMLError, OSError) as exc:
         return False, [f"gate config unreadable: {cfg_path.name} ({exc})"]
+
+    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        return True, []
 
     from harness.harness_bridge import filter_enabled_dimensions
     cfg["dimensions"] = filter_enabled_dimensions(

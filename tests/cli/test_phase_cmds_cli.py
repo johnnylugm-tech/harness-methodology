@@ -258,7 +258,8 @@ class TestRunPhaseCISubstrateProbeSkip:
         monkeypatch.setattr(PhaseHooks, "preflight_all",
                             lambda _: {"all_passed": True, "details": {}})
         monkeypatch.delenv("CI", raising=False)
-        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+        monkeypatch.setattr("harness.tool_checks.verify_all_gate_tools",
+                            lambda _: (True, []))
 
         called = []
         monkeypatch.setattr(
