@@ -361,11 +361,9 @@ def _check_enforcement_zombie_keys(layout: ProjectLayout) -> list[Finding]:
 
 
 def _check_crash_bundles(project: Path) -> list[Finding]:
-    crash_dir = project / CRASH_DIR_RELPATH
-    if not crash_dir.is_dir():
-        return []
+    from core.errors import crash_bundle_paths
     untriaged = [
-        p for p in sorted(crash_dir.glob("crash_*.json"))
+        p for p in crash_bundle_paths(project)
         if not p.with_name(p.name + ".triaged").exists()
     ]
     if not untriaged:

@@ -23,7 +23,44 @@ import time
 import traceback
 from pathlib import Path
 
-CRASH_DIR_RELPATH = ".sessi-work/crash"
+# Round 28 站4 — a crash bundle must outlive the run that produced it.
+#
+# These bundles were written under `.sessi-work/crash/` for their whole
+# existence. `.sessi-work/` is gitignored wholesale (.gitignore:9) and is the
+# scratch area agents are instructed to clean up after themselves, so the one
+# artifact a harness-bug diagnosis needs — traceback, argv, repro_command,
+# harness_git_sha — was stored where it is expected to disappear. Round 27 站3
+# measured that exact loss for tool evidence (13 of 14 gate-4 `tool_output`
+# paths pointed into `.sessi-work/` and were already gone) and moved the
+# degradation ledger to `.methodology/`; the crash bundles were left behind.
+#
+# `.methodology/` is durable and mostly version-controlled, which is the point:
+# the crash that blocked a run is still readable after the run, after the
+# cleanup, and from a different session than the one that hit it.
+CRASH_DIR_RELPATH = ".methodology/crash"
+
+# The pre-Round-28 location. Read (never written) so a project that crashed
+# under an older harness and then updated does not get told "no crash bundles
+# found" while its bundles sit on disk — silent blindness is the failure mode
+# this whole area exists to prevent.
+LEGACY_CRASH_DIR_RELPATH = ".sessi-work/crash"
+
+
+def crash_bundle_paths(project: Path) -> "list[Path]":
+    """Every crash bundle belonging to `project`, durable location first.
+
+    The single enumerator. Three consumers — `doctor`, `run-report` and
+    `crash-triage` — each globbed the directory themselves, so the Round 28
+    relocation would have had to be remembered three times, and a project with
+    bundles at the old path would have been reported as clean by whichever
+    consumer was updated last.
+    """
+    out: list[Path] = []
+    for relpath in (CRASH_DIR_RELPATH, LEGACY_CRASH_DIR_RELPATH):
+        crash_dir = project / relpath
+        if crash_dir.is_dir():
+            out.extend(sorted(crash_dir.glob("crash_*.json")))
+    return out
 
 
 def _project_from_argv(argv: list[str]) -> Path:

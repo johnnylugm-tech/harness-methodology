@@ -71,6 +71,42 @@ class TestNoBundles:
         assert "no crash bundles found" in capsys.readouterr().out
 
 
+# ---- Round 28 站4: the bundle outlives the run ----------------------------
+# Crash bundles were written under `.sessi-work/crash/` — gitignored wholesale
+# and the scratch area agents are told to clean up after themselves. The one
+# artifact a harness-bug diagnosis needs was stored where it is expected to
+# disappear (Round 27 站3 measured that exact loss for gate tool evidence:
+# 13 of 14 paths already gone). They now live under `.methodology/crash/`.
+class TestBundleLocation:
+    def test_bundles_are_written_to_the_durable_location(self, tmp_path):
+        from core.errors import CRASH_DIR_RELPATH, write_crash_bundle
+        assert not CRASH_DIR_RELPATH.startswith(".sessi-work"), (
+            "the crash bundle must not live in the disposable scratch area — "
+            "it is the input to every harness-bug diagnosis")
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            path = write_crash_bundle(exc, ["status", "--project", str(tmp_path)])
+        assert path is not None and path.parent == tmp_path / CRASH_DIR_RELPATH
+
+    def test_bundles_at_the_pre_round28_path_are_still_triaged(self, tmp_path, capsys):
+        """A project that crashed under an older harness and then updated must
+        not be told it is clean while its bundles sit on disk."""
+        _bundle(tmp_path / ".sessi-work" / "crash", "20260101T000000Z", 1)
+        rc = cr_cmds.cmd_crash_triage(_args(tmp_path))
+        assert rc == 0
+        assert "no crash bundles found" not in capsys.readouterr().out
+
+    def test_both_locations_are_reported_together(self, tmp_path, capsys):
+        from core.errors import CRASH_DIR_RELPATH
+        _bundle(tmp_path / ".sessi-work" / "crash", "20260101T000000Z", 1)
+        _bundle(tmp_path / CRASH_DIR_RELPATH, "20260101T000100Z", 2)
+        cr_cmds.cmd_crash_triage(_args(tmp_path))
+        out = capsys.readouterr().out
+        # One signature, both occurrences counted.
+        assert "2 " in out or "2\n" in out, out
+
+
 class TestGrouping:
     def test_same_signature_bundles_group_into_one_row(self, tmp_path, capsys):
         crash_dir = tmp_path / ".sessi-work" / "crash"

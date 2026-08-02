@@ -25,8 +25,8 @@ shape: a failure that wasn't the class it was treated as.
 |---|---|---|---|---|---|
 | **BLOCK** | `[BLOCKED]` | A real, fixable quality/precondition failure — bad code, a missing artifact, an unmet gate | most of `cli/exit_codes.py`'s `REGISTRY` (the oldest, largest category — see that file, not a hand-copied list here) | stdout (the agent-facing protocol surface) | Read the message as the fix instruction and act on it verbatim. `tests/test_blocked_message_contract.py` guarantees every `[BLOCKED]` on the four agent-facing hot paths (advance-phase / finalize-gate / run-fr-step / push-checkpoint / push-milestone) carries a concrete remediation element. |
 | **FATAL** | `[FATAL]` | The environment/substrate is broken — a tool can't run, dispatch is structurally broken, a spawned agent can't execute pytest/git, or a project data file exists but isn't readable. No code change fixes this | `23` dispatch structurally broken, `24` substrate preflight failed, `25` FR-step infra/harness-bug abort, `26` `.methodology/state.json`/`quality_manifest.json` corrupt (Round 14 — see `core/state_io.py`'s `StateCorruptError`) | stdout | STOP. Do not retry, do not attempt a code fix. Escalate to a human. Exit `26` specifically: `git restore` the corrupt file if it's tracked, or run `harness_cli.py doctor` — this is project data corruption, not a code defect. |
-| **HARNESS-BUG** | `[HARNESS-BUG]` | harness-methodology's own code crashed — an uncaught exception reached the top level. Not a problem with the target project at all | `70` | **stderr only** — must never look like a project-quality signal on the agent-facing stdout channel | STOP. Do not retry, do not modify project code. Report the banner verbatim. A crash bundle is waiting in `.sessi-work/crash/` for `crash-triage`. |
-| **DEGRADE** | `[DEGRADED]` | A fallback fired that changes downstream behavior (discarded tracked history, an empty baseline, a silently-skipped record) — but the run can legitimately continue | none (the run's own exit code is unaffected) | stderr + appended to `.sessi-work/degradations.jsonl` | Continue. If a downstream result looks off, check the ledger first — it names exactly what changed and why. |
+| **HARNESS-BUG** | `[HARNESS-BUG]` | harness-methodology's own code crashed — an uncaught exception reached the top level. Not a problem with the target project at all | `70` | **stderr only** — must never look like a project-quality signal on the agent-facing stdout channel | STOP. Do not retry, do not modify project code. Report the banner verbatim. A crash bundle is waiting in `.methodology/crash/` for `crash-triage`. |
+| **DEGRADE** | `[DEGRADED]` | A fallback fired that changes downstream behavior (discarded tracked history, an empty baseline, a silently-skipped record) — but the run can legitimately continue | none (the run's own exit code is unaffected) | stderr + appended to `.methodology/degradations.jsonl` | Continue. If a downstream result looks off, check the ledger first — it names exactly what changed and why. |
 | **WARN** | `[WARN]` | Worth a human's attention but changes nothing about how the run proceeds | none | stderr for new code (see note below) | No action required to proceed. |
 
 **Existing markers outside this taxonomy**: `[ERROR]` (41 sites) is used
@@ -144,7 +144,7 @@ one.
   leaked to top-level` + exit `1` — visible, not alarming: it means a call
   site forgot to catch something it owns, not that harness crashed.
 - Anything else → `core.errors.write_crash_bundle()` writes
-  `.sessi-work/crash/crash_<timestamp>_<pid>.json` (full traceback, argv,
+  `.methodology/crash/crash_<timestamp>_<pid>.json` (full traceback, argv,
   cwd, harness's own git SHA, a ready-to-run repro command, and a
   ready-to-paste maintenance prompt), the `[HARNESS-BUG]` banner prints to
   stderr, and the process exits `70`.
@@ -175,7 +175,7 @@ harness_cli.py crash-triage --project <project> --open-cr    # file each unfiled
   is idempotent, and a bundle that arrives later for an already-filed
   signature reuses the existing CR instead of opening a duplicate.
 - `harness_cli.py doctor` WARNs when an untriaged bundle is sitting in
-  `.sessi-work/crash/` — a confirmed harness bug nobody has looked at yet.
+  `.methodology/crash/` — a confirmed harness bug nobody has looked at yet.
 
 ## Why a gate blocked — the seven causes (Round 24 站1)
 

@@ -207,11 +207,8 @@ def _degradation_report(project: Path) -> dict:
 
 def _crash_report(project: Path) -> dict:
     from cli.cr_cmds import triaged_marker
-    from core.errors import CRASH_DIR_RELPATH
-    crash_dir = project / CRASH_DIR_RELPATH
-    if not crash_dir.is_dir():
-        return {"available": False}
-    bundles = sorted(crash_dir.glob("crash_*.json"))
+    from core.errors import crash_bundle_paths
+    bundles = crash_bundle_paths(project)
     if not bundles:
         return {"available": False}
     untriaged = sum(1 for b in bundles if not triaged_marker(b).is_file())

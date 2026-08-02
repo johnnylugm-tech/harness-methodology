@@ -267,16 +267,16 @@ _TB_FRAME_RE = re.compile(r'^\s*File "(.+?)", line (\d+), in (\S+)\s*$')
 
 
 def _load_crash_bundles(project: Path) -> list[tuple[Path, dict]]:
-    """All readable crash bundles under `project`'s .sessi-work/crash/, oldest
-    first. Unreadable files are a real (if minor) loss of triage coverage —
+    """All readable crash bundles for `project`, oldest first.
+
+    Reads the durable location and the pre-Round-28 `.sessi-work/` one, so a
+    project that crashed under an older harness and then updated still gets
+    triaged. Unreadable files are a real (if minor) loss of triage coverage —
     recorded on the degradation ledger rather than silently skipped."""
     from core.degradation_ledger import record_degradation
-    from core.errors import CRASH_DIR_RELPATH
-    crash_dir = project / CRASH_DIR_RELPATH
-    if not crash_dir.is_dir():
-        return []
+    from core.errors import crash_bundle_paths
     out: list[tuple[Path, dict]] = []
-    for p in sorted(crash_dir.glob("crash_*.json")):
+    for p in crash_bundle_paths(project):
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
@@ -285,6 +285,7 @@ def _load_crash_bundles(project: Path) -> list[tuple[Path, dict]]:
             continue
         if isinstance(data, dict):
             out.append((p, data))
+    out.sort(key=lambda pe: pe[1].get("timestamp", ""))
     return out
 
 

@@ -89,7 +89,18 @@ no-progress loops (`no_progress_count >= 2`) here before returning exit 2,
 eliminating the blind spot where silent `return 2` previously left no trail
 for `run-report`.
 
-### `.sessi-work/crash/crash_<timestamp>_<pid>.json`
+### `.methodology/crash/crash_<timestamp>_<pid>.json`
+
+**Round 28 站4 moved this out of `.sessi-work/` for the same reason as the
+ledger above** — Round 27 站3 moved the ledger and left the crash bundles
+behind. A bundle is the *only* input to a harness-bug diagnosis (traceback,
+`argv`, `repro_command`, `harness_git_sha`), and it was living in the directory
+agents are instructed to clean up after themselves. `CRASH_DIR_RELPATH` is the
+single source; `LEGACY_CRASH_DIR_RELPATH` is read, never written, so a project
+that crashed under an older harness and then updated is not reported as clean
+while its bundles sit on disk. `core/errors.crash_bundle_paths()` is the one
+enumerator — `doctor`, `run-report` and `crash-triage` all go through it rather
+than globbing the directory themselves.
 
 Written by `core/errors.write_crash_bundle()` when `harness_cli.py`'s
 `_dispatch()` crash boundary catches an uncaught exception (Round 13

@@ -14,7 +14,11 @@ import json
 import pytest
 
 import harness_cli
-from core.errors import format_harness_bug_banner, write_crash_bundle
+from core.errors import (
+    CRASH_DIR_RELPATH,
+    format_harness_bug_banner,
+    write_crash_bundle,
+)
 
 
 # ---- core/errors.py: write_crash_bundle -----------------------------------
@@ -28,7 +32,7 @@ def test_write_crash_bundle_creates_expected_file(tmp_path):
 
     assert bundle_path is not None
     assert bundle_path.exists()
-    assert bundle_path.parent == tmp_path / ".sessi-work" / "crash"
+    assert bundle_path.parent == tmp_path / CRASH_DIR_RELPATH
     data = json.loads(bundle_path.read_text(encoding="utf-8"))
     assert data["exc_type"] == "ValueError"
     assert data["exc_message"] == "boom"
@@ -46,7 +50,7 @@ def test_write_crash_bundle_falls_back_to_cwd_without_project_arg(tmp_path, monk
     except RuntimeError as exc:
         bundle_path = write_crash_bundle(exc, ["status"])
     assert bundle_path is not None
-    assert bundle_path.parent == tmp_path / ".sessi-work" / "crash"
+    assert bundle_path.parent == tmp_path / CRASH_DIR_RELPATH
 
 
 def test_write_crash_bundle_never_raises_on_write_failure(tmp_path, capsys):
@@ -143,7 +147,7 @@ def test_dispatch_generic_exception_returns_70_with_harness_bug_banner(tmp_path,
     err = capsys.readouterr().err
     assert "[HARNESS-BUG] ValueError: unexpected internal bug" in err
     assert "Traceback" in err  # full traceback still printed for human debugging
-    bundle_dir = tmp_path / ".sessi-work" / "crash"
+    bundle_dir = tmp_path / CRASH_DIR_RELPATH
     assert bundle_dir.exists()
     assert list(bundle_dir.glob("crash_*.json")), "crash bundle must be written as a side effect"
 
@@ -184,7 +188,7 @@ def test_dispatch_state_corrupt_error_returns_26_with_fatal_not_harness_bug(tmp_
     assert "[FATAL]" in captured.out
     assert "[HARNESS-BUG]" not in captured.out
     assert "[HARNESS-BUG]" not in captured.err
-    bundle_dir = tmp_path / ".sessi-work" / "crash"
+    bundle_dir = tmp_path / CRASH_DIR_RELPATH
     assert not bundle_dir.exists(), "a StateCorruptError must never write a crash bundle"
 
 
