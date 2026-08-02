@@ -189,7 +189,17 @@ def test_dispatch_records_a_heartbeat_when_the_handler_crashes(tmp_path):
         raise RuntimeError("kaboom")
 
     args = argparse.Namespace(command="finalize-gate", project=str(tmp_path), func=_boom)
-    assert harness_cli._dispatch(args, ["finalize-gate"]) == EX_HARNESS_BUG
+    # argv must carry --project too: write_crash_bundle resolves the project from
+    # ARGV (core.errors._project_from_argv), not from `args`, so an argv without
+    # it falls back to Path.cwd() and drops a real crash bundle in this repo. It
+    # did, on every full pytest run, invisibly — the bundles landed in the
+    # gitignored .sessi-work/. Round 28 站4 moved them somewhere visible and the
+    # next `git status` showed five of them.
+    argv = ["finalize-gate", "--project", str(tmp_path)]
+    assert harness_cli._dispatch(args, argv) == EX_HARNESS_BUG
+    from core.errors import CRASH_DIR_RELPATH
+    assert list((tmp_path / CRASH_DIR_RELPATH).glob("crash_*.json")), (
+        "the bundle must land under the test's own project, not the caller's cwd")
     beat = read_heartbeat(tmp_path)
     assert beat is not None and beat["command"] == "finalize-gate"
 
