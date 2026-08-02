@@ -32,6 +32,14 @@ export const meta = {
   ],
 }
 
+// ── Round 28: top-level crash boundary ─────────────────────────────────
+// The runtime does not catch anything; an uncaught throw ends the run with
+// no result at all. Everything below runs inside this try so a failed
+// dispatch becomes a structured return the operator can act on. Body is
+// spliced verbatim (not re-indented) to keep it byte-identical to the
+// generator output run-all inlines.
+try {
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -528,4 +536,13 @@ return {
   advance_status: 'PASS',
   artifacts: ['06-quality/QUALITY_REPORT.md', 'RELEASE_NOTES.md', 'FINAL_SIGN_OFF.md', '.methodology/agent_b_approvals/', '.sessi-work/gate4_result.json', '.methodology/quality_manifest.json', 'HANDOVER.md'],
   notes: 'Phase 6 complete per phase6_plan.md v2.12.0. Gate 4 PASS + Agent B peer review APPROVE. Phase 7 (Risk Management) ready.',
+}
+} catch (err) {
+  const msg = (err && err.message) ? err.message : String(err)
+  return {
+    error: 'workflow crashed: ' + msg.slice(0, 300),
+    workflow: meta.name,
+    crashed: true,
+    note: 'An agent dispatch threw instead of returning a result — most often a transient transport error, which the Workflow runtime does not retry or catch. Nothing was skipped silently: relaunch this workflow and its GUARD/sentinel checks short-circuit the work that already completed.',
+  }
 }

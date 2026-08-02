@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import { runWorkflow, makeHappyResponder, nullResponder } from './sim_runner.mjs'
+import { runWorkflow, makeHappyResponder, nullResponder, throwingResponder } from './sim_runner.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const WF = (name) => join(REPO, '.claude', 'workflows', name)
@@ -241,24 +241,31 @@ test('phase7 Sync: a FAIL verdict early-returns an error (post-advance push did 
   assert.match(result.error, /post-advance push did not PASS/)
 })
 
-// ---- 4. garbage B response crashes the A/B machine (pinned weakness) -------
+// ---- 4. garbage B response no longer crashes the A/B machine ---------------
 // parseAgentJson THROWS on JSON-less text; runSubTask's fallback
-// `sbrResult.b2 || parseAgentJson(bResult, ...)` therefore escapes as a
-// top-level crash instead of a graceful {error} return when BOTH the B agent
-// and the structured_b_review validator return prose without JSON. Pinned
-// as-is (behavior-equivalence discipline); the graceful-degrade fix is a
-// Round 12 station-2 / audit-doc item, not a sim-testbed change.
-test('phase1 A/B machine: JSON-less B + JSON-less validator crash the workflow (pinned current behavior)', async () => {
+// `sbrResult.b2 || parseAgentJson(bResult, ...)` had no catch, so when BOTH
+// the B agent and the structured_b_review validator returned prose without
+// JSON, the throw escaped and killed the run. This test used to pin that as
+// current behaviour, with the note that the graceful-degrade fix was a Round
+// 12 station-2 / audit-doc item rather than a sim change.
+//
+// Round 28's top-level boundary is that fix, arriving from the layer where it
+// belongs: the failure is not specific to the A/B machine — any throw anywhere
+// in a standalone phase file ended the run the same way. The diagnosis (the
+// throw is real and is not caught locally) still holds; what changed is that
+// PARSE_FAIL now leaves through a structured return the operator can read.
+test('phase1 A/B machine: JSON-less B + JSON-less validator degrade to a structured error', async () => {
   // first-match-wins: these two shadow the happy pack's b-/sbr- entries.
   const overrides = [
     { match: /^b-\d+-r/, respond: 'I looked at the document and it seems fine to me.' },
     { match: /^sbr-/, respond: 'The validator could not produce output today.' },
     ...happyOverrides(),
   ]
-  await assert.rejects(
-    runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(overrides)),
-    /PARSE_FAIL/,
-  )
+  const { result } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(overrides))
+  assert.ok(result.error, `expected a structured error, got: ${JSON.stringify(result).slice(0, 200)}`)
+  assert.match(result.error, /PARSE_FAIL/,
+    'the boundary must carry the original failure through, not replace it with a generic message')
+  assert.equal(result.crashed, true, 'a throw is reported as a crash, not as an ordinary verdict')
 })
 
 // ---- 5. schema response missing required fields ----------------------------
@@ -763,5 +770,33 @@ for (const { flag, reply, why } of TERMINAL_FLAG_CASES) {
     assert.ok(result.error || result[flag],
       `${flag}: run-all returned a success shape after a terminal abort — `
       + JSON.stringify(result).slice(0, 200))
+  })
+}
+
+// 14b. No dispatch may kill the run.
+// A rejecting `agent()` is not exotic: it is what a transient transport error
+// looks like. run-all wraps each phase call in try/catch (Round 23), so it
+// survives all 85 of its labels; the eight standalone files it was generated
+// from have no boundary at all, so 84 of their 217 labels take the whole run
+// down with no result. The boundary belongs to every file, not just the one
+// that happened to get it.
+for (const name of ALL_WORKFLOW_FILES) {
+  test(`round28: ${name} — no dispatch failure escapes as an unhandled throw`, async () => {
+    const base = () => makeHappyResponder(sweepOverrides(name))
+    const { events } = await runWorkflow(WF(name), base())
+    const labels = [...new Set(events.agents.map((a) => a.label))]
+    assert.ok(labels.length > 0, `${name}: no dispatches observed — scenario pack is broken`)
+    const escaped = []
+    for (const label of labels) {
+      try {
+        await runWorkflow(WF(name), throwingResponder(label, base()))
+      } catch {
+        escaped.push(label)
+      }
+    }
+    assert.deepEqual(escaped, [],
+      `${name}: ${escaped.length}/${labels.length} dispatch label(s) kill the run with no `
+      + `structured result — the operator gets no phase, no reason, no resume point. `
+      + `First few: ${escaped.slice(0, 5).join(', ')}`)
   })
 }

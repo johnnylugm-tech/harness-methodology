@@ -169,3 +169,28 @@ export function makeHappyResponder(overrides = []) {
 /** Responder that returns null for every agent — the runtime's
  *  session-limit / terminal-API-error shape. */
 export const nullResponder = () => null
+
+/**
+ * Responder that THROWS at one dispatch label and delegates everywhere else —
+ * the runtime's transient-transport-error shape (Round 28).
+ *
+ * `nullResponder` covers the failure the workflows already model everywhere
+ * (`agent()` RESOLVES with null/empty => session limit). This covers the one
+ * they mostly do not: `agent()` REJECTS. The workflow runtime does not catch
+ * that — a throw the script does not handle kills the whole run and produces
+ * no result at all, so the operator sees a dead run with no phase, no reason
+ * and no resume point. The 2026-07-30 incident (a transport error 83
+ * dispatches / 3h into a run) was exactly this shape.
+ *
+ * @param {string|RegExp} label exact label, or a pattern to match against it
+ * @param {(call:object, events:object)=>any} [base] responder for every other call
+ */
+export function throwingResponder(label, base = makeHappyResponder()) {
+  const hits = (l) => (typeof label === 'string' ? l === label : label.test(l))
+  return (call, events) => {
+    if (hits(call.label)) {
+      throw new Error('API Error: Connection error. (simulated transient transport failure)')
+    }
+    return base(call, events)
+  }
+}

@@ -98,8 +98,68 @@ def generate_raw(phase: int) -> str:
     return fn()
 
 
+def _wrap_top_level_boundary(text: str) -> str:
+    """Give a standalone phase file the crash boundary run-all already has.
+
+    The Workflow runtime's entire error behaviour is to terminate the run: an
+    `agent()` call that REJECTS — a transient transport error, the shape that
+    took a live run down 83 dispatches in — propagates out of the script and
+    the operator is left with a dead run carrying no phase, no reason and no
+    resume point. run-all survives this because its driver wraps each
+    `runPhaseN()` call (Round 23); the eight files it is generated FROM never
+    got the same protection. Swept in the sim testbed by throwing at every
+    dispatch label in turn: 84 of their 217 labels killed the run outright,
+    against 0 of run-all's 85.
+
+    Applied here rather than in the eight spec modules for the same reason the
+    dispatch wrapper is: one place decides all eight, and there is no ninth
+    that can be forgotten. Applied to `generate` and NOT to `generate_raw`, so
+    run-all — which inlines the raw bodies into functions its driver already
+    guards — is untouched and does not end up double-wrapped.
+
+    The body is spliced in verbatim, without re-indenting: keeping it
+    byte-identical to the raw generator output means the golden diffs stay
+    readable and the run-all equivalence assertions keep comparing like with
+    like. `return` inside `try` returns from the enclosing async function the
+    runtime evaluates the file in, so every existing early return still works.
+
+    Everything after `meta` goes inside the try, INCLUDING the dispatch wrapper.
+    Leaving the wrapper outside was the first attempt and it broke all eight
+    files: `REPO` and `PY` are `let`/`const` declared in the body, so moving the
+    body into a block put them out of reach of `__dispatchFlushPreamble`, which
+    reads both. One block, one scope.
+    """
+    marker = "\n}\n"  # the meta object's closing brace
+    meta_end = text.index("export const meta = {") + 1
+    close = text.index(marker, meta_end) + len(marker)
+    head, body = text[:close], text[close:]
+    return (
+        head
+        + "\n// ── Round 28: top-level crash boundary ─────────────────────────────────\n"
+        "// The runtime does not catch anything; an uncaught throw ends the run with\n"
+        "// no result at all. Everything below runs inside this try so a failed\n"
+        "// dispatch becomes a structured return the operator can act on. Body is\n"
+        "// spliced verbatim (not re-indented) to keep it byte-identical to the\n"
+        "// generator output run-all inlines.\n"
+        "try {\n"
+        + body.rstrip("\n")
+        + "\n} catch (err) {\n"
+        "  const msg = (err && err.message) ? err.message : String(err)\n"
+        "  return {\n"
+        "    error: 'workflow crashed: ' + msg.slice(0, 300),\n"
+        "    workflow: meta.name,\n"
+        "    crashed: true,\n"
+        "    note: 'An agent dispatch threw instead of returning a result — most often a "
+        "transient transport error, which the Workflow runtime does not retry or catch. "
+        "Nothing was skipped silently: relaunch this workflow and its GUARD/sentinel checks "
+        "short-circuit the work that already completed.',\n"
+        "  }\n"
+        "}\n"
+    )
+
+
 def generate(phase: int) -> str:
-    return _inject_dispatch_wrapper(generate_raw(phase))
+    return _wrap_top_level_boundary(_inject_dispatch_wrapper(generate_raw(phase)))
 
 
 def _target_path(phase: int) -> Path:
