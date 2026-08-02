@@ -475,7 +475,13 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1170,
+    "core/quality_gate/mutation_enforcer.py": 1219,
+    # 2026-08-03 (Round 31 站3): +49 more — the cache resume the Bug v26
+    # timeout message had promised for a round without any code behind it,
+    # plus _is_resumable_cache. Inheriting a cache means an unusable one
+    # becomes the new run's problem, and a crashed run leaves exactly that
+    # (test_stale_cache_removed_when_workdir_cache_absent caught it: a 14-byte
+    # file made _count_mutmut_results raise "file is not a database").
     # 2026-08-03 (Round 31 站2): +80 lines — MUTATION_SCORE_ARTIFACT and
     # _write_score_artifact. mutation_testing is tier-1 and objective_primary,
     # and it was the only tier-1 dimension whose number the framework never

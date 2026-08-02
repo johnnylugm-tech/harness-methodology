@@ -168,6 +168,33 @@ def _detect_data_only_files(src_dirs: "list[Path]") -> list[str]:
     return sorted(set(excludes))
 
 
+#: SQLite's file header. mutmut 2.x's cache is a plain sqlite database.
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def _is_resumable_cache(cache_path: Path) -> bool:
+    """Whether *cache_path* holds prior mutmut results worth inheriting.
+
+    Round 31 站3. Resuming means copying the project-root cache into the temp
+    workdir, so anything unusable there becomes this run's problem: a truncated
+    or non-sqlite file makes `_count_mutmut_results` raise "file is not a
+    database" and turns a working run into an error. Both shapes occur — a
+    crashed run leaves a zero-byte file, and a partially-written one leaves a
+    fragment.
+
+    Checking the header rather than opening the database keeps the decision
+    cheap and keeps the failure mode explicit: an unreadable cache means
+    "start clean", never "fail the run".
+    """
+    try:
+        if not cache_path.is_file() or cache_path.stat().st_size <= len(_SQLITE_MAGIC):
+            return False
+        with open(cache_path, "rb") as fh:
+            return fh.read(len(_SQLITE_MAGIC)) == _SQLITE_MAGIC
+    except OSError:
+        return False
+
+
 def _abs_paths_to_mutate(cwd: Path, paths_to_mutate: str) -> str:
     """Convert comma-separated relative paths to absolute, comma-separated."""
     parts = [p.strip() for p in paths_to_mutate.split(",") if p.strip()]
@@ -1002,6 +1029,27 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         # hardcodes `python`; modern macOS lacks that symlink).
         _copy_setup_cfg_to_workdir(project, workdir, test_dir, cwd=cwd)
 
+        # Round 31 站3: RESUME. The TimeoutExpired branch below has claimed
+        # since Bug v26 that the partial cache it publishes lets "the next run
+        # resume" — and no run ever did, because every call opens a fresh
+        # mktemp workdir and mutmut reads .mutmut-cache from its cwd. Nothing
+        # copied it in; the five copy2 calls in this file all copy outward.
+        # The observable cost: on the project that motivated Bug v26 the agent
+        # ended up running mutmut file by file and accumulating the project-root
+        # cache by hand, because the framework's own retry always started from
+        # zero and never finished inside the 60-minute cap.
+        #
+        # Safe because mutmut 2.x keys the cache on source-line CONTENT and
+        # `tested_against_hash` (mutmut/cache.py:get_cached_mutation_statuses):
+        # edit the source or the tests and the affected mutants go back to
+        # UNTESTED. Only work that is still valid is inherited.
+        # run_mutation_precheck deliberately does NOT do this — its contract is
+        # a fresh verdict every time.
+        if _is_resumable_cache(cache_file):
+            shutil.copy2(cache_file, workdir_cache)
+            print(f"  [mutation] resuming from {cache_file.stat().st_size} "
+                  f"bytes of prior results")
+
         cmd = [
             "mutmut", "run",
             f"--paths-to-mutate={abs_mutate}",
@@ -1127,7 +1175,8 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
                 shutil.copy2(workdir_cache, cache_file)
                 partial_msg = (
                     f" (partial cache ({workdir_cache.stat().st_size} bytes) "
-                    "published to .mutmut-cache; next run will resume)"
+                    f"published to {cache_file.name}; the next run copies it "
+                    f"into its workdir and resumes from there)"
                 )
             except OSError as exc:
                 partial_msg = f" (partial-cache publish failed: {exc})"
