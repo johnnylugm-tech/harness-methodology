@@ -33,10 +33,6 @@ score_gate: 80
 max_rounds: 3
 early_stop: true
 saturation_rounds: 3
-mutation_testing:
-  median_runs: 3
-  timeout_per_run: 120
-  objective_primary: true
 crg:
   enabled: true
   reconnaissance: true

@@ -1756,7 +1756,6 @@ Four files: `gate1_per_fr.yaml`, `gate2_p3_exit.yaml`, `gate3_p4_exit.yaml`, `ga
 | `max_rounds` | `int` | Yes | Max auto-fix iterations |
 | `early_stop` | `bool` | Yes | Stop eval after first issue found |
 | `saturation_rounds` | `int` | Gate 2/3/4 only | Consecutive no-new-issue rounds → saturated |
-| `mutation_testing` | `dict` | Gate 2/3/4 only | `{median_runs: int, timeout_per_run: int}` |
 | `crg` | `dict` | Gate 2/3/4 only | CRG integration settings (see below) |
 | `crg.enabled` | `bool` | Gate 3/4 | Enable CRG |
 | `crg.reconnaissance` | `bool` | Gate 3/4 | Run structural recon at gate entry |
@@ -1806,7 +1805,6 @@ score_gate: 75
 max_rounds: 3
 early_stop: true
 saturation_rounds: 3
-mutation_testing: { median_runs: 3, timeout_per_run: 120 }
 crg: { impact_check: true, impact_threshold: 0.7 }
 replaces: auto_research_p3
 ```
@@ -1835,7 +1833,6 @@ score_gate: 80
 max_rounds: 3
 early_stop: true
 saturation_rounds: 3
-mutation_testing: { median_runs: 3, timeout_per_run: 120 }
 crg:
   enabled: true
   reconnaissance: true
@@ -1869,7 +1866,6 @@ score_gate: 85
 max_rounds: 3
 early_stop: true
 saturation_rounds: 3
-mutation_testing: { median_runs: 3, timeout_per_run: 120 }
 crg:
   enabled: true
   reconnaissance: true

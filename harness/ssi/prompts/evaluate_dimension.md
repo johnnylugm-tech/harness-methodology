@@ -297,17 +297,19 @@ _PROJECT_ROOT=$(pwd)
 > printing the evaluation prompt. All required tools must be installed via `init-project`
 > before starting the project.
 >
-> **objective_primary**: mutation_testing has `objective_primary: true` in config. The mutmut
-> score (survived/killed ratio) IS the authoritative score. When writing the score file,
-> include `"objective_primary": true` in the JSON. The `score` field must equal `tool_score`
-> (score.py R4 enforces this — LLM annotation cannot adjust the numeric score). The
-> `llm_score` field is recorded for annotation purposes only; it does not affect gate scoring.
-> score.py R8b deviation warning was removed when LLM scoring was abolished.
+> **objective_primary**: the mutmut kill ratio IS the authoritative score. When writing the
+> score file, include `"objective_primary": true` in the JSON and make `score` equal
+> `tool_score` (score.py R4 enforces this — LLM annotation cannot adjust the numeric score).
+> The `llm_score` field is recorded for annotation purposes only; it does not affect gate
+> scoring. score.py R8b deviation warning was removed when LLM scoring was abolished.
 >
-> **Score formula**: `tool_score = round(killed / (killed + survived) × 100, 1)`. Parse
-> `mutmut results` output: sum 🎉 across all files as `killed`, sum 🙁 as `survived`.
-> ⏰ (timeout) and 🤔 (suspicious) count as survived — they were not killed by tests.
-> If no mutants were produced (0 killed + 0 survived), score = 0 (not 100).
+> **Score formula**: `round(killed / (killed + survived) × 100, 1)`, with ⏰ (timeout) and
+> 🤔 (suspicious) counted as survived — they were not killed by tests — and score = 0 (not
+> 100) when no mutants were produced. **You do not compute this**: the framework reads the
+> counts out of mutmut's sqlite cache and writes the result to
+> `.methodology/mutation_score.json`. The formula is here so the number is explicable, not
+> so it gets re-derived. (Do not try to parse 🎉 out of `mutmut results` — mutmut 2.x never
+> prints it; that instruction was wrong from Bug #108 until Round 31.)
 >
 > **Equivalent mutants**: some code changes produce identical behaviour — no test can kill
 > them. Do NOT chase every survived mutant as a coverage gap. Signs of equivalence:

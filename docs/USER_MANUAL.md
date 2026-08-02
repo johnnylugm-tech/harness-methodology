@@ -450,7 +450,7 @@ python harness_cli.py effort --project /project   # review total effort
 | Score threshold | 75 | Dimensions | 10 |
 |---|---|---|---|
 | Max rounds | 3 | Saturation rounds | 3 |
-| CRG | impact_check | mutation_testing | median_runs=3, objective_primary=true |
+| CRG | impact_check | mutation_testing | framework-computed (.methodology/mutation_score.json) |
 | New dims | D4_TestInventory (pre-check ≥ 60%) | integration_coverage (w=0.10) | test_assertion_quality (w=0.06) |
 
 ### Gate 3 — P4 Phase Exit
