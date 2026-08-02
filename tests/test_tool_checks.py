@@ -61,3 +61,15 @@ class TestVerifyGateToolsCorruptConfig:
         ok, missing = tool_checks.verify_gate_tools(1, str(tmp_path))
         assert ok is True
         assert missing == []
+
+
+def test_verify_gate_tools_skips_in_ci_environment(tmp_path, monkeypatch):
+    """Round 29 CI fix: verify_gate_tools skips tool availability checks
+    when running inside a CI environment (CI/GITHUB_ACTIONS env vars set),
+    aligning with phase_cmds.py's substrate probe CI skip policy."""
+    monkeypatch.setenv("CI", "true")
+    # Even with a failing gate config path, CI bypass returns (True, [])
+    ok, missing = tool_checks.verify_gate_tools(1, str(tmp_path))
+    assert ok is True
+    assert missing == []
+

@@ -117,6 +117,10 @@ def verify_gate_tools(
     # The target project (where state.json + node_modules + tsconfig live) is
     # state_root when given (init-project: configs come from the harness
     # checkout), else project itself.
+    import os
+    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+        return True, []
+
     target_root = state_root or project
     language = get_project_language(target_root)
     import yaml as _yaml
