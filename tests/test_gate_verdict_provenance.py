@@ -154,3 +154,26 @@ class TestEnforcerSkewIsVisible:
             "advance-phase stopped stamping phase_completed with the enforcer that "
             "produced the phase, so the skew check above has nothing to compare"
         )
+
+    def test_both_writers_also_record_the_enforcer_surface(self):
+        """Round 30 站4 — the rebase-proof half must be written too.
+
+        Round 29 站4 added `enforcer_surface` to both writers and pinned neither.
+        Removing either line left the whole provenance test file green, so its
+        own listed counter-proof could not fire. The commit SHA goes stale on any
+        rebase (taskq-advance's 11 verdicts all name an orphaned `01bb3bb4`);
+        the surface is what still answers "was the enforcing code the same?", and
+        core.doctor._check_enforcer_provenance is the reader that needs it there.
+        """
+        import inspect
+
+        import cli.gate_cmds as gc
+        import cli.phase_cmds as pc
+
+        assert 'data["enforcer_surface"] = enforcer_surface()' in inspect.getsource(gc), (
+            "gate results stopped carrying enforcer_surface — a rebase now erases "
+            "every trace of which code produced the verdict"
+        )
+        assert '"enforcer_surface": enforcer_surface()' in inspect.getsource(pc), (
+            "state.json.phase_completed stopped carrying enforcer_surface"
+        )

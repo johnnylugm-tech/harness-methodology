@@ -172,6 +172,11 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # calling the harness. See core/heartbeat.py's module docstring.
     findings.extend(_check_heartbeat(project))
 
+    # 11b. Enforcer provenance still resolvable (Round 30 站4). Round 29 站4
+    # recorded enforcer_surface on every verdict and gave it no reader, so a
+    # recorded enforcer_sha that no longer exists stayed invisible.
+    findings.extend(_check_enforcer_provenance(project))
+
     # 12. harness/ submodule behind origin (Round 25 站3b). Relocated from
     # _advance_prechecks, where it was advance-phase's ONLY network call — a
     # `git fetch` on every single advance, non-blocking, printing the same four
@@ -207,6 +212,97 @@ def _check_submodule_behind(project: Path) -> list[Finding]:
                     f"have landed test-fix commits. One-shot sync: "
                     f"`python3 -m harness.cli sync-harness`, then commit the "
                     f"submodule bump. Non-blocking: the local checkout still works")]
+
+
+def _check_enforcer_provenance(project: Path) -> list[Finding]:
+    """WARN when a recorded `enforcer_sha` no longer resolves in the harness.
+
+    Round 30 站4. Round 19 站3 made every verdict record the harness commit that
+    produced it, so "which enforcer said this?" became answerable from the
+    artifact. The identifier it records is MUTABLE: taskq-advance's 8 Gate 1
+    results, its Gate 2 result and both `state.json.phase_completed` entries all
+    cite `01bb3bb4`, and a rebase of the harness submodule on 2026-08-02 left
+    that commit reachable from nothing:
+
+        git merge-base --is-ancestor 01bb3bb4 main  → NO
+        git branch -a --contains 01bb3bb4           → (empty)
+
+    The content still exists as `7154768`; the recorded name does not resolve.
+    Rebasing is a normal part of this workflow, so this will keep happening —
+    which is why Round 29 站4 added `enforcer_surface`, git object IDs for the
+    three paths that actually produce verdicts. Those survive a rebase (measured:
+    identical across `01bb3bb4` and `7154768`, and correctly DIFFERENT from the
+    pre-fix base `c5971cd`). Round 29 wrote them and gave them no reader.
+
+    WARN, never ERROR: an unreachable enforcer commit does not make the verdict
+    wrong, and this framework is developed while it runs. What it costs is the
+    ability to answer the question the field was added for, so it has to be
+    visible somewhere.
+    """
+    from core.harness_provenance import enforcer_surface, harness_root
+
+    recorded: dict[str, list[str]] = {}
+    method = project / ".methodology"
+    if not method.is_dir():
+        return []
+    for path in sorted(method.rglob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for sha in _enforcer_shas_in(data):
+            recorded.setdefault(sha, []).append(str(path.relative_to(project)))
+    if not recorded:
+        return []
+
+    root = harness_root()
+    findings: list[Finding] = []
+    for sha, sources in sorted(recorded.items()):
+        bare = sha.removesuffix("-dirty")
+        if bare in ("", "unknown"):
+            continue
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "-e", f"{bare}^{{commit}}"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []  # git unusable — see _check_submodule_behind's precedent
+        if proc.returncode == 0:
+            continue
+        current = enforcer_surface()
+        findings.append(Finding(
+            "provenance", "WARN",
+            f"verdict(s) in {', '.join(sorted(set(sources))[:3])} name enforcer "
+            f"{bare[:12]}, which resolves to no commit in {root} — most likely a "
+            f"rebase of the harness after the verdict was written. The recorded "
+            f"`enforcer_surface` still answers whether the enforcing code was the "
+            f"same; today's surface is "
+            f"{ {k.rsplit('/', 1)[-1]: v[:8] for k, v in current.items()} }. "
+            f"Fix: compare that against the `enforcer_surface` in those files; "
+            f"if they match, the verdict stands and only its label is stale.",
+        ))
+    return findings
+
+
+def _enforcer_shas_in(data: object) -> "list[str]":
+    """Every `enforcer_sha` value in a parsed artifact, at any nesting depth.
+
+    state.json carries them under `phase_completed.<n>`, gate results at the top
+    level, and the quality manifest not at all — one walker rather than three
+    readers that each know one shape.
+    """
+    out: list[str] = []
+    if isinstance(data, dict):
+        value = data.get("enforcer_sha")
+        if isinstance(value, str) and value:
+            out.append(value)
+        for nested in data.values():
+            out.extend(_enforcer_shas_in(nested))
+    elif isinstance(data, list):
+        for item in data:
+            out.extend(_enforcer_shas_in(item))
+    return out
 
 
 def _check_heartbeat(project: Path) -> list[Finding]:
