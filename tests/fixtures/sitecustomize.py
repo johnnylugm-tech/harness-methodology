@@ -5,6 +5,13 @@ is present on PYTHONPATH. This allows subprocesses spawned by test_e2e_cli.py
 to stub missing physical CLI tools (gitleaks, import-linter, scancode,
 code-review-graph) on test runner VMs without modifying production code.
 """
+import sys
+from pathlib import Path
+
+repo_root = str(Path(__file__).resolve().parent.parent.parent)
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
 try:
     from harness import tool_checks
     _orig_check = tool_checks.check_tool_for_dim
@@ -16,5 +23,5 @@ try:
         return ok, diag
 
     tool_checks.check_tool_for_dim = _stub_check
-except Exception:
-    pass
+except Exception as exc:
+    print(f"[WARN] sitecustomize failed to patch tool_checks: {exc}", file=sys.stderr)

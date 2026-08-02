@@ -13,6 +13,7 @@ from pathlib import Path
 import os
 
 HARNESS_CLI = Path(__file__).parent.parent / "harness_cli.py"
+REPO_ROOT = Path(__file__).parent.parent
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -23,10 +24,11 @@ def _run(
 ) -> subprocess.CompletedProcess:
     env_vars = (env or os.environ).copy()
     existing_pythonpath = env_vars.get("PYTHONPATH", "")
+    prefix = f"{FIXTURES_DIR}:{REPO_ROOT}"
     env_vars["PYTHONPATH"] = (
-        f"{FIXTURES_DIR}:{existing_pythonpath}"
+        f"{prefix}:{existing_pythonpath}"
         if existing_pythonpath
-        else str(FIXTURES_DIR)
+        else prefix
     )
     return subprocess.run(
         [sys.executable, str(HARNESS_CLI)] + args + ["--project", str(project)],
