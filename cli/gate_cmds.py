@@ -1486,15 +1486,36 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
             import yaml as _yaml
             from core.quality_gate.gate_thresholds import gate_config_path as _gcp4
             _crg_cfg_path = _gcp4(4)
-            _crg_recon_required = False
-            if _crg_cfg_path.exists():
+            # Round 30 站3: an unreadable gate-4 config must not leave
+            # `_crg_recon_required` at its "nothing required" default. The
+            # config is a framework-owned asset tracked by git — if it cannot
+            # be read, the run has no idea what Gate 4 requires, and a silent
+            # False here is the same "abstain reads as pass" the round removes.
+            if not _crg_cfg_path.exists():
+                print(f"[Gate 4] B3: [BLOCKED] gate config missing: {_crg_cfg_path}\n"
+                      f"  This is a framework-owned asset tracked by git — its absence\n"
+                      f"  means the harness checkout is incomplete, so Gate 4's own\n"
+                      f"  requirements cannot be read.\n"
+                      f"  Fix: restore the harness checkout, then re-run:\n"
+                      f"    git -C harness status && git -C harness checkout -- "
+                      f"harness/gate_configs", file=sys.stderr)
+                blocked = True
+                _crg_recon_required = False
+            else:
                 try:
                     _crg_cfg = _yaml.safe_load(_crg_cfg_path.read_text(encoding="utf-8"))
-                    if (_crg_cfg or {}).get("crg", {}).get("reconnaissance"):
-                        _crg_recon_required = True
-                except Exception as _b3_cfg_exc:
-                    print(f"[Gate 4] B3: skipping {_crg_cfg_path} (parse error: {_b3_cfg_exc})",
-                          file=sys.stderr)
+                    _crg_recon_required = bool(
+                        (_crg_cfg or {}).get("crg", {}).get("reconnaissance")
+                    )
+                except (_yaml.YAMLError, OSError) as _b3_cfg_exc:
+                    print(f"[Gate 4] B3: [BLOCKED] gate config unreadable: "
+                          f"{_crg_cfg_path} ({_b3_cfg_exc})\n"
+                          f"  Gate 4's requirements cannot be read, so no verdict is\n"
+                          f"  possible. Fix: repair the YAML, then re-run:\n"
+                          f"    python harness_cli.py finalize-gate --gate 4 --phase 6 "
+                          f"--project .", file=sys.stderr)
+                    blocked = True
+                    _crg_recon_required = False
             if _crg_recon_required:
                 recon_file = project / ".sessi-work" / "crg_reconnaissance.json"
                 recon_exists = recon_file.is_file() and recon_file.stat().st_size > 0

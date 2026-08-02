@@ -923,10 +923,11 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
     # always lands on the framework's own shipped configs.
     from core.quality_gate.gate_thresholds import gate_config_path as _gcp
 
-    try:
-        cfg_path = _gcp(ctx.gate_num)
-    except ValueError:
-        return []  # unknown gate_num — caller contract violation, not a config gap
+    # Round 30 站3: gate_num comes from GateContext, which the framework builds
+    # — a value outside 1-4 is a caller-contract violation, and Round 29 caught
+    # the ValueError and returned `[]`, i.e. "no evidence violations found". The
+    # raise now reaches the Round 28 crash boundary, which names the caller.
+    cfg_path = _gcp(ctx.gate_num)
 
     if not cfg_path.exists():
         # Round 29 Station 1: gate configs are framework-owned assets tracked by
@@ -967,8 +968,8 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
         _excl_path = _project_root_path / _excl_file
         if not _excl_path.is_file():
             continue
+        import subprocess as _sp  # bound before the try: the except reads it
         try:
-            import subprocess as _sp
             _tracked = _sp.run(
                 ["git", "ls-files", "--error-unmatch", _excl_file],
                 cwd=str(_project_root_path),
@@ -981,13 +982,20 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
                     f"that is absent on a fresh clone. "
                     f"Either commit it or remove the exclusion entries."
                 )
-        except Exception:
-            # git not available — skip the VCS check.  This is a
-            # non-blocking best-effort guard; a git failure here is
-            # never more important than the gate evaluation itself.
-            import logging as _logging
-            _logging.getLogger(__name__).debug(
-                "S6 exclusion file VCS check skipped", exc_info=True
+        except (OSError, _sp.SubprocessError) as _git_exc:
+            # Round 30 站3: git is a HARD dependency of this framework —
+            # enforcer_sha, state.json's phase_completed[].sha and every hook
+            # need it. Round 29 wrote this as `except Exception` into a
+            # logging.debug nobody reads, so a check that could not run was
+            # indistinguishable from a check that found nothing. It still must
+            # not block a gate on a provenance-adjacent failure, so it records
+            # and continues — the ledger is where "we could not check" lives.
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                str(_project_root_path), "gate:S6-exclusion-vcs",
+                f"could not verify {_excl_file} is tracked by git ({_git_exc})",
+                why=f"the {_dim_name} score was accepted without its exclusion "
+                    f"file being checked into version control",
             )
 
     # Evidence format patterns are keyed by the RESOLVED tool id — a TS
@@ -1213,10 +1221,9 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     # globbing (same fix as _check_tool_evidence above).
     from core.quality_gate.gate_thresholds import gate_config_path as _gcp
 
-    try:
-        cfg_path = _gcp(ctx.gate_num)
-    except ValueError:
-        return []
+    # Round 30 站3: see _check_tool_evidence — an unknown gate_num is a caller
+    # bug, not "no fabrication found".
+    cfg_path = _gcp(ctx.gate_num)
 
     if not cfg_path.exists():
         return [

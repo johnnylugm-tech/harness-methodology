@@ -117,16 +117,16 @@ def verify_gate_tools(
     # The target project (where state.json + node_modules + tsconfig live) is
     # state_root when given (init-project: configs come from the harness
     # checkout), else project itself.
-    import os
     target_root = state_root or project
     language = get_project_language(target_root)
     import yaml as _yaml
-    cfg_path = None
     from core.quality_gate.gate_thresholds import gate_config_path as _gcp
-    try:
-        cfg_path = _gcp(gate_num)
-    except ValueError:
-        return True, []
+    # gate_num comes from the framework's own call sites, never from user input.
+    # A value outside 1-4 is a caller-contract violation, so the ValueError is
+    # left to propagate into the Round 28 crash boundary, which produces a crash
+    # bundle naming the caller. Round 29 caught it and returned `(True, [])` —
+    # a programming error reported as "every tool is installed" (Round 30 站3).
+    cfg_path = _gcp(gate_num)
 
     if not cfg_path.exists():
         return False, [
@@ -139,9 +139,23 @@ def verify_gate_tools(
     except (_yaml.YAMLError, OSError) as exc:
         return False, [f"gate config unreadable: {cfg_path.name} ({exc})"]
 
-    if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
-        return True, []
-
+    # Round 30 站3 — no CI escape hatch here.
+    #
+    # 63b9399 added `if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"):
+    # return True, []` to unbreak harness's own CI after station 1 made this
+    # function fail closed. That reintroduced, one commit later, the exact
+    # "abstain reads as pass" shape station 1 existed to remove — and made it
+    # settable by anyone: `CI=1` locally disables tool verification for a whole
+    # run. It cited phase_cmds.py's substrate-probe CI skip (e92d089) as
+    # precedent, but the justification does not transfer: that probe needs an
+    # interactive `claude` CLI which GitHub Actions genuinely cannot have and
+    # the CI workflow's own comments call "always local". Tool availability is
+    # different — harness's own CI installs ruff and mypy, and a consumer's
+    # CI-run gate scoring without its tools verified is what S2 exists to stop.
+    #
+    # The trigger was harness's own test suite, so the skip belongs there:
+    # tests monkeypatch check_tool_for_dim (or verify_all_gate_tools), the
+    # technique 877c1bb already used in tests/cli/test_phase_cmds_cli.py.
     from harness.harness_bridge import filter_enabled_dimensions
     cfg["dimensions"] = filter_enabled_dimensions(
         cfg.get("dimensions", []), target_root
