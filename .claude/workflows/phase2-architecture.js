@@ -445,6 +445,16 @@ async function persistApproval(deliverableId, b2) {
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
 }
 
+function firstLineHasAnchor(text, expectPrefix) {
+  // An empty anchor means the CALLER decided one applies but supplied nothing.
+  // file_loader treats "" as "no anchor configured" and skips its check; here
+  // that would turn a caller bug into "accept anything", so it is a failure.
+  if (!expectPrefix) return false
+  const nl = text.indexOf('\n')
+  const firstLine = nl === -1 ? text : text.slice(0, nl)
+  return firstLine.startsWith(expectPrefix)
+}
+
 // ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----
 // Drops the v29 MCP read path (failed at large-context stages) in favour of a
 // single-step Bash tool-call running the deterministic `harness_cli.py
@@ -492,8 +502,10 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
     const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()
     // sub-agent runtime sometimes emits a literal <think>...</think> preamble
     // merged into the same line as the real content (no newline in between),
-    // which defeats the ^-anchored prefix check below even though the agent
-    // DID read the correct file. Strip it before validating.
+    // which pushes the anchor off the start of the first line even though the
+    // agent DID read the correct file. Strip it before validating. A <think>
+    // block on its own line is NOT stripped and NOT accepted: that is an
+    // unfaithful relay, which is what firstLineHasAnchor is here to catch.
     const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
     if (text.startsWith('ERROR_LOAD_FAILED')) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')
@@ -503,15 +515,9 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')
       continue
     }
-    if (expectPrefix) {
-      const head = text.slice(0, 500)
-      const stripped = expectPrefix.replace(/^#\s*/, '')
-      const escaped = stripped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const anchorRe = new RegExp('^#\\s+[^\\n]*' + escaped, 'm')
-      if (!anchorRe.test(head)) {
-        log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
-        continue
-      }
+    if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
+      continue
     }
     return text
   }

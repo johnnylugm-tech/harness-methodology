@@ -1340,8 +1340,26 @@ def render_persist_approval(
     )
 
 
+def render_anchor_check() -> str:
+    """`js_src/anchor_check.mjs` with `export` stripped, for inlining.
+
+    Same one-file-two-consumers arrangement as render_json_utils(): `node
+    --test scripts/workflowgen/js_src/` runs the module directly, and the
+    generated workflows carry this exact source. Before Round 34 the rule was
+    a regex literal inside the string below, which meant the only way to test
+    it was to grep the generated file — and a grep cannot tell a rule from a
+    sentence about a rule.
+    """
+    src = (_JS_SRC_DIR / "anchor_check.mjs").read_text(encoding="utf-8")
+    first_export = _EXPORT_RE.search(src)
+    body = src[first_export.start():] if first_export else src
+    return _EXPORT_RE.sub("", body)
+
+
 def render_load_file_via_python() -> str:
     return (
+        render_anchor_check()
+        + "\n"
         "// ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----\n"
         "// Drops the v29 MCP read path (failed at large-context stages) in favour of a\n"
         "// single-step Bash tool-call running the deterministic `harness_cli.py\n"
@@ -1389,8 +1407,10 @@ def render_load_file_via_python() -> str:
         "    const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()\n"
         "    // sub-agent runtime sometimes emits a literal <think>...</think> preamble\n"
         "    // merged into the same line as the real content (no newline in between),\n"
-        "    // which defeats the ^-anchored prefix check below even though the agent\n"
-        "    // DID read the correct file. Strip it before validating.\n"
+        "    // which pushes the anchor off the start of the first line even though the\n"
+        "    // agent DID read the correct file. Strip it before validating. A <think>\n"
+        "    // block on its own line is NOT stripped and NOT accepted: that is an\n"
+        "    // unfaithful relay, which is what firstLineHasAnchor is here to catch.\n"
         "    const text = rawText.replace(/^\\s*<think>[\\s\\S]*?<\\/think>\\s*/, '')\n"
         "    if (text.startsWith('ERROR_LOAD_FAILED')) {\n"
         "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')\n"
@@ -1400,15 +1420,9 @@ def render_load_file_via_python() -> str:
         "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')\n"
         "      continue\n"
         "    }\n"
-        "    if (expectPrefix) {\n"
-        "      const head = text.slice(0, 500)\n"
-        "      const stripped = expectPrefix.replace(/^#\\s*/, '')\n"
-        "      const escaped = stripped.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')\n"
-        "      const anchorRe = new RegExp('^#\\\\s+[^\\\\n]*' + escaped, 'm')\n"
-        "      if (!anchorRe.test(head)) {\n"
-        "        log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected \"' + expectPrefix + '\", got: ' + text.slice(0, 80) + ')')\n"
-        "        continue\n"
-        "      }\n"
+        "    if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {\n"
+        "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with \"' + expectPrefix + '\", got: ' + text.slice(0, 80) + ')')\n"
+        "      continue\n"
         "    }\n"
         "    return text\n"
         "  }\n"

@@ -681,7 +681,19 @@ _LINE_CEILING: dict[str, int] = {
     # only in Phase 3's TDD loop, and the four phases that run their own per-FR
     # loop through render_per_fr_delta now share the one implementation. Net
     # +32 lines across the two files for four call sites that had none.
-    "scripts/workflowgen/js_blocks.py": 1504,
+    # 2026-08-04 (Round 34 站1): 1504 -> 1518. render_anchor_check() inlines
+    # js_src/anchor_check.mjs (same one-file-two-consumers arrangement as
+    # render_json_utils), replacing the multiline `anchorRe` literal that used
+    # to live inside render_load_file_via_python's string. The rule it encoded
+    # — "any H1 line in the first 500 characters containing the phrase" —
+    # accepted the "Acknowledged.\n\n# <anchor>" preamble that this very check
+    # exists to reject (file_loader.py's Bug v5). A regex written as a string
+    # literal in a generator can only be tested by grepping the generated file;
+    # as a module it is executed by node --test against the same fixture the
+    # Python side uses. The call site shrank 10 lines -> 4; the +14 net is the
+    # new function plus the rationale for why the two layers check different
+    # inputs but may not have different rules.
+    "scripts/workflowgen/js_blocks.py": 1518,
 }
 
 

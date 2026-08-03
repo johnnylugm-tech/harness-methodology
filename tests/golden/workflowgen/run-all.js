@@ -297,6 +297,13 @@ function parseAgentJson(text, label) {
   throw new Error('PARSE_FAIL [' + label + ']: no balanced JSON. tail=' + (text ?? '').toString().slice(-200))
 }
 
+function firstLineHasAnchor(text, expectPrefix) {
+  if (!expectPrefix) return false
+  const nl = text.indexOf('\n')
+  const firstLine = nl === -1 ? text : text.slice(0, nl)
+  return firstLine.startsWith(expectPrefix)
+}
+
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -345,15 +352,9 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')
       continue
     }
-    if (expectPrefix) {
-      const head = text.slice(0, 500)
-      const stripped = expectPrefix.replace(/^#\s*/, '')
-      const escaped = stripped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const anchorRe = new RegExp('^#\\s+[^\\n]*' + escaped, 'm')
-      if (!anchorRe.test(head)) {
-        log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
-        continue
-      }
+    if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
+      continue
     }
     return text
   }
@@ -1417,6 +1418,13 @@ async function persistApproval(deliverableId, b2) {
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
 }
 
+function firstLineHasAnchor(text, expectPrefix) {
+  if (!expectPrefix) return false
+  const nl = text.indexOf('\n')
+  const firstLine = nl === -1 ? text : text.slice(0, nl)
+  return firstLine.startsWith(expectPrefix)
+}
+
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -1465,15 +1473,9 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')
       continue
     }
-    if (expectPrefix) {
-      const head = text.slice(0, 500)
-      const stripped = expectPrefix.replace(/^#\s*/, '')
-      const escaped = stripped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const anchorRe = new RegExp('^#\\s+[^\\n]*' + escaped, 'm')
-      if (!anchorRe.test(head)) {
-        log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
-        continue
-      }
+    if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
+      continue
     }
     return text
   }
