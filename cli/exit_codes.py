@@ -54,6 +54,7 @@ EX_FR_STEP_INFRA_ABORT = 25
 EX_STATE_CORRUPT = 26
 EX_ADVANCE_MANIFEST_CORRUPT = 27
 EX_ADVANCE_PUSH_FAILED = 28
+EX_ADVANCE_SRS_VOCABULARY_ILLEGAL = 29
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -87,6 +88,7 @@ REGISTRY: dict[int, str] = {
     EX_STATE_CORRUPT: "[FATAL] .methodology/state.json or quality_manifest.json exists but is not readable/parseable JSON — project data corruption, NOT a harness-methodology bug (see core/state_io.py's StateCorruptError)",
     EX_ADVANCE_MANIFEST_CORRUPT: "advance-phase: quality_manifest.json parses but its structure is corrupt (truncated fr_ids / cleared traceability / wiped gate1) — refusing to commit it; restore from HEAD and re-run",
     EX_ADVANCE_PUSH_FAILED: "advance-phase --push: the handover commit landed locally but `git push` failed — NOT rolled back; fix connectivity/remote and re-run the push command printed in the [BLOCKED] message",
+    EX_ADVANCE_SRS_VOCABULARY_ILLEGAL: "advance-phase (P1 exit): SRS.md's machine-readable NFR block uses a `type:` outside ALL_NFR_TYPES or a `dimension:` that names no scored dimension — fix the value in SRS.md; it is refused here rather than in Phase 2, where it would already be locked into an approved deliverable",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
     EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
 }

@@ -1929,6 +1929,32 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         )
         return 27
 
+    # ── P1 exit: SRS.md's own NFR vocabulary must be legal ───────────
+    # Round 33 站3. SRS.md states `type:` and `dimension:`; sab_parser is the
+    # only thing in the tree that enforces the first, and it runs in Phase 2 —
+    # by which point the value is inside an approved, verbatim-transcribe
+    # upstream deliverable and the two phases cannot converge (measured: five
+    # B-review rounds to the HR-12 hard cap). Phase 1's B-checklist asks the
+    # agent to check this; that leaves the verdict with the party being
+    # judged. First, because a vocabulary error makes every downstream reading
+    # of this file wrong and the fix is one word in one file.
+    if completed_phase == 1:
+        from cli.exit_codes import EX_ADVANCE_SRS_VOCABULARY_ILLEGAL
+        from core.quality_gate.srs_nfr_validate import illegal_nfr_vocabulary
+
+        _vocab = illegal_nfr_vocabulary(project)
+        if _vocab:
+            print(
+                "\n[BLOCKED] SRS.md's machine-readable NFR block uses a "
+                "vocabulary the framework does not accept:\n  "
+                + "\n  ".join(_vocab)
+                + "\n\n  Fix the values in 01-requirements/SRS.md and re-run "
+                "advance-phase. Refused here rather than at Phase 2's "
+                "generate_sab.py --validate, where SRS.md is already an "
+                "approved upstream deliverable that SAD.md must transcribe."
+            )
+            return EX_ADVANCE_SRS_VOCABULARY_ILLEGAL
+
     # ── P1 checksum: TEST_INVENTORY.yaml baseline ────────────────────
     if completed_phase == 1:
         inventory_path = project / "TEST_INVENTORY.yaml"

@@ -79,6 +79,11 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     28  advance-phase --push: the handover commit landed locally but `git
         push` failed — NOT rolled back; fix connectivity/remote and re-run
         the push command printed in the [BLOCKED] message
+    29  advance-phase (P1 exit): SRS.md's machine-readable NFR block uses a
+        `type:` outside ALL_NFR_TYPES or a `dimension:` that names no scored
+        dimension — fix the value in SRS.md; it is refused here rather than
+        in Phase 2, where it would already be locked into an approved
+        deliverable
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

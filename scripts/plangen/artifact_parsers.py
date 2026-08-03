@@ -73,8 +73,8 @@ _HARNESS_VERSION = _get_harness_version()
 # Phase-Specific Parsers
 # ============================================================================
 
-def _parse_srs_fr_block_json(content: str) -> Dict[str, Dict]:
-    """Extract machine-readable FR metadata from SRS Appendix A.
+def srs_machine_block(content: str) -> "Optional[dict]":
+    """The SRS's machine-readable requirements block, parsed, or None.
 
     Two detection paths (most specific first):
       1. Sentinel-wrapped: <!-- FR:START --> ... ```json ... <!-- FR:END -->
@@ -83,10 +83,23 @@ def _parse_srs_fr_block_json(content: str) -> Dict[str, Dict]:
          heading (INGESTION MODE-style; actual SRS.md shipped with
          integration-test).
 
-    Returns {fr_id: {implementation_modules, acceptance_criteria,
-    verification_method, title, description}} — fields absent in the JSON
-    are simply omitted from the inner dict; the caller must .get(...) with
-    a default. FR IDs are zero-padded to FR-01 form regardless of input.
+    None means "no block found here" or "the block is not JSON" — never "the
+    block is empty" (Round 31's parse-failure rule). Both cases now warn on
+    stderr. Only the malformed-JSON case used to: `if not payload: return {}`
+    said nothing at all, so an SRS whose block the two paths cannot reach is
+    indistinguishable from an SRS that declares no FR metadata, and every
+    consumer takes the second reading. That is the fourth silent abstention of
+    the class Round 30 站3 cleared three of.
+
+    The detection paths are deliberately NOT widened here. Round 33 站0 saw a
+    live SRS whose real block sat under a third heading shape and tried
+    matching any heading containing "machine-readable"; that promptly matched
+    the project's *unfilled template stub* two sections earlier and handed
+    downstream a placeholder FR-01. A parser that finds the wrong block is
+    worse than one that says it found none — now that it says so.
+
+    Extracted so `illegal_nfr_vocabulary` reads the same block by the same
+    rules rather than growing a second detection contract beside this one.
     """
     payload: Optional[str] = None
     # Path 1: sentinel-wrapped (template format)
@@ -106,15 +119,35 @@ def _parse_srs_fr_block_json(content: str) -> Dict[str, Dict]:
             payload = fence_m.group(1)
 
     if not payload:
-        return {}
-
-    try:
-        data = json.loads(payload)
-    except (ValueError, json.JSONDecodeError) as exc:
         print(
-            f"[generate_full_plan] WARNING: FR Block JSON malformed — {exc}",
+            "[srs] WARNING: no machine-readable requirements block found "
+            "(looked for <!-- FR:START --> sentinels and a json fence under "
+            "an Appendix A / FR Block / machine-readable heading). Downstream "
+            "consumers will see this SRS as declaring no FR metadata.",
             file=sys.stderr,
         )
+        return None
+
+    try:
+        return json.loads(payload)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(
+            f"[srs] WARNING: FR Block JSON malformed — {exc}",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _parse_srs_fr_block_json(content: str) -> Dict[str, Dict]:
+    """Extract machine-readable FR metadata from the SRS's requirements block.
+
+    Returns {fr_id: {implementation_modules, acceptance_criteria,
+    verification_method, title, description}} — fields absent in the JSON
+    are simply omitted from the inner dict; the caller must .get(...) with
+    a default. FR IDs are zero-padded to FR-01 form regardless of input.
+    """
+    data = srs_machine_block(content)
+    if data is None:
         return {}
 
     out: Dict[str, Dict] = {}
