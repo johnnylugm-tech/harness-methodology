@@ -1,0 +1,61 @@
+{
+  "_why": [
+    "Round 34 站0/站1. The H1 anchor rule is implemented twice: scripts/file_loader.py",
+    "checks the file on disk, and the workflow JS checks the text the shell-wrapper",
+    "agent handed back. Those are different inputs on purpose — the JS layer exists to",
+    "catch an agent that did not faithfully `cat` the file (file_loader.py's own",
+    "docstring: Bug v5 'Acknowledged' preamble, Bug v8 fabricated content). They are",
+    "not allowed to be different RULES. Before this fixture existed the JS side used",
+    "/^#\\s+[^\\n]*<phrase>/m — 'any H1 line containing the phrase' — which passes the",
+    "preamble case it was built to reject.",
+    "",
+    "Both consumers read THIS file: scripts/workflowgen/js_src/anchor_check.test.mjs",
+    "runs firstLineHasAnchor(), tests/test_anchor_semantics_parity.py writes each",
+    "`content` to a temp file and runs load_file(). Same verdict, every case, or one",
+    "of the two has drifted."
+  ],
+  "cases": [
+    {
+      "name": "faithful_output",
+      "content": "# Software Requirements Specification (SRS) — taskq\n\nbody text that is comfortably longer than the fifty-character minimum.\n",
+      "prefix": "# Software Requirements Specification",
+      "expected": true
+    },
+    {
+      "name": "exact_anchor_alone",
+      "content": "# Traceability Matrix\n\n<!-- AUTO-GEN:START -->\nrows go here and the body is long enough to clear min_length.\n",
+      "prefix": "# Traceability Matrix",
+      "expected": true
+    },
+    {
+      "name": "preamble_on_its_own_line",
+      "content": "Acknowledged.\n\n# Software Requirements Specification (SRS) — taskq\n\nbody text that is comfortably longer than the fifty-character minimum.\n",
+      "prefix": "# Software Requirements Specification",
+      "expected": false
+    },
+    {
+      "name": "anchor_below_a_sentinel",
+      "content": "<!-- AUTO-GEN:START -->\n\n# Traceability Matrix\n\nrows go here and the body is long enough to clear the minimum length.\n",
+      "prefix": "# Traceability Matrix",
+      "expected": false
+    },
+    {
+      "name": "first_line_contains_but_does_not_start",
+      "content": "> # Software Requirements Specification (quoted, not the heading)\n\nbody text that is comfortably longer than the fifty-character minimum.\n",
+      "prefix": "# Software Requirements Specification",
+      "expected": false
+    },
+    {
+      "name": "blank_first_line",
+      "content": "\n# Traceability Matrix\n\nrows go here and this body is long enough to clear the minimum length.\n",
+      "prefix": "# Traceability Matrix",
+      "expected": false
+    },
+    {
+      "name": "deeper_heading_level",
+      "content": "## Software Requirements Specification\n\nbody text that is comfortably longer than the fifty-character minimum.\n",
+      "prefix": "# Software Requirements Specification",
+      "expected": false
+    }
+  ]
+}
