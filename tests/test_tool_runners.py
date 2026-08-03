@@ -591,9 +591,21 @@ class TestRunToolPythonPathInjection:
         assert "ImportError" not in output
         assert rc == 0
 
-    def test_non_pytest_tool_env_untouched(self, tmp_path, monkeypatch):
-        # Generality guard: only cmd[0] == "pytest" gets an env= override —
-        # every other tool must still pass env=None (inherit unchanged).
+    def test_a_non_pytest_tool_gets_the_same_import_root(self, tmp_path, monkeypatch):
+        """Round 32 站3 reversed this case deliberately.
+
+        Round 16 wrote it as a generality guard: only `cmd[0] == "pytest"` may
+        receive an env override. That scoping was the defect. PYTHONPATH is
+        not pytest's requirement — it is where this project's package lives,
+        and import-linter, pyright and mypy resolve the same imports.
+        Measured: `lint-imports` without it reports "Could not find package"
+        and exits 1, which exit-code-binary scores 0.0, which S4 reports as
+        the agent fabricating architecture_constraints.
+
+        The scoping that remains is the one that means something:
+        test_flat_layout_project_env_untouched below — no source directory,
+        nothing to inject, env stays None.
+        """
         captured = {}
         real_run = __import__("subprocess").run
 
@@ -606,7 +618,8 @@ class TestRunToolPythonPathInjection:
         project = _make_src_layout_project(tmp_path)
         run_tool("ruff", str(project))
         assert captured["cmd"][0] != "pytest"
-        assert captured["env"] is None
+        assert captured["env"] is not None
+        assert str(project / "03-development" / "src") in captured["env"]["PYTHONPATH"]
 
     def test_flat_layout_project_env_untouched(self, tmp_path, monkeypatch):
         # No 03-development/src and no src/ → active_src_dir does not

@@ -121,11 +121,20 @@ def test_an_existing_pythonpath_is_extended_not_replaced(
 
 
 def test_a_project_with_no_source_root_still_runs_the_tool(tmp_path, monkeypatch):
-    """No src dir to inject is not a reason to refuse to run. The degradation
-    ledger already covers the scan-scope half of this (Round 31 站6)."""
+    """No src dir to inject is not a reason to refuse to run, and env stays
+    None (inherit unchanged) rather than becoming a copy with nothing added.
+    The degradation ledger already covers the scan-scope half of this
+    (Round 31 站6).
+
+    Uses ruff rather than import-linter: import-linter declares a
+    required_config_file, so on a bare tmp_path it returns -5 before ever
+    reaching subprocess — which would make this test pass or fail for a
+    reason that has nothing to do with the environment.
+    """
     (tmp_path / ".methodology").mkdir()
-    seen = _captured_env(monkeypatch, "import-linter", tmp_path)
+    seen = _captured_env(monkeypatch, "ruff", tmp_path)
     assert seen["cmd"], seen
+    assert seen["env"] is None, seen["env"]
 
 
 def test_the_test_target_comes_from_the_one_resolver():

@@ -113,12 +113,6 @@ def run_tool(
         # `returncode < 0 → None` guard, consistent with -1/-2/-3/-4 above.
         return (f"Skipped: {spec.required_config_file} not found in project root", -5)
 
-    test_target = root
-    if os.path.isdir(os.path.join(root, "03-development", "tests")):
-        test_target = os.path.join(root, "03-development", "tests")
-    elif os.path.isdir(os.path.join(root, "tests")):
-        test_target = os.path.join(root, "tests")
-
     if spec.cmd is None:
         return "", -1
 
@@ -133,9 +127,21 @@ def run_tool(
     # behavior, unchanged) when the resolved dir doesn't actually exist —
     # ToolSpec.cmd entries without a {cov_target} token are unaffected either
     # way.
+    #
+    # Round 32 站3: the test target comes from the same call. It used to be
+    # re-derived immediately above by a hardcoded `03-development/tests` then
+    # `tests` probe — a verbatim copy of ProjectLayout.active_test_dir's own
+    # logic, ten lines from a call that had already computed it. Round 25's
+    # module docstring names "four call sites each hand-rolling the argv" as
+    # the defect it was written to end; this was the fifth.
     from core.quality_gate.test_suite_run import resolve_targets
-    _, _cov_candidate = resolve_targets(root)
+    _test_candidate, _cov_candidate = resolve_targets(root)
     cov_target = _cov_candidate if os.path.isdir(os.path.join(root, _cov_candidate)) else "."
+    test_target = (
+        os.path.join(root, _test_candidate)
+        if _test_candidate and os.path.isdir(os.path.join(root, _test_candidate))
+        else root
+    )
 
     # {src_target} expands to N argv entries, not one token (Round 31 站6).
     # resolve_targets' cov_target is a coverage SOURCE, which .coveragerc may
@@ -152,28 +158,44 @@ def run_tool(
             part.format(root=root, test_target=test_target, cov_target=cov_target)
         )
 
-    # Round 16: pytest-family tools run with cwd=root but no PYTHONPATH, so
-    # `import <package>` fails collection (test_coverage silently scores 0)
-    # for any src-layout project (03-development/src/ or src/) unless the
-    # calling shell happened to already have PYTHONPATH set — a
-    # non-reproducible, environment-dependent gate score. Inject the
-    # project's own src dir (same convention as
-    # core.phase_hooks._SCAN_SRC_DIRS / ProjectLayout.active_src_dir used
-    # elsewhere) only for pytest invocations, only when that dir exists,
-    # merged with (not replacing) any PYTHONPATH the caller already set.
-    # env=None below means "inherit os.environ unchanged" — every non-pytest
-    # tool and every flat-layout project sees zero behavior change.
+    # Round 16: tools run with cwd=root but no PYTHONPATH, so `import
+    # <package>` fails for any src-layout project (03-development/src/ or
+    # src/) unless the calling shell happened to already have PYTHONPATH set —
+    # a non-reproducible, environment-dependent gate score. That round fixed
+    # it for pytest alone, with the condition `cmd[0] == "pytest"`.
+    #
+    # Round 32 站3: PYTHONPATH is not pytest's requirement, it is "where this
+    # project's package lives". Binding the injection to one tool declared
+    # that only pytest needs to import the project. import-linter does too,
+    # and reproduced on a src-layout fixture:
+    #
+    #   no PYTHONPATH   Could not find package 'probeapp'   rc=1  ->   0.0
+    #   with PYTHONPATH Contracts: 1 kept, 0 broken         rc=0  -> 100.0
+    #
+    # S4 reported that 0.0 as the agent fabricating architecture_constraints
+    # on a live P4 Gate 1. Every subprocess now gets the same env, resolved
+    # once from ProjectLayout.active_src_dir (the same source
+    # test_suite_run.resolve_targets uses).
+    #
+    # Measured per tool before/after on a fixture with a real intra-package
+    # import: ruff / mypy / bandit / radon-cc / radon-mi / readability-v2 /
+    # gitleaks unchanged; pyright 95.0 -> 100.0 (an unresolved-import
+    # diagnostic disappears); import-linter and pytest-cov 0.0 -> 100.0.
+    # Every score that moves, moves UP, and each rise removes a false negative
+    # the harness itself manufactured. Nothing is relaxed.
+    #
+    # An existing PYTHONPATH is extended, never replaced: a caller who set one
+    # meant it.
     env = None
-    if cmd and cmd[0] == "pytest":
-        from core.utils.project_layout import ProjectLayout
-        src_dir = ProjectLayout(root).active_src_dir
-        if src_dir.is_dir():
-            env = os.environ.copy()
-            existing = env.get("PYTHONPATH", "")
-            env["PYTHONPATH"] = (
-                str(src_dir) if not existing
-                else str(src_dir) + os.pathsep + existing
-            )
+    from core.utils.project_layout import ProjectLayout
+    src_dir = ProjectLayout(root).active_src_dir
+    if src_dir.is_dir():
+        env = os.environ.copy()
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = (
+            str(src_dir) if not existing
+            else str(src_dir) + os.pathsep + existing
+        )
 
     # Clear a stale report file before the run: if the tool crashes before
     # rewriting it, the scorer must not read a previous run's artifact as if it
