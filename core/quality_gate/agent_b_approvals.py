@@ -56,6 +56,12 @@ _CITATION = re.compile(
     r"^(?P<path>.+?):(?P<line>\d+)(?:(?P<sep>[-:])(?P<end>\d+))?(?:\s*\([^)]*\))?$"
 )
 
+# "the author was writing a line spec" — a colon followed by digits anywhere.
+# Used only to pick the right REASON when _CITATION does not match: a string
+# carrying one is a citation whose shape we do not recognise, not a filename
+# that happens to be missing. Round 33 站4.
+_LINE_SPEC_ATTEMPT = re.compile(r":\d+")
+
 # Conventional phase directories in the harness scaffolding, in resolution
 # order. Used as a fallback when a citation's path is a bare filename (no
 # directory component) and the explicit project-relative lookup misses. The
@@ -169,6 +175,24 @@ def unresolvable_citations(project: Path, citations: "list") -> "list[str]":
             end_str = m["end"]
             end_line = int(end_str) if end_str else None
             end_sep = m["sep"] if end_str else None
+        elif _LINE_SPEC_ATTEMPT.search(text):
+            # Round 33 站4. Everything the regex did not match used to fall
+            # through to the whole-file branch, be resolved as a literal
+            # filename, and be reported as "no such file" — about files that
+            # exist. That is the incident 4bdc0fb describes: 4/4 Phase 1
+            # approvals blocked on `SRS.md:972 (FR-05 §10 ...)` while SRS.md
+            # sat there with 1116 lines. 4bdc0fb taught the regex that one
+            # shape; this names the reason for every shape it has not learned
+            # yet, so the next variant costs a re-read instead of a hunt for a
+            # missing file. Round 24 站1's rule: a block states the reason it
+            # actually has.
+            bad.append(
+                f"{text} (unparseable citation format — a `path:NNN` line "
+                "spec was intended but not recognised. Accepted: `path:N`, "
+                "`path:N-M`, `path:N:M`, any of those with a trailing "
+                "`(annotation)`, or a bare path for a whole-file reference)"
+            )
+            continue
         else:
             rel = text
             line_no = None
