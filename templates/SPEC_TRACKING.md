@@ -1,4 +1,4 @@
-# SPEC_TRACKING.md
+# Specification Tracking Matrix — {Project Name}
 
 > On-demand Lazy Load template.
 

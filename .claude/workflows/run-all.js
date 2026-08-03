@@ -781,7 +781,7 @@ function srsAPrompt(round, prevB2) {
     'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 1/4 SRS.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\n\n'
     + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/SRS.md\n\n'
-    + '**REQUIRED H1 (must include "Software Requirements Specification")**: the file MUST start with `# Software Requirements Specification (SRS) — \`<project-name>\`` (or any H1 line containing the phrase "Software Requirements Specification"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n\n'
+    + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Software Requirements Specification` — e.g. `# Software Requirements Specification (SRS) — \`<project-name>\``. The orchestrator\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SRS.md && echo EXISTS || echo MISSING`.\n'
     + '   - If EXISTS: Read it (current state). Continue to step 4.\n'
@@ -876,7 +876,7 @@ function specTrackAPrompt(round, prevB2) {
     + '   - If EXISTS: Read it (current state). Continue to step 4.\n'
     + '   - If MISSING: Continue to step 2 (first-time authoring).\n'
     + '2. Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness. **STANDARD template columns only** (do NOT invent a Gate-score column as authority — Status is machine-refreshed from `build_traceability` at `advance-phase`, and score authority is `quality_manifest.json`; SPEC_TRACKING.md is a human-readable view, NOT the SSOT).\n'
-    + '   **REQUIRED H1 (must include "Specification Tracking Matrix")**: the file MUST start with `# Specification Tracking Matrix — \`<project-name>\`` (or any H1 line containing the phrase "Specification Tracking Matrix"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n'
+    + '   **REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Specification Tracking Matrix` — e.g. `# Specification Tracking Matrix — \`<project-name>\``. The orchestrator\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n'
     + LEGAL_ARTIFACTS_HINT + '\n'
     + '   **CANONICAL_SPEC SOURCE PATH (SPEC path guard — completes 914ec62 coverage)**: any reference to the canonical spec source within the matrix MUST use the project-root `SPEC.md` path (i.e. `' + REPO + '/SPEC.md`, written in rows as bare `SPEC.md` without any directory prefix). The harness `check_forward_refs` gate treats `01-requirements/SPEC.md` as an ILLEGAL source path (canonical_spec = root `SPEC.md` per harness SSOT). Anti-pattern: writing `01-requirements/SPEC.md` because the deliverable directory is `01-requirements/` — that path does not exist; the canonical spec lives at the repo root. Specifically: every Ownership / Source / Citation / Reference cell that points back to the spec source MUST use bare `SPEC.md` (root), NOT `01-requirements/SPEC.md`. // @rule R-CANONICAL-SPEC-PATH-001\n'
     + '3. (Re-)read file via Read for final state.\n'
@@ -932,7 +932,7 @@ function traceAPrompt(round, prevB2) {
     'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 3/4 TRACEABILITY_MATRIX.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\n\n'
     + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md\n\n'
-    + '**REQUIRED H1 (must include "Traceability Matrix")**: the file MUST start with `# Traceability Matrix — \`<project-name>\`` (or any H1 line containing the phrase "Traceability Matrix"). The orchestrator\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\n'
+    + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Traceability Matrix` — e.g. `# Traceability Matrix — \`<project-name>\``. The orchestrator\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n'
     + LEGAL_ARTIFACTS_HINT + '\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && echo EXISTS || echo MISSING`.\n'
@@ -1522,9 +1522,9 @@ if (srsContent.startsWith('ERROR:') || srsContent.length < 50) {
   return { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) }
 }
 log('  SRS.md loaded: ' + srsContent.length + ' chars')
-const sadTemplateContent = await loadFileViaPython('harness/templates/SAD.md', '#', 'Load Upstream')
+const sadTemplateContent = await loadFileViaPython('harness/templates/SAD.md', '# Software Architecture Document', 'Load Upstream')
 log('  harness/templates/SAD.md loaded: ' + sadTemplateContent.length + ' chars')
-const adrTemplateContent = await loadFileViaPython('harness/templates/ADR.md', '#', 'Load Upstream')
+const adrTemplateContent = await loadFileViaPython('harness/templates/ADR.md', '# Architecture Decision Records', 'Load Upstream')
 log('  harness/templates/ADR.md loaded: ' + adrTemplateContent.length + ' chars')
 
 
@@ -1536,7 +1536,7 @@ const sad = await abLoop({
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 1/3 SAD.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nYour SINGLE deliverable: ' + REPO + '/02-architecture/SAD.md\n\n'
-    + '**REQUIRED H1 (must include "Software Architecture Document")**: the file MUST start with `# Software Architecture Document (SAD) — \`<project>\`` (or any H1 line containing the phrase "Software Architecture Document"). The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\n\n'
+    + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Software Architecture Document` — e.g. `# Software Architecture Document (SAD) — \`<project>\``. The orchestrator loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step. The shipped template already satisfies this, so leaving its H1 alone is safe; rewriting it into something else is not.\n\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/SAD.md`. If EXISTS, Read it (current state).\n'
     + '2. Author Software Architecture Document. REQUIRED:\n'
@@ -1574,7 +1574,7 @@ const adr = await abLoop({
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 2/3 ADR.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nYour SINGLE deliverable: ' + REPO + '/02-architecture/adr/ADR.md\n\n'
-    + '**REQUIRED H1 (must include "Architecture Decision Records")**: the file MUST start with `# Architecture Decision Records (ADR) — \`<project>\`` (or any H1 line containing the phrase "Architecture Decision Records"). Individual decisions go under `## ADR-NNN: <title>` sub-headings beneath this H1. The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\n\n'
+    + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Architecture Decision Records` — e.g. `# Architecture Decision Records (ADR) — \`<project>\``. Individual decisions go under `## ADR-NNN: <title>` sub-headings beneath this H1. The orchestrator loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/adr/ADR.md`. If EXISTS, Read it.\n'
     + '2. Extract key architecture decisions from SAD.md (read ' + REPO + '/02-architecture/SAD.md). Write individual ADR entries. EACH ADR: context, decision, consequences, alternatives considered. Cover tech stack (Python stdlib-only — read the actual Python version from .venv/bin/python --version), patterns (ThreadPoolExecutor, atomic write, circuit breaker), interfaces. Remove any `<!-- harness:template-stub -->` markers.\n'
@@ -1639,7 +1639,7 @@ const testSpec = await abLoop({
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 3/3 TEST_SPEC.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nYour SINGLE deliverable: ' + REPO + '/02-architecture/TEST_SPEC.md\n\n'
-    + '**REQUIRED H1 (must include "TEST_SPEC")**: the file MUST start with `# TEST_SPEC.md — <subtitle>` (or any H1 line containing "TEST_SPEC"). Per-FR catalogs go under `### FR-XX:` headers beneath this H1. The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\n\n'
+    + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# TEST_SPEC.md` — e.g. `# TEST_SPEC.md — <subtitle>`. Per-FR catalogs go under `### FR-XX:` headers beneath this H1. The orchestrator loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n\n'
     + 'Steps:\n'
     + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/TEST_SPEC.md`. If EXISTS, Read it.\n'
     + '2. Generate Test Specification Catalog. CRITICAL shape (v2.9.1 B.3): each FR is a `### FR-XX: ...` header FOLLOWED BY TABLE ROWS (a prose-only doc FAILS the D4 spec-coverage parser).\n'

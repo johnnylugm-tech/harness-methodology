@@ -19,7 +19,15 @@ def test_legal_artifacts_exports() -> None:
     mod = importlib.import_module("core.quality_gate.legal_artifacts")
     assert mod.LEGAL_ARTIFACTS == mod.LEGAL_ARTIFACTS  # sanity
     assert mod.PHASE_DELIVERABLES == mod.PHASE_DELIVERABLES  # sanity
-    assert set(mod.__all__) == {"LEGAL_ARTIFACTS", "PHASE_DELIVERABLES"}
+    assert set(mod.__all__) == {
+        "LEGAL_ARTIFACTS", "PHASE_DELIVERABLES",
+        # Round 33 站1 — the H1 anchor each deliverable is reloaded against.
+        # It lives here because this module is already the one place a
+        # deliverable's identity is stated, and the anchor had drifted from
+        # the template in four of seven cases while being hand-written three
+        # times per deliverable in the spec renderers.
+        "DELIVERABLE_ANCHORS", "anchor_for",
+    }
 
 
 def test_legal_artifacts_has_p1_p2_p4_to_p8() -> None:

@@ -1,4 +1,4 @@
-# SRS - {Project Name}
+# Software Requirements Specification (SRS) — {Project Name}
 
 <!-- harness:template-stub -->
 <!-- Remove the sentinel line above once you start filling this SRS.

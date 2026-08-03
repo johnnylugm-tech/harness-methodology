@@ -22,7 +22,14 @@ This module provides:
     Returns a structured dict with one of the statuses:
       OK            — file exists, prefix matches, length within bounds
       MISSING       — file does not exist (or is not a file)
-      PREFIX_MISMATCH — file exists but first line doesn't contain expect_prefix
+      PREFIX_MISMATCH — file exists but its first line does not START WITH
+                        expect_prefix. This is an anchor, not a search: a first
+                        line that merely contains the phrase does not pass.
+                        (Round 33 站1 — this sentence used to say "contain",
+                        the file_loader test's docstring said "substring", and
+                        the Phase 1 prompt copied that wording to the agent
+                        that writes the file. Three descriptions of one
+                        `startswith`, all three wrong in the same direction.)
       TOO_SHORT     — file exists but shorter than min_length
       TOO_LONG      — file exists but longer than max_length (truncate)
       READ_ERROR    — I/O error (permission denied, encoding error, etc.)

@@ -9,7 +9,8 @@ deterministic replacement. These tests verify:
     TOO_SHORT / TOO_LONG / READ_ERROR)
   - SHA-256 fingerprint is stable for identical content (so workflow JS
     can detect mid-loop edits without re-reading)
-  - expect_prefix check is exact substring match on first line
+  - expect_prefix is an ANCHOR on the first line (`first_line.startswith`),
+    not a substring search anywhere in it
   - min_length is byte-size, not char-count
   - max_length truncates with suffix and reports content_truncated=true
   - CLI exit codes match status (0 OK / 1 recoverable / 2 fatal)
@@ -174,6 +175,20 @@ class TestLoadFilePrefixMismatch:
         result = load_file(f, expect_prefix="# SPEC_TRACKING")
         assert result["status"] == "PREFIX_MISMATCH"
         assert result["first_line"] == "Some preamble"
+
+    def test_prefix_must_anchor_the_first_line_not_appear_inside_it(self, tmp_path: Path):
+        """Round 33 站1 — the case the test above does not reach.
+
+        `test_prefix_is_not_substring_search` puts the phrase on a LATER line,
+        so it also passes under a naive `expect_prefix in text`. This one puts
+        it on the first line but not at its start, which only `startswith`
+        rejects. It is the behavioural statement of the contract that three
+        prose descriptions of this rule got wrong at once.
+        """
+        f = tmp_path / "x.md"
+        f.write_text("Draft: # SPEC_TRACKING\nbody\n")
+        result = load_file(f, expect_prefix="# SPEC_TRACKING")
+        assert result["status"] == "PREFIX_MISMATCH"
 
     def test_empty_expect_prefix_ignored(self, tmp_path: Path):
         # Empty string is treated as no prefix check

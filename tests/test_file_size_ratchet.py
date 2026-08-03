@@ -592,7 +592,15 @@ _LINE_CEILING: dict[str, int] = {
     # (only `dimension:` was), letting an illegal-but-plausible value (e.g.
     # `error_handling`) reach Phase 2 and cause a real 5-round HR-12
     # non-convergence (taskq-full SAD.md).
-    "scripts/workflowgen/spec_phase1.py": 937,
+    # 2026-08-04: 937 -> 949 — Round 33 站1: the DELIVERABLE_ANCHORS import,
+    # the four module-level anchor constants, and the comment recording why
+    # they exist. Four of the seven seeded templates carried an H1 that did
+    # not satisfy the diskPrefix written three times beside it in this very
+    # file; the literals are now interpolated from
+    # core.quality_gate.legal_artifacts so there is one place the anchor is
+    # stated. Net effect on the generated JS is byte-identical apart from the
+    # three prompt sentences that told the agent a substring match would do.
+    "scripts/workflowgen/spec_phase1.py": 949,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

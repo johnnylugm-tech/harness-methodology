@@ -1,4 +1,4 @@
-# TRACEABILITY_MATRIX.md
+# Traceability Matrix — {Project Name}
 
 > Requirements Traceability Matrix
 > Framework: harness-methodology

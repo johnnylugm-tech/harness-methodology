@@ -4,6 +4,7 @@ scripts/workflowgen/spec_shared.py for the cross-phase _render_meta.
 """
 from __future__ import annotations
 
+from core.quality_gate.legal_artifacts import anchor_for
 from core.quality_gate.sab_parser import (
     nfr_type_vocabulary_inline,
     scoreable_dimension_names,
@@ -20,6 +21,14 @@ from .spec_shared import _render_meta
 # consumes the answer.
 _NFR_TYPES = nfr_type_vocabulary_inline()
 _NFR_DIMENSIONS = "/".join(sorted(scoreable_dimension_names()))
+
+# Round 33 站1 — same reasoning one layer down: the H1 anchor is what the
+# orchestrator's loader checks, so the prompt that tells the agent about it and
+# the cfg that enforces it read the same value. See
+# core/quality_gate/legal_artifacts.DELIVERABLE_ANCHORS.
+_A_SAD = anchor_for("02-architecture/SAD.md")
+_A_ADR = anchor_for("02-architecture/adr/ADR.md")
+_A_TEST_SPEC = anchor_for("02-architecture/TEST_SPEC.md")
 
 _HEADER_2 = """\
 // Phase 2 — Architecture Design (faithful to .methodology/phase2_plan.md v2.12.0)
@@ -113,9 +122,14 @@ def _render_phase2_load_upstream() -> str:
         + "  return { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) }\n"
         + "}\n"
         + "log('  SRS.md loaded: ' + srsContent.length + ' chars')\n"
-        + "const sadTemplateContent = await loadFileViaPython('harness/templates/SAD.md', '#', 'Load Upstream')\n"
+        # Round 33 站1 (F7): these two anchors were the single character '#',
+        # which passes for any markdown file whose first line is a heading —
+        # an anchor that checks nothing. The templates being loaded are the
+        # very ones the deliverables are anchored against, so they carry the
+        # same registered anchor.
+        + "const sadTemplateContent = await loadFileViaPython('harness/templates/SAD.md', '" + _A_SAD + "', 'Load Upstream')\n"
         + "log('  harness/templates/SAD.md loaded: ' + sadTemplateContent.length + ' chars')\n"
-        + "const adrTemplateContent = await loadFileViaPython('harness/templates/ADR.md', '#', 'Load Upstream')\n"
+        + "const adrTemplateContent = await loadFileViaPython('harness/templates/ADR.md', '" + _A_ADR + "', 'Load Upstream')\n"
         + "log('  harness/templates/ADR.md loaded: ' + adrTemplateContent.length + ' chars')\n"
     )
 
@@ -125,11 +139,11 @@ def _render_phase2_subtask1_sad() -> str:
         B.render_phase_header("Sub-Task 1/3 — SAD.md")
         + "log('abLoop: SAD authoring (ARCHITECT A + TECH_LEAD B; max 5 rounds; HR-12 escalate)')\n"
         + "const sad = await abLoop({\n"
-        + "  phaseName: 'Sub-Task 1/3 — SAD.md', key: 'sad', deliverable: 'SAD.md', diskPath: '02-architecture/SAD.md', diskPrefix: '# Software Architecture Document',\n"
+        + "  phaseName: 'Sub-Task 1/3 — SAD.md', key: 'sad', deliverable: 'SAD.md', diskPath: '02-architecture/SAD.md', diskPrefix: '" + _A_SAD + "',\n"
         + "  buildAPrompt: (round, prevB2) =>\n"
         + "    'YOU ARE ARCHITECT (Agent A for Sub-Task 1/3 SAD.md). ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nYour SINGLE deliverable: ' + REPO + '/02-architecture/SAD.md\\n\\n'\n"
-        + "    + '**REQUIRED H1 (must include \"Software Architecture Document\")**: the file MUST start with `# Software Architecture Document (SAD) — \\`<project>\\`` (or any H1 line containing the phrase \"Software Architecture Document\"). The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\\n\\n'\n"
+        + "    + '**REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_SAD + "` — e.g. `" + _A_SAD + " (SAD) — \\`<project>\\``. The orchestrator loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step. The shipped template already satisfies this, so leaving its H1 alone is safe; rewriting it into something else is not.\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
         + "    + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/SAD.md`. If EXISTS, Read it (current state).\\n'\n"
         + "    + '2. Author Software Architecture Document. REQUIRED:\\n'\n"
@@ -165,11 +179,11 @@ def _render_phase2_subtask2_adr() -> str:
         B.render_phase_header("Sub-Task 2/3 — ADR.md")
         + "log('abLoop: ADR authoring (extract decisions from APPROVED SAD.md; downstream ADR-Constitution gate)')\n"
         + "const adr = await abLoop({\n"
-        + "  phaseName: 'Sub-Task 2/3 — ADR.md', key: 'adr', deliverable: 'ADR.md', diskPath: '02-architecture/adr/ADR.md', diskPrefix: '# Architecture Decision Records',\n"
+        + "  phaseName: 'Sub-Task 2/3 — ADR.md', key: 'adr', deliverable: 'ADR.md', diskPath: '02-architecture/adr/ADR.md', diskPrefix: '" + _A_ADR + "',\n"
         + "  buildAPrompt: (round, prevB2) =>\n"
         + "    'YOU ARE ARCHITECT (Agent A for Sub-Task 2/3 ADR.md). ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nYour SINGLE deliverable: ' + REPO + '/02-architecture/adr/ADR.md\\n\\n'\n"
-        + "    + '**REQUIRED H1 (must include \"Architecture Decision Records\")**: the file MUST start with `# Architecture Decision Records (ADR) — \\`<project>\\`` (or any H1 line containing the phrase \"Architecture Decision Records\"). Individual decisions go under `## ADR-NNN: <title>` sub-headings beneath this H1. The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\\n\\n'\n"
+        + "    + '**REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_ADR + "` — e.g. `" + _A_ADR + " (ADR) — \\`<project>\\``. Individual decisions go under `## ADR-NNN: <title>` sub-headings beneath this H1. The orchestrator loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
         + "    + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/adr/ADR.md`. If EXISTS, Read it.\\n'\n"
         + "    + '2. Extract key architecture decisions from SAD.md (read ' + REPO + '/02-architecture/SAD.md). Write individual ADR entries. EACH ADR: context, decision, consequences, alternatives considered. Cover tech stack (Python stdlib-only — read the actual Python version from .venv/bin/python --version), patterns (ThreadPoolExecutor, atomic write, circuit breaker), interfaces. Remove any `<!-- harness:template-stub -->` markers.\\n'\n"
@@ -242,11 +256,11 @@ def _render_phase2_subtask3_test_spec() -> str:
         B.render_phase_header("Sub-Task 3/3 — TEST_SPEC.md")
         + "log('abLoop: TEST_SPEC authoring (per-FR test catalog; v2.9.1 B.3 table-row shape; check-test-spec-consistency)')\n"
         + "const testSpec = await abLoop({\n"
-        + "  phaseName: 'Sub-Task 3/3 — TEST_SPEC.md', key: 'test-spec', deliverable: 'TEST_SPEC.md', diskPath: '02-architecture/TEST_SPEC.md', diskPrefix: '# TEST_SPEC.md',\n"
+        + "  phaseName: 'Sub-Task 3/3 — TEST_SPEC.md', key: 'test-spec', deliverable: 'TEST_SPEC.md', diskPath: '02-architecture/TEST_SPEC.md', diskPrefix: '" + _A_TEST_SPEC + "',\n"
         + "  buildAPrompt: (round, prevB2) =>\n"
         + "    'YOU ARE ARCHITECT (Agent A for Sub-Task 3/3 TEST_SPEC.md). ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nYour SINGLE deliverable: ' + REPO + '/02-architecture/TEST_SPEC.md\\n\\n'\n"
-        + "    + '**REQUIRED H1 (must include \"TEST_SPEC\")**: the file MUST start with `# TEST_SPEC.md — <subtitle>` (or any H1 line containing \"TEST_SPEC\"). Per-FR catalogs go under `### FR-XX:` headers beneath this H1. The orchestrator loader validates this H1 anchor via startswith — a non-conforming first line fails the load step.\\n\\n'\n"
+        + "    + '**REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_TEST_SPEC + "` — e.g. `" + _A_TEST_SPEC + " — <subtitle>`. Per-FR catalogs go under `### FR-XX:` headers beneath this H1. The orchestrator loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
         + "    + '1. Self-check (Bash): `test -f ' + REPO + '/02-architecture/TEST_SPEC.md`. If EXISTS, Read it.\\n'\n"
         + "    + '2. Generate Test Specification Catalog. CRITICAL shape (v2.9.1 B.3): each FR is a `### FR-XX: ...` header FOLLOWED BY TABLE ROWS (a prose-only doc FAILS the D4 spec-coverage parser).\\n'\n"

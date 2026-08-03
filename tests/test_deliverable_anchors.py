@@ -165,33 +165,51 @@ def test_the_anchor_is_read_from_a_registry_not_hand_written_per_site():
         )
 
 
-def test_the_loader_contract_is_described_as_an_anchor_everywhere_it_is_described():
-    """`startswith` is not `contain`. The implementation's own docstring, this
-    repo's file_loader test docstring, and the Phase 1 prompt all said
-    "contain"/"substring" — and the prompt is read by the agent that writes
-    the file, so the wrong wording actively produced non-conforming H1s."""
-    offenders = []
-    for rel in ("scripts/file_loader.py", "tests/test_file_loader.py"):
-        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        for lineno, line in enumerate(text.splitlines(), 1):
-            low = line.lower()
-            if "expect_prefix" not in low and "expect-prefix" not in low:
-                continue
-            if "contain" in low or "substring" in low:
-                offenders.append(f"{rel}:{lineno}: {line.strip()}")
+def test_no_prompt_tells_the_agent_a_containing_h1_is_acceptable():
+    """The one wrong statement that is itself an artifact.
+
+    Six places described this rule and three were wrong, but only the prompt
+    is read by the party that writes the file. All six Phase 1 / Phase 2 H1
+    paragraphs carried "(or any H1 line containing the phrase X)" — permission
+    the loader does not grant, sitting next to a sentence that says the loader
+    validates via startswith.
+
+    The other two wrong statements were docstrings. They are corrected in the
+    same commit and deliberately NOT asserted on here. The first draft of this
+    test did scan them, and its counter-proof exposed why that is the wrong
+    tool: reflowing the docstring so `expect_prefix` and "contain" land on
+    different lines made the check pass while the text stayed just as wrong.
+    A prose scan also cannot tell "this claims substring semantics" from
+    "this explains that substring semantics do not apply". The behaviour
+    itself is pinned by tests/test_file_loader.py::TestLoadFilePrefixMismatch.
+    """
+    prompt = _rendered_phase_js()
+    offenders = [
+        line.strip()[:160]
+        for line in prompt.splitlines()
+        if "H1 line containing" in line
+    ]
+    assert not offenders, (
+        "a deliverable prompt still grants the agent permission the loader "
+        "does not — an H1 that merely contains the phrase fails "
+        "first_line.startswith():\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_every_anchor_is_stated_to_the_agent_verbatim():
+    """Interpolation, not restatement: what the registry says is what the
+    agent is told. A prompt that paraphrases its own anchor is this round's
+    defect one level removed."""
+    from core.quality_gate import legal_artifacts
 
     prompt = _rendered_phase_js()
-    if "H1 line containing" in prompt:
-        offenders.append(
-            "spec_phase1.py: the Traceability Matrix prompt tells the agent any "
-            "H1 line *containing* the phrase is acceptable"
+    for name in ("SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md",
+                 "SAD.md", "ADR.md", "TEST_SPEC.md"):
+        anchor = legal_artifacts.anchor_for(name)
+        assert "MUST START WITH `" + anchor + "`" in prompt, (
+            f"the prompt for {name} does not state its registered anchor "
+            f"{anchor!r} verbatim"
         )
-
-    assert not offenders, (
-        "the loader anchors on the start of the first line; these say it "
-        "matches a substring, and the last one says it to the agent that "
-        "writes the file:\n  " + "\n  ".join(offenders)
-    )
 
 
 # ── the framework's own rendered view must clear its own bar ────────────

@@ -10,6 +10,7 @@ decision to accept a dated _LINE_CEILING entry here instead.
 """
 from __future__ import annotations
 
+from core.quality_gate.legal_artifacts import anchor_for
 from core.quality_gate.sab_parser import nfr_type_vocabulary_inline
 
 from . import js_blocks as B
@@ -28,6 +29,17 @@ from .spec_shared import _render_meta
 # already reuses (spec_phase2.py), not hand-copied — see that file's own
 # Round 27 站2 comment for why a hand-copy of this vocabulary drifts.
 _NFR_TYPES = nfr_type_vocabulary_inline()
+
+# Round 33 站1 — the H1 anchor each deliverable is reloaded against. Every one
+# of these used to be a hand-written literal appearing three times in this file
+# (the sub-task cfg, the peer-review doc list, and the prose that tells the
+# agent what the prefix is) and a fourth time in templates/<X>.md. Four of the
+# seven templates had drifted out of agreement with the literal beside them —
+# see core/quality_gate/legal_artifacts.DELIVERABLE_ANCHORS for the measurement.
+_A_SRS = anchor_for("01-requirements/SRS.md")
+_A_SPEC_TRACKING = anchor_for("01-requirements/SPEC_TRACKING.md")
+_A_TRACEABILITY = anchor_for("01-requirements/TRACEABILITY_MATRIX.md")
+_A_TEST_INVENTORY = anchor_for("TEST_INVENTORY.yaml")
 
 _HEADER_1 = """\
 // Phase 1 — Requirements Specification (v11)
@@ -429,7 +441,7 @@ def _render_phase1_subtask1_srs() -> str:
         "    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 1/4 SRS.md). ROUND ' + round + '.\\n'\n"
         "    + 'REPO: ' + REPO + '\\n\\n'\n"
         "    + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/SRS.md\\n\\n'\n"
-        "    + '**REQUIRED H1 (must include \"Software Requirements Specification\")**: the file MUST start with `# Software Requirements Specification (SRS) — \\`<project-name>\\`` (or any H1 line containing the phrase \"Software Requirements Specification\"). The orchestrator\\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\\n\\n'\n"
+        "    + '**REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_SRS + "` — e.g. `" + _A_SRS + " (SRS) — \\`<project-name>\\``. The orchestrator\\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n\\n'\n"
         "    + 'Steps:\\n'\n"
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SRS.md && echo EXISTS || echo MISSING`.\\n'\n"
         "    + '   - If EXISTS: Read it (current state). Continue to step 4.\\n'\n"
@@ -508,7 +520,7 @@ def _render_phase1_subtask1_srs() -> str:
         "  idx: 'srs',\n"
         "  name: 'SRS.md',\n"
         "  diskPath: '01-requirements/SRS.md',\n"
-        "  diskPrefix: '# Software Requirements Specification',\n"
+        "  diskPrefix: '" + _A_SRS + "',\n"
         "  phaseName: 'Sub-Task 1/4 — SRS.md',\n"
         "  buildAPrompt: srsAPrompt,\n"
         "  buildBDocs: srsBDocs,\n"
@@ -541,7 +553,7 @@ def _render_phase1_subtask2_spec_tracking() -> str:
         "    + '   - If EXISTS: Read it (current state). Continue to step 4.\\n'\n"
         "    + '   - If MISSING: Continue to step 2 (first-time authoring).\\n'\n"
         "    + '2. Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness. **STANDARD template columns only** (do NOT invent a Gate-score column as authority — Status is machine-refreshed from `build_traceability` at `advance-phase`, and score authority is `quality_manifest.json`; SPEC_TRACKING.md is a human-readable view, NOT the SSOT).\\n'\n"
-        "    + '   **REQUIRED H1 (must include \"Specification Tracking Matrix\")**: the file MUST start with `# Specification Tracking Matrix — \\`<project-name>\\`` (or any H1 line containing the phrase \"Specification Tracking Matrix\"). The orchestrator\\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\\n'\n"
+        "    + '   **REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_SPEC_TRACKING + "` — e.g. `" + _A_SPEC_TRACKING + " — \\`<project-name>\\``. The orchestrator\\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n'\n"
         "    + LEGAL_ARTIFACTS_HINT + '\\n'\n"
         "    + '   **CANONICAL_SPEC SOURCE PATH (SPEC path guard — completes 914ec62 coverage)**: any reference to the canonical spec source within the matrix MUST use the project-root `SPEC.md` path (i.e. `' + REPO + '/SPEC.md`, written in rows as bare `SPEC.md` without any directory prefix). The harness `check_forward_refs` gate treats `01-requirements/SPEC.md` as an ILLEGAL source path (canonical_spec = root `SPEC.md` per harness SSOT). Anti-pattern: writing `01-requirements/SPEC.md` because the deliverable directory is `01-requirements/` — that path does not exist; the canonical spec lives at the repo root. Specifically: every Ownership / Source / Citation / Reference cell that points back to the spec source MUST use bare `SPEC.md` (root), NOT `01-requirements/SPEC.md`. // @rule R-CANONICAL-SPEC-PATH-001\\n'\n"
         "    + '3. (Re-)read file via Read for final state.\\n'\n"
@@ -576,7 +588,7 @@ def _render_phase1_subtask2_spec_tracking() -> str:
         "  idx: 'spec-tracking',\n"
         "  name: 'SPEC_TRACKING.md',\n"
         "  diskPath: '01-requirements/SPEC_TRACKING.md',\n"
-        "  diskPrefix: '# Specification Tracking Matrix',\n"
+        "  diskPrefix: '" + _A_SPEC_TRACKING + "',\n"
         "  phaseName: 'Sub-Task 2/4 — SPEC_TRACKING.md',\n"
         "  buildAPrompt: specTrackAPrompt,\n"
         "  buildBDocs: specTrackBDocs,\n"
@@ -604,7 +616,7 @@ def _render_phase1_subtask3_traceability() -> str:
         "    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 3/4 TRACEABILITY_MATRIX.md). ROUND ' + round + '.\\n'\n"
         "    + 'REPO: ' + REPO + '\\n\\n'\n"
         "    + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md\\n\\n'\n"
-        "    + '**REQUIRED H1 (must include \"Traceability Matrix\")**: the file MUST start with `# Traceability Matrix — \\`<project-name>\\`` (or any H1 line containing the phrase \"Traceability Matrix\"). The orchestrator\\'s loader validates this H1 anchor — non-conforming H1 fails the load step.\\n'\n"
+        "    + '**REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_TRACEABILITY + "` — e.g. `" + _A_TRACEABILITY + " — \\`<project-name>\\``. The orchestrator\\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n'\n"
         "    + LEGAL_ARTIFACTS_HINT + '\\n'\n"
         "    + 'Steps:\\n'\n"
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && echo EXISTS || echo MISSING`.\\n'\n"
@@ -645,7 +657,7 @@ def _render_phase1_subtask3_traceability() -> str:
         "  idx: 'traceability',\n"
         "  name: 'TRACEABILITY_MATRIX.md',\n"
         "  diskPath: '01-requirements/TRACEABILITY_MATRIX.md',\n"
-        "  diskPrefix: '# Traceability Matrix',\n"
+        "  diskPrefix: '" + _A_TRACEABILITY + "',\n"
         "  phaseName: 'Sub-Task 3/4 — TRACEABILITY_MATRIX.md',\n"
         "  buildAPrompt: traceAPrompt,\n"
         "  buildBDocs: traceBDocs,\n"
@@ -731,7 +743,7 @@ def _render_phase1_subtask4_test_inventory() -> str:
         "  idx: 'test-inventory',\n"
         "  name: 'TEST_INVENTORY.yaml',\n"
         "  diskPath: 'TEST_INVENTORY.yaml',\n"
-        "  diskPrefix: '# TEST_INVENTORY.yaml',\n"
+        "  diskPrefix: '" + _A_TEST_INVENTORY + "',\n"
         "  phaseName: 'Sub-Task 4/4 — TEST_INVENTORY.yaml',\n"
         "  buildAPrompt: testInvAPrompt,\n"
         "  buildBDocs: testInvBDocs,\n"
@@ -787,10 +799,10 @@ def _render_phase1_peer_review_call() -> str:
         "log('Agent B holistic review of all 4 deliverables; max ' + MAX_PEER_ROUNDS + ' rounds (HR-12)')\n"
         "\n"
         "const peerDocs = [\n"
-        "  { diskPath: '01-requirements/SRS.md', diskPrefix: '# Software Requirements Specification', label: '01-requirements/SRS.md (APPROVED)' },\n"
-        "  { diskPath: '01-requirements/SPEC_TRACKING.md', diskPrefix: '# Specification Tracking Matrix', label: '01-requirements/SPEC_TRACKING.md (APPROVED)' },\n"
-        "  { diskPath: '01-requirements/TRACEABILITY_MATRIX.md', diskPrefix: '# Traceability Matrix', label: '01-requirements/TRACEABILITY_MATRIX.md (APPROVED)' },\n"
-        "  { diskPath: 'TEST_INVENTORY.yaml', diskPrefix: '# TEST_INVENTORY.yaml', label: 'TEST_INVENTORY.yaml (APPROVED)' },\n"
+        "  { diskPath: '01-requirements/SRS.md', diskPrefix: '" + _A_SRS + "', label: '01-requirements/SRS.md (APPROVED)' },\n"
+        "  { diskPath: '01-requirements/SPEC_TRACKING.md', diskPrefix: '" + _A_SPEC_TRACKING + "', label: '01-requirements/SPEC_TRACKING.md (APPROVED)' },\n"
+        "  { diskPath: '01-requirements/TRACEABILITY_MATRIX.md', diskPrefix: '" + _A_TRACEABILITY + "', label: '01-requirements/TRACEABILITY_MATRIX.md (APPROVED)' },\n"
+        "  { diskPath: 'TEST_INVENTORY.yaml', diskPrefix: '" + _A_TEST_INVENTORY + "', label: 'TEST_INVENTORY.yaml (APPROVED)' },\n"
         "]\n"
         "\n"
         "const peerResult = await runPeerReview(peerDocs)\n"
