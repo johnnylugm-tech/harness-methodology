@@ -31,6 +31,33 @@ from core.utils.script_loader import load_harness_script
 # directly above). Re-exported here unchanged so existing callers using
 # `cli._shared._sentinel_path` / `_finalize_sentinel_path` are unaffected.
 
+def _seed_finalize_evidence(
+    project: Path, *, gate: int, phase: int | None, fr_id: str | None,
+) -> None:
+    """Write the three artifacts a genuine finalize-gate PASS leaves behind.
+
+    Kept in one place so the fixture helper below cannot drift into seeding a
+    combination `verify_finalize_evidence` calls illegal — which would make
+    the cross-check untestable through its own fixture.
+    """
+    result_path = project / ".methodology" / f"gate{gate}_result.json"
+    if not result_path.is_file():
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps({"gate": gate, "phase": phase, "verdict": "PASS",
+                        "composite_score": 100.0}),
+            encoding="utf-8",
+        )
+    gate1_evidence.write_finalize_receipt(
+        project, gate=gate, phase=phase, fr_id=fr_id, score=100.0,
+        result_path=result_path,
+    )
+    if phase is not None:
+        gate1_evidence.record_gate_timestamp(project, phase, gate, fr_id)
+        if gate == 1 and fr_id:
+            gate1_evidence.record_gate1_score(project, phase, fr_id, 100.0)
+
+
 def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
     project: Path,
     fr_ids: list[str] | None = None,
@@ -49,6 +76,12 @@ def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
     are written under the per-phase path (g1_p{phase}_{fr}.finalized).
     If None (legacy test path), uses the non-phase-scoped path so old
     tests that don't know about phases still work.
+
+    Round 32 站1/站2: this writes real receipts and the registry rows that go
+    with them, not the literal "test-sentinel". A fixture helper that emits a
+    shape the production reader rejects would make every test using it pass
+    for a reason production never has — and that is precisely the gap this
+    round is closing, so the fixture cannot be exempt from it.
     """
     frs = list(fr_ids) if fr_ids else []
     if not frs:
@@ -56,15 +89,11 @@ def _write_finalize_sentinels_for_tests(  # type: ignore[reportUnusedFunction]
         # FRs via the manifest don't need to pass them explicitly.
         frs = list(load_quality_manifest(project, lenient=True).get("fr_ids", []))
     for _frid in frs:
-        _sf = _finalize_sentinel_path(project, 1, _frid, phase=phase)
-        _sf.parent.mkdir(parents=True, exist_ok=True)
-        _sf.write_text("test-sentinel\n", encoding="utf-8")
+        _seed_finalize_evidence(project, gate=1, phase=phase, fr_id=_frid)
     # Also write phase-level exit gate sentinels for phases 3,4,6 so any test
     # that advances past these phases has them available.
     for _phase, _gate in sorted(EXIT_GATE_MAP.items()):
-        _sf = _finalize_sentinel_path(project, _gate, None, phase=_phase)
-        _sf.parent.mkdir(parents=True, exist_ok=True)
-        _sf.write_text("test-sentinel\n", encoding="utf-8")
+        _seed_finalize_evidence(project, gate=_gate, phase=_phase, fr_id=None)
     # Phase 3 additionally requires the p3-post-gate2 milestone precondition
     # (_validate_p3_post_gate2_precondition, wired into _advance_prechecks) —
     # the same gate2_result.json check push-milestone --type p3-post-gate2

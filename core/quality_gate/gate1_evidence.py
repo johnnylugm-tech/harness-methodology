@@ -111,6 +111,105 @@ EVIDENCE_SOURCE_FINALIZE = "finalize"
 EVIDENCE_SOURCE_SKIP = "skip"
 
 
+# ── the finalize receipt (Round 32 站1) ─────────────────────────────────
+#
+# What a finalize sentinel has to prove is "finalize-gate ran and passed for
+# this gate/phase/FR". Until this round its entire content was
+# `datetime.now(timezone.utc).isoformat()` — a string with no connection to the
+# thing it attested, and one any shell can produce. Measured on a live P4:
+# eight of them appeared in the same second, without microseconds, one minute
+# after Gate 1 had BLOCKED, and advance-phase read them as eight passes.
+#
+# A receipt costs what the verification cost. `result_sha256` is the digest of
+# the gate result the verdict was taken on, so forging a receipt means forging
+# a gate{N}_result.json that survives S3/S4 — which is the thing the gate
+# already exists to prevent. The other fields let a later reader say WHICH run
+# this was without re-deriving it.
+RECEIPT_SCHEMA = 1
+
+
+def format_finalize_receipt(
+    *,
+    gate: int,
+    phase: int | None,
+    fr_id: str | None,
+    score: float | None,
+    result_path: "Path | None",
+    enforcer_sha: str | None = None,
+) -> str:
+    """Render the receipt text finalize-gate writes into the sentinel.
+
+    Formatter and parser live side by side on purpose (same shape as Round 31's
+    mutmut_report): the two halves of a format drift apart the moment they stop
+    being read together.
+    """
+    from datetime import datetime, timezone
+
+    if enforcer_sha is None:
+        from core.harness_provenance import enforcer_sha as _enforcer_sha
+        enforcer_sha = _enforcer_sha()
+
+    digest = None
+    if result_path is not None and Path(result_path).is_file():
+        from core.quality_gate.evidence_digest import digest_of_file
+        digest = digest_of_file(
+            Path(result_path), source=f"gate{gate}_result.json (finalize receipt)"
+        )
+
+    payload = {
+        "schema": RECEIPT_SCHEMA,
+        "gate": gate,
+        "phase": phase,
+        "fr_id": fr_id,
+        "score": score,
+        "result_sha256": (digest or {}).get("sha256"),
+        "enforcer_sha": enforcer_sha,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+
+
+def read_finalize_receipt_text(text: str) -> "dict | None":
+    """Parse receipt text, or None when the text carries no receipt.
+
+    None means "this text is not a receipt", never "the receipt says nothing is
+    wrong" (Round 31's parse-failure rule). The bare-timestamp form every
+    sentinel used before this round lands here, which is what makes the hard
+    cut a hard cut.
+    """
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("schema") != RECEIPT_SCHEMA:
+        return None
+    if "gate" not in data or "result_sha256" not in data:
+        return None
+    return data
+
+
+def write_finalize_receipt(
+    project: Path,
+    *,
+    gate: int,
+    phase: int | None,
+    fr_id: str | None,
+    score: float | None,
+    result_path: "Path | None",
+) -> Path:
+    """Write the receipt to its sentinel path and return that path."""
+    path = _finalize_sentinel_path(project, gate, fr_id, phase=phase)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        format_finalize_receipt(
+            gate=gate, phase=phase, fr_id=fr_id, score=score,
+            result_path=result_path,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def record_gate_timestamp(
     project: Path,
     phase: int,

@@ -1911,13 +1911,13 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         print(f"  open_critical   : {result.open_critical}")
         print(f"  open_high       : {result.open_high}")
 
-        # Write finalize sentinel — advance-phase checks this to prove finalize-gate
-        # was actually called (not bypassed by fabricating quality_manifest.json).
-        # v2.13: pass args.phase so the path matches run-gate's per-phase path
-        # (Bug #121).
-        _fsf = _shared._finalize_sentinel_path(project_path, args.gate, fr_id, phase=args.phase)
-        _fsf.parent.mkdir(parents=True, exist_ok=True)
-        _fsf.write_text(f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
+        # The finalize receipt is written at the END of this function, after
+        # every check that can still block and after the registries it has to
+        # agree with (Round 32 站1). It used to be written here — ~250 lines
+        # and five blocking `return`s earlier — so a gate that failed
+        # post-flight, tripped the identical-scores fabrication detector, or
+        # missed Phase Truth still left behind the file advance-phase reads as
+        # proof that it passed.
 
         # ── Persist gate result to .methodology/ (phase-persistent evidence) ──
         # gate{N}_result.json is written by the agent to .sessi-work/, which is
@@ -2177,6 +2177,24 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         # not inside check_commit_intervals.  Failed attempts must not leave a trace
         # so that retries don't accumulate phantom entries.
         gate1_evidence.record_gate_timestamp(Path(args.project).resolve(), args.phase, args.gate, fr_id)
+
+        # ── Finalize receipt — the last thing this function writes ────────
+        # advance-phase and doctor read this to prove finalize-gate ran AND
+        # passed. It carries the digest of the gate result the verdict was
+        # taken on, so producing one by hand means producing a
+        # gate{N}_result.json that survives S3/S4 first. Written after
+        # record_gate_timestamp and _update_state_checkpoint so that "receipt
+        # exists" implies "the registries exist" by construction — the
+        # implication Round 32's station 0 measured to be false.
+        _fsf = gate1_evidence.write_finalize_receipt(
+            project_path,
+            gate=args.gate,
+            phase=args.phase,
+            fr_id=fr_id,
+            score=result.score,
+            result_path=project_path / ".methodology" / f"gate{args.gate}_result.json",
+        )
+        print(f"  receipt         : {_fsf.relative_to(project_path)}")
 
         # ── Auto-generate machine STAGE_PASS.md ──────────────────────
         _shared._generate_stage_pass(project_path, args.gate, args.phase)

@@ -250,33 +250,30 @@ def test_finalize_gate_writes_its_proof_after_everything_it_proves():
     way to state that is that there is nothing between them at all.
     """
     src = (REPO / "cli" / "gate_cmds.py").read_text(encoding="utf-8").splitlines()
-    sentinel_line = timestamp_line = None
+    receipt_line = timestamp_line = None
     for idx, line in enumerate(src, 1):
-        if "_finalize_sentinel_path(project_path" in line:
-            sentinel_line = idx
+        if "write_finalize_receipt(" in line:
+            receipt_line = idx
         if "record_gate_timestamp(" in line and "gate1_evidence" in line:
             timestamp_line = idx
-    assert sentinel_line and timestamp_line, (sentinel_line, timestamp_line)
-    assert sentinel_line > timestamp_line, (
-        f"cmd_finalize_gate writes the finalize sentinel at line {sentinel_line}, "
+    assert receipt_line and timestamp_line, (receipt_line, timestamp_line)
+    assert receipt_line > timestamp_line, (
+        f"cmd_finalize_gate writes the finalize receipt at line {receipt_line}, "
         f"before it records the gate timestamp at line {timestamp_line}. Every "
         f"blocking return in between leaves proof of a pass that did not happen "
         f"(measured: 5 such returns at 2069/2080/2125/2161/2166)."
     )
 
 
-def test_only_finalize_gate_writes_a_finalize_sentinel():
-    """Premise P1, pinned. A second production writer would mean the receipt
-    has a second, weaker author — which is exactly the shape being removed.
-
-    `_write_finalize_sentinels_for_tests` is the one allowed exception: it is
-    the fixture helper, and the test above holds it to the same format.
-    """
+def test_only_one_function_writes_a_finalize_sentinel():
+    """Premise P1, pinned and tightened. Before this round the sentinel had
+    one production writer that spelled the format inline; now it has one
+    function, and every other caller — including the fixture helper — goes
+    through it. A second writer would mean a second, weaker format."""
     import ast
 
     allowed = {
-        ("cli/gate_cmds.py", "cmd_finalize_gate"),
-        ("cli/_shared.py", "_write_finalize_sentinels_for_tests"),
+        ("core/quality_gate/gate1_evidence.py", "write_finalize_receipt"),
     }
     writers: set[tuple[str, str]] = set()
     for path in sorted(REPO.rglob("*.py")):

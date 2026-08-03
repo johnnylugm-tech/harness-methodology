@@ -134,7 +134,15 @@ _LINE_CEILING: dict[str, int] = {
     # discover_modules_at() (removed inline loop, +docstring paragraph
     # explaining the delegation) instead of a locally re-implemented rglob
     # loop that had silently diverged (never skipped __pycache__).
-    "cli/gate_cmds.py": 2588,
+    "cli/gate_cmds.py": 2606,
+    # 2026-08-03 (Round 32 站1): +18 lines — the finalize sentinel moved from
+    # line 1920 to the end of cmd_finalize_gate and became a receipt. The old
+    # write sat ~250 lines and FIVE blocking `return`s above the registries it
+    # is supposed to agree with (post-flight ×2, the identical-scores
+    # fabrication detector, Phase Truth ×2), so a gate that blocked still left
+    # the file advance-phase reads as proof it passed. The growth is the
+    # explanatory comment at the old site plus the receipt call and its
+    # rationale at the new one; the format itself lives in gate1_evidence.
     # 2026-08-03 (Round 31 站2): +19 lines — _patch_mutation_score, the
     # mutation_testing half of the framework_override pattern the trace
     # dimension has used since PR 4. The agent has no standing to author a
