@@ -27,20 +27,34 @@ REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
 
 MIN_REVIEW_REASON_CHARS = 40  # minimum length for an Agent B APPROVE reason to count as substantive
 
-# Accepts three formats and distinguishes them by the separator between the
-# two numbers:
+# Accepts three line-spec formats and distinguishes them by the separator
+# between the two numbers:
 #   `path:N`        — single line
 #   `path:N-M`      — line range, dash separator (tool/diff convention).
 #                     End must be ≥ start and within the file.
 #   `path:N:M`      — line + column (legacy contract, e.g. editor jump-to
 #                     coordinates). Only the line is validated; the column
 #                     is treated as an unverified position-on-line hint.
+# An optional trailing `(annotation)` is accepted after the line spec — it is
+# discarded by the validator and exists purely so reviewers can attach a human
+# note to the citation without breaking the path:line parse. The annotation
+# must be parenthesised (or absent); arbitrary unparenthesised trailing prose
+# is still rejected, preserving the "no such file" check below.
 # Round 26 found the agent-B review was rejected on the run-all-by-workflow
 # P1-P8 run because reviewers wrote `SRS.md:103-225` /
 # `TRACEABILITY_MATRIX.md:325-348` etc. — the contract previously only
 # recognised `path:N:M`, so the dash variant was treated as a whole-file
 # reference whose "path" was literally `SRS.md:103-225` (no such file).
-_CITATION = re.compile(r"^(?P<path>.+?):(?P<line>\d+)(?:(?P<sep>[-:])(?P<end>\d+))?$")
+# Round 27 (2026-08-04) extended this to accept an optional trailing
+# `(annotation)` so `SRS.md:972 (FR-05 §10 verification array ...)` parses as
+# path=SRS.md, line=972 — previously the trailing text forced the fallback
+# whole-file branch, which tried to resolve `SRS.md:972 (...)` as a literal
+# filename and rejected every existing file with "no such file" (observed on
+# the taskq-full run-all Phase 1 advance-phase, 4/4 approvals blocked despite
+# every cited line existing in-range).
+_CITATION = re.compile(
+    r"^(?P<path>.+?):(?P<line>\d+)(?:(?P<sep>[-:])(?P<end>\d+))?(?:\s*\([^)]*\))?$"
+)
 
 # Conventional phase directories in the harness scaffolding, in resolution
 # order. Used as a fallback when a citation's path is a bare filename (no
