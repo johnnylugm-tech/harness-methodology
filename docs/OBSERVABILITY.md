@@ -598,3 +598,47 @@ violation. The `[mutmut]` section carries both halves of the denominator.
 `.methodology/mutation_survivors.json` gained `reported_total`: what mutmut said,
 beside what the framework parsed. See ERROR_HANDLING.md, "A parse failure is not
 an absence".
+
+## Finalize receipts and the evidence they must agree with (Round 32)
+
+`.sessi-work/sentinels/g{gate}_p{phase}_{key}.finalized` used to contain a bare
+ISO timestamp. It now contains a receipt, and `advance-phase` and `doctor` both
+read it through `gate1_evidence.verify_finalize_evidence`.
+
+| field | meaning |
+|---|---|
+| `schema` | receipt format version; anything else parses as "not a receipt" |
+| `gate` / `phase` / `fr_id` | which verdict this attests |
+| `score` | the composite the gate finalized at; must match `.gate1_scores.json` |
+| `result_sha256` | digest of the `gate{N}_result.json` the verdict was taken on |
+| `enforcer_sha` | the harness commit that enforced it (`core/harness_provenance`) |
+| `ts` | when finalize-gate wrote it — **last**, after both registries |
+
+The reconciliation rule is one-directional, because `GATE1-DELTA already done
+→ skip` legitimately writes a timestamp row and no receipt:
+
+```
+receipt present  =>  a `finalize` gate_timestamps row for the same
+                     gate/phase/FR exists, AND (gate 1) a .gate1_scores.json
+                     entry exists whose score matches the receipt's
+timestamp only   =>  legal
+receipt + empty registries  =>  no producer. This is the forgery fingerprint.
+```
+
+Old-format sentinels are rejected outright. A legacy channel that still clears
+the check is the same hole with a longer name; the cost is that a project must
+re-run its gates once.
+
+### Other Round 32 additions
+
+- `run-report` → `degradations.turn_ceiling_escapes`: how many steps did not
+  fit their configured `max_turns` and were re-dispatched with a raised one.
+  Measured on a live P4: four of eight FRs. The default is unchanged — this is
+  the number that would justify changing `values.step_max_turns`.
+- `doctor` → `testpaths-drift` (WARN): test files the project's own effective
+  pytest config leaves out of its default run, against what the framework
+  collects. Reports, never rewrites. The declaring file is fingerprinted into
+  the verdict via `DIMENSION_EXCLUSION_FILES["test_coverage"]`.
+- `.methodology/last_block.md` is deleted when the gate/phase/FR it names
+  subsequently passes, so a resolved BLOCK report cannot sit beside a state
+  that says the phase completed.

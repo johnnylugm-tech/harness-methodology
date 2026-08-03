@@ -832,3 +832,157 @@
 - test: tests/test_mutmut_report.py::test_survivors_reach_the_bug_hunt_manifest
   bug: "end-to-end chain guard for the range bug: `mutmut results` → parse → mutation_survivors.json → bug-hunt-targets. Asserted through the whole chain rather than at either end, because the artifact looked well-formed the entire time it was empty — survivor_count 0 next to a raw banner reading 308, and Gate 3 reading that zero as 'no leads'"
   fixed_in: "6e5cc6f"
+
+# ── Round 32: 「已驗證」的證明比「驗證」本身便宜 ────────────────────────
+
+- test: tests/test_finalize_receipt.py::test_a_bare_timestamp_is_not_a_receipt
+  bug: "the finalize sentinel's entire content was `datetime.now().isoformat()` — a string any shell can print, with no link to the gate result it attested. Eight of them appeared in one second on a live P4, one minute after that gate had BLOCKED"
+  fixed_in: "eee5505"
+
+- test: tests/test_finalize_receipt.py::test_a_receipt_names_the_gate_result_it_attests
+  bug: "forging proof of a pass cost one `date` invocation. The receipt now carries the sha256 of the gate result the verdict was taken on, so producing one by hand means first producing a gate{N}_result.json that survives S3/S4"
+  fixed_in: "eee5505"
+
+- test: tests/test_finalize_receipt.py::test_an_unreadable_receipt_reads_as_absent_not_as_valid
+  bug: "Round 31's parse-failure rule applied to the receipt reader: text it cannot parse means 'this is not a receipt', never 'the receipt says everything is fine'"
+  fixed_in: "eee5505"
+
+- test: tests/test_finalize_receipt.py::test_finalize_gate_writes_its_proof_after_everything_it_proves
+  bug: "cmd_finalize_gate wrote the sentinel at line 1920 and its registries at ~2170/2179, with FIVE blocking returns in between (post-flight x2, the identical-scores fabrication detector, Phase Truth x2). Every one of them refused to pass the gate AFTER writing the file that says it passed. Station 0's premise P2 was measured false because of this"
+  fixed_in: "eee5505"
+
+- test: tests/test_finalize_receipt.py::test_only_one_function_writes_a_finalize_sentinel
+  bug: "premise P1, tightened into an invariant: a second writer would mean a second, weaker format for the same proof. Every caller, including the test fixture helper, goes through write_finalize_receipt"
+  fixed_in: "eee5505"
+
+- test: tests/test_finalize_receipt.py::test_the_test_fixture_helper_produces_a_valid_receipt
+  bug: "_write_finalize_sentinels_for_tests wrote the literal 'test-sentinel'. A fixture emitting a shape the production reader rejects makes every test using it pass for a reason production never has"
+  fixed_in: "eee5505"
+
+- test: tests/test_finalize_receipt.py::test_a_hand_written_sentinel_does_not_clear_the_advance_check
+  bug: "advance-phase asked .exists() of the sentinel. The forged file, verbatim, cleared it — and the phase was recorded complete six minutes later"
+  fixed_in: "656d707"
+
+- test: tests/test_finalize_receipt.py::test_a_receipt_with_no_registry_rows_is_rejected
+  bug: "the three evidence channels were OR'd, so satisfying the cheapest one was enough. Measured: eight receipts, zero phase-4 gate-1 rows in gate_timestamps.jsonl, zero entries in .gate1_scores.json"
+  fixed_in: "656d707"
+
+- test: tests/test_finalize_receipt.py::test_each_half_of_the_rule_is_load_bearing
+  bug: "the station-2 counter-proof did not go red: the fixture had BOTH registries empty, so removing either half of the check left the other one firing. These cases populate one and not the other"
+  fixed_in: "656d707"
+
+- test: tests/test_finalize_receipt.py::test_a_receipt_whose_score_contradicts_the_registry_is_rejected
+  bug: "Round 24's rule at the receipt layer: both registries present is not the same as both registries agreeing with the receipt"
+  fixed_in: "656d707"
+
+- test: tests/test_finalize_receipt.py::test_the_legitimate_combination_passes
+  bug: "counter-case for the reconciliation: a genuine finalize writes all three, and that must stay quiet — a rule satisfied by blocking everything protects nothing"
+  fixed_in: "656d707"
+
+- test: tests/test_finalize_receipt.py::test_doctor_does_not_accept_a_run_gate_flag_as_proof_of_a_pass
+  bug: "doctor's evidence glob included `.flag`, which run-gate writes when the gate STARTS. On the measured project g1_p4_fr01.flag was written at 03:49:53 and the gate BLOCKED at 03:54:07"
+  fixed_in: "656d707"
+
+- test: tests/test_finalize_receipt.py::test_doctor_and_advance_phase_share_one_implementation
+  bug: "two consumers each hand-rolling the same evidence rule is how the OR survived — doctor's version and advance-phase's version disagreed about what counts and neither knew about the other"
+  fixed_in: "656d707"
+
+- test: tests/test_doctor.py::TestGate1Evidence::test_a_run_gate_start_flag_does_not_satisfy_the_claim
+  bug: "deliberate reversal of Round 3 Station J's test_sentinel_flag_satisfies_the_claim: a start flag is not a verdict. Kept as a test rather than deleted so the reversal is on the record"
+  fixed_in: "656d707"
+
+- test: tests/test_tool_env_parity.py::test_a_tool_that_imports_the_project_is_given_the_projects_import_root
+  bug: "run_tool injected PYTHONPATH only for cmd[0] == 'pytest'. import-linter, pyright and mypy resolve the same imports; `lint-imports` without it prints 'Could not find package' and exits 1, which exit-code-binary scored 0.0 and S4 reported as the agent fabricating architecture_constraints"
+  fixed_in: "da7565b"
+
+- test: tests/test_tool_env_parity.py::test_an_existing_pythonpath_is_extended_not_replaced
+  bug: "counter-case for widening the injection: a caller who set PYTHONPATH meant it. Round 16 got this right for pytest and the wider version must not lose it"
+  fixed_in: "da7565b"
+
+- test: tests/test_tool_env_parity.py::test_a_project_with_no_source_root_still_runs_the_tool
+  bug: "no source directory to inject is not a reason to refuse to run, and env must stay None rather than becoming a copy with nothing added"
+  fixed_in: "da7565b"
+
+- test: tests/test_tool_env_parity.py::test_the_test_target_comes_from_the_one_resolver
+  bug: "run_tool re-derived its test target from a hardcoded 03-development/tests probe ten lines below a resolve_targets() call whose first return value is that answer and was being discarded. Round 25 named 'four call sites each hand-rolling the argv' as the defect it ended; this was the fifth"
+  fixed_in: "da7565b"
+
+- test: tests/test_tool_runners.py::TestRunToolPythonPathInjection::test_a_non_pytest_tool_gets_the_same_import_root
+  bug: "Round 16 wrote the narrow condition as a generality guard. That scoping WAS the defect — PYTHONPATH is where the project's package lives, not a pytest requirement"
+  fixed_in: "da7565b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_pytest_cov_output_it_cannot_parse_is_not_zero_percent_coverage
+  bug: "_score_pytest returned 0.0 when a run collected no tests, so a collection error was recorded as 0% coverage and S4 reported the agent's real 100% as fabrication"
+  fixed_in: "c31870b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_a_tool_that_could_not_start_is_not_a_failed_contract
+  bug: "_score_exit_code_binary gave the same 0.0 to a broken layer contract and to a tool that never started. import-linter says which one it means, in words"
+  fixed_in: "c31870b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_a_genuinely_broken_contract_is_still_zero
+  bug: "counter-case for the abstention: a real contract violation must not become unscoreable along with the could-not-run case"
+  fixed_in: "c31870b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_a_real_coverage_number_still_parses
+  bug: "counter-case: teaching _score_pytest to abstain must not make every measurement unscoreable"
+  fixed_in: "c31870b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_a_benchmark_run_that_crashed_does_not_score_full_marks
+  bug: "_score_pytest_benchmark treated exit 5 as 'no benchmarks' and everything else as scoreable. Its scoring only subtracts for slow rows, so a crashed suite (exit 2, no rows) was awarded 100.0. Found while measuring station 0's premise P3"
+  fixed_in: "c31870b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_the_two_block_kinds_reach_the_error_under_different_keys
+  bug: "every S4 violation was filed under tool_score_fabrication, including timeouts and missing tools, whose registered remediation tells the agent the score is what failed. Two earlier drafts of this test were themselves wrong — one scanned source text, one patched five private seams — which is why s4_block_details is a public function"
+  fixed_in: "c31870b"
+
+- test: tests/test_unscoreable_is_not_zero.py::test_the_none_branch_does_not_silently_pass_a_required_tool
+  bug: "harness_score None fell through to a bare `continue` for every dimension but readability, so the agent's number stood unchecked with no record that the check had not happened. Making the scorers abstain without this would trade a false accusation for a silent pass"
+  fixed_in: "c31870b"
+
+- test: tests/test_testpaths_denominator.py::test_a_project_that_declares_no_testpaths_reports_no_drift
+  bug: "an absent declaration must read as None, not as the empty set — the empty set would report every test file in the project as excluded"
+  fixed_in: "7f2115e"
+
+- test: tests/test_testpaths_denominator.py::test_pyproject_and_pytest_ini_are_read_too
+  bug: "three files can carry testpaths and the reader must use pytest's own precedence. Reading only setup.cfg would report a drift that does not exist — measured: taskq-advance's pytest.ini names the whole test directory while a nine-entry setup.cfg block sits unread beside it"
+  fixed_in: "7f2115e"
+
+- test: tests/test_testpaths_denominator.py::test_a_config_file_it_cannot_parse_reads_as_no_declaration
+  bug: "Round 31's parse-failure rule again: unparseable means 'this file carries no such information', not 'the declared set is empty'"
+  fixed_in: "7f2115e"
+
+- test: tests/test_testpaths_denominator.py::test_the_declaring_file_travels_with_the_verdict
+  bug: "the file that declares which tests count moves test_coverage the same way .gitleaksignore moves secrets_scanning, and was not in DIMENSION_EXCLUSION_FILES. Its value is a tuple because three files can carry the declaration"
+  fixed_in: "7f2115e"
+
+- test: tests/test_testpaths_denominator.py::test_doctor_names_the_difference_without_forbidding_it
+  bug: "narrowing the default test set is the project's decision; what it may not do is be invisible. WARN, never ERROR — same contract as Round 31 站4's scope_drift"
+  fixed_in: "7f2115e"
+
+- test: tests/test_milestone_claims.py::test_a_gate1_sweep_claim_counts_the_registry_not_the_fr_list
+  bug: "'all N FR(s) Gate1 re-eval PASS' was generated from the FR roster in the manifest, not from the verdicts on record. Measured: eight claimed, zero recorded, and the FR-01 gate BLOCKED fourteen minutes later"
+  fixed_in: "7bb9874"
+
+- test: tests/test_milestone_claims.py::test_a_score_without_a_finalize_row_is_not_a_recorded_verdict
+  bug: "the station-6 counter-proof did not discriminate: the fixture seeded both registries, so dropping either half of the summary's rule left it green"
+  fixed_in: "7bb9874"
+
+- test: tests/test_milestone_claims.py::test_the_sweep_milestones_check_that_summary_before_committing
+  bug: "p3-post-gate2 has validated its precondition since v2.9.1; p3-pre-gate2 and p4-pre-gate3 make the same all-FRs claim and went straight to git with nothing between them and it"
+  fixed_in: "7bb9874"
+
+- test: tests/test_milestone_claims.py::test_push_milestone_run_twice_at_one_head_commits_once
+  bug: "34235b6 and 9807b22, byte-identical subject lines ten minutes apart. Round 20 站3 removed the EMPTY milestone commit at this decision point; a repeated one is the neighbouring case. The helper-level test left the call site and the recording site uncovered, which the counter-proof caught"
+  fixed_in: "7bb9874"
+
+- test: tests/test_milestone_claims.py::test_turn_ceiling_escapes_reach_the_run_report
+  bug: "all four degradation rows in the measured run were the same row — TDD-GREEN escalating max_turns 40 -> 80 for four of eight FRs — and run-report did not count them, so the default stayed 40 forever. This test itself first passed for the wrong reason: pytest names tmp_path after the test function, so a substring check on json.dumps matched the metric's own name inside the project path"
+  fixed_in: "7bb9874"
+
+- test: tests/test_milestone_claims.py::test_last_block_is_cleared_when_that_gate_later_passes
+  bug: "last_block.md was written on every block and never removed, so a P4 Gate 1 BLOCK report sat beside a state.json saying the phase had passed with nothing to say which was current. Matched three ways so a report for a gate that has NOT since passed stays"
+  fixed_in: "7bb9874"
+
+- test: tests/test_handover_generator.py::TestCmdPushMilestone::test_p4_pre_gate3_refuses_to_claim_verdicts_that_do_not_exist
+  bug: "the refusal path for the sweep check, driven through the command rather than the helper"
+  fixed_in: "7bb9874"

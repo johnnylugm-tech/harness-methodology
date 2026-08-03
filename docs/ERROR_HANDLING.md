@@ -471,3 +471,52 @@ that was installed.
 > so in the framework's own voice and route to the framework's own budget
 > (`harness_config values.timeouts`). Return code `-2` (timed out) and `-3`
 > (not found) are different findings and no longer share a sentence.
+
+## A tool the harness could not run is not a failing tool (Round 32)
+
+Round 31 ruled that a parser abstaining must not look like a result. Round 32
+found the consequence one layer up, where the abstention reaches a verdict:
+
+> **"the harness could not measure this" and "the harness measured, and the
+> agent's number was false" are different findings with opposite remedies, and
+> they must not share a block-reason key.**
+
+Measured on a live P4 Gate 1, `.methodology/last_block.md`:
+
+```
+1. tool_score_fabrication
+   - test_coverage: fabrication detected — harness ran 'pytest-cov' and
+     scored 0.0 (below threshold 80.0), but agent reported 100.0
+   - architecture_constraints: fabrication detected — harness ran
+     'import-linter' and scored 0.0 ...
+```
+
+Neither tool had judged anything. `import-linter` printed `Could not find
+package 'X' in your Python path` and exited 1, because `run_tool` gave
+PYTHONPATH only to `pytest`. The registered remediation for
+`tool_score_fabrication` reads *"Do NOT re-run the gate — the score, not the
+run, is what failed"*, so the agent was told to make a true claim true.
+
+Three rules follow.
+
+1. **A scorer returns `None`, not `0.0`, when it cannot read a result.**
+   `_score_pytest` returned 0.0 when the run collected no tests;
+   `_score_exit_code_binary` returned 0.0 for every non-zero exit, including
+   the ones where the tool says in words that it never started;
+   `_score_pytest_benchmark` returned **100.0** on a collection error, because
+   its scoring only ever subtracts and a crash has no rows to subtract for.
+   `compute_tool_score` has meant `None` = "cannot score" since it was
+   written; these three never reached it.
+
+2. **An abstention still blocks — under `infra_fail`.** Making the scorers
+   honest without changing the verdict layer would have traded a false
+   accusation for a silent pass, which is Round 30's rule broken from the
+   other side. The `harness_score is None` branch records a degradation and
+   raises, and `s4_block_details` maps it to `infra_fail` — a key that already
+   existed for the symmetric case (an agent recording an INFRA-polluted zero)
+   and already carries the right instruction: repair the tool run, do not touch
+   the score. Round 13's routing keeps it out of a CODE-FIX round.
+
+3. **The framework's own inability is the framework's bill.** If the harness
+   cannot reproduce a measurement, the finding names the harness — the audit
+   file, the invocation, the scorer — not the party being measured.

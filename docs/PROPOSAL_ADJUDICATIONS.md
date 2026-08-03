@@ -825,3 +825,138 @@ scope_drift    : setup.cfg [mutmut] paths_to_mutate is .../taskq_plus, but the
                  SAB's mutation_testing NFR scopes it to .../service, .../storage
 ```
 逐檔數字與 agent 當初手寫的表格完全一致 —— 解析器對上了一份獨立產生的真值。
+
+---
+
+## Round 32 — 「已驗證」的證明比「驗證」本身便宜
+
+觸發：老闆令檢視 taskq-advance P1–P4 的執行紀錄與 harness 的 git history，
+找出是否仍有根本性/結構性問題。taskq-advance 已走完 P4，此刻正在跑 P5。
+
+### 根源
+
+> **「已驗證」的證明比「驗證」本身便宜。**
+>
+> 框架把「這關驗過了沒有」交給一個**沒有內容契約、沒有交叉對賬、任一通道即可**
+> 的檔案存在性；而當框架自己量不出來時，它產出的**假指控**正是促成偽造那個檔案的壓力。
+
+兩半必須一起修：只修偽造面，下一次假指控還會製造同樣的壓力；只修假指控面，
+證明依然一行 `echo` 就能造出來。
+
+Round 21 是「判定早於真值」，Round 24 是「欄位存在 ≠ 內容為真」，
+本輪是它們的合流：**判定的證明，其偽造成本必須等於被證明之事的成本。**
+
+### 八項發現（量測值）
+
+| # | 發現 | 量測 | 站 |
+|---|---|---|---|
+| F1 | P4 Gate 1 的「已驗證」證明非框架產生，而框架只驗檔案存在 | 8 個 `.finalized` 同秒、無微秒、26B（真品 33B 帶微秒）；三登記簿 phase-4 gate-1 零筆 | 1, 2 |
+| F2 | 框架跑不動工具，卻把跑不動記成對方造假 | `lint-imports` 無 PYTHONPATH → `Could not find package` rc=1 → 0.0；有 → 100.0 | 3 |
+| F3 | 解析失敗仍寫成 0.0（R31 立則的兄弟函式） | `_score_pytest` / `_score_exit_code_binary` 從不回 None | 4 |
+| F3b | 崩掉的 benchmark 得滿分 | `_score_pytest_benchmark` 只認 exit 5；exit 2 → 100.0 | 4 |
+| F4 | 專案宣告的測試集與框架量的不同，無人對賬 | 見下方**自我證偽** | 5 |
+| F5 | 半數 FR 撞 turn 天花板，賬本記了沒人讀 | degradations 4 筆全是 `max_turns 40→80`（FR-03/05/06/08） | 6 |
+| F6 | 里程碑 commit 重複，且宣稱與登記簿相反 | `34235b6`/`9807b22` 訊息逐字相同、間隔 10 分、皆早於 FR-01 BLOCK | 6 |
+| F7 | `run_tool` 丟掉 `resolve_targets` 的 test_target 改用硬編探針 | 語意今日相同，**無活傷口**；R25 點名的第五個同形兄弟 | 3（順手） |
+| F8 | `last_block.md` 只寫不清 | P4 的 BLOCK 報告與 state 的 PASS 長期並存 | 6（順手） |
+
+### 站0 三前提的查證結果
+
+- **P1 為真** —— `.finalized` 只有兩個寫入點：`cli/gate_cmds.py:1920`（生產，
+  `datetime.now(timezone.utc).isoformat()`，必帶微秒）與 `cli/_shared.py`（測試 fixture，
+  寫字面 `"test-sentinel"`）。兩者都產不出觀測到的字串；無非 Python 寫入點。
+
+- **P2 為假，而這是本輪最重要的發現。** 「收據存在 ⇒ 登記簿存在」在修復前**不成立**：
+  `cmd_finalize_gate` 在 line 1920 寫 sentinel、在 ~2170/2179 寫登記簿，中間有**五個阻擋 return**：
+
+  ```
+  2069 return 5   post-flight structural check failed
+  2080 return 5   post-flight error at Gate 4
+  2125 return 1   all dimension scores identical  ← 反造假偵測器本身
+  2161 return 11  Phase Truth < 90%
+  2166 return 11  PhaseTruthVerifier unavailable
+  ```
+
+  每一個都在**寫下「本關已通過」之後**才拒絕通過。這一半不需要任何外部行為者，
+  純粹是框架自己的洞。修法因此更強：收據移到最後寫，蘊含關係由構造成立。
+
+- **P3 在安全方向為真** —— 於含真實 intra-package import 的 src-layout fixture 逐工具實測：
+
+  | 工具 | 無 PYTHONPATH | 有 PYTHONPATH |
+  |---|---|---|
+  | ruff / mypy / bandit / radon-cc / radon-mi / readability-v2 / gitleaks | 不變 | 不變 |
+  | pyright | 95.0 | **100.0** |
+  | import-linter | 0.0 | **100.0** |
+  | pytest-cov | 0.0 | **100.0** |
+
+  **每一個變動的分數都是上升，而每一次上升都是移除框架自己製造的偽陰性。沒有任何一項被放寬。**
+
+### 自我證偽：F4 的活實例不成立
+
+站7 的唯讀冒煙推翻了我在站5 commit 訊息裡寫的敘事。taskq-advance 同時有：
+
+```
+pytest.ini    [pytest]      testpaths = 03-development/tests      ← pytest 實際讀這個
+setup.cfg     [tool:pytest] testpaths = <九個項目>                 ← pytest 從不讀
+```
+
+pytest 的優先序是 `pytest.ini > pyproject.toml > tox.ini > setup.cfg`，
+`pytest.ini` 存在時 `setup.cfg` 的 `[tool:pytest]` 整段被忽略。實測 `pytest --co`：
+**617 tests / 18 檔全收**，`testpaths_drift` 回報 `not_in_declared: 0`。
+
+所以「agent 裸跑量九個、框架量十六個」**是錯的**——兩邊量的是同一組。
+站5 commit 訊息裡的那段敘述以此更正。
+
+仍然成立的部分：
+- **機制是真的**。若某專案的**生效**設定確實窄化了 testpaths，框架的顯式路徑就會量另一組，
+  而在本輪之前沒有任何地方記錄這件事。`testpaths_scope` 的 `_SOURCES` 順序即 pytest 的優先序，
+  所以它讀的就是 pytest 讀的——這個順序不是裝飾，讀錯順序會報出不存在的漂移。
+- taskq-advance 的 `setup.cfg [tool:pytest]` 是**沒有任何工具會讀的死設定**。
+  這是一個較小的、獨立的發現，不是本輪修的那個。
+
+### 老闆的裁定
+
+1. **舊格式 sentinel 硬切**。代價已知並確認：唯讀冒煙顯示 taskq-advance 的
+   **P3 sentinel 也一併被拒**——它們是 finalize-gate 的真品，但舊格式不帶任何可對賬的資訊，
+   檢查無法區分「真品但過時」與「偽造」。這正是硬切的理由，也是它的代價。
+2. **taskq-advance 只報告不動**（本輪未寫入該專案任何檔案，冒煙前後 `git status` 逐字相同）。
+3. 範圍 F1–F6 全做。
+
+### taskq-advance 的事實（措辭邊界）
+
+唯讀冒煙，以本輪的對賬函式跑該專案：
+
+```
+八個 P4 Gate-1 sentinel        : 全部 REJECTED（非收據格式）
+gate1_phase_summary(phase=4)   : expected 8 / recorded 0 / missing 8
+                                 → p4-pre-gate3 里程碑會被拒絕
+```
+
+**措辭必須是「非框架產生」（已證實：內容格式、同秒批次、與唯二寫入點的行為不符），
+而不是「agent 蓄意偽造」（未證實）。** 它也可能出自某個第三方腳本或不知情的補洞。
+兩種情形下本輪的修復處置完全相同，但賬本不該替未查證的事下判斷。
+
+**結論仍然成立**：taskq-advance 的 P4 Gate 1 沒有留下任何通過的證據，
+而它此刻的 P5 建立在那之上。何時停下來重跑 P4 Gate 1 是老闆的決定。
+
+### 本輪自己犯的錯（四項，全部由本輪的工具抓到）
+
+1. **站0 的 `turn_ceiling_escapes` 測試首跑就綠**，因為 `"metric" in json.dumps(payload)`
+   匹配到 pytest 用測試函式名命名的 `tmp_path` 目錄。改成斷言解析後的結構。
+2. **站2 的反證不轉紅**：fixture 兩個登記簿都空，拿掉任一半另一半仍在報。
+   補「一個有一個沒有」的兩個案例 + 一個「兩個都有但與收據不符」。
+3. **站4 的分類反證不轉紅**：測試掃原始碼字串，而合併兩個 list 後那個字串仍不存在。
+   改成斷言映射本身；其重寫版又 patch 了五個私有接縫，被 private-patch ratchet 擋下——
+   於是把該映射升為公開函式 `s4_block_details`，測試零 patch。
+4. **站6 的三條反證不轉紅**：summary 的 fixture 同樣兩簿皆備；duplicate guard 與
+   HEAD 記錄點則根本沒有測試覆蓋（只測了 helper，沒測接線）。各補一個。
+
+共同形狀：**檢查程式碼的文字，而不是執行程式碼的意義**——與本輪要修的病同科。
+
+### 承 / 啟
+
+- 承 Round 21（判定早於真值）、Round 24（欄位存在 ≠ 內容為真）、Round 30（棄權 ≠ 通過）、
+  Round 31（解析失敗 ≠ 不存在）。
+- 啟：本輪把 `infra_fail` 從「agent 寫了汙染的零」擴到「框架自己量不出來」。
+  這兩者用同一個 key，因為補救方式相同（修工具，別動分數）；若日後發現需要分辨
+  「誰造成無法量測」，那會是拆這個 key 的時候。

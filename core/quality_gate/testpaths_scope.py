@@ -32,10 +32,13 @@ from pathlib import Path
 
 __all__ = ["declared_testpaths", "testpaths_drift", "declaring_file"]
 
-# Order matters only for reporting which file was read; pytest's own
-# precedence (pytest.ini > pyproject.toml > tox.ini > setup.cfg) is not
-# reproduced here because a project with two of them is already ambiguous and
-# the drift report names the file it used.
+# pytest's own precedence order, so this module reads what pytest reads. That
+# matters more than it looks: on the project this round came from, a nine-entry
+# `[tool:pytest] testpaths` in setup.cfg sits beside a `pytest.ini` naming the
+# whole test directory — and pytest.ini wins, so the narrow list is dead config
+# nobody reads. A checker that read setup.cfg first would report a drift that
+# does not exist. (tox.ini is omitted: nothing in this framework's supported
+# layouts uses it, and adding an unread source is how dead branches start.)
 _SOURCES = ("pytest.ini", "pyproject.toml", "setup.cfg")
 
 
