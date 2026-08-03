@@ -651,7 +651,7 @@ structural analysis — call graphs, community detection, flow analysis, dead co
 ### 9.5 Verifying CRG
 
 ```bash
-python3 harness/ssi/scripts/verify_tools.py --core --project .   # CRG is now in CORE section
+python3 harness/harness/ssi/scripts/verify_tools.py --core --project .   # CRG is now in CORE section
 code-review-graph status                  # Quick status check
 cat .sessi-work/crg_status.json          # Session-level status
 cat .sessi-work/crg_reconnaissance.json  # Recon output (Gate 3/4)

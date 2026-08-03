@@ -1176,3 +1176,22 @@ class TestCmdAmendSabPhantom:
         captured = capsys.readouterr()
         assert "PHANTOM" in captured.out
         assert "taskq.breaker" in captured.out
+
+
+def test_issue_26_gate_check_hard_deps_and_mutmut_probe():
+    """ID: test_issue_26_gate_check_hard_deps_and_mutmut_probe
+    Verifies Issue #26 fixes:
+    1. harness_quality_gate.yml gate-check job installs 4 required gate hard dependencies
+    2. verify_tools.py probes mutmut with --help instead of --version
+    """
+    from cli.project_cmds import _harness_workflow_template
+    from harness.ssi.scripts.verify_tools import EXTENDED_TOOLS
+
+    workflow_content = _harness_workflow_template()
+    assert "import-linter==2.5.2" in workflow_content
+    assert "scancode-toolkit==32.4.1" in workflow_content
+    assert "code-review-graph==2.3.6" in workflow_content
+    assert "gitleaks" in workflow_content
+
+    assert EXTENDED_TOOLS["mutmut"][0] == "mutmut --help"
+

@@ -74,7 +74,7 @@ npm ci
 pip install -r harness/requirements.txt
 
 # 4. 驗證工具齊備(per-language 分流):
-python3 harness/ssi/scripts/verify_tools.py --core --project .
+python3 harness/harness/ssi/scripts/verify_tools.py --core --project .
 ```
 
 硬性慣例(gate 會 enforce):
@@ -223,9 +223,15 @@ The template contains these jobs (all trigger on `push: branches: [main]`):
 |-----|---------|
 | `gate-check` | Phase preflight + gate score variance + FR traceability |
 | `push-milestone-enforcement` | Blocks raw `git push` for P3+ (requires `push-milestone`) |
-| `p1p2-enforcement` | Blocks raw `git push` for P1/P2 (requires `push-checkpoint`) |
-| `agent-b-approval-check` | Verifies Agent B APPROVE files for P3+ |
 | `p8-archive-check` | Validates `.methodology-archive/` + no Phase 9 refs |
+| `d4-spec-coverage-check` | Verifies test title & spec coverage mapping |
+| `sab-validation` | Validates Software Architecture Board / Security requirements |
+| `phase-end-audit-check` | Enforces mandatory audit checks at phase boundaries |
+| `deliverable-existence-check` | Verifies phase deliverables exist |
+| `aspice-trace-check` | Validates ASPICE traceability links |
+| `gate4-tag-check` | Checks Gate 4 release tags |
+| `gate-pass-check` | Verifies quality manifest gate completion record |
+| `crg-architecture-check` | Deterministic CRG architecture check and drift detection (P3+) |
 
 > See `templates/harness_quality_gate.yml` for the full YAML. The table above is a structural reference only — the template is the single source of truth.
 

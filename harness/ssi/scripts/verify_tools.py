@@ -84,7 +84,7 @@ def core_tools_for(language: str, test_runner: str | None = None) -> dict:
 
 EXTENDED_TOOLS = {
     # HIGH priority
-    "mutmut": ("mutmut --version", "pip3 install mutmut", "Python mutation testing"),
+    "mutmut": ("mutmut --help", "pip3 install mutmut", "Python mutation testing"),
     "stryker": (
         "stryker --version",
         "npm install -g @stryker-mutator/core",

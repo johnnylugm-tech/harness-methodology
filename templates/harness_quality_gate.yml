@@ -32,6 +32,12 @@ jobs:
           pip install -r harness/requirements.txt || true
           pip install pyyaml 2>/dev/null || true
 
+      - name: Install gate hard dependencies
+        run: |
+          pip install import-linter==2.5.2 scancode-toolkit==32.4.1 code-review-graph==2.3.6
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+
       # JS/TS target projects (state.json language) need node + the pinned
       # devDependencies — gate commands use `npx --no-install` and fail loudly
       # without them. No-op for python projects.
@@ -134,7 +140,6 @@ jobs:
 
       - name: Verify HANDOVER.md exists (P3+)
         # G-NEW-6 fix: push-milestone generates HANDOVER.md; CI verifies it exists for P3+.
-        # P1/P2 HANDOVER.md is already checked by p1p2-enforcement job.
         run: |
           PHASE=$(python3 -c "
           import json, sys
@@ -145,7 +150,7 @@ jobs:
               print(0)
           " 2>/dev/null || echo "0")
           if [ "$PHASE" -lt 3 ]; then
-            echo "INFO: Phase $PHASE < 3 — HANDOVER.md managed by p1p2-enforcement."
+            echo "INFO: Phase $PHASE < 3 — HANDOVER.md not required for early phases."
             exit 0
           fi
           if [ ! -f "HANDOVER.md" ]; then
