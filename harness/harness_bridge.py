@@ -942,7 +942,7 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
 # takes its exclusions on the command line, so there is no file to fingerprint,
 # and recording that here is what stops the next reader assuming it was
 # forgotten. A new scored dimension belongs in this table with one or the other.
-DIMENSION_EXCLUSION_FILES: "dict[str, str | None]" = {
+DIMENSION_EXCLUSION_FILES: "dict[str, str | tuple[str, ...] | None]" = {
     "secrets_scanning": ".gitleaksignore",
     "license_compliance": None,
     # Round 31 站4: setup.cfg's [mutmut] section carries BOTH halves of the
@@ -954,6 +954,15 @@ DIMENSION_EXCLUSION_FILES: "dict[str, str | None]" = {
     # rather than a hidden one — the registry's contract is "which file can
     # move this dimension's score", not "which dotfile".
     "mutation_testing": "setup.cfg",
+    # Round 32 站5: the file that declares which tests count moves
+    # test_coverage the same way an ignore-list moves secrets_scanning.
+    # Measured: a project whose [tool:pytest] testpaths named nine entries
+    # while the directory held sixteen test files — two of them the FR tests
+    # for FR-02 and FR-07. The agent's bare `pytest` measured nine, the
+    # framework's explicit path measured sixteen, and neither denominator was
+    # recorded. Three files can carry the declaration, so this entry is a
+    # tuple: whichever ones exist are digested.
+    "test_coverage": ("pytest.ini", "pyproject.toml", "setup.cfg"),
 }
 
 
@@ -1034,9 +1043,13 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
     # The digest goes into evidence_digest beside the tool outputs (Round 27
     # 站3's channel), so two verdicts scored under different exemption lists are
     # distinguishable from the artifacts alone.
-    for _dim_name, _excl_file in DIMENSION_EXCLUSION_FILES.items():
-        if _excl_file is None:
-            continue
+    _excl_pairs: "list[tuple[str, str]]" = [
+        (_dim, str(_f))
+        for _dim, _spec in DIMENSION_EXCLUSION_FILES.items()
+        if _spec is not None
+        for _f in ((_spec,) if isinstance(_spec, str) else _spec)
+    ]
+    for _dim_name, _excl_file in _excl_pairs:
         _excl_path = _Path(ctx.project_root) / _excl_file
         if not _excl_path.is_file():
             continue

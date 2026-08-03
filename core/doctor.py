@@ -151,6 +151,14 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # (push-milestone p3-post-gate2, advance-phase).
     findings.extend(_check_gate1_evidence(project, layout))
 
+    # 7b. declared vs collected test set (Round 32 站5): a project may narrow
+    # its own default `pytest` run — that is its decision — but the framework
+    # measures test_coverage over an explicit directory, which overrides
+    # `testpaths`. Measured on a live P4: nine declared entries against
+    # sixteen collected files, two of them the FR tests for FR-02 and FR-07.
+    # WARN, never ERROR: the difference has to be visible, not forbidden.
+    findings.extend(_check_testpaths_drift(project))
+
     # 8. enforcement.json zombie keys (Round 9 站0): the EnforcementConfig
     # dataclass that once consumed mode/platform/enforce_on_*/thresholds was
     # removed as dead code — the only keys anything still reads are
@@ -548,6 +556,33 @@ def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]
             for problem in verify_finalize_evidence(project, 1, _phase, str(fr_id)):
                 findings.append(Finding("gate1-evidence", "ERROR", problem))
     return findings
+
+
+def _check_testpaths_drift(project: Path) -> list[Finding]:
+    """Name the test files the project left out of its own default run.
+
+    Reports, never rewrites — same contract as Round 31 站4's mutation
+    `scope_drift`. The file carrying the declaration is separately
+    fingerprinted into the verdict (DIMENSION_EXCLUSION_FILES), so the
+    decision is in the artifacts; this says out loud what it means.
+    """
+    from core.quality_gate.testpaths_scope import testpaths_drift
+
+    drift = testpaths_drift(project)
+    if not drift or not drift["not_in_declared"]:
+        return []
+    missing = drift["not_in_declared"]
+    shown = ", ".join(missing[:5]) + (f" +{len(missing) - 5} more"
+                                      if len(missing) > 5 else "")
+    return [Finding(
+        "testpaths-drift", "WARN",
+        f"{Path(drift['declared_source']).name} declares "
+        f"{len(drift['declared'])} testpaths entr"
+        f"{'y' if len(drift['declared']) == 1 else 'ies'}, but "
+        f"{len(missing)} collected test file(s) are not covered by any of "
+        f"them: {shown}. A bare `pytest` measures the declared set; the "
+        f"framework measures the whole test directory. Both numbers are "
+        f"real — they are just not the same number.")]
 
 
 def _phase_from_sentinel_name(name: str) -> "int | None":

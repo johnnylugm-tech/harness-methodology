@@ -126,7 +126,13 @@ _LINE_CEILING: dict[str, int] = {
     # unverifiable) -> details mapping, made public so it can be pinned
     # without patching five private seams around finalize_gate (the
     # private-patch ratchet rejected the version of the test that did).
-    "harness/harness_bridge.py": 3667,
+    # 2026-08-03 (Round 32 站5): +13 lines — DIMENSION_EXCLUSION_FILES gains
+    # test_coverage, whose declaration can live in any of pytest.ini /
+    # pyproject.toml / setup.cfg, so the registry value may now be a tuple
+    # and S6 flattens it before walking. Measured: a project declaring nine
+    # testpaths entries against sixteen collected test files, two of them
+    # the FR tests for FR-02 and FR-07, with neither denominator recorded.
+    "harness/harness_bridge.py": 3680,
     # 2026-08-03 (Round 31 站6): +21 more — the S4 remediation text for a tool
     # that timed out is no longer the text for a tool that is missing. They
     # shared one sentence, and that sentence was "Install '<tool>'", which is

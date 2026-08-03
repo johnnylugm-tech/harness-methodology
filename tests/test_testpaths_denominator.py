@@ -117,6 +117,21 @@ def test_a_config_file_it_cannot_parse_reads_as_no_declaration(project):
     assert testpaths_scope.declared_testpaths(project) is None
 
 
+def test_doctor_names_the_difference_without_forbidding_it(project):
+    """WARN, not ERROR. Narrowing the default test set is the project's call;
+    what it may not do is be invisible."""
+    from core import doctor
+
+    _write_setup_cfg(project, "03-development/tests/test_fr01.py")
+    findings = doctor._check_testpaths_drift(project)
+    assert len(findings) == 1, findings
+    assert findings[0].severity == "WARN", findings[0]
+    assert "test_fr02.py" in findings[0].message, findings[0].message
+
+    _write_setup_cfg(project, "03-development/tests")
+    assert doctor._check_testpaths_drift(project) == []
+
+
 def test_the_declaring_file_travels_with_the_verdict():
     """Round 27 站3 / Round 30 站6: a file whose contents can move a score is
     fingerprinted into the gate verdict. setup.cfg is already registered for

@@ -62,14 +62,23 @@ def _raw():
 
 def test_every_dimension_states_its_exclusion_file_or_states_it_has_none():
     assert DIMENSION_EXCLUSION_FILES, "an empty registry protects nothing"
-    for dim, path in DIMENSION_EXCLUSION_FILES.items():
+    for dim, spec in DIMENSION_EXCLUSION_FILES.items():
         assert isinstance(dim, str) and dim
-        assert path is None or (
-            isinstance(path, str) and path and not path.startswith("/")
-        ), (
-            f"{dim}: give a project-root-relative exclusion file, or None to "
-            f"state positively that this dimension has no exclusion channel"
+        if spec is None:
+            continue
+        # Round 32 站5: a tuple is allowed because a declaration can live in
+        # more than one file — testpaths may be in pytest.ini, pyproject.toml
+        # or setup.cfg, and whichever exists moves the score.
+        paths = (spec,) if isinstance(spec, str) else spec
+        assert isinstance(paths, tuple) and paths, (
+            f"{dim}: give a project-root-relative exclusion file (or a tuple "
+            f"of candidates), or None to state positively that this dimension "
+            f"has no exclusion channel"
         )
+        for path in paths:
+            assert isinstance(path, str) and path and not path.startswith("/"), (
+                f"{dim}: {path!r} is not a project-root-relative path"
+            )
     assert DIMENSION_EXCLUSION_FILES["license_compliance"] is None, (
         "scancode takes exclusions on the command line — recording that as None "
         "is what stops the next reader reading it as an omission"
