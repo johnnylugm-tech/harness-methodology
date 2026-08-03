@@ -915,11 +915,23 @@ class TestCmdPushMilestone:
         assert exit_code == 0
 
     def test_p3_pre_gate2(self, tmp_path, monkeypatch):
+        # Round 32 站6: this milestone's message claims every FR passed Gate 1,
+        # so it now refuses to commit unless the verdicts are on record. Seeded
+        # through the same helper production writes with.
+        self._seed_gate1_verdicts(tmp_path, 3, ["FR-01", "FR-02", "FR-03"])
         exit_code, _ = self._call_push_milestone(
             monkeypatch, tmp_path, "p3-pre-gate2",
             fr_ids="FR-01,FR-02,FR-03",
         )
         assert exit_code == 0
+
+    @staticmethod
+    def _seed_gate1_verdicts(tmp_path, phase: int, fr_ids: list) -> None:
+        """The record a real finalize-gate leaves for each FR — receipt plus
+        both registry rows (Round 32 站1/站2)."""
+        from cli._shared import _seed_finalize_evidence
+        for fr_id in fr_ids:
+            _seed_finalize_evidence(tmp_path, gate=1, phase=phase, fr_id=fr_id)
 
     @staticmethod
     def _write_gate_evidence(tmp_path, gate_num: int) -> None:
@@ -975,11 +987,28 @@ class TestCmdPushMilestone:
         assert exit_code == 0
 
     def test_p4_pre_gate3(self, tmp_path, monkeypatch):
+        self._seed_gate1_verdicts(tmp_path, 4, ["FR-01", "FR-02", "FR-03"])
         exit_code, _ = self._call_push_milestone(
             monkeypatch, tmp_path, "p4-pre-gate3",
             fr_ids="FR-01,FR-02,FR-03",
         )
         assert exit_code == 0
+
+    def test_p4_pre_gate3_refuses_to_claim_verdicts_that_do_not_exist(
+        self, tmp_path, monkeypatch,
+    ):
+        """Round 32 站6. Measured on a live P4: two byte-identical
+        "all 8 FR(s) Gate1 re-eval PASS" milestones ten minutes apart, zero
+        recorded verdicts behind either, and the FR-01 gate BLOCKED fourteen
+        minutes after the second."""
+        self._seed_gate1_verdicts(tmp_path, 4, ["FR-01"])
+        exit_code, output = self._call_push_milestone(
+            monkeypatch, tmp_path, "p4-pre-gate3",
+            fr_ids="FR-01,FR-02,FR-03",
+        )
+        assert exit_code == 1
+        assert "FR-02" in output and "FR-03" in output, output
+        assert "FR-01" not in output.split("no recorded verdict:")[-1], output
 
     def test_unknown_type(self, tmp_path, monkeypatch):
         exit_code, output = self._call_push_milestone(monkeypatch, tmp_path, "unknown")

@@ -158,6 +158,95 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _record_milestone_head(project: Path, milestone_type: str) -> None:
+    """Remember the HEAD this milestone landed on, so the next identical one
+    can tell there is nothing new to record.
+
+    Best-effort by design: failing to write this must not turn a successful
+    push into a failure. A missed write costs one duplicate milestone, which
+    is the behaviour that existed before this round.
+    """
+    import subprocess as _sp
+
+    try:
+        head = _sp.run(["git", "rev-parse", "HEAD"], cwd=str(project),
+                       capture_output=True, text=True, timeout=10)
+        if head.returncode != 0 or not head.stdout.strip():
+            return
+        head_sha = head.stdout.strip()
+        with file_lock(state_lock_path(project)):
+            state = load_state(project, lenient=True)
+            recorded = state.get("last_milestone_head")
+            if not isinstance(recorded, dict):
+                recorded = {}
+            recorded[milestone_type] = head_sha
+            state["last_milestone_head"] = recorded
+            atomic_write_json(project / ".methodology" / "state.json", state)
+    except (OSError, _sp.SubprocessError, ValueError) as exc:
+        print(f"  [WARN] could not record milestone HEAD ({exc}) — a repeat of "
+              f"this milestone at the same HEAD will not be caught")
+
+
+def _milestone_already_recorded(project: Path, milestone_type: str) -> str:
+    """The HEAD sha when this milestone type was last recorded at THIS HEAD.
+
+    Empty string when it was not — including when state.json is unreadable,
+    because "we cannot tell" must not silently suppress a milestone.
+    """
+    import subprocess as _sp
+
+    try:
+        head = _sp.run(["git", "rev-parse", "HEAD"], cwd=str(project),
+                       capture_output=True, text=True, timeout=10)
+        if head.returncode != 0:
+            return ""
+        head_sha = head.stdout.strip()
+    except (OSError, _sp.SubprocessError):
+        return ""
+    if not head_sha:
+        return ""
+
+    state = load_state(project, lenient=True)
+    recorded = state.get("last_milestone_head") or {}
+    if not isinstance(recorded, dict):
+        return ""
+    return head_sha[:9] if recorded.get(milestone_type) == head_sha else ""
+
+
+def _validate_gate1_sweep(project: Path, phase: int, fr_ids: list) -> str:
+    """Empty string when every FR really has a recorded Gate 1 verdict.
+
+    Round 32 站6. `p3-pre-gate2` and `p4-pre-gate3` commit a message that says
+    all N FRs passed Gate 1. Both went straight to git with nothing between
+    them and the claim, while `p3-post-gate2` next door has validated its
+    precondition since v2.9.1. Measured on a live P4: two byte-identical
+    "all 8 FR(s) Gate1 re-eval PASS" milestones ten minutes apart, zero
+    recorded verdicts behind either, and the FR-01 gate BLOCKED fourteen
+    minutes after the second.
+
+    The count in the message and the count checked here come from the same
+    call, so the check cannot be checking a different sentence than the one
+    that gets committed.
+    """
+    from core.quality_gate import gate1_evidence
+
+    summary = gate1_evidence.gate1_phase_summary(project, phase, fr_ids or None)
+    if not summary["missing"]:
+        return ""
+    missing = summary["missing"]
+    shown = ", ".join(missing[:5]) + (f" +{len(missing) - 5} more"
+                                      if len(missing) > 5 else "")
+    return (
+        f"[ERROR] milestone blocked — it would claim all "
+        f"{len(summary['expected'])} FR(s) passed Gate 1 in phase {phase}, but "
+        f"{len(missing)} have no recorded verdict: {shown}\n"
+        f"  A recorded verdict means both a .gate1_scores.json entry and a "
+        f"`finalize` row in gate_timestamps.jsonl — finalize-gate writes both.\n"
+        f"  Run `finalize-gate --gate 1 --phase {phase} --fr-id <FR>` for each, "
+        f"then push the milestone."
+    )
+
+
 def cmd_push_milestone(args: argparse.Namespace) -> int:
     """Push milestone checkpoint with HANDOVER.md generation.
 
@@ -224,6 +313,23 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             )
             return 2
 
+    # Round 32 站6: the same milestone, twice, against an unchanged HEAD.
+    # Measured on a live P4: 34235b6 and 9807b22 ten minutes apart with
+    # byte-identical subject lines, the second changing one line of state.json
+    # and six of HANDOVER.md. Round 20 站3 removed the EMPTY milestone commit
+    # at this decision point; a repeated one is the neighbouring case — a
+    # commit that records nothing that happened since the last one.
+    _dup = _milestone_already_recorded(project, milestone_type)
+    if _dup:
+        print(
+            f"[SKIP] push-milestone --type {milestone_type}: already recorded "
+            f"at this HEAD ({_dup}).\n"
+            f"  Nothing has been committed since, so a second milestone would "
+            f"record no new work. Re-run after the next commit, or use a "
+            f"different --type."
+        )
+        return 0
+
     # Bug fix (P8 E2E 2026-07-04): write last_milestone_command + last_milestone_at
     # to state.json BEFORE commit_and_push_* so the audit fields land in the
     # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
@@ -283,6 +389,11 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             return 1
         ok = git.commit_and_push_p3_mid(fr_done, fr_total, fr_ids)
     elif milestone_type == "p3-pre-gate2":
+        _sweep = _validate_gate1_sweep(project, 3, fr_ids)
+        if _sweep:
+            print(_sweep)
+            _revert_milestone_audit_write()
+            return 1
         ok = git.commit_and_push_p3_pre_gate2(fr_ids)
     elif milestone_type == "p3-post-gate2":
         # v2.9.1 B.2: validate Gate 2 PASS + all FRs Gate 1 PASS as precondition
@@ -303,6 +414,11 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
             return 1
         ok = git.commit_and_push_p4_mid(fr_done, fr_total, fr_ids)
     elif milestone_type == "p4-pre-gate3":
+        _sweep = _validate_gate1_sweep(project, 4, fr_ids)
+        if _sweep:
+            print(_sweep)
+            _revert_milestone_audit_write()
+            return 1
         ok = git.commit_and_push_p4_pre_gate3(fr_ids)
     elif milestone_type == "p5-baseline":
         ok = git.commit_and_push_p5_baseline()
@@ -360,6 +476,7 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
         print(f"  [git] milestone {milestone_type} pushed → remote ✓")
+        _record_milestone_head(project, milestone_type)
     return 0 if ok else 1
 
 

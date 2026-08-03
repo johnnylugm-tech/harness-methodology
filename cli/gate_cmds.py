@@ -2196,6 +2196,13 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         )
         print(f"  receipt         : {_fsf.relative_to(project_path)}")
 
+        # Round 32 站6 (F8): last_block.md was write-only. On the measured
+        # project a P4 Gate 1 BLOCK report sat beside a state.json saying the
+        # phase had passed, with nothing to say which was current. Clear it
+        # when the gate it describes subsequently passes; leave reports for
+        # other gates alone.
+        _clear_last_block_for(project_path, args.gate, args.phase, fr_id)
+
         # ── Auto-generate machine STAGE_PASS.md ──────────────────────
         _shared._generate_stage_pass(project_path, args.gate, args.phase)
 
@@ -2438,6 +2445,33 @@ def _generate_gate4_deliverables(project: Path, phase: int) -> int | None:
         )
         return 1
     return None
+
+
+def _clear_last_block_for(
+    project: Path, gate: int, phase: int, fr_id: "str | None",
+) -> None:
+    """Delete last_block.md if it describes the gate that just passed.
+
+    Round 32 站6. The file was written on every block and never removed, so a
+    resolved BLOCK report outlived the block. Matched on the header line
+    `_format_block_diagnostic` writes, and on the `fr_id:` line, so a report
+    for a different gate/phase/FR is untouched — a stale report for a gate
+    that has NOT since passed is still the current truth about that gate.
+    """
+    path = project / ".methodology" / "last_block.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    if not text.startswith(f"# Gate {gate} BLOCKED — Phase {phase}\n"):
+        return
+    if f"fr_id: {fr_id or 'n/a'} " not in text:
+        return
+    try:
+        path.unlink()
+        print("  cleared         : .methodology/last_block.md (this gate now passes)")
+    except OSError as exc:
+        print(f"  [WARN] could not clear last_block.md: {exc}", file=sys.stderr)
 
 
 def _format_block_diagnostic(

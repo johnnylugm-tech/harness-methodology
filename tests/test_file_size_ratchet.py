@@ -153,7 +153,15 @@ _LINE_CEILING: dict[str, int] = {
     # discover_modules_at() (removed inline loop, +docstring paragraph
     # explaining the delegation) instead of a locally re-implemented rglob
     # loop that had silently diverged (never skipped __pycache__).
-    "cli/gate_cmds.py": 2606,
+    "cli/gate_cmds.py": 2640,
+    # 2026-08-03 (Round 32 站6): +34 lines — _clear_last_block_for.
+    # last_block.md was written on every block and never removed, so on
+    # the measured project a P4 Gate 1 BLOCK report sat beside a
+    # state.json saying the phase had passed, with nothing to say which
+    # was current. It is cleared only when the gate/phase/FR it names is
+    # the one that just passed — a stale report for a gate that has NOT
+    # since passed is still the current truth about that gate, and the
+    # three-way match is most of the size.
     # 2026-08-03 (Round 32 站1): +18 lines — the finalize sentinel moved from
     # line 1920 to the end of cmd_finalize_gate and became a receipt. The old
     # write sat ~250 lines and FIVE blocking `return`s above the registries it

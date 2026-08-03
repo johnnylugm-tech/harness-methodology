@@ -198,6 +198,15 @@ def _degradation_report(project: Path) -> dict:
     return {
         "available": True,
         "total": len(entries),
+        # Round 32 站6: the ledger's highest-frequency entry, counted.
+        # Measured on a live P4: all four rows were the same row — TDD-GREEN
+        # escalating 40 -> 80 turns, for four of the eight FRs. The escalation
+        # absorbed the cost silently and nothing read the record, so the
+        # default stayed 40. This does not change the default; it surfaces the
+        # number that would justify changing it.
+        "turn_ceiling_escapes": sum(
+            1 for e in entries if "max_turns escalated" in str(e.get("what", ""))
+        ),
         "by_component_what": [
             {"component": c, "what": w, "count": n}
             for (c, w), n in sorted(counts.items(), key=lambda kv: -kv[1])
@@ -361,6 +370,13 @@ def _render_human(report: dict) -> str:
         lines.append("  n/a — ledger not found or empty")
     else:
         lines.append(f"  total: {dg['total']}")
+        if dg.get("turn_ceiling_escapes"):
+            lines.append(
+                f"  turn-ceiling escapes: {dg['turn_ceiling_escapes']} — steps "
+                f"that did not fit their configured max_turns and were "
+                f"re-dispatched with a raised one. A high count against the FR "
+                f"count is the case for raising values.step_max_turns."
+            )
         for item in dg["by_component_what"]:
             lines.append(f"    {item['component']}: {item['what']} ({item['count']})")
 

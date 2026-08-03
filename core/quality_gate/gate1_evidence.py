@@ -30,6 +30,7 @@ __all__ = [
     "gate1_evidence_exists",
     "check_commit_intervals",
     "record_gate1_score",
+    "gate1_phase_summary",
     "RECEIPT_SCHEMA",
     "format_finalize_receipt",
     "read_finalize_receipt_text",
@@ -301,6 +302,43 @@ def verify_finalize_evidence(
                     f"match the {recorded} recorded in {GATE1_SCORES_FILE}"
                 )
     return problems
+
+
+def gate1_phase_summary(project: Path, phase: int, fr_ids: "list | None" = None) -> dict:
+    """Which FRs have a recorded Gate 1 verdict for *phase*, and which do not.
+
+    Round 32 站6. A milestone commit reading "all N FR(s) Gate1 re-eval PASS"
+    was generated from a count of the FRs in the manifest, not from a count of
+    the verdicts on record. Measured on a live P4: eight claimed, zero
+    recorded in .gate1_scores.json, zero `finalize` rows in
+    gate_timestamps.jsonl for (phase=4, gate=1), and the FR-01 gate BLOCKED
+    fourteen minutes after the second of two byte-identical milestones.
+
+    `fr_ids` defaults to the project's manifest, so the caller does not
+    re-derive the roster the answer is measured against.
+
+    Returns ``{"phase", "expected", "recorded", "missing"}``.
+    """
+    from core.state_io import load_quality_manifest
+
+    if fr_ids is None:
+        fr_ids = list(load_quality_manifest(project, lenient=True).get("fr_ids", []))
+    expected = [str(f) for f in fr_ids]
+
+    scores = (_read_gate1_scores(project).get(str(phase)) or {})
+    recorded = []
+    for fr_id in expected:
+        if scores.get(fr_id) is None:
+            continue
+        if not _finalize_timestamp_rows(project, 1, phase, fr_id):
+            continue
+        recorded.append(fr_id)
+    return {
+        "phase": phase,
+        "expected": expected,
+        "recorded": recorded,
+        "missing": [f for f in expected if f not in recorded],
+    }
 
 
 def _read_gate1_scores(project: Path) -> dict:

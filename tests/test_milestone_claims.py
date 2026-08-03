@@ -79,6 +79,81 @@ def test_a_partial_sweep_names_the_gaps_instead_of_rounding_up(project):
     assert sorted(summary["missing"]) == ["FR-02", "FR-03", "FR-04"], summary
 
 
+def test_a_score_without_a_finalize_row_is_not_a_recorded_verdict(project):
+    """Added after the station-6 counter-proof failed to discriminate.
+
+    The cases above seed both registries or neither, so dropping either half
+    of the summary's rule left them green. finalize-gate writes both; a score
+    on its own means something wrote into .gate1_scores.json without going
+    through finalize-gate.
+    """
+    from core.quality_gate import gate1_evidence
+
+    gate1_evidence.record_gate1_score(project, 4, "FR-01", 100.0)
+    summary = gate1_evidence.gate1_phase_summary(project, phase=4)
+    assert "FR-01" in summary["missing"], summary
+
+
+def test_the_same_milestone_at_an_unchanged_head_is_skipped(project, monkeypatch):
+    """Added for the same reason: nothing exercised the duplicate guard.
+
+    Measured on a live P4: 34235b6 and 9807b22 ten minutes apart with
+    byte-identical subject lines.
+    """
+    import subprocess
+
+    from cli import push_cmds
+
+    def _fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout="abc123def456\n", stderr="")
+
+    # push_cmds imports subprocess inside each function, so the module object
+    # it binds is the stdlib one — patch there, not on a push_cmds attribute
+    # that does not exist.
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert push_cmds._milestone_already_recorded(project, "p4-pre-gate3") == ""
+
+    push_cmds._record_milestone_head(project, "p4-pre-gate3")
+    assert push_cmds._milestone_already_recorded(project, "p4-pre-gate3") == "abc123def"
+    # A different milestone type at the same HEAD is a different claim.
+    assert push_cmds._milestone_already_recorded(project, "p3-pre-gate2") == ""
+
+
+def test_push_milestone_run_twice_at_one_head_commits_once(project, monkeypatch, capsys):
+    """The guard, through the command that uses it — the helper-level test
+    above left both the call site and the recording site uncovered, which the
+    counter-proof caught."""
+    import argparse
+    import subprocess
+
+    from cli import push_cmds
+    from cli._shared import _seed_finalize_evidence
+
+    for fr in ("FR-01", "FR-02", "FR-03", "FR-04"):
+        _seed_finalize_evidence(project, gate=1, phase=4, fr_id=fr)
+
+    def _fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, stdout="abc123def456\n", stderr="")
+
+    # No `_make_git` patch: `no_git=True` below already disables git through
+    # the public flag (cli/_shared._make_git reads it), and the private-patch
+    # ratchet rejects reaching for the seam when the flag exists.
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    def _run():
+        return push_cmds.cmd_push_milestone(argparse.Namespace(
+            type="p4-pre-gate3", project=str(project), fr_ids="",
+            fr_done=None, fr_total=None, no_git=True,
+        ))
+
+    assert _run() == 0
+    capsys.readouterr()
+    assert _run() == 0
+    assert "already recorded at this HEAD" in capsys.readouterr().out, (
+        "the second identical milestone at an unchanged HEAD was not skipped"
+    )
+
+
 def test_the_sweep_milestones_check_that_summary_before_committing():
     """`p3-post-gate2` already refuses to commit when its precondition does not
     hold (`_validate_p3_post_gate2_precondition`, cli/push_cmds.py:288). The
@@ -149,4 +224,31 @@ def test_turn_ceiling_escapes_reach_the_run_report(project, capsys):
         "run-report does not surface how many steps had to escalate past their "
         "turn ceiling — the one number that would say whether the default is "
         f"set too low: {degradations}"
+    )
+
+
+# ── a resolved block report must not outlive the block (F8) ─────────────
+
+def test_last_block_is_cleared_when_that_gate_later_passes(project):
+    """`last_block.md` was written on every block and never removed. On the
+    measured project a P4 Gate 1 BLOCK report sat beside a state.json saying
+    the phase had passed, with nothing to say which was current."""
+    from cli.gate_cmds import _clear_last_block_for
+
+    path = project / ".methodology" / "last_block.md"
+    path.write_text(
+        "# Gate 1 BLOCKED — Phase 4\n\nGenerated: x\nfr_id: FR-01 | rounds: 0\n",
+        encoding="utf-8",
+    )
+
+    # A different gate's report is not this gate's business.
+    _clear_last_block_for(project, 2, 3, None)
+    assert path.exists()
+    # Nor is the same gate for a different FR.
+    _clear_last_block_for(project, 1, 4, "FR-02")
+    assert path.exists()
+
+    _clear_last_block_for(project, 1, 4, "FR-01")
+    assert not path.exists(), (
+        "the BLOCK report for the gate that just passed is still on disk"
     )
