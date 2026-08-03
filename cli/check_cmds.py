@@ -920,8 +920,17 @@ def cmd_migrate_trace_overlay(args: argparse.Namespace) -> int:
     from core.traceability.overlay import migrate_existing_matrix
 
     project = Path(args.project).resolve()
-    matrix_path = project / "TRACEABILITY_MATRIX.md"
-    overlay_path = project / "TRACEABILITY_MATRIX.overlay.yaml"
+    # Round 33 站2 (F6): these were `project / "TRACEABILITY_MATRIX.md"` and a
+    # sibling overlay at the repo root, while the deliverable lives at
+    # 01-requirements/ (ProjectLayout.traceability_matrix_path) and
+    # build_traceability's regeneration defaults its overlay to
+    # `output_path.parent`. Running this command therefore migrated a file
+    # that is not the deliverable and wrote an overlay the regenerator never
+    # reads. Same path-SSOT rule as Round 20 站2.
+    from core.utils.project_layout import ProjectLayout
+
+    matrix_path = ProjectLayout(project).traceability_matrix_path
+    overlay_path = matrix_path.parent / "TRACEABILITY_MATRIX.overlay.yaml"
 
     result = migrate_existing_matrix(
         matrix_path, overlay_path, dry_run=args.dry_run

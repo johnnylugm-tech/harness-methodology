@@ -85,3 +85,67 @@ def test_advance_phase_wires_traceability_view_regen() -> None:
     assert "_regen_traceability_views(project)" in src, (
         "traceability view auto-regen unwired from advance-phase"
     )
+
+
+# ── Round 33 站2 ────────────────────────────────────────────────────────
+
+def test_regen_records_a_degradation_when_a_view_loses_its_anchor(tmp_path, monkeypatch):
+    """A view that no longer satisfies its registered loader anchor is
+    recorded, not silently staged. WARN rather than BLOCK: the anchor is read
+    only on re-entry into Phase 1, and the defect was the framework's own."""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    matrix = ProjectLayout(tmp_path).traceability_matrix_path
+    matrix.parent.mkdir(parents=True, exist_ok=True)
+
+    _regen_and_stage_view(
+        tmp_path, matrix,
+        lambda p: p.write_text("\n\n<!-- AUTO-GEN:START -->\n", encoding="utf-8"),
+    )
+    ledger = tmp_path / ".methodology" / "degradations.jsonl"
+    assert ledger.exists() and "does not start with" in ledger.read_text(encoding="utf-8"), (
+        "a regenerated view whose first line fails its own anchor left no trace"
+    )
+
+
+def test_a_view_that_keeps_its_anchor_records_nothing(tmp_path, monkeypatch):
+    """Discriminating half — a ledger entry on every advance is noise, not a
+    signal."""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    matrix = ProjectLayout(tmp_path).traceability_matrix_path
+    matrix.parent.mkdir(parents=True, exist_ok=True)
+
+    _regen_and_stage_view(
+        tmp_path, matrix,
+        lambda p: p.write_text("# Traceability Matrix — x\n\n<!-- AUTO-GEN:START -->\n",
+                               encoding="utf-8"),
+    )
+    assert not (tmp_path / ".methodology" / "degradations.jsonl").exists()
+
+
+def test_migrate_trace_overlay_targets_the_real_deliverable(tmp_path, capsys):
+    """F6: the command hardcoded `<project>/TRACEABILITY_MATRIX.md` and a
+    root-level overlay, while the deliverable lives at 01-requirements/ and
+    build_traceability defaults the overlay to the matrix's own directory. It
+    migrated a file that was not the deliverable and wrote an overlay nothing
+    reads."""
+    import argparse
+
+    from cli.check_cmds import cmd_migrate_trace_overlay
+
+    matrix = ProjectLayout(tmp_path).traceability_matrix_path
+    matrix.parent.mkdir(parents=True, exist_ok=True)
+    matrix.write_text("# Traceability Matrix — x\n\nlegacy body\n", encoding="utf-8")
+
+    rc = cmd_migrate_trace_overlay(
+        argparse.Namespace(project=str(tmp_path), dry_run=False)
+    )
+    capsys.readouterr()
+    assert rc == 0
+    assert "<!-- AUTO-GEN:START -->" in matrix.read_text(encoding="utf-8"), (
+        "the deliverable at 01-requirements/ was not the file that got migrated"
+    )
+    assert (matrix.parent / "TRACEABILITY_MATRIX.overlay.yaml").exists(), (
+        "the overlay landed somewhere generate_markdown_matrix will not read "
+        "(it defaults to output_path.parent)"
+    )
+    assert not (tmp_path / "TRACEABILITY_MATRIX.overlay.yaml").exists()

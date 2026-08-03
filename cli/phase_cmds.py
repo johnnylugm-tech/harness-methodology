@@ -2923,9 +2923,51 @@ def _regen_and_stage_view(project: Path, path: Path, render) -> None:
         new_hash = hash(path.read_bytes())
     except OSError:
         new_hash = None
+    _warn_if_view_lost_its_anchor(project, path)
     if new_hash != old_hash:
         subprocess.run(["git", "add", str(path)], cwd=str(project), capture_output=True)
         print(f"  [advance-phase] {path.name} refreshed from SSOT → staged")
+
+def _warn_if_view_lost_its_anchor(project: Path, path: Path) -> None:
+    """A regenerated view must still satisfy the loader anchor its own path
+    declares (core.quality_gate.legal_artifacts.DELIVERABLE_ANCHORS).
+
+    Round 33 站2. TRACEABILITY_MATRIX.md is both a peer-reviewed Phase 1
+    deliverable and, from P3 onward, a render-only view — and the render did
+    not inherit the deliverable's contract. Measured with the framework's own
+    loader: PREFIX_MISMATCH on 4 of 4 real projects, because the H1 sat below
+    the AUTO-GEN sentinel where a first-line anchor can never reach it.
+
+    WARN, not BLOCK. The anchor is only read by the Phase 1 orchestrator, so a
+    stale first line is latent on the forward path; blocking here would stop
+    every existing project on a defect the framework itself introduced. The
+    degradation ledger is the durable half — `run-report` reads it, so a
+    recurrence is counted rather than scrolled past.
+    """
+    from core.quality_gate.legal_artifacts import anchor_for
+
+    try:
+        anchor = anchor_for(path.name)
+    except KeyError:
+        return  # not an anchored deliverable — nothing to check
+    try:
+        first = path.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
+    except OSError as exc:
+        print(f"  [advance-phase] {path.name} anchor check skipped: {exc}")
+        return
+    if first and first[0].startswith(anchor):
+        return
+    from core.degradation_ledger import record_degradation
+
+    record_degradation(
+        project, "advance-phase:regen-view",
+        f"{path.name} first line does not start with {anchor!r}",
+        why=(
+            "the Phase 1 orchestrator reloads this path with that anchor; a "
+            "regenerated view that fails it will be rejected on any re-entry "
+            "into Phase 1"
+        ),
+    )
 
 def _scope_violation_scripts(project: Path) -> list[str]:
     """Untracked diagnostic/debug scripts stranded at the repo root.

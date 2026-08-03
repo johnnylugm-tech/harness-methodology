@@ -234,15 +234,30 @@ def test_the_regenerated_traceability_view_still_satisfies_its_anchor(tmp_path):
 
     rt = build_traceability(project)
     out = project / "01-requirements" / "TRACEABILITY_MATRIX.md"
-    generate_markdown_matrix(rt, out)
-
     key = next(k for k in DELIVERABLE_ANCHORS if Path(k).name == "TRACEABILITY_MATRIX.md")
     anchor = DELIVERABLE_ANCHORS[key]
-    first = _first_line(out)
-    assert first.startswith(anchor), (
-        f"the framework regenerated this file and its first line is {first!r}, "
-        f"which its own loader refuses against the anchor {anchor!r} it declares "
-        "for the same path (measured PREFIX_MISMATCH on 4 of 4 real projects)"
+
+    # (a) first write — no file on disk yet
+    generate_markdown_matrix(rt, out)
+    assert _first_line(out).startswith(anchor), (
+        f"the framework wrote this file and its first line is "
+        f"{_first_line(out)!r}, which its own loader refuses against the "
+        f"anchor {anchor!r} it declares for the same path"
+    )
+
+    # (b) regeneration over a file that already carries the sentinels and has
+    #     nothing above them. This is the case the four measured projects were
+    #     in, and the one the first draft of this test missed: with no file on
+    #     disk the whole preserved-intro branch is skipped, so `intro`'s
+    #     empty-head handling was never exercised and its counter-proof stayed
+    #     green while the bug was still there.
+    body = out.read_text(encoding="utf-8")
+    out.write_text(body[body.index("<!-- AUTO-GEN:START -->"):], encoding="utf-8")
+    generate_markdown_matrix(rt, out)
+    assert _first_line(out).startswith(anchor), (
+        f"regenerating over a sentinel-only file left the first line as "
+        f"{_first_line(out)!r} (measured PREFIX_MISMATCH on 4 of 4 real "
+        "projects, all of which were in exactly this state)"
     )
 
 
@@ -263,7 +278,15 @@ def test_regenerating_twice_does_not_duplicate_the_heading(tmp_path):
     generate_markdown_matrix(rt, out)
     twice = out.read_text(encoding="utf-8")
 
-    assert once.count("# Traceability Matrix") == twice.count("# Traceability Matrix"), (
+    # Exactly one, not merely "the same both times": the seeded intro puts the
+    # H1 above the sentinel, so a copy still emitted inside the block would
+    # give every project a duplicated heading — stable across runs, and still
+    # wrong. Comparing run 1 to run 2 alone does not see that.
+    assert once.count("# Traceability Matrix") == 1, (
+        "the H1 appears more than once: it belongs to the preserved-intro "
+        "region above the AUTO-GEN sentinel, not inside the regenerated block"
+    )
+    assert twice.count("# Traceability Matrix") == 1, (
         "regenerating the view added another heading; content above the "
         "AUTO-GEN sentinel is preserved, so a heading emitted there must not "
         "also be re-emitted"

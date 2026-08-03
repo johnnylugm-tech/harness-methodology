@@ -207,7 +207,11 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
         existing = output_path.read_text(encoding="utf-8", errors="replace")
         if "<!-- AUTO-GEN:START -->" in existing:
             head = existing.split("<!-- AUTO-GEN:START -->", 1)[0]
-            intro = head.rstrip() + "\n\n"
+            # `.rstrip() + "\n\n"` on an EMPTY head yielded two bare newlines,
+            # so a file with no manual intro was regenerated with a blank first
+            # line — and the loader anchors on the first line. Round 33 站2:
+            # only add the separator when there is something to separate.
+            intro = head.rstrip() + "\n\n" if head.strip() else ""
         else:
             # Legacy file without sentinels. Print a one-time warning so the
             # user knows to run `migrate-trace-overlay` if they had manual
@@ -219,6 +223,14 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
                 f"manual intro.",
                 file=sys.stderr,
             )
+    if not intro:
+        # No manual intro to carry forward — seed the H1 the orchestrator's
+        # loader anchors this path against, so the file the framework just
+        # wrote passes the framework's own check. Preserved verbatim on every
+        # later run by the branch above, which is what keeps this idempotent.
+        from core.quality_gate.legal_artifacts import anchor_for
+
+        intro = f"{anchor_for(output_path.name)}\n\n"
     output_path.write_text(intro + markdown, encoding="utf-8")
 
 
