@@ -1117,3 +1117,31 @@
 - test: tests/test_verify_regression_guards.py::TestRegistryCompleteness::test_a_non_test_path_is_not_demanded_to_be_a_guard
   bug: "keying on every added path instead of on new test files would block any commit touching a conftest or fixture directory — a machine that cries wolf"
   fixed_in: "R33-站5"
+
+- test: tests/test_anchor_semantics_parity.py::test_the_disk_side_agrees_with_the_shared_cases
+  bug: "the anchor rule was implemented twice with two semantics — file_loader's first-line startswith on disk, and a multiline /^#\\s+[^\\n]*<phrase>/m over text.slice(0,500) on the agent's reply; the loose one accepted the 'Acknowledged.\\n\\n# <anchor>' preamble it was built to reject (file_loader Bug v5)"
+  fixed_in: "R34-站1"
+
+- test: tests/test_anchor_semantics_parity.py::test_the_transport_side_exists_and_is_the_one_the_generator_inlines
+  bug: "a rule written as a regex literal inside a generator string can only be checked by grepping the generated file, and a grep cannot tell a rule from a sentence about a rule (R33 站1's second counter-proof)"
+  fixed_in: "R34-站1"
+
+- test: tests/test_deliverable_anchor_invariant.py::test_a_broken_anchor_blocks_the_phase_it_was_written_in
+  bug: "a deliverable whose first line is still the template placeholder was sealed as phase-complete; the P1 orchestrator cannot reload it and aborts after 3 attempts"
+  fixed_in: "R34-站2"
+
+- test: tests/test_deliverable_anchor_invariant.py::test_a_correct_anchor_reaches_the_later_checks
+  bug: "a check that blocks every project is indistinguishable from a check that works; the legal fixture must fail on a LATER condition"
+  fixed_in: "R34-站2"
+
+- test: tests/test_deliverable_anchor_invariant.py::test_a_later_phase_advance_still_checks_an_earlier_phases_deliverable
+  bug: "the anchor was verified only where P1/P2 reloads the file, so run-all-by-workflow's TRACEABILITY_MATRIX.md broke on the P3->P4 advance and stayed broken through Gate 4 and P8 with every phase green"
+  fixed_in: "R34-站2"
+
+- test: tests/test_deliverable_anchor_invariant.py::test_the_scan_is_not_scoped_to_one_phase
+  bug: "a phase-scoped scan would miss every instance of the defect, which is precisely a later phase rewriting an earlier phase's artefact"
+  fixed_in: "R34-站2"
+
+- test: tests/test_deliverable_anchor_invariant.py::test_zero_anchored_files_is_recorded_not_silently_passed
+  bug: "zero failures out of zero files read as a pass; 'we could not look' must not be reported as 'we looked and it was fine' (R30 站6 / R31 站4 denominator protection)"
+  fixed_in: "R34-站2"

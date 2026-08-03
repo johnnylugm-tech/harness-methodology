@@ -1079,3 +1079,108 @@ run-all-by-workflow  同上
   也可能只是三個獨立低階 bug 的巧合。反駁證據是 F1 的 4/7 破裂率與 F5 的 12/12 未登記率
   （兩者都跨越那一次跑），以及 R17 的 parity registry 涵蓋不到本輪任何一項。
   仍不足以排除「同一位作者的同一天習慣」。**下輪應以不同作者的 commit 覆核。**
+
+---
+
+## Round 34 — 同一條規則的兩種語意；同一份交付物只驗一次
+
+**起因**：老闆問「為什麼 run-all-by-workflow 完整跑完八階段，卻沒遇到 R33 修的那些問題？
+是覆蓋率嗎？」實測答案是**不是覆蓋率**——四個缺陷裡它遇到了三個，全部靜默通過。
+
+### 前置調查：三個缺陷都在，沒有一個發出聲音
+
+| R33 的缺陷 | run-all-by-workflow | 為何無聲 |
+|---|---|---|
+| F1 模板 H1 破裂 | **遇到**（init commit b694901 首行 `# TRACEABILITY_MATRIX.md`） | P1 的 Agent A 全文重寫覆蓋掉模板 H1（dfd7abd 起合格）——被非確定性動作**抹平**，不是不存在 |
+| F2 重生丟 H1 | **遇到，至今仍壞** | 唯一帶 anchor 讀它的是 P1，壞在 P3→P4；**檢查點在缺陷之前** |
+| F3 SRS NFR type 非法 | **遇到 3 個**（NFR-07/08/10 = resilience / concurrency / evolvability） | 下游把它改對了：SAD 的 SAB block 寫 reliability / reliability / maintainability 而通過 validate，同一份 SAD 第 308-311 行的表格卻仍抄 SRS 原值。兩個版本並存，四道 Gate 全綠 |
+| F4 citation annotation | **沒遇到**（該專案 0 個 annotation 後綴） | 這一項才是覆蓋率 |
+
+共同機制：**框架的檢查點與缺陷的產生點在時間上錯開，或被一個非確定性的 agent 動作抹平。**
+「跑得完八個階段」從不是「沒有缺陷」的證據，只證明沒有任何一層被安排在缺陷會現身的位置。
+
+一項時序更正（改變了 F3 的診斷）：P2 checklist 那句「`type:` 不需要 textually match SRS；
+若 SRS 自己的 `type:` 非法，那是 Phase 1 缺陷，**另外標記**」是 `485c05f` 在 08-03 加的，
+比那次跑晚 6 天。07-28 當時 agent 只是照著「type 須取自合法清單」自選了合法值
+（機制**未驗證**，無當時 dispatch log）。但那句話讓形狀完整：框架明文授權下游繞過上游的
+非法值，並把回報責任交給一個當時不存在的通道——R33 站3 的 `illegal_nfr_vocabulary` +
+exit 29 正是那個接收方，而 485c05f 自己沒說出這個配套關係。
+
+### 裁決
+
+**第七份陳述 — 採納並修復（站1）。**
+R33 說 H1 錨點合約有六份陳述。實際七份：`js_blocks.py:1403-1411` 有 JS 側自己的第二道檢查，
+語意是 multiline 的「任一 H1 行含有該片語」。它驗的是**agent 回傳的文字**（Python 驗磁碟），
+存在理由是 file_loader docstring 記的 Bug v5（"Acknowledged" preamble）與 Bug v8（幻覺內容）
+——而它的寬鬆語意**恰好放行 Bug v5 的形狀**。同一個 render 函式裡另有兩份陳述說它是
+first-line startswith（header 註解 1349-1350、`<think>` strip 註解 1390-1393），
+實作是三者中唯一不同的一個，也是唯一在執行的一個。
+
+修法不是收緊字面值，而是抽成 `js_src/anchor_check.mjs`（沿用 `json_utils.mjs` 的
+one-file-two-consumers 模式）。理由是 R33 站1 自己的第二個反證：**寫在生成器字串裡的規則，
+唯一能檢查它的方式是 grep 生成物，而 grep 分不出「規則」與「談論規則的句子」。**
+
+**F2 檢查時序 — 採納並修復（站2）。**
+R33 站1 給了 anchor 單一**來源**，沒給它單一**時點**。`_broken_deliverable_anchors`
+掃 registry 全表中磁碟上存在的每一個（**不限本階段**，因為病就是後面的階段改壞前面的），
+不合格回 exit 30。
+
+位置即設計：跑在 `_regen_traceability_views` **之後**，所以框架自己擁有的 render-only view
+先被自動修好，能活到 BLOCK 的必定是框架無權代改的檔案。BLOCK 而非 WARN 的依據是實測：
+5 個真實專案 × 7 交付物，唯一 FAIL 的永遠是那個 render-only view，而它在檢查點之前已被修好
+（對 run-all-by-workflow 的副本實跑：首行 `''` → `'# Traceability Matrix'`，
+且冪等——重跑仍只有一個 H1）。**誤傷為零。**
+
+R33 站2 的 `_warn_if_view_lost_its_anchor` 保留：它在 regen 當下出聲，
+能分辨「框架剛弄壞的」與「進來就壞的」，兩者診斷價值不同。
+
+### 站0 三前提
+
+| 前提 | 結果 |
+|---|---|
+| P1：sim 的 `loadpy-` stub 在 JS 改嚴後仍通過 | **成立**（stub 回傳 `` `# ${heading}\n\n…` ``，首行即錨點） |
+| P2：R33 站2 的 renderer 會把既有壞檔修好且冪等 | **成立**（實測如上） |
+| P3：`_advance_prechecks` 兩個呼叫點（`:392` re-verify / `:484` 正常）都會經過新檢查 | **成立**（兩者都呼叫整個函式） |
+
+### 一項規格範圍的誠實界定
+
+站0 的事實 4 原本要以 `--completed-phase 8` 表達「跨階段」，實測 fixture 在到達本檢查前先回
+exit 17（finalize-gate 未呼叫 Gate 1 per-FR）。那是既有的、更早的關卡，不是本檢查的涵蓋缺口。
+指令層的跨階段測試改用 P2（P2 exit 被壞掉的 P1 交付物擋住），
+範圍本身另由 `test_the_scan_is_not_scoped_to_one_phase` 直接釘住。這寫在測試 docstring 裡。
+
+### 五個測試 fixture 被這條新約束擋下
+
+`"FR-01 content"` / `"tests: []"` / `"# SRS"` 這類佔位首行不再合法。**這是 fixture 的問題**，
+不是實作的：真實交付物本來就帶 anchor（5 個專案實測，agent 寫的 5 個交付物全部合格）。
+每個 fixture 改為內插 `anchor_for()`，registry 一改它們就跟著動。
+
+### 一項計畫偏離：`docs/ERROR_HANDLING.md` 未加 exit 30 條目
+
+計畫寫「ERROR_HANDLING.md 新增 exit 30 條目」。實際檢視後**不加**：該文件的 Exit codes
+一節刻意不複製清單，明文寫著「Read the registry directly rather than trusting a copy here
+— a hand-duplicated list is exactly the kind of drift this round exists to close」。
+在那裡加一行，就是製造本輪與 R33 都在消除的那種第二份陳述。exit 30 的雙向執法由
+`tests/test_exit_code_registry.py`（`cli/exit_codes.py` ↔ `harness_cli.py` docstring）承擔。
+
+### 已知弱點與再開條件
+
+- **JS 那層被判為「有真實目的、不可刪」，可能高估。** 依據是 file_loader docstring 記的
+  Bug v5/v8 都發生在 LLM 中繼那一段。但**沒有量到它改嚴後實際擋下過幾次**。
+  再開條件：若 `sessions_spawn.log` 的 `loadpy-` 重試次數長期為零，它就是儀式不是機制，
+  該減掉而不是留著。
+- **站2 的掃描在 ingestion mode 可能誤殺**：若某專案的標準路徑上放的是另一種文件，
+  會被誤擋。目前走分母保護（掃到 0 個記帳不擋），但「存在於標準路徑卻是別的東西」沒有覆蓋。
+
+### 承 / 啟
+
+- 承 R32（框架產出自己會拒絕的東西）、R33（一份合約多份陳述）、
+  R30/R31（分母保護、解析失敗 ≠ 空集合）、R24（BLOCK 報真因）。
+- **替代假說（必須記下）**：本輪把「錨點」當成值得升為不變式的契約，
+  但它也可能只是一個**過度指定的載入細節**——真正該問的是「為什麼載入需要驗首行」。
+  反面證據是它造成過一次真實中止（`legal_artifacts.py:87` 的
+  LOADER_FAILED_AFTER_3_ATTEMPTS），以及 4/5 專案至今不合格卻無人知道。
+  但若下輪發現錨點可被更強的識別方式取代（如 R33 站3b 的內容定址），
+  那本輪做的是把一個該減掉的東西執法得更嚴。
+- R33 記下的「下輪應以不同作者的 commit 覆核」**本輪未執行**——本輪的觸發是老闆的提問，
+  不是新的 commit 覆核。該條款仍然待辦。
