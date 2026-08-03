@@ -22,7 +22,11 @@ from pathlib import Path
 from core.errors import CRASH_DIR_RELPATH
 from core.fsm.fsm import VALID_FSM_STATES
 from core.phase_topology import VALID_PHASES
-from core.quality_gate.gate1_evidence import EVIDENCE_SOURCE_SKIP, GATE_TIMESTAMPS_FILE
+from core.quality_gate.gate1_evidence import (
+    EVIDENCE_SOURCE_SKIP,
+    GATE_TIMESTAMPS_FILE,
+    verify_finalize_evidence,
+)
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 
@@ -519,22 +523,39 @@ def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]
         if not (isinstance(rec, dict) and rec.get("quality_complete")):
             continue
         fr_key = str(fr_id).replace("-", "").lower()
+        # Round 32 站2: `.flag` no longer counts. run-gate writes it when the
+        # gate STARTS — measured on a live P4, g1_p4_fr01.flag was written at
+        # 03:49:53 and the gate BLOCKED at 03:54:07, and this check read that
+        # flag as evidence FR-01 had passed. Only a finalize receipt attests a
+        # verdict, and it has to agree with the registries written beside it.
         try:
-            has_sentinel = (
-                any(sentinels_dir.glob(f"g1_p*_{fr_key}.flag"))
-                or any(sentinels_dir.glob(f"g1_p*_{fr_key}.finalized"))
-            )
+            receipts = sorted(sentinels_dir.glob(f"g1_p*_{fr_key}.finalized"))
         except OSError:
-            has_sentinel = False
-        if has_sentinel or fr_key in ts_frs:
+            receipts = []
+        if not receipts and fr_key not in ts_frs:
+            findings.append(Finding(
+                "gate1-evidence", "ERROR",
+                f"quality_manifest.json marks {fr_id} Gate 1 quality_complete but "
+                f"no evidence exists in any channel (finalize receipt, "
+                f"{GATE_TIMESTAMPS_FILE}) — fabricated or hand-edited result; "
+                f"re-run run-gate/finalize-gate for this FR or correct the manifest"))
             continue
-        findings.append(Finding(
-            "gate1-evidence", "ERROR",
-            f"quality_manifest.json marks {fr_id} Gate 1 quality_complete but "
-            f"no evidence exists in any channel (sentinel .flag/.finalized, "
-            f"{GATE_TIMESTAMPS_FILE}) — fabricated or hand-edited result; "
-            f"re-run run-gate/finalize-gate for this FR or correct the manifest"))
+        # One implementation, two consumers: cli/phase_cmds.py's advance-phase
+        # precheck calls the same function. Each having its own copy of the
+        # rule is how the two drifted into disagreeing about what counts.
+        for _receipt in receipts:
+            _phase = _phase_from_sentinel_name(_receipt.name)
+            for problem in verify_finalize_evidence(project, 1, _phase, str(fr_id)):
+                findings.append(Finding("gate1-evidence", "ERROR", problem))
     return findings
+
+
+def _phase_from_sentinel_name(name: str) -> "int | None":
+    """`g1_p4_fr01.finalized` -> 4. None when the name is not phase-scoped
+    (the pre-v2.13 form, which verify_finalize_evidence then checks for shape
+    only — there is no phase to look the registry rows up under)."""
+    m = re.match(r"^g\d+_p(\d+)_", name)
+    return int(m.group(1)) if m else None
 
 
 def _check_git_sync(project: Path, current_phase: int) -> list[Finding]:

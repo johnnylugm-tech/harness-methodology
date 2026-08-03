@@ -278,13 +278,31 @@ class TestGate1Evidence:
         assert found[0].severity == "ERROR"
         assert "FR-01" in found[0].message
 
-    def test_sentinel_flag_satisfies_the_claim(self, tmp_path):
+    def test_a_run_gate_start_flag_does_not_satisfy_the_claim(self, tmp_path):
+        """Round 32 站2 reversed this case deliberately.
+
+        `.flag` is written by run-gate when the gate STARTS, not when it
+        passes. Measured on a live P4: g1_p4_fr01.flag was written at
+        03:49:53 and Gate 1 for FR-01 BLOCKED at 03:54:07 — and this check
+        counted that flag as evidence the FR had passed. Only a finalize
+        receipt attests a verdict.
+        """
         from core.quality_gate.gate1_evidence import SENTINEL_FLAG_TEMPLATE
         project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
                            manifest=self.MANIFEST)
         sentinels = project / ".sessi-work" / "sentinels"
         sentinels.mkdir(parents=True)
         (sentinels / SENTINEL_FLAG_TEMPLATE.format(gate=1, phase=3, key="fr01")).touch()
+        found = self._findings(project)
+        assert len(found) == 1 and found[0].severity == "ERROR", found
+
+    def test_a_finalize_receipt_satisfies_the_claim(self, tmp_path):
+        """The replacement for the case above: what a real finalize-gate
+        leaves behind must stay quiet."""
+        from cli._shared import _seed_finalize_evidence
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
+                           manifest=self.MANIFEST)
+        _seed_finalize_evidence(project, gate=1, phase=3, fr_id="FR-01")
         assert self._findings(project) == []
 
     def test_timestamps_row_satisfies_the_claim(self, tmp_path):
@@ -329,23 +347,21 @@ class TestGate1Evidence:
             "a skip-sourced row was accepted as independent evidence"
         )
 
-    def test_skip_row_plus_a_real_sentinel_is_fine(self, tmp_path):
+    def test_skip_row_plus_a_real_receipt_is_fine(self, tmp_path):
         """The normal case must stay quiet: skip rows appear precisely when a
-        sentinel exists, and that combination is healthy, not suspicious."""
-        from core.quality_gate.gate1_evidence import (
-            EVIDENCE_SOURCE_SKIP,
-            SENTINEL_FLAG_TEMPLATE,
-        )
+        real finalization already happened, and that combination is healthy,
+        not suspicious. (Round 32 站2: the sentinel here is now a receipt with
+        its registry rows — the `.flag` this used to touch stopped counting.)"""
+        from cli._shared import _seed_finalize_evidence
+        from core.quality_gate.gate1_evidence import EVIDENCE_SOURCE_SKIP
         project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE,
                            manifest=self.MANIFEST)
-        sentinels = project / ".sessi-work" / "sentinels"
-        sentinels.mkdir(parents=True)
-        (sentinels / SENTINEL_FLAG_TEMPLATE.format(gate=1, phase=3, key="fr01")).touch()
-        (project / ".methodology" / "gate_timestamps.jsonl").write_text(
-            json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0,
-                        "source": EVIDENCE_SOURCE_SKIP}) + "\n",
-            encoding="utf-8",
-        )
+        _seed_finalize_evidence(project, gate=1, phase=3, fr_id="FR-01")
+        with (project / ".methodology" / "gate_timestamps.jsonl").open(
+            "a", encoding="utf-8"
+        ) as fh:
+            fh.write(json.dumps({"phase": 3, "gate": 1, "fr_id": "FR-01", "ts": 0,
+                                 "source": EVIDENCE_SOURCE_SKIP}) + "\n")
         assert self._findings(project) == []
 
     def test_incomplete_claim_needs_no_evidence(self, tmp_path):

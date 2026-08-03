@@ -30,6 +30,11 @@ __all__ = [
     "gate1_evidence_exists",
     "check_commit_intervals",
     "record_gate1_score",
+    "RECEIPT_SCHEMA",
+    "format_finalize_receipt",
+    "read_finalize_receipt_text",
+    "write_finalize_receipt",
+    "verify_finalize_evidence",
     "_sentinel_path",
     "_finalize_sentinel_path",
     "SENTINEL_FLAG_TEMPLATE",
@@ -208,6 +213,138 @@ def write_finalize_receipt(
         encoding="utf-8",
     )
     return path
+
+
+def verify_finalize_evidence(
+    project: Path, gate: int, phase: int | None, fr_id: str | None,
+) -> list:
+    """Cross-check the three artifacts finalize-gate writes. Empty list = OK.
+
+    Round 32 站2. The three channels exist so that forging a pass is expensive,
+    but every reader combined them with OR — advance-phase asked `.exists()`,
+    doctor asked `has_sentinel or fr_key in ts_frs` — so satisfying the
+    cheapest one was enough, and the cheapest one had no content contract at
+    all. Measured on a live P4: eight receipts, zero rows in
+    gate_timestamps.jsonl, zero entries in .gate1_scores.json, phase recorded
+    complete.
+
+    AND is not the answer either: `GATE1-DELTA already done -> skip` writes a
+    `source="skip"` timestamp row and deliberately writes no receipt
+    (cli/fr_cmds.py:249). So the rule is one-directional, and it is exact
+    because finalize-gate writes all three itself, receipt last (站1):
+
+        receipt present  =>  a `finalize` timestamp row for the same
+                             gate/phase/FR exists, AND (gate 1 only) a
+                             .gate1_scores.json entry exists whose score
+                             matches the receipt's.
+        timestamp only   =>  legal (the DELTA skip, or a run-fr-step row
+                             whose sub-agent never called finalize-gate).
+
+    "Receipt present, registries empty" has no producer once the receipt is
+    written last. That combination is the forgery's fingerprint.
+
+    Old-format sentinels (the bare timestamp every project carries today) are
+    rejected outright rather than grandfathered: a legacy channel that still
+    clears the check is the same hole with a longer name.
+    """
+    path = _finalize_sentinel_path(project, gate, fr_id, phase=phase)
+    if not path.exists():
+        return []  # Absence is the caller's business, not this function's.
+
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"{path.name}: unreadable ({exc})"]
+
+    receipt = read_finalize_receipt_text(raw)
+    if receipt is None:
+        return [
+            f"{path.name} is not a finalize receipt — it contains "
+            f"{raw.strip()[:40]!r}. Sentinels written before Round 32 carry a "
+            f"bare timestamp, which proves nothing about the gate result. "
+            f"Re-run `finalize-gate --gate {gate}"
+            + (f" --phase {phase}" if phase is not None else "")
+            + (f" --fr-id {fr_id}" if fr_id else "")
+            + "` to produce one."
+        ]
+
+    problems: list = []
+    if not receipt.get("result_sha256"):
+        problems.append(
+            f"{path.name}: the receipt names no gate result — it cannot "
+            f"attest a verdict it does not identify"
+        )
+
+    if phase is not None:
+        rows = _finalize_timestamp_rows(project, gate, phase, fr_id)
+        if not rows:
+            problems.append(
+                f"{path.name}: no `finalize` row for gate {gate} phase {phase}"
+                + (f" {fr_id}" if fr_id else "")
+                + f" in {GATE_TIMESTAMPS_FILE}. finalize-gate writes that row "
+                f"before it writes this receipt, so a receipt without one was "
+                f"not written by finalize-gate."
+            )
+        if gate == 1 and fr_id:
+            scores = _read_gate1_scores(project)
+            recorded = (scores.get(str(phase)) or {}).get(fr_id)
+            if recorded is None:
+                problems.append(
+                    f"{path.name}: no {fr_id} entry for phase {phase} in "
+                    f"{GATE1_SCORES_FILE} — the same run writes both"
+                )
+            elif receipt.get("score") is not None and abs(
+                float(recorded) - float(receipt["score"])
+            ) > 0.05:
+                problems.append(
+                    f"{path.name}: receipt score {receipt['score']} does not "
+                    f"match the {recorded} recorded in {GATE1_SCORES_FILE}"
+                )
+    return problems
+
+
+def _read_gate1_scores(project: Path) -> dict:
+    """`.gate1_scores.json` as a dict; {} when absent or unreadable."""
+    path = project / ".methodology" / GATE1_SCORES_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _finalize_timestamp_rows(
+    project: Path, gate: int, phase: int, fr_id: str | None,
+) -> list:
+    """`finalize`-sourced rows matching this gate/phase/FR.
+
+    Rows written before Round 20 站4 carry no `source` and are accepted, the
+    same allowance core/doctor.py already makes for them.
+    """
+    path = project / ".methodology" / GATE_TIMESTAMPS_FILE
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    want_fr = (fr_id or "phase")
+    rows = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("gate") != gate or entry.get("phase") != phase:
+            continue
+        if str(entry.get("fr_id") or "phase") != want_fr:
+            continue
+        if entry.get("source") == EVIDENCE_SOURCE_SKIP:
+            continue
+        rows.append(entry)
+    return rows
 
 
 def record_gate_timestamp(

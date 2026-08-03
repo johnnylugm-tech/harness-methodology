@@ -1965,11 +1965,17 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         if _rc != 0:
             return _rc
 
-    # ── Finalize-gate sentinel check ───────────────────────────────────
+    # ── Finalize-gate receipt check ────────────────────────────────────
     # Verify finalize-gate was actually called — prevents the agent from
     # fabricating gate{N}_result.json + quality_manifest.json directly
     # without the harness running S3/S4 cross-validation.
+    #
+    # Round 32 站2: this used to ask `.exists()` of a file whose whole content
+    # was a timestamp. It now reads the receipt and cross-checks it against the
+    # two registries finalize-gate writes alongside it, through the same
+    # function core/doctor.py calls — one rule, two consumers.
     _missing_finalize: list[str] = []
+    _invalid_finalize: list[str] = []
     # Exit gate check (phase-level): Gate 2 for P3, Gate 3 for P4, Gate 4 for P6
     if completed_phase in EXIT_GATE_MAP:
         _exit_gate = EXIT_GATE_MAP[completed_phase]
@@ -1980,6 +1986,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             _missing_finalize.append(
                 f"Gate {_exit_gate} (phase-exit) — expected {_fs.name}"
             )
+        else:
+            _invalid_finalize.extend(gate1_evidence.verify_finalize_evidence(
+                project, _exit_gate, completed_phase, None,
+            ))
     # Gate 1 per-FR check: every FR must have a finalized Gate 1 sentinel
     _fr_ids_for_finalize: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
     if completed_phase >= 3 and _fr_ids_for_finalize:
@@ -1988,6 +1998,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             # v2.13: pass completed_phase so the path matches finalize-gate's
             # per-phase write (Bug #121).
             _fs = _shared._finalize_sentinel_path(project, 1, _frid, phase=completed_phase)
+            if _fs.exists():
+                _invalid_finalize.extend(gate1_evidence.verify_finalize_evidence(
+                    project, 1, completed_phase, _frid,
+                ))
             if not _fs.exists():
                 # DELTA auto-skip exemption: if no code changed since last Gate 1,
                 # the per-FR finalize step was never called (correctly). Skip check
@@ -2020,6 +2034,21 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             + "  before advance-phase. Fabricating gate{N}_result.json or\n"
             + "  quality_manifest.json without finalize-gate is not permitted.\n"
             + "  Run: python3 harness_cli.py finalize-gate --gate <N> --phase <P> --project ."
+        )
+        return 17
+
+    if _invalid_finalize:
+        # A present-but-unbacked receipt is a stronger signal than a missing
+        # one: something wrote the proof without doing the work. Same exit
+        # code — the remedy is identical (run the real finalize-gate) — but
+        # the message names what was found rather than what was absent.
+        print(
+            "\n[BLOCKED] finalize-gate receipt(s) present but not backed by the\n"
+            "          registries finalize-gate writes alongside them:\n"
+            + "".join(f"  ✗ {m}\n" for m in _invalid_finalize)
+            + "\n  finalize-gate writes the gate timestamp, the Gate 1 score and the\n"
+            "  receipt in that order, so a receipt without the first two was not\n"
+            "  written by finalize-gate. Re-run it for the gate(s) named above."
         )
         return 17
 

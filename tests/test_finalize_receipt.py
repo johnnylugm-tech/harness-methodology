@@ -57,6 +57,10 @@ import pytest
 import harness_cli  # noqa: F401  entry-first load order
 from cli._shared import _write_finalize_sentinels_for_tests  # noqa: E402
 from core.quality_gate import gate1_evidence  # noqa: E402
+from core.quality_gate.gate1_evidence import (  # noqa: E402
+    GATE1_SCORES_FILE,
+    GATE_TIMESTAMPS_FILE,
+)
 
 pytestmark = [pytest.mark.core]
 
@@ -159,6 +163,48 @@ def test_a_receipt_with_no_registry_rows_is_rejected(tmp_path):
         "was accepted — those three files have one author, so two of them "
         "being empty means the third was not written by that author"
     )
+
+
+def test_each_half_of_the_rule_is_load_bearing(tmp_path):
+    """Written after the station-2 counter-proof failed to go red.
+
+    The test above seeds a receipt with BOTH registries empty, so removing
+    either half of the check still leaves the other one firing — it cannot
+    tell which half is doing the work. These two cases isolate them: one
+    registry populated, the other not.
+    """
+    result = tmp_path / ".methodology" / "gate1_result.json"
+
+    # (a) score recorded, no finalize timestamp row
+    _make_p3_project(tmp_path)
+    result.write_text(json.dumps({"verdict": "PASS"}), encoding="utf-8")
+    gate1_evidence.write_finalize_receipt(
+        tmp_path, gate=1, phase=3, fr_id="FR-01", score=100.0, result_path=result,
+    )
+    gate1_evidence.record_gate1_score(tmp_path, 3, "FR-01", 100.0)
+    problems = gate1_evidence.verify_finalize_evidence(tmp_path, 1, 3, "FR-01")
+    assert any(GATE_TIMESTAMPS_FILE in p for p in problems), problems
+
+    # (b) timestamp row present, no recorded score
+    gate1_evidence.record_gate_timestamp(tmp_path, 3, 1, "FR-01")
+    (tmp_path / ".methodology" / GATE1_SCORES_FILE).unlink()
+    problems = gate1_evidence.verify_finalize_evidence(tmp_path, 1, 3, "FR-01")
+    assert any(GATE1_SCORES_FILE in p for p in problems), problems
+
+
+def test_a_receipt_whose_score_contradicts_the_registry_is_rejected(tmp_path):
+    """Both registries populated, and they disagree with the receipt. Round 24's
+    rule: a field being present is not the same as its content being true."""
+    _make_p3_project(tmp_path)
+    result = tmp_path / ".methodology" / "gate1_result.json"
+    result.write_text(json.dumps({"verdict": "PASS"}), encoding="utf-8")
+    gate1_evidence.write_finalize_receipt(
+        tmp_path, gate=1, phase=3, fr_id="FR-01", score=100.0, result_path=result,
+    )
+    gate1_evidence.record_gate_timestamp(tmp_path, 3, 1, "FR-01")
+    gate1_evidence.record_gate1_score(tmp_path, 3, "FR-01", 62.0)
+    problems = gate1_evidence.verify_finalize_evidence(tmp_path, 1, 3, "FR-01")
+    assert any("does not match" in p for p in problems), problems
 
 
 def test_the_legitimate_combination_passes(tmp_path):

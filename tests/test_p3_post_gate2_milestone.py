@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 
-from cli._shared import _finalize_sentinel_path, _validate_p3_post_gate2_precondition
+from cli._shared import _validate_p3_post_gate2_precondition
 from core.quality_gate.gate1_evidence import GATE_TIMESTAMPS_FILE
 
 
@@ -131,11 +131,26 @@ class TestAdvancePrechecksMilestoneGate:
         # branch is already covered exhaustively by TestP3PostGate2Precondition
         # above).
         (tmp_path / ".methodology" / "quality_manifest.json").write_text("{}", encoding="utf-8")
-        # Exit-gate (Gate 2) finalize-gate sentinel — required by the
-        # existing EXIT_GATE_MAP check that runs immediately before ours.
-        fs = _finalize_sentinel_path(tmp_path, 2, None, phase=3)
-        fs.parent.mkdir(parents=True, exist_ok=True)
-        fs.write_text("test-finalized\n", encoding="utf-8")
+        # Exit-gate (Gate 2) finalize receipt — required by the existing
+        # EXIT_GATE_MAP check that runs immediately before ours.
+        #
+        # Round 32 站2: this used to hand-write "test-finalized\n". Once the
+        # sentinel became a receipt cross-checked against gate_timestamps,
+        # that string stopped clearing the check and this fixture blocked at
+        # rc=17 before ever reaching the milestone gate it exists to test.
+        # Seeded through the same helper production uses, for the same reason
+        # the helper exists: a fixture that spells the format by hand is
+        # testing a shape production does not write.
+        from cli._shared import _seed_finalize_evidence
+        _seed_finalize_evidence(tmp_path, gate=2, phase=3, fr_id=None)
+        # The receipt fingerprints a gate2_result.json, but this fixture's
+        # whole point is that the p3-post-gate2 milestone precondition is NOT
+        # satisfied — and that precondition reads the same file. Remove it
+        # again so the state is what it was before: Gate 2 finalized, the
+        # milestone artifact absent. The receipt still names the digest of
+        # what it read, which is the question a digest answers (Round 27 站3);
+        # it does not require the file to still be there.
+        (tmp_path / ".methodology" / "gate2_result.json").unlink(missing_ok=True)
 
     def test_blocks_when_milestone_not_pushed(self, tmp_path: Path):
         """Core regression case: everything upstream passes, but
