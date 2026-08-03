@@ -68,6 +68,11 @@ fi
 # if every one is chore(harness):, skip. Mixed pushes (code + harness) still
 # run the full check.
 _ALL_HARNESS_CHORE=true
+# Round 33 站5: the ranges are collected here because this loop consumes the
+# hook's stdin — there is no second chance to read the refs. `break` became
+# `continue` so a mixed push still records every range; the flag only ever
+# moves true -> false, so the early exit was never load-bearing.
+_PUSH_RANGES=""
 while read -r _local_ref _local_sha _remote_ref _remote_sha; do
     if [ "$_local_sha" = "0000000000000000000000000000000000000000" ]; then
         continue  # branch deletion — skip
@@ -78,15 +83,15 @@ while read -r _local_ref _local_sha _remote_ref _remote_sha; do
     else
         _RANGE="${_remote_sha}..${_local_sha}"
     fi
+    _PUSH_RANGES="$_PUSH_RANGES $_RANGE"
     _RANGE_COUNT=$(git rev-list --count "$_RANGE" 2>/dev/null || echo "0")
     if [ "$_RANGE_COUNT" -eq 0 ]; then
         _ALL_HARNESS_CHORE=false
-        break
+        continue
     fi
     _NON_CHORE=$(git log "$_RANGE" --format="%s" 2>/dev/null | grep -vE '^chore\(harness\):' | head -1)
     if [ -n "$_NON_CHORE" ]; then
         _ALL_HARNESS_CHORE=false
-        break
     fi
 done
 if [ "$_ALL_HARNESS_CHORE" = true ]; then
@@ -111,6 +116,34 @@ if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/sc
         echo "Restore it, or update the registry in the same commit with a reason."
         exit 1
     }
+
+    # The other direction (Round 33 站5): a fix must bring its guard with it.
+    # The registry only ever checked that registered guards still exist, so it
+    # grew when someone remembered — measured on 8637c6a..4bdc0fb, three
+    # bug-fix commits added twelve-plus tests across three new files and the
+    # count did not move. Keyed on ADDED test files, which is a signal that
+    # exists only here.
+    _ADDED_TESTS=""
+    for _r in $_PUSH_RANGES; do
+        _ADDED_TESTS="$_ADDED_TESTS $(git log "$_r" --diff-filter=A --name-only --format= -- 'tests/test_*.py' 2>/dev/null)"
+    done
+    if [ -n "$(echo "$_ADDED_TESTS" | tr -d '[:space:]')" ]; then
+        if git log $_PUSH_RANGES --format='%B' 2>/dev/null | grep -q '\[no-guard\]'; then
+            echo "  [no-guard] marker in a commit message — new test files not required to register"
+        else
+            # shellcheck disable=SC2086  # word splitting is the point
+            "$PYTHON" "$PROJECT_ROOT/scripts/verify_regression_guards.py" \
+                --registry "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" \
+                --repo-root "$PROJECT_ROOT" \
+                --added-tests $_ADDED_TESTS || {
+                echo ""
+                echo "=============================================="
+                echo "PRE-PUSH BLOCKED: new guard not registered"
+                echo "=============================================="
+                exit 1
+            }
+        fi
+    fi
 fi
 
 # Run full Phase preflight before push (no bypass — use run-phase for complete check)

@@ -986,3 +986,134 @@
 - test: tests/test_handover_generator.py::TestCmdPushMilestone::test_p4_pre_gate3_refuses_to_claim_verdicts_that_do_not_exist
   bug: "the refusal path for the sweep check, driven through the command rather than the helper"
   fixed_in: "7bb9874"
+
+# ── Round 33 — one contract, five statements, none of them the source ──
+# The three commits reviewed this round (485c05f / 1620b2c / 4bdc0fb) added
+# twelve-plus tests across three new files and registered none of them; the
+# registry only ever checked that REGISTERED guards still exist. Both those
+# files and this round's are entered here, and scripts/hooks/pre-push now
+# checks the other direction.
+
+- test: tests/test_phase2_template_h1_drift.py::test_sad_template_h1_matches_orchestrator_disk_prefix
+  bug: "templates/SAD.md shipped `# SAD - {Project Name}` while the P2 orchestrator reloaded it with diskPrefix `# Software Architecture Document`; Agent A filled a 520-line body without touching the H1 and every reload returned PREFIX_MISMATCH until LOADER_FAILED_AFTER_3_ATTEMPTS"
+  fixed_in: "1620b2c"
+
+- test: tests/test_phase2_template_h1_drift.py::test_sad_template_first_line_has_project_name_placeholder
+  bug: "a corrected H1 with nothing to substitute would ship every project the same title"
+  fixed_in: "1620b2c"
+
+- test: tests/test_unresolvable_citations_annotation.py::TestAnnotationSuffixAccepted::test_single_line_with_annotation
+  bug: "_CITATION anchored with $, so `SRS.md:972 (FR-05 §10 ...)` fell through to the whole-file branch and every existing file was reported as 'no such file'; 4/4 P1 approvals blocked on taskq-full's run-all"
+  fixed_in: "4bdc0fb"
+
+- test: tests/test_sab_parser.py::TestCanonicalTemplate::test_srs_template_nfr_type_example_matches_vocabulary
+  bug: "templates/SRS.md §7 showed a four-value `type:` example against sab_parser's fixed 14-value ALL_NFR_TYPES, with no hint the field belongs to a different, stricter enum than `dimension:`"
+  fixed_in: "485c05f"
+
+- test: tests/test_deliverable_anchors.py::test_every_template_h1_satisfies_its_own_loader_anchor
+  bug: "four of seven seeded templates (SRS/SPEC_TRACKING/TRACEABILITY_MATRIX/ADR) failed the diskPrefix written three times beside them in the same spec file; 1620b2c fixed the fifth"
+  fixed_in: "0ab7925"
+
+- test: tests/test_deliverable_anchors.py::test_every_seeded_template_keeps_a_project_name_placeholder
+  bug: "generalised from 1620b2c's SAD-only version to every prose deliverable"
+  fixed_in: "0ab7925"
+
+- test: tests/test_deliverable_anchors.py::test_the_anchor_is_read_from_a_registry_not_hand_written_per_site
+  bug: "the anchor was hand-written at every site, which is how templates/SAD.md and spec_phase2.py drifted apart with nothing noticing"
+  fixed_in: "0ab7925"
+
+- test: tests/test_deliverable_anchors.py::test_no_prompt_tells_the_agent_a_containing_h1_is_acceptable
+  bug: "all six H1 paragraphs told the agent 'or any H1 line containing the phrase' — permission the loader does not grant. The first draft of this test scanned the two docstrings for the word 'contain'; its counter-proof showed reflowing the docstring made it pass while the text stayed wrong"
+  fixed_in: "0ab7925"
+
+- test: tests/test_deliverable_anchors.py::test_every_anchor_is_stated_to_the_agent_verbatim
+  bug: "a prompt that paraphrases its own anchor is the same drift one level removed"
+  fixed_in: "0ab7925"
+
+- test: tests/test_file_loader.py::TestLoadFilePrefixMismatch::test_prefix_must_anchor_the_first_line_not_appear_inside_it
+  bug: "the existing substring-search test puts the phrase on a LATER line, so it also passes under a naive `prefix in text`; the same-line-not-at-start case is the one only startswith rejects, and three prose descriptions of this rule got it wrong at once"
+  fixed_in: "0ab7925"
+
+- test: tests/test_deliverable_anchors.py::test_the_regenerated_traceability_view_still_satisfies_its_anchor
+  bug: "measured PREFIX_MISMATCH on 4 of 4 real projects: `intro = head.rstrip() + 2 newlines` blanked the first line, AND render_markdown emitted AUTO-GEN:START before the H1 so fixing intro alone was not enough. The first draft wrote to a path that did not exist, skipping the preserved-intro branch every measured project was in"
+  fixed_in: "057d007"
+
+- test: tests/test_deliverable_anchors.py::test_regenerating_twice_does_not_duplicate_the_heading
+  bug: "with the intro seeded, an H1 still emitted inside the AUTO-GEN block is stable across runs and still wrong; comparing run 1 to run 2 does not see it"
+  fixed_in: "057d007"
+
+- test: tests/test_traceability_view_regen.py::test_regen_records_a_degradation_when_a_view_loses_its_anchor
+  bug: "a render-only view replaced a peer-reviewed deliverable without inheriting its loader anchor, and nothing recorded the loss"
+  fixed_in: "057d007"
+
+- test: tests/test_traceability_view_regen.py::test_a_view_that_keeps_its_anchor_records_nothing
+  bug: "a ledger entry on every advance is noise, not a signal"
+  fixed_in: "057d007"
+
+- test: tests/test_traceability_view_regen.py::test_migrate_trace_overlay_targets_the_real_deliverable
+  bug: "migrate-trace-overlay hardcoded <project>/TRACEABILITY_MATRIX.md and a root overlay while the deliverable lives at 01-requirements/ and generate_markdown_matrix defaults the overlay to output_path.parent — it migrated a file that is not the deliverable and wrote an overlay nothing reads. The command had no test at all"
+  fixed_in: "057d007"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_an_illegal_nfr_type_is_refused_by_the_framework
+  bug: "SRS.md's non_functional_requirements[].type was parsed and legality-checked nowhere upstream of Phase 2's generate_sab.py --validate; an illegal-but-plausible value reached an approved deliverable and cost five B-review rounds to the HR-12 hard cap"
+  fixed_in: "dc05e69"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_a_legal_nfr_vocabulary_produces_no_findings
+  bug: "a checker that always fires is not a checker"
+  fixed_in: "dc05e69"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_an_illegal_dimension_is_refused_too
+  bug: "Phase 1's checklist has carried the `dimension:` legality bullet since before 485c05f and never had a machine behind it either"
+  fixed_in: "dc05e69"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_an_srs_with_no_machine_block_is_not_an_illegal_srs
+  bug: "Round 31's parse-failure rule: 'could not read it' must never render as 'it is wrong', and must never BLOCK"
+  fixed_in: "dc05e69"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_advance_phase_refuses_a_p1_exit_carrying_an_illegal_vocabulary
+  bug: "the helper-level tests leave the call site uncovered, and the call site is the whole point of moving the verdict to the framework (Round 32 站6's counter-proof)"
+  fixed_in: "dc05e69"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_the_dimension_roster_has_one_source
+  bug: "`traceability` is scored by gate4_p6_full.yaml and has no `### traceability` section in evaluate_dimension.md — the file Phase 1's prompt names as the roster — so a correct NFR would be flagged as naming a dimension that does not exist"
+  fixed_in: "dc05e69"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_the_block_is_found_by_content_not_by_heading
+  bug: "taskq-full's SRS at 0fadc4bd: 1116 lines, 8 FRs and 12 NFRs under `## 10. AC ↔ Module Traceability (machine-readable)` with no sentinels; both heading paths missed it and the parser returned {}"
+  fixed_in: "45273ef"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_an_unfindable_fr_block_is_reported_not_silently_empty
+  bug: "`if not payload: return {}` said nothing at all, so an unreachable block was indistinguishable from an SRS with no FR metadata — the fourth silent abstention of the class Round 30 站3 cleared three of"
+  fixed_in: "45273ef"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_the_unfilled_template_example_is_not_mistaken_for_data
+  bug: "widening the heading match matched the project's unfilled template stub two sections earlier and handed downstream a placeholder FR-01; a parser that finds the wrong block is worse than one that finds none"
+  fixed_in: "45273ef"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_a_block_with_no_descriptions_is_not_called_a_stub
+  bug: "real SRS blocks often carry only ids and module lists; reading 'no descriptions' as 'all descriptions are placeholders' would discard live data"
+  fixed_in: "45273ef"
+
+- test: tests/test_srs_nfr_vocabulary.py::test_two_filled_blocks_are_an_ambiguity_not_a_coin_toss
+  bug: "a file with two filled candidates has two answers; picking one silently is how the wrong one gets used"
+  fixed_in: "45273ef"
+
+- test: tests/test_citation_failure_reason.py::test_an_unparseable_citation_is_not_reported_as_a_missing_file
+  bug: "every citation shape _CITATION does not match fell through to the whole-file branch and was reported as 'no such file' about files that exist; 4bdc0fb taught the regex one more shape and left the branch that manufactures the false reason"
+  fixed_in: "faa0680"
+
+- test: tests/test_citation_failure_reason.py::test_a_genuinely_missing_file_still_says_so
+  bug: "'no such file' must keep meaning what it says, or one wrong message is traded for another"
+  fixed_in: "faa0680"
+
+- test: tests/test_citation_failure_reason.py::test_the_shapes_4bdc0fb_and_round_26_added_still_parse
+  bug: "regression cover for both prior one-shape-at-a-time fixes, so the reason-reporting cannot be 'fixed' by narrowing the regex again"
+  fixed_in: "faa0680"
+
+- test: tests/test_verify_regression_guards.py::TestRegistryCompleteness::test_added_test_files_without_a_registry_entry_are_reported
+  bug: "the registry was checked in one direction only; measured on 8637c6a..4bdc0fb, three bug-fix commits added twelve-plus tests across three new files and the count stayed at 239"
+  fixed_in: "R33-站5"
+
+- test: tests/test_verify_regression_guards.py::TestRegistryCompleteness::test_a_non_test_path_is_not_demanded_to_be_a_guard
+  bug: "keying on every added path instead of on new test files would block any commit touching a conftest or fixture directory — a machine that cries wolf"
+  fixed_in: "R33-站5"
