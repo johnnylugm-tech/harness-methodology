@@ -799,7 +799,7 @@ class TestHarnessCrossValidation:
 
         # run_tool should never be called when agent score < threshold
         with patch("harness.tool_runners.run_tool") as mock_run:
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
         mock_run.assert_not_called()
@@ -826,7 +826,7 @@ class TestHarnessCrossValidation:
             for i in range(30)
         ])
         with patch("harness.tool_runners.run_tool", return_value=(ruff_output, 0)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "fabrication detected" in violations[0]
@@ -848,7 +848,7 @@ class TestHarnessCrossValidation:
 
         # Harness finds 0 violations → score 100 ≥ threshold 90
         with patch("harness.tool_runners.run_tool", return_value=("[]", 0)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
 
@@ -872,7 +872,7 @@ class TestHarnessCrossValidation:
 
         # (a) no tool_output → blocked (scancode is skip_inline=True — harness cannot re-run it)
         raw_missing = {"breakdown": {"license_compliance": {"score": 95}}}
-        v_missing = _run_harness_cross_validation(ctx, raw_missing)  # type: ignore[reportArgumentType]
+        v_missing, _unver = _run_harness_cross_validation(ctx, raw_missing)  # type: ignore[reportArgumentType]
         assert len(v_missing) == 1
         assert "unverifiable" in v_missing[0]
 
@@ -882,7 +882,7 @@ class TestHarnessCrossValidation:
         out.write_text("Scan completed. No license violations found.\n", encoding="utf-8")
         raw_ok = {"breakdown": {"license_compliance": {"score": 95,
                                                        "tool_output": ".sessi-work/scancode_out.txt"}}}
-        v_ok = _run_harness_cross_validation(ctx, raw_ok)  # type: ignore[reportArgumentType]
+        v_ok, _unver = _run_harness_cross_validation(ctx, raw_ok)  # type: ignore[reportArgumentType]
         assert v_ok == []
 
     def test_tool_timeout_blocks(self, tmp_path, monkeypatch):
@@ -901,10 +901,14 @@ class TestHarnessCrossValidation:
 
         # Simulate timeout — agent claims a passing score (95 ≥ 85) but the tool can't confirm it.
         with patch("harness.tool_runners.run_tool", return_value=("TIMEOUT: mypy exceeded 60s", -2)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, unverifiable = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
-        assert len(violations) == 1
-        assert "timed out" in violations[0]
+        # Round 32 站4: still blocks, but as `infra_fail` — the tool is
+        # installed and did not finish, so the harness could not measure.
+        # Filing that as fabrication told the agent to make a true claim true.
+        assert violations == []
+        assert len(unverifiable) == 1
+        assert "timed out" in unverifiable[0]
 
     def test_no_benchmark_blocks(self, tmp_path, monkeypatch):
         """Layer 1c: pytest-benchmark exit 5 (no benchmarks) BLOCKS a passing perf score."""
@@ -921,7 +925,7 @@ class TestHarnessCrossValidation:
         raw = {"breakdown": {"performance": {"score": 90}}}
 
         with patch("harness.tool_runners.run_tool", return_value=("no benchmarks ran", 5)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "no tests" in violations[0] and "unverifiable" in violations[0]
@@ -943,7 +947,7 @@ class TestHarnessCrossValidation:
 
         # radon-mi over an empty graph → "{}" → _score_radon_mi returns None.
         with patch("harness.tool_runners.run_tool", return_value=("{}", 0)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "readability" in violations[0] and "no analysable" in violations[0]
@@ -963,7 +967,7 @@ class TestHarnessCrossValidation:
         raw = {"breakdown": {"architecture": {"score": 95}}}
 
         with patch("harness.tool_runners.run_tool") as mock_run:
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
         mock_run.assert_not_called()  # architecture skipped before any tool run
@@ -999,7 +1003,7 @@ class TestHarnessCrossValidation:
             return ("Success: no issues found in 3 source files\n", 0)
 
         with patch("harness.tool_runners.run_tool", side_effect=fake_run):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert len(violations) == 1
         assert "linting" in violations[0]
@@ -1055,7 +1059,7 @@ class TestAgentNullIsNotFree:
         }}}
 
         with patch("harness.tool_runners.run_tool", return_value=("no benchmarks ran", 5)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert isinstance(violations, list)
 
@@ -1128,7 +1132,7 @@ class TestAgentNullIsNotFree:
 
         with patch("harness.tool_runners.run_tool",
                    return_value=("no benchmarks ran", 5)):
-            violations = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
         assert violations == []
         entry = raw["breakdown"]["performance"]

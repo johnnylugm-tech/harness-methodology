@@ -1271,7 +1271,9 @@ def _architecture_regression_reason(
     return None
 
 
-def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
+def _run_harness_cross_validation(
+    ctx: "GateContext", raw: dict,
+) -> "tuple[list[str], list[str]]":
     """S4: Run tools independently and cross-validate agent-reported scores.
 
     For each Tier 1/2 dimension with requires_tool_execution:true, the harness
@@ -1290,7 +1292,22 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
 
     Raw tool output is written to .sessi-work/harness_verification/ for audit.
 
-    Returns list of fabrication violation messages (empty = all clear).
+    Returns ``(fabrication, cannot_verify)``.
+
+    Round 32 站4: these used to be one list, filed wholesale under
+    ``tool_score_fabrication`` — the block kind whose registered remediation
+    reads "Do NOT re-run the gate — the score, not the run, is what failed."
+    A timeout, a missing tool, a tool that cannot import the project: all of
+    them arrived under that heading, telling the agent its number was a lie
+    when the truth was that the framework had not measured anything. Measured
+    on a live P4, `.methodology/last_block.md` carries a pyright timeout and a
+    PYTHONPATH gap under exactly that kind.
+
+    The second list is raised as ``infra_fail`` instead — a key that already
+    exists in core/quality_gate/block_reason.py and already says the right
+    thing ("Dimension scored zero because its tool could not run
+    (infrastructure, not quality)"), and which Round 13's routing keeps out of
+    a CODE-FIX round against the project.
     """
     import yaml as _yaml
     from pathlib import Path as _Path
@@ -1304,7 +1321,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     cfg_path = _gcp(ctx.gate_num)
 
     if not cfg_path.exists():
-        return [
+        return [], [
             f"S4 gate config not found: {cfg_path} "
             f"(gate {ctx.gate_num}). Expected framework-owned asset — "
             f"is the harness checkout intact?"
@@ -1313,7 +1330,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     try:
         cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     except (_yaml.YAMLError, OSError) as exc:
-        return [
+        return [], [
             f"S4 gate config unreadable: {cfg_path} ({exc})"
         ]
 
@@ -1325,7 +1342,7 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
         from harness.tool_runners import run_tool, compute_tool_score
     except ImportError as exc:
         print(f"  [S4-WARN] cross-validation disabled: harness.tool_runners unavailable: {exc}")
-        return []
+        return [], []
 
     # Language-aware tool resolution: the YAML `tool:` field is the Python
     # default; non-Python projects resolve dimension → tool via the toolchain
@@ -1342,6 +1359,11 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
     verification_dir.mkdir(parents=True, exist_ok=True)
 
     violations: list[str] = []
+    # Round 32 站4: "the harness could not measure this" is a separate verdict
+    # from "the harness measured and the agent's number was false". Filing
+    # both under one key told the agent its score was a lie whenever the
+    # framework's own run fell over.
+    unverifiable: list[str] = []
     breakdown = raw.get("breakdown", {})
 
     # architecture is scored by the framework's independent CRG run (community_cohesion)
@@ -1428,7 +1450,9 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
             ))
             _rc_labels = {-2: "timed out", -3: "not found", -4: "error"}
             _rc_label = _rc_labels.get(returncode, f"rc={returncode}")
-            violations.append(
+            # Round 32 站4: this is the harness failing to measure, not the
+            # agent failing to tell the truth, and it is filed as such now.
+            unverifiable.append(
                 f"{dim_name}: tool '{tool}' {_rc_label} — harness cannot "
                 f"cross-validate agent_score={_agent_label}. {_how}"
             )
@@ -1537,9 +1561,30 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                     f"{_agent_label}. A passing readability score requires analysable "
                     f"code; add it, then re-finalize."
                 )
-            # Other dimensions returning None mean the harness could not re-score
-            # (e.g. a tool parse issue) — a framework-side gap, not proof of agent
-            # fabrication. Skip rather than falsely blocking the gate (origin behaviour).
+                continue
+            # Round 32 站4: every other dimension used to `continue` here in
+            # silence, so the agent's number stood unchecked and the run left
+            # no trace that the check had not happened. Round 30's rule: an
+            # abstention is not a pass. The scorers this round taught to
+            # return None instead of 0.0 all land here, so this is the branch
+            # that decides whether the round traded a false accusation for a
+            # silent one — it records the gap and blocks under `infra_fail`,
+            # which is the framework's problem to fix, not the project's.
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                ctx.project_root, f"gate:s4:{dim_name}",
+                f"'{tool}' produced no score the harness could read",
+                why=("the agent's number for this dimension was therefore not "
+                     "cross-validated; see the audit file for the raw output"),
+            )
+            unverifiable.append(
+                f"{dim_name}: '{tool}' ran but produced no score the harness "
+                f"could read, so agent_score={_agent_label} could not be "
+                f"cross-validated. This is a framework-side gap — read "
+                f"{audit_file.relative_to(_Path(ctx.project_root))} and fix "
+                f"the tool invocation or its scorer; do NOT lower the "
+                f"dimension score to work around it."
+            )
             continue
 
         if agent_score is None:
@@ -1578,7 +1623,34 @@ def _run_harness_cross_validation(ctx: "GateContext", raw: dict) -> list[str]:
                 f"See {audit_file.relative_to(_Path(ctx.project_root))}"
             )
 
-    return violations
+    return violations, unverifiable
+
+
+def s4_block_details(fabrication: list, unverifiable: list) -> dict:
+    """Map S4's two verdicts onto the block-reason keys that explain them.
+
+    Round 32 站4. Public and pure so it can be checked without patching five
+    private seams around finalize_gate — the private-patch ratchet
+    (tests/test_patch_discipline.py) rejected the version of this test that
+    did, and it was right to: what needs pinning is this mapping, not the
+    call graph around it.
+
+    The two keys carry opposite instructions, which is the whole reason they
+    must not be merged:
+
+      tool_score_fabrication  the harness measured, the agent's number was
+                              false -> make the claim true or withdraw it
+      infra_fail              the harness could not measure -> do NOT touch
+                              the score; repair the tool run. Round 13's
+                              routing keeps this out of a CODE-FIX round
+                              against the project.
+    """
+    details: dict = {}
+    if fabrication:
+        details["tool_score_fabrication"] = fabrication
+    if unverifiable:
+        details["infra_fail"] = unverifiable
+    return details
 
 
 class GateBlockedError(Exception):
@@ -2517,20 +2589,21 @@ class HarnessBridge:
         # blocked with a fabrication violation.
         # Slow tools (mutmut, scancode) are skipped here; S3-A covers them.
         print("\n[S4] Running harness cross-validation...")
-        _s4_violations = _run_harness_cross_validation(ctx, raw)
-        if _s4_violations:
+        _s4_fabrication, _s4_unverifiable = _run_harness_cross_validation(ctx, raw)
+        if _s4_fabrication or _s4_unverifiable:
+            _s4_details = s4_block_details(_s4_fabrication, _s4_unverifiable)
             raise GateBlockedError(
                 ctx.gate_num,
                 GateResult(
                     gate_num=ctx.gate_num,
                     score=0.0,
                     dimensions=[],
-                    open_critical=len(_s4_violations),
+                    open_critical=len(_s4_fabrication) + len(_s4_unverifiable),
                     open_high=0,
                     quality_complete=False,
                     rounds_used=0,
                 ),
-                details={"tool_score_fabrication": _s4_violations},
+                details=_s4_details,
             )
 
         # ── S4-B: Failed-tests assertion (Gate 1 only) ───────────────────────

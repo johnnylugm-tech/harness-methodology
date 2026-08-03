@@ -1040,7 +1040,7 @@ class TestSabClosureGaps:
             "test_coverage": {"score": 70.0, "threshold": 60.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
-            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=([], [])):
                 with patch.object(bridge, "_update_quality_manifest"):
                     with patch.object(bridge, "_log"):
                         with patch.object(bridge, "_effort"):
@@ -1061,7 +1061,7 @@ class TestSabClosureGaps:
             "test_coverage": {"score": 85.0, "threshold": 60.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
-            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=([], [])):
                 with patch.object(bridge, "_update_quality_manifest"):
                     with patch.object(bridge, "_log"):
                         with patch.object(bridge, "_effort"):
@@ -1086,7 +1086,7 @@ class TestSabClosureGaps:
             "test_coverage": {"score": 90.0, "threshold": 60.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
-            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=([], [])):
                 with patch.object(bridge, "_update_quality_manifest"):
                     with patch.object(bridge, "_log"):
                         with patch.object(bridge, "_effort"):
@@ -1112,7 +1112,7 @@ class TestSabClosureGaps:
             "test_coverage": {"score": 85.0, "threshold": 90.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
-            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=([], [])):
                 with patch.object(bridge, "_update_quality_manifest"):
                     with patch.object(bridge, "_log"):
                         with patch.object(bridge, "_effort"):
@@ -1143,7 +1143,7 @@ class TestSabClosureGaps:
             "breakdown": {"coverage": {"score": 85.0, "threshold": 60.0, "issues": []}},
         }))
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
-            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=([], [])):
                 with patch.object(bridge, "_update_quality_manifest"):
                     with patch.object(bridge, "_log"):
                         with patch.object(bridge, "_effort"):
@@ -1184,7 +1184,7 @@ class TestSabClosureGaps:
             "test_coverage": {"score": 97.51, "threshold": 80.0, "issues": []},
         })
         with patch("harness.harness_bridge._check_tool_evidence", return_value=[]):
-            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=[]):
+            with patch("harness.harness_bridge._run_harness_cross_validation", return_value=([], [])):
                 with patch.object(bridge, "_update_quality_manifest"):
                     with patch.object(bridge, "_log"):
                         with patch.object(bridge, "_effort"):
@@ -1557,11 +1557,15 @@ class TestS4ToolUnavailable:
         raw = self._make_result([{"name": "readability", "score": 85}])
 
         with patch("harness.tool_runners.run_tool", return_value=("Tool not found: radon-mi", -3)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations, unverifiable = _run_harness_cross_validation(ctx, raw)
 
-        assert len(violations) == 1
-        assert "radon-mi" in violations[0]
-        assert "not found" in violations[0]
+        # Round 32 站4: still blocks, but under `infra_fail` rather than
+        # `tool_score_fabrication` — a missing tool is the framework failing
+        # to measure, not the agent lying about a measurement.
+        assert violations == []
+        assert len(unverifiable) == 1
+        assert "radon-mi" in unverifiable[0]
+        assert "not found" in unverifiable[0]
 
     def test_tool_not_found_below_threshold_skipped(self, tmp_path, monkeypatch):
         """rc=-3 + agent_score(50) < threshold(80) → not cross-validated (no violation)."""
@@ -1574,7 +1578,7 @@ class TestS4ToolUnavailable:
         raw = self._make_result([{"name": "readability", "score": 50}])
 
         with patch("harness.tool_runners.run_tool", return_value=("Tool not found: radon-mi", -3)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations, _unver = _run_harness_cross_validation(ctx, raw)
 
         assert violations == []
 
@@ -1589,10 +1593,14 @@ class TestS4ToolUnavailable:
         raw = self._make_result([{"name": "performance", "score": 90}])
 
         with patch("harness.tool_runners.run_tool", return_value=("TIMEOUT: pytest-benchmark exceeded 180s", -2)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations, unverifiable = _run_harness_cross_validation(ctx, raw)
 
-        assert len(violations) == 1
-        assert "timed out" in violations[0]
+        # Round 32 站4: a timeout means the tool IS installed and did not
+        # finish — the harness failed to measure. Still blocks, under
+        # `infra_fail`.
+        assert violations == []
+        assert len(unverifiable) == 1
+        assert "timed out" in unverifiable[0]
 
     def test_tool_error_blocks_passing_agent_score(self, tmp_path, monkeypatch):
         """rc=-4 (unexpected error) + agent_score(95) >= threshold(80) → blocked."""
@@ -1605,10 +1613,13 @@ class TestS4ToolUnavailable:
         raw = self._make_result([{"name": "error_handling", "score": 95}])
 
         with patch("harness.tool_runners.run_tool", return_value=("Error: something", -4)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations, unverifiable = _run_harness_cross_validation(ctx, raw)
 
-        assert len(violations) == 1
-        assert "error" in violations[0]
+        # Round 32 站4: rc=-4 is a framework-side fault by its own message
+        # ("this is a framework-side fault, not an agent one").
+        assert violations == []
+        assert len(unverifiable) == 1
+        assert "error" in unverifiable[0]
 
     def test_skip_list_tool_rc_minus1_still_works(self, tmp_path, monkeypatch):
         """rc=-1 (skip-list) is NOT blocked by this check — it has its own validation."""
@@ -1638,7 +1649,7 @@ class TestS4ToolUnavailable:
         )
 
         with patch("harness.tool_runners.run_tool", return_value=("", -1)):
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations, _unver = _run_harness_cross_validation(ctx, raw)
 
         assert violations == []
 

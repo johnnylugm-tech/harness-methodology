@@ -235,7 +235,7 @@ class TestRunHarnessCrossValidationPathContainment:
                     },
                 },
             }
-            violations = _run_harness_cross_validation(ctx, raw)
+            violations, _unver = _run_harness_cross_validation(ctx, raw)
         assert any("escapes" in v or "outside" in v or "project" in v
                    for v in violations), (
             f"path-traversal tool_output in skip-list branch must produce "

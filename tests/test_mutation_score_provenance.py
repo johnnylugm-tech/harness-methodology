@@ -120,7 +120,7 @@ def test_mutmut_is_on_the_inline_skip_list_its_comment_already_claims():
 # ── 2. the number comes from a framework-written artifact ────────────────
 
 def test_a_passing_claim_without_the_framework_artifact_is_blocked(project):
-    violations = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    violations, _unver = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
     assert violations, (
         "an agent-authored prose file was accepted as the source of a tier-1 "
         "objective_primary score"
@@ -144,7 +144,7 @@ def test_the_framework_artifact_supplies_the_score(project):
         }),
         encoding="utf-8",
     )
-    violations = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    violations, _unver = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
     assert not violations, violations
 
 
@@ -160,7 +160,7 @@ def test_a_claim_that_contradicts_the_artifact_is_blocked(project):
         }),
         encoding="utf-8",
     )
-    violations = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    violations, _unver = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
     assert violations and "43.8" in " ".join(violations), violations
 
 
@@ -292,7 +292,7 @@ def test_the_gate_actually_calls_the_drift_check(project):
         "[mutmut]\npaths_to_mutate = 03-development/src/app\n", encoding="utf-8"
     )
 
-    violations = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    violations, _unver = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
     assert violations and "disagrees with the SAB" in " ".join(violations), (
         f"a score above threshold sailed through on a scope the SAB does not "
         f"declare: {violations}"

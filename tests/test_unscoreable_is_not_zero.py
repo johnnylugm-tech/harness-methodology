@@ -145,20 +145,38 @@ def test_a_tool_the_harness_could_not_run_is_not_filed_as_fabrication():
     )
 
 
-def test_the_two_block_kinds_stay_distinguishable_at_the_raise_site():
-    """Both keys must reach GateBlockedError separately; a single merged list
-    is how the mislabel happened."""
-    from pathlib import Path
+def test_the_two_block_kinds_reach_the_error_under_different_keys():
+    """Asserted on the mapping itself, not on the source text.
 
-    src = (Path(__file__).resolve().parents[1]
-           / "harness" / "harness_bridge.py").read_text(encoding="utf-8")
-    marker = '_s4_violations = _run_harness_cross_validation(ctx, raw)'
-    assert marker not in src, (
-        "the S4 call site still binds a single list; the fabrication verdict "
-        "and the could-not-measure verdict need separate details keys "
-        "(tool_score_fabrication / infra_fail), because their remediations "
-        "point in opposite directions"
+    Two earlier drafts of this test were wrong in different ways, and the
+    round's own tooling caught both:
+
+      1. It scanned harness_bridge.py for the old single-list assignment.
+         The station-4 counter-proof caught that: merging the two lists back
+         into one `tool_score_fabrication` key left the test green, because
+         the string it looked for was still absent. A check that reads the
+         code cannot see a change in what the code means.
+      2. It drove finalize_gate with five private seams patched. The
+         private-patch ratchet caught that, and was right to — what needs
+         pinning is the mapping, so the mapping is now a public function.
+    """
+    from harness.harness_bridge import s4_block_details
+
+    only_infra = s4_block_details([], ["linting: tool 'ruff' timed out"])
+    assert "infra_fail" in only_infra, only_infra
+    assert "tool_score_fabrication" not in only_infra, (
+        "a tool the harness could not run was still filed as the agent "
+        "fabricating a score — the two remediations point in opposite "
+        "directions, so the key has to be the right one"
     )
+
+    only_fab = s4_block_details(["linting: fabrication detected"], [])
+    assert set(only_fab) == {"tool_score_fabrication"}, only_fab
+
+    both = s4_block_details(["a"], ["b"])
+    assert both == {"tool_score_fabrication": ["a"], "infra_fail": ["b"]}, both
+
+    assert s4_block_details([], []) == {}
 
 
 def test_the_none_branch_does_not_silently_pass_a_required_tool():

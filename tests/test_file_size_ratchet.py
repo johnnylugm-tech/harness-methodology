@@ -113,7 +113,20 @@ _LINE_CEILING: dict[str, int] = {
     # into a ceiling, which test_finalize_gate_override_is_floor_not_ceiling
     # caught. The note is longer than the line it replaces because the next
     # reader needs to know the diagnosis stands and only the fix was withdrawn.
-    "harness/harness_bridge.py": 3594,
+    # 2026-08-03 (Round 32 站4): +73 lines — _run_harness_cross_validation
+    # returns two lists instead of one. "the harness could not measure this"
+    # and "the harness measured and the agent's number was false" were filed
+    # under a single key whose registered remediation reads "Do NOT re-run
+    # the gate — the score, not the run, is what failed"; a live P4
+    # last_block.md shows a pyright timeout and a PYTHONPATH gap under
+    # exactly that heading. The growth is the second accumulator, the
+    # branch that used to `continue` in silence when a scorer returned None
+    # (now a ledger line plus an infra_fail entry — Round 30's rule that an
+    # abstention is not a pass), and s4_block_details — the (fabrication,
+    # unverifiable) -> details mapping, made public so it can be pinned
+    # without patching five private seams around finalize_gate (the
+    # private-patch ratchet rejected the version of the test that did).
+    "harness/harness_bridge.py": 3667,
     # 2026-08-03 (Round 31 站6): +21 more — the S4 remediation text for a tool
     # that timed out is no longer the text for a tool that is missing. They
     # shared one sentence, and that sentence was "Install '<tool>'", which is

@@ -282,11 +282,25 @@ def _score_mypy(output: str, _returncode: int) -> float:
     return max(0.0, 100.0 - errors * 5.0)
 
 
-def _score_pytest(output: str, *, coverage: bool) -> float:
-    """Score pytest (and pytest-cov) output.
+def _score_pytest(output: str, *, coverage: bool) -> Optional[float]:
+    """Score pytest (and pytest-cov) output, or None when it carries no score.
 
     With coverage=True: return total line-coverage percentage.
     With coverage=False: return 100 × (passed / total).
+
+    Round 32 站4: `total == 0` used to return 0.0, so a pytest run that never
+    collected a test — exit 2 on a collection error, an import failure, a
+    conftest that raised — was recorded as 0% coverage. On a live P4 Gate 1
+    that produced
+
+        test_coverage: fabrication detected — harness ran 'pytest-cov' and
+        scored 0.0 (below threshold 80.0), but agent reported 100.0
+
+    None is the value that already means "the harness could not re-score"
+    everywhere else in this module (see the returncode < 0 guard in
+    compute_tool_score, and _score_pytest_benchmark's exit-5 branch), and S4
+    handles it correctly. A parse failure is not a measurement of zero
+    (docs/ERROR_HANDLING.md, Round 31).
     """
     if coverage:
         m = re.search(r"TOTAL\s+(?:\d+\s+){2,}(\d+)%", output)
@@ -299,7 +313,7 @@ def _score_pytest(output: str, *, coverage: bool) -> float:
     failed = int(failed_m.group(1)) if failed_m else 0
     total = passed + failed
     if total == 0:
-        return 0.0
+        return None
     return round(100.0 * passed / total, 1)
 
 
@@ -406,6 +420,14 @@ def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
     """
     if returncode == 5:
         return None  # No benchmark tests exist yet — dimension not yet applicable
+
+    # Round 32 站4, found while measuring station 0's premise P3: the row regex
+    # below only ever SUBTRACTS, so output with no benchmark rows scores 100.
+    # On exit 2 (a collection error — the suite never ran) that meant a crashed
+    # benchmark suite was awarded full marks. Exit 5 was the only non-zero code
+    # this function knew about; every other one now reads as "no measurement".
+    if returncode != 0:
+        return None
 
     # Parse the unit multiplier from the header line:  "Name (time in ms)"
     unit_m = re.search(r"Name\s+\(time\s+in\s+(ms|us|ns|s)\)", output, re.IGNORECASE)
@@ -601,10 +623,37 @@ def _score_js_bench(output: str, _returncode: int) -> Optional[float]:
     return max(0.0, score)
 
 
-def _score_exit_code_binary(output: str, returncode: int) -> float:
-    """Score based entirely on exit code (0 -> 100, else 0)."""
+# A tool saying, in its own words, that it never got as far as judging
+# anything. Round 32 站4: exit-code-binary treated every non-zero exit as "the
+# contract is broken", which is the same value it gives a tool that could not
+# start. Measured: `lint-imports` on a src-layout project without PYTHONPATH
+# prints "Could not find package 'X' in your Python path" and exits 1 — the
+# harness scored that 0.0 and S4 reported it as the agent fabricating a 100.
+# Each pattern is a literal the tool prints on its own could-not-run path; a
+# genuinely broken contract prints its verdict instead ("Contracts: 0 kept,
+# 1 broken"), which still scores 0.0.
+_TOOL_DID_NOT_RUN_PATTERNS: tuple[str, ...] = (
+    r"Could not find package",              # import-linter: unresolvable root_package
+    r"No such file or directory",           # a target path that does not exist
+    r"command not found",
+    r"ModuleNotFoundError",
+    r"ImportError",
+)
+
+
+def _score_exit_code_binary(output: str, returncode: int) -> Optional[float]:
+    """Score based entirely on exit code (0 -> 100), or None when the tool
+    reports that it could not run at all.
+
+    The distinction matters because the two land in opposite places: a broken
+    contract is the project's defect, while a tool that could not start is the
+    framework's, and S4 routes them differently (Round 13 辨源).
+    """
     if returncode == 0:
         return 100.0
+    for pattern in _TOOL_DID_NOT_RUN_PATTERNS:
+        if re.search(pattern, output, re.IGNORECASE):
+            return None
     return 0.0
 
 

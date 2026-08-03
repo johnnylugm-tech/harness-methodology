@@ -480,9 +480,16 @@ class TestPytestCovIntegration:
         cov_output = "TOTAL      100     20    80%\n5 passed in 0.1s"
         assert compute_tool_score("pytest-cov-integration", cov_output, 0) == 80.0
 
-    def test_missing_suite_scores_zero(self):
-        """No integration suite → no TOTAL line, no passes → 0 (cross-validation blocks)."""
-        assert compute_tool_score("pytest-cov-integration", "no tests ran", 0) == 0.0
+    def test_missing_suite_is_unscoreable_not_zero(self):
+        """Round 32 站4 reversed this case deliberately.
+
+        "no tests ran" carries neither a coverage table nor a pass count, so
+        it is output the scorer cannot read — not a measurement of 0%. It
+        still blocks: S4 now files an unreadable result under `infra_fail`
+        rather than passing over it, and the message says the harness could
+        not measure instead of accusing the agent of fabricating a number.
+        """
+        assert compute_tool_score("pytest-cov-integration", "no tests ran", 0) is None
 
 pytestmark = pytest.mark.mutation_oracle
 

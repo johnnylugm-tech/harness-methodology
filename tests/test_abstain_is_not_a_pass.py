@@ -87,8 +87,12 @@ def test_s3_raises_on_an_unknown_gate_num(tmp_path, monkeypatch):
 
 def test_s4_blocks_when_the_gate_config_is_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(_gt, "gate_config_path", lambda _n: _absent(tmp_path))
-    violations = _run_harness_cross_validation(_Ctx(tmp_path), {"breakdown": {}})
-    assert violations
+    # Round 32 站4: a missing gate config is the harness's own asset being
+    # absent — the second list, not the fabrication one.
+    violations, unverifiable = _run_harness_cross_validation(
+        _Ctx(tmp_path), {"breakdown": {}})
+    assert violations == []
+    assert unverifiable
 
 
 def test_s4_raises_on_an_unknown_gate_num(tmp_path, monkeypatch):
