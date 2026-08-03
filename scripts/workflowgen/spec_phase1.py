@@ -10,9 +10,24 @@ decision to accept a dated _LINE_CEILING entry here instead.
 """
 from __future__ import annotations
 
+from core.quality_gate.sab_parser import nfr_type_vocabulary_inline
+
 from . import js_blocks as B
 from . import spec_shared as S
 from .spec_shared import _render_meta
+
+# The Phase 1 B-checklist below used to validate NFR `dimension:` legality
+# (against evaluate_dimension.md's roster) but never NFR `type:` legality —
+# nothing else in the codebase parses or validates SRS.md's own machine-
+# readable `type:` field (harness/templates/SRS.md §7), so an illegal-but-
+# semantically-plausible value (e.g. `error_handling`, which is legal only
+# as a `dimension:` name — see sab_parser._NFR_TYPE_TO_DIM) could sail
+# through Phase 1 undetected and only get refused in Phase 2 by
+# generate_sab.py --validate, long after it was locked into an approved,
+# verbatim-transcribe SRS.md. Interpolated from the same parser Phase 2
+# already reuses (spec_phase2.py), not hand-copied — see that file's own
+# Round 27 站2 comment for why a hand-copy of this vocabulary drifts.
+_NFR_TYPES = nfr_type_vocabulary_inline()
 
 _HEADER_1 = """\
 // Phase 1 — Requirements Specification (v11)
@@ -486,6 +501,7 @@ def _render_phase1_subtask1_srs() -> str:
         "  + '- No contradictions between FRs?\\n'\n"
         "  + '- Every stakeholder need covered?\\n'\n"
         "  + '- Does every NFR `dimension:` field match a real, currently-listed dimension in harness/harness/ssi/prompts/evaluate_dimension.md (not a deprecated or nonexistent name)? Does every AC match what that dimension section actually checks, with a dimension note / coverage note where it does not?\\n'\n"
+        "  + '- Does every NFR `type:` value belong to the legal NFR-type vocabulary (" + _NFR_TYPES + ")? This is a DIFFERENT, stricter vocabulary than `dimension:` — a value that merely sounds plausible for that NFR\\'s category (e.g. `error_handling`, which is legal only as a `dimension:` name per sab_parser, never as a `type:` name) is still illegal as `type:` and will be refused by generate_sab.py --validate in Phase 2. Flag any NFR whose `type:` is outside this list, even if it reads as a reasonable English description.\\n'\n"
         "  + '- " + B.render_rule_prose("R-SEVERITY-RUBRIC-001") + " // @rule R-SEVERITY-RUBRIC-001'\n"
         "\n"
         "const srsCfg = {\n"

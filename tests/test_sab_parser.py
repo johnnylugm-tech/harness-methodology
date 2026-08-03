@@ -685,6 +685,28 @@ class TestCanonicalTemplate:
             "render_canonical_sab_template() — re-paste the factory output."
         )
 
+    def test_srs_template_nfr_type_example_matches_vocabulary(self):
+        """templates/SRS.md §7's NFR `type:` example has no generator to call
+        at doc-generation time (unlike templates/SAD.md's SAB block, which is
+        a factory snapshot — see test_sad_template_sab_block_is_factory_
+        snapshot above), so this test is the only guard against it drifting
+        from sab_parser.ALL_NFR_TYPES — the vocabulary Phase 2's
+        generate_sab.py --validate actually enforces."""
+        import re
+        from pathlib import Path
+        from core.quality_gate.sab_parser import ALL_NFR_TYPES
+
+        srs_path = Path(__file__).resolve().parent.parent / "templates" / "SRS.md"
+        text = srs_path.read_text(encoding="utf-8")
+        m = re.search(r'"type":\s*"([a-z_|]+)"', text)
+        assert m, "NFR `type:` example line not found in templates/SRS.md §7"
+        example_types = set(m.group(1).split("|"))
+        assert example_types == set(ALL_NFR_TYPES), (
+            "templates/SRS.md's `type:` example has drifted from "
+            f"sab_parser.ALL_NFR_TYPES. Example: {sorted(example_types)}; "
+            f"actual: {sorted(ALL_NFR_TYPES)}"
+        )
+
     def test_p2_sop_sab_example_stays_structurally_in_sync(self, tmp_path):
         """docs/P2_SOP.md ships a hand-written 8-NFR-type SAB example (Chinese
         comments + concrete values, richer than the single-NFR factory output),

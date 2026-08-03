@@ -95,7 +95,7 @@
   "non_functional_requirements": [
     {
       "id": "NFR-01",
-      "type": "performance|security|reliability|maintainability",
+      "type": "documentation|integration|layering|licensing|maintainability|mutation|performance|reliability|security|testability|verifiability|deployability|scalability|usability",
       "description": "{requirement description}",
       "test_method": "{test method}"
     }
@@ -103,6 +103,12 @@
 }
 ```
 <!-- FR:END -->
+
+Note: `type:` must be one of the values above — this list mirrors
+`harness/core/quality_gate/sab_parser.ALL_NFR_TYPES` (the vocabulary Phase 2's
+`generate_sab.py --validate` enforces) and is pinned by
+`tests/test_sab_parser.py::TestCanonicalTemplate::test_srs_template_nfr_type_example_matches_vocabulary`;
+if it ever falls out of sync that test fails.
 
 Note: Fill in the JSON above - used for downstream requirements traceability.
 Ingestion mode (PROJECT_BRIEF.md declares a `canonical_spec`): every `### FR-NN`

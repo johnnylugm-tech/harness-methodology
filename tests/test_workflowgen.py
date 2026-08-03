@@ -264,6 +264,35 @@ class TestPollBackoff:
         assert "Poll every 30s" in text
         assert "Cap 60 polls" in text
 
+
+class TestNfrTypeLegalityInPhase1Checklist:
+    """SRS.md's own NFR `type:` field (harness/templates/SRS.md §7) is parsed
+    and validated nowhere else in the codebase, so Phase 1's own B-review
+    checklist is the only gate that can catch an illegal value (e.g.
+    `error_handling`, legal only as a `dimension:` name) before it gets
+    locked into an approved, verbatim-transcribe SRS.md and only surfaces
+    much later as a Phase 2 generate_sab.py --validate failure.
+    """
+
+    def test_srs_b_checklist_lists_full_nfr_type_vocabulary(self):
+        from core.quality_gate.sab_parser import nfr_type_vocabulary_inline
+
+        text = generate(1)
+        for nfr_type in nfr_type_vocabulary_inline().split("/"):
+            assert nfr_type in text, (
+                f"srsBChecklist is missing NFR type {nfr_type!r} — Phase 1's "
+                f"own B-review checklist must list the full sab_parser "
+                f"vocabulary, not a stale subset"
+            )
+
+    def test_srs_b_checklist_has_type_legality_bullet(self):
+        text = generate(1)
+        assert "legal NFR-type vocabulary" in text
+        assert "error_handling" in text, (
+            "the bullet must call out that a semantically-plausible-but-"
+            "illegal value like `error_handling` is still illegal as `type:`"
+        )
+
     def test_every_generated_workflow_carries_the_backoff(self):
         for phase in (4, 5, 7, 8):
             text = generate(phase)

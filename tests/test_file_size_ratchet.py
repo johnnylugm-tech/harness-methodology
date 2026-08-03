@@ -585,7 +585,14 @@ _LINE_CEILING: dict[str, int] = {
     # (`from . import spec_shared as S`) so phase1's final return can carry the
     # shared phase-completion marker; the eight spec modules each gained the
     # same line, and this is the only one that was already at its ceiling.
-    "scripts/workflowgen/spec_phase1.py": 921,
+    # 2026-08-03: 921 -> 937. srsBChecklist gained an NFR `type:` legality
+    # bullet (mirroring the existing `dimension:` bullet) plus the
+    # nfr_type_vocabulary_inline() import + module comment it needed — SRS.md's
+    # own machine-readable `type:` field was validated nowhere in Phase 1
+    # (only `dimension:` was), letting an illegal-but-plausible value (e.g.
+    # `error_handling`) reach Phase 2 and cause a real 5-round HR-12
+    # non-convergence (taskq-full SAD.md).
+    "scripts/workflowgen/spec_phase1.py": 937,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
