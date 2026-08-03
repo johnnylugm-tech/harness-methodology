@@ -73,69 +73,105 @@ _HARNESS_VERSION = _get_harness_version()
 # Phase-Specific Parsers
 # ============================================================================
 
+_FENCE = re.compile(r'```(?P<tag>[a-zA-Z]*)\s*\n(?P<body>.*?)```', re.DOTALL)
+_PLACEHOLDER = re.compile(r'\{[^}]*\}')
+
+
+def _is_template_stub(data: dict) -> bool:
+    """True when this block is harness/templates/SRS.md's example, unfilled.
+
+    Two independent tells, because a project may delete either one: the
+    `project` field still holding `{project_name}`, or every FR description
+    that exists still being a `{placeholder}`. Blocks with no descriptions at
+    all are NOT stubs — several real SRS blocks carry only ids and module
+    lists, and calling those stubs would discard live data.
+    """
+    if _PLACEHOLDER.fullmatch(str(data.get("project", ""))):
+        return True
+    frs = data.get("functional_requirements") or []
+    descs = [
+        str(fr.get("description"))
+        for fr in frs
+        if isinstance(fr, dict) and fr.get("description")
+    ]
+    return bool(descs) and all(_PLACEHOLDER.search(d) for d in descs)
+
+
 def srs_machine_block(content: str) -> "Optional[dict]":
     """The SRS's machine-readable requirements block, parsed, or None.
 
-    Two detection paths (most specific first):
-      1. Sentinel-wrapped: <!-- FR:START --> ... ```json ... <!-- FR:END -->
-         (template-style; lives in harness/templates/SRS.md)
-      2. Bare fence under "FR Block (machine-readable)" / "Appendix A"
-         heading (INGESTION MODE-style; actual SRS.md shipped with
-         integration-test).
+    Found by CONTENT, not by heading: every fenced JSON object in the file is
+    parsed, and the one carrying `functional_requirements` is the block.
+    Sentinels and section titles are agent-authored decoration; the key is
+    not.
 
-    None means "no block found here" or "the block is not JSON" — never "the
-    block is empty" (Round 31's parse-failure rule). Both cases now warn on
-    stderr. Only the malformed-JSON case used to: `if not payload: return {}`
-    said nothing at all, so an SRS whose block the two paths cannot reach is
-    indistinguishable from an SRS that declares no FR metadata, and every
-    consumer takes the second reading. That is the fourth silent abstention of
-    the class Round 30 站3 cleared three of.
+    The two heading-based paths this replaces (a `<!-- FR:START -->` sentinel
+    pair, and a `## Appendix A` / `## FR Block` heading) both failed on the
+    same live file. Measured on taskq-full's SRS.md at 0fadc4bd — 1116 lines,
+    8 FRs and 12 NFRs under `## 10. AC ↔ Module Traceability
+    (machine-readable)`, no sentinels anywhere — both paths missed it and the
+    parser returned {} in silence, so every consumer read the file as
+    declaring no FR metadata.
 
-    The detection paths are deliberately NOT widened here. Round 33 站0 saw a
-    live SRS whose real block sat under a third heading shape and tried
-    matching any heading containing "machine-readable"; that promptly matched
-    the project's *unfilled template stub* two sections earlier and handed
-    downstream a placeholder FR-01. A parser that finds the wrong block is
-    worse than one that says it found none — now that it says so.
+    Widening the heading match was tried first and reverted: on a later
+    snapshot of the same project it matched the project's *unfilled template
+    stub* two sections earlier and handed downstream a placeholder FR-01. A
+    parser that finds the wrong block is worse than one that finds none. That
+    is why stubs are filtered by content here (`_is_template_stub`) and why
+    an ambiguous file — two filled candidates — returns None with a
+    diagnostic rather than picking one.
+
+    None means "no block found", "the block is not JSON", or "more than one
+    block claims to be it" — never "the block is empty" (Round 31's
+    parse-failure rule). Every case says so on stderr; the not-found case used
+    to say nothing at all, which is the fourth silent abstention of the class
+    Round 30 站3 cleared three of.
 
     Extracted so `illegal_nfr_vocabulary` reads the same block by the same
     rules rather than growing a second detection contract beside this one.
     """
-    payload: Optional[str] = None
-    # Path 1: sentinel-wrapped (template format)
-    sentinel_re = re.compile(
-        r'<!--\s*FR:START\s*-->(.*?)<!--\s*FR:END\s*-->', re.DOTALL)
-    m = sentinel_re.search(content)
-    if m:
-        fence_m = re.search(r'```(?:json)?\s*(.*?)```', m.group(1), re.DOTALL)
-        payload = fence_m.group(1) if fence_m else m.group(1)
+    candidates: list[dict] = []
+    for m in _FENCE.finditer(content):
+        body = m.group("body")
+        try:
+            data = json.loads(body)
+        except (ValueError, json.JSONDecodeError) as exc:
+            if m.group("tag").lower() == "json":
+                print(
+                    f"[srs] WARNING: FR Block JSON malformed — {exc}",
+                    file=sys.stderr,
+                )
+            continue
+        if isinstance(data, dict) and "functional_requirements" in data:
+            candidates.append(data)
+
+    filled = [d for d in candidates if not _is_template_stub(d)]
+    if len(filled) == 1:
+        return filled[0]
+
+    if not candidates:
+        print(
+            "[srs] WARNING: no machine-readable requirements block found — no "
+            "fenced JSON object in this SRS carries a `functional_requirements` "
+            "key. Downstream consumers will see this SRS as declaring no FR "
+            "metadata.",
+            file=sys.stderr,
+        )
+    elif not filled:
+        print(
+            "[srs] WARNING: the only machine-readable block(s) in this SRS are "
+            "still the unfilled template example (placeholder project name / FR "
+            "descriptions). Fill in harness/templates/SRS.md's FR block.",
+            file=sys.stderr,
+        )
     else:
-        # Path 2: bare fence under Appendix A / FR Block heading
-        heading_re = re.compile(
-            r'##\s+(?:Appendix A|FR Block)[^\n]*\n.*?```(?:json)?\s*(.*?)```',
-            re.DOTALL)
-        fence_m = heading_re.search(content)
-        if fence_m:
-            payload = fence_m.group(1)
-
-    if not payload:
         print(
-            "[srs] WARNING: no machine-readable requirements block found "
-            "(looked for <!-- FR:START --> sentinels and a json fence under "
-            "an Appendix A / FR Block / machine-readable heading). Downstream "
-            "consumers will see this SRS as declaring no FR metadata.",
+            f"[srs] WARNING: {len(filled)} fenced JSON blocks carry "
+            "`functional_requirements`; refusing to guess which one is "
+            "authoritative. Keep exactly one.",
             file=sys.stderr,
         )
-        return None
-
-    try:
-        return json.loads(payload)
-    except (ValueError, json.JSONDecodeError) as exc:
-        print(
-            f"[srs] WARNING: FR Block JSON malformed — {exc}",
-            file=sys.stderr,
-        )
-        return None
+    return None
 
 
 def _parse_srs_fr_block_json(content: str) -> Dict[str, Dict]:

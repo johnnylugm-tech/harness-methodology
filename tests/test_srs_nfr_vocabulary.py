@@ -187,21 +187,77 @@ def test_the_dimension_roster_has_one_source():
 
 # ── a block that could not be found is not a block that is empty ────────
 
-def test_an_unfindable_fr_block_is_reported_not_silently_empty(capsys):
-    """`_parse_srs_fr_block_json` warns on malformed JSON and says nothing at
-    all when neither detection path matches. Measured on taskq-full: eight FRs
-    in the file, zero returned, no output."""
+def _fenced(payload: dict, heading: str) -> str:
+    return (
+        "# Software Requirements Specification (SRS) — fixture\n\n"
+        f"{heading}\n\n```json\n" + json.dumps(payload, indent=2) + "\n```\n"
+    )
+
+
+def test_the_block_is_found_by_content_not_by_heading():
+    """Measured on taskq-full's SRS.md at 0fadc4bd — 1116 lines, 8 FRs and 12
+    NFRs under `## 10. AC ↔ Module Traceability (machine-readable)`, no
+    sentinels anywhere. The sentinel path and the `## Appendix A` path both
+    missed it and the parser returned {} in silence. The section title is
+    agent-authored decoration; the `functional_requirements` key is not."""
     from scripts.plangen.artifact_parsers import _parse_srs_fr_block_json
 
+    for heading in (
+        "## 10. AC ↔ Module Traceability (machine-readable)",
+        "## Appendix A — FR Block",
+        "### 4.2 Requirements Index",
+    ):
+        assert "FR-01" in _parse_srs_fr_block_json(_fenced(_LEGAL_SRS, heading)), (
+            f"the block under {heading!r} was not found"
+        )
+
+
+def test_an_unfindable_fr_block_is_reported_not_silently_empty(capsys):
+    """The abstention must be audible. Only the malformed-JSON case ever was;
+    `if not payload: return {}` said nothing at all."""
+    from scripts.plangen.artifact_parsers import _parse_srs_fr_block_json
+
+    assert _parse_srs_fr_block_json("# SRS\n\nprose only, no fences.\n") == {}
+    assert "no machine-readable requirements block" in capsys.readouterr().err
+
+
+def test_the_unfilled_template_example_is_not_mistaken_for_data(capsys):
+    """Why the heading match was not simply widened. On a later snapshot of
+    the same project a widened pattern matched its *unfilled template stub*
+    two sections earlier and handed downstream a placeholder FR-01 — a parser
+    that finds the wrong block is worse than one that finds none."""
+    from scripts.plangen.artifact_parsers import _parse_srs_fr_block_json
+
+    stub = {
+        "project": "{project_name}",
+        "functional_requirements": [
+            {"id": "FR-01", "description": "{requirement description}"},
+        ],
+    }
+    assert _parse_srs_fr_block_json(_fenced(stub, "## 7. FR Block")) == {}
+    assert "unfilled template example" in capsys.readouterr().err
+
+
+def test_a_block_with_no_descriptions_is_not_called_a_stub():
+    """Discriminating half: real SRS blocks often carry only ids and module
+    lists. Reading "no descriptions" as "all descriptions are placeholders"
+    would silently discard live data."""
+    from scripts.plangen.artifact_parsers import _parse_srs_fr_block_json
+
+    terse = {"functional_requirements": [{"id": "FR-01",
+                                          "implementation_modules": ["a.py"]}]}
+    assert "FR-01" in _parse_srs_fr_block_json(_fenced(terse, "## Appendix A"))
+
+
+def test_two_filled_blocks_are_an_ambiguity_not_a_coin_toss(capsys):
+    """A project holding both a filled section and a real block has two
+    answers; picking one silently is how the wrong one gets used."""
+    from scripts.plangen.artifact_parsers import _parse_srs_fr_block_json
+
+    other = {"functional_requirements": [{"id": "FR-09", "description": "real too"}]}
     content = (
-        "# Software Requirements Specification (SRS) — fixture\n\n"
-        "## 10. AC ↔ Module Traceability (machine-readable)\n\n"
-        "```json\n" + json.dumps(_LEGAL_SRS, indent=2) + "\n```\n"
+        _fenced(_LEGAL_SRS, "## 7. FR Block")
+        + "\n## 10. Index\n\n```json\n" + json.dumps(other) + "\n```\n"
     )
-    result = _parse_srs_fr_block_json(content)
-    captured = capsys.readouterr()
-    assert result or captured.err.strip() or captured.out.strip(), (
-        "the parser found no machine-readable block and returned {} without "
-        "saying so; every consumer reads that as 'this SRS declares no FR "
-        "metadata' (measured: taskq-full has 8 FRs and gets 0, silently)"
-    )
+    assert _parse_srs_fr_block_json(content) == {}
+    assert "refusing to guess" in capsys.readouterr().err
