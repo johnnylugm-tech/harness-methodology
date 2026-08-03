@@ -520,3 +520,70 @@ Three rules follow.
 3. **The framework's own inability is the framework's bill.** If the harness
    cannot reproduce a measurement, the finding names the harness — the audit
    file, the invocation, the scorer — not the party being measured.
+
+## A citation we could not parse is not a file that does not exist (Round 33)
+
+`unresolvable_citations` (core/quality_gate/agent_b_approvals.py) had one
+fallback for everything its regex did not match: treat the whole string as a
+path, fail to resolve it, and report
+
+    <the whole string> (no such file)
+
+So a reviewer who wrote a perfectly good citation in a shape the regex had not
+learned yet was told the file was missing — about a file that was right there.
+Measured: all 4/4 Phase 1 approvals on a live run blocked on
+
+    SRS.md:972 (FR-05 §10 verification array missing AC-05-6)
+
+while SRS.md sat on disk with 1116 lines and line 972 well in range.
+
+Two prior rounds fixed this one shape at a time — Round 26 taught the regex
+`path:N-M`, `4bdc0fb` taught it a trailing `(annotation)` — and each left the
+branch that manufactures the false reason. So the class survived both fixes.
+
+**The rule.** A string carrying `:NNN` was written as a line spec. When it
+does not parse, the finding says exactly that and lists the accepted forms:
+
+    <text> (unparseable citation format — a `path:NNN` line spec was intended
+            but not recognised. Accepted: `path:N`, `path:N-M`, `path:N:M`,
+            any of those with a trailing `(annotation)`, or a bare path for a
+            whole-file reference)
+
+A string with no line spec is still a whole-file reference, so `no such file`
+keeps meaning what it says. Three distinct reasons — unparseable, missing,
+out of range — stay three distinct reasons.
+
+This is Round 24 站1's rule (a block states the cause it actually has) applied
+to the one message this validator emits. The regex will need widening again;
+what changes is that the next widening is prompted by a message naming the
+real problem rather than by a hunt for a file that was never missing.
+
+## The requirements block is found by its content (Round 33)
+
+`srs_machine_block` (scripts/plangen/artifact_parsers.py) used to locate
+SRS.md's machine-readable block by looking for a `<!-- FR:START -->` sentinel
+pair, then for a `## Appendix A` / `## FR Block` heading. Both are
+agent-authored decoration. Measured on a live SRS (1116 lines, 8 FRs and 12
+NFRs under `## 10. AC ↔ Module Traceability (machine-readable)`, no sentinels
+anywhere): both paths missed it, and the parser returned `{}` **in silence**,
+so every consumer read the file as declaring no FR metadata. That was the
+fourth abstention of the class Round 30 cleared three of.
+
+Widening the heading match was tried and reverted: on a later snapshot of the
+same project it matched the project's *unfilled template stub* two sections
+earlier and handed downstream a placeholder FR-01. **A parser that finds the
+wrong block is worse than one that finds none.**
+
+**The rule.** Every fenced JSON object is parsed; the one carrying
+`functional_requirements` is the block. Three ways of guessing where the block
+lives, replaced by the one property that identifies it. Two consequences the
+heading scan did not have:
+
+- the unfilled template example carries the key too, so it is filtered by
+  content (`{project_name}` as the project, or every FR description still a
+  `{placeholder}`). A block with **no** descriptions is not a stub — real
+  blocks often carry only ids and module lists.
+- two filled candidates means two answers. That returns `None` with a
+  diagnostic rather than taking the first.
+
+Every outcome — not found, not JSON, ambiguous, stub-only — says so on stderr.

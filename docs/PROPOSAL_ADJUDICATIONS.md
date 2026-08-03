@@ -960,3 +960,122 @@ gate1_phase_summary(phase=4)   : expected 8 / recorded 0 / missing 8
 - 啟：本輪把 `infra_fail` 從「agent 寫了汙染的零」擴到「框架自己量不出來」。
   這兩者用同一個 key，因為補救方式相同（修工具，別動分數）；若日後發現需要分辨
   「誰造成無法量測」，那會是拆這個 key 的時候。
+
+---
+
+## Round 33 — 一份合約，五個陳述，沒有一個是來源
+
+**觸發**：老闆令複核 `8637c6a..HEAD` 三個 commit（485c05f / 1620b2c / 4bdc0fb，
+另一 session 的 Sonnet 5 在 taskq-full 跑 P1/P2 時所修），查完整性與正確性，掃同形兄弟。
+
+三個 commit 都是真缺陷、真診斷、有測試、全套件綠。問題不在它們修錯，在**修的層級**。
+
+### 根源
+
+> 一份合約被寫在五個地方，沒有一個是來源；而三次修復全部發生在陳述面。
+
+以 H1 錨點為例，同一條 `first_line.startswith(expect_prefix)` 有六份陳述，三份是錯的：
+
+| 陳述 | 內容 | |
+|---|---|---|
+| `scripts/file_loader.py:178` | 實作 `startswith` | 真值 |
+| `scripts/file_loader.py:25` | docstring 寫 "doesn't **contain**" | ✗ |
+| `tests/test_file_loader.py:12` | docstring 寫 "exact **substring** match" | ✗ |
+| `spec_phase{1,2}.py` | `diskPrefix` 字面值，每個交付物 **3 次** | 手抄 |
+| `templates/<X>.md` | agent 起手的 H1 | 手抄 |
+| P1/P2 prompt 散文 | "or any H1 line **containing** the phrase" | ✗ |
+
+第六份是**唯一本身即產物**的那份——它是寫檔案那方讀的指令。
+
+R17 站1 的 `test_prompt_gate_parity.py` 自稱是此母體的 "structural close"，
+實際涵蓋範圍只有 GATE1 prompt ↔ gate1 YAML 閾值。本輪三個 commit 全部落在它之外。
+
+### 逐項裁決
+
+| 項 | 判定 |
+|---|---|
+| 485c05f 模板改為完整 14 值 + drift test | **採納**（實測與 `ALL_NFR_TYPES` 逐項同序） |
+| 485c05f 只加 B-checklist 散文 | **不足**——它自己的診斷說缺的是機制。站3 補框架側檢查，散文保留 |
+| 1620b2c 修 `templates/SAD.md` H1 + drift test | **採納但未掃齊**——7 個同形兄弟只修 1 個，4 個仍破裂（含 ADR.md，同一支 spec 檔的 P2 template）。站1 掃齊 |
+| 1620b2c 對既有專案零效果 | **屬實**（`_init_copy_templates` 的 PROTECTED 邏輯）。老闆裁定只報告不動既有專案 |
+| 4bdc0fb `_CITATION` 接受 `(annotation)` | **採納**，站4 保留 |
+| 4bdc0fb 「shared by ... quality_report_verify (Gate 4)」 | **撤銷**——該檔零 citation 引用，全樹唯一消費點是 `agent_b_approvals.py:256`。結論來源是測試檔名（34 支既有 citation 測試住在 `tests/test_quality_report_verify.py`）。效果面仍廣（P6 走同一函式），錯的是機制陳述 |
+| 4bdc0fb 未修製造誤導的 fallback | **屬實**，站4 補（違反 R24 條款） |
+| 12+ 支新測試零登記 | **屬實**，站5 還債 239→270 並補完備性方向 |
+
+### 站0 三前提
+
+- **P1 —— 自我證偽**：「修 `intro = head.rstrip() + "\n\n"` 即可讓重生的
+  TRACEABILITY_MATRIX 通過錨點」為假。`overlay.py:239` 把 `AUTO-GEN:START` 排在 H1 之前，
+  首行是 sentinel 而非空行。H1 必須移到 sentinel 之上，站2 因此是 renderer 變更而非一行。
+- **P2 成立**：帶 `# Traceability Matrix` 的 reload 只出現在 phase1.js / run-all.js 的
+  P1 段，無非-workflow 消費者 → 站2 用 WARN 不 BLOCK。
+- **P3 成立**：`verify_agent_b_approvals_core` 三個消費點；`quality_report_verify` 不是其一。
+
+### 新挖出的兩個現場
+
+- **維度名冊也是兩個來源**：`traceability` 是 `gate4_p6_full.yaml` 的計分維度，
+  `evaluate_dimension.md`（P1 prompt 指名的名冊）沒有 `### traceability` section。
+  正確對應到它的 NFR 會被 P1 自己的 checklist 判為「指向不存在的維度」。
+  站3 取兩者聯集，並用 `dimension_roster_split()` 把分歧釘住。
+- **第四條靜默棄權**：`_parse_srs_fr_block_json` 找不到區塊時回 `{}` 不出聲。
+  R30 站3 才清過三條。
+
+### 本輪自己的撤回與再確認
+
+站3 一度放寬標題比對（依據：taskq-full 的真實區塊在
+`## 10. AC ↔ Module Traceability (machine-readable)` 之下，兩條路徑都讀不到）。
+放寬後**立刻抓到該專案未填寫的模板存根**並把 placeholder FR-01 交給下游——
+找錯區塊比找不到更糟。同時該檔在我量測後被另一 session 重置（3773 bytes，01:33），
+量測無法重現，故連同事實一起撤回。
+
+老闆指出該版本仍在 GitHub。取回 `0fadc4bd`（"phase1(review-complete); 8 FR(s)"）重跑：
+**1116 行、8 FR、12 NFR，無 sentinel，現行 parser 回 `{}`**——事實成立，已固化成 fixture。
+撤回的只有藥方；站3b 改以**內容定址**（哪個 fenced JSON 帶 `functional_requirements`
+就是它），一併刪掉 sentinel 路徑與兩條標題路徑：三種猜法換成一條性質。
+
+### 本輪自己的三個測試缺陷（全由反證抓到）
+
+1. 站1 的 docstring 文字掃描：把 `expect_prefix` 與 "contain" 換行分開就變綠，
+   而文字一樣錯。且散文掃描無法分辨「主張 substring 語意」與「說明 substring 語意不適用」。
+   → 改為行為斷言（`test_prefix_must_anchor_the_first_line_not_appear_inside_it`）
+   + 只掃 prompt 的許可條款（prompt 是生成物，可檢查）。
+2. 站2 的錨點測試寫到不存在的路徑，跳過了「已存在且有 sentinel」那條分支——
+   正是四個受測專案所在的分支。
+3. 站2 的冪等測試只比較 run 1 與 run 2，看不到「穩定地重複兩個 H1」。
+   → 斷言恰好一個。
+
+共同形狀與 R32 相同：**檢查程式碼的文字，而不是執行程式碼的意義**。
+
+### 唯讀冒煙（5 專案，前後 `git status` 指紋比對）
+
+```
+taskq-full           SRS.md / SPEC_TRACKING.md / TRACEABILITY_MATRIX.md / ADR.md   FAIL
+                     ← 01:33 重新初始化，首行正是站1 修掉的那四個模板存根
+taskq-advance        01-requirements/TRACEABILITY_MATRIX.md   FAIL (首行為空)
+taskq-plus           同上
+integration-test     同上
+run-all-by-workflow  同上
+```
+
+四個老專案的 matrix 首行為空，是站2 的病灶，尚未跑過修好的 advance-phase——
+它們下一次 P3+ advance 會自動修好。taskq-full 的四項則證明站1 的修復只對**新專案**生效
+（PROTECTED 邏輯），這是硬切的價格，已知並接受。
+
+### 已知弱點與再開條件
+
+- **站5 的 `[no-guard]` 逃生口**：一個好打的標記就是一個可被習慣性繞過的機制。
+  再開條件：若 `[no-guard]` 出現在確實新增了守衛的 commit 上，本機制是表演，
+  應替換或移除，而不是留著看起來像執法。
+- **站2 用 WARN 不 BLOCK**：依據是 P2（anchor 只在 P1 被讀）。
+  再開條件：若出現非 P1 的 anchor 消費者，這個選擇要重審。
+
+### 承 / 啟
+
+- 承 R17（prompt↔gate 漂移）、R24（BLOCK 必須報真因）、R27（判定的裁量權在被判定方）、
+  R30（靜默棄權）、R31（解析失敗 ≠ 空集合）、R32（框架產出自己會拒絕的東西）。
+- **替代假說（必須記下）**：本輪把「五份陳述沒有來源」讀成結構性根源，
+  但三個 commit 來自同一位作者、同一天、同一個專案的同一次跑，取樣有偏；
+  也可能只是三個獨立低階 bug 的巧合。反駁證據是 F1 的 4/7 破裂率與 F5 的 12/12 未登記率
+  （兩者都跨越那一次跑），以及 R17 的 parity registry 涵蓋不到本輪任何一項。
+  仍不足以排除「同一位作者的同一天習慣」。**下輪應以不同作者的 commit 覆核。**
