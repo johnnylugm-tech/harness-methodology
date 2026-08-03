@@ -140,3 +140,57 @@ class TestRealRegistry:
     def test_real_registry_all_guards_collect(self):
         result = _run(REAL_REGISTRY, REPO_ROOT)
         assert result.returncode == 0, result.stdout + result.stderr
+
+
+class TestRegistryCompleteness:
+    """Round 33 站0/站5 — the registry has only ever been checked in one
+    direction.
+
+    `main()` asks "is every registered guard still present?". Nothing asks
+    "was the guard for this fix registered at all?", so the registry grows
+    only when someone remembers. Measured on 8637c6a..4bdc0fb: three bug-fix
+    commits added twelve-plus test functions across three new files
+    (test_phase2_template_h1_drift.py, test_unresolvable_citations_annotation.py,
+    and the two drift guards inside test_sab_parser.py / test_workflowgen.py),
+    and the registry count did not move off 239.
+
+    The preflight and postflight registries both carry a completeness
+    meta-test for exactly this reason (Round 15 站A, Station E). This one did
+    not.
+    """
+
+    def test_added_test_files_without_a_registry_entry_are_reported(self):
+        """The signal only exists at commit/push time — which file is NEW — so
+        the check takes the added paths as input rather than scanning the tree
+        (6665 tests exist; almost none of them are guards, and demanding an
+        entry for each would be a machine that cries wolf)."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("_vrg", SCRIPT)
+        assert spec and spec.loader
+        vrg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vrg)
+
+        entries = [{"test": "tests/test_registered.py::test_a", "bug": "x"}]
+        unregistered = vrg.unregistered_test_files(
+            entries, ["tests/test_registered.py", "tests/test_brand_new.py"]
+        )
+        assert unregistered == ["tests/test_brand_new.py"], (
+            "a new test file with no registry entry was not reported; nothing "
+            "in the tooling asks whether a fix brought its guard with it "
+            f"(got {unregistered})"
+        )
+
+    def test_a_non_test_path_is_not_demanded_to_be_a_guard(self):
+        """Discriminating half: the check keys on new *test files*, not on
+        every added path, or every commit that touches a conftest or a fixture
+        directory gets blocked."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("_vrg", SCRIPT)
+        assert spec and spec.loader
+        vrg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vrg)
+
+        assert vrg.unregistered_test_files([], ["core/quality_gate/thing.py"]) == []
+        assert vrg.unregistered_test_files([], ["tests/conftest.py"]) == []
