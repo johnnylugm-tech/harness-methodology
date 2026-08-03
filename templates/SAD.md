@@ -1,4 +1,4 @@
-# SAD - {Project Name}
+# Software Architecture Document (SAD) — {Project Name}
 
 <!-- harness:template-stub -->
 <!-- Remove the sentinel line above once you start filling this SAD.
