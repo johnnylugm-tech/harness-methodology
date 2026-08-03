@@ -243,7 +243,12 @@ class TestI1LifecycleIntegration:
         """P1 advance-phase writes test_inventory_checksum to state.json."""
         from cli.phase_cmds import _advance_prechecks
         from unittest.mock import patch
+        # Round 34 站2: TEST_INVENTORY.yaml's registered anchor is a leading
+        # YAML comment (real projects ship exactly that), and the advance now
+        # checks it on every phase.
+        from core.quality_gate.legal_artifacts import anchor_for
         (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            f'{anchor_for("TEST_INVENTORY.yaml")} — fixture\n'
             "format_version: '1.0'\nfr_tests:\n  FR-01:\n    unit:\n      - test_a\n"
         )
         state_dir = tmp_path / ".methodology"

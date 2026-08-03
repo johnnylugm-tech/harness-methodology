@@ -100,20 +100,46 @@ def test_a_correct_anchor_reaches_the_later_checks(tmp_path):
     assert phase_cmds._advance_prechecks(ok, 1) != EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN
 
 
-def test_a_late_phase_advance_still_checks_an_early_phase_deliverable(tmp_path):
+def test_a_later_phase_advance_still_checks_an_earlier_phases_deliverable(tmp_path):
     """The defect this whole station exists for.
 
-    Nothing in Phase 8 reads SRS.md's H1, so nothing in Phase 8 noticed it had
-    been rewritten. The invariant is not scoped to the phase that produced the
-    file — it covers every anchored deliverable present on disk.
+    Nothing after Phase 1 reads SRS.md's H1, so nothing after Phase 1 noticed
+    it had been rewritten. The invariant is not scoped to the phase that
+    produced the file — it covers every anchored deliverable present on disk,
+    which is why a Phase 2 exit is blocked by a broken Phase 1 artefact.
+
+    Phase 2 rather than Phase 8: measured, a `--completed-phase 3` or higher
+    fixture returns 17 (finalize-gate not called for Gate 1 per-FR) before
+    reaching this check. That is a pre-existing, earlier gate on a fixture with
+    no gate results, not a gap in this check's scope —
+    `test_the_scan_is_not_scoped_to_one_phase` pins the scope directly.
     """
     from cli import phase_cmds
     from cli.exit_codes import EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN
 
-    late = _project(tmp_path / "late", "Draft notes — SRS", phase=8)
-    assert phase_cmds._advance_prechecks(late, 8) == (
+    later = _project(tmp_path / "later", "Draft notes — SRS", phase=2)
+    assert phase_cmds._advance_prechecks(later, 2) == (
         EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN
     )
+
+
+def test_the_scan_is_not_scoped_to_one_phase(tmp_path):
+    """Every registered path present on disk, whichever phase produced it."""
+    from cli import phase_cmds
+    from core.quality_gate.legal_artifacts import anchor_for
+
+    proj = _project(tmp_path / "mixed", f"{anchor_for('SRS.md')} (SRS) — fixture")
+    (proj / "02-architecture" / "adr").mkdir(parents=True)
+    (proj / "02-architecture" / "SAD.md").write_text(
+        "# SAD - {Project Name}\n\nbody\n", encoding="utf-8"
+    )
+    (proj / "02-architecture" / "adr" / "ADR.md").write_text(
+        f"{anchor_for('ADR.md')} — fixture\n\nbody\n", encoding="utf-8"
+    )
+
+    findings = phase_cmds._broken_deliverable_anchors(proj)
+    assert len(findings) == 1, findings
+    assert "SAD.md" in findings[0] and "Software Architecture Document" in findings[0]
 
 
 def test_zero_anchored_files_is_recorded_not_silently_passed(tmp_path):

@@ -21,7 +21,14 @@ import pytest
 
 HARNESS_CLI = Path(__file__).resolve().parents[2] / "harness_cli.py"
 
-_SRS = """# SRS
+# Round 34 站2: the H1 of every anchored deliverable is now an invariant checked
+# on every advance, so this golden-path fixture has to satisfy it the way a real
+# project does. The anchors are interpolated from DELIVERABLE_ANCHORS rather
+# than written out, so a registry change moves the fixture with it — the same
+# reason spec_phase1.py stopped hand-writing its diskPrefix literals.
+from core.quality_gate.legal_artifacts import anchor_for  # noqa: E402
+
+_SRS = f"""{anchor_for("SRS.md")} — e2e fixture
 
 ## Functional Requirements
 
@@ -35,7 +42,7 @@ The system shall do thing two. Logic Verification Method: unit test.
 The system shall do thing three. Logic Verification Method: unit test.
 """
 
-_SPEC_TRACKING = """# SPEC_TRACKING
+_SPEC_TRACKING = f"""{anchor_for("SPEC_TRACKING.md")} — e2e fixture
 
 | FR ID | Description | Status |
 |---|---|---|
@@ -44,7 +51,7 @@ _SPEC_TRACKING = """# SPEC_TRACKING
 | FR-03 | third | Pending |
 """
 
-_TRACEABILITY = """# TRACEABILITY_MATRIX
+_TRACEABILITY = f"""{anchor_for("TRACEABILITY_MATRIX.md")} — e2e fixture
 
 | FR | Module |
 |---|---|
@@ -95,7 +102,10 @@ def e2e_project(tmp_path):
     (req / "SRS.md").write_text(_SRS, encoding="utf-8")
     (req / "SPEC_TRACKING.md").write_text(_SPEC_TRACKING, encoding="utf-8")
     (req / "TRACEABILITY_MATRIX.md").write_text(_TRACEABILITY, encoding="utf-8")
-    (proj / "TEST_INVENTORY.yaml").write_text("tests: []\n", encoding="utf-8")
+    (proj / "TEST_INVENTORY.yaml").write_text(
+        f'{anchor_for("TEST_INVENTORY.yaml")} — e2e fixture\ntests: []\n',
+        encoding="utf-8",
+    )
 
     approvals = meth / "agent_b_approvals"
     approvals.mkdir()

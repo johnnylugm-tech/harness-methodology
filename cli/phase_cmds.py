@@ -2168,6 +2168,39 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     if completed_phase >= 3:
         _regen_traceability_views(project)
 
+    # ── Anchors are an invariant of the deliverable, not of one load ──
+    # Placement is the design: this runs AFTER the regen above, so the
+    # render-only views the framework owns have already been repaired and
+    # anything still failing is a file the framework has no right to rewrite.
+    # See _broken_deliverable_anchors for the measurement.
+    _anchor_breaks = _broken_deliverable_anchors(project)
+    if _anchor_breaks:
+        from cli.exit_codes import EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN
+
+        print(
+            "\n[BLOCKED] Deliverable(s) no longer start with the H1 anchor "
+            "their path declares:"
+        )
+        for _line in _anchor_breaks:
+            print(f"  - {_line}")
+        print(
+            "\n  The Phase 1/2 orchestrator reloads each of these with that "
+            "exact prefix\n"
+            "  (loadFileViaPython -> read-file --expect-prefix -> "
+            "first_line.startswith).\n"
+            "  A file that fails it aborts the sub-task after 3 attempts, so "
+            "sealing the\n"
+            "  phase now would hand the next run an artefact it cannot load.\n"
+            "  Fix the first line of each file above, then re-run advance-phase.\n"
+            "  If one of them is a render-only view (TRACEABILITY_MATRIX.md, "
+            "SPEC_TRACKING.md),\n"
+            "  the P3+ regen normally repairs it — check the "
+            "[advance-phase] lines above for\n"
+            "  a skipped regen (import or scan failure) rather than editing "
+            "the view by hand."
+        )
+        return EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN
+
     # ── Next-phase plan: must exist before advancing (Phase 3–7) ────
     # Prevents "advance first, plan later" ordering bugs. generate-next-plan
     # must be run BEFORE advance-phase so the agent has a plan to follow.
@@ -2953,6 +2986,62 @@ def _regen_and_stage_view(project: Path, path: Path, render) -> None:
     if new_hash != old_hash:
         subprocess.run(["git", "add", str(path)], cwd=str(project), capture_output=True)
         print(f"  [advance-phase] {path.name} refreshed from SSOT → staged")
+
+def _broken_deliverable_anchors(project: Path) -> list[str]:
+    """Every anchored deliverable present on disk whose first line no longer
+    starts with the anchor its own path declares.
+
+    Round 34 站2. Round 33 站1 gave the H1 rule a single SOURCE
+    (`DELIVERABLE_ANCHORS`); it did not give it a single MOMENT. The anchor was
+    verified only where the Phase 1/2 orchestrator reloads the file, so a
+    deliverable that satisfied it at P1 and was rewritten at P4 satisfied
+    nothing thereafter and nobody asked. Measured on run-all-by-workflow's
+    01-requirements/TRACEABILITY_MATRIX.md: correct at dfd7abd (P1 review
+    complete), blank first line from fa21439 (the P3->P4 advance) onward, and
+    green through Gate 4 and P8 with last_gate 4. Four of five real projects
+    are in that state today.
+
+    Scans the whole registry, not this phase's deliverables: the defect is
+    precisely that a LATER phase rewrites an EARLIER phase's artefact, so a
+    phase-scoped check would miss every instance of it.
+
+    Denominator protection (R30 站6 / R31 站4): zero anchored files found is
+    recorded in the degradation ledger rather than returned as a clean result.
+    A non-standard or ingestion-mode layout is legitimate, so it must not
+    block — but "we could not look" must not read as "we looked and it was
+    fine".
+    """
+    from core.quality_gate.legal_artifacts import DELIVERABLE_ANCHORS
+
+    findings: list[str] = []
+    checked = 0
+    for rel, anchor in DELIVERABLE_ANCHORS.items():
+        path = project / rel
+        if not path.is_file():
+            continue
+        checked += 1
+        try:
+            head = path.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
+        except OSError as exc:
+            findings.append(f"{rel}: unreadable ({exc})")
+            continue
+        if not head.startswith(anchor):
+            findings.append(f"{rel}: first line {head[:60]!r} does not start with {anchor!r}")
+    if checked == 0:
+        from core.degradation_ledger import record_degradation
+
+        record_degradation(
+            project, "advance-phase:deliverable-anchors",
+            "no anchored deliverable found at any registered path — the anchor "
+            "invariant measured nothing",
+            why=(
+                "zero failures out of zero files is not a pass; a project whose "
+                "layout puts deliverables elsewhere is legitimate but must not "
+                "be reported as verified"
+            ),
+        )
+    return findings
+
 
 def _warn_if_view_lost_its_anchor(project: Path, path: Path) -> None:
     """A regenerated view must still satisfy the loader anchor its own path

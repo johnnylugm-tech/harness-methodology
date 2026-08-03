@@ -546,6 +546,7 @@ class TestAdvancePreChecksAgentB:
         """P1 with all approvals APPROVE → proceeds (returns 0)."""
         from cli.phase_cmds import _advance_prechecks
         from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES as _PHASE_DELIVERABLES
+        from core.quality_gate.legal_artifacts import anchor_for
         import json
 
         method_dir = tmp_path / ".methodology"
@@ -557,7 +558,11 @@ class TestAdvancePreChecksAgentB:
             )
 
         # Also need TEST_INVENTORY.yaml for checksum step
-        (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            # Round 34 站2: the registered H1 anchor for this file is a
+            # leading YAML comment, and the advance now checks it.
+            f'{anchor_for("TEST_INVENTORY.yaml")} — fixture\ntests: []'
+        )
         # Round 24 站2c: the cited position must exist.
         (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE"}))
@@ -574,6 +579,7 @@ class TestAdvancePreChecksAgentB:
         last, after Agent B approvals passes, with truth_override=True."""
         from cli.phase_cmds import _advance_prechecks
         from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES as _PHASE_DELIVERABLES
+        from core.quality_gate.legal_artifacts import anchor_for
         import json
 
         method_dir = tmp_path / ".methodology"
@@ -584,7 +590,11 @@ class TestAdvancePreChecksAgentB:
                 encoding="utf-8",
             )
 
-        (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            # Round 34 站2: the registered H1 anchor for this file is a
+            # leading YAML comment, and the advance now checks it.
+            f'{anchor_for("TEST_INVENTORY.yaml")} — fixture\ntests: []'
+        )
         # Round 24 站2c: the cited position must exist.
         (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
         # Stale/False — must NOT leak into STAGE_PASS.md now that truth_override wins.

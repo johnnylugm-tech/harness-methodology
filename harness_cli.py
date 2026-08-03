@@ -84,6 +84,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         dimension — fix the value in SRS.md; it is refused here rather than
         in Phase 2, where it would already be locked into an approved
         deliverable
+    30  advance-phase: a deliverable's first line no longer starts with the H1
+        anchor its path declares in DELIVERABLE_ANCHORS — the Phase 1/2
+        orchestrator reloads it with that anchor and would abort after 3
+        attempts; fix the H1 in the named file
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

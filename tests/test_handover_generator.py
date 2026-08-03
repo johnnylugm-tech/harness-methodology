@@ -1586,10 +1586,18 @@ class TestCmdAdvancePhase:
         method_dir = tmp_path / ".methodology"
         method_dir.mkdir(parents=True)
         (tmp_path / "01-requirements").mkdir()
+        # Round 34 站2: the H1 anchor is an invariant checked on every advance,
+        # so a flow-test fixture has to carry it the way a real deliverable
+        # does. Interpolated from the registry, not hand-written.
+        from core.quality_gate.legal_artifacts import anchor_for
         for f in ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"]:
-            (tmp_path / "01-requirements" / f).write_text("FR-01 content")
+            (tmp_path / "01-requirements" / f).write_text(
+                f"{anchor_for(f)} — fixture\n\nFR-01 content"
+            )
         (method_dir / "sessions_spawn.log").write_text("{}")
-        (tmp_path / "TEST_INVENTORY.yaml").write_text("tests: []")
+        (tmp_path / "TEST_INVENTORY.yaml").write_text(
+            f'{anchor_for("TEST_INVENTORY.yaml")} — fixture\ntests: []'
+        )
 
         def _fake_run(cmd, **kw):
             class R:
