@@ -132,7 +132,13 @@ _LINE_CEILING: dict[str, int] = {
     # and S6 flattens it before walking. Measured: a project declaring nine
     # testpaths entries against sixteen collected test files, two of them
     # the FR tests for FR-02 and FR-07, with neither denominator recorded.
-    "harness/harness_bridge.py": 3680,
+    "harness/harness_bridge.py": 3717,
+    # 2026-08-04 (Round 35 站3): +37 — `_mutation_artifact_violations` returns
+    # two lists instead of one (a missing artifact is a run to repair, not a
+    # claim to withdraw) and its call moved above the agent-score early exit,
+    # which a self-reported failing score used to skip past. The rule the
+    # hoist encodes is stated where it is enforced, since mutation is its only
+    # member and a registry for one entry would be the wrong shape.
     # 2026-08-03 (Round 31 站6): +21 more — the S4 remediation text for a tool
     # that timed out is no longer the text for a tool that is missing. They
     # shared one sentence, and that sentence was "Install '<tool>'", which is

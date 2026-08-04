@@ -120,15 +120,22 @@ def test_mutmut_is_on_the_inline_skip_list_its_comment_already_claims():
 # ── 2. the number comes from a framework-written artifact ────────────────
 
 def test_a_passing_claim_without_the_framework_artifact_is_blocked(project):
-    violations, _unver = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
-    assert violations, (
+    """Round 35 站3 moved this from the fabrication bucket to `infra_fail`.
+
+    Both block. The difference is the instruction each kind carries:
+    `tool_score_fabrication` says "the score, not the run, is what failed — do
+    NOT re-run", and for a missing artifact the correct action is precisely to
+    run the command that writes it.
+    """
+    _fab, unverifiable = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    assert unverifiable, (
         "an agent-authored prose file was accepted as the source of a tier-1 "
         "objective_primary score"
     )
-    joined = " ".join(violations)
+    joined = " ".join(unverifiable)
     assert "mutation_score.json" in joined, (
         f"the block must name the framework artifact and how to produce it, "
-        f"not merely report a number it could not reproduce: {violations}"
+        f"not merely report a number it could not reproduce: {unverifiable}"
     )
 
 
@@ -305,10 +312,13 @@ def test_the_gate_actually_calls_the_drift_check(project):
         "[mutmut]\npaths_to_mutate = 03-development/src/app\n", encoding="utf-8"
     )
 
-    violations, _unver = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
-    assert violations and "disagrees with the SAB" in " ".join(violations), (
+    # Round 35 站3: `infra_fail`, not fabrication. The number is real; it was
+    # taken over a scope nobody agreed to, and the remedy is to regenerate
+    # setup.cfg or amend the SAB — not to withdraw a claim.
+    _fab, unverifiable = _run_harness_cross_validation(_Ctx(project), _claiming_pass())
+    assert unverifiable and "disagrees with the SAB" in " ".join(unverifiable), (
         f"a score above threshold sailed through on a scope the SAB does not "
-        f"declare: {violations}"
+        f"declare: {unverifiable}"
     )
 
 

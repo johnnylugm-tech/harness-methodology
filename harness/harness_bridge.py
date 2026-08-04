@@ -465,7 +465,7 @@ def filter_enabled_dimensions(
 def _mutation_artifact_violations(
     ctx: "GateContext", dim_name: str, agent_score: "float | None",
     threshold: float,
-) -> list[str]:
+) -> "tuple[list[str], list[str]]":
     """S4 for mutation_testing: the score is the framework's, or the gate blocks.
 
     Round 31 站2. mutmut is the one tool the framework runs end-to-end itself —
@@ -476,17 +476,25 @@ def _mutation_artifact_violations(
     validation because the mutmut pattern list contains the bare word "mutmut",
     carrying a number nothing could check.
 
-    So the framework's own artifact is the source. Three outcomes:
+    So the framework's own artifact is the source. Returns
+    ``(fabrication, unverifiable)`` — Round 35 站3 split them, because the
+    outcomes carry opposite instructions and all of them used to be filed as
+    `tool_score_fabrication`, whose registered remediation reads "the score,
+    not the run, is what failed — do NOT re-run". For a missing artifact the
+    correct action is precisely to run the command.
 
-    * absent / unreadable / malformed → BLOCK, naming the command that writes
-      it. Abstaining is not passing (Round 30): "we could not establish the
-      score" must never resolve to "the claimed score stands".
+    * absent / unreadable / malformed → `infra_fail`, naming the command that
+      writes it. Abstaining is not passing (Round 30): "we could not establish
+      the score" must never resolve to "the claimed score stands".
+    * present with `score: null` → `infra_fail`, carrying the reason the
+      framework recorded. It ran and could not measure; nothing about the
+      project's tests has been established (Round 35 站2).
     * present, and the framework's score clears the threshold → fine, whatever
       the agent wrote; the caller patches the real number into the breakdown.
     * present, framework's score BELOW threshold while the agent claimed a
-      pass → BLOCK. That is the same rule S4 applies to every other tool
-      (harness says fail, agent says pass), with the artifact standing in for
-      a re-run that would cost an hour.
+      pass → `tool_score_fabrication`. That is the same rule S4 applies to
+      every other tool (harness says fail, agent says pass), with the artifact
+      standing in for a re-run that would cost an hour.
     """
     from core.quality_gate.mutation_enforcer import MUTATION_SCORE_ARTIFACT
 
@@ -498,15 +506,16 @@ def _mutation_artifact_violations(
     path = Path(ctx.project_root) / MUTATION_SCORE_ARTIFACT
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        framework_score = float(data["score"])
+        raw_score = data["score"]
+        framework_score = None if raw_score is None else float(raw_score)
     except FileNotFoundError:
-        return [
+        return [], [
             f"{dim_name}: no framework-computed score — {MUTATION_SCORE_ARTIFACT} "
             f"is missing, so the recorded score is whatever the agent wrote. "
             f"{_how}"
         ]
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-        return [
+        return [], [
             f"{dim_name}: {MUTATION_SCORE_ARTIFACT} is unreadable ({exc}) — the "
             f"score it should carry cannot be established. {_how}"
         ]
@@ -515,10 +524,23 @@ def _mutation_artifact_violations(
     # on. The generator runs once at the P2→P3 handoff, so a SAB corrected
     # mid-P3 — the normal way a missing scope_layers gets noticed, since Gate 2
     # is where the cost shows up — leaves setup.cfg saying something else.
+    #
+    # Round 35 站3: this used to sit below the null check, so on the one
+    # occasion the scope is the likeliest cause — a run that could not measure
+    # — it was never evaluated. Measured on taskq-renew, where setup.cfg
+    # declares no scope while the SAB names two layers, and nothing said so.
     from core.quality_gate.mutmut_scope import scope_drift
     drift = scope_drift(ctx.project_root)
     if drift:
-        return [f"{dim_name}: mutation scope disagrees with the SAB — {drift}"]
+        return [], [f"{dim_name}: mutation scope disagrees with the SAB — {drift}"]
+
+    if framework_score is None:
+        return [], [
+            f"{dim_name}: the framework ran mutmut and could not measure — "
+            f"{data.get('could_not_measure') or 'no reason recorded'}. Nothing "
+            f"has been established about this project's tests, so do not touch "
+            f"the score: repair the run. {_how}"
+        ]
 
     if framework_score < threshold and (
         agent_score is None or agent_score >= threshold
@@ -530,14 +552,14 @@ def _mutation_artifact_violations(
             f"{_claim}. The framework's own run is the score for this "
             f"dimension; write {framework_score:.1f} and fix the tests that "
             f"let those mutants live."
-        ]
+        ], []
 
     print(
         f"  [S4] {dim_name}: framework-computed score {framework_score:.1f} "
         f"[scope: {data.get('paths_to_mutate', '?')}, "
         f"{data.get('mutated_files', '?')} files] ✓"
     )
-    return []
+    return [], []
 
 
 def _validate_tool_content(
@@ -1409,6 +1431,27 @@ def _run_harness_cross_validation(
         )
         _agent_label = "N/A (agent)" if agent_score is None else f"{agent_score:.1f}"
 
+        # Round 35 站3: a dimension whose number the framework produces itself
+        # is established BEFORE the agent's claim is consulted.
+        #
+        # The early exit below is correct about fabrication and wrong about
+        # attribution. A self-reported failing score is the cheapest way to
+        # stop the framework looking, and for mutation_testing it stopped the
+        # only checks that can tell a harness fault from a project debt:
+        # measured on taskq-renew, `.methodology/mutation_score.json` was
+        # absent and `scope_drift` fired, and the gate reported neither —
+        # it blocked on "scored 0.0, needs 75.0" and told the project to kill
+        # mutants that had never been produced.
+        #
+        # mutmut is the only member today, so there is no registry for one
+        # entry; the rule is stated here instead.
+        if tool == "mutmut":
+            _mut_fab, _mut_infra = _mutation_artifact_violations(
+                ctx, dim_name, agent_score, threshold
+            )
+            violations.extend(_mut_fab)
+            unverifiable.extend(_mut_infra)
+
         # Only cross-validate when the agent claims a passing score.
         # If the agent already reports FAIL, there is no fabrication concern.
         #
@@ -1517,15 +1560,9 @@ def _run_harness_cross_validation(
                     f"(format OK); not re-run (too slow)"
                 )
             # Round 31 站2: for mutmut the tool_output file above is AUDIT, not
-            # the score. The number comes from the artifact the framework wrote
-            # itself; a committed prose file that merely looks like tool output
-            # is exactly what passed here before.
-            if tool == "mutmut":
-                violations.extend(
-                    _mutation_artifact_violations(
-                        ctx, dim_name, agent_score, threshold
-                    )
-                )
+            # the score. The number itself came from the artifact the framework
+            # wrote — checked at the top of this loop since Round 35 站3, so
+            # that a self-reported failing score cannot skip past it.
             continue
 
         if returncode == 5:

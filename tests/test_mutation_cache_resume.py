@@ -157,7 +157,9 @@ def test_the_timeout_message_describes_the_mechanism_that_exists():
     """Round 30 station 3's rule, applied to prose: a message that promises
     behaviour the code does not have is worse than no message, because the
     reader stops looking."""
-    src = inspect.getsource(me.compute_mutation_score)
+    # Round 35 站2: the timeout branch lives in `_compute_mutation_score`;
+    # the public name is the wrapper that records an unmeasurable run.
+    src = inspect.getsource(me._compute_mutation_score)
     assert "next run will resume)" not in src, (
         "the old wording promised a resume with nothing behind it"
     )
