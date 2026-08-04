@@ -246,11 +246,22 @@ def test_copy_setup_cfg_to_workdir(tmp_path):
 
 
 def test_copy_setup_cfg_to_workdir_no_setup_cfg(tmp_path):
-    """No setup.cfg + no abs_test_dir → no error, no file written."""
+    """No setup.cfg + no abs_test_dir → the [mutmut] rewrite is still written.
+
+    Round 35 站1 changed this. "No file written" was a consequence of the
+    early `return` that also skipped the testpaths write for every project
+    with a setup.cfg — removing the branch removes both. What lands now is
+    the [mutmut] section this function built (runner rebased onto
+    sys.executable, Bug #91) and no [tool:pytest], because with no test
+    directory there is nothing to point pytest at.
+    """
     workdir = tmp_path / "workdir"
     workdir.mkdir()
     _copy_setup_cfg_to_workdir(tmp_path, str(workdir))
-    assert not (workdir / "setup.cfg").exists()
+    cp = configparser.ConfigParser()
+    cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
+    assert cp["mutmut"]["runner"] == f"{sys.executable} -m pytest"
+    assert "tool:pytest" not in cp
 
 
 def test_copy_setup_cfg_no_project_cfg_writes_both_sections(tmp_path):
@@ -522,8 +533,16 @@ def test_copy_setup_cfg_warns_on_nonexistent_pythonpath_bug_106(tmp_path, capsys
     assert "does/not/exist" in captured.err
 
 
-def test_copy_setup_cfg_no_pytest_section_is_noop(tmp_path):
-    """Bug #43: project setup.cfg without [tool:pytest] does not crash; mutmut section rewrite still happens."""
+def test_copy_setup_cfg_no_pytest_section_gets_one(tmp_path):
+    """A project setup.cfg without [tool:pytest] must still leave the workdir
+    a pytest target.
+
+    Round 35 站1. This test previously asserted `"tool:pytest" not in cp` —
+    the defect, written down as an expectation. mutmut's baseline runs pytest
+    with cwd=workdir, so a workdir cfg with no testpaths collects nothing and
+    the dimension reports 0.0; measured on a live project whose setup.cfg
+    carried only `[coverage:run]`.
+    """
     project = tmp_path / "proj"
     project.mkdir()
     src_cfg = project / "setup.cfg"
@@ -536,7 +555,7 @@ def test_copy_setup_cfg_no_pytest_section_is_noop(tmp_path):
     _copy_setup_cfg_to_workdir(project, str(workdir), "/abs/tests")
     cp = configparser.ConfigParser()
     cp.read(str(workdir / "setup.cfg"), encoding="utf-8")
-    assert "tool:pytest" not in cp
+    assert cp["tool:pytest"]["testpaths"] == "/abs/tests"
     assert cp["mutmut"]["tests_dir"] == "/abs/tests"
 
 

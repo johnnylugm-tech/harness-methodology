@@ -520,7 +520,14 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1219,
+    "core/quality_gate/mutation_enforcer.py": 1245,
+    # 2026-08-04 (Round 35 站1): +26 — _has_resolvable_testpaths plus the
+    # finalisation that uses it, and the note recording what mutmut 2.5.1's
+    # tests_dir actually does (it hashes the suite and excludes test files
+    # from mutation; it never reaches the runner). The old branch wrote the
+    # workdir's pytest target only for projects with no setup.cfg at all, so
+    # a project whose setup.cfg carried just [coverage:run] got none — real
+    # mutmut on tests/fixtures/mutmut_bare_cfg/ reproduces it.
     # 2026-08-03 (Round 31 站3): +49 more — the cache resume the Bug v26
     # timeout message had promised for a round without any code behind it,
     # plus _is_resumable_cache. Inheriting a cache means an unusable one

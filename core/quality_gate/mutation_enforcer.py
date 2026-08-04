@@ -257,6 +257,21 @@ def _find_source_setup_cfg(project: Path) -> Optional[Path]:
     return None
 
 
+def _has_resolvable_testpaths(cp: configparser.ConfigParser) -> bool:
+    """True when ``[tool:pytest] testpaths`` names something that will still
+    exist once pytest runs from the temp workdir.
+
+    Only an absolute path survives the move: a relative entry resolves
+    against cwd, and cwd is a directory holding one generated setup.cfg.
+    """
+    if not (cp.has_section("tool:pytest") and cp.has_option("tool:pytest", "testpaths")):
+        return False
+    for entry in shlex.split(cp.get("tool:pytest", "testpaths").strip()):
+        if os.path.isabs(entry) and Path(entry).exists():
+            return True
+    return False
+
+
 def _copy_setup_cfg_to_workdir(
     project: Path,
     workdir: str,
@@ -295,8 +310,12 @@ def _copy_setup_cfg_to_workdir(
         cp["mutmut"] = {}
     mut = cp["mutmut"]
 
-    # Always set tests_dir to the absolute path the framework will use
-    # (resolves the "test discovery crashes in temp workdir" failure).
+    # Always set tests_dir to the absolute path the framework will use.
+    # NOTE what this does and does not do: mutmut 2.5.1 uses tests_dir to
+    # hash the suite and to keep test files out of the mutant pool
+    # (__main__.py:340-352). It never reaches the runner command, so it
+    # cannot tell the workdir's pytest what to collect — the finalisation at
+    # the end of this function does that.
     if abs_test_dir:
         mut["tests_dir"] = abs_test_dir
 
@@ -337,26 +356,10 @@ def _copy_setup_cfg_to_workdir(
     mut.pop("backup", None)
     mut.pop("disable", None)
 
-    # Bug #43 fix: when the project has no setup.cfg, generate a minimal one
-    # in the workdir that points pytest at the absolute test directory.
-    # mutmut 2.x's internal time_test_suite() uses its own hardcoded
-    # baseline command (python -m pytest -x --assert=plain) and does NOT
-    # honor the [mutmut] runner flag for that path. Pytest then discovers
-    # tests in cwd (the workdir) and finds nothing because the workdir is
-    # empty. The fix is to write a setup.cfg with [tool:pytest] testpaths
-    # set to the absolute test directory so pytest's auto-discovery finds
-    # the tests regardless of cwd.
-    if not setup_cfg.exists():
-        if abs_test_dir:
-            if "tool:pytest" not in cp:
-                cp["tool:pytest"] = {}
-            cp["tool:pytest"]["testpaths"] = abs_test_dir
-            with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
-                cp.write(f)
-        return
-
-    # Project HAS a setup.cfg: promote [tool:pytest] testpaths to absolute
-    # so the workdir's pytest discovery is unambiguous.
+    # Promote [tool:pytest] testpaths to absolute so the workdir's pytest
+    # discovery is unambiguous.
+    # (No-ops when the project has no setup.cfg — `cp` then carries no
+    # [tool:pytest] section and the finalisation below supplies one.)
     # Resolve relative paths against the setup.cfg's directory (Bug #106b),
     # not project root — for nested layouts (03-development/) the source of
     # truth is the nested setup.cfg, and its relative paths are relative
@@ -419,6 +422,29 @@ def _copy_setup_cfg_to_workdir(
             if resolved:
                 cp["tool:pytest"]["pythonpath"] = " ".join(resolved)
             # If none of the parts resolved, leave the original string unchanged.
+
+    # Round 35 站1: the workdir's pytest must be told what to collect, and
+    # this is the one place that can tell it.
+    #
+    # mutmut runs the resolved [mutmut] runner as its baseline
+    # (time_test_suite) with cwd set to this workdir, and raises on any
+    # non-zero exit. `tests_dir` above does NOT reach that command —
+    # mutmut 2.5.1 uses it to hash the suite and to exclude test files from
+    # mutation (__main__.py:340-352), never as a pytest argument. So an empty
+    # workdir with no testpaths collects nothing, exits 5, and the whole
+    # dimension reports zero.
+    #
+    # Bug #43 wrote testpaths for exactly this reason, but only when the
+    # project had NO setup.cfg. A project whose setup.cfg exists and says
+    # nothing about pytest — the common shape when tests reach their source
+    # through a conftest.py sys.path insertion — took the other branch and
+    # got no target at all. The condition belongs on the proposition that
+    # decides the outcome: does the config we are about to write name a test
+    # location that survives the move to the workdir?
+    if abs_test_dir and not _has_resolvable_testpaths(cp):
+        if "tool:pytest" not in cp:
+            cp["tool:pytest"] = {}
+        cp["tool:pytest"]["testpaths"] = abs_test_dir
 
     with open(Path(workdir) / "setup.cfg", "w", encoding="utf-8") as f:
         cp.write(f)
