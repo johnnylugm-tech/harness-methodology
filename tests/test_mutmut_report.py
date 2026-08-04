@@ -264,7 +264,10 @@ def test_the_producer_uses_the_shared_formatter():
 
     from core.quality_gate import mutation_enforcer
 
-    src = inspect.getsource(mutation_enforcer.compute_mutation_score)
+    # Round 35 站2: the producer is `_compute_mutation_score`;
+    # `compute_mutation_score` is the wrapper that records a run which could
+    # not produce a score at all.
+    src = inspect.getsource(mutation_enforcer._compute_mutation_score)
     assert "format_score_message" in src, (
         "compute_mutation_score builds the score message with its own f-string "
         "again — that is the drift this module exists to end"

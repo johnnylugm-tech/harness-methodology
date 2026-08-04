@@ -1659,6 +1659,14 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
     failing). What must never happen is the reverse — a verdict recording a
     number the framework did not compute — which is what every mutation score
     in this repo's history has been.
+
+    Round 35 站2: the artifact can now also say the framework RAN and could
+    not measure (`score: null`). There is no number to patch in then — score.py
+    R8 forbids a null one and the gate blocks on `infra_fail` regardless — but
+    the evidence line must stop describing a measurement that did not happen.
+    Measured on a live Gate 2: the agent's evidence read "framework override
+    applies" while `framework_override` was absent from that entry, because
+    the override had never run.
     """
     artifact = project_path / ".methodology" / "mutation_score.json"
     result = project_path / ".sessi-work" / f"gate{gate}_result.json"
@@ -1666,7 +1674,8 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
         return
     try:
         data = json.loads(artifact.read_text(encoding="utf-8"))
-        score = float(data["score"])
+        raw_score = data["score"]
+        score = None if raw_score is None else float(raw_score)
         gr = json.loads(result.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
         print(f"[WARN] could not patch mutation score into result: {exc}",
@@ -1674,14 +1683,21 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
         return
 
     entry = gr.setdefault("breakdown", {}).setdefault("mutation_testing", {})
-    entry["score"] = score
-    entry["tool_evidence"] = (
-        f"framework: compute_mutation_score → killed={data.get('killed')} "
-        f"survived={data.get('survived')} score={score} "
-        f"[scope: {data.get('paths_to_mutate')}, "
-        f"{data.get('mutated_files')} files, "
-        f"excluded: {data.get('paths_to_exclude') or 'none'}]"
-    )
+    if score is None:
+        entry["tool_evidence"] = (
+            f"framework: compute_mutation_score could not measure — "
+            f"{data.get('could_not_measure') or 'no reason recorded'}. The "
+            f"score beside this line is not a measurement."
+        )
+    else:
+        entry["score"] = score
+        entry["tool_evidence"] = (
+            f"framework: compute_mutation_score → killed={data.get('killed')} "
+            f"survived={data.get('survived')} score={score} "
+            f"[scope: {data.get('paths_to_mutate')}, "
+            f"{data.get('mutated_files')} files, "
+            f"excluded: {data.get('paths_to_exclude') or 'none'}]"
+        )
     entry["framework_override"] = True
     try:
         result.write_text(json.dumps(gr, indent=2, ensure_ascii=False),

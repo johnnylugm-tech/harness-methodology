@@ -656,6 +656,52 @@ def _write_score_artifact(
         )
 
 
+def _write_unmeasured_artifact(project: Path, reason: str) -> None:
+    """Record that the framework RAN and could not produce a score.
+
+    Round 35 站2. The artifact used to be written only on success, so its
+    absence carried two incompatible facts: "nobody ran the command" and "the
+    framework ran it and the run could not yield a number". The gate could
+    only see the absence, so it said the first while the second was true —
+    measured on a live Gate 2, where the block told a project to kill mutants
+    that had never been produced.
+
+    `score: null` is the distinguishing field, and it is the same rule Round
+    32 站4 gave the tool scorers: a number the harness could not measure is
+    not the number zero. The reason travels with it because the operator's
+    next action depends on it (repair the scope, install the tool, fix the
+    workdir) and none of those actions is "write better tests".
+
+    Best-effort, like its success twin: failing to record this must not turn
+    into a second failure, but it does leave a ledger line.
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    from core.harness_provenance import enforcer_sha
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tool": "mutmut",
+        "score": None,
+        "could_not_measure": reason,
+        "enforcer_sha": enforcer_sha(),
+    }
+    out = project / MUTATION_SCORE_ARTIFACT
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_json.dumps(payload, indent=2, ensure_ascii=False),
+                       encoding="utf-8")
+    except OSError as exc:
+        from core.degradation_ledger import record_degradation
+        record_degradation(
+            str(project), "mutation:score-artifact",
+            f"could not write {MUTATION_SCORE_ARTIFACT} ({exc}) for a run that "
+            f"could not measure ({reason[:120]})",
+            why="without this file the gate reads the absence as 'nobody ran it'",
+        )
+
+
 def _parse_mutmut_survivors(results_output: str) -> list:
     """Parse `mutmut results` output into survivor entries.
 
@@ -980,7 +1026,24 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
+def compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
+    """Compute the mutation score, and record the outcome either way.
+
+    Round 35 站2. `_compute_mutation_score` below produces the verdict; this
+    is the one place that writes down a run which could not produce one, so
+    the ten abort paths do not each have to remember to.
+
+    The artifact's absence now means one thing again: nobody ran the command.
+    "The framework ran it and could not measure" is a different fact and gets
+    its own record — see :func:`_write_unmeasured_artifact`.
+    """
+    ok, score, message = _compute_mutation_score(project)
+    if not ok:
+        _write_unmeasured_artifact(project, reason=message)
+    return ok, score, message
+
+
+def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
     """Run mutmut in a temp workdir and PUBLISH the result cache to project root.
 
     Bug #105: the previous design only validated pass/fail (run_mutation_precheck)
@@ -1005,7 +1068,15 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         - success: True iff mutmut ran AND produced parseable output
         - score:   0.0–100.0 (killed / (killed + survived) × 100)
                    ⏰ (timeout) and 🤔 (suspicious) count as survived.
-                   If success is False, score is 0.0.
+                   **None when success is False** — Round 35 站2. It used to
+                   be 0.0, and every consumer reads the number rather than
+                   the flag, so "the framework could not measure" and "mutmut
+                   ran and every mutant survived" arrived as the same value.
+                   A live Gate 2 blocked on `mutation_testing scored 0.0,
+                   needs 75.0` and told the project to kill mutants that were
+                   never produced. Same rule Round 32 站4 applied to
+                   _score_pytest, _score_exit_code_binary and
+                   _score_pytest_benchmark.
         - message: human-readable status (also written to gate prompt)
     """
     from core.utils.lang_patterns import project_language
@@ -1013,7 +1084,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         return _compute_stryker_score(project)
 
     if not shutil.which("mutmut"):
-        return False, 0.0, (
+        return False, None, (
             "mutmut not installed. Required for mutation_testing dimension. "
             "Install: pip install 'mutmut<3'"
         )
@@ -1022,14 +1093,14 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
     src_dirs = mutate_dirs(cwd, paths_to_mutate)
     missing = [str(p.relative_to(cwd)) for p in src_dirs if not p.exists()]
     if not src_dirs or missing:
-        return False, 0.0, (
+        return False, None, (
             f"paths_to_mutate names {missing or 'nothing'} which does not exist "
             f"under {cwd}; mutmut did not run — check [mutmut] paths_to_mutate "
             f"in setup.cfg (regenerated from the SAB at the P2→P3 handoff)."
         )
 
     if _is_editable_install(project):
-        return False, 0.0, (
+        return False, None, (
             "Project is installed in editable mode (pip install -e). "
             "This prevents mutmut from testing mutations."
         )
@@ -1046,7 +1117,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
     try:
         test_dir = _resolve_test_dir(cwd, project)
         if test_dir is None:
-            return False, 0.0, (
+            return False, None, (
                 "No test directory found. Mutation testing is meaningless "
                 "without tests — cannot proceed."
             )
@@ -1099,7 +1170,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
         # We treat 0 and 2 as "ran successfully" so the actual score is
         # reported; only 1 (and other unexpected codes) abort.
         if r.returncode not in (0, 2):
-            return False, 0.0, (
+            return False, None, (
                 f"mutmut run failed (return code {r.returncode}).\n"
                 f"STDOUT:\n{r.stdout.strip()[-2000:]}\n"
                 f"STDERR:\n{r.stderr.strip()[-2000:]}"
@@ -1129,7 +1200,7 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
             if m:
                 text_total = int(m.group(1))
         if total == 0 and text_total > 0:
-            return False, 0.0, (
+            return False, None, (
                 f"mutmut produced 0 mutants in cache but text output shows {text_total} total mutants. "
                 f"Cache may be corrupt or unreadable."
             )
@@ -1206,31 +1277,31 @@ def compute_mutation_score(project: Path) -> tuple[bool, float, str]:
                 )
             except OSError as exc:
                 partial_msg = f" (partial-cache publish failed: {exc})"
-        return False, 0.0, (
+        return False, None, (
             "mutmut timed out after 60 minutes."
             + partial_msg
             + " Consider excluding data-only files via paths_to_exclude in "
             "setup.cfg."
         )
     except Exception as e:
-        return False, 0.0, f"Error running mutmut: {e}"
+        return False, None, f"Error running mutmut: {e}"
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _compute_stryker_score(project: Path) -> tuple[bool, float, str]:
+def _compute_stryker_score(project: Path) -> "tuple[bool, float | None, str]":
     """JS/TS variant of compute_mutation_score (StrykerJS)."""
     import json
     report_path = project / "reports" / "mutation" / "mutation.json"
     if not report_path.exists():
-        return False, 0.0, (
+        return False, None, (
             f"Stryker report not found at {report_path}. "
             "Run `npx stryker run` first."
         )
     try:
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        return False, 0.0, f"Failed to read Stryker report: {e}"
+        return False, None, f"Failed to read Stryker report: {e}"
     mutants: list = []
     for file_data in (report.get("files") or {}).values():
         mutants.extend(file_data.get("mutants") or [])

@@ -153,7 +153,13 @@ _LINE_CEILING: dict[str, int] = {
     # discover_modules_at() (removed inline loop, +docstring paragraph
     # explaining the delegation) instead of a locally re-implemented rglob
     # loop that had silently diverged (never skipped __pycache__).
-    "cli/gate_cmds.py": 2640,
+    "cli/gate_cmds.py": 2656,
+    # 2026-08-04 (Round 35 站2): +16 — _patch_mutation_score now understands
+    # an artifact that says the framework could not measure (`score: null`).
+    # There is no number to patch in then, and the evidence line must stop
+    # describing a measurement that did not happen: on the project that
+    # motivated this round the recorded evidence read "framework override
+    # applies" while framework_override was absent, because it never ran.
     # 2026-08-03 (Round 32 站6): +34 lines — _clear_last_block_for.
     # last_block.md was written on every block and never removed, so on
     # the measured project a P4 Gate 1 BLOCK report sat beside a
@@ -520,7 +526,14 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1245,
+    "core/quality_gate/mutation_enforcer.py": 1316,
+    # 2026-08-04 (Round 35 站2): +71 — _write_unmeasured_artifact, the
+    # wrapper that calls it, and the docstrings recording why. Eleven abort
+    # paths returned score 0.0 beside success=False, and every consumer reads
+    # the number: "the framework could not measure" and "mutmut ran and every
+    # mutant survived" arrived as one value. Same fix Round 32 站4 applied to
+    # the tool scorers, now for the one dimension the framework measures
+    # itself.
     # 2026-08-04 (Round 35 站1): +26 — _has_resolvable_testpaths plus the
     # finalisation that uses it, and the note recording what mutmut 2.5.1's
     # tests_dir actually does (it hashes the suite and excludes test files

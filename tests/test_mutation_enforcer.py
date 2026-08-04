@@ -1095,7 +1095,8 @@ def test_compute_mutation_score_fails_when_src_dir_missing(tmp_path, monkeypatch
     ok, score, msg = me.compute_mutation_score(tmp_path)
 
     assert ok is False, f"BUG: compute_mutation_score returned success=True for a missing source dir. Got: {(ok, score, msg)}"
-    assert score == 0.0
+    # Round 35 站2: None, not 0.0 — the framework did not measure.
+    assert score is None
     assert "does not exist" in msg
 
 
@@ -1161,7 +1162,8 @@ def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatc
     ok, score, _msg = me.compute_mutation_score(tmp_path)
 
     assert not ok
-    assert score == 0.0
+    # Round 35 站2: None, not 0.0 — the framework did not measure.
+    assert score is None
     assert not (tmp_path / ".mutmut-cache").exists()
 
 
@@ -1201,7 +1203,8 @@ def test_compute_mutation_score_publishes_partial_cache_on_timeout(tmp_path, mon
     ok, score, msg = me.compute_mutation_score(tmp_path)
 
     assert not ok, f"timeout must return ok=False; got {(ok, score, msg)}"
-    assert score == 0.0
+    # Round 35 站2: None, not 0.0 — the framework did not measure.
+    assert score is None
     # The contract: project-root cache now exists with the partial data so
     # the next run can resume.
     assert (tmp_path / ".mutmut-cache").exists(), (
@@ -1286,7 +1289,8 @@ def test_compute_mutation_score_general_exception_does_not_publish(tmp_path, mon
     ok, score, _msg = me.compute_mutation_score(tmp_path)
 
     assert not ok
-    assert score == 0.0
+    # Round 35 站2: None, not 0.0 — the framework did not measure.
+    assert score is None
     assert not (tmp_path / ".mutmut-cache").exists(), (
         "non-timeout exceptions must not publish partial cache"
     )
@@ -1519,16 +1523,23 @@ def test_compute_mutation_score_passes_autoload_disabled_env_to_mutmut_run(tmp_p
     assert captured[0]["env"]["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
 
 
-def test_compute_mutation_score_no_mutmut_returns_zero(tmp_path, monkeypatch):
-    """Bug #105: if mutmut is not installed, return (False, 0.0, msg) cleanly
-    rather than crashing. Gate prompt can then surface a blocking message."""
+def test_compute_mutation_score_no_mutmut_returns_no_score(tmp_path, monkeypatch):
+    """Bug #105: if mutmut is not installed, return cleanly rather than
+    crashing, so the gate prompt can surface a blocking message.
+
+    Round 35 站2 renamed this: the score is None, not zero. An uninstalled
+    tool is the clearest case of the distinction — nothing was mutated, so
+    there is no ratio, and "0% of mutants killed" would be a claim about the
+    project's tests that nobody made.
+    """
     import core.quality_gate.mutation_enforcer as me
 
     monkeypatch.setattr(me.shutil, "which", lambda name: None if name == "mutmut" else "/usr/bin/python3")
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
     assert not ok
-    assert score == 0.0
+    # Round 35 站2: None, not 0.0 — the framework did not measure.
+    assert score is None
     assert "mutmut not installed" in msg.lower()
 
 

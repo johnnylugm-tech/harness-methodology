@@ -252,6 +252,13 @@ for f, d in r.get('files', {}).items():
 > {"success": true, "score": 87.5, "message": "killed=14 survived=2 score=87.5",
 >  "cache_path": "/abs/path/.mutmut-cache"}
 > ```
+> When the run could not produce a score at all, `score` is `null` — never `0`.
+> Zero means mutmut ran and every mutant survived; null means there was nothing
+> to count:
+> ```json
+> {"success": false, "score": null, "message": "paths_to_mutate names ['src'] which does not exist …",
+>  "cache_path": "/abs/path/.mutmut-cache"}
+> ```
 > **The command also writes `.methodology/mutation_score.json`, and THAT file is
 > the score.** The gate reads it directly and overwrites whatever
 > `mutation_testing.score` you wrote with the number the framework computed
@@ -265,8 +272,12 @@ for f, d in r.get('files', {}).items():
 >
 > Still write `tool_score` and a `tool_output` file: they are the audit trail
 > the gate keeps beside its own measurement. If `success` is `false`, surface
-> `message` in the gate report and write `tool_score=0` per the "mutmut
-> unavailable" path below.
+> `message` verbatim in the gate report. The framework has already recorded the
+> reason in `.methodology/mutation_score.json` (`score: null` plus
+> `could_not_measure`), and the gate blocks on that as an infrastructure
+> failure — repair the run, do not adjust the score. Write `tool_score=0` only
+> because score.py R8 rejects a null one; it is a placeholder that nothing
+> reads as a measurement, so do not open a CODE-FIX round trying to raise it.
 >
 > The framework's `compute_mutation_score` covers all the historical workarounds
 > (editable-install detection, paths_to_exclude, data-only file exclusion, cwd

@@ -169,13 +169,26 @@ def test_a_claim_that_contradicts_the_artifact_is_blocked(project):
 # with tests, a call site with none, so unwiring it left the suite green.
 
 def test_compute_mutation_score_writes_the_artifact():
+    """Round 35 站2 points this at `_compute_mutation_score`, the producer.
+
+    `compute_mutation_score` is now a two-line wrapper whose own job is the
+    other half of the same rule: writing the artifact when the run could NOT
+    produce a score, so the file's absence stops meaning two things at once.
+    """
     import inspect
 
-    from core.quality_gate.mutation_enforcer import compute_mutation_score
+    from core.quality_gate.mutation_enforcer import (
+        _compute_mutation_score,
+        compute_mutation_score,
+    )
 
-    assert "_write_score_artifact" in inspect.getsource(compute_mutation_score), (
+    assert "_write_score_artifact" in inspect.getsource(_compute_mutation_score), (
         "the artifact the gate blocks on has no producer — the same shape as "
         "Round 29's write_paths_to_mutate, which was written and never called"
+    )
+    assert "_write_unmeasured_artifact" in inspect.getsource(compute_mutation_score), (
+        "a run that could not measure leaves no record, so the gate reads its "
+        "absence as 'nobody ran the command'"
     )
 
 
