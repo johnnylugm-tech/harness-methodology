@@ -238,6 +238,14 @@
   bug: "exemption-by-omission: the parity check above only reaches files a generator produces, so a NEW un-generated .js dropped into .claude/workflows/ would be exactly as unguarded as the shipped files were before Round 36. Every file is now either generated or on a named hand-maintained list (bug-hunt-crg.js and standalone-mutmut.js — standalone utilities, not pipeline phases), and test_hand_maintained_list_names_only_files_that_exist stops a stale name on that list from becoming a free pass for whatever file later takes it"
   fixed_in: "Round 36 站2 (completeness pair alongside the parity check)"
 
+- test: tests/test_configuration_doc.py::test_every_registry_default_matches_the_doc
+  bug: "documented-default drift (Round 36). Check A next to it asks whether a registry key HAS a row in docs/CONFIGURATION.md and never reads the Default column, so 47ec3fd could flip _DEFAULTS['mutation_testing'] False -> True while the operator-facing registry kept saying `false` — and both meta-tests stayed green. One key out of thirteen was wrong at the moment this check was written, which is the whole cost of the check. test_doc_row_scanner_actually_parses_the_tables is the negative control: a regex that silently matched nothing would have passed this for any document, including an empty one"
+  fixed_in: "Round 36 站0 (Default-column parity + parse negative control)"
+
+- test: tests/test_workflowgen.py::TestFeatureFlagProse::test_note_states_the_live_default
+  bug: "prose-that-acts drift (Round 36). The Gate 2/3/4 NOTE told every orchestrator sub-agent that mutation_testing is 'disabled by default (mutation_testing=false)' for three days after the loader default became True — an instruction to write the opposite of the truth into a project's harness_config.json, in a byte-identical string living in three spec modules and fanning out to four shipped JS files and four goldens. spec_shared.render_mutation_flag_note() derives it from _DEFAULTS so the sentence cannot go stale; test_no_spec_module_hand_writes_the_flag_default keeps a fourth site from reintroducing a literal, and test_the_exempt_module_is_the_one_that_renders_it stops that exemption from outliving the renderer"
+  fixed_in: "Round 36 站1 (render-from-SSOT + completeness pair)"
+
 - test: tests/test_workflow_js_conventions.py::test_no_banned_runtime_constructs
   bug: "playbook §4 runtime-constraint regression class: scripts/workflowgen/ generating a construct the Claude Code Workflow runtime hard-rejects (import()/require()/fs.*/path.*/process.*/Date.now()/Math.random()/argless new Date()/inline schema object) would only surface as a hard failure at workflow launch time in integration-test — far downstream of this repo's own CI feedback loop"
   fixed_in: "Round 11 站5 (js_lint.py comment/string-aware scanner + conventions test)"

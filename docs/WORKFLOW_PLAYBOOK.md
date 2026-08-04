@@ -948,6 +948,8 @@ python3 scripts/workflowgen/generate_workflows.py --check   # 9/9
 
 **改任何一支 phase 生成器都會同時改動 run-all** —— golden(`tests/golden/workflowgen/run-all.js`)會在同一個 commit 的 diff 裡把這個扇出顯示出來,不會延後變成來路不明的第三方重生。
 
+> **Round 36**:`--check` 現在由 `tests/test_workflowgen_shipped_parity.py` 在測試套件裡執行,不再依賴有人記得手動跑。在此之前,**golden 比對的是生成器輸出對生成器輸出的快照,從不開啟 `.claude/workflows/`** —— 所以手改 shipped 檔案可以讓全套測試保持綠,而 `--check` 同時回報 DRIFT(883e9ca 四個檔;Round 20 站4 的守衛條目也記過同一件事)。手改 shipped 檔案的正解永遠是:改 `scripts/workflowgen/`,然後在**同一個 commit** 內 `--write`。
+
 維護時必須知道的四件事:
 
 | 事項 | 說明 |

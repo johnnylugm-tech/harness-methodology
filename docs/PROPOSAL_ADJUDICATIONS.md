@@ -1300,3 +1300,88 @@ R19 母體的又一次：測試與被測物共享同一個過於樂觀的前提�
 唯一帶 mutation artifact 的是 taskq-advance（`score=78.2`）；其餘四個 artifact 皆缺席，
 本輪之後這個缺席只有一個意思——沒人跑過那個指令。
 taskq-renew 的 `scope_drift` 現在會叫，且已位於 `score: null` 分支之前，會真的被回報。
+
+---
+
+## Round 36 — 一次 default 翻轉，六份陳述只改了一份
+
+觸發：老闆問 `883e9ca`「它是不是破壞了不要直接改 workflow JS 的規定？」
+
+答案是破壞了。但它報告的缺陷屬實，只是修在葉子上。
+
+> **母體（第八次）**：真正被消費的那份產物，不是被驗證的那份產物。
+> R33 是「一份合約五個陳述」、R34 是「兩種語意一個時點」，
+> 這次是**一個 default 六份陳述，而唯一自動執行的檢查看的是第七份（golden）**。
+
+### 病因：`47ec3fd`
+
+| commit | 動作 |
+|---|---|
+| `5be1d78` | 建旗標，`_DEFAULTS["mutation_testing"] = False`。當時六份陳述**全部正確** |
+| `47ec3fd` | 翻成 `True`，改了 loader、本 repo 的 `harness_config.json`、一支測試 |
+
+翻轉後仍停在舊值的五份：
+
+| # | 位置 | 能做什麼 |
+|---|---|---|
+| 1 | `core/harness_config.py` `_DEFAULTS` | ✅ 唯一有程式讀的那份 |
+| 2 | `docs/CONFIGURATION.md` 表格 Default 欄 | 操作者照它設定 |
+| 3 | `docs/CONFIGURATION.md` JSON 範例 | 被讀成 default 表 |
+| 4 | `harness_config.py` docstring 範例 | 同上 |
+| 5 | `spec_phase{3,4,6}.py` 的 NOTE（逐字相同） | **會行動**：指示 Gate 2/3/4 orchestrator 把與 loader 相反的值寫進專案 config |
+| 6 | 5 派生的 4 支 shipped JS + 4 支 golden | `883e9ca` 只改了 shipped 那一半 |
+
+`883e9ca` 修的是第 6 項的一半。生成器仍持舊值 → **下一次 `--write` 會靜默還原它**。
+
+### 三個獨立缺口，各補一個機制
+
+| 缺口 | 事實 | 修法 |
+|---|---|---|
+| **G1** 文件只驗鍵存在不驗值 | `test_every_registry_key_is_documented` 檢查 `` `key` in doc ``。實測 13 鍵中**恰好 1 個** Default 欄與 registry 不符 | `test_every_registry_default_matches_the_doc` + 解析負控制 |
+| **G2** 沒有任何測試/hook/CI 跑 `--check` | golden 比對 `generate()` ↔ `tests/golden/`，**從不開啟 `.claude/workflows/`**；94 支 workflowgen 測試全綠時 `--check` rc=1 | `test_workflowgen_shipped_parity.py` —— 把 `--check` 變成測試 |
+| **G3** 生成器散文斷言 Python 事實卻無綁定 | R17 站1 已替 GATE1 prompt 建過同型 registry，workflow JS 這面從未納入 | `spec_shared.render_mutation_flag_note()` 從 `_DEFAULTS` 渲染；三處硬編字串消失 |
+
+### 兩件量出來的事
+
+**本輪對 `.claude/workflows/*.js` 的淨變動是零位元組。** 渲染器產出的文字與
+`883e9ca` 手寫的**逐位元組相同**，所以 `--check` 從 4/9 DRIFT 變 9/9 OK
+而完全沒有跑 `--write`。這同時證明：本輪沒有改變任何 agent 收到的指令，
+只改變了那句話的來源。golden 之所以移動，正是因為它是 `883e9ca` 沒碰到的另一半。
+
+**死守衛登記已更正。** `REGRESSION_GUARDS.yaml` 把
+`test_generated_output_matches_golden` 登記為「hand-edit landing directly on a
+generated .js file」的修復——它結構上偵測不到那件事。這條登記錯誤是這五輪
+沒人補上 `--check` 的原因：**registry 說這一類已經關了。**
+R20 站4 的守衛條目自己寫過「`--check` had been reporting 5/8 DRIFT since
+e2b98b6」「the two commits after it did not run `--check`」—— 看見了，沒有關掉，這是第二次。
+
+### 一項計畫外的發現（測試前提錯，不是 repo 錯）
+
+完備性測試第一版斷言「每支 shipped `.js` 都由生成器產生」，抓到
+`bug-hunt-crg.js` 與 `standalone-mutmut.js`。這兩支是**刻意手維護的獨立工具**
+（不是 pipeline phase），Round 11 從未打算遷移它們。錯的是我的前提。
+改為具名清單 + 陳舊名稱負控制：新檔案仍會被擋，既有兩支不需搬遷。
+
+### 明列不做（附再開條件）
+
+- **不新增 pre-commit hook step**：現行 hook 全部 non-blocking，加一個會擋的
+  step 是政策變更。測試已在 CI 擋住。若哪天 hook 政策改為可阻擋，一併重議。
+- **不新增 CI step**：測試套件本來就在 CI 跑，再加一個 step 就是第二份陳述，
+  正是本輪在修的東西。
+- **`.methodology/phaseN_plan.md` 不納入 shipped-parity**：那是 per-project
+  執行期狀態，`plan-all` 每次重生，與受版控的 build artifact 不同類。
+  若它哪天變成受版控的交付面再開。
+- **`47ec3fd` 那次翻轉本身不重議**：本輪認定 `_DEFAULTS` 為權威、其餘五份為錯。
+  若老闆的意思是預設該關，那是**另一個決定**（改 `_DEFAULTS` 一處），
+  本輪的機制修復不受影響——這正是把值收斂到一處的好處。
+
+### 承 / 啟
+
+- 承 R11（workflowgen 遷移）、R17 站1（prompt↔SSOT 綁定）、R20 站4（同一個
+  `--check` 缺口的第一次現身）、R23 站2（死守衛同型）、R33 站1（`anchor_for`
+  render-from-SSOT 前例）。
+- **替代假說**：「shipped 與 generated 必須位元組相同」也可能存在刻意例外
+  （某支 JS 曾被允許先手動落地）。反面證據：`--check` 的存在本身就是這條規則的宣告，
+  且 R20 站4 把 DRIFT 記為缺陷而非設計；本輪實測 9/9 全部可由生成器重現。
+- R33 記的「以不同作者的 commit 覆核」**本輪達成**——`883e9ca` 由老闆撰寫，
+  本輪是對它的覆核，並推翻了它的歸因層級（葉子 vs 病因）。
