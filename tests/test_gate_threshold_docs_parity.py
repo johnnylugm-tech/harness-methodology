@@ -57,9 +57,11 @@ class ProseSite(NamedTuple):
 # Files that state gate thresholds in prose, and the gate each one describes.
 PROSE_SITES: tuple[ProseSite, ...] = (
     # Workflow prose handed to the Gate 3 / Gate 4 orchestrator sub-agents.
-    # (.claude/workflows/*.js is generated FROM these by workflowgen and is
-    # kept in step by generate_workflows.py --check, so it is not listed
-    # separately — fixing the generator fixes the artifact.)
+    # (.claude/workflows/*.js is generated FROM these by workflowgen, so it is
+    # not listed separately — fixing the generator fixes the artifact. Round
+    # 36: this comment used to say the artifact was "kept in step by
+    # generate_workflows.py --check"; nothing ran --check. What keeps it in
+    # step is tests/test_workflowgen_shipped_parity.py.)
     ProseSite("scripts/workflowgen/spec_phase4.py", 3),
     ProseSite("scripts/workflowgen/spec_phase6.py", 4),
     # Hand-written operator SOPs. P5/P7/P8 re-run Gate 1 as GATE1-DELTA, so

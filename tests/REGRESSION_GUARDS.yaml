@@ -227,8 +227,16 @@
   fixed_in: "Round 11 站0 (scripts/workflow_audit/extract.py + plan-alignment registries)"
 
 - test: tests/test_workflowgen_golden.py::test_generated_output_matches_golden
-  bug: "generated-artifact drift class: .claude/workflows/*.js became workflowgen output (SSOT moved to scripts/workflowgen/) during Round 11 — a hand-edit landing directly on a generated .js file (the exact 'patch the submodule copy' shape HR-17 forbids and this migration exists to end) would silently diverge from the generator, undetected until the next regeneration silently overwrote it"
-  fixed_in: "Round 11 站1-4 (workflowgen migration, golden byte-equal harness)"
+  bug: "prose-change-invisible-in-review class: workflowgen emits thousands of lines of JS string literals, so a deliberate change to what a phase tells its sub-agents would land as an unreviewable regeneration diff unless the golden moves in the SAME commit. Byte-equal pinning forces the prose delta into that commit's diff. CORRECTED SCOPE (Round 36): this entry previously claimed to guard 'a hand-edit landing directly on a generated .js file', which it structurally cannot — it compares generate(phase) against tests/golden/workflowgen/phaseN.js and never opens .claude/workflows/. 883e9ca hand-edited four shipped files and all 94 workflowgen tests stayed green while generate_workflows.py --check reported 4/9 DRIFT. That bug is now guarded by test_workflowgen_shipped_parity.py"
+  fixed_in: "Round 11 站1-4 (workflowgen migration, golden byte-equal harness); scope corrected in Round 36 站2"
+
+- test: tests/test_workflowgen_shipped_parity.py::test_shipped_workflow_matches_generator
+  bug: "hand-edit-on-a-generated-artifact class, unguarded from Round 11 until Round 36 despite being registered as guarded (see the corrected test_generated_output_matches_golden entry above). .claude/workflows/*.js is what the Workflow tool loads and what every orchestrator agent reads; it has been generator output since Round 11 and generate_workflows.py --check exists to say so, but no test, hook or CI step ever ran --check. So an edit landing directly on a shipped file left the whole suite green and survived only until the next --write silently reverted it. Twice on record: 883e9ca (four files, the mutation_testing NOTE) and, in Round 20 站4's own guard text, '--check had been reporting 5/8 DRIFT since e2b98b6' with 'the two commits after it did not run --check'. This is --check as a test"
+  fixed_in: "Round 36 站2 (tests/test_workflowgen_shipped_parity.py; the fix for the underlying stale value is Round 36 站1)"
+
+- test: tests/test_workflowgen_shipped_parity.py::test_shipped_directory_holds_nothing_unaccounted_for
+  bug: "exemption-by-omission: the parity check above only reaches files a generator produces, so a NEW un-generated .js dropped into .claude/workflows/ would be exactly as unguarded as the shipped files were before Round 36. Every file is now either generated or on a named hand-maintained list (bug-hunt-crg.js and standalone-mutmut.js — standalone utilities, not pipeline phases), and test_hand_maintained_list_names_only_files_that_exist stops a stale name on that list from becoming a free pass for whatever file later takes it"
+  fixed_in: "Round 36 站2 (completeness pair alongside the parity check)"
 
 - test: tests/test_workflow_js_conventions.py::test_no_banned_runtime_constructs
   bug: "playbook §4 runtime-constraint regression class: scripts/workflowgen/ generating a construct the Claude Code Workflow runtime hard-rejects (import()/require()/fs.*/path.*/process.*/Date.now()/Math.random()/argless new Date()/inline schema object) would only surface as a hard failure at workflow launch time in integration-test — far downstream of this repo's own CI feedback loop"
