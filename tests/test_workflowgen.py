@@ -332,19 +332,38 @@ class TestFeatureFlagProse:
                 f"phase{phase} NOTE does not spell the default as {expect_kv}"
             )
 
+    # The one module allowed to spell the value: it is the renderer that
+    # derives it from _DEFAULTS. Everything else must call the renderer.
+    _RENDERER_MODULE = "spec_shared.py"
+
+    def _spec_dir(self):
+        from pathlib import Path
+
+        return Path(__file__).resolve().parents[1] / "scripts" / "workflowgen"
+
     def test_no_spec_module_hand_writes_the_flag_default(self):
         """Completeness: the boolean is rendered from _DEFAULTS in one place.
         A fourth site hand-writing it is the drift class reopening."""
-        from pathlib import Path
-
-        specs = Path(__file__).resolve().parents[1] / "scripts" / "workflowgen"
         offenders = [
-            p.name for p in sorted(specs.glob("spec_*.py"))
-            if "mutation_testing=true" in p.read_text(encoding="utf-8")
-            or "mutation_testing=false" in p.read_text(encoding="utf-8")
+            p.name for p in sorted(self._spec_dir().glob("spec_*.py"))
+            if p.name != self._RENDERER_MODULE
+            and ("mutation_testing=true" in p.read_text(encoding="utf-8")
+                 or "mutation_testing=false" in p.read_text(encoding="utf-8"))
         ]
         assert not offenders, (
             f"{offenders} hand-write the mutation_testing default. Render it "
-            f"from core.harness_config._DEFAULTS via spec_shared instead — a "
-            f"literal here is what 47ec3fd left stale in three files"
+            f"from core.harness_config._DEFAULTS via "
+            f"spec_shared.render_mutation_flag_note() instead — a literal "
+            f"here is what 47ec3fd left stale in three files"
+        )
+
+    def test_the_exempt_module_is_the_one_that_renders_it(self):
+        """The exemption above is granted to a renderer, not to a filename —
+        if the renderer moves or is deleted, the exemption must not survive
+        it as a free pass for hand-written values."""
+        src = (self._spec_dir() / self._RENDERER_MODULE).read_text(encoding="utf-8")
+        assert "def render_mutation_flag_note()" in src
+        assert "_DEFAULTS" in src, (
+            "the renderer no longer reads core.harness_config._DEFAULTS — it "
+            "is a second hand-written copy again"
         )

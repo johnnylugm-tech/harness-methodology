@@ -8,6 +8,11 @@ no-op). `tests/test_configuration_doc.py` fails the build if a registry key
 is added without a row here, or an env var is read without appearing in the
 table below.
 
+The values in the example below are illustrative **overrides**, not the
+defaults — every default is in the tables that follow, and
+`tests/test_configuration_doc.py` compares those tables against the registry
+that decides them.
+
 ```json
 {
   "version": 1,
@@ -29,7 +34,7 @@ table below.
 
 | Key | Default | Effect |
 |---|---|---|
-| `mutation_testing` | `false` | Enables the mutation_testing gate dimension (mutmut / Stryker). |
+| `mutation_testing` | `true` | Enables the mutation_testing gate dimension (mutmut / Stryker). Default flipped from `false` by 47ec3fd; set it `false` to opt out, and the harness drops the dimension and re-normalises the composite score. |
 | `phase4_llm_review` | `true` | Enables the adversarial_review dimension (Phase 4 LLM bug hunt). |
 | `crg_architecture` | `true` | Enables the CRG-backed architecture dimension. |
 | `cross_artifact_live_cov` | `false` | finalize-gate cross-artifact check re-runs live `pytest --cov` (up to ~120s) instead of reusing `.coverage` data. The `HARNESS_CROSS_ARTIFACT_COV` env var overrides this per invocation. |

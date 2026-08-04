@@ -1,7 +1,9 @@
 """Global per-project harness configuration — the ONE place a tunable lives.
 
 Config file: <project>/.methodology/harness_config.json
-Schema version 1::
+Schema version 1 (the values below are illustrative overrides, not the
+defaults — those are ``_DEFAULTS`` / ``_VALUE_DEFAULTS`` in this module, and
+docs/CONFIGURATION.md tabulates them)::
 
     {
       "version": 1,

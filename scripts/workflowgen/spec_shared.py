@@ -37,6 +37,41 @@ def render_phase_complete_marker() -> str:
     return f"  {PHASE_COMPLETE_KEY}: true,\n"
 
 
+# Round 36 — the prose that tells an agent a feature-flag default reads it.
+#
+# 47ec3fd flipped _DEFAULTS["mutation_testing"] False -> True and updated the
+# loader only. This sentence, byte-identical in spec_phase3/4/6, kept saying
+# "disabled by default (mutation_testing=false)" — so the Gate 2/3/4
+# orchestrator was instructed to write into a project's harness_config.json
+# the opposite of what the loader would do with it. 883e9ca corrected the
+# generated .claude/workflows/*.js by hand, which the next `--write` would
+# have reverted, because the generator still held the stale value.
+#
+# Rendering it removes the copy rather than adding a check on the copy: the
+# next flip of the flag moves this sentence with it. Same shape as
+# spec_phase1's anchor_for (Round 33 站1).
+def render_mutation_flag_note() -> str:
+    """The Gate 2/3/4 NOTE about the mutation_testing feature flag.
+
+    Returns a line ending in an escaped newline, for inlining into a
+    generated JS string literal.
+    """
+    from core.harness_config import _DEFAULTS
+
+    if _DEFAULTS["mutation_testing"]:
+        state, value, verb, effect = "enabled", "true", "disable", "excludes it from"
+        flip = "false"
+    else:
+        state, value, verb, effect = "disabled", "false", "enable", "includes it in"
+        flip = "true"
+    return (
+        f"   NOTE: mutation_testing is {state} by default via "
+        f".methodology/harness_config.json (mutation_testing={value}). "
+        f"To {verb}, set it {flip} in harness_config.json — the harness then "
+        f"{effect} the dim list and re-normalises the composite score.\\n"
+    )
+
+
 def _render_meta(*, name: str, description: str, phases: list[str]) -> str:
     lines = ["export const meta = {", f"  name: '{name}',"]
     lines.append(f"  description: '{description}',")
