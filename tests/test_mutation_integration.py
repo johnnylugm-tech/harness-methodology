@@ -19,6 +19,7 @@ from core.quality_gate.mutation_enforcer import (
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mutmut_smoke"
+BARE_CFG_FIXTURE = Path(__file__).parent / "fixtures" / "mutmut_bare_cfg"
 
 pytestmark = [
     pytest.mark.integration,
@@ -49,3 +50,22 @@ def test_real_mutmut_end_to_end(tmp_path):
     killed, survived = _count_mutmut_results(cache)
     assert killed >= 1, (killed, survived)
     assert survived >= 1, (killed, survived)
+
+
+def test_real_mutmut_on_a_project_that_declares_no_pytest_config(tmp_path):
+    """Round 35 站0 — the same pipeline on the shape that broke.
+
+    `mutmut_smoke` declares `[tool:pytest] testpaths` and `pythonpath`; every
+    run of the test above therefore exercised the well-configured project.
+    `mutmut_bare_cfg` copies a live project: a setup.cfg that exists and says
+    nothing about pytest, with the source reached through a conftest.py
+    sys.path insertion. The workdir bootstrap wrote no pytest target for it,
+    mutmut's baseline collected nothing, and the dimension reported 0.0.
+    """
+    project = tmp_path / "proj"
+    shutil.copytree(BARE_CFG_FIXTURE, project)
+
+    ok, score, message = compute_mutation_score(project)
+
+    assert ok, f"pipeline failed on a project with no [tool:pytest]: {message}"
+    assert score is not None and 0.0 < score < 100.0, (score, message)
