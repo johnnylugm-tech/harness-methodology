@@ -1145,3 +1145,39 @@
 - test: tests/test_deliverable_anchor_invariant.py::test_zero_anchored_files_is_recorded_not_silently_passed
   bug: "zero failures out of zero files read as a pass; 'we could not look' must not be reported as 'we looked and it was fine' (R30 站6 / R31 站4 denominator protection)"
   fixed_in: "R34-站2"
+
+- test: tests/test_mutation_could_not_measure.py::test_a_project_with_no_pytest_section_still_gets_a_workdir_target
+  bug: "the mutmut workdir got a [tool:pytest] testpaths only when the project had NO setup.cfg; a project whose setup.cfg carried just [coverage:run] got no pytest target and mutmut's baseline collected nothing"
+  fixed_in: "R35-站1"
+
+- test: tests/test_mutation_could_not_measure.py::test_the_workdir_baseline_actually_collects_tests
+  bug: "asserting the generated config says testpaths is not the same as pytest finding tests there; mutmut 2.5.1's tests_dir never reaches the runner (__main__.py:340-352), so only the collection proves it"
+  fixed_in: "R35-站1"
+
+- test: tests/test_mutation_integration.py::test_real_mutmut_on_a_project_that_declares_no_pytest_config
+  bug: "the only real-mutmut fixture declared testpaths AND pythonpath, so the end-to-end test ran green over a workdir bootstrap that failed on every project shaped otherwise"
+  fixed_in: "R35-站1"
+
+- test: tests/test_mutation_could_not_measure.py::test_a_run_that_could_not_start_reports_no_score_rather_than_zero
+  bug: "eleven abort paths returned score 0.0 beside success=False, and every consumer reads the number: a Gate 2 blocked on 'scored 0.0, needs 75.0' for a run that never produced a mutant (Round 32 站4's rule, unapplied to mutation)"
+  fixed_in: "R35-站2"
+
+- test: tests/test_mutation_could_not_measure.py::test_the_artifact_records_that_the_framework_could_not_measure
+  bug: "mutation_score.json was written on success only, so its absence meant both 'nobody ran the command' and 'the framework ran it and could not measure'"
+  fixed_in: "R35-站2"
+
+- test: tests/test_mutation_could_not_measure.py::test_the_prompt_does_not_present_a_placeholder_zero_as_a_measurement
+  bug: "evaluate_dimension.md told the agent to write tool_score=0 on failure 'per the mutmut unavailable path below', and that path forbids writing a score file at all — the framework produced the exact value the gate's early exit keyed on"
+  fixed_in: "R35-站2"
+
+- test: tests/test_mutation_could_not_measure.py::test_the_gate_reads_a_null_score_as_infrastructure_not_as_a_verdict
+  bug: "a run the framework could not measure would have been filed as tool_score_fabrication, whose remediation says the score and not the run is what failed"
+  fixed_in: "R35-站3"
+
+- test: tests/test_mutation_could_not_measure.py::test_a_missing_artifact_is_infrastructure_too
+  bug: "the block for a missing artifact carried the fabrication remediation ('do NOT re-run') while the correct action was to run the command that writes it"
+  fixed_in: "R35-站3"
+
+- test: tests/test_mutation_could_not_measure.py::test_a_self_reported_zero_does_not_switch_off_the_framework_check
+  bug: "S4 skipped every check for a dimension the agent reported as failing, so a self-reported 0 disabled the framework's own artifact and scope-drift checks — the only two that could tell a harness fault from a project debt"
+  fixed_in: "R35-站3"

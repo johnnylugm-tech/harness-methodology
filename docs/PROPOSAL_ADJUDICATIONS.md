@@ -1184,3 +1184,119 @@ exit 17（finalize-gate 未呼叫 Gate 1 per-FR）。那是既有的、更早的
   那本輪做的是把一個該減掉的東西執法得更嚴。
 - R33 記下的「下輪應以不同作者的 commit 覆核」**本輪未執行**——本輪的觸發是老闆的提問，
   不是新的 commit 覆核。該條款仍然待辦。
+
+---
+
+## Round 35 — 框架量不出來的時候，說出口的是「零分」
+
+**起因**：老闆令查 taskq-renew 的 P1/P2 執行狀況並驗證 R32/R33 是否生效。
+R32 六站、R33 三站都量到生效（見下），但同一次量測在 `mutation_testing` 這條路上
+挖出三個互相接續的活缺陷，當時正卡住該專案的 Gate 2。
+
+### 前置量測：R32/R33 在一個乾淨對照組上的生效狀況
+
+taskq-renew 於 08-04 02:15 init，`enforcer_sha` 記錄 P1/P2 兩次都是 `100cda5`（R33 站6），
+R34 尚未存在——**只帶 R32+R33 的一次完整 P1→P2**。
+
+| 改動 | 結論 | 證據 |
+|---|---|---|
+| R33 站1 錨點 SSOT | **生效** | 7/7 交付物首行合規（前四個專案的 TRACEABILITY_MATRIX 首行都是空的） |
+| R33 站3b 內容定址找 block | **生效且非空轉** | 版面高度客製的 SRS 仍解出 8 FR / 12 NFR，分母不為零 |
+| R33 站3 NFR 詞彙 | **一半生效** | `dimension:` 12/12 合法且真的被檢；`type:` 見下方缺口 |
+| R32 站1 sentinel 收據 | **生效** | 8/8 `.finalized` 帶 schema/score/result_sha256/enforcer_sha/ts |
+| R32 站2 三通道對賬 | **生效** | 每個維度都有 `evidence_digest`，含 setup.cfg 指紋 |
+| R32 站3 PYTHONPATH | **生效** | 8 個 FR 的 architecture_constraints 全 100，`lint-imports exit=0`——站3 修的 `Could not find package` 沒再出現 |
+| R32 站6 里程碑內容為真 | **生效** | 里程碑 commit 宣稱的 8 FR 對得上 fr_progress + 8 收據 + 8 timestamps |
+| R32 站4 量不出來 ≠ 零 | **有洞** | 見下 |
+
+### 三個缺陷是一條鏈
+
+> **框架量不出來的時候，它說出口的是「零分」；而零分是被判定方的成績，不是框架的狀態。**
+
+**D1（站1）workdir 的 pytest 目標。** `_copy_setup_cfg_to_workdir` 只在
+`if not setup_cfg.exists():` 分支寫 `[tool:pytest] testpaths`。Bug #43 加這個寫入的理由正確
+（mutmut 的 baseline 以 workdir 為 cwd 跑 pytest），條件卻掛在「專案有沒有 setup.cfg」。
+taskq-renew 有，裡面只有 `[coverage:run]`——測試靠 conftest.py 的 sys.path 插入找到 src，
+所以從來不需要宣告 testpaths。用框架自己的函式重現：workdir cfg 無 pytest 目標，
+`pytest -x --assert=plain` rc=5「no tests collected」，mutmut raise。
+
+**D2（站2）量不出來回報 0.0。** `compute_mutation_score` 有 11 個 `return False, 0.0`。
+下游只讀數字不讀旗標。這正是 R32 站4 從 `_score_pytest` / `_score_exit_code_binary` /
+`_score_pytest_benchmark` 拔掉的形狀，mutation 不在那站射程內。
+
+**D3（站3）自報失敗即免審。** `harness_bridge.py:1418` 的早退在 1525 之前，
+所以 `_mutation_artifact_violations`（R31 站2 + 站4 的全部執法）在 agent 自報失敗時從未執行。
+taskq-renew 實測：`mutation_score.json` 不存在、`scope_drift` 現在就會叫，兩者都沒被回報。
+
+三者任一單獨修好都不足：D1 產生失敗 → D2 把失敗翻成 0 分 → D3 讓那個 0 分關掉所有還能識破它的檢查。
+
+### 兩個在修復途中才看見的形狀
+
+**框架自己教出那個 0。** `evaluate_dimension.md:267` 寫著
+「If `success` is `false` … write `tool_score=0` **per the "mutmut unavailable" path below**」，
+而那條 path 說評估 SUSPENDED、不要寫 score 檔——**指令引用了一條禁止它自己的規則**。
+agent 寫的 0 是照指示辦事，而那正是 D3 早退的觸發值。這是 R17 母體的又一次：
+prompt 與 gate 是同一條規則的兩份陳述，這次是 prompt 那份在生產有害值。
+
+**既有 fixture 太友善。** `tests/fixtures/mutmut_smoke/setup.cfg` 宣告了 testpaths 與
+pythonpath，所以那支**真 mutmut 端到端測試**（預設就跑、跑了很久）從來只見過設定良好的專案。
+R19 母體的又一次：測試與被測物共享同一個過於樂觀的前提。新 fixture `mutmut_bare_cfg/`
+複製真實專案的形狀，站1 的修復由它端到端證明。
+
+### 一項計畫偏離（不做，記在此）
+
+計畫寫「`Stryker produced 0 mutants` 一併改為量不出來（分母為零）」。**未做**：
+`evaluate_dimension.md` 明文寫著「score = 0 (not 100) when no mutants were produced」。
+零分母該不該算「未量測」（R27 站7 / R30 站6 的規則）與這句寫下的規則直接衝突，
+而反轉一條寫下來的規則是裁決、不是修缺陷，超出老闆本輪界定的三個。
+**再開條件**：下一輪若處理分母保護，這兩條必須放在一起裁決，不能只改一邊。
+
+### 一項已知不精確（不改，記在此）
+
+`infra_fail` 的一行標籤是「Dimension scored zero because its tool could not run」，
+而本輪新加入的兩個成員（artifact 缺席、`score: null`）根本沒有分數。
+該標籤被三處引用（`test_unscoreable_is_not_zero.py` docstring、`docs/ERROR_HANDLING.md` 表格、
+`harness_bridge.py:1343` 註解），改它等於同時改四處。條目自身攜帶的具體理由才是操作者讀的東西，
+標籤留原樣。**再開條件**：若再有第三類無分數成員加入，標籤就該連同三處引用一起改。
+
+### 刻意的行為改變
+
+「artifact 缺席」與「scope 漂移」從 `tool_score_fabrication` 改列 `infra_fail`。
+兩者都是擋，差別在指令：前者的既定修法是「不要重跑，是分數錯了」，
+而 artifact 缺席的正確動作恰恰是去跑那個指令。三個既有測試因此更新，這是本輪的目的不是副作用。
+
+### 明列不做
+
+- **R33 站3 的 `type:` 缺席**：taskq-renew 的 12 個 NFR，SRS 機讀 block 的 `type:` 全部是 None，
+  `illegal_nfr_vocabulary` 的 `if raw_type is not None` 跳過必填欄位（`templates/SRS.md:107`
+  寫著必填），值到 SAD 的 SAB block 才首次出現——**上游缺席、下游發明**，是 R34 記的 F3
+  形狀降一階。老闆本輪界定的是那三個缺陷；這是 SRS↔SAD 傳輸面的另一條線，另案。
+- **taskq-renew 專案本身不動**（全程唯讀，`git status --short` 指紋前後相同）。
+  它的 Gate 2 會因本輪修復而能真正跑出 mutation 分數，何時重跑由老闆決定。
+
+### 承 / 啟
+
+- 承 R32 站4（量不出來 ≠ 零，本輪把它補到 mutation）、R31 站2/站4（框架自有數字與範圍對賬，
+  本輪讓它們真的會執行）、R13（HARNESS_BUG 不進 CODE-FIX）、R17（prompt↔gate 兩份陳述）、
+  R19（fixture 與被測物同源）。
+- **替代假說**：D3 也可能是刻意的成本取捨——跨驗證很貴，只查宣稱成功確實省下大部分。
+  反面證據是代價已經發生：一個 harness bug 被寫成專案的 mutation 債，
+  而唯二能識破它的檢查都掛在那條 `continue` 後面。
+- R33 記的「以不同作者的 commit 覆核」**仍待辦**（本輪觸發是老闆的查證指令）。
+
+### 唯讀冒煙：D1 影響 5 個專案中的 2 個
+
+指紋前後相同（`git status --short | md5`，五個專案逐一比對），只寫 `/tmp`。
+
+| 專案 | 自己的 setup.cfg | 有 `[tool:pytest]` | **修復前**的 workdir 目標 | 修復後 |
+|---|---|---|---|---|
+| taskq | 無 | — | 有（走「無 setup.cfg」那條分支） | OK |
+| taskq-plus | 有 | 無 | **無目標** | OK |
+| taskq-advance | 有 | 有 | 有（來自專案自己的宣告） | OK |
+| taskq-renew | 有 | 無 | **無目標** | OK |
+| run-all-by-workflow | 無 | — | 有 | OK |
+
+**這不是單一專案的巧合**：兩個專案落在「有 setup.cfg 但不談 pytest」這個舊分支照不到的位置。
+唯一帶 mutation artifact 的是 taskq-advance（`score=78.2`）；其餘四個 artifact 皆缺席，
+本輪之後這個缺席只有一個意思——沒人跑過那個指令。
+taskq-renew 的 `scope_drift` 現在會叫，且已位於 `score: null` 分支之前，會真的被回報。
