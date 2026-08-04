@@ -18,6 +18,7 @@ preflight/postflight/push-path registry pattern):
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,64 @@ def test_env_scanner_actually_sees_known_reads():
     reads — an empty scan result would green-light anything."""
     keys = _env_keys_read_by_production_code()
     assert "HARNESS_NO_GIT" in keys and len(keys["HARNESS_NO_GIT"]) >= 2
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Round 36 — the row exists is not the row is true
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Check A above asks whether a key HAS a row. It never reads the Default
+# column. 47ec3fd flipped _DEFAULTS["mutation_testing"] False -> True and
+# left the doc saying `false`; both checks stayed green for three days while
+# the operator-facing registry stated the opposite of the loader.
+
+_DOC_ROW = re.compile(r"^\|\s*`([a-z_0-9]+)`\s*\|\s*(.*?)\s*\|")
+
+
+def _documented_defaults() -> dict[str, str]:
+    """key -> the Default cell, stripped of markdown emphasis and backticks."""
+    found: dict[str, str] = {}
+    for line in DOC.read_text(encoding="utf-8").splitlines():
+        m = _DOC_ROW.match(line)
+        if m and m.group(1) not in found:
+            found[m.group(1)] = m.group(2).replace("*", "").strip().strip("`")
+    return found
+
+
+def _as_doc_literal(value: object) -> str:
+    """Render a registry default the way a JSON-flavoured doc cell spells it."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return f'"{value}"'
+    return str(value)
+
+
+def test_every_registry_default_matches_the_doc():
+    """The Default column is a statement about _DEFAULTS / _VALUE_DEFAULTS —
+    it has to agree with them.
+
+    Scope is those two registries: the crg_* top-level pair documents its
+    default in prose ("unset (scorer default 0.3)") because the value lives
+    in the scorer, not in a registry dict, so there is nothing here to
+    compare it against.
+    """
+    rows = _documented_defaults()
+    wrong = {
+        key: (_as_doc_literal(value), rows.get(key, "<no table row>"))
+        for key, value in {**_DEFAULTS, **_VALUE_DEFAULTS}.items()
+        if rows.get(key) != _as_doc_literal(value)
+    }
+    assert not wrong, (
+        f"docs/CONFIGURATION.md Default column disagrees with the registry "
+        f"{{key: (code, doc)}}: {wrong} — the loader is authoritative; fix "
+        f"the doc, or fix the registry if the doc is what you meant"
+    )
+
+
+def test_doc_row_scanner_actually_parses_the_tables():
+    """Negative control for the regex: a parse that silently returns nothing
+    would make the check above pass for any doc, including an empty one."""
+    rows = _documented_defaults()
+    assert len(rows) >= 10, f"only parsed {len(rows)} rows out of CONFIGURATION.md"
+    assert rows.get("permission_mode") == '"bypassPermissions"'

@@ -297,3 +297,54 @@ class TestNfrTypeLegalityInPhase1Checklist:
         for phase in (4, 5, 7, 8):
             text = generate(phase)
             assert "BACKOFF intervals" in text, f"phase{phase} lost the backoff instruction"
+
+
+class TestFeatureFlagProse:
+    """Round 36 — the workflow prose states a feature-flag default, so that
+    statement is bound to the registry that decides it.
+
+    47ec3fd flipped `_DEFAULTS["mutation_testing"]` False -> True and updated
+    only the loader. The Gate 2/3/4 NOTE kept telling every orchestrator
+    sub-agent the dimension was "disabled by default (mutation_testing=false)"
+    — an instruction to write the opposite of the truth into a project's
+    harness_config.json.
+    """
+
+    _FLAG_PHASES = (3, 4, 6)
+
+    def test_note_states_the_live_default(self):
+        from core.harness_config import _DEFAULTS
+
+        enabled = _DEFAULTS["mutation_testing"]
+        expect_word = "enabled" if enabled else "disabled"
+        expect_kv = f"mutation_testing={'true' if enabled else 'false'}"
+        for phase in self._FLAG_PHASES:
+            text = generate(phase)
+            assert "NOTE: mutation_testing is " in text, (
+                f"phase{phase} lost the mutation_testing flag NOTE"
+            )
+            assert f"NOTE: mutation_testing is {expect_word} by default" in text, (
+                f"phase{phase} tells the agent mutation_testing is "
+                f"{'disabled' if enabled else 'enabled'} by default; "
+                f"_DEFAULTS says {enabled}"
+            )
+            assert expect_kv in text, (
+                f"phase{phase} NOTE does not spell the default as {expect_kv}"
+            )
+
+    def test_no_spec_module_hand_writes_the_flag_default(self):
+        """Completeness: the boolean is rendered from _DEFAULTS in one place.
+        A fourth site hand-writing it is the drift class reopening."""
+        from pathlib import Path
+
+        specs = Path(__file__).resolve().parents[1] / "scripts" / "workflowgen"
+        offenders = [
+            p.name for p in sorted(specs.glob("spec_*.py"))
+            if "mutation_testing=true" in p.read_text(encoding="utf-8")
+            or "mutation_testing=false" in p.read_text(encoding="utf-8")
+        ]
+        assert not offenders, (
+            f"{offenders} hand-write the mutation_testing default. Render it "
+            f"from core.harness_config._DEFAULTS via spec_shared instead — a "
+            f"literal here is what 47ec3fd left stale in three files"
+        )
