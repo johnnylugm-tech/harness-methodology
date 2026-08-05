@@ -88,6 +88,12 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         anchor its path declares in DELIVERABLE_ANCHORS — the Phase 1/2
         orchestrator reloads it with that anchor and would abort after 3
         attempts; fix the H1 in the named file
+    31  verify-ci: GitHub Actions reports at least one failing run for the
+        pushed commit — the push landed, the build did not; fix the named
+        job(s) and re-push before advancing
+    32  verify-ci: the CI verdict could not be obtained (no gh, no network, no
+        origin remote, or no run has appeared yet) — INFRA, not a pass;
+        re-run once CI has reported
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

@@ -431,16 +431,73 @@ def _post_push_self_check(project: Path) -> list[str]:
             out.append(_line[3:].strip())
     return out
 
-def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
-    """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast.
+def head_sha(project: Path) -> str:
+    """HEAD's SHA, or "" when git cannot answer."""
+    import subprocess as _sp
+    try:
+        proc = _sp.run(["git", "-C", str(project), "rev-parse", "HEAD"],
+                       capture_output=True, text=True, timeout=30)
+    except (OSError, _sp.SubprocessError):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
 
-    Git is disabled if either --no-git or --dry-run is set. --dry-run is the
-    preferred safety flag for push-milestone (Bug #112) — it prevents accidental
-    origin pollution when exercising the command during bug hunts.
+
+def post_push_ci_gate(project: Path, sha: str | None = None) -> int:
+    """After a push lands, refuse to call a red build a good push.
+
+    Round 37. taskq-renew pushed 52 times, 48 of them onto a red build, and
+    the pipeline declared PASS through Phase 9 because nothing here ever
+    asked GitHub what happened. `_post_push_self_check` above is a
+    diagnostic and never a gate; this one IS a gate.
+
+    Returns 0 when CI is green, EX_CI_RED when it is not, and
+    EX_CI_VERDICT_UNAVAILABLE when the verdict could not be obtained — the
+    last is INFRA, not a pass (Round 32 / Round 35's rule for a measurement
+    that did not happen).
     """
+    from cli.exit_codes import EX_CI_RED, EX_CI_VERDICT_UNAVAILABLE, EX_OK
+    from core.ci_verdict import (
+        DEFAULT_WAIT_SECONDS, await_ci_verdict, render_block_message, repo_slug,
+    )
+
+    if not repo_slug(project):
+        # No origin remote means no CI exists to have a verdict about. Said
+        # out loud rather than skipped silently: this is the one shape of
+        # "unavailable" that is genuinely not applicable, not merely unknown.
+        print("  [ci] not applicable — no origin remote, so no build to verify")
+        return EX_OK
+
+    sha = sha or head_sha(project)
+    verdict = await_ci_verdict(project, sha, wait_seconds=DEFAULT_WAIT_SECONDS)
+    if verdict.status == "green":
+        print(f"  [ci] {verdict.detail}")
+        return EX_OK
+    if verdict.status == "red":
+        for line in render_block_message(verdict, sha):
+            print(f"  {line}")
+        return EX_CI_RED
+    from core.degradation_ledger import record_degradation
+    record_degradation(project, "ci:verdict",
+                       f"no CI verdict for {sha[:8]}", verdict.detail)
+    print(f"  [ci] INFRA_BLOCKED: {verdict.detail}")
+    return EX_CI_VERDICT_UNAVAILABLE
+
+
+def git_enabled(args: argparse.Namespace) -> bool:
+    """Whether this invocation may touch git at all.
+
+    One statement of the rule, read by `_make_git` and by anything that must
+    not act as though a push happened when none did (Round 37's post-push CI
+    gate). --dry-run is the preferred safety flag for push-milestone (Bug
+    #112) — it prevents accidental origin pollution during bug hunts.
+    """
+    return not (getattr(args, "no_git", False) or getattr(args, "dry_run", False))
+
+
+def _make_git(args: argparse.Namespace, project: Path) -> "GitStrategy":  # noqa: F821 — lazy import
+    """Instantiate GitStrategy from parsed args. Lazy-imports to keep startup fast."""
     from harness.git_strategy import GitStrategy
-    no_git = getattr(args, "no_git", False) or getattr(args, "dry_run", False)
-    return GitStrategy(project=project, enabled=not no_git)
+    return GitStrategy(project=project, enabled=git_enabled(args))
 
 
 def ensure_fresh_attestation(project: Path) -> None:

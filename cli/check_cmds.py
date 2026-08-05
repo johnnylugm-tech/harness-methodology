@@ -228,6 +228,42 @@ def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     return code
 
 
+def cmd_verify_ci(args: argparse.Namespace) -> int:
+    """Read back what the push produced, and refuse to call red green.
+
+    Round 37. taskq-renew pushed 52 times, 48 of them onto a red build, and
+    nothing in the framework ever asked GitHub what happened — the pipeline
+    kept declaring PASS through Phase 9. `push succeeded` and `the build is
+    green` are two propositions; this enforces the second.
+
+    An unobtainable verdict exits EX_CI_VERDICT_UNAVAILABLE, never 0: no gh,
+    no network, or a run that has not appeared yet is INFRA, not a pass.
+    """
+    from core.ci_verdict import await_ci_verdict, render_block_message
+    from cli.exit_codes import EX_CI_RED, EX_CI_VERDICT_UNAVAILABLE, EX_OK
+
+    from cli._shared import head_sha
+
+    project = Path(args.project).resolve()
+    sha = getattr(args, "sha", None) or head_sha(project)
+    verdict = await_ci_verdict(
+        project, sha,
+        wait_seconds=int(getattr(args, "wait", 0) or 0),
+        runner=getattr(args, "runner", None),
+    )
+
+    if verdict.status == "green":
+        print(f"[verify-ci] OK: {verdict.detail}")
+        return EX_OK
+    if verdict.status == "red":
+        for line in render_block_message(verdict, sha):
+            print(line)
+        return EX_CI_RED
+    print(f"[verify-ci] INFRA_BLOCKED: {verdict.detail}")
+    print("  A verdict that could not be obtained is not a green verdict.")
+    return EX_CI_VERDICT_UNAVAILABLE
+
+
 def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     """Non-interactive CRG architecture gate for CI (deterministic, no LLM).
 
@@ -1293,6 +1329,18 @@ def register(sub) -> None:
     cac.add_argument("--drift-threshold", type=float, default=0.4,
                      help="Maximum structural drift vs baseline (default: 0.4)")
     cac.set_defaults(func=cmd_crg_arch_check)
+
+    # verify-ci (Round 37: read back what the push produced)
+    vci = sub.add_parser(
+        "verify-ci",
+        help="Read GitHub Actions' verdict for a pushed commit; red blocks, unobtainable is INFRA",
+    )
+    vci.add_argument("--project", default=".", help="Project root (default: .)")
+    vci.add_argument("--sha", default=None,
+                     help="Commit to ask about (default: HEAD)")
+    vci.add_argument("--wait", type=int, default=0,
+                     help="Seconds to wait for CI to report (default: 0 — ask once)")
+    vci.set_defaults(func=cmd_verify_ci)
 
     # check-test-spec-consistency (P2: TEST_SPEC.md self-consistency gate)
     ctsc = sub.add_parser(

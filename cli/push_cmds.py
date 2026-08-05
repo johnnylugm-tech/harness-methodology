@@ -143,6 +143,14 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
                 + "\n".join(f"    • {p}" for p in _dirty[:10])
                 + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
             )
+        # Round 37: the push landing and the build being green are two
+        # different propositions; only the first had an enforcer. Skipped
+        # when git is disabled (--no-git / --dry-run): nothing was pushed,
+        # so there is no build to ask about.
+        if _shared.git_enabled(args):
+            _ci_rc = _shared.post_push_ci_gate(project)
+            if _ci_rc != 0:
+                return _ci_rc
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")
@@ -472,6 +480,14 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                 + "\n".join(f"    • {p}" for p in _dirty[:10])
                 + (f"\n    ... and {len(_dirty) - 10} more" if len(_dirty) > 10 else "")
             )
+        # Round 37: the push landing and the build being green are two
+        # different propositions; only the first had an enforcer. Skipped
+        # when git is disabled (--no-git / --dry-run): nothing was pushed,
+        # so there is no build to ask about.
+        if _shared.git_enabled(args):
+            _ci_rc = _shared.post_push_ci_gate(project)
+            if _ci_rc != 0:
+                return _ci_rc
         handover = project / "HANDOVER.md"
         if handover.exists():
             print(f"  HANDOVER.md → {handover}")

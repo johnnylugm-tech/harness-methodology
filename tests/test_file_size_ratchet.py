@@ -516,7 +516,11 @@ _LINE_CEILING: dict[str, int] = {
     # (default warn; operator-promotable to block after a clean E2E run).
     # 2026-07-17: +6 lines — Round 13 站1: exception-swallow ratchet paydown —
     # 2 previously-unlogged broad excepts now print a [WARN] diagnostic.
-    "cli/check_cmds.py": 1537,
+    # 2026-08-05: +33 lines — Round 37 站3: cmd_verify_ci + its subparser. A
+    # thin CLI surface only; the verdict logic lives in core/ci_verdict.py,
+    # which is why this is +33 and not +150. Deliberate: taskq-renew pushed
+    # onto a red build 48 times because no command existed to ask.
+    "cli/check_cmds.py": 1570,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry

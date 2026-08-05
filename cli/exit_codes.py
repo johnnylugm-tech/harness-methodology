@@ -56,6 +56,8 @@ EX_ADVANCE_MANIFEST_CORRUPT = 27
 EX_ADVANCE_PUSH_FAILED = 28
 EX_ADVANCE_SRS_VOCABULARY_ILLEGAL = 29
 EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN = 30
+EX_CI_RED = 31
+EX_CI_VERDICT_UNAVAILABLE = 32
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -91,6 +93,8 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_PUSH_FAILED: "advance-phase --push: the handover commit landed locally but `git push` failed — NOT rolled back; fix connectivity/remote and re-run the push command printed in the [BLOCKED] message",
     EX_ADVANCE_SRS_VOCABULARY_ILLEGAL: "advance-phase (P1 exit): SRS.md's machine-readable NFR block uses a `type:` outside ALL_NFR_TYPES or a `dimension:` that names no scored dimension — fix the value in SRS.md; it is refused here rather than in Phase 2, where it would already be locked into an approved deliverable",
     EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN: "advance-phase: a deliverable's first line no longer starts with the H1 anchor its path declares in DELIVERABLE_ANCHORS — the Phase 1/2 orchestrator reloads it with that anchor and would abort after 3 attempts; fix the H1 in the named file",
+    EX_CI_RED: "verify-ci: GitHub Actions reports at least one failing run for the pushed commit — the push landed, the build did not; fix the named job(s) and re-push before advancing",
+    EX_CI_VERDICT_UNAVAILABLE: "verify-ci: the CI verdict could not be obtained (no gh, no network, no origin remote, or no run has appeared yet) — INFRA, not a pass; re-run once CI has reported",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
     EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
 }

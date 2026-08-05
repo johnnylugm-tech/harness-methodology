@@ -199,6 +199,14 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # reconciliation already lives (next to _check_git_sync).
     findings.extend(_check_submodule_behind(project))
 
+    # NOT here: the CI verdict for HEAD (Round 37). It was wired in and taken
+    # back out — doctor is at-rest, offline, cross-FILE reconciliation, and a
+    # `gh run list` per invocation makes every doctor call network-bound and
+    # environment-dependent for information the push path already gates on
+    # (cli/_shared.post_push_ci_gate) and records in the degradation ledger.
+    # Re-open if doctor ever grows a --online mode, or if the ledger entry
+    # turns out to need a reader here.
+
     return findings
 
 
