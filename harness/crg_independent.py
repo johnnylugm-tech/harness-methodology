@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import json
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+
+from core.degradation_ledger import record_degradation
 
 _DUMP_SCRIPT = Path(__file__).parent / "ssi" / "scripts" / "crg_dump_communities.py"
 _BUILD_TIMEOUT = 600
@@ -97,6 +100,56 @@ def _ensure_gitignored(project_root: str) -> None:
         pass
 
 
+def graph_file_set(graph_db: Path) -> set[str]:
+    """The distinct source files the graph actually covers, resolved.
+
+    Read-only. An unreadable or schema-less DB yields an empty set, which
+    `needs_full_rebuild` then reports as covering nothing — the safe
+    direction, since the response is to rebuild rather than to trust it.
+    """
+    try:
+        con = sqlite3.connect(f"file:{graph_db}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return set()
+    try:
+        rows = con.execute("SELECT DISTINCT file_path FROM nodes").fetchall()
+    except sqlite3.Error:
+        return set()
+    finally:
+        con.close()
+    return {str(Path(r[0]).resolve()) for r in rows if r[0]}
+
+
+def needs_full_rebuild(
+    graph_files: set[str], source_files: set[str],
+) -> tuple[bool, set[str]]:
+    """(stale, files_the_graph_is_missing) for a graph vs the delivered tree.
+
+    Measured on a correct build, taskq-renew clean clone: the two sets were
+    equal — 47 files each, zero difference in either direction. So equality
+    is the right predicate, and any difference is real staleness:
+
+      - files the project delivers that the graph never saw (the taskq-renew
+        defect: 11 of 47), which shrinks the community partition
+      - files the graph remembers that the project no longer delivers, whose
+        nodes keep contributing to that partition
+    """
+    return graph_files != source_files, source_files - graph_files
+
+
+def _delivered_sources(root: str) -> set[str]:
+    """The project's delivered source files, in its own language."""
+    from core.utils.delivery_scope import iter_delivered_files
+    from core.utils.lang_patterns import project_language, source_extensions
+
+    exts = source_extensions(project_language(root))
+    return {
+        str(p.resolve())
+        for p in iter_delivered_files(Path(root))
+        if p.suffix.lower() in exts
+    }
+
+
 def run_independent_crg(project_root: str, work_dir: str) -> dict:
     """Build the graph, dump communities, compute crg_metrics, write crg_metrics.json.
 
@@ -112,10 +165,46 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
     #    post-process to (re)compute communities. Using `update` when a graph already
     #    exists keeps re-finalize cheap — important under the Gate 4 auto-fix loop, which
     #    re-runs finalize_gate (and thus this) every round.
+    #
+    #    Round 37: cheap is only worth having if it is also true. taskq-renew's
+    #    graph.db read last_build_type=incremental with 11 files / 165 nodes /
+    #    12 communities while the project delivered 47 files; a full build on a
+    #    clean clone gave 47 files / 802 nodes / 32 communities and
+    #    architecture_score 57.1 — exactly CI's number, against the 77.8 the
+    #    incremental graph produced and Gate 4 folded into a passing composite.
+    #    So the update result is reconciled against the delivered tree and a
+    #    full build is forced when it does not cover it. Once — if the sets
+    #    still differ afterwards (a file CRG cannot parse), that residue is
+    #    recorded rather than looped on.
     _graph_db = Path(root) / ".code-review-graph" / "graph.db"
     _sub = "update" if _graph_db.exists() else "build"
     _run([binary, _sub], cwd=root, timeout=_BUILD_TIMEOUT, label=f"code-review-graph {_sub}")
+
+    _sources = _delivered_sources(root)
+    _stale, _missing = needs_full_rebuild(graph_file_set(_graph_db), _sources)
+    if _stale and _sub == "update":
+        record_degradation(
+            root, "crg:graph-scope",
+            f"incremental graph covered {len(graph_file_set(_graph_db))} of "
+            f"{len(_sources)} delivered source file(s) — rebuilding in full",
+            why=f"{len(_missing)} file(s) missing from the graph",
+        )
+        _run([binary, "build"], cwd=root, timeout=_BUILD_TIMEOUT,
+             label="code-review-graph build (forced: stale graph)")
+        _sub = "build"
+
     _run([binary, "postprocess"], cwd=root, timeout=_POST_TIMEOUT, label="code-review-graph postprocess")
+
+    _graph_files = graph_file_set(_graph_db)
+    _residual_stale, _residual_missing = needs_full_rebuild(_graph_files, _sources)
+    if _residual_stale:
+        record_degradation(
+            root, "crg:graph-scope",
+            f"after a full build the graph covers {len(_graph_files)} file(s) "
+            f"and the project delivers {len(_sources)} — the architecture "
+            f"score is measured over the graph's set",
+            why=f"{len(_residual_missing)} delivered file(s) still unparsed",
+        )
 
     # 2. Dump communities via CRG's own interpreter.
     interp = _crg_interpreter(binary)
@@ -173,6 +262,13 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
         "large_functions_penalty": lf_penalty,
         "architecture_score": architecture_score,
         "_source": "framework-independent",
+        # Round 37: the denominator travels with the number. A reader of a
+        # past crg_metrics.json can now tell whether the score was measured
+        # over the whole delivered tree or over a fraction of it — the
+        # question nobody could answer about taskq-renew's 77.8.
+        "_graph_files": len(_graph_files),
+        "_source_files": len(_sources),
+        "_build_type": _sub,
     }
     out = Path(work_dir) / "crg_metrics.json"
     out.parent.mkdir(parents=True, exist_ok=True)

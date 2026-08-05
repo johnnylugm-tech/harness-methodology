@@ -2257,28 +2257,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         # ── CRG cross-phase baseline: snapshot metrics for the next exit gate ──
         _project_path = Path(args.project).resolve()
-        _crg_metrics_path = _project_path / ".sessi-work" / "crg_metrics.json"
-        if _crg_metrics_path.is_file() and args.gate in EXIT_GATE_MAP.values():
-            try:
-                import shutil as _shutil
-                _baseline_path = (
-                    _project_path / ".methodology"
-                    / f"crg_baseline_p{args.phase}.json"
-                )
-                _shutil.copy2(_crg_metrics_path, _baseline_path)
-                # Stamp with git SHA for traceability
-                import subprocess as _sp
-                _sha_r = _sp.run(
-                    ["git", "rev-parse", "HEAD"],
-                    capture_output=True, text=True, cwd=str(_project_path),
-                )
-                _bl_data = json.loads(_baseline_path.read_text(encoding="utf-8"))
-                _bl_data["_baseline_sha"] = _sha_r.stdout.strip()
-                _bl_data["_baseline_phase"] = args.phase
-                _baseline_path.write_text(json.dumps(_bl_data, indent=2), encoding="utf-8")
-                print(f"  [CRG] Baseline saved: .methodology/crg_baseline_p{args.phase}.json")
-            except Exception as _bl_exc:
-                print(f"  [WARN] CRG baseline save failed: {_bl_exc}")
+        if args.gate in EXIT_GATE_MAP.values():
+            from core.quality_gate.crg_baseline import snapshot_baseline
+            snapshot_baseline(_project_path, args.phase)
 
         git = _shared._make_git(args, Path(args.project).resolve())
         git.ensure_gitignore()

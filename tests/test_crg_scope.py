@@ -121,3 +121,32 @@ def test_a_missing_score_is_not_silently_treated_as_passing() -> None:
     ok, reason = should_write_baseline({})
     assert ok is False
     assert "architecture_score" in reason
+
+
+def _project_with_metrics(tmp_path: Path, score: float) -> Path:
+    import json
+    work = tmp_path / ".sessi-work"
+    work.mkdir()
+    (tmp_path / ".methodology").mkdir()
+    (work / "crg_metrics.json").write_text(
+        json.dumps({"architecture_score": score}), encoding="utf-8")
+    return tmp_path
+
+
+def test_snapshot_writes_a_passing_baseline(tmp_path: Path) -> None:
+    from core.quality_gate.crg_baseline import snapshot_baseline
+
+    project = _project_with_metrics(tmp_path, 92.0)
+    assert snapshot_baseline(project, 6) is True
+    assert (project / ".methodology" / "crg_baseline_p6.json").is_file()
+
+
+def test_snapshot_refuses_a_sub_floor_score_and_says_so(tmp_path: Path) -> None:
+    """taskq-renew's P6 exactly: 77.8 written as the reference for P7/P8."""
+    from core.quality_gate.crg_baseline import snapshot_baseline
+
+    project = _project_with_metrics(tmp_path, 77.8)
+    assert snapshot_baseline(project, 6) is False
+    assert not (project / ".methodology" / "crg_baseline_p6.json").exists()
+    ledger = (project / ".methodology" / "degradations.jsonl")
+    assert ledger.is_file() and "77.8" in ledger.read_text(encoding="utf-8")
