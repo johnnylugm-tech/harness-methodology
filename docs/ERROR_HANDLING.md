@@ -587,3 +587,28 @@ heading scan did not have:
   diagnostic rather than taking the first.
 
 Every outcome — not found, not JSON, ambiguous, stub-only — says so on stderr.
+
+## A red build is a build failure, not a push failure (Round 37)
+
+`push succeeded` and `the build is green` are two propositions. taskq-renew
+pushed 52 times, 48 of them onto a red build, and the pipeline reported PASS
+throughout because only the first proposition had an enforcer. `verify-ci`
+(exit 31) is the second; see docs/OBSERVABILITY.md for the verdict model.
+
+Classification: a red CI run is a **project quality failure** — the CODE-FIX
+route. A verdict that could not be obtained (exit 32) is **INFRA**: no `gh`,
+no network, no run yet. It never becomes a pass, and it never routes to
+CODE-FIX, because nothing about the project's code caused it.
+
+## An install that fails must stop the job (Round 37)
+
+Eight `pip install ... || true` sites — five in the CI template every consumer
+project ships, three in this repo's own workflows — let a failed dependency
+install continue. When `code-review-graph` was pinned into `requirements.txt`
+and pip hit a `ResolutionImpossible`, nothing installed, `|| true` swallowed
+it, and the failure surfaced three steps later as `ModuleNotFoundError: No
+module named 'yaml'` inside `sab_parser.py`.
+
+That is an infrastructure failure wearing the face of a content failure —
+precisely the routing this document forbids everywhere else. The swallows are
+gone; `tests/test_ci_install_steps_hard_fail.py` keeps them gone.

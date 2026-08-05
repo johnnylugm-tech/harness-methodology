@@ -642,3 +642,50 @@ re-run its gates once.
 - `.methodology/last_block.md` is deleted when the gate/phase/FR it names
   subsequently passes, so a resolved BLOCK report cannot sit beside a state
   that says the phase completed.
+
+## `verify-ci` — what the push produced (Round 37)
+
+The framework pushed at every milestone and never looked at the result.
+Measured on taskq-renew: **52 GitHub Actions runs, 48 red**, red on every push
+from Phase 3 onward, while the local pipeline declared every phase and gate
+PASS and advanced `state.json` to Phase 9. A full-tree search of `core/`
+`cli/` `harness/` `scripts/` and `.claude/workflows/` found no reader of a
+workflow run's conclusion; `scripts/phase_auditor.py`'s `GitHubFetcher` reads
+the repo tree only.
+
+`core/ci_verdict.py` asks `gh run list --commit <sha>` and answers one of:
+
+| status | meaning | exit code |
+|---|---|---|
+| `green` | every run for the SHA concluded successfully | 0 |
+| `red` | at least one run failed — names the jobs and their URLs | 31 |
+| `unavailable` | the verdict could not be obtained | 32 |
+
+`unavailable` is never `green` — the rule Round 32 and Round 35 applied to
+mutation scoring. It splits in two, and only one half is worth waiting for:
+
+- **retryable** — the run has not appeared yet, or is still in progress.
+  `await_ci_verdict` polls (300s default, `--wait` overrides).
+- **structural** — no `gh`, no network, a `gh` error. Returned immediately:
+  no amount of waiting makes an origin remote appear.
+
+Consumers:
+
+- `cli/_shared.post_push_ci_gate` — runs at both push sites and returns
+  non-zero on red, so a red build stops the pipeline. Skipped when git is
+  disabled (`--no-git` / `--dry-run`): nothing was pushed. A project with **no
+  origin remote** gets `not applicable` and 0 — there is no CI to be red.
+- `harness_cli.py verify-ci --project . [--sha X] [--wait N]` — ask directly.
+
+Deliberately NOT a `doctor` check: a `gh run list` per invocation would make
+that offline at-rest reconciliation network-bound. The reasoning is left in
+`core/doctor.py` at the point where the check would have gone.
+
+## CRG metrics carry their own denominator (Round 37)
+
+`.sessi-work/crg_metrics.json` now records `_graph_files`, `_source_files` and
+`_build_type` beside `architecture_score`. taskq-renew's Phase 6 baseline said
+77.8 and nobody could tell that it had been measured over 11 of 47 delivered
+files; a full build on a clean clone of the same commit gives 57.1, which is
+what CI reported while failing every push. The denominator travels with the
+number, as it already does for mutation scope (Round 30/31).

@@ -1385,3 +1385,109 @@ e2b98b6」「the two commits after it did not run `--check`」—— 看見了�
   且 R20 站4 把 DRIFT 記為缺陷而非設計；本輪實測 9/9 全部可由生成器重現。
 - R33 記的「以不同作者的 commit 覆核」**本輪達成**——`883e9ca` 由老闆撰寫，
   本輪是對它的覆核，並推翻了它的歸因層級（葉子 vs 病因）。
+
+---
+
+## Round 37 — 被量測的樹不是被交付的樹
+
+老闆令：查 taskq-renew P1–P8 的執行紀錄與 git history、GitHub 上三個 CI error
+的根源，以及 harness 自身 git history，找出其他根本性／結構性問題。
+
+### 量到的事實
+
+**taskq-renew 的 CI 從 Phase 3 起紅到現在：52 次 run，48 紅 4 綠。**
+同一段時間本地管線宣告 P1→P8 全 PASS，Gate 4 給 93.6，state.json 進到 Phase 9。
+老闆的 `1b89c28`（gitlink）與 `436604b`（requirements ResolutionImpossible）
+已修掉兩條，**三個 CI error 在本輪開始時仍全紅**。
+
+### D1 — 掃描範圍不是交付範圍（2/3 個 CI error）
+
+| 環境 | total_links | content_sha256 |
+|---|---|---|
+| 本地（`.claude/worktrees/` 在） | 80 | `94a71dc…` |
+| 本地把 `.claude` 藏起來 | **48** | **`3013d0f…`** |
+| CI 實測 | 48 | `3013d0f…` |
+
+attestation 的 `code_files` 有 32 筆指向 `.claude/worktrees/agent-afc91004aadf0cef0/…`
+——Agent 工具的 scratch worktree，在本地存在、在 CI 不存在。
+
+根因在 harness：`core/utils/lang_patterns.py:37 SKIP_DIRS` 沒有 `.claude`，
+而 `harness/git_strategy.py:98` 有（`1b89c28` 剛加的）。
+**同一個命題兩份陳述，只修了 git 那份。同形兄弟未掃齊，第四次。**
+`cli/_shared.ensure_fresh_attestation`（R12 站2b 自癒）每次 gate commit 前
+用本地範圍重算，把汙染值一次次重新烤進 attestation → 本地永遠自洽。
+
+**正解不是更長的拒絕清單**（`.venv` → `.claude/worktrees` → 下一個，已實證兩次），
+而是把範圍錨在 CI checkout 的定義上：`git ls-files --cached --others --exclude-standard`。
+`--others --exclude-standard` 保留「已寫好未 commit」的 TDD 檔案，
+所以 P3 不會出現假阻擋；`.gitignore` 一行同時驅動 git 與每個掃描器。
+
+### D2 — 架構分數量在一張 11 檔的陳舊快取上（1/3 個 CI error）
+
+| graph.db | last_build_type | files | nodes | communities | architecture_score |
+|---|---|---|---|---|---|
+| taskq-renew 本地 | `incremental` | **11** | 165 | 12 | 77.8 |
+| 乾淨 clone 全量重建 | `full` | **47** | 802 | 32 | **57.1**（＝CI） |
+
+`harness/crg_independent.py` 的 `update if graph.db exists`。Gate 3/Gate 4 的
+composite 折進去的 architecture 就是 77.8；Gate 4 的 93.6 由此而來，
+**量在 47 檔裡的 11 檔（23%）上**。
+加成傷口：`cmd_finalize_gate` 無條件把 77.8 寫成 P6 baseline，
+而 `gate4_p6_full.yaml` 自己寫 architecture 門檻 80。
+
+### S1 / S2 — 兩個結構性缺口
+
+- **S1**：`core/` `cli/` `harness/` `scripts/` `.claude/workflows/` 全域搜尋，
+  **沒有任何一處讀 GitHub Actions 的 run conclusion**。push-milestone 驗證的是
+  「push 有沒有發生」，從不驗證「push 的結果是什麼」。這是 D1/D2 能活 50 次推送的原因。
+- **S2**：`templates/harness_quality_gate.yml` 5 處 + `harness_ci.yml` 3 處
+  `pip install … || true`。`436604b` 自述：這個吞噬讓 ResolutionImpossible 靜默通過，
+  三步之後以 `ModuleNotFoundError: yaml` 現身——**基礎設施失敗偽裝成內容失敗**。
+
+### 母體（第九次）
+
+> **被量測的輸入，不是被交付的輸入。**
+
+R33 一份合約五個陳述 → R34 兩種語意一個時點 → R36 一個 default 六份陳述
+（被消費≠被驗證）。前三輪修的都是**陳述面**；本輪是**輸入面**：
+兩個獨立掃描器各自定義「這個專案是什麼」，沒有一個錨在 CI 唯一採用的那個定義——git。
+兩者都讓數字**偏高**，兩者都被 gate 消費。
+
+### 三項在實作中被測試推翻的設計（記錄，不是事後合理化）
+
+1. **delivery_scope 的 lru_cache**：`core/auto_fix/strategies.py` 寫入新測試檔後
+   立刻重掃驗證，快取住的答案（寫入前取得）看不到它 →
+   `test_auto_fix_applies_annotation_and_passes_verify` 轉紅。
+   **陳舊的樹視圖正是本模組要消除的缺陷**，不能在更短的時間尺度上重新製造一個。快取移除。
+2. **CI verdict 的輪詢範圍**：第一版對三種 unavailable 都輪詢，
+   包含「沒有 origin remote」——等待不會讓 remote 長出來，單元測試因此各燒 300 秒。
+   改為只在 retryable（run 還沒出現／還在跑）時輪詢。
+3. **`git.enabled` 作為判準**：FakeGit 沒有這個屬性。改為 `cli/_shared.git_enabled(args)`，
+   `_make_git` 也讀它——「一個命題一份陳述」本身就是本輪的主題。
+
+### 明列不做（附再開條件）
+
+- **doctor 不接 CI verdict**（雖然核准的計畫寫了）：每次 doctor 都發一次
+  `gh run list` 會讓這個離線的、at-rest 的跨檔一致性檢查變成網路相依。
+  push path 才是執法點，degradation ledger 已記錄。理由留在 `core/doctor.py`
+  原本要放檢查的位置。若 doctor 哪天長出 `--online` 模式再開。
+- **無 origin remote ⇒ post-push CI gate 回 0**（並印出「not applicable」）：
+  沒有 remote 就沒有 CI 可以紅。這是唯一一種「真的不適用」而非「不知道」的
+  unavailable，明講而不是靜默跳過。
+- **`ci_verdict_wait` 不進 harness_config**：一個常數 + `--wait` 覆寫已足夠
+  （taskq-renew 的 run 15s–2m）。若某專案真的需要 per-project 值再開。
+- **非 git repo 路徑保持原行為**（退回 SKIP_DIRS），不動與本輪缺陷無關的專案。
+- **taskq-renew 的 Gate 4 = 93.6 不重判**：那是舊判定的效力問題，屬裁決不屬修缺陷。
+  本輪只保證下一次量的是對的樹。
+
+### 承 / 啟
+
+- 承 R8 站2/站3（同形兄弟未掃齊）、R12 站2b（attestation 自癒——本輪發現它會
+  把汙染值重新烤進去）、R13/R26（INFRA 不得偽裝成 CODE 失敗）、
+  R18 站2（gate_configs YAML 是門檻唯一真值）、R30/R31（分母隨數字走）、
+  R32/R35（量不出來不是零分）。
+- **替代假說**：也可能存在刻意的本地／CI 差異（例如想把 worktree 裡的實作
+  也算進覆蓋率，好讓 TDD 中途不被擋）。反面證據：attestation 的存在本身就是
+  「本地與 CI 必須同值」的宣告，且 worktree 是 Agent 工具的臨時隔離區、不是交付面。
+- **啟**：下一輪 E2E 應以 taskq-renew 為對照組——重生 attestation + 重建 CRG 圖後
+  三個 CI job 是否轉綠，是本輪修復的唯一終局驗證。

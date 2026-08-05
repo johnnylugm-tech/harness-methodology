@@ -1197,3 +1197,59 @@
 - test: tests/test_mutation_could_not_measure.py::test_a_self_reported_zero_does_not_switch_off_the_framework_check
   bug: "S4 skipped every check for a dimension the agent reported as failing, so a self-reported 0 disabled the framework's own artifact and scope-drift checks — the only two that could tell a harness fault from a project debt"
   fixed_in: "R35-站3"
+
+- test: tests/test_delivery_scope.py::test_scan_scope_excludes_gitignored_paths
+  bug: "the traceability scanner walked .claude/worktrees/, an agent scratch worktree present on disk and absent from a CI checkout, putting 32 phantom FR->code links into taskq-renew's attestation (80 links / 94a71dc local vs 48 links / 3013d0f in CI) and failing two CI jobs on every push from Phase 3 onward"
+  fixed_in: "R37-站1"
+
+- test: tests/test_delivery_scope.py::test_uncommitted_new_work_is_still_in_scope
+  bug: "negative control: scoping to tracked files only would hide the implementation Phase 3 TDD has written but not committed, reporting the FR as uncoded and blocking on work that is sitting right there"
+  fixed_in: "R37-站1"
+
+- test: tests/test_delivery_scope.py::test_every_project_tree_walker_uses_the_shared_scope
+  bug: "five modules each answered 'which files belong to this project' with its own denylist (SKIP_DIRS, or node_modules alone, or venv/__pycache__ alone) while git_strategy.py answered it a sixth time for git — .venv/ was added after the first incident, .claude/worktrees/ after the second, and the scanner half of that second fix was never made"
+  fixed_in: "R37-站1"
+
+- test: tests/test_delivery_scope.py::test_the_scanner_delegates_its_scope_instead_of_stating_one
+  bug: "core/traceability/scanner.py is exempt from the walker list because it delegates to iter_source_files; without this the exemption could outlive its premise and a new rglob there would go unnoticed"
+  fixed_in: "R37-站1"
+
+- test: tests/test_crg_scope.py::test_graph_missing_delivered_sources_forces_a_full_rebuild
+  bug: "run_independent_crg used `code-review-graph update` whenever a graph.db existed and never checked coverage; taskq-renew's incremental graph held 11 of 47 delivered files and produced architecture_score 77.8 where a full build gives 57.1 — the number CI reported while failing every push"
+  fixed_in: "R37-站2"
+
+- test: tests/test_crg_scope.py::test_a_graph_that_covers_the_delivered_tree_is_not_rebuilt
+  bug: "negative control for the predicate: on a correct build the graph and the delivered set matched exactly (47 == 47), so equality is the right test and a rebuild is not triggered on every call"
+  fixed_in: "R37-站2"
+
+- test: tests/test_crg_scope.py::test_a_score_below_the_floor_is_not_written_as_a_baseline
+  bug: "cmd_finalize_gate copied crg_metrics.json to crg_baseline_pN.json unconditionally, so taskq-renew's P6 baseline was architecture_score 77.8 against the floor of 80 its own gate config states — every later 'no regression vs baseline' answer was measured against a number that could not itself pass"
+  fixed_in: "R37-站2"
+
+- test: tests/test_crg_scope.py::test_the_architecture_floor_comes_from_the_gate_config
+  bug: "80.0 is restated in three workflow generators and in the CI template; only harness/gate_configs/gate4_p6_full.yaml is scored against, so a fourth copy in the baseline decision would be a fourth thing to drift"
+  fixed_in: "R37-站2"
+
+- test: tests/test_ci_verdict.py::test_a_failed_job_makes_the_verdict_red_and_names_it
+  bug: "nothing in core/ cli/ harness/ scripts/ or .claude/workflows/ read a workflow run's conclusion; taskq-renew pushed onto a red build 48 times in 52 runs while the pipeline declared PASS and advanced to Phase 9"
+  fixed_in: "R37-站3"
+
+- test: tests/test_ci_verdict.py::test_gh_failure_is_unavailable_not_green
+  bug: "a verdict that cannot be obtained is not a green verdict — the same rule Round 32/35 applied to mutation scoring, which had no analogue for CI"
+  fixed_in: "R37-站3"
+
+- test: tests/test_ci_verdict.py::test_a_still_running_job_is_unavailable_not_green
+  bug: "an empty `conclusion` means the run is in progress; treating it as anything but 'not answered yet' would let a push race ahead of its own build"
+  fixed_in: "R37-站3"
+
+- test: tests/test_ci_verdict.py::test_red_ci_run_blocks_and_names_the_failing_job
+  bug: "Round 24's rule applied to this gate: the block message must carry the failing job names and run URLs, not just an exit code"
+  fixed_in: "R37-站3"
+
+- test: tests/test_ci_install_steps_hard_fail.py::test_no_pip_install_swallows_its_own_failure
+  bug: "eight `pip install ... || true` sites let a ResolutionImpossible install nothing and surface three steps later as ModuleNotFoundError: yaml — an infrastructure failure wearing the face of a content failure, which docs/ERROR_HANDLING.md forbids everywhere else"
+  fixed_in: "R37-站4"
+
+- test: tests/test_ci_install_steps_hard_fail.py::test_the_consumer_template_and_the_shipped_copy_are_one_file
+  bug: "negative control: the rule above is only worth having if templates/harness_quality_gate.yml is the file consumers actually run (it is byte-identical to taskq-renew's copy)"
+  fixed_in: "R37-站4"
