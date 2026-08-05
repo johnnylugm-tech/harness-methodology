@@ -29,8 +29,8 @@ jobs:
       - name: Install harness dependencies
         run: |
           # pyyaml required for gate score variance check
-          pip install -r harness/requirements.txt || true
-          pip install pyyaml 2>/dev/null || true
+          pip install -r harness/requirements.txt
+          pip install pyyaml
 
       - name: Install gate hard dependencies
         run: |
@@ -245,7 +245,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install harness dependencies
-        run: pip install -r harness/requirements.txt || true
+        run: pip install -r harness/requirements.txt
 
       - name: Detect phase
         id: phase
@@ -458,7 +458,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install harness dependencies
-        run: pip install -r harness/requirements.txt || true
+        run: pip install -r harness/requirements.txt
 
       - name: Detect phase
         id: phase
@@ -608,7 +608,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install harness dependencies
-        run: pip install -r harness/requirements.txt || true
+        run: pip install -r harness/requirements.txt
 
       - name: Install code-review-graph
         # Round 29: pinned — unpinned always resolves to whatever is latest

@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pytest pyyaml ruff mypy
-          pip install -r requirements.txt || true
+          pip install -r requirements.txt
 
       - name: Lint (ruff)
         run: ruff check .
@@ -63,7 +63,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install project (for imports)
-        run: pip install -r requirements.txt || true
+        run: pip install -r requirements.txt
 
       - name: Validate CLASSIFICATION_TABLE ↔ STRATEGY_REGISTRY
         run: python scripts/validate_cross_refs.py
@@ -83,7 +83,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pytest pytest-cov pyyaml mypy
-          pip install -r requirements.txt || true
+          pip install -r requirements.txt
 
       - name: Get current phase
         id: phase
