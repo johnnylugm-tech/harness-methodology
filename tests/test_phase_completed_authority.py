@@ -40,6 +40,14 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _commit_head(repo: Path, *commit_args: str) -> str:
+    """git commit prints 'create mode' lines etc., so .stdout's last line
+    is NOT the SHA. Capture it via `git rev-parse HEAD` after the commit."""
+    r = _git(repo, "commit", *commit_args)
+    assert r.returncode == 0, f"commit failed: {r.stderr}"
+    return _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
 @pytest.fixture
 def advance_project(tmp_path, monkeypatch):
     """Clean tmp git repo one advance away from Phase 2, prechecks stubbed.
@@ -213,3 +221,213 @@ def test_zero_consumer_scan_covers_the_harness_directory():
         "a removed zero-consumer field reappeared, or a reader was added without "
         "restoring the writer:\n  " + "\n  ".join(hits)
     )
+
+
+# =============================================================================
+# Read-time self-heal of dangling phase_completed[N].sha
+# =============================================================================
+#
+# Confirmed repro (taskq-api 2026-08-05):
+#   push-checkpoint captured _pre_push_sha = d061387 at 16:28:14 UTC, then
+#   the orchestrator ran `git reset HEAD~2` before `git add && git commit`
+#   landed, so commit 3836985 (parent 4355bb3) carried state.json with
+#   phase_completed[2].sha = d061387 — now an unreachable commit. The
+#   recovery helper searches HEAD-reachable history for the phase marker
+#   and atomic-writes the repair.
+
+
+@pytest.fixture
+def dangling_sha_project(tmp_path):
+    """Reproduce the exact taskq-api P2 shape:
+       baseline → orphan checkpoint → reset HEAD~2 → replacement checkpoint.
+       state.json records the orphan's SHA as phase_completed[2].sha.
+    """
+    from core.quality_gate import phase_completed_recovery as pcr
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _git(proj, "init")
+    _git(proj, "config", "user.email", "t@example.com")
+    _git(proj, "config", "user.name", "t")
+    _git(proj, "config", "commit.gpgsign", "false")
+    meth = proj / ".methodology"
+    meth.mkdir()
+    (meth / "state.json").write_text(json.dumps({"phase_completed": {}}) + "\n")
+    _git(proj, "add", "-A")
+    baseline = _commit_head(proj, "-m", "baseline")
+
+    # Orphan checkpoint — captured by state.json then reset away.
+    (proj / "p2-orphan.txt").write_text("orphan\n")
+    _git(proj, "add", "-A")
+    orphan_sha = _commit_head(
+        proj, "-m", "phase2(review-complete): SAD + ADR + quality manifest"
+    )
+
+    # Replacement checkpoint on the same baseline (simulates reset+recommit).
+    _git(proj, "reset", "--hard", baseline)
+    (proj / "p2-replacement.txt").write_text("replacement\n")
+    _git(proj, "add", "-A")
+    replacement_sha = _commit_head(
+        proj, "-m", "phase2(review-complete): SAD + ADR + quality manifest"
+    )
+
+    state = {
+        "phase_completed": {
+            "2": {
+                "sha": orphan_sha,
+                "timestamp": "2026-08-05T16:28:14.674115+00:00",
+                "enforcer_sha": "c09fae1f7443a570d7434888bb5fae8fc3591c80",
+                "enforcer_surface": {
+                    "core/quality_gate": "b8c8d62c0b7bc584024b3c10afba5bbdc017206b",
+                },
+            }
+        },
+        "phase_truth_passed": True,
+    }
+    (meth / "state.json").write_text(json.dumps(state, indent=2) + "\n")
+    _git(proj, "add", "-A")
+    _commit_head(proj, "-m", "carry dangling state.json")
+
+    return pcr, proj, orphan_sha, replacement_sha
+
+
+def test_recovery_finds_reachable_replacement_sibling(dangling_sha_project):
+    """The exact taskq-api repro: orphan SHA, reset-away, replacement on
+    same baseline. Recovery must pick the reachable replacement, not the
+    unreachable orphan."""
+    pcr, proj, _orphan_sha, replacement_sha = dangling_sha_project
+
+    result = pcr.try_recover_dangling_phase_completed(proj, 2, _orphan_sha)
+    assert result is not None, "recovery must succeed for reachable marker"
+    assert result["to_sha"] == replacement_sha
+    assert result["from_sha"] == _orphan_sha
+    assert result["observed_head"] == _git(proj, "rev-parse", "HEAD").stdout.strip()
+    assert result["phase"] == 2
+    assert result["marker"] == "phase2(review-complete)"
+    assert result["already_healed"] is False
+
+
+def test_recovery_atomic_write_keeps_state_invariants(dangling_sha_project):
+    """After recovery, the recorded SHA must satisfy the only consumer
+    contract: `git merge-base --is-ancestor <sha> HEAD`."""
+    pcr, proj, orphan_sha = dangling_sha_project[:3]
+    pcr.try_recover_dangling_phase_completed(proj, 2, orphan_sha)
+
+    state = json.loads((proj / ".methodology" / "state.json").read_text())
+    entry = state["phase_completed"]["2"]
+    rc = _git(
+        proj, "merge-base", "--is-ancestor", entry["sha"], "HEAD"
+    ).returncode
+    assert rc == 0, "recorded SHA must now be an ancestor of HEAD"
+    assert entry["recovered_from_sha"] == orphan_sha
+    assert "recovered_at" in entry
+    assert entry["enforcer_sha"]  # preserved
+
+
+def test_recovery_appends_to_top_level_log(dangling_sha_project):
+    """The Plan-agent-verified audit-durability contract: cmd_advance_phase
+    replaces phase_completed[N] wholesale, but the top-level
+    phase_completed_recovery_log is independent and survives."""
+    pcr, proj, orphan_sha = dangling_sha_project[:3]
+    pcr.try_recover_dangling_phase_completed(proj, 2, orphan_sha)
+
+    state = json.loads((proj / ".methodology" / "state.json").read_text())
+    log = state.get("phase_completed_recovery_log")
+    assert isinstance(log, list) and len(log) == 1
+    event = log[0]
+    assert event["phase"] == 2
+    assert event["from_sha"] == orphan_sha
+    assert event["observed_head"] == _git(proj, "rev-parse", "HEAD").stdout.strip()
+    assert "at" in event
+    assert event["marker"] == "phase2(review-complete)"
+
+
+def test_recovery_is_idempotent(dangling_sha_project):
+    """Second call must NOT append a duplicate audit event when the entry
+    already points at the healed SHA."""
+    pcr, proj, orphan_sha = dangling_sha_project[:3]
+    pcr.try_recover_dangling_phase_completed(proj, 2, orphan_sha)
+    pcr.try_recover_dangling_phase_completed(proj, 2, orphan_sha)
+
+    state = json.loads((proj / ".methodology" / "state.json").read_text())
+    log = state.get("phase_completed_recovery_log", [])
+    assert len(log) == 1, "idempotent recovery must not append duplicate audit events"
+
+
+def test_recovery_returns_none_when_no_marker_present(tmp_path):
+    """If no `phase{prev}(review-complete)` commit exists in HEAD-reachable
+    history, the caller's gate must still hard-fail — recovery returns None."""
+    from core.quality_gate import phase_completed_recovery as pcr
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _git(proj, "init")
+    _git(proj, "config", "user.email", "t@example.com")
+    _git(proj, "config", "user.name", "t")
+    (proj / "f.txt").write_text("x")
+    _git(proj, "add", "-A")
+    _git(proj, "commit", "-m", "baseline with no phase markers at all")
+
+    (proj / ".methodology").mkdir()
+    (proj / ".methodology" / "state.json").write_text(json.dumps(
+        {"phase_completed": {"2": {"sha": "f" * 40, "timestamp": "2026-01-01T00:00:00+00:00"}}}
+    ))
+    result = pcr.try_recover_dangling_phase_completed(proj, 2, "f" * 40)
+    assert result is None
+
+
+def test_recovery_does_not_match_body_only_marker(tmp_path):
+    """`git log --grep` matches subject by default. A marker that appears
+    only in the commit body must NOT trigger recovery."""
+    from core.quality_gate import phase_completed_recovery as pcr
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _git(proj, "init")
+    _git(proj, "config", "user.email", "t@example.com")
+    _git(proj, "config", "user.name", "t")
+    (proj / "f.txt").write_text("x")
+    _git(proj, "add", "-A")
+    _commit_head(proj, "-m", "baseline", "-m",
+                 "this body mentions phase2(review-complete) but not the subject")
+
+    (proj / ".methodology").mkdir()
+    (proj / ".methodology" / "state.json").write_text(json.dumps(
+        {"phase_completed": {"2": {"sha": "f" * 40, "timestamp": "2026-01-01T00:00:00+00:00"}}}
+    ))
+    result = pcr.try_recover_dangling_phase_completed(proj, 2, "f" * 40)
+    assert result is None
+
+
+def test_recovery_does_not_match_orphan_sibling(tmp_path):
+    """A commit on a reset-away branch must NOT match — `git log <head>`
+    (no --all) restricts the search to current HEAD reachability."""
+    from core.quality_gate import phase_completed_recovery as pcr
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _git(proj, "init")
+    _git(proj, "config", "user.email", "t@example.com")
+    _git(proj, "config", "user.name", "t")
+    (proj / "f.txt").write_text("x")
+    _git(proj, "add", "-A")
+    baseline = _commit_head(proj, "-m", "baseline")
+
+    # Create an orphan-sibling commit on the current branch.
+    (proj / "g.txt").write_text("orphan branch state")
+    _git(proj, "add", "-A")
+    orphan_sha = _commit_head(
+        proj, "-m", "phase2(review-complete): orphan on current branch"
+    )
+
+    # Reset back to baseline so the orphan marker is no longer reachable.
+    _git(proj, "reset", "--hard", baseline)
+    (proj / "f.txt").write_text("after reset")
+
+    (proj / ".methodology").mkdir()
+    (proj / ".methodology" / "state.json").write_text(json.dumps(
+        {"phase_completed": {"2": {"sha": orphan_sha, "timestamp": "2026-01-01T00:00:00+00:00"}}}
+    ))
+    result = pcr.try_recover_dangling_phase_completed(proj, 2, orphan_sha)
+    assert result is None, "an unreachable orphan must not be returned"
+

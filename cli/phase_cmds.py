@@ -33,6 +33,9 @@ from core.canonical_form import canonical_form
 from core.quality_gate import agent_b_approvals, gate1_evidence
 from core.quality_gate.ghost_detector import scan_phase_ghost_trails
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+from core.quality_gate.phase_completed_recovery import (
+    try_recover_dangling_phase_completed,
+)
 from core.quality_gate import spec_coverage
 from core.quality_gate.spec_coverage import _parse_inventory_fallback, _parse_test_spec
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
@@ -866,7 +869,18 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             try:
                 with file_lock(state_lock_path(project)):
                     _sd = load_state(project, lenient=True)
-                    _sd.setdefault("phase_completed", {})[str(args.completed_phase)] = {
+                    _existing = _sd.get("phase_completed", {}).get(
+                        str(args.completed_phase)
+                    )
+                    _rec_from = (
+                        _existing.get("recovered_from_sha")
+                        if isinstance(_existing, dict) else None
+                    )
+                    _rec_at = (
+                        _existing.get("recovered_at")
+                        if isinstance(_existing, dict) else None
+                    )
+                    _new_entry = {
                         "sha": _head.stdout.strip(),
                         "timestamp": utc_now_iso(),
                         # Round 26: WHICH framework version produced this phase.
@@ -881,6 +895,18 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         "enforcer_sha": enforcer_sha(),
                         "enforcer_surface": enforcer_surface(),
                     }
+                    # Preserve the recovery audit if a self-heal ran during
+                    # the verify_entry_gate that gated this commit — top-level
+                    # phase_completed_recovery_log survives anyway, but the
+                    # entry-level pointer is what
+                    # `_fr_step_lineage_boundary` and future readers will see.
+                    if _rec_from:
+                        _new_entry["recovered_from_sha"] = _rec_from
+                    if _rec_at:
+                        _new_entry["recovered_at"] = _rec_at
+                    _sd.setdefault("phase_completed", {})[
+                        str(args.completed_phase)
+                    ] = _new_entry
                     atomic_write_json(
                         project / ".methodology" / "state.json", _sd
                     )
@@ -1796,6 +1822,23 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
                 except Exception as exc:  # pylint: disable=broad-exception-caught
                     print(f"[WARN] Human1 (P{prev}) gate: shallow-clone fallback check "
                           f"failed: {exc}", file=sys.stderr)
+                # Self-heal dangling SHA. See core/quality_gate/
+                # phase_completed_recovery.py for the lock/reload/merge
+                # protocol. Triggered when push-checkpoint's pre-push HEAD
+                # write was raced by an out-of-band `git reset HEAD~N`
+                # before its commit landed — recovery searches HEAD-reachable
+                # history for the phase marker, atomic-writes the repair,
+                # and appends to state.json's append-only recovery log.
+                _recovery = try_recover_dangling_phase_completed(
+                    project, prev, entry["sha"],
+                )
+                if _recovery:
+                    return {"passed": True, "gate": f"Human1 (P{prev})",
+                            "reason": (f"phase_completed[{prev}].sha="
+                                       f"{entry['sha'][:8]} was orphaned; "
+                                       f"self-healed to "
+                                       f"{_recovery['to_sha'][:8]} via "
+                                       f"{_recovery['marker']}")}
                 return {"passed": False, "gate": f"Human1 (P{prev})",
                         "reason": f"phase_completed[{prev}].sha={entry['sha'][:8]} "
                                   "is not an ancestor of HEAD — branch may have been "
