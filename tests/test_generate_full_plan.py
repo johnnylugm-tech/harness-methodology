@@ -2103,12 +2103,22 @@ class TestReviewerDesignFixes:
 
     # C2: P6 must document DA challenge and DA waiver for CRG-ONLY dims
     def test_p6_da_challenge_documented(self, tmp_path: Path):
+        """A DA challenge is still required at Gate 4 — as documentation.
+
+        Round 39 站1: it no longer lifts a threshold, so the plan must not
+        offer that route. What it must still say is that the challenge is
+        required and what to do when architecture scores low.
+        """
         (tmp_path / ".methodology").mkdir()
         result = generate_full_plan(6, tmp_path, dynamic=True)
         assert result is not None
         assert "devil_advocate" in result, "P6 must document devil_advocate field"
-        assert "da_waiver" in result, "P6 must document da_waiver for Orchestrator Pattern"
-        assert "Orchestrator" in result, "P6 must mention Orchestrator Pattern false positive"
+        assert "da_waiver" not in result, (
+            "P6 must not offer a waiver route — Round 38 站3 removed it, and "
+            "crg-arch-check never honoured one")
+        assert "crg_cohesion_healthy" in result, (
+            "P6 must name the remedy that replaced the waiver: calibration in "
+            "the committed harness_config.json, which CI reads too")
 
     # C2: P4 Gate 3 (which has architecture dim) must document framework-owned architecture.
     # error_handling is NOT CRG-ONLY any more — it is the ast-error-handling tool.

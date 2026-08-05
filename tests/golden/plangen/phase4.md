@@ -227,11 +227,11 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
   > **architecture** is framework-owned: the harness runs an independent CRG build itself
   > (`harness/crg_independent.py`) and overrides any agent-recorded score with
   > `community_cohesion`. error_handling is tool-scored (`ast-error-handling`), not CRG.
-  > If architecture = 0 due to Orchestrator/hub-and-spoke pattern: complete DA challenge
-  > and set `devil_advocate` + `da_waiver` + `devil_advocate_evidence` in
-  > `.sessi-work/gate{N}_result.json` (gate3_result.json at Gate 3, gate4_result.json at Gate 4)
-  > to bypass the threshold — the harness reads the waiver from that file, NOT quality_manifest.json.
-  > See `harness/harness/ssi/prompts/evaluate_dimension.md` §Orchestrator Pattern False Positive.
+  > A low architecture score cannot be waived (Round 38). Fix the structure — split an
+  > oversized community, reduce cross-package coupling. For a genuine CRG false positive
+  > (workflow tooling scored as product code, small-package Leiden over-fragmentation)
+  > calibrate `crg_excludes` / `crg_cohesion_healthy` in `.methodology/harness_config.json`;
+  > that file is committed, so the same calibration reaches CI's `crg-arch-check`.
   > **traceability** is also framework-owned: the harness calls `compute_trace_dimension()`
   > inside `finalize-gate` and injects the score automatically. Do NOT report a traceability
   > score in gate_result.json. If the gate is blocked by traceability, fix the named
@@ -288,7 +288,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 5. Re-run: `python3 harness_cli.py finalize-gate --gate 3 --phase 4 --project .`
 6. Repeat until CASE 1 PASS or 3 fix rounds exhausted
 7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with each remaining dim as a checkbox item ('- [ ] <dim>: <reason>'); every item MUST be resolved and marked '- [x]' before advance-phase (hard-blocked, exit 17, otherwise), then escalate
-8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a `da_waiver` from the Human Developer. Do NOT try to bypass the scanner.
+8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a scope exception from the Human Developer. Do NOT try to bypass the scanner. (This is a human decision about which files a phase may touch — unrelated to gate dimension thresholds, which nothing waives.)
 
 
 - **G3d** ✅ Verify checkpoint saved (finalize-gate above already pushed + wrote HANDOVER.md):

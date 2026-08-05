@@ -51,64 +51,50 @@ def test_methodology_wins_over_sessi_work_same_gate(tmp_path):
     assert data["composite_score"] == 96.41
 
 
-def test_da_waiver_dimension_renders_pass_not_fail():
-    """A dimension with raw tool score 0 but a HARNESS-VALIDATED DA waiver must
-    render PASS (DA-waiver), not a bare FAIL — the waiver is the authoritative
-    verdict (Architecture CRG case). Validation comes from the caller-supplied
-    validated_waivers set (quality_manifest.json's da_waiver_applied), not from
-    gate_result["da_waiver"] itself — see test_unvalidated_da_waiver_is_ignored.
+def test_a_low_score_renders_fail_with_no_escape():
+    """Round 39 站1: there is no PASS (DA-waiver) row, because there is no
+    waiver. Round 38 站3 removed the mechanism; this report used to read
+    `da_waiver_applied` from the manifest, a field that stopped being written
+    in the same commit — a reader whose writer was gone.
     """
     gate_result = {
         "breakdown": {"architecture": {"score": 0, "detail": "cohesion 0.228"}},
     }
-    text = "\n".join(_build_dimension_table(gate_result, {"architecture"}))
+    text = "\n".join(_build_dimension_table(gate_result))
     assert "Architecture" in text
-    assert "DA-waiver" in text
-    assert "✗ FAIL" not in text
-
-
-def test_non_waived_low_score_still_fails():
-    """The waiver must not blanket-pass every low dimension — a dim without its own
-    waiver keeps failing even when a different dim is waived."""
-    gate_result = {
-        "breakdown": {"linting": {"score": 20, "detail": ""}},
-    }
-    text = "\n".join(_build_dimension_table(gate_result, {"architecture"}))
-    assert "✗ FAIL" in text
-
-
-def test_unvalidated_da_waiver_is_ignored():
-    """Anti-fabrication: gate{N}_result.json is written by the agent itself and
-    only composite_score/quality_complete/verdict/passed get harness-recomputed
-    on finalize-gate (see harness_cli.py's gate-result persist step) — da_waiver
-    passes through UNVALIDATED. An agent writing da_waiver: {"security": true}
-    into its own raw gate result must NOT render PASS unless "security" also
-    appears in quality_manifest.json's harness-verified da_waiver_applied list
-    (passed in here as validated_waivers). Without this check, a real 0-score
-    security failure could render as "✓ PASS (DA-waiver)" in QUALITY_REPORT.md.
-    """
-    gate_result = {
-        "breakdown": {"security": {"score": 0, "detail": "no auth checks found"}},
-        "da_waiver": {"security": True},  # agent's own unvalidated self-assessment
-    }
-    text = "\n".join(_build_dimension_table(gate_result, validated_waivers=None))
     assert "✗ FAIL" in text
     assert "DA-waiver" not in text
 
 
-def test_end_to_end_only_manifest_validated_waiver_renders_pass(tmp_path):
-    """Integration: generate_quality_report() must source the waiver from
-    quality_manifest.json's gate_results.gate4.da_waiver_applied, not from the
-    raw gate4_result.json's own da_waiver field, for the exact same reason as
-    test_unvalidated_da_waiver_is_ignored."""
+def test_an_agent_written_waiver_field_changes_nothing():
+    """Anti-fabrication, unchanged in intent: gate{N}_result.json is written by
+    the agent and only composite_score/quality_complete/verdict/passed get
+    harness-recomputed. A `da_waiver` key the agent invents was never honoured
+    here and still is not — it is simply no longer honoured anywhere.
+    """
+    gate_result = {
+        "breakdown": {"security": {"score": 0, "detail": "no auth checks found"}},
+        "da_waiver": {"security": True},  # agent's own self-assessment
+    }
+    text = "\n".join(_build_dimension_table(gate_result))
+    assert "✗ FAIL" in text
+    assert "DA-waiver" not in text
+
+
+def test_a_stale_manifest_waiver_does_not_resurrect_the_pass(tmp_path):
+    """The case that matters for projects that ran before Round 38.
+
+    Their `quality_manifest.json` may still carry `da_waiver_applied` from an
+    older run. The report must not read it — a field left behind by a removed
+    mechanism is history, not a verdict.
+    """
     (tmp_path / ".methodology").mkdir()
     (tmp_path / ".methodology" / "gate4_result.json").write_text(json.dumps({
         "composite_score": 40,
         "breakdown": {
             "security": {"score": 0, "detail": "unvalidated agent claim"},
-            "architecture": {"score": 0, "detail": "validated waiver"},
+            "architecture": {"score": 0, "detail": "was waived before R38"},
         },
-        # Agent's own self-written claim — must be ignored for "security".
         "da_waiver": {"security": True},
     }))
     (tmp_path / ".methodology" / "quality_manifest.json").write_text(json.dumps({
@@ -117,7 +103,8 @@ def test_end_to_end_only_manifest_validated_waiver_renders_pass(tmp_path):
     generate_quality_report(str(tmp_path))
     report = (tmp_path / "06-quality" / "QUALITY_REPORT.md").read_text(encoding="utf-8")
     assert "| Security | 0/100 | ✗ FAIL |" in report
-    assert "| Architecture | 0/100 | ✓ PASS (DA-waiver) |" in report
+    assert "| Architecture | 0/100 | ✗ FAIL |" in report
+    assert "DA-waiver" not in report
 
 
 # ── Fix H-E (2026-07-15): per-FR canonical gate{N}_result.json paths ─────────

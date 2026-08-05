@@ -229,7 +229,7 @@ python3 harness_cli.py load-context --phase 3 --project . --json \
 5. Re-run: `python3 harness_cli.py finalize-gate --gate 2 --phase 3 --project .`
 6. Repeat until CASE 1 PASS or 3 fix rounds exhausted
 7. If stuck after 3 rounds: write `.methodology/deferred_fixes.md` with each remaining dim as a checkbox item ('- [ ] <dim>: <reason>'); every item MUST be resolved and marked '- [x]' before advance-phase (hard-blocked, exit 17, otherwise), then escalate
-8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a `da_waiver` from the Human Developer. Do NOT try to bypass the scanner.
+8. **Scope Violations (Exit 21)**: If `advance-phase` blocks you with Exit 21 for modifying files outside the current phase scope, and the changes are necessary, request a scope exception from the Human Developer. Do NOT try to bypass the scanner. (This is a human decision about which files a phase may touch — unrelated to gate dimension thresholds, which nothing waives.)
 
 
 - **G2d** ✅ Verify checkpoint saved (finalize-gate above already pushed + wrote HANDOVER.md):

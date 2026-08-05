@@ -437,26 +437,33 @@ that imports from ≥5 sub-packages, CRG Leiden algorithm will report `score = 0
 **Detection**: `list_communities` shows 1 large community (size > 50) AND
 `get_hub_nodes` shows 1 node with fan_out > 8, all other nodes fan_in ≤ 2.
 
-**Gate 3 / Gate 4 path**: Set these fields in `.sessi-work/gate{N}_result.json`
-(gate3_result.json at Gate 3, gate4_result.json at Gate 4):
-```json
-"devil_advocate":          {"architecture": true, ...},
-"da_waiver":               {"architecture": true},
-"devil_advocate_evidence": {"architecture": {"challenge": "...", "response": "..."}}
-```
-The harness `finalize-gate` will bypass the architecture score threshold when
-`devil_advocate.architecture` and `da_waiver.architecture` are both `true` AND the
-`devil_advocate_evidence.architecture` entry carries a real challenge + response
-(≥120 chars each — a bare boolean is rejected and BLOCKS the gate).
+**Gate 3 / Gate 4 path**: there is no waiver. Round 38 removed it, and a
+request is now refused at gate-prerequisite time.
 
-> **Structural defence only (A3):** the `devil_advocate.architecture` evidence
-> (challenge + response prose) is agent-authored — the harness checks it is present and
-> non-trivial, not that the reasoning is *true*. The bypass is nonetheless safe because
-> the architecture **score itself** comes from the framework independently re-running CRG
-> (`harness/crg_independent.py`), not from the agent; the waiver only zeroes the threshold
-> for a known orchestrator false-positive, and `finalize_gate` marks it
-> `da_waiver_needs_human_review = true`. The prose is a documentation artifact, not a
-> correctness guarantee.
+Why, measured: the waiver was read by `finalize-gate` and by nothing else.
+`crg-arch-check` — which CI runs on every push from Phase 3 as an absolute
+floor, and which the workflow ANDs into `gate{N}Pass` — had no waiver logic,
+so a granted waiver produced a local PASS and a red build, and the gate loop
+then spent its rounds on a remedy that could not clear the check. The one
+waiver ever granted also rested on a false premise: its evidence named
+communities that existed only in a truncated 11-of-47-file CRG graph.
+
+Two routes remain, in this order:
+
+1. **Fix the structure.** Split an oversized community; reduce cross-package
+   coupling so CRG detects sub-communities. A ~100-member community is a
+   finding, not a measurement artifact.
+2. **Calibrate, for a genuine false positive** (workflow tooling counted as
+   product code, small-package Leiden over-fragmentation): set `crg_excludes`
+   and/or `crg_cohesion_healthy` in `.methodology/harness_config.json`. That
+   file is committed, so the same calibration reaches CI — which is exactly
+   what a waiver never did.
+
+The architecture **score itself** has always come from the framework
+independently re-running CRG (`harness/crg_independent.py`), never from the
+agent. Recording a Devil's Advocate challenge for `architecture` is still
+required at Gate 4 (A3) as design documentation; it does not change the score
+and it does not lift the threshold.
 
 ### readability (Tier 3 — proxy metric: radon-mi / js-mi)
 

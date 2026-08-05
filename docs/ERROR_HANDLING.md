@@ -199,8 +199,7 @@ run the gate again.
 | `infra_fail` | Dimension scored zero because its tool could not run | Environment failure, not a code defect — never route to CODE-FIX |
 | `malformed_gate_result` | Gate result file truncated / off-schema | Re-run run-gate to regenerate; do not hand-repair |
 | `crg_independent_failed` | The harness's own CRG measurement failed | Persistent failure is a harness defect (`crash-triage --open-cr`) |
-| `architecture_regression` | Architecture score regressed vs the previous exit gate's baseline | A waiver does not clear a regression |
-| `da_waiver` | Waiver rejected on adjudication — its premise did not match the framework's numbers | Fix the dimension, or rewrite the premise |
+| `architecture_regression` | Architecture score regressed vs the previous exit gate's baseline | Undo the coupling that caused the drop; nothing waives a regression |
 | *(no details)* | Failing dimension, `open_critical`/`open_high` > 0, or composite below the score gate | `derive_block_reasons` falls back to the result itself, so an all-dimensions-passing block still names its cause |
 
 Adding a raise site with a new key without registering it in

@@ -41,7 +41,7 @@ _GATE4_STEPS = [
         "2. A3 DA CHALLENGE (artifact-backed — finalize-gate validates this BEFORE scoring): for EACH Tier 3 dim (architecture, readability, error_handling, documentation, performance), dispatch a Claude sub-agent (you have the Agent tool) with a CHALLENGER persona that critiques the design/score, then record its critique + your defence. Dispatch each challenger SYNCHRONOUSLY — call the Agent tool and wait for its return before the next; do NOT run challengers in the background and busy-poll with `sleep`/`cat *.output` (that blows the per-agent wall-clock budget and stalls the round). Write into .sessi-work/gate4_result.json:\\n"
         "   \"devil_advocate\": {\"architecture\":true,\"readability\":true,\"error_handling\":true,\"documentation\":true,\"performance\":true},\\n"
         "   \"devil_advocate_evidence\": {\"<dim>\": {\"challenger_model\":\"claude\",\"challenge\":\"<≥120 chars actual critique>\",\"response\":\"<≥120 chars defence>\"}, ...}.\\n"
-        "   A bare boolean is NOT accepted. If architecture/error_handling score 0 due to Orchestrator hub-and-spoke: also add \"da_waiver\": {\"architecture\": true} (requires the matching evidence artifact)."
+        "   A bare boolean is NOT accepted. A DA challenge documents a design; it does NOT lift a threshold — no dimension is waivable (Round 38). If architecture scores low, fix the structure, or calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json (committed, so CI applies it too)."
     ),
     (
         "3. G4b: Evaluate all 14 dims inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md → .sessi-work/gate4_result.json.\\n"

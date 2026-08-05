@@ -29,6 +29,7 @@ rather than a fresh grep.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import NamedTuple
@@ -127,6 +128,31 @@ def test_no_instruction_advises_a_removed_mechanism(mech: RemovedMechanism) -> N
     )
 
 
+def _reads_field(tree: ast.AST, field: str) -> list[int]:
+    """Line numbers where *field* is actually read out of a mapping.
+
+    A read is `d["field"]` or `d.get("field", …)`. Deliberately not a text
+    match: the honest record of a removal names the field it removed, and the
+    first draft of this scan reported its own explanatory docstring — the same
+    shape Round 38 站2 hit, where the comment describing a fix tripped the rule
+    the fix installed. A prose mention is not a consumer.
+    """
+    hits: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript):
+            sl = node.slice
+            if isinstance(sl, ast.Constant) and sl.value == field:
+                hits.append(node.lineno)
+        elif (isinstance(node, ast.Call)
+              and isinstance(node.func, ast.Attribute)
+              and node.func.attr == "get"
+              and node.args
+              and isinstance(node.args[0], ast.Constant)
+              and node.args[0].value == field):
+            hits.append(node.lineno)
+    return hits
+
+
 @pytest.mark.parametrize("mech", REMOVED_MECHANISMS, ids=lambda m: m.name)
 def test_no_consumer_reads_a_field_nothing_writes(mech: RemovedMechanism) -> None:
     """A reader with no writer is a mechanism that looks alive from one side.
@@ -138,15 +164,29 @@ def test_no_consumer_reads_a_field_nothing_writes(mech: RemovedMechanism) -> Non
     for path in _files(_CODE_ROOTS):
         if path.suffix != ".py":
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:  # pragma: no cover - the repo does not ship these
+            continue
         for field in mech.orphan_fields:
-            for lineno, line in enumerate(text.splitlines(), 1):
-                if field in line and not line.lstrip().startswith("#"):
-                    offenders.append(f"{path.relative_to(REPO)}:{lineno} ({field})")
+            for lineno in _reads_field(tree, field):
+                offenders.append(f"{path.relative_to(REPO)}:{lineno} ({field})")
     assert not offenders, (
         f"{mech.name} stopped writing these fields in {mech.removed_in}, but "
         f"production code still reads them:\n  " + "\n  ".join(offenders)
     )
+
+
+def test_the_consumer_scan_sees_both_read_shapes() -> None:
+    """Negative control: subscript and .get() both count, prose does not."""
+    src = (
+        'def f(d):\n'
+        '    """Mentions da_waiver_applied in prose only."""\n'
+        '    a = d["da_waiver_applied"]\n'
+        '    b = d.get("da_waiver_applied", [])\n'
+        '    return a, b\n'
+    )
+    assert _reads_field(ast.parse(src), "da_waiver_applied") == [3, 4]
 
 
 def test_the_scan_would_catch_a_reintroduced_instruction() -> None:

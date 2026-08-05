@@ -67,19 +67,14 @@ def _find_latest_gate_result(project: Path) -> tuple[int, dict[str, Any]]:
     return find_latest_gate_result(project)
 
 
-def _build_dimension_table(gate_result: dict[str, Any],
-                           validated_waivers: set[str] | None = None) -> list[str]:
+def _build_dimension_table(gate_result: dict[str, Any]) -> list[str]:
     """Build the 12-dimension score table markdown.
 
-    validated_waivers: dimension ids with a harness-verified DA waiver, from
-    quality_manifest.json's gate_results.gate{N}.da_waiver_applied — the field
-    _update_quality_manifest() writes only after an actual DA-challenge (see
-    harness/harness_bridge.py). gate_result["da_waiver"] is NOT used for this:
-    it is the agent's own unpatched self-assessment in gate{N}_result.json (only
-    composite_score/quality_complete/verdict/passed get harness-recomputed on
-    finalize-gate — da_waiver passes through verbatim), so trusting it here would
-    let an agent write da_waiver: {"security": true} into its own gate result and
-    have a real 0-score failure render as PASS.
+    Round 39 站1: the `validated_waivers` parameter is gone. It read
+    quality_manifest's `da_waiver_applied`, a field Round 38 站3 stopped
+    writing when it removed the waiver mechanism — a reader with no writer,
+    which renders as "no dimension is ever waived" and looks identical to a
+    bug. There is no PASS (DA-waiver) row any more because there is no waiver.
     """
     dims = {}
     items = []
@@ -96,8 +91,6 @@ def _build_dimension_table(gate_result: dict[str, Any],
         dims = {d["id"]: {"score": scores.get(d["id"], 0), "detail": ""}
                 for d in DIMENSIONS_12}
         items = [(d["id"], d["label"]) for d in DIMENSIONS_12]
-
-    waivers = validated_waivers or set()
 
     lines = [
         "| Dimension | Score | Status | Detail |",
@@ -118,14 +111,7 @@ def _build_dimension_table(gate_result: dict[str, Any],
         detail = entry.get("detail", "") if isinstance(entry, dict) else ""
         if not detail and isinstance(entry, dict):
             detail = entry.get("evidence", "")
-        # A Devil's-Advocate waiver is the authoritative verdict for a dimension
-        # whose raw tool score is below threshold (e.g. CRG community-cohesion for
-        # an intentional star-topology). Show the raw score honestly but mark it
-        # PASS (DA-waiver) rather than a bare FAIL.
-        if kid in waivers:
-            status = "✓ PASS (DA-waiver)"
-            score_display = f"{score}/100" if score is not None else "N/A"
-        elif score is None:
+        if score is None:
             excluded = isinstance(entry, dict) and entry.get("excluded_by_feature_flag")
             status = "⊘ EXCLUDED" if excluded else "⊘ FRAMEWORK-OWNED"
             score_display = "N/A"
@@ -252,11 +238,6 @@ def generate_quality_report(project_root: str,
 
     overall_score = gate_result.get("composite_score", 0) or gate_result.get("score", 0) or gate_result.get("total_score", 0)
 
-    # Validated DA waivers (not the agent-self-written gate_result["da_waiver"] —
-    # see _build_dimension_table docstring).
-    _manifest_waivers = manifest.get("gate_results", {}).get(f"gate{gate_num}", {}).get("da_waiver_applied", [])
-    validated_waivers = set(_manifest_waivers) if isinstance(_manifest_waivers, list) else set()
-
     lines: list[str] = [
         "# Quality Report",
         "",
@@ -269,7 +250,7 @@ def generate_quality_report(project_root: str,
         "## Assessment Dimensions",
         "",
     ]
-    lines.extend(_build_dimension_table(gate_result, validated_waivers))
+    lines.extend(_build_dimension_table(gate_result))
 
     lines.extend([
         "",
