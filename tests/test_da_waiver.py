@@ -83,6 +83,94 @@ class TestAdjudicateWaivers:
             assert dim not in WAIVABLE_DIMENSIONS
 
 
+class TestNoThresholdCanBeWaived:
+    """Round 38 站3 — a waiver request refuses, it never zeroes a threshold.
+
+    Round 21 fixed *when* the necessity of a waiver is adjudicated. Round 38
+    removes the question: taskq-renew's Gate 4 granted
+    ``da_waiver: {"architecture": true}`` on evidence naming communities
+    (``storage-load-sub1`` / ``sub2``) that exist only in the truncated
+    11-of-47-file graph Round 37 diagnosed. The correct 47-file graph has no
+    such communities. The waiver's premise was produced by the measurement
+    defect it was granted to excuse.
+
+    Worse, the waiver only ever reached one of the three enforcers.
+    ``cmd_crg_arch_check`` — which CI runs on every push from phase 3, and
+    which the workflow JS ANDs into ``gateNPass`` — has no waiver logic at
+    all. So the framework's own prescribed remedy could not satisfy the
+    framework's own check: finalize-gate passed, ``crg_rc`` stayed 1, and the
+    gate loop burned its three rounds and errored.
+
+    The remedy that does work is calibration — ``crg_excludes`` and
+    ``crg_cohesion_healthy`` in ``.methodology/harness_config.json``. It is
+    committed, so every enforcer reads it. That is the whole difference: a
+    waiver is visible to one judge, a calibration to all of them.
+    """
+
+    def test_no_dimension_may_have_its_threshold_waived(self):
+        assert WAIVABLE_DIMENSIONS == frozenset()
+
+    def test_crg_only_dimensions_survives_as_its_own_concept(self):
+        """The CRG-override path in harness_bridge still needs to know which
+        dimensions the framework scores rather than the agent. That set did
+        not become empty — only the waivable one did."""
+        assert "architecture" in CRG_ONLY_DIMENSIONS
+
+    def _project_with_waiver(self, tmp_path: Path, gate: int) -> Path:
+        (tmp_path / ".sessi-work").mkdir()
+        (tmp_path / ".sessi-work" / f"gate{gate}_result.json").write_text(
+            json.dumps({
+                "devil_advocate": {"architecture": True},
+                "da_waiver": {"architecture": True},
+                "devil_advocate_evidence": {
+                    "architecture": {
+                        "challenge": "x" * 200,
+                        "response": "y" * 200,
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_a_waiver_request_blocks_instead_of_zeroing_the_threshold(
+        self, tmp_path: Path
+    ):
+        from cli.gate_cmds import _collect_da_waivers
+
+        project = self._project_with_waiver(tmp_path, 3)
+        assert _collect_da_waivers(project, 3) is True
+
+    def test_the_refusal_names_the_calibration_path(self, tmp_path: Path, capsys):
+        """A block whose message does not say what to do instead is the
+        Round 24 defect verbatim."""
+        from cli.gate_cmds import _collect_da_waivers
+
+        project = self._project_with_waiver(tmp_path, 4)
+        _collect_da_waivers(project, 4)
+        err = capsys.readouterr().err
+        assert "crg_excludes" in err
+        assert "crg_cohesion_healthy" in err
+
+    def test_a_gate_result_without_waivers_is_not_blocked(self, tmp_path: Path):
+        from cli.gate_cmds import _collect_da_waivers
+
+        (tmp_path / ".sessi-work").mkdir()
+        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
+            json.dumps({"devil_advocate": {"architecture": True}}), encoding="utf-8")
+        assert _collect_da_waivers(tmp_path, 4) is False
+
+    def test_finalize_gate_no_longer_accepts_waivers(self):
+        """The parameter is the mechanism. While it exists, a caller can
+        reintroduce threshold-zeroing without touching this module."""
+        import inspect
+
+        from harness.harness_bridge import HarnessBridge
+
+        params = inspect.signature(HarnessBridge.finalize_gate).parameters
+        assert "da_waivers" not in params
+
+
 class TestAgainstRealTaskqGateResult:
     """Adjudicate against a gate result an actual pipeline run produced.
 
