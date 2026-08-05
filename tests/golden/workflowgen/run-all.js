@@ -239,12 +239,10 @@ const ENV_CHECK_SCHEMA = {
 const GATE_VERIFY_SCHEMA = {
   type: 'object',
   properties: {
-    last_gate_ok: { type: 'boolean', description: 'state.json last_gate >= this gate number (gate truly finalized, incl. Phase Truth)' },
-    d4_rc: { type: 'integer', description: 'exit code of spec-coverage-check' },
-    crg_rc: { type: 'integer', description: 'exit code of crg-arch-check (0 = architecture score >= threshold); only requested when the gate wires in a CRG check — omit otherwise' },
+    verify_rc: { type: 'integer', description: 'exit code of `verify-gate` — 0 means all three of the gate\'s checks passed AND the PASS verdict was recorded with the digest of the tree it was measured on' },
     detail: { type: 'string' },
   },
-  required: ['last_gate_ok', 'd4_rc'],
+  required: ['verify_rc'],
 }
 const FR_LIST_SCHEMA = {
   type: 'object',
@@ -2195,17 +2193,15 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
     log('  Gate 2 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
   }
-  const gate2VerifyCmd = `${PY} -c "import json; lg=json.load(open('${REPO}/.methodology/state.json')).get('last_gate'); print(json.dumps({'last_gate_ok': isinstance(lg,int) and lg >= 2, 'last_gate': lg}))"`
   const g2v = await dispatch(
-    'Run these TWO commands via the Bash tool, in order:\n'
-    + '1. `' + gate2VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate 2 is truly finalized (not just SSI-dimension-scored).\n'
-    + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0; echo "RC=$?"`\n'
-    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE; echo "RC=$?"`\n'
-    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\'s final RC= line; crg_rc = the exact numeric exit code echoed on command 3\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',
+    'Run this ONE command via the Bash tool:\n'
+    + '`pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; ' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 2 --phase 3 --spec-threshold 60.0; echo "RC=$?"`\n'
+    + 'It runs all three of Gate 2\'s checks — state.json last_gate >= 2, spec-coverage, and the CRG architecture floor — and appends the verdict, with a digest of the tree it measured, to .methodology/gate_verify.jsonl. advance-phase re-derives that digest and refuses a phase whose exit gate has no matching PASS, so a verdict you did not actually produce cannot carry the phase.\n'
+    + 'Then report via the StructuredOutput tool: verify_rc = the exact numeric exit code echoed on the final RC= line; detail = the command\'s last [verify-gate] line.',
     { label: 'gate2-verify-r' + round, phase: 'P3 · Gate 2', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
-  gate2Pass = !!(g2v && g2v.last_gate_ok === true && g2v.d4_rc === 0 && g2v.crg_rc === 0)
-  if (gate2Pass) { log('  Gate 2 PASS [harness-verified: state.json last_gate >= 2, D4 rc=0, CRG rc=0]'); break }
+  gate2Pass = !!(g2v && g2v.verify_rc === 0)
+  if (gate2Pass) { log('  Gate 2 PASS [harness-verified: verify-gate rc=0, verdict recorded in gate_verify.jsonl]'); break }
   log('  Gate 2 not yet PASS [' + (g2v ? String(g2v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (gate2Blocked) {
@@ -2658,17 +2654,15 @@ if (!gate3Pass) for (let round = 1; round <= 3; round++) {
     log('  Gate 3 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
   }
-  const gate3VerifyCmd = `${PY} -c "import json; lg=json.load(open('${REPO}/.methodology/state.json')).get('last_gate'); print(json.dumps({'last_gate_ok': isinstance(lg,int) and lg >= 3, 'last_gate': lg}))"`
   const g3v = await dispatch(
-    'Run these TWO commands via the Bash tool, in order:\n'
-    + '1. `' + gate3VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate 3 is truly finalized (not just SSI-dimension-scored).\n'
-    + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0; echo "RC=$?"`\n'
-    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE; echo "RC=$?"`\n'
-    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\'s final RC= line; crg_rc = the exact numeric exit code echoed on command 3\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',
+    'Run this ONE command via the Bash tool:\n'
+    + '`pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; ' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 3 --phase 4 --spec-threshold 80.0; echo "RC=$?"`\n'
+    + 'It runs all three of Gate 3\'s checks — state.json last_gate >= 3, spec-coverage, and the CRG architecture floor — and appends the verdict, with a digest of the tree it measured, to .methodology/gate_verify.jsonl. advance-phase re-derives that digest and refuses a phase whose exit gate has no matching PASS, so a verdict you did not actually produce cannot carry the phase.\n'
+    + 'Then report via the StructuredOutput tool: verify_rc = the exact numeric exit code echoed on the final RC= line; detail = the command\'s last [verify-gate] line.',
     { label: 'gate3-verify-r' + round, phase: 'P4 · Gate 3', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
-  gate3Pass = !!(g3v && g3v.last_gate_ok === true && g3v.d4_rc === 0 && g3v.crg_rc === 0)
-  if (gate3Pass) { log('  Gate 3 PASS [harness-verified: state.json last_gate >= 3, D4 rc=0, CRG rc=0]'); break }
+  gate3Pass = !!(g3v && g3v.verify_rc === 0)
+  if (gate3Pass) { log('  Gate 3 PASS [harness-verified: verify-gate rc=0, verdict recorded in gate_verify.jsonl]'); break }
   log('  Gate 3 not yet PASS [' + (g3v ? String(g3v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (gate3Blocked) {
@@ -3226,17 +3220,15 @@ if (!gate4Pass) for (let round = 1; round <= 3; round++) {
     log('  Gate 4 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
   }
-  const gate4VerifyCmd = `${PY} -c "import json; lg=json.load(open('${REPO}/.methodology/state.json')).get('last_gate'); print(json.dumps({'last_gate_ok': isinstance(lg,int) and lg >= 4, 'last_gate': lg}))"`
   const g4v = await dispatch(
-    'Run these TWO commands via the Bash tool, in order:\n'
-    + '1. `' + gate4VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate 4 is truly finalized (not just SSI-dimension-scored).\n'
-    + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0; echo "RC=$?"`\n'
-    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE; echo "RC=$?"`\n'
-    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\'s final RC= line; crg_rc = the exact numeric exit code echoed on command 3\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',
+    'Run this ONE command via the Bash tool:\n'
+    + '`pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; ' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 4 --phase 6 --spec-threshold 90.0; echo "RC=$?"`\n'
+    + 'It runs all three of Gate 4\'s checks — state.json last_gate >= 4, spec-coverage, and the CRG architecture floor — and appends the verdict, with a digest of the tree it measured, to .methodology/gate_verify.jsonl. advance-phase re-derives that digest and refuses a phase whose exit gate has no matching PASS, so a verdict you did not actually produce cannot carry the phase.\n'
+    + 'Then report via the StructuredOutput tool: verify_rc = the exact numeric exit code echoed on the final RC= line; detail = the command\'s last [verify-gate] line.',
     { label: 'gate4-verify-r' + round, phase: 'P6 · Gate 4', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
-  gate4Pass = !!(g4v && g4v.last_gate_ok === true && g4v.d4_rc === 0 && g4v.crg_rc === 0)
-  if (gate4Pass) { log('  Gate 4 PASS [harness-verified: state.json last_gate >= 4, D4 rc=0, CRG rc=0]'); break }
+  gate4Pass = !!(g4v && g4v.verify_rc === 0)
+  if (gate4Pass) { log('  Gate 4 PASS [harness-verified: verify-gate rc=0, verdict recorded in gate_verify.jsonl]'); break }
   log('  Gate 4 not yet PASS [' + (g4v ? String(g4v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (gate4Blocked) {

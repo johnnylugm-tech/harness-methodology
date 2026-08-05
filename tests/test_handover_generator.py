@@ -1023,7 +1023,8 @@ class TestCmdAdvancePhase:
 
     @staticmethod
     def _call_advance_phase(monkeypatch, tmp_path, completed=3,
-                             skip_prechecks=True, mock_auditor=True, **kwargs):
+                             skip_prechecks=True, mock_auditor=True,
+                             record_gate_verdict=True, **kwargs):
         """Call cmd_advance_phase and return (exit_code, output_str).
 
         Sets up mock _advance_fsm and HandoverGenerator by default.
@@ -1121,6 +1122,23 @@ class TestCmdAdvancePhase:
         # Allow per-test subprocess.run override
         if "subprocess_run" in kwargs:
             monkeypatch.setattr("subprocess.run", kwargs["subprocess_run"])
+
+        # Round 38 站4: advance-phase requires a PASS verdict in
+        # gate_verify.jsonl for the exit gate, measured on the tree being
+        # advanced. These tests are about other checks (deliverables, gate
+        # variance, manifest corruption), so supply the verdict the same way
+        # a real run's verify-gate step would — the blocking behaviour itself
+        # is pinned in tests/test_gate_verify.py, not here.
+        if record_gate_verdict:
+            from core.phase_topology import EXIT_GATE_MAP
+            from core.quality_gate.gate_verify import PASS, record_verdict
+            _eg = EXIT_GATE_MAP.get(completed)
+            if _eg is not None:
+                record_verdict(tmp_path, gate=_eg, phase=completed,
+                               checks={"last_gate_ok": True,
+                                       "spec_coverage_rc": 0, "crg_rc": 0},
+                               verdict=PASS)
+
 
         # Allow per-test HARNESS_NO_GIT override
         if "harness_no_git" in kwargs:
@@ -1411,6 +1429,15 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda project, phase: 0)
 
+        # Round 38 站4: the exit gate needs a PASS verdict for this tree.
+        # Recorded after the subprocess fake so the digest is taken in the
+        # same world advance-phase will re-derive it in.
+        from core.quality_gate.gate_verify import PASS, record_verdict
+        record_verdict(tmp_path, gate=2, phase=3,
+                       checks={"last_gate_ok": True, "spec_coverage_rc": 0,
+                               "crg_rc": 0},
+                       verdict=PASS)
+
         exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0
         assert write_kwargs.get("checkpoint_id", "").startswith("P4-entry")
@@ -1459,6 +1486,14 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
+        # Round 38 站4: the exit gate needs a PASS verdict for this tree.
+        # Recorded after the subprocess fake so the digest is taken in the
+        # same world advance-phase will re-derive it in.
+        from core.quality_gate.gate_verify import PASS, record_verdict
+        record_verdict(tmp_path, gate=2, phase=3,
+                       checks={"last_gate_ok": True, "spec_coverage_rc": 0,
+                               "crg_rc": 0},
+                       verdict=PASS)
         cmd_advance_phase(a)
 
     def test_advance_phase_surfaces_obligations_to_handover(self, tmp_path, monkeypatch):
@@ -1535,6 +1570,13 @@ class TestCmdAdvancePhase:
                 ),
             ],
         )
+
+        # Round 38 站4: the exit gate needs a PASS verdict for this tree.
+        from core.quality_gate.gate_verify import PASS, record_verdict
+        record_verdict(tmp_path, gate=2, phase=3,
+                       checks={"last_gate_ok": True, "spec_coverage_rc": 0,
+                               "crg_rc": 0},
+                       verdict=PASS)
 
         exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
         assert exit_code == 0

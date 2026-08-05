@@ -229,7 +229,6 @@ def generate_phase4() -> str:
             pass_line_desc="composite ≥80 AND all dims ≥ threshold AND D4 ≥80% AND CRG architecture ≥80",
             scope_rules=_GATE3_SCOPE_RULES,
             d4_threshold=80.0,
-            crg_check=True,
             on_fail_error_msg="Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)",
             include_manifest_integrity=False,
             deferred_fixes_step=_GATE3_DEFERRED_FIXES_STEP,

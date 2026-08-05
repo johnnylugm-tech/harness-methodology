@@ -367,7 +367,7 @@ for (const [name, gate] of EXIT_GATES) {
   test(`${name} Gate ${gate}: pre-flight FAIL enters the round loop`, async () => {
     const overrides = [
       { match: precheck, respond: { pass: false, reason: 'not finalized' } },
-      { match: verify, respond: { last_gate_ok: true, d4_rc: 0, crg_rc: 0, detail: 'sim' } },
+      { match: verify, respond: { verify_rc: 0, detail: 'sim' } },
       ...happyOverrides(),
     ]
     const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
@@ -375,15 +375,16 @@ for (const [name, gate] of EXIT_GATES) {
       'an unfinalized gate must still run its orchestrator round')
     assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
     assert.ok(events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
-      'last_gate_ok + d4_rc=0 + crg_rc=0 is the PASS condition')
+      'verify-gate rc=0 is the PASS condition (Round 38: one command, one number,\n'
+      + 'and a verdict on disk carrying the tree it was measured on)')
   })
 
-  test(`${name} Gate ${gate}: last_gate_ok=false cannot PASS (the 9b5f7cf premise)`, async () => {
+  test(`${name} Gate ${gate}: a non-zero verify_rc cannot PASS (the 9b5f7cf premise)`, async () => {
     const overrides = [
       { match: precheck, respond: { pass: false, reason: 'not finalized' } },
       // Phase Truth still blocking: the SSI dims may well have scored, which
       // is precisely the state manifest.quality_complete reported as done.
-      { match: verify, respond: { last_gate_ok: false, d4_rc: 0, crg_rc: 0, detail: 'phase truth 69%' } },
+      { match: verify, respond: { verify_rc: 12, detail: 'phase truth 69%' } },
       ...happyOverrides(),
     ]
     const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))

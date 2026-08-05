@@ -294,7 +294,6 @@ def generate_phase6() -> str:
             pass_line_desc="composite ≥85 AND all dims ≥ threshold AND DA artifacts present AND D4 ≥90% AND CRG architecture ≥80",
             scope_rules=_GATE4_SCOPE_RULES,
             d4_threshold=90.0,
-            crg_check=True,
             on_fail_error_msg="Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=False,
             wrap_try_catch=True,

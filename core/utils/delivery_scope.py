@@ -47,13 +47,15 @@ alter projects that have nothing to do with the defect this closes.
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 from typing import Iterator
 
 from core.utils.lang_patterns import SKIP_DIRS
 
-__all__ = ["iter_delivered_files", "delivered_file_set", "is_git_repo"]
+__all__ = ["iter_delivered_files", "delivered_file_set", "delivered_tree_digest",
+           "is_git_repo"]
 
 _LS_FILES = ("git", "ls-files", "--cached", "--others", "--exclude-standard",
              "-z")
@@ -130,3 +132,37 @@ def iter_delivered_files(root: Path) -> Iterator[Path]:
 def delivered_file_set(root: Path) -> set[str]:
     """`iter_delivered_files` as resolved absolute path strings."""
     return {str(p.resolve()) for p in iter_delivered_files(root)}
+
+
+def delivered_tree_digest(root: Path) -> str:
+    """A sha256 over (repo-relative path, file content) for the delivered tree.
+
+    Round 38: a verdict has to carry the tree it was measured on. Round 37's
+    lesson was that a number is only as good as the tree it was measured over;
+    the same is true one level up, of the PASS that number produced. Without
+    this, `advance-phase` can only ask "did a gate verdict exist?", which a
+    verdict from before the last three edits answers just as well as a current
+    one.
+
+    Path *and* content, both: content alone would miss a file being added or
+    renamed, which is exactly how taskq-renew's graph fell behind its tree.
+
+    Unreadable files contribute their error rather than being skipped —
+    a tree we could only partly read must not digest the same as one we read
+    completely (Round 32/35: an unmeasurable input is not a passing input).
+    """
+    root = Path(root)
+    h = hashlib.sha256()
+    for path in iter_delivered_files(root):
+        try:
+            rel = path.relative_to(root).as_posix()
+        except ValueError:  # pragma: no cover - iter_delivered_files is rooted
+            rel = path.as_posix()
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        try:
+            h.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii"))
+        except OSError as exc:
+            h.update(f"<unreadable: {exc.__class__.__name__}>".encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()

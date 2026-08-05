@@ -366,6 +366,41 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Round 38 站4: the exit gate must have a PASS verdict for THIS tree, and
+    # the question is asked before advance-phase writes anything. It writes
+    # setup.cfg (the P2→P3 mutation-scope sync) on its way through, so a check
+    # placed after that point compares against a tree advance-phase itself just
+    # changed — the first version of this block sat there and blocked every
+    # P2→P3 advance. The tests caught it; the ordering is the fix.
+    #
+    # state.json::last_gate says the gate was finalized. It says nothing about
+    # spec-coverage or the CRG architecture floor, which the workflow checked
+    # separately and then discarded: `crg_rc` appears zero times in
+    # taskq-renew's entire .methodology/ after a complete P1-P8 run, which is
+    # why the contradiction between its P6 baseline (77.8, below its own floor
+    # of 80) and its first-round gate4-verify PASS cannot be adjudicated at
+    # all. A missing verdict blocks rather than warns: a check we cannot show
+    # was run is not a check that passed.
+    if args.completed_phase in EXIT_GATE_MAP:
+        from cli.exit_codes import EX_ADVANCE_GATE_VERDICT_MISSING
+        from core.quality_gate.gate_verify import has_matching_pass
+        _req_gate = EXIT_GATE_MAP[args.completed_phase]
+        _verdict_ok, _verdict_why = has_matching_pass(project, _req_gate)
+        if not _verdict_ok:
+            print(
+                f"\n[BLOCKED] advance-phase: gate {_req_gate} has no PASS "
+                f"verdict for the tree being advanced.\n"
+                f"  {_verdict_why}\n"
+                f"  Fix: python3 harness_cli.py verify-gate --project {project} "
+                f"--gate {_req_gate} --phase {args.completed_phase} "
+                f"--spec-threshold <this gate's D4 threshold>\n"
+                f"  It runs the exit gate's three checks (last_gate, "
+                f"spec-coverage, crg-arch) and records them together in "
+                f".methodology/gate_verify.jsonl.",
+                file=sys.stderr,
+            )
+            return EX_ADVANCE_GATE_VERDICT_MISSING
+
     # CV-2: Validate args.completed_phase against state.json::current_phase.
     #
     # Three cases:
@@ -439,6 +474,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 #   11 → re-run Phase Truth until score ≥ 90%
                 #   12 → run finalize-gate for the exit gate of this phase
                 return 12
+
 
     next_phase = args.completed_phase + 1
 

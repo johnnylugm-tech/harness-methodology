@@ -94,6 +94,12 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     32  verify-ci: the CI verdict could not be obtained (no gh, no network, no
         origin remote, or no run has appeared yet) — INFRA, not a pass;
         re-run once CI has reported
+    33  verify-gate: at least one of the gate's three checks (last_gate,
+        spec-coverage, crg-arch) failed — the verdict is recorded as FAIL in
+        .methodology/gate_verify.jsonl; fix the named check and re-run
+    34  advance-phase: the exit gate has no PASS verdict recorded for the tree
+        being advanced — run verify-gate against this tree; a verdict measured
+        on a different tree is not a verdict for this one
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

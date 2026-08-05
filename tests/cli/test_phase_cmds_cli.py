@@ -1384,6 +1384,28 @@ def test_advance_prechecks_p8_does_not_require_phase9_plan(tmp_path, monkeypatch
 # Finding #3: P2→P3 advance must auto-regenerate quality_manifest.json
 # =============================================================================
 
+def _record_exit_gate_verdicts(project) -> None:
+    """Give a fixture project the PASS verdicts advance-phase now requires.
+
+    Round 38 站4: advance-phase refuses an exit gate with no PASS in
+    .methodology/gate_verify.jsonl for the tree being advanced. These classes
+    test other things (manifest regeneration, attestation refresh, the P8
+    baseline), so they get the verdict a real run's verify-gate step would
+    have written. The blocking behaviour itself is pinned in
+    tests/test_gate_verify.py.
+
+    Recorded after the subprocess.run fake is installed, so the tree digest is
+    taken in the same world the check will re-derive it in.
+    """
+    from core.phase_topology import EXIT_GATE_MAP
+    from core.quality_gate.gate_verify import PASS, record_verdict
+    for _phase, _gate in sorted(EXIT_GATE_MAP.items()):
+        record_verdict(project, gate=_gate, phase=_phase,
+                       checks={"last_gate_ok": True, "spec_coverage_rc": 0,
+                               "crg_rc": 0},
+                       verdict=PASS)
+
+
 class TestP2AdvanceRegeneratesManifest:
     """Regression tests for Finding #3: P2 plan never re-invokes
     `harness_cli.py manifest` after scripts/generate_sab.py runs. P3 entry
@@ -1451,6 +1473,7 @@ class TestP2AdvanceRegeneratesManifest:
             return R()
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
+        _record_exit_gate_verdicts(tmp_path)
 
     def _build_args(self, project: Path, completed_phase: int):
         import argparse
@@ -1704,6 +1727,7 @@ class TestAdvancePhaseRefreshesAttestation:
             return R()
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
+        _record_exit_gate_verdicts(tmp_path)
 
     def _build_args(self, project: Path, completed_phase: int):
         import argparse
@@ -1828,6 +1852,7 @@ class TestP7AdvanceGeneratesP8Baseline:
             return R()
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
+        _record_exit_gate_verdicts(tmp_path)
 
     def _build_args(self, project: Path, completed_phase: int):
         import argparse
