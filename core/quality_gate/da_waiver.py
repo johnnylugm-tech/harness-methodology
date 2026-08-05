@@ -1,127 +1,54 @@
-"""Devil's Advocate score-threshold waivers: which dimensions may be waived,
-and whether a requested waiver is actually needed.
+"""No dimension's threshold may be waived (Round 21 → Round 38).
 
-Round 21 root cause — the adjudication ran before the truth existed.
-``_collect_da_waivers`` (cli/gate_cmds.py) decided both "is this waiver
-permitted?" and "is this waiver needed?" at gate-prerequisite time, which is
-*before* ``finalize_gate`` runs the framework's own independent CRG pass. The
-only dimension a waiver has ever targeted — ``architecture`` — is CRG-only:
-the agent does not score it, and writes JSON ``null``. So the necessity check
-compared the gate's threshold against a value that did not exist yet.
+Round 21 built this module to fix an *ordering* mistake: ``_collect_da_waivers``
+(cli/gate_cmds.py) decided both "is this waiver permitted?" and "is this waiver
+needed?" at gate-prerequisite time, which is *before* ``finalize_gate`` runs the
+framework's own independent CRG pass. The only dimension a waiver has ever
+targeted — ``architecture`` — is CRG-only: the agent does not score it and
+writes JSON ``null``, so the necessity check compared the gate's threshold
+against a value that did not exist yet.
 
-taskq's P6 is the worked example: the recorded waiver's stated premise ("CRG
-reports 0 for this hub-and-spoke layout") was false — the framework's own CRG
-run scored the same tree **100.0** — yet the waiver was granted and
-``da_waiver_needs_human_review`` was raised over a waiver nobody needed.
+Round 38 removed the question rather than re-timing it, on two measurements.
 
-The split this module encodes:
+**The waiver reached one enforcer out of three.** ``cmd_crg_arch_check`` — which
+CI runs on every push from phase 3 (job "CRG Architecture Gate (P3+)") and which
+the workflow JS ANDs into ``gate{N}Pass`` — has no waiver logic at all. So a
+granted waiver produced a local PASS and a red build, and the gate loop then
+spent its three rounds on a remedy that could not satisfy the check the same
+framework was running. The framework's prescribed fix could not clear the
+framework's own gate.
 
-  * **collection** — the agent declares ``da_waiver.<dim>`` and supplies DA
-    evidence; permission is checked against :data:`WAIVABLE_DIMENSIONS`. Runs
-    pre-finalize, on agent-authored input.
-  * **adjudication** — :func:`adjudicate_waivers` decides whether each
-    permitted request is *needed*, using the scores and thresholds the
-    framework itself computed. Runs post-scoring, on framework-authored input.
+**The one waiver ever granted rested on a premise the measurement invented.**
+taskq-renew's ``gate4_result.json`` carried ``da_waiver: {"architecture": true}``
+with evidence naming the communities ``storage-load-sub1`` and ``sub2``. Those
+exist only in the truncated 11-of-47-file graph Round 37 diagnosed; the correct
+47-file graph has no such communities at all. (taskq's P6, the case Round 21 was
+written for, was the same shape from the other side: its waiver claimed CRG
+scored the tree 0 while the framework's own run scored it 100.0.)
 
-A waiver's only documented justification is CRG's Leiden community detection
-misreading an intentional hub-and-spoke layout as low cohesion, so the set of
-waivable dimensions is exactly the set of CRG-scored dimensions — one name,
-one definition, used by both the permission check and the CRG override path.
+What replaces it is calibration, not exemption: ``crg_excludes`` and
+``crg_cohesion_healthy`` in ``.methodology/harness_config.json``. That file is
+committed, so **every** enforcer reads it — which is the whole difference. A
+waiver is visible to one judge; a calibration is visible to all of them. And a
+genuinely oversized community (taskq-renew's ``storage-parser``, 97 members) is
+deliberately not calibratable: that one is a finding, not an artifact.
+
+Requests are still detected and still refused, with a message pointing at
+calibration — see ``cli/gate_cmds.py::_collect_da_waivers``. Silently ignoring
+an agent-written ``da_waiver`` would be worse than rejecting it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, Sequence
+__all__ = ["CRG_ONLY_DIMENSIONS", "WAIVABLE_DIMENSIONS"]
 
 # Dimensions scored by the framework's own independent CRG run
-# (harness/crg_independent.py), never by the agent.
+# (harness/crg_independent.py), never by the agent. Still live: the CRG override
+# path in harness/harness_bridge.py uses it to decide which dimension it owns.
 CRG_ONLY_DIMENSIONS: frozenset[str] = frozenset({"architecture"})
 
-# Dimensions a DA waiver may target. Identical to CRG_ONLY_DIMENSIONS by
-# construction, not by coincidence: the waiver exists to absorb a known CRG
-# false positive, so a dimension CRG does not score has no waiver rationale.
-# Every other dimension is scored by a tool whose output is the finding — a
-# low score there is the defect, not an artifact of the measurement.
-WAIVABLE_DIMENSIONS: frozenset[str] = CRG_ONLY_DIMENSIONS
-
-
-@dataclass(frozen=True)
-class WaiverAdjudication:
-    """Outcome of adjudicating waiver requests against framework scores.
-
-    applied: dimensions whose threshold should actually be zeroed.
-    blocked: a request could not be adjudicated — the gate must not proceed.
-    notes:   human-readable lines explaining each decision (printed by callers).
-    """
-
-    applied: frozenset[str]
-    blocked: bool
-    notes: tuple[str, ...]
-
-
-def adjudicate_waivers(
-    requested: Iterable[str],
-    scored: Sequence[tuple[str, "float | None", float]],
-) -> WaiverAdjudication:
-    """Decide which requested waivers are needed, from framework-computed scores.
-
-    :param requested: dimension names the agent asked to waive (already
-        permission-checked against :data:`WAIVABLE_DIMENSIONS` at collection).
-    :param scored: ``(name, score, threshold)`` per dimension, where both values
-        are the framework's — ``score`` after any CRG override, ``threshold``
-        resolved from the gate config. ``score`` is ``None`` when the dimension
-        has no applicable measurement.
-
-    Decision table:
-
-    ==========================  ==================================
-    condition                   outcome
-    ==========================  ==================================
-    dimension absent from gate  not applied (nothing to waive)
-    ``score is None``           **blocked** — necessity unknowable
-    ``score >= threshold``      not applied — waiver not needed
-    ``score < threshold``       applied
-    ==========================  ==================================
-
-    The ``None`` case blocks rather than silently applying: zeroing a threshold
-    for a dimension the framework has not scored would waive an unknown, which
-    is exactly the failure this module exists to prevent.
-    """
-    by_name = {name: (score, threshold) for name, score, threshold in scored}
-    applied: set[str] = set()
-    blocked = False
-    notes: list[str] = []
-
-    for dim in sorted(set(requested)):
-        if dim not in by_name:
-            notes.append(
-                f"da_waiver '{dim}': not applied — dimension not scored at this gate."
-            )
-            continue
-        score, threshold = by_name[dim]
-        if score is None:
-            blocked = True
-            notes.append(
-                f"da_waiver '{dim}': BLOCKED — the framework produced no score for this "
-                f"dimension, so whether the waiver is needed cannot be determined. "
-                f"Fix: re-run finalize-gate once the framework scores '{dim}' "
-                f"(for CRG-scored dimensions, confirm code-review-graph runs cleanly), "
-                f"then request the waiver again."
-            )
-            continue
-        if score >= threshold:
-            notes.append(
-                f"da_waiver '{dim}': not applied — framework score {score:.1f} "
-                f"≥ threshold {threshold:.1f} (waiver not needed)."
-            )
-            continue
-        applied.add(dim)
-        notes.append(
-            f"da_waiver '{dim}': applied — framework score {score:.1f} "
-            f"< threshold {threshold:.1f} (score threshold bypassed; flagged for human review)."
-        )
-
-    return WaiverAdjudication(
-        applied=frozenset(applied), blocked=blocked, notes=tuple(notes)
-    )
+# Dimensions a DA waiver may target. Empty, and kept as a named empty set rather
+# than deleted, because `_collect_da_waivers` still checks membership to refuse
+# a request — and because a future reader asking "can anything be waived?"
+# deserves this docstring rather than silence.
+WAIVABLE_DIMENSIONS: frozenset[str] = frozenset()

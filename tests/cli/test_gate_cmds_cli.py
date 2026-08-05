@@ -665,18 +665,18 @@ class TestW2CoverageWarning:
 # Bug 3 — _check_gate4_prerequisites: da_waiver skipped when tool_score ≥ threshold
 # =============================================================================
 
-class TestGate4DaWaiverCollection:
-    """What the pre-finalize collection stage decides — and what it does not.
+class TestGate4DaWaiverRefusal:
+    """What the pre-finalize stage does with a waiver request: refuse it.
 
-    Round 21 split this: collection answers "is this waiver permitted, and is it
-    evidence-backed?" (both decided by agent-authored input, available now).
-    Whether the waiver is *needed* is decided later, in finalize_gate, against
-    the framework's own scores — see tests/test_da_waiver.py and
-    TestFinalizeGateWaiverAdjudication.
+    Round 21 split collection ("permitted? evidence-backed?") from adjudication
+    ("needed?"). Round 38 collapsed both: no dimension is waivable, so any
+    active request blocks here and finalize_gate never sees one.
 
-    These tests used to assert necessity here, using a `target` key that no real
-    gate result has ever carried (it came from score.py, which writes a different
-    file). That made them pass against a shape the pipeline never produces.
+    Why, measured: a waiver was read by finalize_gate and by nothing else.
+    `crg-arch-check` — CI's enforcer on every push from phase 3, and the one the
+    workflow ANDs into gate4Pass — has no waiver logic, so a grant produced a
+    local PASS and a red build. The remedy that reaches every enforcer is
+    calibration in the committed harness_config.json.
     """
 
     _LONG = "x" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
@@ -702,7 +702,7 @@ class TestGate4DaWaiverCollection:
             "breakdown": {dim: {"score": score, "threshold": 80}},
         }
 
-    def _run(self, tmp_path: Path, g4: dict, monkeypatch) -> tuple[bool, set]:
+    def _run(self, tmp_path: Path, g4: dict, monkeypatch) -> bool:
         from cli.gate_cmds import _check_gate4_prerequisites
 
         sessi = tmp_path / ".sessi-work"
@@ -736,78 +736,58 @@ class TestGate4DaWaiverCollection:
 
         return _check_gate4_prerequisites(tmp_path)
 
-    def test_permitted_evidence_backed_waiver_is_collected(self, tmp_path, monkeypatch):
-        """architecture + real DA evidence → request collected for adjudication."""
-        blocked, da_waivers = self._run(
+    def test_an_architecture_waiver_blocks(self, tmp_path, monkeypatch):
+        """The one dimension that used to be waivable no longer is."""
+        assert self._run(
             tmp_path, self._make_g4("architecture", score=50.0), monkeypatch
-        )
-        assert not blocked
-        assert "architecture" in da_waivers
+        ) is True
 
-    def test_collection_does_not_judge_necessity(self, tmp_path, monkeypatch):
-        """A high self-reported score does NOT drop the request here.
-
-        Necessity is adjudicated in finalize_gate against the framework's own
-        score. Deciding it here would mean deciding it from the agent's own
-        breakdown — for `architecture` that value is always null anyway, because
-        the agent does not score a CRG-only dimension.
-        """
-        blocked, da_waivers = self._run(
+    def test_a_high_self_reported_score_does_not_excuse_the_request(
+        self, tmp_path, monkeypatch
+    ):
+        """A request is refused on its own terms, not on the agent's number —
+        which for a CRG-only dimension is null in every real gate result."""
+        assert self._run(
             tmp_path, self._make_g4("architecture", score=100.0), monkeypatch
-        )
-        assert not blocked
-        assert "architecture" in da_waivers
+        ) is True
 
-    def test_null_architecture_score_does_not_crash_collection(self, tmp_path, monkeypatch):
+    def test_a_null_score_does_not_crash_the_check(self, tmp_path, monkeypatch):
         """The real shape: CRG-only dimensions carry JSON null, not a number."""
-        blocked, da_waivers = self._run(
+        assert self._run(
             tmp_path, self._make_g4("architecture", score=None), monkeypatch
-        )
-        assert not blocked
-        assert "architecture" in da_waivers
+        ) is True
 
-    def test_waiver_for_non_crg_dimension_is_blocked(self, tmp_path, monkeypatch):
-        """A waiver may only target a CRG-scored dimension.
-
-        Without this, two paragraphs of prose zero the threshold of any
-        dimension — including security, whose score IS the finding.
-        """
+    def test_a_waiver_for_any_other_dimension_blocks_too(self, tmp_path, monkeypatch):
         g4 = self._make_g4("architecture", score=50.0)
         g4["da_waiver"] = {"security": True}
         g4["devil_advocate"]["security"] = True
         g4["devil_advocate_evidence"]["security"] = {
             "challenge": self._LONG, "response": self._LONG,
         }
-        blocked, da_waivers = self._run(tmp_path, g4, monkeypatch)
-        assert blocked
-        assert da_waivers == set()
+        assert self._run(tmp_path, g4, monkeypatch) is True
 
-    def test_non_crg_block_message_carries_remediation(self, tmp_path, capsys, monkeypatch):
+    def test_the_block_message_names_the_remedy(self, tmp_path, capsys, monkeypatch):
+        """Round 24's rule: a block that does not say what to do instead is
+        the defect, not the fix."""
         g4 = self._make_g4("architecture", score=50.0)
-        g4["da_waiver"] = {"test_coverage": True}
-        g4["devil_advocate"]["test_coverage"] = True
-        g4["devil_advocate_evidence"]["test_coverage"] = {
-            "challenge": self._LONG, "response": self._LONG,
-        }
         self._run(tmp_path, g4, monkeypatch)
         err = capsys.readouterr().err
         assert "not permitted" in err
-        assert "Fix:" in err
-        assert "test_coverage" in err
+        assert "crg_excludes" in err
+        assert "crg_cohesion_healthy" in err
 
 
 # =============================================================================
 # Gate 3 DA waiver — _collect_da_waivers reads gate3_result.json
 # =============================================================================
 
-class TestGate3DaWaiverCollection:
-    """Gate 3 honors the same artifact-backed DA waivers as Gate 4.
+class TestGate3DaWaiverRefusal:
+    """Gate 3 reads the same file shape and reaches the same verdict.
 
-    Doc/code drift fix: phase4_plan.md and the phase4 workflow always claimed a
-    Gate 3 architecture FAIL could be waived via da_waiver, but the CLI only
-    read the waiver at gate==4. _collect_da_waivers is now gate-parametrized
-    and called for gate 3 at the finalize-gate call site (waiver collection
-    only — none of the Gate 4 A3-completeness/A5/B2/B3 prerequisites).
+    The class this replaces existed because phase4_plan.md and the phase4
+    workflow claimed a Gate 3 architecture FAIL could be waived while the CLI
+    only read waivers at gate 4 — a doc/code drift fixed by parametrising the
+    reader. The reader is still parametrised; what changed is the answer.
     """
 
     _LONG = "y" * 130  # > _DA_EVIDENCE_MIN_CHARS (120)
@@ -825,7 +805,7 @@ class TestGate3DaWaiverCollection:
             }
         return g3
 
-    def _run(self, tmp_path: Path, g3: "dict | None") -> tuple[bool, set]:
+    def _run(self, tmp_path: Path, g3: "dict | None") -> bool:
         from cli.gate_cmds import _collect_da_waivers
 
         if g3 is not None:
@@ -834,43 +814,27 @@ class TestGate3DaWaiverCollection:
             (sessi / "gate3_result.json").write_text(json.dumps(g3), encoding="utf-8")
         return _collect_da_waivers(tmp_path, 3)
 
-    def test_evidence_backed_waiver_is_collected(self, tmp_path):
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=64.7))
-        assert not blocked
-        assert da_waivers == {"architecture"}
+    def test_an_evidence_backed_waiver_still_blocks(self, tmp_path):
+        """Evidence quality is no longer the question. Even a perfectly
+        artifact-backed waiver is refused, because granting it would have been
+        invisible to CI."""
+        assert self._run(tmp_path, self._make_g3("architecture", score=64.7)) is True
 
-    def test_blocked_when_evidence_missing(self, tmp_path):
-        """Requested-but-unbacked waiver must fail loudly (fabrication guard)."""
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=64.7, evidence=False))
-        assert blocked
-        assert da_waivers == set()
-
-    def test_blocked_when_evidence_too_short(self, tmp_path):
-        g3 = self._make_g3("architecture", score=64.7)
-        g3["devil_advocate_evidence"]["architecture"]["response"] = "too short"
-        blocked, da_waivers = self._run(tmp_path, g3)
-        assert blocked
-        assert da_waivers == set()
+    def test_an_unbacked_waiver_blocks(self, tmp_path):
+        assert self._run(
+            tmp_path, self._make_g3("architecture", score=64.7, evidence=False)) is True
 
     def test_no_waiver_when_devil_advocate_false(self, tmp_path):
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("architecture", score=64.7, da_true=False))
-        assert not blocked
-        assert da_waivers == set()
+        """`da_waiver` without a matching `devil_advocate` flag is not an
+        active request — nothing to refuse."""
+        assert self._run(
+            tmp_path, self._make_g3("architecture", score=64.7, da_true=False)) is False
 
-    def test_no_file_returns_empty(self, tmp_path):
-        blocked, da_waivers = self._run(tmp_path, None)
-        assert not blocked
-        assert da_waivers == set()
+    def test_no_file_is_not_a_block(self, tmp_path):
+        assert self._run(tmp_path, None) is False
 
-    def test_gate3_waiver_for_non_crg_dimension_is_blocked(self, tmp_path):
-        """The permission check is gate-agnostic — Gate 3 enforces it too."""
-        blocked, da_waivers = self._run(
-            tmp_path, self._make_g3("readability", score=64.7))
-        assert blocked
-        assert da_waivers == set()
+    def test_a_waiver_for_any_dimension_blocks(self, tmp_path):
+        assert self._run(tmp_path, self._make_g3("readability", score=64.7)) is True
 
     def test_gate4_reader_ignores_gate3_file(self, tmp_path):
         """_collect_da_waivers(project, 4) must not pick up gate3_result.json."""
@@ -879,9 +843,7 @@ class TestGate3DaWaiverCollection:
         sessi.mkdir(parents=True, exist_ok=True)
         (sessi / "gate3_result.json").write_text(
             json.dumps(self._make_g3("architecture", 64.7)), encoding="utf-8")
-        blocked, da_waivers = _collect_da_waivers(tmp_path, 4)
-        assert not blocked
-        assert da_waivers == set()
+        assert _collect_da_waivers(tmp_path, 4) is False
 
 
 # =============================================================================
@@ -2101,7 +2063,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda *_a: None)
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda *_a: None)
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda *_a: None)
-        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites", lambda *_a: (False, set()))
+        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites", lambda *_a: False)
         monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
@@ -2234,7 +2196,7 @@ class TestFinalizeGate4StateJsonWriteBeforePush:
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_preflight", lambda *_a: None)
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda *_a: None)
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda *_a: None)
-        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites", lambda *_a: (False, set()))
+        monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites", lambda *_a: False)
         monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge
@@ -2315,7 +2277,7 @@ class TestFinalizeGate4PostPushDirtyWarn:
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_fr_checks", lambda *_a: None)
         monkeypatch.setattr("cli.gate_cmds._finalize_gate_cross_checks", lambda *_a: None)
         monkeypatch.setattr("cli.gate_cmds._check_gate4_prerequisites",
-                            lambda *_a: (False, set()))
+                            lambda *_a: False)
         monkeypatch.setattr("cli.gate_cmds._update_state_checkpoint", lambda *_, **__: None)
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _p: None)
         from core.quality_gate import gate1_evidence as _ge

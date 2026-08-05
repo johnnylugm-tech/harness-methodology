@@ -494,40 +494,11 @@ class TestFinalizeGate:
                     result = bridge.finalize_gate(ctx)
         assert result.quality_complete is True
 
-    def test_finalize_gate_da_waiver_branch_excludes_none_score(self, tmp_path, monkeypatch):
-        """The DA-waiver `_eff_qc` recompute (a second copy of the all-dims-pass
-        predicate, gated behind `if da_waivers`) has the same None-vs-fail bug
-        fixed in the primary path above. A waived dim (readability, genuinely
-        below threshold) plus an unrelated None-scored dim (performance, not
-        yet applicable) must both let the gate pass, once linting also passes."""
-        self._patch_gate_config(tmp_path, monkeypatch)
-        config = {
-            # Low enough that the composite (readability=0, linting=90,
-            # performance excluded -> average 45.0) still clears the gate —
-            # this test targets the per-dim `_eff_qc` predicate, not the
-            # (already-correct, untouched) composite averaging.
-            "score_gate": 40.0,
-            "dimensions": [
-                {"name": "readability", "threshold": 80.0},
-                {"name": "linting", "threshold": 75.0},
-            ],
-        }
-        ctx = self._make_context(tmp_path, gate_num=4, config=config)
-        self._write_result(ctx, {
-            "quality_complete": False,
-            "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {
-                "readability": {"score": 0.0, "threshold": 80.0},
-                "linting": {"score": 90.0, "threshold": 75.0},
-                "performance": {"score": None, "threshold": 75.0},
-            },
-        })
-        bridge = HarnessBridge()
-        with patch.object(bridge, "_update_quality_manifest"):
-            with patch.object(bridge, "_log"):
-                with patch.object(bridge, "_effort"):
-                    result = bridge.finalize_gate(ctx, da_waivers={"readability"})
-        assert result.quality_complete is True
+    # Round 38 removed `test_finalize_gate_da_waiver_branch_excludes_none_score`.
+    # It covered the `_eff_qc` recompute — a second copy of the all-dims-pass
+    # predicate that only ran `if da_waivers`. With waivers gone there is one
+    # predicate again, and `test_finalize_gate_null_breakdown_score_does_not_block`
+    # above already pins the None-vs-fail behaviour on it.
 
     def test_finalize_gate_raises_blocked_on_open_critical(self, tmp_path):
         bridge = HarnessBridge()

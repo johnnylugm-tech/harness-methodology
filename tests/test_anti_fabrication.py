@@ -1284,7 +1284,7 @@ class TestHermesReceiptIntegrity:
             "approved_by": "hermes",
             "composite_score": None,
         }))
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
     def test_receipt_not_required_zero_composite(self, tmp_path, monkeypatch):
@@ -1297,7 +1297,7 @@ class TestHermesReceiptIntegrity:
             "approved_by": "hermes",
             "composite_score": 0,
         }))
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
     def test_valid_composite_score_passes(self, tmp_path, monkeypatch):
@@ -1310,7 +1310,7 @@ class TestHermesReceiptIntegrity:
             "approved_by": "hermes",
             "composite_score": 91.5,
         }))
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"All prerequisites satisfied should not block Gate 4, got blocked={blocked}"
 
     def test_receipt_not_required_bool_composite(self, tmp_path, monkeypatch):
@@ -1323,7 +1323,7 @@ class TestHermesReceiptIntegrity:
             "approved_by": "hermes",
             "composite_score": True,
         }))
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt content is no longer checked — Gate 4 is fully automated"
 
     def test_receipt_not_required_invalid_json(self, tmp_path, monkeypatch):
@@ -1332,7 +1332,7 @@ class TestHermesReceiptIntegrity:
         self._make_prerequisites(tmp_path, monkeypatch)
         receipt = tmp_path / ".methodology" / "hermes_g4_receipt.json"
         receipt.write_text("not valid json {{{")
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Receipt is no longer required — Gate 4 is fully automated"
 
     def test_missing_receipt_not_blocked(self, tmp_path, monkeypatch):
@@ -1340,7 +1340,7 @@ class TestHermesReceiptIntegrity:
         from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prerequisites(tmp_path, monkeypatch)
         # No receipt file at all
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, "Missing receipt must not block — A1 check removed"
 
 
@@ -1399,7 +1399,7 @@ class TestCRGReconCheck:
         """B3: reconnaissance: true with no crg_reconnaissance.json → blocked."""
         from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True, monkeypatch=monkeypatch)
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert blocked, "Missing crg_reconnaissance.json should block Gate 4 (B3)"
 
     def test_empty_recon_file_blocked(self, tmp_path, monkeypatch):
@@ -1407,7 +1407,7 @@ class TestCRGReconCheck:
         from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=True, monkeypatch=monkeypatch)
         (tmp_path / ".sessi-work" / "crg_reconnaissance.json").write_text("")
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert blocked, "Empty crg_reconnaissance.json should block Gate 4 (B3)"
 
     def test_populated_recon_file_passes(self, tmp_path, monkeypatch):
@@ -1416,14 +1416,14 @@ class TestCRGReconCheck:
         self._make_prereqs_with_crg_config(tmp_path, recon=True, monkeypatch=monkeypatch)
         recon_file = tmp_path / ".sessi-work" / "crg_reconnaissance.json"
         recon_file.write_text(json.dumps({"nodes": 42}))
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"Populated crg_reconnaissance.json should not block Gate 4, got blocked={blocked}"
 
     def test_no_recon_config_skips_check(self, tmp_path, monkeypatch):
         """B3: crg.reconnaissance: false → no B3 enforcement."""
         from cli.gate_cmds import _check_gate4_prerequisites
         self._make_prereqs_with_crg_config(tmp_path, recon=False, monkeypatch=monkeypatch)
-        blocked, _ = _check_gate4_prerequisites(tmp_path)
+        blocked = _check_gate4_prerequisites(tmp_path)
         assert not blocked, f"reconnaissance: false should not block Gate 4, got blocked={blocked}"
 
 class TestABCoveragePerDeliverable:

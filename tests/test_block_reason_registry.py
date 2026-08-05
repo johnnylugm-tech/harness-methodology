@@ -1,6 +1,6 @@
 """Round 24 站1 — every gate-block cause must have a registered remediation.
 
-`harness_bridge.finalize_gate` raises `GateBlockedError` from ten sites. Nine
+`harness_bridge.finalize_gate` raises `GateBlockedError` from nine sites. Eight
 attach a `details` dict whose key names the cause. If a new site adds a key
 that `core/quality_gate/block_reason.py` does not know, the agent sees the raw
 detail with a "no remediation registered" banner instead of an actionable fix —
@@ -9,11 +9,18 @@ exception on the BLOCKED path), but it must never ship. This suite is the
 mechanism that stops it shipping.
 
 The scanner reads detail dicts passed **either** by keyword (`details={...}`)
-**or** positionally (`GateBlockedError(gate, result, {...})` — the `da_waiver`
-site). That distinction is not hypothetical: the first version of this scan
-only walked `node.keywords` and silently reported 6 keys instead of 7, which is
-the same "the checker's own coverage was never checked" shape Round 24 exists
-to close.
+**or** positionally (`GateBlockedError(gate, result, {...})`). That distinction
+is not hypothetical: the first version of this scan only walked `node.keywords`
+and silently reported 6 keys instead of 7, which is the same "the checker's own
+coverage was never checked" shape Round 24 exists to close. The site that
+motivated it — `da_waiver`, the only positional one — was removed in Round 38
+along with waivers themselves, so `test_scan_sees_positionally_passed_details`
+now carries the negative control on synthetic source alone. Keep it: the next
+positional call site must not be the one that discovers the gap.
+
+Counts moved 10→9 raise sites and 8→7 detail-carrying sites in Round 38, when
+`finalize_gate` stopped adjudicating waivers. Lowering them is only legitimate
+because the *cause* is gone, not because a raise lost its details.
 """
 
 from __future__ import annotations
@@ -78,9 +85,9 @@ def scan_bridge_detail_keys(source: str) -> tuple[set[str], int, int]:
 
 def test_every_bridge_detail_key_has_a_registered_remediation():
     keys, total, with_details = scan_bridge_detail_keys(BRIDGE.read_text(encoding="utf-8"))
-    assert total >= 10, f"expected at least 10 GateBlockedError raise sites, found {total}"
-    assert with_details >= 8, (
-        f"expected at least 8 raise sites carrying details, found {with_details} — "
+    assert total >= 9, f"expected at least 9 GateBlockedError raise sites, found {total}"
+    assert with_details >= 7, (
+        f"expected at least 7 raise sites carrying details, found {with_details} — "
         "if a site lost its details dict, the agent lost the reason it blocked"
     )
     missing = sorted(keys - set(_DETAIL_REGISTRY))
@@ -105,8 +112,10 @@ def test_registry_has_no_entries_the_bridge_never_raises():
 
 
 def test_scan_sees_positionally_passed_details():
-    """Negative control: the `da_waiver` site passes details as the third
-    positional argument. A scan that only reads keywords loses it."""
+    """Negative control: a details dict passed as the third positional
+    argument. A scan that only reads keywords loses it. The bridge has no
+    such site today (the `da_waiver` one went with Round 38's waiver
+    removal), which is exactly why this control runs on synthetic source."""
     src = (
         "def f():\n"
         "    raise GateBlockedError(4, result, {'positional_only_key': ['x']})\n"

@@ -73,12 +73,13 @@ class TestUpdateQualityManifestProjectRoot:
         # No STALE manifest file at the unrelated cwd.
         assert not (unrelated / ".methodology" / "quality_manifest.json").exists()
 
-    def test_gate3_da_waiver_recorded_for_human_review(self, tmp_path: Path):
-        """Gate 3 now honors DA waivers (parity with Gate 4): when finalize
-        passes gate 3 with a non-empty da_waivers set, the manifest must
-        record da_waiver_applied + da_waiver_needs_human_review under
-        gate_results.gate3 — a waived framework-owned score must not pass
-        silently."""
+    def test_the_manifest_carries_no_waiver_fields(self, tmp_path: Path):
+        """Round 38: `da_waiver_applied` / `da_waiver_needs_human_review` are
+        gone from the manifest payload, because no threshold can be waived.
+
+        This pins their absence rather than deleting the test. A field that can
+        only ever be missing is one a later reader may "restore" by reflex; the
+        assertion says the removal was the decision, not an oversight."""
         project_root = tmp_path / "proj"
         (project_root / ".methodology").mkdir(parents=True)
         (project_root / ".methodology" / "quality_manifest.json").write_text(
@@ -95,7 +96,6 @@ class TestUpdateQualityManifestProjectRoot:
         )
         bridge._update_quality_manifest(
             gate_num=3, fr_id=None, result=result,
-            da_waivers={"architecture"},
             project_root=str(project_root),
         )
 
@@ -104,8 +104,9 @@ class TestUpdateQualityManifestProjectRoot:
             .read_text(encoding="utf-8")
         )
         g3 = data["gate_results"]["gate3"]
-        assert g3["da_waiver_applied"] == ["architecture"]
-        assert g3["da_waiver_needs_human_review"] is True
+        assert g3["score"] == 93.4  # the payload is written, just without waivers
+        assert "da_waiver_applied" not in g3
+        assert "da_waiver_needs_human_review" not in g3
 
     def test_update_falls_back_to_cwd_with_warning(
         self, tmp_path: Path, monkeypatch, caplog,

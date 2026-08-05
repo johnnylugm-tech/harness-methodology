@@ -2556,7 +2556,7 @@ class TestGate4Prerequisites:
 
         from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
-        assert _check_gate4_prerequisites(project)[0] is False
+        assert _check_gate4_prerequisites(project) is False
 
     def test_missing_hermes_receipt_not_blocked(self, tmp_path, monkeypatch):
         """Hermes receipt is no longer required (A1 removed) — Gate 4 proceeds without it."""
@@ -2570,7 +2570,7 @@ class TestGate4Prerequisites:
         project = self._make_project(tmp_path)
         # Receipt file is never created — A1 check removed, missing receipt must NOT block
         assert not (project / ".methodology" / "hermes_g4_receipt.json").exists()
-        assert _check_gate4_prerequisites(project)[0] is False
+        assert _check_gate4_prerequisites(project) is False
 
     def test_tier1_dim_using_claude_allowed(self, tmp_path, monkeypatch):
         """A2 accepts Claude for all dims — model name is no longer restricted."""
@@ -2589,7 +2589,7 @@ class TestGate4Prerequisites:
         data["model_used"]["linting"] = "claude-sonnet"   # now valid — all dims use Claude
         result_file.write_text(_json.dumps(data))
         # A2 only checks presence; not blocked by model name.
-        assert _check_gate4_prerequisites(project)[0] is False
+        assert _check_gate4_prerequisites(project) is False
 
     def test_devil_advocate_missing_dim_blocked(self, tmp_path):
         """Tier 3 dim without devil_advocate=True blocks (A3)."""
@@ -2601,7 +2601,7 @@ class TestGate4Prerequisites:
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data["devil_advocate"]["architecture"] = False
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project)[0] is True
+        assert _check_gate4_prerequisites(project) is True
 
     def test_a4_high_score_confirmations_removed(self, tmp_path, monkeypatch):
         """A4 removed: a project with NO high_score_confirmations is not blocked."""
@@ -2619,7 +2619,7 @@ class TestGate4Prerequisites:
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data.pop("high_score_confirmations", None)  # field gone entirely
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project)[0] is False
+        assert _check_gate4_prerequisites(project) is False
 
     def test_a3_requires_da_evidence(self, tmp_path):
         """A3 hardened: devil_advocate=true without devil_advocate_evidence → blocked."""
@@ -2631,7 +2631,7 @@ class TestGate4Prerequisites:
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data.pop("devil_advocate_evidence", None)  # bare boolean only
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project)[0] is True
+        assert _check_gate4_prerequisites(project) is True
 
     def test_a3_da_evidence_too_short_blocked(self, tmp_path):
         """A3: placeholder/too-short challenge text is rejected."""
@@ -2643,10 +2643,12 @@ class TestGate4Prerequisites:
         data = _copy.deepcopy(_json.loads(result_file.read_text()))
         data["devil_advocate_evidence"]["architecture"]["challenge"] = "too short"
         result_file.write_text(_json.dumps(data))
-        assert _check_gate4_prerequisites(project)[0] is True
+        assert _check_gate4_prerequisites(project) is True
 
-    def test_a3_da_waiver_requires_evidence(self, tmp_path):
-        """da_waiver only takes effect when artifact-backed; missing evidence → blocked."""
+    def test_a3_da_waiver_blocks_regardless_of_evidence(self, tmp_path):
+        """Round 38: evidence quality is no longer the question. A waiver
+        request blocks whether or not it is artifact-backed, because granting
+        one was only ever visible to finalize-gate and never to CI."""
         import copy as _copy
         import json as _json
         from cli.gate_cmds import _check_gate4_prerequisites
@@ -2656,9 +2658,7 @@ class TestGate4Prerequisites:
         data["da_waiver"] = {"architecture": True}
         data["devil_advocate_evidence"].pop("architecture", None)
         result_file.write_text(_json.dumps(data))
-        blocked, waivers = _check_gate4_prerequisites(project)
-        assert blocked is True
-        assert "architecture" not in waivers
+        assert _check_gate4_prerequisites(project) is True
 
     def test_missing_issue_registry_no_longer_blocks(self, tmp_path, monkeypatch):
         """A5 is advisory now — a missing issue_registry file does NOT block Gate 4."""
@@ -2671,7 +2671,7 @@ class TestGate4Prerequisites:
         from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         (project / ".methodology" / "issue_registry.json").unlink()
-        assert _check_gate4_prerequisites(project)[0] is False
+        assert _check_gate4_prerequisites(project) is False
 
     def test_empty_scores_dir_blocked(self, tmp_path):
         """Empty per-dim scores directory blocks (B2)."""
@@ -2679,7 +2679,7 @@ class TestGate4Prerequisites:
         project = self._make_project(tmp_path)
         for f in (project / ".sessi-work" / "round_1" / "scores").glob("*.json"):
             f.unlink()
-        assert _check_gate4_prerequisites(project)[0] is True
+        assert _check_gate4_prerequisites(project) is True
 
     def test_missing_scores_dir_blocked(self, tmp_path):
         """Missing scores directory blocks (B2)."""
@@ -2687,4 +2687,4 @@ class TestGate4Prerequisites:
         from cli.gate_cmds import _check_gate4_prerequisites
         project = self._make_project(tmp_path)
         _shutil.rmtree(project / ".sessi-work" / "round_1" / "scores")
-        assert _check_gate4_prerequisites(project)[0] is True
+        assert _check_gate4_prerequisites(project) is True

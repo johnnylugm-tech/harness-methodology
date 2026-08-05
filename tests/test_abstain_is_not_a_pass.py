@@ -134,5 +134,5 @@ def test_b3_blocks_when_the_gate4_config_is_missing(tmp_path, monkeypatch):
     (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".sessi-work").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(_gt, "gate_config_path", lambda _n: _absent(tmp_path))
-    blocked, _waivers = _check_gate4_prerequisites(tmp_path)
+    blocked = _check_gate4_prerequisites(tmp_path)
     assert blocked is True

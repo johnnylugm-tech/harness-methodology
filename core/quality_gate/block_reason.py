@@ -57,13 +57,14 @@ DIMENSION_HINTS: dict[str, str] = {
     "mutation_testing":   "Run `mutmut run`; add assertions that kill every surviving mutant",
     "architecture":       (
         "Two distinct failure modes — check tool_evidence to identify which applies: "
-        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.3) — "
-        "either file an artifact-backed DA waiver in .sessi-work/gate{N}_result.json "
-        "(devil_advocate + da_waiver + devil_advocate_evidence.architecture; valid at Gate 3 AND Gate 4) "
-        "then re-run finalize-gate, OR reduce cross-package coupling so CRG detects sub-communities; "
-        "for persistent CRG false positives (workflow tooling counted as product code, small-package "
-        "Leiden over-fragmentation) calibrate crg_excludes / crg_cohesion_healthy in "
-        ".methodology/harness_config.json; "
+        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.3), "
+        "reduce cross-package coupling so CRG detects sub-communities, or split the oversized "
+        "community. There is no waiver: Round 38 removed it because a waiver was read only by "
+        "finalize-gate, while crg-arch-check (CI, every push from phase 3) never saw it — the "
+        "waiver bought a local PASS and a red build. For a genuine CRG false positive (workflow "
+        "tooling counted as product code, small-package Leiden over-fragmentation) calibrate "
+        "crg_excludes / crg_cohesion_healthy in .methodology/harness_config.json, which is "
+        "committed and therefore applies to CI as well; "
         "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
     ),
     "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
@@ -142,13 +143,11 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "`.methodology/crg_baseline_p*.json`, undo the coupling that caused the drop, "
         "then re-run finalize-gate. Raising a waiver does not clear a regression.",
     ),
-    "da_waiver": (
-        "Devil's-advocate waiver rejected on adjudication",
-        "The waiver's stated premise was checked against the framework's own numbers "
-        "and did not hold. Read each note below: either fix the underlying dimension, "
-        "or rewrite the waiver so its premise matches what the framework measured. "
-        "Re-running finalize-gate with the same waiver text blocks again.",
-    ),
+    # Round 38 removed the `da_waiver` entry along with the raise site that
+    # produced it. A waiver is now refused at collection time
+    # (cli/gate_cmds.py::_collect_da_waivers) and never reaches finalize_gate,
+    # so an entry here would be a remediation with no cause — the dead-registry
+    # shape Round 36 spent a round unwinding.
 }
 
 

@@ -20,67 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from core.quality_gate.da_waiver import (
-    CRG_ONLY_DIMENSIONS,
-    WAIVABLE_DIMENSIONS,
-    adjudicate_waivers,
-)
+from core.quality_gate.da_waiver import CRG_ONLY_DIMENSIONS, WAIVABLE_DIMENSIONS
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "gate_results" / "taskq_gate4.json"
-
-
-class TestAdjudicateWaivers:
-    def test_waiver_not_applied_when_framework_score_clears_threshold(self):
-        """taskq's exact situation: requested waiver, framework says 100 ≥ 80."""
-        verdict = adjudicate_waivers(
-            ["architecture"], [("architecture", 100.0, 80.0)]
-        )
-        assert verdict.applied == frozenset()
-        assert not verdict.blocked
-        assert "not needed" in " ".join(verdict.notes)
-
-    def test_waiver_not_applied_at_exact_threshold(self):
-        verdict = adjudicate_waivers(["architecture"], [("architecture", 80.0, 80.0)])
-        assert verdict.applied == frozenset()
-        assert not verdict.blocked
-
-    def test_waiver_applied_when_framework_score_is_below_threshold(self):
-        """The genuine Orchestrator false positive still gets its waiver."""
-        verdict = adjudicate_waivers(["architecture"], [("architecture", 0.0, 80.0)])
-        assert verdict.applied == frozenset({"architecture"})
-        assert not verdict.blocked
-
-    def test_unscored_dimension_blocks_rather_than_waiving_an_unknown(self):
-        verdict = adjudicate_waivers(["architecture"], [("architecture", None, 80.0)])
-        assert verdict.applied == frozenset()
-        assert verdict.blocked
-        joined = " ".join(verdict.notes)
-        assert "BLOCKED" in joined
-        assert "Fix:" in joined
-
-    def test_dimension_absent_from_gate_is_a_no_op(self):
-        verdict = adjudicate_waivers(["architecture"], [("linting", 100.0, 90.0)])
-        assert verdict.applied == frozenset()
-        assert not verdict.blocked
-
-    def test_no_requests_is_a_no_op(self):
-        verdict = adjudicate_waivers([], [("architecture", 0.0, 80.0)])
-        assert verdict.applied == frozenset()
-        assert not verdict.blocked
-        assert verdict.notes == ()
-
-    def test_waivable_set_is_the_crg_set(self):
-        """One definition, two consumers.
-
-        The permission check (cli/gate_cmds.py) and the CRG override path
-        (harness/harness_bridge.py) must not drift into two lists: a waiver's
-        only rationale is a CRG measurement artifact, so a dimension CRG does
-        not score can never have one.
-        """
-        assert WAIVABLE_DIMENSIONS == CRG_ONLY_DIMENSIONS
-        assert "architecture" in WAIVABLE_DIMENSIONS
-        for dim in ("security", "secrets_scanning", "test_coverage", "readability"):
-            assert dim not in WAIVABLE_DIMENSIONS
 
 
 class TestNoThresholdCanBeWaived:
@@ -195,25 +137,23 @@ class TestAgainstRealTaskqGateResult:
         """CRG-only dimension: the agent writes null, the framework supplies it."""
         assert gate4["breakdown"]["architecture"]["score"] is None
 
-    def test_taskq_waiver_is_rejected_once_the_framework_score_is_used(self, gate4):
-        """End of the causal chain: framework score 100.0 → waiver unnecessary.
+    def test_the_real_taskq_waiver_request_is_refused(self, gate4, tmp_path, capsys):
+        """End of the causal chain, as it stands after Round 38.
 
-        100.0 is taskq's own crg_baseline_p6.json value for the same commit —
-        6/6 healthy communities. The DA challenge claimed CRG would report 0.
+        This run asked for `da_waiver: {"architecture": true}` and got it. Two
+        things were wrong with that and only one was fixed by Round 21. The
+        premise was false — taskq's own crg_baseline_p6.json records 100.0 for
+        the same commit, 6/6 healthy communities, while the challenge claimed
+        CRG would report 0. And the grant was invisible to crg-arch-check, so
+        even a true premise would have bought a local PASS and a red build.
         """
+        from cli.gate_cmds import _collect_da_waivers
+
         requested = [d for d, on in gate4["da_waiver"].items() if on]
         assert requested == ["architecture"]  # what the run actually asked for
-        threshold = float(gate4["breakdown"]["architecture"]["threshold"])
-        verdict = adjudicate_waivers(requested, [("architecture", 100.0, threshold)])
-        assert verdict.applied == frozenset()
-        assert not verdict.blocked
 
-    def test_agent_reported_null_would_block_not_silently_waive(self, gate4):
-        """If the framework score never arrives, refuse — do not waive blind."""
-        row = gate4["breakdown"]["architecture"]
-        verdict = adjudicate_waivers(
-            ["architecture"],
-            [("architecture", row["score"], float(row["threshold"]))],
-        )
-        assert verdict.blocked
-        assert verdict.applied == frozenset()
+        (tmp_path / ".sessi-work").mkdir()
+        (tmp_path / ".sessi-work" / "gate4_result.json").write_text(
+            json.dumps(gate4), encoding="utf-8")
+        assert _collect_da_waivers(tmp_path, 4) is True
+        assert "not permitted" in capsys.readouterr().err

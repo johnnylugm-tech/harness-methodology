@@ -2481,22 +2481,20 @@ class HarnessBridge:
             _existing_spec_count=_existing_spec_count,
         )
 
-    def finalize_gate(
-        self,
-        ctx: GateContext,
-        da_waivers: "set[str] | None" = None,
-    ) -> GateResult:
+    def finalize_gate(self, ctx: GateContext) -> GateResult:
         """
         Phase 2 of the two-phase gate evaluation API.
 
         Reads gate{N}_result.json written by Claude's inline evaluation,
         checks thresholds, updates the quality manifest, and records decisions.
 
+        Round 38 removed the `da_waivers` parameter. A threshold is no longer
+        waivable by anything, so there is no argument that could bypass one —
+        which is the point: while the parameter existed, a caller could
+        reintroduce threshold-zeroing without touching da_waiver.py.
+
         Args:
             ctx: The GateContext returned by prepare_gate().
-            da_waivers: Optional set of dimension names whose score threshold is
-                bypassed because a Devil's Advocate challenge confirmed intentional
-                design (e.g. Orchestrator/hub-and-spoke architecture).
 
         Returns:
             GateResult if gate passes all thresholds.
@@ -2897,7 +2895,9 @@ class HarnessBridge:
                             print("  - Add cross-module imports/tests between files in the same community")
                             print("  - Merge small isolated communities into larger coherent modules")
                             print("  - Split oversized communities (>50) into focused subdirectories")
-                            print("  - Or: if hub-and-spoke is intentional (Orchestrator), file a DA waiver")
+                            print("  - If CRG genuinely misreads an intentional layout, calibrate")
+                            print("    crg_excludes / crg_cohesion_healthy in harness_config.json —")
+                            print("    committed, so CI applies it too. Waivers were removed in R38.")
                     else:
                         _new_dims.append(_d)
                 if not _arch_found and _crg_declared:
@@ -3119,40 +3119,25 @@ class HarnessBridge:
             rounds_used=_first_non_null(raw, "rounds_used", default=1),
         )
 
-        # DA waivers: zero out threshold for dimensions whose design was justified by a
-        # Devil's Advocate challenge (e.g. Orchestrator pattern → architecture score 0 is OK).
+        # Round 38: no threshold can be waived. Round 21 moved the adjudication
+        # of a waiver's *necessity* to this point, after the framework's own CRG
+        # run had produced a number; Round 38 removes the question. A waiver was
+        # only ever visible to this one enforcer — `cmd_crg_arch_check`, which CI
+        # runs on every push from phase 3 and which the workflow JS ANDs into
+        # `gate{N}Pass`, has no waiver logic — so a granted waiver produced a
+        # local PASS and a red build, and the gate loop then burned its three
+        # rounds on a remedy that could not satisfy the check. The remedy that
+        # does work is calibration (`crg_excludes` / `crg_cohesion_healthy` in
+        # .methodology/harness_config.json): committed, and therefore read by
+        # every enforcer. A request is refused at collection time
+        # (cli/gate_cmds.py::_collect_da_waivers), never here.
         #
-        # Round 21: `da_waivers` arrives as *requests* — permission- and evidence-checked
-        # at gate-prerequisite time, but not yet adjudicated for necessity. Necessity can
-        # only be decided here, because it compares against the framework's own numbers:
-        # the CRG override above has just replaced the agent's `architecture` entry (which
-        # is JSON null in every real gate result — the agent does not score a CRG-only
-        # dimension), and the thresholds come from the gate config, not the breakdown.
-        # Adjudicating earlier is what let taskq's P6 grant a waiver whose stated premise
-        # ("CRG scores this 0") was false — the framework's own run scored it 100.0.
-        from core.quality_gate.da_waiver import adjudicate_waivers
-        _waiver_verdict = adjudicate_waivers(
-            da_waivers or (),
-            [(d.name, d.score, _effective_threshold(d)) for d in result.dimensions],
-        )
-        for _note in _waiver_verdict.notes:
-            print(f"[Gate {ctx.gate_num}] A3: {_note}", file=sys.stderr)
-        if _waiver_verdict.blocked:
-            raise GateBlockedError(
-                ctx.gate_num,
-                dataclasses.replace(result, quality_complete=False),
-                {"da_waiver": list(_waiver_verdict.notes)},
-            )
-        da_waivers = set(_waiver_verdict.applied)
+        # taskq-renew is the worked example: its Gate 4 waiver named
+        # `storage-load-sub1` / `sub2`, communities that exist only in the
+        # truncated 11-of-47-file graph Round 37 diagnosed. The premise was
+        # manufactured by the measurement defect the waiver excused.
 
-        _effective_dims = result.dimensions
-        if da_waivers:
-            _effective_dims = [
-                dataclasses.replace(d, threshold=0.0) if d.name in da_waivers else d
-                for d in result.dimensions
-            ]
-
-        # Determine final pass/fail state (using effective thresholds) BEFORE writing
+        # Determine final pass/fail state BEFORE writing
         # manifest/log so that manifest and decision log reflect the actual gate outcome.
         _gate_passes: bool
         if ctx.gate_num == 1:
@@ -3167,7 +3152,8 @@ class HarnessBridge:
             else:
                 _gate1_score_gate = ctx.config.get("score_gate", 0)
             _gate_passes = (
-                not any(d.score is not None and d.score < d.threshold for d in _effective_dims)
+                not any(d.score is not None and d.score < d.threshold
+                        for d in result.dimensions)
                 and result.score >= _gate1_score_gate
             )
         else:
@@ -3175,24 +3161,14 @@ class HarnessBridge:
                 score_gate = ctx.config.score_gate
             else:
                 score_gate = ctx.config.get("score_gate", 0)
-            # Recompute quality_complete against effective (waived) thresholds.
-            # Must also preserve the open_critical == 0 requirement so that a DA waiver
-            # cannot allow a gate to pass with unresolved critical issues.
-            _eff_qc = result.quality_complete
-            if da_waivers and result.dimensions:
-                _eff_qc = (
-                    result.score >= score_gate
-                    and result.open_critical == 0
-                    and all(d.score is None or d.score >= d.threshold for d in _effective_dims)
-                )
-            _gate_passes = result.score >= score_gate and _eff_qc
+            _gate_passes = result.score >= score_gate and result.quality_complete
 
-        # If DA waivers (or CRG override recompute) changed the pass state,
-        # update result.quality_complete so manifest + log reflect the real outcome.
+        # A CRG override recompute can change the pass state; update
+        # result.quality_complete so manifest + log reflect the real outcome.
         if _gate_passes and not result.quality_complete:
             result = dataclasses.replace(result, quality_complete=True)
 
-        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, da_waivers=da_waivers, project_root=ctx.project_root)
+        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, project_root=ctx.project_root)
 
         self._effort.record(EffortRecord(
             phase=ctx.phase, gate_num=ctx.gate_num, agent_id="GATE",
@@ -3694,7 +3670,6 @@ class HarnessBridge:
 
     def _update_quality_manifest(
         self, gate_num: int, fr_id: str | None, result: GateResult,
-        da_waivers: "set[str] | None" = None,
         project_root: str | None = None,
     ) -> None:
         """Update the persistent manifest with latest gate results.
@@ -3733,12 +3708,10 @@ class HarnessBridge:
             "rounds_used": result.rounds_used, "open_critical": result.open_critical,
             "open_high": result.open_high,
         }
-        if da_waivers:
-            # A DA waiver bypassed a dimension's score threshold (e.g. architecture=0
-            # for an intentional Orchestrator pattern). Record it for human review —
-            # it overrides a framework-owned score, so it must not pass silently.
-            payload["da_waiver_applied"] = sorted(da_waivers)
-            payload["da_waiver_needs_human_review"] = True
+        # Round 38: `da_waiver_applied` / `da_waiver_needs_human_review` are
+        # gone from this payload. They recorded that a threshold had been
+        # zeroed; no threshold can be zeroed now, so a field that could only
+        # ever be absent is one more thing for a reader to misinterpret.
         if fr_id:
             if not isinstance(manifest["gate_results"][key], dict):
                 manifest["gate_results"][key] = {}

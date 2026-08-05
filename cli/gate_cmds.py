@@ -1247,32 +1247,23 @@ def _load_gate_result_json(project: Path, gate: int) -> dict:
                       file=sys.stderr)
     return {}
 
-def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) -> "tuple[bool, set[str]]":
-    """Collect artifact-backed DA score-threshold waiver *requests*.
+def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) -> bool:
+    """Refuse any DA score-threshold waiver request, and say what to do instead.
 
-    A waiver lets a CRG-ONLY dim (architecture) pass below threshold when the
-    Devil's Advocate challenge concluded the design is intentional
-    (Orchestrator/hub-and-spoke, small-package Leiden fragmentation). Valid at
-    Gate 3 and Gate 4 — finalize_gate's threshold zeroing is gate-agnostic.
+    Round 38 emptied ``WAIVABLE_DIMENSIONS``, so every request is impermissible
+    and this function has one job: notice the request and block on it. Silently
+    ignoring an agent-written ``da_waiver`` would be worse than rejecting one —
+    the agent would believe a threshold had been lifted and keep re-submitting
+    a gate that cannot pass.
 
-    Two conditions are checked HERE, because both are decided by agent-authored
-    input available before scoring:
+    Why the waiver went away is in ``core/quality_gate/da_waiver.py``: it was
+    read by ``finalize_gate`` and by nothing else, while ``crg-arch-check`` —
+    the enforcer CI runs on every push from phase 3, and the one the workflow
+    ANDs into ``gate{N}Pass`` — never knew waivers existed. The remedy that
+    reaches every enforcer is calibration in ``harness_config.json``, because
+    that file is committed.
 
-      1. permission — the dimension is in ``WAIVABLE_DIMENSIONS``
-      2. evidence   — devil_advocate.<dim>=true AND a real
-         devil_advocate_evidence.<dim> (challenge + response)
-
-    Whether a permitted, evidence-backed waiver is *needed* is NOT decided here.
-    That question requires the framework's own score, which does not exist until
-    ``finalize_gate`` runs its independent CRG pass — see
-    ``core.quality_gate.da_waiver.adjudicate_waivers``, called from there. Until
-    Round 21 this function tried to answer it from the agent's breakdown, where
-    the one waivable dimension is always ``null`` (CRG-only, agent does not
-    score it), so the "already passes" safeguard could never fire.
-
-    Returns (blocked, requested): blocked=True when a request is impermissible
-    or its DA evidence is missing/insufficient — an unbacked request must fail
-    loudly (fabrication guard), not be silently dropped.
+    Returns True when a request was found (the gate must block), else False.
 
     Note: the .methodology/ candidate can carry a waiver persisted from a
     previous finalize-gate run (parity with the long-standing Gate 4
@@ -1280,53 +1271,44 @@ def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) ->
     always wins.
     """
     blocked = False
-    da_waivers: set[str] = set()
     g = _load_gate_result_json(project, gate) if gres is None else gres
     if not g:
-        return blocked, da_waivers
+        return blocked
     devil_advocate: dict = g.get("devil_advocate", {})
     _da_waiver_raw: dict = g.get("da_waiver", {})
     for _dim, _waived in _da_waiver_raw.items():
         if not (_waived and devil_advocate.get(_dim, False)):
             continue
-        if _dim not in WAIVABLE_DIMENSIONS:
-            print(
-                f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' is not permitted.\n"
-                f"  A waiver's only documented rationale is CRG's Leiden community detection\n"
-                f"  misreading an intentional hub-and-spoke layout, so it applies only to\n"
-                f"  CRG-scored dimensions ({', '.join(sorted(WAIVABLE_DIMENSIONS))}).\n"
-                f"  '{_dim}' is scored by a tool whose output IS the finding — a low score\n"
-                f"  there is the defect, not a measurement artifact.\n"
-                f"  Fix: remove da_waiver.{_dim} from gate{gate}_result.json and raise the\n"
-                f"  dimension's actual score (fix the code, re-run the tool, re-evaluate).",
-                file=sys.stderr,
-            )
-            blocked = True
-            continue
-        _w_problem = _validate_da_evidence(_dim, g)
-        if _w_problem:
-            print(
-                f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' requires DA evidence.\n"
-                f"  Fix: {_w_problem}",
-                file=sys.stderr,
-            )
-            blocked = True
-            continue
-        da_waivers.add(_dim)
+        assert _dim not in WAIVABLE_DIMENSIONS  # empty since Round 38
         print(
-            f"[Gate {gate}] A3: da_waiver requested for '{_dim}' "
-            "(artifact-backed; necessity adjudicated at finalize-gate against the framework's own score).",
+            f"\n[BLOCKED] Gate {gate} (A3): da_waiver for '{_dim}' is not permitted.\n"
+            f"  No dimension's threshold can be waived. A waiver was only ever read by\n"
+            f"  finalize-gate; `crg-arch-check` — which CI runs on every push from phase 3\n"
+            f"  and which the workflow ANDs into gate{gate}Pass — has no waiver logic, so a\n"
+            f"  granted waiver produced a local PASS and a red build, and this loop then\n"
+            f"  spent its rounds on a remedy that could not clear the check.\n"
+            f"  Fix, in order of preference:\n"
+            f"    1. Fix the architecture: split oversized communities, raise cohesion.\n"
+            f"       A community of ~100 members is a finding, not a measurement artifact,\n"
+            f"       and is deliberately not calibratable.\n"
+            f"    2. If CRG genuinely misreads an intentional layout, calibrate it in\n"
+            f"       .methodology/harness_config.json — `crg_excludes` (fnmatch globs over\n"
+            f"       repo-relative paths) and/or `crg_cohesion_healthy` (the per-community\n"
+            f"       cohesion floor). That file is committed, so CI applies the same\n"
+            f"       calibration this gate does; a waiver never reached CI at all.\n"
+            f"  Then remove da_waiver.{_dim} from gate{gate}_result.json and re-run.",
             file=sys.stderr,
         )
-    return blocked, da_waivers
+        blocked = True
+    return blocked
 
-def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
+def _check_gate4_prerequisites(project: Path) -> bool:
     """
     Run all Gate 4 blocking prerequisites before calling bridge.finalize_gate.
 
-    Returns (blocked, da_waivers):
-        blocked    — True if any prerequisite fails
-        da_waivers — set of dimension names whose score threshold is waived via DA challenge
+    Returns True if any prerequisite fails. Round 38 dropped the second
+    element: there is no set of waived dimensions to hand on, because no
+    threshold can be waived.
 
     Checks:
         A3 — devil_advocate: each marked-done Tier 3 dim (and every da_waiver) must carry a
@@ -1338,7 +1320,6 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
     A4 high_score_confirmations (self-attested boolean ceremony).
     """
     blocked = False
-    da_waivers: set[str] = set()
 
     # ── Load gate4_result.json for A2/A3/A4/A5 ───────────────────────
     g4 = _load_gate_result_json(project, 4)
@@ -1384,10 +1365,10 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
                     )
                     blocked = True
                 else:
-                    # DA challenge complete + artifact-backed — collect score-threshold
-                    # waivers (shared with the Gate 3 path; see _collect_da_waivers).
-                    _w_blocked, da_waivers = _collect_da_waivers(project, 4, gres=g4)
-                    blocked = blocked or _w_blocked
+                    # DA challenge complete + artifact-backed. A score-threshold
+                    # waiver request is still refused here (shared with the
+                    # Gate 3 path; see _collect_da_waivers).
+                    blocked = _collect_da_waivers(project, 4, gres=g4) or blocked
 
         # ── A5: Issue Registry (advisory only — no longer blocks) ─────
         # The registry contents are agent-written; "exists + non-empty" never
@@ -1556,7 +1537,7 @@ def _check_gate4_prerequisites(project: Path) -> "tuple[bool, set[str]]":
         except Exception as _b3exc:
             print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
 
-    return blocked, da_waivers
+    return blocked
 
 def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "int | None":
     """S0: tool availability + commit interval + sentinel check."""
@@ -1910,16 +1891,15 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
         return code
 
     # ── Gate 4 extra enforcement (A1/A2/A3/A4/A5/B2) ─────────────────
-    _da_waivers: set[str] = set()
     if args.gate == 4:
-        _gate4_block, _da_waivers = _check_gate4_prerequisites(Path(project))
+        _gate4_block = _check_gate4_prerequisites(Path(project))
         if _gate4_block:
             return 5
     elif args.gate == 3:
         # Gate 3 honors the same artifact-backed DA waivers (from
         # gate3_result.json) — waiver collection only, none of the Gate 4
         # A3-completeness/A5/B2/B3 prerequisites apply at this gate.
-        _g3_block, _da_waivers = _collect_da_waivers(Path(project), 3)
+        _g3_block = _collect_da_waivers(Path(project), 3)
         if _g3_block:
             return 5
 
@@ -1932,7 +1912,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
     )
 
     try:
-        result = bridge.finalize_gate(ctx, da_waivers=_da_waivers)
+        result = bridge.finalize_gate(ctx)
         # Surface score/quality_complete to OTEL span wrapper via args (Namespace allows
         # dynamic attributes; wrapper reads _span_score/_span_quality_complete after _impl).
         args._span_score = result.score  # type: ignore[attr-defined]
