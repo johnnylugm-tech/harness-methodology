@@ -54,6 +54,38 @@ def _resolve_tool_outputs(tool_outputs: Any) -> str:
     return str(tool_outputs) if tool_outputs else ""
 
 
+def _parse_coverage_percent(text: str) -> "float | None":
+    """Extract the tool-reported total coverage % from raw tool_outputs.
+
+    Recognises the two schemas evaluate_dimension.md documents for
+    test_coverage: coverage.py's `coverage json` (``totals.percent_covered``)
+    and istanbul/vitest/jest's coverage-summary.json (``total.lines.pct``).
+    Returns None when neither schema is recognised — callers (R9) must not
+    hard-block on a format this function was never designed to parse.
+    """
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    totals = data.get("totals")
+    if isinstance(totals, dict) and "percent_covered" in totals:
+        try:
+            return float(totals["percent_covered"])
+        except (TypeError, ValueError):
+            return None
+    total = data.get("total")
+    if isinstance(total, dict):
+        lines = total.get("lines")
+        if isinstance(lines, dict) and "pct" in lines:
+            try:
+                return float(lines["pct"])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def validate_score_file(
     dim_name: str,
     score_data: dict,
@@ -62,7 +94,7 @@ def validate_score_file(
     """Validate a single score file against the pure-tool scoring contract.
 
     Returns list of issue strings. Empty list = valid.
-    Rejecting rules (R1, R2, R4, R5, R8) block gate scoring.
+    Rejecting rules (R1, R2, R4, R5, R8, R9) block gate scoring.
     R7 is informational only (handled in _auto_fix_scores).
 
     Active rules:
@@ -71,6 +103,9 @@ def validate_score_file(
       R4 — score must equal tool_score (LLM cannot adjust the numeric score).
       R5 — Every finding must include an evidence field.
       R8 — tool_score must not be null for any dimension (all tiers require tools).
+      R9 — test_coverage tool_score must match the true % recomputed
+           from tool_outputs (coverage.py / istanbul JSON); skipped for
+           unrecognised schemas.
 
     Removed rules (LLM scoring abolished):
       R3  — Tier 1/2 external LLM provider requirement (removed; all dims use Claude).
@@ -117,6 +152,36 @@ def validate_score_file(
         issues.append(
             f"R2: [{dim_name}] tool_outputs path is empty but tool_score is non-null"
         )
+
+    # R9: test_coverage's tool_score must match the true percentage recomputed
+    # from tool_outputs. R1/R2/R4/R5/R8 only check field presence and internal
+    # (score == tool_score) consistency — none of them re-derive a number from
+    # the tool output itself, so a self-reported tool_score can be wrong from
+    # the moment it is written and survive undetected until an unrelated
+    # future re-check happens to re-measure it (observed: a Phase-3/4
+    # self-reported 100.0 for unchanged source+test files was actually
+    # 98.53% when the documented coverage command was rerun months later —
+    # nothing in R1-R8 would have caught it at write time).
+    if dim_name == "test_coverage" and ts is not None and tool_outputs:
+        raw_path = Path(tool_outputs)
+        output_path = (
+            (project_root / raw_path) if (project_root and not raw_path.is_absolute())
+            else raw_path
+        )
+        if output_path.exists() and output_path.stat().st_size > 0:
+            true_pct = _parse_coverage_percent(
+                output_path.read_text(encoding="utf-8", errors="replace")
+            )
+            # Schema not recognised (neither coverage.py nor istanbul JSON) —
+            # skip rather than hard-block; R9 only rejects a *confirmed*
+            # mismatch, it must never newly block on a format it can't parse.
+            if true_pct is not None and abs(true_pct - ts) > 1.5:
+                issues.append(
+                    f"R9: [{dim_name}] tool_score={ts} does not match the true "
+                    f"coverage {true_pct:.2f}% recomputed from tool_outputs "
+                    f"'{tool_outputs}' — re-run Step 1 of evaluate_dimension.md "
+                    "and report the actual tool-reported percentage."
+                )
 
     # R4: score must equal tool_score — LLM annotation cannot adjust the numeric score.
     if ts is not None and sc is not None:

@@ -37,6 +37,7 @@ from cli.exit_codes import EX_HARNESS_BUG
 from core.quality_gate.da_waiver import WAIVABLE_DIMENSIONS
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
+from core.quality_gate.cov_utils import shared_owner_test_files
 from core.quality_gate.cov_utils import _fr_source_files_from_imports  # noqa: F401  (re-export: tests/cli/test_gate_cmds_cli.py imports it from here)
 from core.quality_gate.spec_coverage import _get_test_directories, _git_test_patterns
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
@@ -698,15 +699,30 @@ def _print_fr_scoped_overrides_py(
 
     if src_files:
         include_flag = ",".join(src_files)
+        # A declared source file can be owned by more than one FR (e.g. a
+        # shared CLI dispatch file) — see shared_owner_test_files()'s
+        # docstring. Run every co-owning FR's test file alongside this FR's
+        # own one so the shared file's coverage isn't measured against a
+        # test suite that only exercises a slice of it.
+        sibling_tests = [
+            t for t in shared_owner_test_files(fr_id, manifest_data, str(Path(test_file).parent))
+            if (Path(project) / t).exists()
+        ]
+        test_targets = " ".join([test_file] + sibling_tests)
         cov_cmd = (
-            f"  python3 -m coverage run -m pytest {test_file} "
+            f"  python3 -m coverage run -m pytest {test_targets} "
             f"&& python3 -m coverage json --include=\"{include_flag}\" -o - \\\n"
-            f"    || PYTHONPATH=. python3 -m coverage run -m pytest {test_file} "
+            f"    || PYTHONPATH=. python3 -m coverage run -m pytest {test_targets} "
             f"&& python3 -m coverage json --include=\"{include_flag}\" -o - \\\n"
-            f"    || PYTHONPATH=. python3 -m pytest {test_file} "
+            f"    || PYTHONPATH=. python3 -m pytest {test_targets} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
         cov_note = f"  (FR source files detected: {', '.join(src_files)})"
+        if sibling_tests:
+            cov_note += (
+                f"\n  (shared source file(s) also owned by other FRs — "
+                f"running their test files too: {', '.join(sibling_tests)})"
+            )
     else:
         # Fallback: test file absent or no imports matched — use full src dir
         cov_cmd = (

@@ -29,7 +29,7 @@ from score import (  # pyright: ignore[reportMissingImports]
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
 
-def _score(tmp_path, *, dim="linting", tool_score=80, score=None, **extra):
+def _score(tmp_path, *, dim="linting", tool_score: "int | float" = 80, score=None, **extra):
     """Minimal valid score dict with a real tool_outputs file.
 
     score defaults to tool_score (pure-tool scoring contract).
@@ -299,6 +299,94 @@ class TestAutoFixScores:
 # ---------------------------------------------------------------------------
 # _validate_all_scores (integration)
 # ---------------------------------------------------------------------------
+
+class TestR9CoverageTruthCheck:
+    """R9: test_coverage's tool_score must match the true % recomputed from
+    tool_outputs. Root-cause fix for the FR-02 Phase-5 incident: a
+    self-reported 100.0 for unchanged source+test files turned out to be
+    98.53% when the documented coverage command was rerun months later —
+    R1/R2/R4/R5/R8 never re-derive a number from the tool output itself, so
+    nothing before R9 could have caught it at write time.
+    """
+
+    def _coverage_json(self, tmp_path, *, percent, name="test_coverage.json"):
+        import json
+        f = tmp_path / name
+        f.write_text(json.dumps({"totals": {"percent_covered": percent}}), encoding="utf-8")
+        return f
+
+    def _istanbul_json(self, tmp_path, *, pct, name="coverage-summary.json"):
+        import json
+        f = tmp_path / name
+        f.write_text(json.dumps({"total": {"lines": {"pct": pct}}}), encoding="utf-8")
+        return f
+
+    def test_matching_coverage_py_score_passes(self, tmp_path):
+        f = self._coverage_json(tmp_path, percent=100.0)
+        d = _score(tmp_path, dim="test_coverage", tool_score=100.0)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert not any("R9" in i for i in issues)
+
+    def test_mismatched_coverage_py_score_flagged(self, tmp_path):
+        """The FR-02 shape: agent reports 100.0, the tool actually said far less."""
+        f = self._coverage_json(tmp_path, percent=87.62)
+        d = _score(tmp_path, dim="test_coverage", tool_score=100.0)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert any("R9" in i for i in issues)
+
+    def test_within_tolerance_passes(self, tmp_path):
+        """Tolerance matches R4's 1.5 — 99.0 vs reported 100.0 is borderline-close, not this."""
+        f = self._coverage_json(tmp_path, percent=99.0)
+        d = _score(tmp_path, dim="test_coverage", tool_score=100.0)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert not any("R9" in i for i in issues)
+
+    def test_matching_istanbul_score_passes(self, tmp_path):
+        f = self._istanbul_json(tmp_path, pct=87.62)
+        d = _score(tmp_path, dim="test_coverage", tool_score=87.62)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert not any("R9" in i for i in issues)
+
+    def test_mismatched_istanbul_score_flagged(self, tmp_path):
+        f = self._istanbul_json(tmp_path, pct=60.0)
+        d = _score(tmp_path, dim="test_coverage", tool_score=95.0)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert any("R9" in i for i in issues)
+
+    def test_unrecognised_schema_skipped_not_blocked(self, tmp_path):
+        """R9 must not hard-block on tool_outputs it cannot parse — only a
+        *confirmed* mismatch is a rejecting error."""
+        f = tmp_path / "test_coverage.txt"
+        f.write_text("TOTAL 42 statements, 100% covered\n", encoding="utf-8")
+        d = _score(tmp_path, dim="test_coverage", tool_score=100.0)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert not any("R9" in i for i in issues)
+
+    def test_non_coverage_dimension_not_checked(self, tmp_path):
+        """A linting score file is never subject to R9, even if its
+        tool_outputs happens to parse as coverage-shaped JSON."""
+        f = self._coverage_json(tmp_path, percent=10.0)
+        d = _score(tmp_path, dim="linting", tool_score=90.0)
+        d["tool_outputs"] = str(f)
+        issues = validate_score_file("linting", d, project_root=tmp_path)
+        assert not any("R9" in i for i in issues)
+
+    def test_null_tool_score_does_not_crash_r9(self, tmp_path):
+        """R8 already rejects null tool_score; R9 must not raise on it."""
+        f = self._coverage_json(tmp_path, percent=100.0)
+        d = _score(tmp_path, dim="test_coverage", tool_score=100.0)
+        d["tool_outputs"] = str(f)
+        d["tool_score"] = None
+        issues = validate_score_file("test_coverage", d, project_root=tmp_path)
+        assert any("R8" in i for i in issues)
+        assert not any("R9" in i for i in issues)
+
 
 class TestValidateAllScores:
     def _make_scores(self, tmp_path):

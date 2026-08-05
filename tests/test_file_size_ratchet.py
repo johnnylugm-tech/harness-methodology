@@ -159,7 +159,19 @@ _LINE_CEILING: dict[str, int] = {
     # discover_modules_at() (removed inline loop, +docstring paragraph
     # explaining the delegation) instead of a locally re-implemented rglob
     # loop that had silently diverged (never skipped __pycache__).
-    "cli/gate_cmds.py": 2656,
+    "cli/gate_cmds.py": 2672,
+    # 2026-08-05: +16 net — _print_fr_scoped_overrides_py now runs every
+    # co-owning FR's test file alongside fr_id's own one when a declared
+    # source file (per fr_module_traceability) is shared by more than one
+    # FR — e.g. a CLI dispatch module several FRs each own a slice of.
+    # Measuring that file's coverage with only ONE owning FR's test suite
+    # charged it for every OTHER owning FR's untested-by-this-suite lines,
+    # regressing on an unrelated FR's later commit (root cause of an FR-02
+    # Phase-5 Gate-1 false block: a Phase-3/4 100.0 self-report for
+    # unchanged source+test files read 87.62 two phases later purely
+    # because sibling FRs had grown the shared file). The new logic lives
+    # in cov_utils.shared_owner_test_files(); this file only wires its
+    # output into the printed pytest invocation and cov_note.
     # 2026-08-04 (Round 35 站2): +16 — _patch_mutation_score now understands
     # an artifact that says the framework could not measure (`score: null`).
     # There is no number to patch in then, and the evidence line must stop

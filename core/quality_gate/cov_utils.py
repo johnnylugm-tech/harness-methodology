@@ -1,5 +1,6 @@
 """Coverage source resolution utilities (shared between FrameworkEnforcer and PhaseTruthVerifier)."""
 import configparser
+import re
 import warnings
 from pathlib import Path
 
@@ -249,3 +250,54 @@ def resolve_fr_scoped_src_files(
     # TDD chain, a shared module FR-02 has not finished writing cannot
     # meaningfully be held against FR-01's Gate 1.
     return src_files
+
+
+def shared_owner_test_files(
+    fr_id: str, manifest_data: dict, test_dir_str: str
+) -> list[str]:
+    """Other FRs' test files that must run alongside fr_id's own test file
+    when measuring FR-scoped coverage for a module fr_id shares ownership of.
+
+    `fr_module_traceability` can legitimately list the SAME module under
+    multiple FR ids — e.g. a shared CLI dispatch file each FR owns a slice
+    of. Measuring that file's coverage with only ONE owning FR's test suite
+    then charges it for every OTHER owning FR's untested-by-this-suite
+    lines, and that charge regresses every time any sibling FR adds code to
+    the shared file even though fr_id's own code and tests never changed
+    (observed: FR-02's Phase-5 Gate-1 re-check). Running the union of every
+    co-owning FR's test file fixes the measurement without loosening the
+    100% coverage requirement for fr_id's own lines.
+
+    Returns [] when fr_id owns no module also claimed by another FR (the
+    common case) — callers should fall back to fr_id's own test file alone.
+    """
+    traceability = manifest_data.get("fr_module_traceability", {})
+    own_modules = traceability.get(fr_id)
+    if isinstance(own_modules, str):
+        own_modules = {own_modules}
+    elif isinstance(own_modules, list):
+        own_modules = set(m for m in own_modules if isinstance(m, str))
+    else:
+        return []
+    if not own_modules:
+        return []
+
+    siblings: set[str] = set()
+    for other_fr, other_modules in traceability.items():
+        if other_fr == fr_id:
+            continue
+        if isinstance(other_modules, str):
+            other_modules = [other_modules]
+        elif not isinstance(other_modules, list):
+            continue
+        if own_modules & set(m for m in other_modules if isinstance(m, str)):
+            siblings.add(other_fr)
+
+    test_files: list[str] = []
+    for other_fr in sorted(siblings):
+        m = re.match(r"FR-(\d+)", other_fr)
+        if not m:
+            continue
+        num = m.group(1).zfill(2)
+        test_files.append(f"{test_dir_str}/test_fr{num}.py")
+    return test_files

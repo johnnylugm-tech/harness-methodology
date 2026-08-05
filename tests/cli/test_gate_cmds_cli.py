@@ -2008,6 +2008,74 @@ class TestPrintFrScopedOverridesPy:
             "non-string entries" in str(w.message) for w in recwarn.list
         )
 
+    def test_unshared_modules_pull_in_no_sibling_test_file(self, tmp_path, capsys):
+        """FR-01 and FR-04 own different modules (cli vs cache) — no sibling
+        test file should be pulled into FR-04's coverage command."""
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        (tmp_path / "03-development" / "tests" / "test_fr01.py").write_text(
+            "from taskq.cli import cmd\n"
+        )
+        manifest = {
+            "fr_module_traceability": {"FR-04": "taskq.cache", "FR-01": "taskq.cli"},
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        assert "test_fr01.py" not in out
+
+    def test_shared_module_pulls_in_sibling_when_actually_shared(self, tmp_path, capsys):
+        """taskq.cache is claimed by both FR-01 and FR-04 (a shared module).
+        FR-04's coverage command must run FR-01's test file too, not just its
+        own — otherwise the file's coverage is measured against a test suite
+        that only exercises FR-04's slice of it, and FR-01 adding code later
+        would silently regress FR-04's next Gate-1 re-check (the FR-02
+        Phase-5 incident this fixes)."""
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        (tmp_path / "03-development" / "tests" / "test_fr01.py").write_text(
+            "from taskq.cache import lookup\n"
+        )
+        manifest = {
+            "fr_module_traceability": {
+                "FR-04": "taskq.cache",
+                "FR-01": ["taskq.store", "taskq.cache"],
+            },
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        assert "03-development/tests/test_fr01.py" in out
+
+    def test_sibling_test_file_missing_on_disk_is_skipped(self, tmp_path, capsys):
+        """A sibling FR claims the same module but its test file was never
+        written yet (e.g. an earlier phase) — must not inject a nonexistent
+        path into the pytest invocation."""
+        from cli.gate_cmds import _print_fr_scoped_overrides_py
+        self._setup(tmp_path)
+        manifest = {
+            "fr_module_traceability": {
+                "FR-04": "taskq.cache",
+                "FR-09": "taskq.cache",  # test_fr09.py deliberately not created
+            },
+            "quality_targets": {"min_coverage": 80},
+        }
+        _print_fr_scoped_overrides_py(
+            str(tmp_path), "FR-04",
+            "03-development/tests/test_fr04.py", "03-development/src",
+            manifest, non_code_frs=set(), cov_threshold=80,
+        )
+        out = capsys.readouterr().out
+        assert "test_fr09.py" not in out
+
 
 class TestFinalizeGate4StateJsonWriteBeforePush:
     """Site 3: _cmd_finalize_gate_impl gate-4 branch must write state.json
