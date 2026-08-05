@@ -54,6 +54,9 @@ sab:
     - name: api
       modules: ["app.api.webhooks"]
       allowed_dependencies: ["service"]
+    - name: service
+      modules: ["app.service.handlers"]
+      allowed_dependencies: []
 
   allowed_dependencies:
     - from: api

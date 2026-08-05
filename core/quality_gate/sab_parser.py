@@ -431,6 +431,15 @@ def render_canonical_sab_template(
             lines.append(f'        - name: "{module_example}"')
             lines.append(f'          implemented_in: "{module_example.split(".")[0]}.main"  # OPTIONAL — Use if consolidated into another file')
             lines.append('      allowed_dependencies: ["service"]')
+            # Round 39 Station 1a: declare every layer referenced by
+            # allowed_dependencies. The example depends on 'service', so
+            # 'service' must be a declared layer — otherwise the new
+            # validator flags it. A single-layer SAB would write
+            # allowed_dependencies: []; this two-layer shape teaches the
+            # multi-layer pattern.
+            lines.append("    - name: service")
+            lines.append('      modules: ["app.service.handlers"]')
+            lines.append("      allowed_dependencies: []")
         elif f.name == "allowed_dependencies":
             lines.append("  allowed_dependencies:")
             lines.append(f"    - from: {layer_example}")
@@ -546,4 +555,66 @@ def validate_sab_block(sad_path) -> list[str]:
                         f"{sl!r} is not a declared layer name. "
                         f"Valid layers: {', '.join(sorted(valid_layer_names))}"
                     )
+
+    # Round 39 Station 1a: per-layer allowed_dependencies must reference
+    # declared layer names. Mirrors the scope_layers check above: an
+    # unknown layer name means the SAB drifted or was hand-edited
+    # incorrectly — raise rather than silently dropping the dep, which
+    # produces a SAB.json that preflight_sab_check (phase_hooks.py:644-648)
+    # would then flag at P3+ pre-push (late, only at push time, never at
+    # advance-phase). Catching it here means generate_sab.py's pre-write
+    # validate (line 243) refuses to write the bad block in the first place.
+    # Observed on taskq-api 2026-08-05: SAD.md wrote 'errors'/'config'
+    # (module names) where 'independence' (the actual layer name) belonged.
+    for _layer_idx, _layer in enumerate(spec.layers):
+        if not isinstance(_layer, dict):
+            continue
+        _layer_name = _layer.get("name", "")
+        for _dep_name in _layer.get("allowed_dependencies", []) or []:
+            if not isinstance(_dep_name, str):
+                errors.append(
+                    f"layers[{_layer_idx}].allowed_dependencies: "
+                    f"non-string entry {_dep_name!r}"
+                )
+                continue
+            if _dep_name not in valid_layer_names:
+                errors.append(
+                    f"layers[{_layer_idx}] ({_layer_name!r}).allowed_dependencies: "
+                    f"{_dep_name!r} is not a declared layer name. "
+                    f"Valid layers: {', '.join(sorted(valid_layer_names))}"
+                )
+
+    # Round 39 Station 1a (cont.): top-level allowed_dependencies: [{from, to}]
+    # — same rule, both sides of the pair must be declared layers. This is
+    # the data shape that SABSpec.to_dict() (line 74-107) faithfully copies
+    # into SAB.json's "dependencies" dict; an invalid reference there would
+    # reach preflight_sab_check only at P3+ pre-push.
+    for _dep_idx, _dep in enumerate(spec.allowed_dependencies):
+        if not isinstance(_dep, dict):
+            errors.append(
+                f"allowed_dependencies[{_dep_idx}]: expected mapping, "
+                f"got {type(_dep).__name__}"
+            )
+            continue
+        _from = _dep.get("from", "")
+        _to = _dep.get("to", "")
+        if not isinstance(_from, str) or not _from:
+            errors.append(
+                f"allowed_dependencies[{_dep_idx}]: missing or non-string 'from'"
+            )
+        elif _from not in valid_layer_names:
+            errors.append(
+                f"allowed_dependencies[{_dep_idx}].from: {_from!r} is not a "
+                f"declared layer name. Valid layers: {', '.join(sorted(valid_layer_names))}"
+            )
+        if not isinstance(_to, str) or not _to:
+            errors.append(
+                f"allowed_dependencies[{_dep_idx}]: missing or non-string 'to'"
+            )
+        elif _to not in valid_layer_names:
+            errors.append(
+                f"allowed_dependencies[{_dep_idx}].to: {_to!r} is not a "
+                f"declared layer name. Valid layers: {', '.join(sorted(valid_layer_names))}"
+            )
+
     return errors

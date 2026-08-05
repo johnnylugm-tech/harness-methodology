@@ -357,6 +357,9 @@ are not re-opened. This bounds backtracking to a single step.
           - name: "app.api.webhooks"
             implemented_in: "app.main"  # OPTIONAL — Use if consolidated into another file
         allowed_dependencies: ["service"]
+      - name: service
+        modules: ["app.service.handlers"]
+        allowed_dependencies: []
   
     allowed_dependencies:
       - from: api

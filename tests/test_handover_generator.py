@@ -1114,6 +1114,15 @@ class TestCmdAdvancePhase:
         captured = io.StringIO()
         monkeypatch.setattr("sys.stdout", captured)
         monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda project, phase, **kw: None)
+        # Round 39: cmd_advance_phase now calls _verify_entry_gate before
+        # _advance_fsm. Stub it for the same reason as _advance_fsm: these
+        # tests focus on git behaviour (commit message, push, rollback),
+        # not gate logic. Gate coverage lives in test_phase_completed_authority.
+        monkeypatch.setattr(
+            "cli.phase_cmds._verify_entry_gate",
+            lambda project, phase: {"passed": True, "gate": "stub",
+                                    "reason": "test stub (handover fixture)"},
+        )
         monkeypatch.setattr(
             "harness.handover_generator.HandoverGenerator.write",
             lambda self, **kw: tmp_path / "HANDOVER.md",

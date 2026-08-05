@@ -55,6 +55,13 @@ def advance_project(tmp_path, monkeypatch):
     Same shape as tests/test_advance_commit_rollback.py's fixture — that suite
     already proved this is the minimal path through cmd_advance_phase that
     actually reaches the git commit block.
+
+    Round 39: cmd_advance_phase now calls _verify_entry_gate at L526
+    BEFORE _advance_fsm. Stub it the same way as the rollback suite so
+    these tests stay scoped to phase_completed recording, not gate
+    logic. Gate-wiring coverage lives in the new tests at the bottom of
+    this file (test_advance_phase_heals_dangling_sha_before_staging etc.)
+    which use their own fixtures with explicit dangling state.
     """
     from cli import phase_cmds
 
@@ -73,6 +80,11 @@ def advance_project(tmp_path, monkeypatch):
     _git(proj, "add", "-A")
     assert _git(proj, "commit", "-m", "baseline").returncode == 0
     monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    monkeypatch.setattr(
+        phase_cmds, "_verify_entry_gate",
+        lambda *_a, **_k: {"passed": True, "gate": "stub",
+                           "reason": "test stub (authority fixture)"},
+    )
     monkeypatch.delenv("HARNESS_NO_GIT", raising=False)
     return proj
 
@@ -430,4 +442,186 @@ def test_recovery_does_not_match_orphan_sibling(tmp_path):
     ))
     result = pcr.try_recover_dangling_phase_completed(proj, 2, orphan_sha)
     assert result is None, "an unreachable orphan must not be returned"
+
+
+# ── Round 39: cmd_advance_phase now calls _verify_entry_gate before ─────
+# staging. These tests pin the new gate wiring — a regression that moved
+# the call after `git add` would reproduce the 2026-08-05 taskq-api bug.
+
+
+def test_advance_phase_heals_dangling_sha_before_staging(tmp_path, monkeypatch):
+    """End-to-end: dangling SHA in state.json → cmd_advance_phase →
+    committed state.json carries the healed SHA, NOT the orphan.
+
+    Uses the dangling_sha_project fixture (P2 orphan + reset-away + P2
+    replacement on baseline). Running advance-phase with completed=1
+    advances the FSM to phase 2; _verify_entry_gate(2) finds the dangling
+    phase_completed[1].sha? No — fixture only seeds phase_completed[2].
+    Seed a phase_completed[1] with the orphan too, so the gate sees a
+    dangling prev=1 entry and self-heals into the staging area.
+    """
+    import argparse
+    from cli import phase_cmds
+
+    _, proj, orphan_sha, replacement_sha = _build_dangling_with_phase1(
+        tmp_path, orphan_sha_from=None,
+    )
+    # Stub _advance_prechecks (commit-rollback scope, not under test).
+    monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    # completed=1 keeps the path minimal (no exit gate, no CRG wiki).
+    args = argparse.Namespace(project=str(proj), completed_phase=1)
+    rc = phase_cmds.cmd_advance_phase(args)
+    assert rc == 0, f"advance-phase failed unexpectedly; stderr/log above"
+
+    # The committed state.json (post-handover) MUST carry a SHA that is
+    # an ancestor of HEAD — i.e. the healed value, not the orphan.
+    committed = json.loads(
+        _git(proj, "show", "HEAD:.methodology/state.json").stdout
+    )
+    pc1 = committed["phase_completed"]["1"]
+    assert _git(
+        proj, "merge-base", "--is-ancestor", pc1["sha"], "HEAD"
+    ).returncode == 0, f"committed sha={pc1['sha']} is not an ancestor of HEAD"
+    assert pc1["sha"] != orphan_sha, "the orphan SHA leaked into the commit"
+
+    # Recovery log entry must exist (audit trail).
+    log = committed.get("phase_completed_recovery_log", [])
+    assert any(
+        e["phase"] == 1 and e["from_sha"] == orphan_sha
+        for e in log
+    ), f"recovery log missing phase=1 entry: {log}"
+
+
+def test_advance_phase_returns_10_on_unrecoverable_sha(tmp_path, monkeypatch):
+    """If recovery finds no HEAD-reachable marker, cmd_advance_phase must
+    hard-fail with exit 10 (matching cmd_run_phase). state.json must be
+    unchanged (no atomic write of an unhealable entry)."""
+    import argparse
+    from cli import phase_cmds
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _git(proj, "init")
+    _git(proj, "config", "user.email", "t@example.com")
+    _git(proj, "config", "user.name", "t")
+    (proj / ".methodology").mkdir()
+    # Seed a phase_completed[1] with a SHA that exists in no history —
+    # recovery will return None and the gate will fail.
+    (proj / ".methodology" / "state.json").write_text(json.dumps({
+        "state": "RUNNING", "current_phase": 1,
+        "phase_completed": {"1": {"sha": "f" * 40, "timestamp": "2026-01-01T00:00:00+00:00"}},
+    }))
+    (proj / "CLAUDE.md").write_text("# P\n")
+    _git(proj, "add", "-A")
+    _git(proj, "commit", "-m", "baseline")
+
+    # Stub _advance_prechecks so the test reaches the new gate block —
+    # the real prechecks would hard-fail on missing deliverables (rc 8).
+    monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+
+    state_before = (proj / ".methodology" / "state.json").read_text()
+    args = argparse.Namespace(project=str(proj), completed_phase=1)
+    rc = phase_cmds.cmd_advance_phase(args)
+    assert rc == 10, f"expected exit 10 on unrecoverable SHA, got {rc}"
+    # state.json must NOT have been mutated.
+    state_after = (proj / ".methodology" / "state.json").read_text()
+    assert state_after == state_before, "state.json was written despite hard-fail"
+
+
+def test_advance_phase_reverify_also_runs_entry_gate(tmp_path, monkeypatch):
+    """Re-verify mode (current_phase > completed_phase) must also run the
+    entry gate. If recovery is possible, state.json gets the healed SHA
+    even though no commit is made."""
+    import argparse
+    from cli import phase_cmds
+
+    _, proj, orphan_sha, _replacement_sha = _build_dangling_with_phase1(
+        tmp_path, orphan_sha_from=None,
+    )
+    monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    # current_phase=2 (already past P1) → re-verify for completed=1.
+    args = argparse.Namespace(project=str(proj), completed_phase=1)
+    rc = phase_cmds.cmd_advance_phase(args)
+    assert rc == 0
+
+    # Working-tree state.json should have the recovery (re-verify doesn't
+    # commit, but it does self-heal so a subsequent re-read is clean).
+    state = json.loads((proj / ".methodology" / "state.json").read_text())
+    pc1 = state.get("phase_completed", {}).get("1", {})
+    if pc1:
+        assert pc1.get("sha") != orphan_sha or pc1.get("recovered_from_sha") == orphan_sha, (
+            f"re-verify did not surface the recovery: {pc1}"
+        )
+
+
+def test_advance_phase_source_pins_entry_gate_before_git_add():
+    """Source-level guard: _verify_entry_gate(project, next_phase) must
+    appear in cmd_advance_phase BEFORE the `git add` invocation, and AFTER
+    _advance_prechecks. A regression that moves the call after staging
+    would reproduce the 2026-08-05 dangling-SHA-in-commit bug."""
+    import inspect
+    from cli import phase_cmds
+
+    src = inspect.getsource(phase_cmds.cmd_advance_phase)
+    prechecks_pos = src.index("_advance_prechecks(project, args.completed_phase)")
+    # Normal advance's entry-gate call uses `next_phase` (defined at L479).
+    gate_pos = src.index("_verify_entry_gate(project, next_phase)")
+    add_pos = src.index('"git", "-C", str(project), "add"')
+    assert prechecks_pos < gate_pos < add_pos, (
+        f"entry gate ordering violated: prechecks={prechecks_pos}, "
+        f"gate={gate_pos}, git_add={add_pos}"
+    )
+
+
+def _build_dangling_with_phase1(tmp_path, orphan_sha_from=None):
+    """Helper for the two advance-phase tests above. Mirrors the existing
+    dangling_sha_project fixture but ALSO seeds a dangling
+    phase_completed[1] entry, since cmd_advance_phase(1) needs prev=1
+    to trigger the gate. Returns (pcr_module, proj, orphan_sha, replacement_sha).
+    """
+    from core.quality_gate import phase_completed_recovery as pcr
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    _git(proj, "init")
+    _git(proj, "config", "user.email", "t@example.com")
+    _git(proj, "config", "user.name", "t")
+    _git(proj, "config", "commit.gpgsign", "false")
+    meth = proj / ".methodology"
+    meth.mkdir()
+    (meth / "state.json").write_text(json.dumps({"phase_completed": {}}) + "\n")
+    _git(proj, "add", "-A")
+    baseline = _commit_head(proj, "-m", "baseline")
+
+    # Orphan P1(review-complete) — captured, then reset away.
+    (proj / "p1-orphan.txt").write_text("p1 orphan\n")
+    _git(proj, "add", "-A")
+    orphan_p1_sha = _commit_head(
+        proj, "-m", "phase1(review-complete): SRS + P1 deliverables"
+    )
+
+    # Replacement on the same baseline.
+    _git(proj, "reset", "--hard", baseline)
+    (proj / "p1-replacement.txt").write_text("p1 replacement\n")
+    _git(proj, "add", "-A")
+    replacement_p1_sha = _commit_head(
+        proj, "-m", "phase1(review-complete): SRS + P1 deliverables"
+    )
+
+    state = {
+        "state": "RUNNING", "current_phase": 1,
+        "phase_completed": {
+            "1": {
+                "sha": orphan_p1_sha,
+                "timestamp": "2026-08-05T16:28:14.674115+00:00",
+            },
+        },
+        "phase_truth_passed": True,
+    }
+    (meth / "state.json").write_text(json.dumps(state, indent=2) + "\n")
+    (proj / "CLAUDE.md").write_text("# P\n")
+    _git(proj, "add", "-A")
+    _commit_head(proj, "-m", "carry dangling state.json")
+
+    return pcr, proj, orphan_p1_sha, replacement_p1_sha
 

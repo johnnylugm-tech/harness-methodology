@@ -317,9 +317,18 @@ def _mock_advance_phase_bypass_prechecks(monkeypatch):
     project. Shared by every cmd_advance_phase-level test below (TestP2 /
     TestAdvancePhaseRefreshesAttestation / ...) that only cares about
     behavior AFTER the prechecks gate.
+
+    Round 39: cmd_advance_phase now also calls _verify_entry_gate at L526
+    before _advance_fsm. Stub it the same way so these tests stay scoped
+    to the post-precheck commit-staging logic, not the gate behaviour.
     """
     monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
     monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
+    monkeypatch.setattr(
+        "cli.phase_cmds._verify_entry_gate",
+        lambda *_, **__: {"passed": True, "gate": "stub",
+                           "reason": "test stub (phase-cmds-cli fixture)"},
+    )
 
 
 class TestAdvancePrechecksTDD:
@@ -1829,6 +1838,14 @@ class TestP7AdvanceGeneratesP8Baseline:
 
         _write_finalize_sentinels_for_tests(tmp_path)
         monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
+        # Round 39: cmd_advance_phase now calls _verify_entry_gate before
+        # _advance_fsm. Stub the same way as the bypass-prechecks helper
+        # at L314 so P7→P8 reaches the post-precheck commit-staging logic.
+        monkeypatch.setattr(
+            "cli.phase_cmds._verify_entry_gate",
+            lambda *_, **__: {"passed": True, "gate": "stub",
+                               "reason": "test stub (P7 advance fixture)"},
+        )
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
         monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)
         monkeypatch.setattr("shutil.which", lambda c: None)

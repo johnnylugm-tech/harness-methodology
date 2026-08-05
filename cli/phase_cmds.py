@@ -436,6 +436,19 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     f"--completed {args.completed_phase} --project {project}"
                 )
                 return rc
+            # Fix (Round 39): mirror cmd_run_phase:1695 and cmd_pre_commit_check:203.
+            # Re-verify must also surface a dangling phase_completed[N].sha so
+            # the user can fix it via re-run, not via a hand-edit of state.json.
+            # Recovery helper is non-raising; the gate only fails when no
+            # phase{prev}(review-complete) marker is reachable in HEAD.
+            entry_gate = _verify_entry_gate(project, args.completed_phase + 1)
+            if not entry_gate["passed"]:
+                print(
+                    f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — "
+                    f"{entry_gate['reason']}"
+                )
+                return 10
+            print(f"\n[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
             print(
                 f"\n[RE-VERIFY] Phase {args.completed_phase} exit checks "
                 f"re-verified ✓ (already at Phase {_current})"
@@ -523,6 +536,30 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     rc = _advance_prechecks(project, args.completed_phase)
     if rc != 0:
         return rc
+
+    # Fix (Round 39): P{N+1} entry gate BEFORE _advance_fsm (L583) and
+    # BEFORE the `git add` at L802. Without this call, the only recovery
+    # call site was the prepare-commit-msg hook (scripts/hooks/prepare-
+    # commit-msg:63 → cmd_pre_commit_check:203 → _verify_entry_gate:1780),
+    # but `git add` at L802 snapshotted the pre-recovery state.json into
+    # the index BEFORE the hook fired, so the commit materialized the
+    # orphan SHA, not the recovered one. Observed on taskq-api 2026-08-05:
+    # cadbd6a's state.json carried d061387 even though the hook ran the
+    # recovery. By calling _verify_entry_gate here, recovery writes to
+    # the working tree BEFORE staging, so the commit captures the healed
+    # SHA. The post-commit writer at L934-942 already preserves
+    # recovered_from_sha / recovered_at — this patch makes that wiring
+    # effective. _advance_fsm at L583 holds state_lock; this call sits
+    # BEFORE _advance_fsm so the lock-reentrancy hazard the comment at
+    # L833-836 warns about does not apply. Mirror of cmd_run_phase:1695.
+    entry_gate = _verify_entry_gate(project, next_phase)
+    if not entry_gate["passed"]:
+        print(
+            f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — "
+            f"{entry_gate['reason']}"
+        )
+        return 10
+    print(f"\n[ENTRY GATE] {entry_gate['gate']}: {entry_gate['reason']}")
 
     # Round 14 A: predict P(N+1) entry blocking findings (cross-phase
     # carry-over obligations). The preflight_* methods pattern-match on
@@ -2501,6 +2538,60 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             print("  [WARN] DriftDetector not available — skipping SAB pre-advance check")
         except Exception as _sab_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] SAB pre-advance check error: {_sab_err}")
+
+    # Round 39 Station 1b: structural SAB validation at advance-phase.
+    # preflight_sab_check (phase_hooks.py:613-691) already validates per-layer
+    # allowed_dependencies (lines 644-648) and module existence — but it runs
+    # only via preflight_all() in cmd_run_phase:1701 (the pre-push path),
+    # never at advance-phase. Without this wire, a hand-edited SAB.json or
+    # one generated from a SAD.md block that slipped past the now-extended
+    # validate_sab_block reaches the handover commit and only trips at pre-
+    # push. Running it here surfaces the violation BEFORE commit. Phase-
+    # gated the same way as the DriftDetector block above (SAB itself only
+    # exists from P2 exit). Wrapped in try/except to mirror the existing
+    # resilience pattern — preflight_sab_check is best-effort: an unavailable
+    # preflight must not block advance.
+    if completed_phase >= 3:
+        # Skip when SAB.json is missing — preflight_sab_check reports
+        # passed=False in that case, but at advance-phase the absence is
+        # only meaningful for completed_phase >= 4 (P3 itself just generated
+        # the file). At completed_phase=3 the DriftDetector block above
+        # already surfaces module-existence problems; the structural
+        # allowed_dependencies check is only meaningful when there is a
+        # SAB to validate. Treat missing-file as the same "skipped" path
+        # the preflight takes for P1/P2.
+        _sab_path = project / ".methodology" / "SAB.json"
+        if not _sab_path.exists():
+            print("  [INFO] SAB.json not present — skipping structural pre-advance check")
+        else:
+            try:
+                from core.phase_hooks import PhaseHooks
+                _sab_hooks = PhaseHooks(
+                    str(project), phase=completed_phase,
+                    enable_kill_switch=False,
+                    drift_threshold=get_value(project, "drift_threshold"),
+                )
+                _sab_preflight = _sab_hooks.preflight_sab_check()
+                if not _sab_preflight.get("passed", True):
+                    _violations = _sab_preflight.get("violations", [])
+                    print(
+                        f"\n[BLOCKED] SAB structural violations — "
+                        f"{len(_violations)} issue(s):"
+                    )
+                    for _v in _violations[:5]:
+                        print(f"  - {_v}")
+                    if len(_violations) > 5:
+                        print(f"  ... and {len(_violations) - 5} more")
+                    print(
+                        "  Fix: amend SAD.md's SAB block so every layer name "
+                        "referenced by allowed_dependencies is declared under "
+                        "layers: []. Re-run generate_sab.py --overwrite."
+                    )
+                    return 12
+            except ImportError:
+                print("  [WARN] PhaseHooks unavailable — skipping SAB structural pre-advance check")
+            except Exception as _sab_pre_err:  # pylint: disable=broad-exception-caught
+                print(f"  [WARN] SAB structural pre-advance check error: {_sab_pre_err}")
 
     # Round 25 站3a: the fastapi/httpx "integration packages not installed"
     # advisory used to sit here. It fired unconditionally for every P3+ advance,

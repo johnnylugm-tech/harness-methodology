@@ -56,6 +56,15 @@ def advance_project(tmp_path, monkeypatch):
     # completed_phase=1 keeps the path minimal (no exit gate, no CRG wiki,
     # no P2 manifest regen, no P8 doc gen). Prechecks are not under test.
     monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    # Round 39: cmd_advance_phase now calls _verify_entry_gate before
+    # _advance_fsm. Stub it the same way so these tests stay scoped to
+    # commit-rollback behaviour, not the gate logic. Coverage for the
+    # gate wiring lives in tests/test_phase_completed_authority.py.
+    monkeypatch.setattr(
+        phase_cmds, "_verify_entry_gate",
+        lambda *_a, **_k: {"passed": True, "gate": "stub",
+                           "reason": "test stub (rollback fixture)"},
+    )
     monkeypatch.delenv("HARNESS_NO_GIT", raising=False)
     return proj
 

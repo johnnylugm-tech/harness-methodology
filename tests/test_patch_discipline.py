@@ -97,7 +97,7 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # setup.cfg exists when the new env-computation helper reads it back.
     # Not a new coupling, one more instance of the established pattern.
     "tests/test_mutation_enforcer.py": 52,
-    "tests/cli/test_phase_cmds_cli.py": 40,
+    "tests/cli/test_phase_cmds_cli.py": 42,  # 2026-08-06 Round 39: +2 — _mock_advance_phase_bypass_prechecks (L314) and TestP7AdvanceGeneratesP8Baseline._setup (L1817) now stub cli.phase_cmds._verify_entry_gate alongside _advance_prechecks/_advance_fsm. Same seam cmd_advance_phase tests already go through (the gate is now an inline call in cmd_advance_phase between _advance_prechecks and _advance_fsm); one more private-name patch for an already-accepted seam, not a new coupling.
     # 2026-07-27 Round 29 (+4): TestRunPhaseCISubstrateProbeSkip's 2 tests each
     # monkeypatch cli.phase_cmds._verify_entry_gate (the same already-accepted
     # seam TestRunPhaseNoPostflight uses right above it) and
@@ -124,13 +124,20 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     "tests/test_agent_spawner.py": 4,
     "tests/test_edge_coverage.py": 2,
     "tests/test_feedback_hook.py": 2,
-    "tests/test_advance_commit_rollback.py": 1,
+    "tests/test_advance_commit_rollback.py": 2,  # 2026-08-06 Round 39: +1 — advance_project fixture now also stubs cli.phase_cmds._verify_entry_gate (cmd_advance_phase calls it at L526 before _advance_fsm; same seam cmd_advance_phase tests already go through, same justification as the _advance_prechecks stub at line 58). All other monkeypatches in the file are unchanged.
     # 2026-07-29 Round 24 站4: test_phase_completed_authority.py reuses
     # test_advance_commit_rollback.py's fixture, which stubs
     # cli.phase_cmds._advance_prechecks — the precondition aggregator, not
     # the behaviour under test (phase_completed recording after the commit
-    # lands). Same seam, same justification, same ceiling.
-    "tests/test_phase_completed_authority.py": 1,
+    # lands). 2026-08-06 Round 39 (+4): the same fixture also stubs
+    # cli.phase_cmds._verify_entry_gate (new cmd_advance_phase gate call),
+    # and the four new Round 39 tests (test_advance_phase_heals_dangling_
+    # sha_before_staging, test_advance_phase_returns_10_on_unrecoverable_sha,
+    # test_advance_phase_reverify_also_runs_entry_gate, plus the source-pin
+    # test which has no patches) each stub _advance_prechecks directly.
+    # All go through the same already-accepted seams; not a new coupling,
+    # one more instance of the established pattern.
+    "tests/test_phase_completed_authority.py": 5,
     "tests/test_generate_full_plan.py": 1,
     "tests/test_harness_bridge_highs2.py": 1,
     "tests/test_kill_switch_complete.py": 1,

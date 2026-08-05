@@ -125,6 +125,25 @@ def e2e_project(tmp_path):
     _git(proj, "add", "-A")
     assert _git(proj, "commit", "-m", "baseline").returncode == 0
 
+    # Round 39: cmd_advance_phase now calls _verify_entry_gate(2) before
+    # _advance_fsm. Seed phase_completed[1] with the baseline SHA so the
+    # gate passes naturally (mirror of an actual P1-complete project).
+    # The SHA is overwritten by advance-phase's post-commit writer
+    # afterwards, so this seed is invisible after the handover commit.
+    _baseline_sha = _git(proj, "rev-parse", "HEAD").stdout.strip()
+    sd = json.loads((meth / "state.json").read_text(encoding="utf-8"))
+    sd["phase_completed"] = {
+        "1": {
+            "sha": _baseline_sha,
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        },
+    }
+    (meth / "state.json").write_text(
+        json.dumps(sd) + "\n", encoding="utf-8",
+    )
+    _git(proj, "add", ".methodology/state.json")
+    _git(proj, "commit", "-m", "seed phase_completed[1] (Round 39 fixture)")
+
     # Fresh trace attestation via the real CLI, AFTER all files exist so the
     # mtime probe (_trace_dirty_state) sees it as current.
     att = _cli(proj, "build-trace-attestation", "--write")

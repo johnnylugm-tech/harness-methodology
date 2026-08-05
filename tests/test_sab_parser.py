@@ -788,6 +788,83 @@ class TestValidateSabBlock:
         errors = validate_sab_block(sad)
         assert any("SAB:START" in e for e in errors)
 
+    # Round 39 Station 1a: allowed_dependencies must reference declared
+    # layer names (per-layer and top-level). These tests pin the new
+    # check; without them, an invalid dep name slips through to SAB.json
+    # and is only caught at P3+ pre-push.
+
+    def test_per_layer_allowed_dependencies_rejects_unknown_layer(self, tmp_path):
+        """A layer.allowed_dependencies entry naming a layer not declared
+        in layers: must fail validate_sab_block at P2 generation."""
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\nsab:\n  phase: 2\n  project: x\n"
+            "  layers:\n"
+            "    - name: api\n      modules: [app.api]\n"
+            "      allowed_dependencies: [nonexistent_layer]\n"
+            "    - name: data\n      modules: [app.data]\n"
+            "      allowed_dependencies: [api]\n"
+            "```\n<!-- SAB:END -->"
+        )
+        errors = validate_sab_block(sad)
+        assert any(
+            "layers[0]" in e and "nonexistent_layer" in e
+            for e in errors
+        ), f"expected per-layer invalid-dep error, got: {errors}"
+
+    def test_top_level_allowed_dependencies_rejects_unknown_layer(self, tmp_path):
+        """Top-level allowed_dependencies: [{from, to}] — both sides of
+        the pair must reference declared layer names."""
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\nsab:\n  phase: 2\n  project: x\n"
+            "  layers:\n"
+            "    - name: api\n      modules: [app.api]\n"
+            "      allowed_dependencies: []\n"
+            "  allowed_dependencies:\n"
+            "    - from: api\n      to: nonexistent_layer\n"
+            "```\n<!-- SAB:END -->"
+        )
+        errors = validate_sab_block(sad)
+        assert any(
+            "allowed_dependencies[0].to" in e and "nonexistent_layer" in e
+            for e in errors
+        ), f"expected top-level invalid-dep error, got: {errors}"
+
+    def test_non_string_dep_entry_caught(self, tmp_path):
+        """A non-string entry in allowed_dependencies must be flagged as
+        a type error rather than silently dropped."""
+        from core.quality_gate.sab_parser import validate_sab_block
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\nsab:\n  phase: 2\n  project: x\n"
+            "  layers:\n"
+            "    - name: api\n      modules: [app.api]\n"
+            "      allowed_dependencies: [42]\n"
+            "```\n<!-- SAB:END -->"
+        )
+        errors = validate_sab_block(sad)
+        assert any("non-string entry" in e for e in errors), (
+            f"expected non-string type error, got: {errors}"
+        )
+
+    def test_canonical_template_has_no_dep_errors(self, tmp_path):
+        """Regression guard: the canonical template's rendered block must
+        continue to validate cleanly — the new check must not regress
+        the happy path."""
+        from core.quality_gate.sab_parser import (
+            render_canonical_sab_template, validate_sab_block,
+        )
+        sad = tmp_path / "SAD.md"
+        sad.write_text(
+            "<!-- SAB:START -->\n```yaml\n"
+            + render_canonical_sab_template()
+            + "\n```\n<!-- SAB:END -->"
+        )
+        assert validate_sab_block(sad) == []
+
 
 class TestRendererRespectsDataclassFields:
     """Drift guard: every SABSpec dataclass field MUST appear in SAB_BLOCK_TEMPLATE."""
