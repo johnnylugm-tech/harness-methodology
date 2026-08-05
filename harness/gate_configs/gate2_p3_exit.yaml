@@ -20,6 +20,22 @@ dimensions:
   # patches the score in at finalize time. 4a threshold 100% applies to FRs
   # with status ∈ {IN_PROGRESS, VERIFIED}; PENDING FRs not in denominator.
   - { name: traceability,          tier: 2, threshold: 100, weight: 0.10, tool: harness-trace,  requires_tool_execution: false }
+  # Round 38: CI's `crg-architecture-check` job ("CRG Architecture Gate (P3+)")
+  # enforces this floor on every push from phase 3 onward, and the P3 workflow
+  # ANDs crg-arch-check's exit code into gate2Pass. Until now gate 2 — the
+  # authority on this phase's thresholds (Round 18 站2) — was the only one of
+  # the three that never said so, which let Gate 2 pass locally on a tree CI
+  # rejected on the next push. Measured on taskq-renew: architecture at the P3
+  # exit commit was 16.7, and the local gate had no opinion about it.
+  #
+  # weight 0.00 is deliberate and load-bearing: blocking by threshold without
+  # entering the composite, exactly as `adversarial_review` does in gate 3.
+  # It keeps every existing weight and every historical Gate 2 score intact,
+  # so this entry adds enforcement without silently re-scoring past runs.
+  # finalize_gate's pass check is `all(_dim_passes(d) for d in dims)` — weight
+  # is not consulted — so a zero weight costs nothing in blocking power.
+  # Raising it would change the composite for every project; don't.
+  - { name: architecture,          tier: 3, threshold: 80,  weight: 0.00, tool: code-review-graph, requires_tool_execution: true }
 blocking: true
 score_gate: 75
 max_rounds: 3

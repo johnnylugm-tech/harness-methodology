@@ -2796,10 +2796,27 @@ class HarnessBridge:
         # framework's OWN independent CRG run (community_cohesion), never the agent.
         # error_handling was moved to a tool-scored dimension (ast-error-handling) —
         # the CRG flow `has_error_handler` field does not exist in the package.
+        #
+        # Round 38 站1: the trigger is what the *gate config* declares, not what
+        # the agent's breakdown happens to contain. Until now this block ran
+        # `if any(d.name in _CRG_ONLY_DIMS for d in dims)` — dims is built from
+        # raw["breakdown"], so a gate result that simply omitted the row skipped
+        # the framework's own CRG run entirely and the dimension was never
+        # scored, never checked against its threshold, and never blocked.
+        # Gates 3 and 4 hid this because their agents always wrote the row
+        # (as JSON null); gate 2 declaring architecture would have inherited a
+        # decorative entry. Same rule, and the same wording, as
+        # `_override_adversarial_review_dim`: a framework-owned blocking
+        # dimension must not depend on agent cooperation to exist.
         _crg_overrides_applied = False
         _crg_metrics_path = Path(ctx.work_dir) / "crg_metrics.json"
         _CRG_ONLY_DIMS = {"architecture"}
-        if any(d.name in _CRG_ONLY_DIMS for d in dims):
+        _crg_declared = any(
+            (_d.get("name") if isinstance(_d, dict) else getattr(_d, "name", ""))
+            in _CRG_ONLY_DIMS
+            for _d in _config_dim_list
+        )
+        if _crg_declared or any(d.name in _CRG_ONLY_DIMS for d in dims):
             # Regenerate crg_metrics.json from an independent CRG run, overwriting any
             # agent-written file. CRG is a hard dependency (verified at preflight); a
             # failure is a real error → BLOCK, never a fallback to agent scores.
@@ -2844,8 +2861,10 @@ class HarnessBridge:
 
             if _arch_score is not None:
                 _new_dims = []
+                _arch_found = False
                 for _d in dims:
                     if _d.name == "architecture":
+                        _arch_found = True
                         _old = _d.score if _d.score is not None else 0.0
                         _new = float(_arch_score)
                         if abs(_old - _new) > 1.5:
@@ -2881,6 +2900,18 @@ class HarnessBridge:
                             print("  - Or: if hub-and-spoke is intentional (Orchestrator), file a DA waiver")
                     else:
                         _new_dims.append(_d)
+                if not _arch_found and _crg_declared:
+                    _new_dims.append(DimResult(
+                        name="architecture",
+                        score=float(_arch_score),
+                        threshold=float(_dim_thresholds.get("architecture", 0.0)),
+                        issues=[],
+                    ))
+                    _crg_overrides_applied = True
+                    print(
+                        "[harness] architecture appended (agent omitted it): "
+                        f"score={float(_arch_score):.1f}"
+                    )
                 dims = _new_dims
 
         # ── PR 4 (audit F-1.1 fix): framework trace score override ─────

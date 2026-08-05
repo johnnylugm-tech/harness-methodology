@@ -49,7 +49,10 @@ class TestHarnessBridge:
         assert isinstance(config, GateConfig)
         assert config.gate_num == 2
         assert config.score_gate == 75.0
-        assert len(config.dimensions) == 11  # 10 original + execute_verification_target (631782b)
+        # 10 original + execute_verification_target (631782b)
+        # + architecture (Round 38 站1 — CI enforced the floor at P3+ while
+        #   gate 2's own config never declared it)
+        assert len(config.dimensions) == 12
 
     def test_gate_blocked_error_attributes(self):
         result = GateResult(gate_num=3, score=60.0, open_critical=2, open_high=3)
@@ -346,6 +349,55 @@ class TestFinalizeGate:
                         result = bridge.finalize_gate(ctx)
         assert result.score == 90.0  # the None-score dim is excluded from the average
         assert result.quality_complete is True  # and excluded from the pass/fail requirement
+
+    def test_declared_architecture_is_scored_even_when_the_agent_omits_it(
+        self, tmp_path, monkeypatch
+    ):
+        """Round 38 站1 — the config declares it, so the framework scores it.
+
+        The CRG override used to fire on `any(d.name == "architecture" for d in
+        dims)`, and `dims` is built from the agent's breakdown. A gate result
+        that simply left the row out skipped the framework's own CRG run: no
+        score, no threshold check, no block. Gates 3 and 4 never showed it
+        because their agents always wrote the row as JSON null.
+        """
+        from core.quality_gate.constitution.profile import DimensionConfig, GateConfig
+
+        self._patch_gate_config(tmp_path, monkeypatch)
+        config = GateConfig(
+            gate_num=2, score_gate=80.0, max_rounds=3,
+            dimensions=[DimensionConfig(name="linting", threshold=75.0),
+                        DimensionConfig(name="architecture", threshold=80.0,
+                                        weight=0.0)],
+        )
+        ctx = self._make_context(tmp_path, gate_num=2, config=config)
+        self._write_result(ctx, {
+            "overall_score": 90.0, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            # No "architecture" key — the exact omission that used to disable
+            # the check.
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0}},
+        })
+
+        def _fake_crg(project_root, work_dir):
+            Path(work_dir, "crg_metrics.json").write_text(
+                json.dumps({"architecture_score": 16.7,
+                            "community_cohesion": {"score": 16.7, "unhealthy": []},
+                            "large_functions_penalty": 0}),
+                encoding="utf-8")
+            return {}
+
+        bridge = HarnessBridge()
+        with patch("harness.crg_independent.run_independent_crg", _fake_crg):
+            with pytest.raises(GateBlockedError) as blocked:
+                bridge.finalize_gate(ctx)
+
+        arch = next(d for d in blocked.value.result.dimensions
+                    if d.name == "architecture")
+        # 16.7 is taskq-renew's real architecture score at its P3 exit commit,
+        # measured on a full 41-file graph.
+        assert arch.score == 16.7
+        assert blocked.value.result.quality_complete is False
 
     def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path, monkeypatch):
         """Real JSON->DimResult path (not an injected DimResult bypassing
