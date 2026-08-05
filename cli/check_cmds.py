@@ -290,7 +290,18 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     arch = metrics.get("architecture_score")
     if arch is None:
         arch = (metrics.get("community_cohesion") or {}).get("score") or 0.0
-    threshold = getattr(args, "threshold", 80.0)
+    # Round 38: the floor comes from the gate config that scores against it,
+    # resolved through the project's phase. `--threshold` is an explicit
+    # override for ad-hoc probing only — no caller passes it, so there is one
+    # number and one place it lives.
+    threshold = getattr(args, "threshold", None)
+    if threshold is None:
+        from core.quality_gate.crg_baseline import floor_for_phase
+        _pv = load_state(project, lenient=True).get("current_phase")
+        _phase = _pv if isinstance(_pv, int) else None
+        threshold = floor_for_phase(_phase)
+        _src = f"phase {_phase}" if _phase is not None else "phase unreadable"
+        print(f"[crg-arch-check] floor {threshold:.0f} from gate config ({_src})")
     print(f"[crg-arch-check] architecture_score={arch:.1f} (threshold {threshold:.0f})")
     if arch < threshold:
         print(f"[crg-arch-check] FAIL: architecture {arch:.1f} < {threshold:.0f}")
@@ -1322,8 +1333,11 @@ def register(sub) -> None:
         help="Non-interactive CRG architecture gate (CI): independent score + drift regression",
     )
     cac.add_argument("--project", default=".", help="Project root (default: .)")
-    cac.add_argument("--threshold", type=float, default=80.0,
-                     help="Minimum architecture score (default: 80)")
+    cac.add_argument("--threshold", type=float, default=None,
+                     help="Override the architecture floor. Omit it — the "
+                          "default is resolved from the project's phase via "
+                          "harness/gate_configs/, the only place the number "
+                          "lives (Round 38).")
     cac.add_argument("--baseline", default=None,
                      help="Prior crg_baseline_pN.json for drift regression check")
     cac.add_argument("--drift-threshold", type=float, default=0.4,

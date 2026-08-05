@@ -122,7 +122,7 @@ _GATE3_STEPS = [
         "3. G3c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + '`.\\n"
     ),
     "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0`. FAIL → add missing tests, re-run.",
-    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 3 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
+    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 3 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
 _GATE3_SCOPE_RULES = (
@@ -140,7 +140,7 @@ _GATE3_DEFERRED_FIXES_STEP = (
     "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
     "    + '1. Get the last-known Gate 3 state:\\n`' + gate3StateCmd + '`\\n'\n"
     "    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0; echo \"RC=$?\"` for the D4 status.\\n'\n"
-    "    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0; echo \"RC=$?\"` for the CRG architecture status.\\n'\n"
+    "    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '; echo \"RC=$?\"` for the CRG architecture status.\\n'\n"
     "    + '4. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\\n'\n"
     "    + '   - A brief header: \"Gate 3 — deferred fixes\" + date + last-known composite score\\n'\n"
     "    + '   - Each failing dimension (score below its threshold) as a `- [ ]` checkbox item\\n'\n"
@@ -229,7 +229,7 @@ def generate_phase4() -> str:
             pass_line_desc="composite ≥80 AND all dims ≥ threshold AND D4 ≥80% AND CRG architecture ≥80",
             scope_rules=_GATE3_SCOPE_RULES,
             d4_threshold=80.0,
-            crg_threshold=80.0,
+            crg_check=True,
             on_fail_error_msg="Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)",
             include_manifest_integrity=False,
             deferred_fixes_step=_GATE3_DEFERRED_FIXES_STEP,

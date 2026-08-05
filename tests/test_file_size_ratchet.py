@@ -132,7 +132,15 @@ _LINE_CEILING: dict[str, int] = {
     # and S6 flattens it before walking. Measured: a project declaring nine
     # testpaths entries against sixteen collected test files, two of them
     # the FR tests for FR-02 and FR-07, with neither denominator recorded.
-    "harness/harness_bridge.py": 3717,
+    # 2026-08-06 (Round 38 站1): +31 — the CRG-only override now fires on what
+    # the gate config declares rather than on what the agent's breakdown
+    # happens to contain, and appends the dimension when the agent omits it.
+    # The old form let a gate result skip the framework's own architecture run
+    # simply by leaving the row out. Most of the growth is the comment
+    # recording that, since the omission never failed a test.
+    # (Owed to 站1's commit 8e54c60, which shipped this ratchet red; caught
+    # one commit late because only the tail of the suite output was read.)
+    "harness/harness_bridge.py": 3748,
     # 2026-08-04 (Round 35 站3): +37 — `_mutation_artifact_violations` returns
     # two lists instead of one (a missing artifact is a run to repair, not a
     # claim to withdraw) and its call moved above the agent-score early exit,
@@ -520,7 +528,11 @@ _LINE_CEILING: dict[str, int] = {
     # thin CLI surface only; the verdict logic lives in core/ci_verdict.py,
     # which is why this is +33 and not +150. Deliberate: taskq-renew pushed
     # onto a red build 48 times because no command existed to ask.
-    "cli/check_cmds.py": 1570,
+    # 2026-08-06 (Round 38 站2): +14 — crg-arch-check resolves the architecture
+    # floor from the project's phase via the gate config instead of carrying
+    # `default=80.0`, which was the last of nine restatements of that number
+    # and the one that would have survived every caller dropping the flag.
+    "cli/check_cmds.py": 1584,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry
@@ -783,7 +795,11 @@ _LINE_CEILING: dict[str, int] = {
     # code-review-graph doesn't declare igraph as a pip dependency, so
     # without pinning it too CRG silently degrades to a coarse
     # directory-based grouping that scores differently from CI).
-    "scripts/workflowgen/js_blocks.py": 1559,
+    # 2026-08-06 (Round 38 站2): +6 — `crg_threshold: float` became
+    # `crg_check: bool`. The generator now decides only whether the check runs;
+    # the number comes from the gate config. Growth is the docstring recording
+    # that all three callers used to pass 80.0.
+    "scripts/workflowgen/js_blocks.py": 1565,
 }
 
 

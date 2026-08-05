@@ -643,4 +643,7 @@ jobs:
           if [ -f ".methodology/crg_baseline_p4.json" ]; then
             BASELINE="--baseline .methodology/crg_baseline_p4.json"
           fi
-          python harness/harness_cli.py crg-arch-check --project . --threshold 80 $BASELINE
+          # The floor is deliberately not passed here. It is resolved from
+          # this project's phase via harness/gate_configs/ (Round 38), so CI
+          # and the local gates read the same number out of the same file.
+          python harness/harness_cli.py crg-arch-check --project . $BASELINE

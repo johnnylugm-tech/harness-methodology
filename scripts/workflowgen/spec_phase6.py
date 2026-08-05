@@ -51,7 +51,7 @@ _GATE4_STEPS = [
         "   CITATION REQUIRED: any tool_evidence sentence that names a specific NFR/FR as the CAUSE of a skip or failure (e.g. \"N skipped for feature-flagged NFR-08\") must be verified per-skip against the actual docstring/name tag of that test before being written — do NOT attribute a whole skip count to one NFR without checking each skipped test individually; a wrong blanket attribution is a fabrication, not a summary."
     ),
     "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. FAIL → add tests, re-run. Runs BEFORE G4c so any fix here is captured by the G4c commit (Round 26: a D4 fix landing AFTER finalize-gate committed had no downstream commit step and was left uncommitted).",
-    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 4 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run. Also runs BEFORE G4c so any fix lands in the G4c commit.",
+    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 4 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run. Also runs BEFORE G4c so any fix lands in the G4c commit.",
     (
         "6. G4c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 4 --phase 6 --project ' + REPO + '` (writes QUALITY_REPORT.md + HANDOVER.md + pushes on PASS; also the commit point for any code/test fixes from steps 3-5 above).\\n"
     ),
@@ -77,7 +77,7 @@ def _render_phase6_entry_preflight() -> str:
         + "  + 'Steps:\\n'\n"
         + "  + '1. ENTRY-CHECK: run EXACTLY this bash command to verify Gate 3 status (do NOT rely on reading the file yourself — use the command output):\\n`' + PY + ' -c \"import json; m=json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')); g3=(m.get(\\'gate_results\\',{}) or {}).get(\\'gate3\\',{}) or {}; print(\\'GATE_VERIFIED\\' if isinstance(g3,dict) and g3.get(\\'quality_complete\\') is True else \\'GATE_MISSING\\')\"`\\nIf GATE_MISSING → FAIL (return to Phase 4).\\n'\n"
         + "  + '2. D4-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. Gate 4 blocks at 90% — if below, ADD missing test implementations NOW. Do NOT proceed until this passes.\\n'\n"
-        + "  + '3. CRG-PRECHECK: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE`. CI enforces this as an absolute floor independent of the Gate 4 composite — if below 80, FIX the underlying architecture issue NOW. Do NOT proceed until this passes.\\n'\n"
+        + "  + '3. CRG-PRECHECK: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor independent of the Gate 4 composite — if it FAILs, FIX the underlying architecture issue NOW (the command prints the floor it applied). Do NOT proceed until this passes.\\n'\n"
         + "  + '4. PREFLIGHT: `' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 6 --project ' + REPO + '`. FAIL → fix, re-run (max 3). Also fix if reported: reliability lint (subprocess timeout / mkstemp / TOCTOU / sleep-in-async), config liveness (env keys absent from .env.example), attestation missing/mismatch (build-trace-attestation --write + commit; re-run until \"Attestation: clean\").\\n'\n"
         + "  + '5. HANDOFF: `' + PY + ' ' + REPO + '/harness_cli.py validate-handoff --from-phase 5 --project ' + REPO + '`. Must exit 0.\\n'\n"
         + "  + '6. PREFLIGHT-CI: confirm `' + REPO + '/.github/workflows/harness_quality_gate.yml` (CI workflow) + `' + REPO + '/.git/hooks/prepare-commit-msg` (git hook) both exist; confirm state.json current_phase=6. If stale: `init-project --phase 6 --project ' + REPO + ' --overwrite`.\\n'\n"
@@ -294,7 +294,7 @@ def generate_phase6() -> str:
             pass_line_desc="composite ≥85 AND all dims ≥ threshold AND DA artifacts present AND D4 ≥90% AND CRG architecture ≥80",
             scope_rules=_GATE4_SCOPE_RULES,
             d4_threshold=90.0,
-            crg_threshold=80.0,
+            crg_check=True,
             on_fail_error_msg="Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=False,
             wrap_try_catch=True,

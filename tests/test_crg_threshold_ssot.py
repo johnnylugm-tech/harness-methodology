@@ -101,29 +101,67 @@ def test_the_workflow_generators_carry_no_crg_threshold_parameter() -> None:
     """``crg_threshold=80.0`` in three spec_phase*.py files was statements 4-6.
 
     Removing the parameter is what makes the restatement impossible rather
-    than merely absent today.
+    than merely absent today. Matched by AST — as a function parameter or a
+    call keyword — not by text: prose explaining why the parameter is gone is
+    not a restatement of the number, and a scan that cannot tell the two apart
+    would push a later reader to delete the explanation.
     """
     offenders: list[str] = []
-    for path in (REPO / "scripts" / "workflowgen").rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        for lineno, line in enumerate(text.splitlines(), 1):
-            if "crg_threshold" in line:
-                offenders.append(f"{path.relative_to(REPO)}:{lineno}")
+    for path in sorted((REPO / "scripts" / "workflowgen").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        rel = path.relative_to(REPO)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names = [a.arg for a in node.args.args + node.args.kwonlyargs]
+                if "crg_threshold" in names:
+                    offenders.append(f"{rel}:{node.lineno} (parameter)")
+            elif isinstance(node, ast.Call):
+                if any(kw.arg == "crg_threshold" for kw in node.keywords):
+                    offenders.append(f"{rel}:{node.lineno} (argument)")
     assert not offenders, (
         "the workflow generators still carry a crg_threshold parameter:\n  "
         + "\n  ".join(offenders)
     )
 
 
+def _crg_arch_parser_var(tree: ast.Module) -> str:
+    """The local name `sub.add_parser("crg-arch-check", ...)` was bound to.
+
+    Scoping by variable rather than by flag name matters: `check_cmds.py`
+    defines a `--threshold` on `spec-coverage-check` too, and that one is a
+    different dimension with its own authority. A scan that matched every
+    `--threshold` would report it and push a later reader toward "fixing" an
+    unrelated command.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if getattr(call.func, "attr", None) != "add_parser":
+            continue
+        if not (call.args and isinstance(call.args[0], ast.Constant)
+                and call.args[0].value == "crg-arch-check"):
+            continue
+        target = node.targets[0]
+        if isinstance(target, ast.Name):
+            return target.id
+    raise AssertionError(
+        "no `<var> = sub.add_parser('crg-arch-check', ...)` in cli/check_cmds.py — "
+        "this scan can no longer find the parser it is meant to police"
+    )
+
+
 def test_crg_arch_check_has_no_hard_coded_default_floor() -> None:
     """``default=80.0`` was statement 9 — the one that would survive even
     after every caller stopped passing the flag."""
-    source = (REPO / "cli" / "check_cmds.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    tree = ast.parse((REPO / "cli" / "check_cmds.py").read_text(encoding="utf-8"))
+    parser_var = _crg_arch_parser_var(tree)
     defaults: list[str] = []
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call)
-                and getattr(node.func, "attr", None) == "add_argument"):
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_argument"
+                and getattr(node.func.value, "id", None) == parser_var):
             continue
         args = [a.value for a in node.args
                 if isinstance(a, ast.Constant) and isinstance(a.value, str)]

@@ -14,9 +14,15 @@ measured against a failing number.
 
 The floor is read from the gate config, never restated here: Round 18 站2
 made harness/gate_configs/*.yaml the only authority on a dimension's
-threshold, and 80.0 is already restated in three workflow generators
-(`crg_threshold=80.0` in spec_phase{3,4,6}.py) and in the CI template
-(`--threshold 80`). This module adds no fourth copy.
+threshold.
+
+Round 38 turned that from a convention this module observed into the only
+way to obtain the number. The floor had been stated nine times — twice in
+the gate configs that score against it, and seven times in generators
+(`crg_threshold=80.0` in spec_phase{3,4,6}.py), in their prose, in the CI
+template (`--threshold 80`) and in an argparse default nothing read back.
+`floor_for_phase` is what the remaining callers use instead; the flag
+`--threshold` survives only as an explicit override for ad-hoc probing.
 """
 
 from __future__ import annotations
@@ -27,19 +33,43 @@ import subprocess
 from pathlib import Path
 
 from core.degradation_ledger import record_degradation
+from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate.gate_thresholds import load_gate_thresholds
 
-__all__ = ["architecture_floor", "should_write_baseline", "snapshot_baseline"]
+__all__ = ["architecture_floor", "floor_for_phase", "should_write_baseline",
+           "snapshot_baseline"]
 
-# Gate 4 is the full-quality gate; its architecture threshold is the floor
-# CI's crg-arch-check enforces on every push from Phase 3 onward.
+# Gate 4 is the full-quality gate and the strictest of the three that score
+# architecture. It is both the baseline floor and the answer when a project's
+# phase cannot be determined.
 _FLOOR_GATE = 4
 _DIMENSION = "architecture"
 
 
-def architecture_floor() -> float:
-    """The architecture threshold, from the YAML that scores against it."""
-    return load_gate_thresholds(_FLOOR_GATE)[_DIMENSION]
+def architecture_floor(gate: int = _FLOOR_GATE) -> float:
+    """The architecture threshold for *gate*, from the YAML that scores it."""
+    return load_gate_thresholds(gate)[_DIMENSION]
+
+
+def floor_for_phase(phase: "int | None") -> float:
+    """The architecture floor a project in *phase* is measured against.
+
+    CI runs `crg-arch-check` on every push from phase 3 onward, but only
+    phases 3, 4 and 6 have an exit gate of their own. Phases 5, 7 and 8
+    inherit the most recent exit gate's floor — expressed as a derivation over
+    `EXIT_GATE_MAP` (core/phase_topology.py) rather than a table, so a change
+    to the phase topology cannot leave a stale mapping behind.
+
+    An unreadable or nonsensical phase resolves to gate 4, the strictest.
+    That is deliberate and is the whole point of removing the literal default:
+    "we could not tell which phase this is" must not quietly become "use the
+    most lenient number we know", and it must never become a number that no
+    gate config states (Round 35 — a value we could not determine is not a
+    passing value).
+    """
+    gates = [g for p, g in EXIT_GATE_MAP.items()
+             if isinstance(phase, int) and p <= phase]
+    return architecture_floor(max(gates) if gates else _FLOOR_GATE)
 
 
 def should_write_baseline(metrics: dict) -> tuple[bool, str]:

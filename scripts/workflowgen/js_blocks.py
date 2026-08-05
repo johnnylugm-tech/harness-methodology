@@ -871,7 +871,7 @@ def render_gate_loop(
     orchestrator_desc: str | None = None,
     pre_gate_note: str = "",
     include_finalize_note: bool = True,
-    crg_threshold: float | None = None,
+    crg_check: bool = False,
 ) -> str:
     """The Gate-2 (phase3) / Gate-3 (phase4) / Gate-4 (phase6) evaluation
     round loop — all three share this skeleton (round loop, orchestrator
@@ -893,18 +893,23 @@ def render_gate_loop(
     there only) that this function takes them as explicit parameters rather
     than guessing a false common prose.
 
-    `crg_threshold` — when set, the harness-verify step (the same
-    round-final verify agent that independently re-checks D4's exit code —
-    the self-reported `prompt_steps` text alone is NOT gating) also runs
-    `crg-arch-check --threshold {crg_threshold}` and ANDs its exit code into
-    `gate{N}Pass`. CI's standalone "CRG Architecture Gate (P3+)" job enforces
-    this as an absolute floor on every push from Phase 3 onward, independent
-    of any gate's weighted composite score — a low `architecture` dimension
-    sub-score can still let a composite pass (observed: taskq-renew Gate 4
-    passed at 93.6 with architecture=77.8 folded in; no per-dimension floor
-    exists in the composite math), so without this parameter no local gate
-    enforces the same absolute-floor semantics CI does. None (default) omits
-    the check entirely — unchanged behavior for any caller that doesn't pass it.
+    `crg_check` — when true, the harness-verify step (the same round-final
+    verify agent that independently re-checks D4's exit code — the
+    self-reported `prompt_steps` text alone is NOT gating) also runs
+    `crg-arch-check` and ANDs its exit code into `gate{N}Pass`. CI's
+    standalone "CRG Architecture Gate (P3+)" job enforces this as an absolute
+    floor on every push from Phase 3 onward, independent of any gate's
+    weighted composite score — a low `architecture` dimension sub-score can
+    still let a composite pass (observed: taskq-renew Gate 4 passed at 93.6
+    with architecture=77.8 folded in; no per-dimension floor exists in the
+    composite math), so without this flag no local gate enforces the same
+    absolute-floor semantics CI does. False (default) omits the check
+    entirely — unchanged behavior for any caller that doesn't pass it.
+
+    Round 38: this used to be `crg_threshold: float`, and every caller passed
+    80.0 — three more copies of a number that `harness/gate_configs/*.yaml`
+    already states. The generator now decides only *whether* the check runs;
+    `crg-arch-check` resolves *what* the floor is from the project's phase.
     """
     # crg_threshold wiring: same "harness-verified, not self-reported" shape as
     # D4 above — a 3rd command in the SAME verify-agent dispatch (not the main
@@ -919,17 +924,18 @@ def render_gate_loop(
         # declare igraph as a pip dependency, so without it CRG silently
         # degrades to a coarse directory-based grouping that scores
         # differently from CI (which always has igraph present first).
-        f"    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; "
-        f"BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && "
-        f"BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + "
-        f"'/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold {crg_threshold} $BASELINE; "
-        f"echo \"RC=$?\"`\\n'\n"
-    ) if crg_threshold is not None else ""
+        # No f-prefix: with the threshold gone this block interpolates nothing.
+        "    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; "
+        "BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && "
+        "BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + "
+        "'/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE; "
+        "echo \"RC=$?\"`\\n'\n"
+    ) if crg_check else ""
     crg_report_clause = (
         " crg_rc = the exact numeric exit code echoed on command 3\\'s final RC= line;"
-    ) if crg_threshold is not None else ""
-    crg_and_clause = f" && g{gate_num}v.crg_rc === 0" if crg_threshold is not None else ""
-    crg_log_clause = ", CRG rc=0" if crg_threshold is not None else ""
+    ) if crg_check else ""
+    crg_and_clause = f" && g{gate_num}v.crg_rc === 0" if crg_check else ""
+    crg_log_clause = ", CRG rc=0" if crg_check else ""
 
     steps_text = "".join(f"    + '{s}\\n'\n" for s in prompt_steps)
     integrity_block = (
