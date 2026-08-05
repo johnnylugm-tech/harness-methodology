@@ -770,7 +770,16 @@ _LINE_CEILING: dict[str, int] = {
     # Gate 4 passed at 93.6 composite with architecture=77.8 folded in — no
     # per-dimension floor exists in the composite math), and nothing in the
     # generated workflows exercised that absolute-floor semantics before this.
-    "scripts/workflowgen/js_blocks.py": 1550,
+    # 2026-08-05: 1550 -> 1559. crg_verify_cmd gains an inline `pip install -q
+    # code-review-graph==2.3.6 igraph==1.0.0` prefix: this dispatch is a
+    # standalone subagent Bash call that can't assume an earlier step in the
+    # same session already installed these (code-review-graph was pulled out
+    # of requirements.txt in the same commit — joint resolution with semgrep
+    # is ResolutionImpossible — so nothing else installs it by default; and
+    # code-review-graph doesn't declare igraph as a pip dependency, so
+    # without pinning it too CRG silently degrades to a coarse
+    # directory-based grouping that scores differently from CI).
+    "scripts/workflowgen/js_blocks.py": 1559,
 }
 
 

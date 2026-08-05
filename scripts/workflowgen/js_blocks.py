@@ -911,7 +911,16 @@ def render_gate_loop(
     # gate-orchestrator agent's self-remediation round), ANDed into gate{N}Pass
     # by the orchestrator JS itself, not trusted from the subagent's judgment.
     crg_verify_cmd = (
-        f"    + '3. `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && "
+        # code-review-graph is deliberately NOT in requirements.txt (conflicts
+        # with semgrep's exceptiongroup pin under joint resolution — see
+        # requirements.txt's comment); this is a standalone dispatch that
+        # can't assume an earlier step in THIS session already installed it.
+        # igraph must be installed alongside it — code-review-graph doesn't
+        # declare igraph as a pip dependency, so without it CRG silently
+        # degrades to a coarse directory-based grouping that scores
+        # differently from CI (which always has igraph present first).
+        f"    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; "
+        f"BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && "
         f"BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + "
         f"'/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold {crg_threshold} $BASELINE; "
         f"echo \"RC=$?\"`\\n'\n"

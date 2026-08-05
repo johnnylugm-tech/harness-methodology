@@ -330,7 +330,7 @@ if (!gate4Pass) for (let round = 1; round <= 3; round++) {
     'Run these TWO commands via the Bash tool, in order:\n'
     + '1. `' + gate4VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate 4 is truly finalized (not just SSI-dimension-scored).\n'
     + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0; echo "RC=$?"`\n'
-    + '3. `BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE; echo "RC=$?"`\n'
+    + '3. `pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE; echo "RC=$?"`\n'
     + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\'s final RC= line; crg_rc = the exact numeric exit code echoed on command 3\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',
     { label: 'gate4-verify-r' + round, phase: 'Gate 4', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )

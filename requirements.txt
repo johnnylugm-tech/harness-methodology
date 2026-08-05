@@ -53,15 +53,16 @@ mutmut==2.5.1
 opentelemetry-exporter-otlp-proto-http~=1.37.0
 
 # architecture (gate 3-4: architecture dimension via code-review-graph)
-# Pinned (not left to CI-only ad-hoc installs): Leiden clustering/cohesion-scoring
-# behavior changes silently across code-review-graph versions even on
-# byte-identical source (observed: CI reported architecture_score=66.7 against a
-# committed baseline of 100.0 on the SAME commit, source+calibration unchanged,
-# traced to an unpinned version resolving differently at CI run-time vs a local
-# out-of-band install). Without this pin here, any environment running
-# crg-arch-check outside CI's own separate pinned install step (e.g. an agent
-# workflow's local dispatch) has no version-parity guarantee with CI.
-code-review-graph==2.3.6
+# code-review-graph==2.3.6 is deliberately NOT pinned in this joint requirements
+# file: it pulls in fastmcp, whose exceptiongroup>=1.2.2 requirement conflicts
+# with semgrep==1.165.0's exceptiongroup~=1.2.0 pin above, making `pip install
+# -r requirements.txt` fail with ResolutionImpossible for the whole file
+# (verified 2026-08-05). Install it as its own separate `pip install
+# code-review-graph==2.3.6 igraph==1.0.0` call instead — CI's "Install gate
+# hard dependencies" / "Install code-review-graph" steps and
+# render_gate_loop()'s crg_verify_cmd (js_blocks.py) both already do this;
+# pip does not re-resolve the whole environment for a later standalone install,
+# so it coexists fine with whatever this file already installed.
 # CRG requires igraph for accurate Leiden community detection.
 # Without it, it falls back to a coarse directory-based grouping which heavily degrades cohesion scores.
 igraph==1.0.0
