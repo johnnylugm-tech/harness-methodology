@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Callable, Iterator
 if TYPE_CHECKING:  # tree_sitter imports stay lazy at runtime
     from tree_sitter import Parser
 
+from core.utils.delivery_scope import iter_delivered_files
 from core.utils.lang_patterns import (
-    SKIP_DIRS as _SKIP_DIRS,
     SOURCE_EXTENSIONS as _LANG_EXTS,
     TEST_FILE_PATTERN as _TEST_FILE_RE,
 )
@@ -88,10 +88,11 @@ def _iter_files(
         base = root / rel
         if not base.is_dir():
             continue
-        for path in sorted(base.rglob("*")):
-            if path.suffix.lower() not in _SOURCE_EXTS or not path.is_file():
-                continue
-            if set(path.parts) & _SKIP_DIRS:
+        # Round 37: the file population is what the project delivers, not
+        # whatever is on disk under base/ — an agent worktree or a stale
+        # build output is not JS/TS this project ships.
+        for path in iter_delivered_files(base):
+            if path.suffix.lower() not in _SOURCE_EXTS:
                 continue
             key = str(path.resolve())
             if key in seen or not keep(path):

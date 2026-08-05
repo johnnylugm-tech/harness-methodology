@@ -72,7 +72,17 @@ class SpecLogicChecker:
 
     def scan_python_files(self) -> SpecLogicCheckResult:
         """Scan all Python files"""
-        python_files = list(self.project_path.rglob("*.py"))
+        # Round 37: the file population is what the project delivers, not
+        # everything on disk. The exclusions below used to be the only
+        # filter, so an agent worktree under .claude/ (gitignored, absent
+        # from CI) was scanned as if it were product code.
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from core.utils.delivery_scope import iter_delivered_files
+
+        python_files = [
+            p for p in iter_delivered_files(self.project_path)
+            if p.suffix == ".py"
+        ]
 
         # Bug M09 fix: exclude test files by PATH COMPONENT, not substring.
         # The previous `if "test" not in f.name.lower()` rejected legit

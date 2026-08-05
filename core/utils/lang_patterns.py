@@ -28,12 +28,13 @@ SOURCE_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "typescript": (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"),
 }
 
-# Directories skipped when walking source trees. Shared by
-# core/traceability/scanner.py and harness/lang_scanners/treesitter_js.py so
-# a single source of truth controls what counts as "project source" — JS/TS
-# build artifacts (dist, build, coverage, .next) and harness internals are
-# excluded for every language. Paths whose name ends in .egg-info are also
-# skipped (handled in scanner.py — that suffix convention is Python-only).
+# Directories skipped when walking source trees of a project that is NOT a
+# git repository. Inside a git repo the scope comes from
+# core.utils.delivery_scope (Round 37) — git's own answer, which is the one
+# CI checks out — and this denylist is not consulted. Kept as the non-git
+# fallback: JS/TS build artifacts (dist, build, coverage, .next) and harness
+# internals are excluded for every language. Paths whose name ends in
+# .egg-info are also skipped (handled in scanner.py — Python-only suffix).
 SKIP_DIRS: frozenset[str] = frozenset({
     "node_modules", "dist", "build", "coverage", ".next",
     ".sessi-work", ".methodology",
@@ -64,23 +65,36 @@ def is_test_file(path: Union[str, Path], language: str) -> bool:
 
 
 def iter_test_files(tests_dir: Path, language: str) -> Iterator[Path]:
-    """Yield test files under *tests_dir* per the language convention."""
+    """Yield test files under *tests_dir* per the language convention.
+
+    Scoped to what the project delivers (Round 37) so a scratch copy of the
+    test tree — an agent worktree, a stale build output — cannot be counted
+    as coverage.
+    """
+    from core.utils.delivery_scope import iter_delivered_files
+
     if not tests_dir.is_dir():
         return
-    if language == "python":
-        yield from sorted(tests_dir.rglob("test_*.py"))
-        return
-    for path in sorted(tests_dir.rglob("*")):
-        if path.is_file() and is_test_file(path, language):
+    for path in iter_delivered_files(tests_dir):
+        if language == "python":
+            if path.name.startswith("test_") and path.suffix == ".py":
+                yield path
+        elif is_test_file(path, language):
             yield path
 
 
 def iter_source_files(root: Path, language: str) -> Iterator[Path]:
-    """Yield source files (any depth) with the language's extensions."""
+    """Yield source files (any depth) with the language's extensions.
+
+    The file population comes from core.utils.delivery_scope — git's answer
+    inside a git repo, the SKIP_DIRS denylist outside one (Round 37). This
+    function only applies the language's extension filter on top.
+    """
+    from core.utils.delivery_scope import iter_delivered_files
+
     exts = source_extensions(language)
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in exts \
-                and not (set(path.parts) & SKIP_DIRS):
+    for path in iter_delivered_files(root):
+        if path.suffix.lower() in exts:
             yield path
 
 

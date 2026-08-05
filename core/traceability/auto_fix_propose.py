@@ -38,6 +38,7 @@ def _closest_module(fr_id: str, fr_section_text: str,
     alphanumeric tokens that overlap with a source filename stem. Searches
     core/ (python convention) then src/ and 03-development/src.
     """
+    from core.utils.delivery_scope import iter_delivered_files
     from core.utils.lang_patterns import source_extensions
     exts = source_extensions(language)
     candidates: List[Path] = []
@@ -45,14 +46,16 @@ def _closest_module(fr_id: str, fr_section_text: str,
         base = project / rel
         if not base.is_dir():
             continue
-        # sorted() after rglob — pathlib.rglob does NOT guarantee order across
-        # filesystems (Linux ext4 vs macOS APFS return sub2/ before sub1/
-        # for the same fixture, breaking strict-> tie-breaking in tests).
-        candidates.extend(sorted(
-            p for p in base.rglob("*")
-            if p.is_file() and p.suffix.lower() in exts
-            and "node_modules" not in p.parts
-        ))
+        # Round 37: the candidate set is what the project delivers. This
+        # previously excluded only "node_modules", so an agent worktree copy
+        # of src/ could be proposed as the fix target for an FR.
+        # iter_delivered_files sorts — pathlib.rglob does NOT guarantee order
+        # across filesystems (Linux ext4 vs macOS APFS return sub2/ before
+        # sub1/ for the same fixture, breaking strict-> tie-breaking in tests).
+        candidates.extend(
+            p for p in iter_delivered_files(base)
+            if p.suffix.lower() in exts
+        )
     if not candidates:
         return None
 

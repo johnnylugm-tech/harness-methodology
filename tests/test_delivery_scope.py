@@ -108,15 +108,19 @@ def test_non_git_directory_still_yields_its_sources(tmp_path: Path) -> None:
 # Meta-test: every walker of a consumer project's source tree uses the SSOT
 # --------------------------------------------------------------------------
 
-# Production modules that enumerate a CONSUMER PROJECT's source tree — the
-# population that determines what a gate measures. Each was independently
-# deciding what to exclude before Round 37: scanner.py and lang_patterns.py
-# via SKIP_DIRS, treesitter_js.py via the same set, auto_fix_propose.py by
-# excluding only "node_modules", spec_logic_checker.py by excluding only
-# "venv"/"__pycache__".
+# Production modules that ENUMERATE a consumer project's tree themselves —
+# the population that determines what a gate measures. Each was deciding
+# independently what to exclude before Round 37: lang_patterns.py and
+# treesitter_js.py via SKIP_DIRS, auto_fix_propose.py by excluding only
+# "node_modules", spec_logic_checker.py by excluding only "venv" and
+# "__pycache__".
+#
+# core/traceability/scanner.py is deliberately NOT here: it never walks a
+# tree, it calls iter_source_files / iter_test_files, so it inherits the
+# scope rather than stating one. Adding it would demand an import it has no
+# use for — a rule satisfied by ceremony instead of by structure.
 _PROJECT_TREE_WALKERS = (
     "core/utils/lang_patterns.py",
-    "core/traceability/scanner.py",
     "core/traceability/auto_fix_propose.py",
     "harness/lang_scanners/treesitter_js.py",
     "scripts/spec_logic_checker.py",
@@ -164,3 +168,17 @@ def test_the_walker_list_names_only_files_that_walk_a_tree() -> None:
                 f"{rel} no longer walks a tree and no longer reads the scope "
                 f"SSOT — drop it from _PROJECT_TREE_WALKERS"
             )
+
+
+def test_the_scanner_delegates_its_scope_instead_of_stating_one() -> None:
+    """The reason core/traceability/scanner.py is exempt above.
+
+    If it ever grows its own walk, the exemption stops being justified and
+    this fails — the exclusion cannot outlive its premise.
+    """
+    source = (REPO / "core/traceability/scanner.py").read_text(encoding="utf-8")
+    assert "iter_source_files" in source
+    assert ".rglob(" not in source and ".iterdir(" not in source, (
+        "core/traceability/scanner.py now walks the tree itself — add it to "
+        "_PROJECT_TREE_WALKERS and give it the scope SSOT"
+    )

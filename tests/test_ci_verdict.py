@@ -107,10 +107,11 @@ def test_a_still_running_job_is_unavailable_not_green(tmp_path) -> None:
 # The command's exit codes
 # --------------------------------------------------------------------------
 
-def _args(tmp_path, **kw) -> argparse.Namespace:
-    base = {"project": str(tmp_path), "sha": "abc1234"}
-    base.update(kw)
-    return argparse.Namespace(**base)
+def _args(tmp_path, payload: str) -> argparse.Namespace:
+    """`runner` is a real injection point on the command, not a patched
+    private name — the seam the private-patch ratchet asks for."""
+    return argparse.Namespace(project=str(tmp_path), sha="abc1234",
+                              runner=_runner(0, payload))
 
 
 @pytest.mark.parametrize("payload,expected_name", [
@@ -118,22 +119,18 @@ def _args(tmp_path, **kw) -> argparse.Namespace:
     (_runs(("gate-check", "failure")), "EX_CI_RED"),
     ("[]", "EX_CI_VERDICT_UNAVAILABLE"),
 ])
-def test_verify_ci_exit_codes(tmp_path, monkeypatch, payload, expected_name) -> None:
-    import core.ci_verdict as cv
+def test_verify_ci_exit_codes(tmp_path, payload, expected_name) -> None:
     from cli.check_cmds import cmd_verify_ci
 
-    monkeypatch.setattr(cv, "_default_runner", _runner(0, payload))
-    assert cmd_verify_ci(_args(tmp_path)) == _ex(expected_name)
+    assert cmd_verify_ci(_args(tmp_path, payload)) == _ex(expected_name)
 
 
-def test_red_ci_run_blocks_and_names_the_failing_job(tmp_path, monkeypatch, capsys) -> None:
-    import core.ci_verdict as cv
+def test_red_ci_run_blocks_and_names_the_failing_job(tmp_path, capsys) -> None:
     from cli.check_cmds import cmd_verify_ci
 
-    monkeypatch.setattr(cv, "_default_runner", _runner(0, _runs(
+    rc = cmd_verify_ci(_args(tmp_path, _runs(
         ("ASPICE Traceability Check (TH-01)", "failure"),
     )))
-    rc = cmd_verify_ci(_args(tmp_path))
     out = capsys.readouterr().out
 
     assert rc == _ex("EX_CI_RED")
