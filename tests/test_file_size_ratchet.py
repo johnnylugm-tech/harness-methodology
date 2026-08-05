@@ -552,7 +552,11 @@ _LINE_CEILING: dict[str, int] = {
     # agent-transcribed exit codes that were written down nowhere — `crg_rc`
     # returns zero hits across taskq-renew's entire .methodology/ after a full
     # P1-P8 run.
-    "cli/check_cmds.py": 1656,
+    # 2026-08-06 (Round 39 站2): +7 — the crg_architecture early return now
+    # records the skip in the degradation ledger. This is the switch that
+    # turns CI's absolute architecture floor into an unconditional pass; its
+    # only previous trace was an INFO line that dies with the CI log.
+    "cli/check_cmds.py": 1663,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry

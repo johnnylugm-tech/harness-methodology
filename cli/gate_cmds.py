@@ -1477,6 +1477,11 @@ def _check_gate4_prerequisites(project: Path) -> bool:
     # scores derived from CRG data are therefore groundless.
     from core.harness_config import is_dim_disabled
     if is_dim_disabled("architecture", str(project)):
+        # Round 39 站2: recorded, not merely announced — this skip removes the
+        # only check that CRG reconnaissance ran at all, and a gate result
+        # that silently lost it is indistinguishable from one that had it.
+        from core.quality_gate.dimension_scope import record_dimension_scope
+        record_dimension_scope(project, gate=4)
         print("[Gate 4] B3: CRG recon check skipped (crg_architecture disabled)", file=sys.stderr)
     else:
         try:

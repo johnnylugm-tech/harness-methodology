@@ -199,6 +199,14 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # reconciliation already lives (next to _check_git_sync).
     findings.extend(_check_submodule_behind(project))
 
+    # 13. dimension scope vs the latest verdict (Round 39 站2). Switching a
+    # dimension off in harness_config.json is legitimate; doing it between a
+    # gate verdict and now means the recorded verdict was measured over a
+    # different set of dimensions than the one in force. WARN, not ERROR: the
+    # missing-verdict case is already advance-phase's BLOCK, and doctor does
+    # not re-litigate it.
+    findings.extend(_check_dimension_scope_drift(project))
+
     # NOT here: the CI verdict for HEAD (Round 37). It was wired in and taken
     # back out — doctor is at-rest, offline, cross-FILE reconciliation, and a
     # `gh run list` per invocation makes every doctor call network-bound and
@@ -208,6 +216,41 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # turns out to need a reader here.
 
     return findings
+
+
+def _check_dimension_scope_drift(project: Path) -> list[Finding]:
+    """WARN when the dimensions in force differ from the last verdict's set.
+
+    Round 39 站2. A verdict in `.methodology/gate_verify.jsonl` records which
+    dimensions were disabled when it was produced. Turning one off (or back on)
+    afterwards does not invalidate the tree digest — the code did not change —
+    but it does mean the recorded PASS was measured against a different set of
+    rules than the ones now in force.
+
+    Silent when there is no verdict yet: that case is `advance-phase`'s BLOCK,
+    and repeating it here would only add noise to every fresh project.
+    """
+    from core.quality_gate.dimension_scope import disabled_dimensions
+    from core.quality_gate.gate_verify import read_verdicts
+
+    rows, err = read_verdicts(project)
+    if err or not rows:
+        return []
+    latest = rows[-1]
+    if "dimensions_disabled" not in latest:
+        return []  # recorded before the field existed — nothing to compare
+    recorded = sorted(latest.get("dimensions_disabled") or [])
+    current = sorted(disabled_dimensions(project))
+    if recorded == current:
+        return []
+    return [Finding(
+        "dimension-scope", "WARN",
+        f"gate {latest.get('gate')}'s recorded verdict was measured with "
+        f"dimensions_disabled={recorded}, but harness_config.json now says "
+        f"{current}. Fix: re-run `harness_cli.py verify-gate --gate "
+        f"{latest.get('gate')}` so the verdict and the configuration agree, "
+        f"or restore the feature flags the verdict was produced under.",
+    )]
 
 
 def _check_submodule_behind(project: Path) -> list[Finding]:

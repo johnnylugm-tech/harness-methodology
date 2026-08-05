@@ -332,6 +332,13 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     project = Path(args.project).resolve()
     from core.harness_config import is_dim_disabled
     if is_dim_disabled("architecture", str(project)):
+        # Round 39 站2: this is the switch that turns CI's absolute
+        # architecture floor into an unconditional pass. The behaviour is
+        # deliberate and unchanged; what changes is that it now leaves a
+        # record. Before this, the only trace was the INFO line below, which
+        # is gone the moment the CI log rotates.
+        from core.quality_gate.dimension_scope import record_dimension_scope
+        record_dimension_scope(project)
         print("[crg-arch-check] INFO: crg_architecture disabled in harness_config.json — skipping")
         return 0
     work_dir = project / ".sessi-work"

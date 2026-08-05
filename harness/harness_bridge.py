@@ -2720,6 +2720,12 @@ class HarnessBridge:
             if not _hfeatures[ft]
         )
         if _disabled_dims:
+            # Round 39 站2: the print stays for the operator watching the run;
+            # the ledger entry is what survives it. A dimension that was never
+            # measured has to be re-derivable from the artifacts, not only
+            # from whoever happened to be reading stdout.
+            from core.quality_gate.dimension_scope import record_dimension_scope
+            record_dimension_scope(ctx.project_root, gate=ctx.gate_num)
             for _dn in sorted(_disabled_dims):
                 print(f"[harness] {_dn}: disabled via harness_config.json — excluded from evaluation")
             _config_dim_list = [
@@ -3712,6 +3718,16 @@ class HarnessBridge:
         # gone from this payload. They recorded that a threshold had been
         # zeroed; no threshold can be zeroed now, so a field that could only
         # ever be absent is one more thing for a reader to misinterpret.
+        #
+        # Round 39 站2: `dimensions_disabled` takes the opposite approach and
+        # is always present, empty included. It is the manifest's answer to
+        # "what did this gate not measure?", and a reader must be able to tell
+        # "nothing" from "this record predates the field". It goes here rather
+        # than into gate{N}_result.json because that file is agent-written and
+        # validated against a schema (core/quality_gate/gate_result_schema.py);
+        # this is framework knowledge about the run.
+        from core.quality_gate.dimension_scope import disabled_dimensions
+        payload["dimensions_disabled"] = sorted(disabled_dimensions(project_root))
         if fr_id:
             if not isinstance(manifest["gate_results"][key], dict):
                 manifest["gate_results"][key] = {}
