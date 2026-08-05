@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.quality_gate.cov_utils import read_coveragerc_source
+from core.quality_gate.source_tree_lock import source_tree_lock
 from core.utils.project_layout import ProjectLayout
 
 __all__ = [
@@ -289,10 +290,16 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
             f"--junitxml={junit_path}",
         ]
         try:
-            proc = subprocess.run(  # nosec B603
-                cmd, cwd=str(project), env=_scrubbed_env(),
-                capture_output=True, text=True, timeout=timeout,
-            )
+            # Blocks until any in-flight `mutmut run` (mutation_enforcer.py)
+            # has finished mutating/reverting paths_to_mutate — see
+            # source_tree_lock.py. Without this, a suite run landing inside
+            # a mutation window observes a genuinely mutated file and fails
+            # for a reason that has nothing to do with the project's code.
+            with source_tree_lock(project):
+                proc = subprocess.run(  # nosec B603
+                    cmd, cwd=str(project), env=_scrubbed_env(),
+                    capture_output=True, text=True, timeout=timeout,
+                )
         except subprocess.TimeoutExpired:
             return SuiteResult(
                 passed=False, coverage=None, test_target=test_target,

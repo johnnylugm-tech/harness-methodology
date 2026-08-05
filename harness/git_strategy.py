@@ -70,6 +70,10 @@ _GITIGNORE_ENTRIES: list[str] = [
     # (surfaced as a false "commit did not land" signal in run-fr-step's
     # dirty-tree guard, P3 2026-07-17).
     ".methodology/sessions_spawn.log.lock",
+    # flock sentinel serialising mutmut's live-tree mutation window against
+    # any concurrent test-suite run (source_tree_lock.py) — pure runtime
+    # coordination state, never meaningful in git history.
+    ".methodology/.mutation_exclusive.lock",
     ".harness/traces/",
     # Python venv / tool caches (avoid GH001 large-file rejections in pipeline mode)
     ".venv/",

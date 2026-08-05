@@ -33,6 +33,7 @@ from typing import Optional, Union
 from core.harness_config import get_timeout
 from core.quality_gate.mutmut_report import format_score_message
 from core.quality_gate.mutmut_scope import mutate_dirs
+from core.quality_gate.source_tree_lock import source_tree_lock
 from core.utils.project_layout import ProjectLayout
 
 # Basenames that are almost certainly data-only (no logic to mutate).
@@ -947,11 +948,17 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         if all_excludes:
             cmd.append(_paths_to_exclude_flag(all_excludes))
 
-        r = subprocess.run(
-            cmd, cwd=workdir, capture_output=True, text=True,
-            env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
-            timeout=get_timeout("mutation", project),  # 60 min hard cap — mutation testing is meaningless if it hangs
-        )
+        # mutmut mutates the live paths_to_mutate files in place (see
+        # source_tree_lock.py) — hold the exclusive lock for the whole
+        # subprocess so any concurrent test-suite run (PhaseTruthVerifier,
+        # FrameworkEnforcer, advance-phase TDD-PRECHECK — all funnel through
+        # test_suite_run._measure) waits instead of observing a mutant.
+        with source_tree_lock(project):
+            r = subprocess.run(
+                cmd, cwd=workdir, capture_output=True, text=True,
+                env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
+                timeout=get_timeout("mutation", project),  # 60 min hard cap — mutation testing is meaningless if it hangs
+            )
 
         if r.returncode not in (0, 2):
             return False, (
@@ -1157,11 +1164,16 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
         if all_excludes:
             cmd.append(_paths_to_exclude_flag(all_excludes))
 
-        r = subprocess.run(
-            cmd, cwd=workdir, capture_output=True, text=True,
-            env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
-            timeout=get_timeout("mutation", project),
-        )
+        # See source_tree_lock.py: mutmut mutates the live paths_to_mutate
+        # files in place, so hold the exclusive lock for the whole subprocess
+        # to keep any concurrent test-suite run (test_suite_run._measure)
+        # from observing a mutant mid-flight.
+        with source_tree_lock(project):
+            r = subprocess.run(
+                cmd, cwd=workdir, capture_output=True, text=True,
+                env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
+                timeout=get_timeout("mutation", project),
+            )
         # mutmut 2.x exit codes:
         #   0 = all mutants killed (rare; full pass)
         #   1 = baseline test failed (no mutants tested) — real failure

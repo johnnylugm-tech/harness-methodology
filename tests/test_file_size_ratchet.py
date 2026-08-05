@@ -514,7 +514,12 @@ _LINE_CEILING: dict[str, int] = {
     # 2026-07-17: +2 lines — Round 13 站1: exception-swallow ratchet paydown —
     # the artifact line-count except now prints its error before falling
     # back to the no-linecount checklist item.
-    "harness/git_strategy.py": 1303,
+    # 2026-08-05: +4 lines — .methodology/.mutation_exclusive.lock gitignore
+    # entry (same rationale as sessions_spawn.log.lock above): the new
+    # source_tree_lock.py flock sentinel that serialises mutmut's live-tree
+    # mutation window against concurrent test-suite runs needs the same
+    # ignore treatment or it surfaces as a permanently-dirty file.
+    "harness/git_strategy.py": 1307,
     # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
     # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
     # the SAB block's own authoring-guidance shape.
@@ -532,7 +537,25 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1316,
+    "core/quality_gate/mutation_enforcer.py": 1328,
+    # 2026-08-05: +12 lines — both `mutmut run` subprocess calls
+    # (run_mutation_precheck, _compute_mutation_score) now hold
+    # source_tree_lock.py's exclusive lock for the subprocess's duration.
+    # mutmut mutates paths_to_mutate files at their real, absolute project
+    # path (cwd=workdir only isolates mutmut's own execution context, never
+    # isolated the mutated files themselves — a real gap between what
+    # evaluate_dimension.md documented and what the code did). A live Gate 2
+    # run on taskq-renew hit exactly this: PhaseTruthVerifier.check_pytest
+    # re-runs the real suite independently of SSI scoring, landed inside a
+    # mutation window, observed a genuinely mutated file, and failed HR-11 —
+    # even though the SSI composite and the mutation score itself both
+    # passed. The dispatched agent misdiagnosed the mutation as an external
+    # process injecting regressions and burned a full round "fixing" files
+    # mutmut was about to mutate again. The lock makes any concurrent
+    # test-suite run (test_suite_run._measure — the shared entry point for
+    # PhaseTruthVerifier, FrameworkEnforcer, gate1_evidence, advance-phase
+    # TDD-PRECHECK) wait for the mutation window to close instead of racing
+    # it, at the cost of these 12 lines wrapping the two existing calls.
     # 2026-08-04 (Round 35 站2): +71 — _write_unmeasured_artifact, the
     # wrapper that calls it, and the docstrings recording why. Eleven abort
     # paths returned score 0.0 beside success=False, and every consumer reads
