@@ -53,6 +53,15 @@ mutmut==2.5.1
 opentelemetry-exporter-otlp-proto-http~=1.37.0
 
 # architecture (gate 3-4: architecture dimension via code-review-graph)
+# Pinned (not left to CI-only ad-hoc installs): Leiden clustering/cohesion-scoring
+# behavior changes silently across code-review-graph versions even on
+# byte-identical source (observed: CI reported architecture_score=66.7 against a
+# committed baseline of 100.0 on the SAME commit, source+calibration unchanged,
+# traced to an unpinned version resolving differently at CI run-time vs a local
+# out-of-band install). Without this pin here, any environment running
+# crg-arch-check outside CI's own separate pinned install step (e.g. an agent
+# workflow's local dispatch) has no version-parity guarantee with CI.
+code-review-graph==2.3.6
 # CRG requires igraph for accurate Leiden community detection.
 # Without it, it falls back to a coarse directory-based grouping which heavily degrades cohesion scores.
 igraph==1.0.0

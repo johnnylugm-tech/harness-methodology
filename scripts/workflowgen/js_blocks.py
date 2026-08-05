@@ -204,6 +204,7 @@ const GATE_VERIFY_SCHEMA = {
   properties: {
     last_gate_ok: { type: 'boolean', description: 'state.json last_gate >= this gate number (gate truly finalized, incl. Phase Truth)' },
     d4_rc: { type: 'integer', description: 'exit code of spec-coverage-check' },
+    crg_rc: { type: 'integer', description: 'exit code of crg-arch-check (0 = architecture score >= threshold); only requested when the gate wires in a CRG check — omit otherwise' },
     detail: { type: 'string' },
   },
   required: ['last_gate_ok', 'd4_rc'],
@@ -870,6 +871,7 @@ def render_gate_loop(
     orchestrator_desc: str | None = None,
     pre_gate_note: str = "",
     include_finalize_note: bool = True,
+    crg_threshold: float | None = None,
 ) -> str:
     """The Gate-2 (phase3) / Gate-3 (phase4) / Gate-4 (phase6) evaluation
     round loop — all three share this skeleton (round loop, orchestrator
@@ -890,7 +892,36 @@ def render_gate_loop(
     numbered step 4 (G4c) already states that, making the clause redundant
     there only) that this function takes them as explicit parameters rather
     than guessing a false common prose.
+
+    `crg_threshold` — when set, the harness-verify step (the same
+    round-final verify agent that independently re-checks D4's exit code —
+    the self-reported `prompt_steps` text alone is NOT gating) also runs
+    `crg-arch-check --threshold {crg_threshold}` and ANDs its exit code into
+    `gate{N}Pass`. CI's standalone "CRG Architecture Gate (P3+)" job enforces
+    this as an absolute floor on every push from Phase 3 onward, independent
+    of any gate's weighted composite score — a low `architecture` dimension
+    sub-score can still let a composite pass (observed: taskq-renew Gate 4
+    passed at 93.6 with architecture=77.8 folded in; no per-dimension floor
+    exists in the composite math), so without this parameter no local gate
+    enforces the same absolute-floor semantics CI does. None (default) omits
+    the check entirely — unchanged behavior for any caller that doesn't pass it.
     """
+    # crg_threshold wiring: same "harness-verified, not self-reported" shape as
+    # D4 above — a 3rd command in the SAME verify-agent dispatch (not the main
+    # gate-orchestrator agent's self-remediation round), ANDed into gate{N}Pass
+    # by the orchestrator JS itself, not trusted from the subagent's judgment.
+    crg_verify_cmd = (
+        f"    + '3. `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && "
+        f"BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + "
+        f"'/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold {crg_threshold} $BASELINE; "
+        f"echo \"RC=$?\"`\\n'\n"
+    ) if crg_threshold is not None else ""
+    crg_report_clause = (
+        " crg_rc = the exact numeric exit code echoed on command 3\\'s final RC= line;"
+    ) if crg_threshold is not None else ""
+    crg_and_clause = f" && g{gate_num}v.crg_rc === 0" if crg_threshold is not None else ""
+    crg_log_clause = ", CRG rc=0" if crg_threshold is not None else ""
+
     steps_text = "".join(f"    + '{s}\\n'\n" for s in prompt_steps)
     integrity_block = (
         f"  const g{gate_num}Integrity = await checkManifestIntegrity('Gate {gate_num}', 'g{gate_num}-integrity-r' + round)\n"
@@ -973,11 +1004,12 @@ def render_gate_loop(
         + "    'Run these TWO commands via the Bash tool, in order:\\n'\n"
         + f"    + '1. `' + gate{gate_num}VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate {gate_num} is truly finalized (not just SSI-dimension-scored).\\n'\n"
         + f"    + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {d4_threshold}; echo \"RC=$?\"`\\n'\n"
-        + "    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',\n"
+        + crg_verify_cmd
+        + f"    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\\'s final RC= line;{crg_report_clause} detail = last_gate_ok/last_gate/RC in one line.',\n"
         + f"    {{ label: 'gate{gate_num}-verify-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA }},\n"
         + "  )\n"
-        + f"  gate{gate_num}Pass = !!(g{gate_num}v && g{gate_num}v.last_gate_ok === true && g{gate_num}v.d4_rc === 0)\n"
-        + f"  if (gate{gate_num}Pass) {{ log('  Gate {gate_num} PASS [harness-verified: state.json last_gate >= {gate_num}, D4 rc=0]'); break }}\n"
+        + f"  gate{gate_num}Pass = !!(g{gate_num}v && g{gate_num}v.last_gate_ok === true && g{gate_num}v.d4_rc === 0{crg_and_clause})\n"
+        + f"  if (gate{gate_num}Pass) {{ log('  Gate {gate_num} PASS [harness-verified: state.json last_gate >= {gate_num}, D4 rc=0{crg_log_clause}]'); break }}\n"
         + f"  log('  Gate {gate_num} not yet PASS [' + (g{gate_num}v ? String(g{gate_num}v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))\n"
         + "}\n"
         + f"if (gate{gate_num}Blocked) {{\n"

@@ -183,6 +183,7 @@ const GATE_VERIFY_SCHEMA = {
   properties: {
     last_gate_ok: { type: 'boolean', description: 'state.json last_gate >= this gate number (gate truly finalized, incl. Phase Truth)' },
     d4_rc: { type: 'integer', description: 'exit code of spec-coverage-check' },
+    crg_rc: { type: 'integer', description: 'exit code of crg-arch-check (0 = architecture score >= threshold); only requested when the gate wires in a CRG check — omit otherwise' },
     detail: { type: 'string' },
   },
   required: ['last_gate_ok', 'd4_rc'],
@@ -622,8 +623,9 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
     + '2. G2b: Evaluate ALL Gate 2 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate2_result.json.\n   Dims: use the exact `dimensions:` list G2a just printed (it is computed from gate2_p3_exit.yaml, filtered by enabled feature flags — always current, do NOT hand-copy a dim list here).\n   NOTE: mutation_testing is enabled by default via .methodology/harness_config.json (mutation_testing=true). To disable, set it false in harness_config.json — the harness then excludes it from the dim list and re-normalises the composite score.\n   NOTE: traceability is FRAMEWORK-OWNED — do NOT score it; the harness injects it in finalize-gate.\n   For any failing dim: fix the ROOT CAUSE in code (ruff/pyright/add tests/bandit/mutation), re-run the tool, update the score. (No auto-fix engine.)\n'
     + '3. G2c — run BACKGROUNDED (finalize-gate\'s own git push triggers the local pre-push hook, plus CRG refresh: bounded on this project today, but a single opaque Bash call with no visible output until it returns is exactly the shape the 180s stall watchdog kills — same class of risk as GATE1, same fix):\n   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 2 --phase 3 --project ' + REPO + ' > /tmp/gate2_finalize_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\n   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → report "GATE2: TIMEOUT" and stop — do not kill the PID.\n   c. Once DONE: `cat /tmp/gate2_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\n\n'
     + '4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0`. FAIL → add missing test implementations, re-run.\n'
-    + 'finalize-gate (G2c) writes HANDOVER.md + pushes on PASS. Report final line: "GATE2: PASS" (composite ≥75 AND all dims ≥ threshold AND D4 ≥60%) or "GATE2: FAIL — <failing dims>".\n\n'
-    + 'SCOPE RULES:\n- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\n- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage + code fixes.',
+    + '5. CRG-ARCH: `BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE`. CI enforces this as an absolute floor on every push from Phase 3 onward, independent of the Gate 2/3/4 composite score — a low architecture sub-score can still let the composite pass, but this check will not. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.\n'
+    + 'finalize-gate (G2c) writes HANDOVER.md + pushes on PASS. Report final line: "GATE2: PASS" (composite ≥75 AND all dims ≥ threshold AND D4 ≥60% AND CRG architecture ≥80) or "GATE2: FAIL — <failing dims>".\n\n'
+    + 'SCOPE RULES:\n- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\n- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes.',
     { label: 'gate2-r' + round, phase: 'Gate 2', agentType: 'general-purpose' },
   )
   if (gate2Report === null || gate2Report === undefined || (typeof gate2Report === 'string' && gate2Report.length < 10)) {
@@ -636,11 +638,12 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
     'Run these TWO commands via the Bash tool, in order:\n'
     + '1. `' + gate2VerifyCmd + '` — stdout is a single JSON line with last_gate_ok + last_gate. This is the AUTHORITATIVE signal: state.json.last_gate is only written by finalize-gate AFTER Phase Truth (HR-11) passes, so last_gate_ok=true means Gate 2 is truly finalized (not just SSI-dimension-scored).\n'
     + '2. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0; echo "RC=$?"`\n'
-    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',
+    + '3. `BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE; echo "RC=$?"`\n'
+    + 'Then report via the StructuredOutput tool: last_gate_ok = the exact last_gate_ok boolean from command 1; d4_rc = the exact numeric exit code echoed on command 2\'s final RC= line; crg_rc = the exact numeric exit code echoed on command 3\'s final RC= line; detail = last_gate_ok/last_gate/RC in one line.',
     { label: 'gate2-verify-r' + round, phase: 'Gate 2', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
-  gate2Pass = !!(g2v && g2v.last_gate_ok === true && g2v.d4_rc === 0)
-  if (gate2Pass) { log('  Gate 2 PASS [harness-verified: state.json last_gate >= 2, D4 rc=0]'); break }
+  gate2Pass = !!(g2v && g2v.last_gate_ok === true && g2v.d4_rc === 0 && g2v.crg_rc === 0)
+  if (gate2Pass) { log('  Gate 2 PASS [harness-verified: state.json last_gate >= 2, D4 rc=0, CRG rc=0]'); break }
   log('  Gate 2 not yet PASS [' + (g2v ? String(g2v.detail ?? '') : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (gate2Blocked) {

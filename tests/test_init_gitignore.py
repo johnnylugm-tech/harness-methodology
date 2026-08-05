@@ -38,6 +38,11 @@ _REQUIRED_ENTRIES = {
     # them produced a perpetually-dirty tree fixed by manual chore(e2e-collect) commits.
     ".methodology/sessions_spawn.log",
     ".harness/traces/",
+    # Claude Code Agent tool isolation:"worktree" worktrees — a nested repo
+    # boundary git add -A records as a gitlink with no .gitmodules entry,
+    # breaking actions/checkout@v4's submodule step on every CI push
+    # (taskq-renew commit 0fc1e4e, FR-03 Gate1 / Phase 7, 2026-08-05).
+    ".claude/worktrees/",
 }
 
 

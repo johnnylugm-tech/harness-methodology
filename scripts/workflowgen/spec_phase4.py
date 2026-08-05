@@ -122,13 +122,14 @@ _GATE3_STEPS = [
         "3. G3c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + '`.\\n"
     ),
     "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0`. FAIL → add missing tests, re-run.",
+    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 3 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
 _GATE3_SCOPE_RULES = (
     "- DO NOT run advance-phase.\\n"
     "- DO NOT edit gate3_result.json to fake scores — fix the code.\\n"
     "- DO NOT modify harness/ (HR-17).\\n"
-    "- ONLY run-gate/eval/finalize/spec-coverage + code fixes."
+    "- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes."
 )
 
 _GATE3_DEFERRED_FIXES_STEP = (
@@ -139,10 +140,12 @@ _GATE3_DEFERRED_FIXES_STEP = (
     "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
     "    + '1. Get the last-known Gate 3 state:\\n`' + gate3StateCmd + '`\\n'\n"
     "    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0; echo \"RC=$?\"` for the D4 status.\\n'\n"
-    "    + '3. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\\n'\n"
+    "    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0; echo \"RC=$?\"` for the CRG architecture status.\\n'\n"
+    "    + '4. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\\n'\n"
     "    + '   - A brief header: \"Gate 3 — deferred fixes\" + date + last-known composite score\\n'\n"
     "    + '   - Each failing dimension (score below its threshold) as a `- [ ]` checkbox item\\n'\n"
     "    + '   - D4 as a `- [ ]` checkbox item (spec-coverage < 80%)\\n'\n"
+    "    + '   - CRG architecture as a `- [ ]` checkbox item if RC != 0 (architecture score < 80%)\\n'\n"
     "    + '   - Each item MUST cite the current score AND the required threshold\\n'\n"
     "    + '   - A final \"Next step:\" line: \"Resolve every item → re-run Phase 4 Gate 3 → advance-phase\"',\n"
     "    { label: 'deferred-fixes', phase: 'Gate 3', agentType: 'general-purpose' },\n"
@@ -223,9 +226,10 @@ def generate_phase4() -> str:
             gate_num=3, phase=4,
             log_msg="Gate 3 exit (composite ≥80, 15 dims: 12 self-scored + traceability/architecture/adversarial_review framework-owned)",
             prompt_steps=_GATE3_STEPS,
-            pass_line_desc="composite ≥80 AND all dims ≥ threshold AND D4 ≥80%",
+            pass_line_desc="composite ≥80 AND all dims ≥ threshold AND D4 ≥80% AND CRG architecture ≥80",
             scope_rules=_GATE3_SCOPE_RULES,
             d4_threshold=80.0,
+            crg_threshold=80.0,
             on_fail_error_msg="Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)",
             include_manifest_integrity=False,
             deferred_fixes_step=_GATE3_DEFERRED_FIXES_STEP,

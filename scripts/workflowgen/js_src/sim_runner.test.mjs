@@ -367,7 +367,7 @@ for (const [name, gate] of EXIT_GATES) {
   test(`${name} Gate ${gate}: pre-flight FAIL enters the round loop`, async () => {
     const overrides = [
       { match: precheck, respond: { pass: false, reason: 'not finalized' } },
-      { match: verify, respond: { last_gate_ok: true, d4_rc: 0, detail: 'sim' } },
+      { match: verify, respond: { last_gate_ok: true, d4_rc: 0, crg_rc: 0, detail: 'sim' } },
       ...happyOverrides(),
     ]
     const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
@@ -375,7 +375,7 @@ for (const [name, gate] of EXIT_GATES) {
       'an unfinalized gate must still run its orchestrator round')
     assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
     assert.ok(events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
-      'last_gate_ok + d4_rc=0 is the PASS condition')
+      'last_gate_ok + d4_rc=0 + crg_rc=0 is the PASS condition')
   })
 
   test(`${name} Gate ${gate}: last_gate_ok=false cannot PASS (the 9b5f7cf premise)`, async () => {
@@ -383,7 +383,7 @@ for (const [name, gate] of EXIT_GATES) {
       { match: precheck, respond: { pass: false, reason: 'not finalized' } },
       // Phase Truth still blocking: the SSI dims may well have scored, which
       // is precisely the state manifest.quality_complete reported as done.
-      { match: verify, respond: { last_gate_ok: false, d4_rc: 0, detail: 'phase truth 69%' } },
+      { match: verify, respond: { last_gate_ok: false, d4_rc: 0, crg_rc: 0, detail: 'phase truth 69%' } },
       ...happyOverrides(),
     ]
     const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
@@ -396,12 +396,28 @@ for (const [name, gate] of EXIT_GATES) {
   test(`${name} Gate ${gate}: a nonzero D4 exit code cannot PASS`, async () => {
     const overrides = [
       { match: precheck, respond: { pass: false, reason: 'not finalized' } },
-      { match: verify, respond: { last_gate_ok: true, d4_rc: 1, detail: 'spec-coverage below threshold' } },
+      { match: verify, respond: { last_gate_ok: true, d4_rc: 1, crg_rc: 0, detail: 'spec-coverage below threshold' } },
       ...happyOverrides(),
     ]
     const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
     assert.ok(!events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
       'spec-coverage-check failing must veto the gate even when last_gate is set')
+    assert.ok(result.error)
+  })
+
+  test(`${name} Gate ${gate}: a nonzero CRG exit code cannot PASS`, async () => {
+    // Same shape as the D4 test above — CI's standalone "CRG Architecture
+    // Gate (P3+)" job enforces architecture score >= threshold as an
+    // absolute floor on every push; the local gate must veto on it too, not
+    // just fold it into the (dilutable) composite score.
+    const overrides = [
+      { match: precheck, respond: { pass: false, reason: 'not finalized' } },
+      { match: verify, respond: { last_gate_ok: true, d4_rc: 0, crg_rc: 1, detail: 'architecture score below threshold' } },
+      ...happyOverrides(),
+    ]
+    const { result, events } = await runWorkflow(WF(name), makeHappyResponder(overrides))
+    assert.ok(!events.logs.some((l) => l.includes(`Gate ${gate} PASS`)),
+      'crg-arch-check failing must veto the gate even when last_gate and D4 are set')
     assert.ok(result.error)
   })
 }

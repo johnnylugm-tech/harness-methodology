@@ -86,6 +86,16 @@ _GITIGNORE_ENTRIES: list[str] = [
     "htmlcov/",
     ".mutmut-cache/",
     ".code-review-graph/",
+    # Claude Code's Agent tool (isolation: "worktree") creates linked git
+    # worktrees under .claude/worktrees/<name> — each is its own repo
+    # boundary (a `.git` pointer file), so `git add -A` records it as a
+    # gitlink (mode 160000) instead of descending into it. With no matching
+    # .gitmodules entry, `actions/checkout@v4`'s `submodule update --init`
+    # then hard-fails on every subsequent CI run: "No url found for
+    # submodule path ... in .gitmodules". Same failure class as .venv/
+    # above, just a different directory that was never added to this list
+    # (observed: taskq-renew commit 0fc1e4e, FR-03 Gate1 / Phase 7, 2026-08-05).
+    ".claude/worktrees/",
 ]
 
 _TAG_PREFIX = "gate4"

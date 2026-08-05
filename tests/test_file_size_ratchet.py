@@ -531,7 +531,13 @@ _LINE_CEILING: dict[str, int] = {
     # source_tree_lock.py flock sentinel that serialises mutmut's live-tree
     # mutation window against concurrent test-suite runs needs the same
     # ignore treatment or it surfaces as a permanently-dirty file.
-    "harness/git_strategy.py": 1307,
+    # 2026-08-05: +10 lines — .claude/worktrees/ gitignore entry, same
+    # failure class as .venv/ above: Claude Code's Agent tool (isolation:
+    # "worktree") creates linked git worktrees that `git add -A` records as
+    # a gitlink with no .gitmodules entry, hard-failing actions/checkout@v4's
+    # submodule step on every CI push (taskq-renew commit 0fc1e4e, FR-03
+    # Gate1 / Phase 7).
+    "harness/git_strategy.py": 1317,
     # 2026-07-13: +28 lines — Round 10 站4: P2 tasks gain a
     # [SEC-WRITE]/[SEC-VALIDATE] step pair next to [SAB-WRITE], mirroring
     # the SAB block's own authoring-guidance shape.
@@ -754,7 +760,17 @@ _LINE_CEILING: dict[str, int] = {
     # Python side uses. The call site shrank 10 lines -> 4; the +14 net is the
     # new function plus the rationale for why the two layers check different
     # inputs but may not have different rules.
-    "scripts/workflowgen/js_blocks.py": 1518,
+    # 2026-08-05: 1518 -> 1550. render_gate_loop() gains an optional
+    # crg_threshold param: when set, the same round-final verify agent that
+    # already independently re-checks D4's exit code (not the self-reported
+    # prompt_steps text) also runs crg-arch-check and ANDs its exit code into
+    # gate{N}Pass — CI's standalone "CRG Architecture Gate (P3+)" job enforces
+    # architecture score >= threshold as an absolute floor on every push,
+    # independent of any gate's weighted composite (observed: taskq-renew
+    # Gate 4 passed at 93.6 composite with architecture=77.8 folded in — no
+    # per-dimension floor exists in the composite math), and nothing in the
+    # generated workflows exercised that absolute-floor semantics before this.
+    "scripts/workflowgen/js_blocks.py": 1550,
 }
 
 

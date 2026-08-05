@@ -407,13 +407,14 @@ _GATE2_STEPS = [
         "   c. Once DONE: `cat /tmp/gate2_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\\n"
     ),
     "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0`. FAIL → add missing test implementations, re-run.",
+    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' --threshold 80.0 $BASELINE`. CI enforces this as an absolute floor on every push from Phase 3 onward, independent of the Gate 2/3/4 composite score — a low architecture sub-score can still let the composite pass, but this check will not. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
 _GATE2_SCOPE_RULES = (
     "- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\\n"
     "- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\\n"
     "- DO NOT modify harness/ (HR-17).\\n"
-    "- ONLY run-gate/eval/finalize/spec-coverage + code fixes."
+    "- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes."
 )
 
 _PHASE3_ADVANCE_STEP_OVERRIDE = (
@@ -454,9 +455,10 @@ def generate_phase3() -> str:
             gate_num=2, phase=3,
             log_msg="Gate 2 exit (composite ≥75, 9 dims: 8 self-scored + traceability framework-owned)",
             prompt_steps=_GATE2_STEPS,
-            pass_line_desc="composite ≥75 AND all dims ≥ threshold AND D4 ≥60%",
+            pass_line_desc="composite ≥75 AND all dims ≥ threshold AND D4 ≥60% AND CRG architecture ≥80",
             scope_rules=_GATE2_SCOPE_RULES,
             d4_threshold=60.0,
+            crg_threshold=80.0,
             on_fail_error_msg="Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=True,
         ),
