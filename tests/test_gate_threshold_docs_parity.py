@@ -95,6 +95,14 @@ EXEMPT_SITES: dict[str, str] = {
         "weights, not thresholds — type_safety(88) and test_coverage(82) "
         "match no gate's YAML by design."
     ),
+    "docs/PROPOSAL_ADJUDICATIONS.md": (
+        "the adjudication ledger records what a number WAS at the moment a "
+        "defect was measured — Round 37's 'architecture 77.8 against a floor "
+        "of 80', Round 38's 'architecture 16.7'. Those are historical "
+        "measurements, and pinning them to the current YAML would make the "
+        "record wrong the first time a threshold legitimately moves. The "
+        "ledger is read by humans deciding what to do next, never by a gate."
+    ),
 }
 
 # Directories the completeness scan does not walk, with the reason each is safe.

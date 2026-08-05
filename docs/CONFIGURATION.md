@@ -70,6 +70,19 @@ an explicit CLI flag is long-standing run-fr-step behavior, locked by
 | `crg_cohesion_healthy` | unset (scorer default 0.3) | per-project cohesion floor for a healthy community, float in (0, 1]. |
 | `crg_excludes` | `[]` | fnmatch globs; majority-matched communities are excluded from architecture scoring. |
 
+**These two keys are the only way to adjust the architecture dimension**
+(Round 38). A Devil's-Advocate waiver used to zero its threshold; it was read
+by `finalize_gate` and by nothing else, while `crg-arch-check` — CI's enforcer
+on every push from phase 3 — had no waiver logic, so a granted waiver bought a
+local PASS and a red build. `harness_config.json` is committed, so a
+calibration written here applies to CI, to the local gates, and to
+`crg-arch-check` alike.
+
+What they cannot do: excuse a genuinely oversized community. A ~100-member
+community is a finding, and `_community_oversized` is deliberately not
+calibratable. The floor itself (80) lives in `harness/gate_configs/*.yaml` and
+is not a per-project setting.
+
 ## Security Design (SAD.md §6 — threat-model-as-code)
 
 Gated by `features.security_design` (default `true`). `core.quality_gate.

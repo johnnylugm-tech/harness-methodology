@@ -612,3 +612,32 @@ module named 'yaml'` inside `sab_parser.py`.
 That is an infrastructure failure wearing the face of a content failure —
 precisely the routing this document forbids everywhere else. The swallows are
 gone; `tests/test_ci_install_steps_hard_fail.py` keeps them gone.
+
+## A waiver request is a CODE-FIX or a CONFIG-FIX, never a pass (Round 38)
+
+`da_waiver` in a gate result is refused, not granted. Classification:
+
+| the finding | route | what to do |
+|---|---|---|
+| a community is genuinely oversized or low-cohesion | **CODE-FIX** | split it, or reduce cross-package coupling so CRG detects sub-communities |
+| CRG misreads an intentional layout (workflow tooling scored as product code, small-package Leiden over-fragmentation) | **CONFIG-FIX** | calibrate `crg_excludes` / `crg_cohesion_healthy` in `.methodology/harness_config.json` |
+| the threshold feels wrong for this project | *not a route* | the floor lives in `harness/gate_configs/*.yaml` and is the same one CI applies |
+
+Why there is no waiver route: a waiver was read by `finalize_gate` and by
+nothing else. `crg-arch-check` — which CI runs on every push from phase 3, and
+which the workflow ANDs into `gate{N}Pass` — never knew waivers existed, so a
+granted waiver produced a local PASS and a red build, and the gate loop then
+spent its three rounds on a remedy that could not clear the check. Calibration
+is written in a committed file, so every enforcer applies it.
+
+## A gate verdict we cannot show was produced is not a pass (Round 38)
+
+`advance-phase` blocks (exit 34) when the exit gate has no PASS in
+`.methodology/gate_verify.jsonl` for the tree being advanced. This is the same
+rule as Round 32's "a tool the harness could not run is not a failing tool" and
+Round 35's "a number we could not measure is not a passing number", applied to
+the verdict rather than to the measurement: a verdict recorded against a
+different tree answers a different question.
+
+Route: **not INFRA and not CODE-FIX** — run `verify-gate` against the tree you
+are about to advance. The block message carries the command.

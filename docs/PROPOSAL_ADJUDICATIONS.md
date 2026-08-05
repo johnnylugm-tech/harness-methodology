@@ -1491,3 +1491,104 @@ R33 一份合約五個陳述 → R34 兩種語意一個時點 → R36 一個 def
   「本地與 CI 必須同值」的宣告，且 worktree 是 Agent 工具的臨時隔離區、不是交付面。
 - **啟**：下一輪 E2E 應以 taskq-renew 為對照組——重生 attestation + 重建 CRG 圖後
   三個 CI job 是否轉綠，是本輪修復的唯一終局驗證。
+
+---
+
+## Round 38（2026-08-06）—— 一個維度三個執法者
+
+老闆問的是一個具體問題：**CRG Architecture Gate 的缺陷，完整再跑一次 P1–P8
+能提早檢測出來並自我修復嗎？** 答案是「能檢測、不能修復」，而追下去挖到的
+是 R37 的下一層。
+
+### 病因完全重現（乾淨 clone，唯讀）
+
+| 時點 | graph 檔數 | architecture |
+|---|---|---|
+| P2 出口（首次建圖） | **1** | **100.0** |
+| P3 出口（R37 前，走 `update`） | 1 | 100.0（假通過） |
+| P3 出口（R37 後） | **41** | **16.7** |
+
+P2 時專案幾乎沒有程式碼，Leiden 對單檔給滿分；之後每次都 `update`，圖再沒長
+回來。`crg_baseline_p4.json` 的 100.0（9 communities）就是這麼來的。R37 的
+對賬實地觸發：`[DEGRADED] crg:graph-scope: incremental graph covered 1 of 41
+delivered source file(s) — rebuilding in full`。
+
+### 自我修復不存在，三個獨立原因
+
+1. `core/auto_fix/strategies.py::STRATEGY_REGISTRY` 13 個 key，沒有一個對應
+   architecture。框架自己在 `cli/gate_cmds.py` 寫過 auto_fix「only emit
+   stubs/comments」。
+2. `DIMENSION_HINTS["architecture"]` 把 DA waiver 列為選項 (1)，重構列在後面；
+   `WAIVABLE_DIMENSIONS` 讓 architecture 成為唯一可豁免維度。
+3. `cmd_crg_arch_check` 完全沒有讀 da_waiver 的邏輯。
+
+### C —— 一個維度三個執法者，彼此矛盾
+
+| 執法者 | architecture 門檻 | 認豁免 |
+|---|---|---|
+| CI job `CRG Architecture Gate (P3+)`（`PHASE>=3`） | 絕對樓地板 80 | ❌ |
+| workflow JS gate2/3/4-verify（`crg_rc === 0`） | 絕對樓地板 80 | ❌ |
+| `gate2_p3_exit.yaml` | **沒有 architecture 維度** | — |
+| `gate3` / `gate4` yaml | threshold 80 | ✅ 可豁免 |
+
+於是 agent 依框架的 hint 填豁免 → `finalize_gate` PASS → `crg-arch-check` 仍回
+1 → `gateNPass=false` → 三輪 → error。**框架開出的處方，滿足不了框架自己跑的
+檢查。** taskq-renew 的 `gate4_result.json` 確實有 `da_waiver:
+{"architecture": true}`，而其證據寫的 `storage-load-sub1/sub2` 只存在於
+R37 診斷出的 11/47 檔截斷圖裡——**豁免的前提由量測缺陷造出**。
+
+### D —— 一個門檻九份陳述
+
+gate2 缺、gate3/gate4 各一、`spec_phase{3,4,6}.py` 的 `crg_threshold=80.0`
+×3、同三檔散文的 `--threshold 80.0`、CI 模板 `--threshold 80`、argparse
+`default=80.0`。唯一從 SSOT 讀的是 R37 建的 `crg_baseline.py`。
+
+### E —— 判定不落盤
+
+`crg_rc` 在 taskq-renew 整個 `.methodology/` 零命中。因此「P6 baseline 77.8
+（<80）但 gate4-verify 一輪就 PASS」這個矛盾**事後無法裁決**——可能是兩步之間
+`update` 讓分數越過 80，也可能是 RC 回報不實，兩者都是缺陷，沒有紀錄能區分。
+
+> **母體第十次：判定的效力範圍，窄於判定被信任的範圍。**
+> R37 修的是「量在哪棵樹上」；本輪修的是「量完之後，這個判定對誰有效、留在哪」。
+
+### 裁決
+
+| # | 主張 | 裁決 |
+|---|---|---|
+| C | gate 2 補 architecture（weight 0.00） | **採納**（站1）。補的是漏的那一份，不是新增政策——CI 與 workflow 早就在執法。 |
+| C′ | CRG override 的觸發改讀 gate config，agent 省略時附加 | **採納**（站1）。原本 gate 2 的新條目會是裝飾品；這也是 gates 3/4 一直存在的活缺口。 |
+| D | 門檻收斂到 gate config，`--threshold` 沒有人傳 | **採納**（站2）。減法：參數消失，陳述隨之消失。 |
+| B2/B3 | 移除豁免的效力，保留對豁免請求的拒絕 | **採納**（站3，老闆裁定）。校準寫在 committed 的 config，兩個執法者都看得到；豁免只有一個看得到。 |
+| E | `verify-gate` 落盤 + advance-phase 對賬 | **採納**（站4）。三個轉述數字縮成一個，且那一個有帳本佐證。 |
+
+### 兩個被自己抓到的錯誤（都由測試發現）
+
+1. **advance-phase 的檢查放錯位置。** 第一版放在既有的 exit-gate 驗證處，那
+   已經在 advance-phase 寫過 `setup.cfg`（P2→P3 mutation-scope 同步）之後——
+   它比對的是 advance-phase 自己剛改過的樹，會擋掉每一次 P2→P3。現已前移到
+   本命令所有寫入之前。
+2. **站1 的 commit 留下紅色的 file-size ratchet。** 只讀了測試輸出的 tail 而
+   漏掉。天花板在站2 補上，遲了一個 commit，理由記在條目旁。
+
+### 明列不做（附再開條件）
+
+- **R38-DEFER-1**：`harness_config` 的 `is_dim_disabled("architecture")` 能讓
+  `crg-arch-check` 直接 `return 0`，且沒有審計軌跡。這是第四個執法者。本輪不動
+  （會牽動所有維度的 disable 語意）。老闆要收緊再開。
+- **R38-DEFER-2**：prompt 散文仍逐一列舉每個維度的門檻（`15 dims: linting(90)
+  … architecture(80) …`），`pass_line_desc` 也重述「CRG architecture ≥80」。
+  同一缺陷跨 13 維度 3 gate，是比本輪更大的一次改動。
+- **不重判 taskq-renew 的 Gate 4 = 93.6**：舊判定的效力屬裁決不屬修缺陷。
+- **不移除 `devil_advocate_evidence` 驗證**：Gate 4 A3 對所有 Tier-3 維度仍用它，
+  與豁免無關。
+- **不對既有專案 grandfather `gate_verify` 記錄**：第一次會被擋，跑一次
+  `verify-gate` 即可。允許無記錄通過等於本輪什麼都沒做。
+
+### 驗證
+
+pytest 6789 → **6816** passed / 4 skipped；guards 304 → **319**；
+`--check` 9/9；ruff clean；`node --check` 11/11；sim 91/91 → **94/94**。
+五條反證各自轉紅後以反向編輯還原，五個檔案位元組相同。
+四個消費專案（taskq / taskq-plus / taskq-renew / run-all-by-workflow）唯讀量到的
+architecture 樓地板都仍是 **80.0**——數值不變，來源改變。

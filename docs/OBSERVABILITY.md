@@ -689,3 +689,34 @@ that offline at-rest reconciliation network-bound. The reasoning is left in
 files; a full build on a clean clone of the same commit gives 57.1, which is
 what CI reported while failing every push. The denominator travels with the
 number, as it already does for mutation scope (Round 30/31).
+
+## `verify-gate` — the gate verdict, on disk (Round 38)
+
+`.methodology/gate_verify.jsonl` is append-only, one JSON object per line,
+alongside `gate_timestamps.jsonl` and `degradations.jsonl`.
+
+```json
+{"ts": 1785…, "iso": "2026-08-06T…+00:00", "gate": 4, "phase": 6,
+ "git_sha": "9f17ece…", "delivered_tree_sha256": "3a91…",
+ "checks": {"last_gate_ok": true, "spec_coverage_rc": 0, "crg_rc": 0},
+ "verdict": "PASS"}
+```
+
+| field | why it is there |
+|---|---|
+| `checks` | the raw per-check outcome, not a summary. The summary is what the workflow acts on; these are what makes a later "which of these two is wrong?" answerable. |
+| `delivered_tree_sha256` | `sha256` over (repo-relative path, content) for `iter_delivered_files`. A PASS is only a PASS for the tree it was measured on. |
+| `git_sha` | HEAD at verify time — for correlating with CI, which checks out a commit rather than a working tree. |
+
+Before this file existed, `crg_rc` returned **zero hits** across taskq-renew's
+entire `.methodology/` after a complete P1–P8 run. That run's P6 recorded a CRG
+baseline of 77.8 — below the floor of 80 its own gate config states — while
+`gate4-verify` passed on the first round, which requires `crg_rc === 0`. One of
+the two is wrong and nothing survived that could say which.
+
+Read it with:
+
+- `harness_cli.py verify-gate --project . --gate N --phase P --spec-threshold T`
+  — runs the three checks and appends the verdict.
+- `advance-phase` re-derives the digest and refuses an exit gate with no
+  matching PASS (exit 34). `verify-gate` itself exits 33 when a check fails.

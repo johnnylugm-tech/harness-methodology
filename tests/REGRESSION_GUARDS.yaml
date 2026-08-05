@@ -1253,3 +1253,65 @@
 - test: tests/test_ci_install_steps_hard_fail.py::test_the_consumer_template_and_the_shipped_copy_are_one_file
   bug: "negative control: the rule above is only worth having if templates/harness_quality_gate.yml is the file consumers actually run (it is byte-identical to taskq-renew's copy)"
   fixed_in: "R37-站4"
+
+# ── Round 38: one dimension, three enforcers, and a verdict nobody kept ──────
+
+- test: tests/test_gate_config_registry.py::test_every_exit_gate_ci_holds_to_the_floor_declares_the_dimension
+  bug: "CI's `crg-architecture-check` job (\"CRG Architecture Gate (P3+)\") enforced the architecture floor on every push from phase 3, and the P3 workflow ANDed crg-arch-check's exit code into gate2Pass — but gate2_p3_exit.yaml, the authority on this phase's thresholds since R18-站2, declared no architecture dimension at all. Gate 2 could pass locally on a tree CI rejects on the next push. Measured on a clean clone of taskq-renew's P3 exit commit: architecture 16.7, and the local gate had no opinion about it"
+  fixed_in: "R38-站1 (gate 2 declares architecture at weight 0.00 — blocking by threshold without entering the composite, the shape adversarial_review already uses; the test derives the requirement from the CI job's own PHASE >= N guard and EXIT_GATE_MAP rather than hard-coding 3)"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_declared_architecture_is_scored_even_when_the_agent_omits_it
+  bug: "the CRG-only override fired on `any(d.name == 'architecture' for d in dims)`, and dims is built from the agent's breakdown — a gate result that simply omitted the row skipped the framework's own CRG run entirely: no score, no threshold check, no block. Gates 3 and 4 hid it because their agents always wrote the row as JSON null, so gate 2's new entry would have inherited a decorative dimension"
+  fixed_in: "R38-站1 (the trigger reads the gate config, and the dimension is appended when the agent omits it — the same rule `_override_adversarial_review_dim` already states: a framework-owned blocking dimension must not depend on agent cooperation to exist)"
+
+- test: tests/test_crg_threshold_ssot.py::test_no_file_outside_the_gate_config_passes_a_crg_threshold
+  bug: "the architecture floor was stated nine times: twice in the gate configs that score against it, and seven times in generators, their prose, the CI template and an argparse default — restatements a threshold change would silently leave behind (R33/R36's shape)"
+  fixed_in: "R38-站2 (nobody passes --threshold; crg-arch-check resolves the floor from the project's phase via floor_for_phase → EXIT_GATE_MAP → the gate YAML)"
+
+- test: tests/test_crg_threshold_ssot.py::test_the_workflow_generators_carry_no_crg_threshold_parameter
+  bug: "`crg_threshold=80.0` in spec_phase{3,4,6}.py — three more copies of a number the gate config already owns. Matched by AST as a parameter or call keyword, not by text: prose explaining why the parameter is gone is not a restatement of it"
+  fixed_in: "R38-站2 (the parameter became `crg_check: bool`, then went entirely — all three call sites passed True, so it stated nothing)"
+
+- test: tests/test_crg_threshold_ssot.py::test_crg_arch_check_has_no_hard_coded_default_floor
+  bug: "`default=80.0` on crg-arch-check's --threshold was the one restatement that would have survived every caller dropping the flag"
+  fixed_in: "R38-站2 (default is None and means 'resolve it'; the scan is scoped to the crg-arch-check parser so spec-coverage-check's unrelated --threshold is not reported)"
+
+- test: tests/test_crg_threshold_ssot.py::test_an_unknown_phase_uses_the_strictest_gate_not_a_literal
+  bug: "removing a literal default is only safe if the fallback is not another literal — an unreadable state.json must not quietly yield a lenient floor, or a number no gate config states (R35: a value we could not determine is not a passing value)"
+  fixed_in: "R38-站2 (floor_for_phase(None) resolves to gate 4, the strictest, read from its YAML)"
+
+- test: tests/test_da_waiver.py::TestNoThresholdCanBeWaived::test_no_dimension_may_have_its_threshold_waived
+  bug: "a DA waiver zeroed a dimension's threshold and was read by finalize_gate and nothing else. crg-arch-check — which CI runs on every push from phase 3, and which the workflow ANDs into gateNPass — has no waiver logic, so a granted waiver produced a local PASS and a red build, and the gate loop then spent its three rounds on a remedy that could not clear the check the same framework was running"
+  fixed_in: "R38-站3 (WAIVABLE_DIMENSIONS is the empty set; adjudicate_waivers, finalize_gate's da_waivers parameter, the threshold-zeroing and the manifest's da_waiver_applied field are all gone. The remedy that reaches every enforcer is calibration in the committed harness_config.json)"
+
+- test: tests/test_da_waiver.py::TestNoThresholdCanBeWaived::test_finalize_gate_no_longer_accepts_waivers
+  bug: "the parameter is the mechanism: while `finalize_gate(ctx, da_waivers=...)` existed, a caller could reintroduce threshold-zeroing without touching da_waiver.py"
+  fixed_in: "R38-站3 (the parameter was removed, not merely left unused)"
+
+- test: tests/test_da_waiver.py::TestNoThresholdCanBeWaived::test_the_refusal_names_the_calibration_path
+  bug: "Round 24's rule: a block that does not say what to do instead leaves the agent guessing — and the thing it must do instead (calibrate crg_excludes / crg_cohesion_healthy) is exactly what distinguishes a fix CI can see from one it cannot"
+  fixed_in: "R38-站3 (the BLOCKED message names both paths in order: fix the architecture first, calibrate only for a genuine false positive)"
+
+- test: tests/test_da_waiver.py::TestAgainstRealTaskqGateResult::test_the_real_taskq_waiver_request_is_refused
+  bug: "the only waiver ever granted rested on a premise the measurement invented: taskq-renew's gate4_result.json named storage-load-sub1/sub2, communities that exist only in the truncated 11-of-47-file graph R37 diagnosed. The correct 47-file graph has no such communities"
+  fixed_in: "R38-站3 (the guard reads that verbatim committed gate result and asserts the refusal)"
+
+- test: tests/test_gate_verify.py::test_verdict_records_the_tree_it_was_measured_on
+  bug: "the three numbers that decided gateNPass — last_gate_ok, d4_rc, crg_rc — were transcribed by an agent and written down nowhere. `crg_rc` returns zero hits across taskq-renew's entire .methodology/ after a complete P1-P8 run, which is why its P6 baseline of 77.8 (below its own floor of 80) coexisting with a first-round gate4-verify PASS cannot be adjudicated at all"
+  fixed_in: "R38-站4 (verify-gate runs the three checks itself and appends the verdict, the checks and the delivered-tree digest to .methodology/gate_verify.jsonl)"
+
+- test: tests/test_gate_verify.py::test_a_verdict_measured_on_a_different_tree_does_not_count
+  bug: "R37's lesson one level up: a PASS is only as good as the tree it was measured over, so 'a verdict exists' is not the question advance-phase should be asking"
+  fixed_in: "R38-站4 (has_matching_pass re-derives delivered_tree_digest and compares; advance-phase blocks with exit 34 when it differs, and runs ahead of every write advance-phase itself performs)"
+
+- test: tests/test_gate_verify.py::test_the_latest_verdict_wins_over_an_earlier_one
+  bug: "a gate that failed, was fixed and re-verified must be able to advance; one that passed and then regressed must not — only 'latest wins' over an append-only ledger gives both"
+  fixed_in: "R38-站4"
+
+- test: tests/test_gate_verify.py::test_a_corrupt_ledger_blocks_rather_than_passes
+  bug: "R32/R35's rule applied to the verdict ledger: a record we cannot read is not a passing record"
+  fixed_in: "R38-站4"
+
+- test: tests/test_gate_verify.py::test_the_digest_covers_new_files_not_only_edits
+  bug: "content-only hashing would miss a file being added or renamed — which is exactly how taskq-renew's CRG graph fell behind its own tree"
+  fixed_in: "R38-站4 (delivered_tree_digest hashes (repo-relative path, content) pairs over iter_delivered_files)"
