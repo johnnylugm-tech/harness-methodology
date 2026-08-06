@@ -58,8 +58,18 @@ _STOPWORDS: frozenset[str] = frozenset(
 
 # Pattern matching an FR/NFR/AC header line in SRS.md (e.g. "### FR-01",
 # "#### AC1", "### NFR-02 — Performance")
+#
+# Round 42 站1: the label must carry a number. `[-\w]*` used to match zero
+# characters, so any heading whose first word merely STARTED with FR, NFR or
+# AC became a requirement — and the one heading in the corpus that does is
+# `## FR Block (machine-readable)`, which templates/SRS.md:78 and
+# docs/P1_SOP.md:23 require the agent to write. taskq-renew wrote it and was
+# charged `invention_count: 1` with `{"label": "FR", "fr_id": "FR"}`;
+# taskq-plus never wrote the block and scored 0 inventions. Across every SRS
+# on disk (taskq 69 matched headings, taskq-plus 20, taskq-renew 21,
+# taskq-api 22) that is the only match with no digit in its label.
 _FR_HEADER_RE = re.compile(
-    r"^(#{1,6})\s+(?P<label>(?:FR|NFR|AC)[-\w]*)\b[^\n]*$",
+    r"^(#{1,6})\s+(?P<label>(?:FR|NFR|AC)[-\w]*\d[-\w]*)\b[^\n]*$",
     re.MULTILINE,
 )
 
@@ -95,6 +105,39 @@ def _split_sentences(text: str) -> list[str]:
     return [s.strip() for s in raw if len(s.strip()) > 15]
 
 
+def _without_machine_block(srs_text: str) -> str:
+    """The SRS minus its machine-readable requirements block.
+
+    Round 42 站1. Excluding the block's HEADING is not enough: clause bodies
+    run from one heading match to the next, so a heading that stops being a
+    boundary hands its section to the clause before it. Measured on
+    taskq-renew's SRS with the tightened pattern and nothing else, NFR-12's
+    body went from 9,773 to 13,960 characters — it absorbed the JSON — and the
+    last requirement in every SRS would have been scored against it.
+
+    The block is located by `scripts/plangen/artifact_parsers`, which finds it
+    by content (a fenced JSON object carrying `functional_requirements`)
+    rather than by sentinel or title. That module's docstring records why:
+    both heading-based paths were tried and both missed a live file. A second
+    detection rule here would be the same mistake a third time.
+
+    No block, or an ambiguous one, leaves the text untouched — this function
+    removes what it can positively identify and never guesses.
+    """
+    try:
+        from scripts.plangen.artifact_parsers import srs_machine_block_span
+    except ImportError:
+        # canonical_diff is also run as a bare script from scripts/; without
+        # the package on the path the block simply stays in, which is the
+        # pre-Round-42 behaviour rather than a crash.
+        return srs_text
+    span = srs_machine_block_span(srs_text)
+    if span is None:
+        return srs_text
+    start, end = span
+    return srs_text[:start] + srs_text[end:]
+
+
 def _split_ac_clauses(srs_text: str) -> list[dict]:
     """Parse SRS.md into AC clause records.
 
@@ -102,6 +145,7 @@ def _split_ac_clauses(srs_text: str) -> list[dict]:
     heading of same or higher level. Returns list of:
         {label, fr_id, body, derived_present}
     """
+    srs_text = _without_machine_block(srs_text)
     matches = list(_FR_HEADER_RE.finditer(srs_text))
     clauses: list[dict] = []
     for i, m in enumerate(matches):

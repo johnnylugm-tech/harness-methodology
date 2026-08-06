@@ -14,7 +14,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from core.utils.project_layout import ProjectLayout
 
@@ -97,6 +97,59 @@ def _is_template_stub(data: dict) -> bool:
     return bool(descs) and all(_PLACEHOLDER.search(d) for d in descs)
 
 
+# (parsed JSON, fence span) for one machine-readable-block candidate.
+_Candidate = Tuple[dict, Tuple[int, int]]
+
+
+def _machine_block_candidates(
+    content: str, *, warn: bool
+) -> Tuple[List[_Candidate], List[_Candidate]]:
+    """(all candidates, filled candidates) as (parsed JSON, fence span) pairs.
+
+    The detection rule itself, shared by everything that needs to know where
+    the machine-readable block is — `srs_machine_block` wants its content,
+    `srs_machine_block_span` wants its coordinates. Round 42 站1 added the
+    second caller; the docstring above already said why there must not be a
+    second *rule*.
+
+    `warn` gates only the malformed-JSON diagnostic, so a span lookup does not
+    print the same warning a content lookup is about to print anyway.
+    """
+    candidates: List[_Candidate] = []
+    for m in _FENCE.finditer(content):
+        try:
+            data = json.loads(m.group("body"))
+        except (ValueError, json.JSONDecodeError) as exc:
+            if warn and m.group("tag").lower() == "json":
+                print(
+                    f"[srs] WARNING: FR Block JSON malformed — {exc}",
+                    file=sys.stderr,
+                )
+            continue
+        if isinstance(data, dict) and "functional_requirements" in data:
+            candidates.append((data, m.span()))
+    return candidates, [c for c in candidates if not _is_template_stub(c[0])]
+
+
+def srs_machine_block_span(content: str) -> Optional[Tuple[int, int]]:
+    """Where the machine-readable block is, or None when there isn't one.
+
+    Same block, same rule, same not-found cases as `srs_machine_block` —
+    only the answer differs. Silent: a caller asking where the block is has
+    not asked to be told it is missing.
+
+    Round 42 站1's reason for wanting coordinates: `scripts/canonical_diff.py`
+    splits the SRS into acceptance clauses between requirement headings, and a
+    JSON block sitting after the last requirement is prose as far as that
+    splitter is concerned. taskq-renew's NFR-12 body ran 9,773 characters and
+    would have run 13,960 with the block's heading no longer acting as a
+    boundary. The block has to leave the text, not merely stop being a
+    heading.
+    """
+    _, filled = _machine_block_candidates(content, warn=False)
+    return filled[0][1] if len(filled) == 1 else None
+
+
 def srs_machine_block(content: str) -> "Optional[dict]":
     """The SRS's machine-readable requirements block, parsed, or None.
 
@@ -130,24 +183,9 @@ def srs_machine_block(content: str) -> "Optional[dict]":
     Extracted so `illegal_nfr_vocabulary` reads the same block by the same
     rules rather than growing a second detection contract beside this one.
     """
-    candidates: list[dict] = []
-    for m in _FENCE.finditer(content):
-        body = m.group("body")
-        try:
-            data = json.loads(body)
-        except (ValueError, json.JSONDecodeError) as exc:
-            if m.group("tag").lower() == "json":
-                print(
-                    f"[srs] WARNING: FR Block JSON malformed — {exc}",
-                    file=sys.stderr,
-                )
-            continue
-        if isinstance(data, dict) and "functional_requirements" in data:
-            candidates.append(data)
-
-    filled = [d for d in candidates if not _is_template_stub(d)]
+    candidates, filled = _machine_block_candidates(content, warn=True)
     if len(filled) == 1:
-        return filled[0]
+        return filled[0][0]
 
     if not candidates:
         print(

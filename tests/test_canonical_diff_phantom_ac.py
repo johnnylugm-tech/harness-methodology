@@ -71,7 +71,7 @@ The submitted command is validated before anything is written.
 
 <!-- JSON:START -->
 ```json
-{"requirements": [{"id": "FR-01", "title": "task submission"}]}
+{"functional_requirements": [{"id": "FR-01", "title": "task submission"}]}
 ```
 <!-- JSON:END -->
 """
@@ -110,10 +110,16 @@ def test_the_last_requirement_does_not_swallow_the_machine_readable_block():
     every SRS is the one that absorbs it.
     """
     body = _body_of(_SRS_WITH_MACHINE_BLOCK, "NFR-12")
-    assert "JSON:START" not in body and '"requirements"' not in body, (
+    assert "functional_requirements" not in body and '"FR-01"' not in body, (
         "NFR-12's body absorbed the machine-readable block once its heading "
         f"stopped being a clause boundary:\n{body}"
     )
+    # The now-empty `<!-- JSON:START -->` / `<!-- JSON:END -->` pair is left
+    # where it is. `srs_machine_block_span` locates the block by its fenced
+    # JSON, and widening that span to swallow whatever comments happen to
+    # bracket it would be the heading-and-sentinel rule
+    # `scripts/plangen/artifact_parsers.srs_machine_block` was written to
+    # replace. Two HTML comments are not requirements prose; the JSON was.
 
 
 def test_a_real_requirement_heading_is_still_extracted():
