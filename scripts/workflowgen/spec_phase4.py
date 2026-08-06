@@ -8,7 +8,7 @@ from . import js_blocks as B
 from . import spec_shared as S
 from .spec_shared import _render_meta
 
-_HEADER_4 = """\
+_HEADER_4 = f"""\
 // Phase 4 — Testing (faithful to .methodology/phase4_plan.md v2.12.0)
 //
 // GENERATED FILE — do not hand-edit. Source of truth:
@@ -16,7 +16,7 @@ _HEADER_4 = """\
 // the blocks shared across phase workflow files). Regenerate with:
 //   python3 scripts/workflowgen/generate_workflows.py --write --phase 4
 //
-// Structure: FR-loop型 + adversarial bug hunt + Gate 3 (15 dims) exit.
+// Structure: FR-loop型 + adversarial bug hunt + Gate 3 ({S.gate_dim_count(3)} dims) exit.
 // CHECKPOINT-0 TEST_PLAN → per-FR GATE1-DELTA → TEST_RESULTS/COVERAGE →
 // Step 4b bug hunt (adversarial_review is a Gate 3 dim, needs bug_hunt_report.json)
 // → Gate 3 → p4-pre-gate3 milestone + advance.
@@ -109,19 +109,24 @@ def _render_bug_hunt() -> str:
     )
 
 
+# The D4 spec-coverage floor for this phase, stated once. It is NOT a gate
+# dimension — spec-coverage-check owns it — so it has no entry in the gate
+# config the rest of this block reads from; naming it here at least keeps the
+# prose, the `--threshold` argument and the pass line from drifting apart.
+_D4_THRESHOLD_P4 = 80.0
+
 _GATE3_STEPS = [
     "1. G3a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 3 --phase 4 --project ' + REPO + '` (CRG recon runs inside automatically). Read the printed evaluation prompt.",
     (
         "2. G3b: Evaluate ALL Gate 3 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate3_result.json.\\n"
-        "   15 dims: linting(90) type_safety(85) test_coverage(80) security(80) secrets_scanning(100) license_compliance(100) integration_coverage(60) architecture(80) readability(80) error_handling(80) documentation(75) test_assertion_quality(60) performance(75).\\n"
+        f"{S.render_dimension_table(3)}"
         f"{S.render_mutation_flag_note()}"
-        "   FRAMEWORK-OWNED (do NOT self-score): traceability + architecture (harness CRG override) + adversarial_review (from bug_hunt_report.json).\\n"
         "   For any failing dim: fix ROOT CAUSE in code (ruff/pyright/tests/bandit/readability_v2/ast-error-handling/pytest-benchmark), re-run the tool, update score. (readability tool is `python3 -m harness.toolchains.readability_v2` — NOT `radon mi` — per phase3/4/6_plan.md v2.12.0.) A low architecture score has no waiver route (Round 38): fix the structure, or — only for a genuine CRG false positive — calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json, which is committed and therefore applies to CI too."
     ),
     (
         "3. G3c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + '`.\\n"
     ),
-    "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0`. FAIL → add missing tests, re-run.",
+    f"4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P4}`. FAIL → add missing tests, re-run.",
     "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 3 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
@@ -139,7 +144,7 @@ _GATE3_DEFERRED_FIXES_STEP = (
     "    'YOU ARE THE DEFERRED-FIX RECORDER. Gate 3 failed to reach PASS in 3 rounds.\\n'\n"
     "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
     "    + '1. Get the last-known Gate 3 state:\\n`' + gate3StateCmd + '`\\n'\n"
-    "    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0; echo \"RC=$?\"` for the D4 status.\\n'\n"
+    f"    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P4}; echo \"RC=$?\"` for the D4 status.\\n'\n"
     "    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '; echo \"RC=$?\"` for the CRG architecture status.\\n'\n"
     "    + '4. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\\n'\n"
     "    + '   - A brief header: \"Gate 3 — deferred fixes\" + date + last-known composite score\\n'\n"
@@ -161,7 +166,7 @@ def generate_phase4() -> str:
             name="phase4-testing",
             description=(
                 "Phase 4 Testing — TEST_PLAN + per-FR GATE1-DELTA + adversarial "
-                "bug hunt + Gate 3 (15 dims) exit (phase4_plan.md v2.12.0)"
+                f"bug hunt + Gate 3 ({S.gate_dim_count(3)} dims) exit (phase4_plan.md v2.12.0)"
             ),
             phases=_META_PHASES_4,
         ),
@@ -224,11 +229,11 @@ def generate_phase4() -> str:
         ),
         B.render_gate_loop(
             gate_num=3, phase=4,
-            log_msg="Gate 3 exit (composite ≥80, 15 dims: 12 self-scored + traceability/architecture/adversarial_review framework-owned)",
+            log_msg=f"Gate 3 exit ({S.render_gate_dims_summary(3)})",
             prompt_steps=_GATE3_STEPS,
-            pass_line_desc="composite ≥80 AND all dims ≥ threshold AND D4 ≥80% AND CRG architecture ≥80",
+            pass_line_desc=S.render_gate_pass_line(3, d4_threshold=_D4_THRESHOLD_P4),
             scope_rules=_GATE3_SCOPE_RULES,
-            d4_threshold=80.0,
+            d4_threshold=_D4_THRESHOLD_P4,
             on_fail_error_msg="Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)",
             include_manifest_integrity=False,
             deferred_fixes_step=_GATE3_DEFERRED_FIXES_STEP,

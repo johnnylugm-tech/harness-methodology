@@ -41,53 +41,78 @@ _PHASE_EXIT_GATES: dict = EXIT_GATE_MAP                 # phase → exit gate nu
 # ① and ② are the P1/P2 Agent-B-review checkpoint pushes.
 _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 
-# Gate metadata: (score_gate, dim_count, notes)
-_GATE_META: dict = {
-    1: (None, 3,  "linting(100) · type_safety(100) · test_coverage(80)"),
-    2: (75,   11, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · test_assertion_quality(60) · execute_verification_target(100) · traceability(100) · composite ≥ 75  [traceability: framework-owned, harness-computed · D4 spec-coverage unified ≥60%]"),
-    3: (80,   16, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · integration_coverage(60) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · test_assertion_quality(60) · performance(75) · traceability(100) · adversarial_review(100) · composite ≥ 80  [traceability: framework-owned, harness-computed · adversarial_review: framework-owned, requires .methodology/bug_hunt_report.json · CRG recon inside run-gate · D4 spec-coverage unified ≥80%]"),
-    4: (85,   15, "linting(90) · type_safety(85) · test_coverage(80) · security(80) · secrets_scanning(100) · license_compliance(100) · mutation_testing(70) · architecture(80) · readability(80) · error_handling(80) · documentation(75) · performance(75) · integration_coverage(75) · test_assertion_quality(70) · traceability(100) · composite ≥ 85  [traceability: framework-owned, harness-computed · CRG recon inside run-gate · D4 spec-coverage unified ≥90%]"),
-}
-
-def _build_gate_meta(features: dict) -> dict:
-    """Rebuild _GATE_META with dims filtered by feature flags."""
-    result = {}
-    for gate_num, (score_gate, dim_count, dim_str) in _GATE_META.items():
-        parts = dim_str.split(" · composite ", 1)
-        if len(parts) == 2:
-            dims_part = parts[0]
-            tail = " · composite " + parts[1]
-        else:
-            dims_part = dim_str
-            tail = ""
-
-        dims = [d.strip() for d in dims_part.split(" · ")]
-        to_remove: set = set()
-        # Feature-flag → dimension mapping mirrors core.harness_config._DIM_TO_FEATURE
-        if not features.get("mutation_testing", False):
-            to_remove.add("mutation_testing(70)")
-        if not features.get("crg_architecture", True):
-            to_remove.add("architecture(80)")
-        if not features.get("phase4_llm_review", True):
-            to_remove.add("adversarial_review(100)")
-
-        filtered = [d for d in dims if d not in to_remove]
-        removed = len(dims) - len(filtered)
-
-        if tail and not features.get("crg_architecture", True):
-            tail = tail.replace(" · CRG recon inside run-gate", "")
-        if tail and not features.get("phase4_llm_review", True):
-            tail = re.sub(
-                r" · adversarial_review: framework-owned, requires \.methodology/bug_hunt_report\.json",
-                "",
-                tail,
-            )
-
-        result[gate_num] = (score_gate, dim_count - removed, " · ".join(filtered) + tail)
-    return result
-
 # D4 spec-coverage-check thresholds per exit gate (unified v2.6)
 _SPEC_COVERAGE_THRESHOLDS: dict = {2: 60.0, 3: 80.0, 4: 90.0}
+
+# Round 39 站3 — the plan's gate table is rendered, not retyped.
+#
+# This was a fourth full copy of every gate's dimension list and threshold,
+# hand-maintained beside the three in scripts/workflowgen/spec_phase*.py and
+# outside the scan Round 38 站2 installed. Measured when it was replaced, it
+# disagreed with harness/gate_configs/*.yaml in two places: gate 1 listed 3
+# dimensions of 4 (architecture_constraints missing), and gate 2 listed 11 of
+# 12 — Round 38 站1 had added architecture to gate 2 the day before and this
+# copy did not move with it.
+#
+# The feature-flag filtering that used to run over the *rendered strings*
+# ("mutation_testing(70)" had to be spelled exactly, threshold included, to be
+# removable) now runs over dimension names via core.harness_config's
+# _DIM_TO_FEATURE — the same mapping harness_bridge and dimension_scope read.
+_GATE_NOTES: dict = {
+    "traceability": "traceability: framework-owned, harness-computed",
+    "adversarial_review": (
+        "adversarial_review: framework-owned, requires "
+        ".methodology/bug_hunt_report.json"
+    ),
+    "architecture": "CRG recon inside run-gate",
+}
+
+
+def _build_gate_meta(features: "dict | None" = None) -> dict:
+    """``{gate: (score_gate, dim_count, prose)}`` read from the gate configs.
+
+    *features* is a project's `harness_config.json` feature block; dimensions
+    its flags switch off are dropped from both the prose and the count, so a
+    plan never asks for a dimension the gate will not score. Passing None
+    renders the framework's full declared set.
+    """
+    from core.harness_config import _DEFAULTS, _DIM_TO_FEATURE
+    from core.quality_gate.gate_thresholds import (
+        GATE_CONFIG_NAMES,
+        load_gate_dimensions,
+        load_score_gate,
+    )
+
+    def _enabled(name: str) -> bool:
+        key = _DIM_TO_FEATURE.get(name)
+        if key is None or features is None:
+            return True
+        return bool(features.get(key, _DEFAULTS[key]))
+
+    result: dict = {}
+    for gate_num in sorted(GATE_CONFIG_NAMES):
+        dims = [d for d in load_gate_dimensions(gate_num)
+                if _enabled(str(d["name"]))]
+        names = [str(d["name"]) for d in dims]
+        prose = " · ".join(
+            f"{d['name']}({float(d['threshold']):g})" for d in dims)
+
+        score_gate = load_score_gate(gate_num)
+        if score_gate is not None:
+            notes = [text for dim, text in _GATE_NOTES.items() if dim in names]
+            notes.append(
+                "D4 spec-coverage unified "
+                f"≥{_SPEC_COVERAGE_THRESHOLDS[gate_num]:.0f}%")
+            prose += (f" · composite ≥ {score_gate:g}"
+                      f"  [{' · '.join(notes)}]")
+
+        result[gate_num] = (score_gate, len(dims), prose)
+    return result
+
+
+# The framework's declared gate table — every project's plan starts here and
+# `_build_gate_meta(features)` narrows it to what that project has switched on.
+_GATE_META: dict = _build_gate_meta()
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)
 _PHASE_ROLES: dict = {

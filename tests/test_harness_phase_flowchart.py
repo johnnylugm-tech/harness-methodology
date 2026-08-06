@@ -26,29 +26,23 @@ def get_code_phase_routing() -> Dict[int, Dict]:
     gen_full_plan = Path(__file__).parent.parent / "scripts" / "plangen" / "blocks.py"
     content = gen_full_plan.read_text(encoding='utf-8')
 
-    # Extract _GATE_META: gate_num -> (score_gate_min, num_dims, dim_names_str)
-    gate_meta_match = re.search(
-        r'_GATE_META:\s*dict\s*=\s*\{(.*?)\}',
-        content,
-        re.DOTALL
-    )
-    gate_meta = {}
-    if gate_meta_match:
-        gate_block = gate_meta_match.group(1)
-        for line in gate_block.split('\n'):
-            m = re.match(r'\s*(\d+):\s*\(([^,]*),\s*(\d+),\s*"([^"]+)"\s*\)', line)
-            if m:
-                gate_num = int(m.group(1))
-                score_min_str = m.group(2).strip()
-                num_dims = int(m.group(3))
-                dim_str = m.group(4)
+    # _GATE_META, imported rather than regex-scraped from blocks.py's source.
+    # It used to be a literal dict of tuples and this read the text of it; once
+    # Round 39 站3 made it render from the gate configs, the scrape matched
+    # nothing and every score silently became None — a parity test comparing
+    # None to the diagram and passing is worse than no parity test. Reading the
+    # value is also the thing being checked: the flowchart must agree with what
+    # the generator produces, not with how its source happens to be spelled.
+    from scripts.plangen.blocks import _GATE_META
 
-                score_min = None if score_min_str == "None" else int(score_min_str)
-                gate_meta[gate_num] = {
-                    'score_gate_min': score_min,
-                    'num_dims': num_dims,
-                    'dims': dim_str,
-                }
+    gate_meta = {
+        gate_num: {
+            'score_gate_min': None if score is None else int(score),
+            'num_dims': num_dims,
+            'dims': dim_str,
+        }
+        for gate_num, (score, num_dims, dim_str) in _GATE_META.items()
+    }
 
     # Phase display names come from the topology SSOT. (The next_names
     # source literal this used to regex-scrape was migrated into

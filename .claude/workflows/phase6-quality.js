@@ -5,7 +5,7 @@
 // the blocks shared across phase workflow files). Regenerate with:
 //   python3 scripts/workflowgen/generate_workflows.py --write --phase 6
 //
-// Structure: NO FR loop. Gate 4 (14 dims, tool-scored + artifact-backed DA
+// Structure: NO FR loop. Gate 4 (15 dims, tool-scored + artifact-backed DA
 // challenge for Tier 3 dims) PLUS Agent B peer review of the QA deliverables
 // (both required to exit). Then release notes + final sign-off + git tag + advance.
 //
@@ -21,7 +21,7 @@
 
 export const meta = {
   name: 'phase6-quality',
-  description: 'Phase 6 Quality — Gate 4 (14 dims + DA challenge) + Agent B peer review + release notes/sign-off + git tag (phase6_plan.md v2.12.0)',
+  description: 'Phase 6 Quality — Gate 4 (15 dims + DA challenge) + Agent B peer review + release notes/sign-off + git tag (phase6_plan.md v2.12.0)',
   phases: [
     { title: 'Entry & Preflight' },
     { title: 'Gate 4' },
@@ -274,7 +274,7 @@ if (!(preflightReport && preflightReport.pass === true)) {
 // ══════════════════════════════════════════════════════════════════════════
 
 phase('Gate 4')
-log('Gate 4 full-project eval (composite ≥85, 14 dims: 12 self-scored + traceability + architecture framework-owned; mutation_testing disabled by default)')
+log('Gate 4 full-project eval (composite ≥85, 15 dims: 13 self-scored + architecture/traceability framework-owned)')
 let gate4Pass = false, gate4Report = '', gate4Blocked = false
 // Gate 4 pre-flight GUARD: only state.json.last_gate >= 4 proves this gate was
 // truly finalized (SSI dims passed AND Phase Truth passed) — see harness_cli.py finalize-gate.
@@ -306,7 +306,7 @@ if (!gate4Pass) for (let round = 1; round <= 3; round++) {
     + 'Steps:\n'
     + '1. G4a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 4 --phase 6 --project ' + REPO + '` (CRG recon runs inside). Read the printed prompt.\n'
     + '2. A3 DA CHALLENGE (artifact-backed — finalize-gate validates this BEFORE scoring): for EACH Tier 3 dim (architecture, readability, error_handling, documentation, performance), dispatch a Claude sub-agent (you have the Agent tool) with a CHALLENGER persona that critiques the design/score, then record its critique + your defence. Dispatch each challenger SYNCHRONOUSLY — call the Agent tool and wait for its return before the next; do NOT run challengers in the background and busy-poll with `sleep`/`cat *.output` (that blows the per-agent wall-clock budget and stalls the round). Write into .sessi-work/gate4_result.json:\n   "devil_advocate": {"architecture":true,"readability":true,"error_handling":true,"documentation":true,"performance":true},\n   "devil_advocate_evidence": {"<dim>": {"challenger_model":"claude","challenge":"<≥120 chars actual critique>","response":"<≥120 chars defence>"}, ...}.\n   A bare boolean is NOT accepted. A DA challenge documents a design; it does NOT lift a threshold — no dimension is waivable (Round 38). If architecture scores low, fix the structure, or calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json (committed, so CI applies it too).\n'
-    + '3. G4b: Evaluate all 14 dims inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md → .sessi-work/gate4_result.json.\n   Dims: linting(90) type_safety(85) test_coverage(80) security(80) secrets_scanning(100) license_compliance(100) architecture(80) readability(80) error_handling(80) documentation(75) performance(75) integration_coverage(75) test_assertion_quality(70).\n   NOTE: mutation_testing is enabled by default via .methodology/harness_config.json (mutation_testing=true). To disable, set it false in harness_config.json — the harness then excludes it from the dim list and re-normalises the composite score.\n   FRAMEWORK-OWNED (do NOT self-score): traceability + architecture (CRG override). Fix failing dims at ROOT CAUSE in code.\n   CITATION REQUIRED: any tool_evidence sentence that names a specific NFR/FR as the CAUSE of a skip or failure (e.g. "N skipped for feature-flagged NFR-08") must be verified per-skip against the actual docstring/name tag of that test before being written — do NOT attribute a whole skip count to one NFR without checking each skipped test individually; a wrong blanket attribution is a fabrication, not a summary.\n'
+    + '3. G4b: Evaluate ALL Gate 4 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md → .sessi-work/gate4_result.json.\n   15 dims per gate4_p6_full.yaml: linting(90) type_safety(85) test_coverage(80) security(80) secrets_scanning(100) license_compliance(100) mutation_testing(70) architecture(80) readability(80) error_handling(80) documentation(75) performance(75) integration_coverage(75) test_assertion_quality(70) traceability(100).\n   (A project\'s feature flags can remove dims; the `dimensions:` list run-gate just printed is the authoritative one.)\n   FRAMEWORK-OWNED (do NOT self-score — finalize-gate computes these and overwrites what you write): architecture (code-review-graph), traceability (harness-trace).\n   NOTE: mutation_testing is enabled by default via .methodology/harness_config.json (mutation_testing=true). To disable, set it false in harness_config.json — the harness then excludes it from the dim list and re-normalises the composite score.\n   Fix failing dims at ROOT CAUSE in code.\n   CITATION REQUIRED: any tool_evidence sentence that names a specific NFR/FR as the CAUSE of a skip or failure (e.g. "N skipped for feature-flagged NFR-08") must be verified per-skip against the actual docstring/name tag of that test before being written — do NOT attribute a whole skip count to one NFR without checking each skipped test individually; a wrong blanket attribution is a fabrication, not a summary.\n'
     + '4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 90.0`. FAIL → add tests, re-run. Runs BEFORE G4c so any fix here is captured by the G4c commit (Round 26: a D4 fix landing AFTER finalize-gate committed had no downstream commit step and was left uncommitted).\n'
     + '5. CRG-ARCH: `BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 4 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run. Also runs BEFORE G4c so any fix lands in the G4c commit.\n'
     + '6. G4c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 4 --phase 6 --project ' + REPO + '` (writes QUALITY_REPORT.md + HANDOVER.md + pushes on PASS; also the commit point for any code/test fixes from steps 3-5 above).\n\n'

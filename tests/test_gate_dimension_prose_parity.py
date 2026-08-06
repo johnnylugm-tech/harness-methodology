@@ -25,6 +25,7 @@ the scan Round 38 站2 installed.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -45,7 +46,11 @@ _SPECS: dict[int, Path] = {
 }
 
 _DIM_WITH_THRESHOLD = re.compile(r"\b([a-z_]+)\((\d+)\)")
-_COUNT_CLAIM = re.compile(r"\b(\d+)\s+dims\b")
+# "N dims" is a census claim; "Tier 3 dims" is not — there the number names a
+# tier, and the phrase says nothing about how many dimensions exist. Without
+# the lookbehind this scan reports spec_phase6's Tier 3 DA-challenge sentence
+# and pushes a reader to "correct" a number that was never a count.
+_COUNT_CLAIM = re.compile(r"(?<!Tier )\b(\d+)\s+dims\b")
 
 
 def _prose_lines(path: Path) -> list[tuple[int, str]]:
@@ -101,22 +106,62 @@ def test_prose_dimension_list_matches_the_gate_config(phase: int) -> None:
         + "\n  ".join(problems))
 
 
+def _docstring_nodes(tree: ast.Module) -> set[int]:
+    """``id()`` of every string Constant that is a docstring, not a value."""
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef,
+                                 ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", [])
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            out.add(id(body[0].value))
+    return out
+
+
 def test_plangen_does_not_restate_thresholds() -> None:
-    """`scripts/plangen/blocks.py` hand-wrote three `dimension(threshold)`
-    strings to filter feature-disabled dimensions out of the plan — a fourth
-    copy of numbers the gate config owns, in a file Round 38 站2's scan did
-    not reach."""
-    text = (REPO / "scripts" / "plangen" / "blocks.py").read_text(encoding="utf-8")
+    """`scripts/plangen/blocks.py` hand-wrote a full `dimension(threshold)`
+    table to build the plan's gate prose — a fourth copy of numbers the gate
+    config owns, in a file Round 38 站2's scan did not reach.
+
+    Matched over string *values* in the AST rather than over the file's text:
+    a comment or docstring explaining why the copy is gone is not a copy, and
+    a scan that cannot tell the two apart reports itself and pushes the next
+    reader to delete the explanation. Round 38 站2 and Round 39 站1 each hit
+    that false positive once; this is the third time the shape has appeared.
+    """
+    tree = ast.parse(
+        (REPO / "scripts" / "plangen" / "blocks.py").read_text(encoding="utf-8"))
+    docstrings = _docstring_nodes(tree)
     known = set(load_gate_thresholds(4)) | set(load_gate_thresholds(2))
     offenders = [
-        f"line {i}: {m.group(0)}"
-        for i, ln in enumerate(text.splitlines(), 1)
-        for m in _DIM_WITH_THRESHOLD.finditer(ln)
+        f"line {node.lineno}: {m.group(0)}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+        for m in _DIM_WITH_THRESHOLD.finditer(node.value)
         if m.group(1) in known
     ]
     assert not offenders, (
         "plangen restates gate thresholds instead of reading them:\n  "
         + "\n  ".join(offenders))
+
+
+def test_the_plangen_scan_would_catch_a_reintroduced_table() -> None:
+    """Negative control: the AST scan still fires on a real restatement."""
+    tree = ast.parse('X = "linting(90) · architecture(80)"\n')
+    known = set(load_gate_thresholds(4))
+    hits = [
+        m.group(0)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        for m in _DIM_WITH_THRESHOLD.finditer(node.value)
+        if m.group(1) in known
+    ]
+    assert hits == ["linting(90)", "architecture(80)"]
 
 
 def test_the_scan_reads_real_gate_configs() -> None:
@@ -130,3 +175,8 @@ def test_the_count_scan_would_catch_a_wrong_claim() -> None:
     """Negative control (Round 19: a checker that cannot fire is not one)."""
     m = _COUNT_CLAIM.search("   Evaluate all 14 dims inline per …")
     assert m and m.group(1) == "14"
+
+
+def test_the_count_scan_does_not_read_a_tier_as_a_census() -> None:
+    """Precision control: the scan must not fire on "Tier 3 dims"."""
+    assert _COUNT_CLAIM.search("for EACH Tier 3 dims listed above") is None

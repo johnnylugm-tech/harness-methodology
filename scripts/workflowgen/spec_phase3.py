@@ -391,13 +391,17 @@ def _render_phase3_sync() -> str:
     )
 
 
+# See spec_phase4._D4_THRESHOLD_P4 — spec-coverage-check's floor is not a gate
+# dimension, so the gate config has nothing to read; named once per phase.
+_D4_THRESHOLD_P3 = 60.0
+
 _GATE2_STEPS = [
     "1. G2a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 2 --phase 3 --project ' + REPO + '` — read the printed evaluation prompt.",
     (
         "2. G2b: Evaluate ALL Gate 2 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate2_result.json.\\n"
         "   Dims: use the exact `dimensions:` list G2a just printed (it is computed from gate2_p3_exit.yaml, filtered by enabled feature flags — always current, do NOT hand-copy a dim list here).\\n"
         f"{S.render_mutation_flag_note()}"
-        "   NOTE: traceability is FRAMEWORK-OWNED — do NOT score it; the harness injects it in finalize-gate.\\n"
+        f"{S.render_framework_owned_note(2)}"
         "   For any failing dim: fix the ROOT CAUSE in code (ruff/pyright/add tests/bandit/mutation), re-run the tool, update the score. (No auto-fix engine.)"
     ),
     (
@@ -406,7 +410,7 @@ _GATE2_STEPS = [
         "   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → report \"GATE2: TIMEOUT\" and stop — do not kill the PID.\\n"
         "   c. Once DONE: `cat /tmp/gate2_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\\n"
     ),
-    "4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0`. FAIL → add missing test implementations, re-run.",
+    f"4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P3}`. FAIL → add missing test implementations, re-run.",
     "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push from Phase 3 onward, independent of the Gate 2/3/4 composite score — a low architecture sub-score can still let the composite pass, but this check will not. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
@@ -453,11 +457,11 @@ def generate_phase3() -> str:
         _render_phase3_milestones(),
         B.render_gate_loop(
             gate_num=2, phase=3,
-            log_msg="Gate 2 exit (composite ≥75, 9 dims: 8 self-scored + traceability framework-owned)",
+            log_msg=f"Gate 2 exit ({S.render_gate_dims_summary(2)})",
             prompt_steps=_GATE2_STEPS,
-            pass_line_desc="composite ≥75 AND all dims ≥ threshold AND D4 ≥60% AND CRG architecture ≥80",
+            pass_line_desc=S.render_gate_pass_line(2, d4_threshold=_D4_THRESHOLD_P3),
             scope_rules=_GATE2_SCOPE_RULES,
-            d4_threshold=60.0,
+            d4_threshold=_D4_THRESHOLD_P3,
             on_fail_error_msg="Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=True,
         ),

@@ -142,10 +142,18 @@ class TestGateExitCheckpoint:
             assert "CRG" in joined
             assert "inside run-gate" in joined or "automatically" in joined
 
-    def test_no_crg_note_for_gate_2(self):
-        lines = _gate_exit_checkpoint(2, 3)
-        joined = "\n".join(lines)
-        assert "CRG" not in joined
+    def test_crg_note_follows_the_gate_config_for_gate_2(self):
+        """Gate 2 had no architecture dimension, so its checkpoint carried no
+        CRG note. Round 38 站1 added one (CI enforces the architecture floor
+        from Phase 3 onward, and gate 2 is Phase 3's exit), so the note belongs
+        there now. Asserted against the config rather than against either
+        answer — the pinned `not in` was correct until it silently was not.
+        """
+        from core.quality_gate.gate_thresholds import load_gate_thresholds
+
+        joined = "\n".join(_gate_exit_checkpoint(2, 3))
+        assert "architecture" in load_gate_thresholds(2)
+        assert "CRG recon inside run-gate" in joined
 
 
 # ─── _checkpoint_index ────────────────────────────────────────────────────────
@@ -2175,11 +2183,21 @@ class TestReviewerDesignFixes:
         assert '"fr_id"' in result
         assert '"confidence"' not in result, "confidence field was orphaned — must be removed from JSON format"
 
-    # I2: Gate 1 meta must have 3 dims (standard)
-    def test_gate1_meta_has_3_dims(self):
+    # I2: Gate 1's plan prose must list the dimensions gate1_per_fr.yaml scores.
+    #
+    # This used to pin the literal 3. The YAML declares 4 — architecture_constraints
+    # (tier 1, import-linter, evaluate_dimension.md §"Gate 1 only") was missing from
+    # the hand-written table, so the plan told an agent it would be judged on three
+    # dimensions and Gate 1 scored it on four. Round 39 站3 renders the table from
+    # the config; this now asserts the agreement rather than a number.
+    def test_gate1_meta_matches_the_gate_config(self):
+        from core.quality_gate.gate_thresholds import load_gate_thresholds
         from scripts.generate_full_plan import _GATE_META
-        assert _GATE_META[1][1] == 3, "_GATE_META[1] dim_count must be 3"
-        assert "test_coverage" in _GATE_META[1][2]
+
+        declared = load_gate_thresholds(1)
+        assert _GATE_META[1][1] == len(declared)
+        for name in declared:
+            assert name in _GATE_META[1][2], f"{name} missing from Gate 1 prose"
         assert "test_assertion_quality" not in _GATE_META[1][2]
 
     # R3: P4 checkpoint index must have CHECKPOINT-0 for TEST_PLAN.md

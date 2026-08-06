@@ -72,6 +72,109 @@ def render_mutation_flag_note() -> str:
     )
 
 
+# Round 39 站3 — the dimension list a prompt states is the one the gate scores.
+#
+# Round 18 站2 made the gate_configs YAML the only authority on a *threshold*,
+# and Round 38 站2 finished the job for the architecture floor. The *set* and
+# the *count* were left behind (R38-DEFER-2), and drifted exactly as a copy
+# does. Measured at the start of this station:
+#
+#   generator        prose claimed   prose listed   the YAML scored
+#   spec_phase3.py   9 dims          —              12
+#   spec_phase4.py   15 dims         13             16
+#   spec_phase6.py   14 dims         13             15
+#
+# All 13 listed thresholds were right; the numbers were never the problem. The
+# three omitted dimensions were traceability, mutation_testing and
+# adversarial_review — every one of them framework-owned or framework-blocking,
+# i.e. precisely the ones an agent cannot discover by doing the work. Gate 2's
+# list was also missing the architecture dimension Round 38 站1 had added to it
+# a day earlier: a copy is stale the moment the source moves.
+#
+# So the list, the count, the framework-owned grouping and the composite floor
+# are all read from the YAML at generation time. What a regeneration cannot fix
+# is a per-project feature flag (mutation_testing / crg_architecture /
+# phase4_llm_review), which is why the rendered line still points at the list
+# run-gate printed as the authoritative one — the same instruction spec_phase3
+# has always given in place of an enumeration.
+def _gate_dimension_tokens(gate: int) -> list[str]:
+    from core.quality_gate.gate_thresholds import load_gate_dimensions
+
+    return [
+        f"{d['name']}({float(d['threshold']):g})"
+        for d in load_gate_dimensions(gate)
+    ]
+
+
+def gate_dim_count(gate: int) -> int:
+    """How many dimensions gate *gate* scores — for the prose that says so."""
+    return len(_gate_dimension_tokens(gate))
+
+
+def render_framework_owned_note(gate: int) -> str:
+    """The FRAMEWORK-OWNED line — which dims the agent must not score itself."""
+    from core.quality_gate.gate_thresholds import framework_owned_dimensions
+
+    owned = ", ".join(
+        f"{name} ({tool})"
+        for name, tool in framework_owned_dimensions(gate).items()
+    )
+    return (
+        "   FRAMEWORK-OWNED (do NOT self-score — finalize-gate computes these "
+        f"and overwrites what you write): {owned}.\\n"
+    )
+
+
+def render_dimension_table(gate: int) -> str:
+    """The `N dims: …` enumeration + the FRAMEWORK-OWNED line, for gate *gate*.
+
+    Lines end in an escaped newline for inlining into a generated JS string
+    literal — same convention as `render_mutation_flag_note`.
+    """
+    from core.quality_gate.gate_thresholds import GATE_CONFIG_NAMES
+
+    tokens = _gate_dimension_tokens(gate)
+    return (
+        f"   {len(tokens)} dims per {GATE_CONFIG_NAMES[gate]}: {' '.join(tokens)}.\\n"
+        # Escaped: this lands inside a single-quoted JS string literal.
+        "   (A project\\'s feature flags can remove dims; the `dimensions:` "
+        "list run-gate just printed is the authoritative one.)\\n"
+        + render_framework_owned_note(gate)
+    )
+
+
+def render_gate_dims_summary(gate: int) -> str:
+    """The parenthetical a gate's log line carries: composite floor + dim census."""
+    from core.quality_gate.gate_thresholds import (
+        framework_owned_dimensions,
+        load_score_gate,
+    )
+
+    total = len(_gate_dimension_tokens(gate))
+    owned = framework_owned_dimensions(gate)
+    return (
+        f"composite ≥{load_score_gate(gate):g}, {total} dims: "
+        f"{total - len(owned)} self-scored + {'/'.join(owned)} framework-owned"
+    )
+
+
+def render_gate_pass_line(gate: int, *, d4_threshold: float, extra: str = "") -> str:
+    """The `pass_line_desc` a gate loop prints — every number read, none typed.
+
+    `extra` is the one clause that is not derivable (gate 4's DA artifacts).
+    """
+    from core.quality_gate.gate_thresholds import (
+        load_gate_thresholds,
+        load_score_gate,
+    )
+
+    arch = load_gate_thresholds(gate)["architecture"]
+    return (
+        f"composite ≥{load_score_gate(gate):g} AND all dims ≥ threshold{extra} "
+        f"AND D4 ≥{d4_threshold:g}% AND CRG architecture ≥{arch:g}"
+    )
+
+
 def _render_meta(*, name: str, description: str, phases: list[str]) -> str:
     lines = ["export const meta = {", f"  name: '{name}',"]
     lines.append(f"  description: '{description}',")

@@ -22,7 +22,14 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-__all__ = ["load_gate_thresholds", "gate_config_path", "GATE_CONFIG_NAMES"]
+__all__ = [
+    "load_gate_thresholds",
+    "load_gate_dimensions",
+    "load_score_gate",
+    "framework_owned_dimensions",
+    "gate_config_path",
+    "GATE_CONFIG_NAMES",
+]
 
 # Mirrors HarnessBridge._load_config's own mapping (harness/harness_bridge.py).
 GATE_CONFIG_NAMES: dict[int, str] = {
@@ -48,14 +55,77 @@ def gate_config_path(gate_num: int) -> Path:
 
 
 @lru_cache(maxsize=None)
-def _read_gate_thresholds(gate_num: int) -> dict[str, float]:
+def _read_gate_config(gate_num: int) -> dict:
     import yaml  # type: ignore[import-untyped]
 
     raw = yaml.safe_load(gate_config_path(gate_num).read_text(encoding="utf-8"))
+    return raw or {}
+
+
+def _read_gate_dimensions(gate_num: int) -> list[dict]:
+    return [
+        d
+        for d in _read_gate_config(gate_num).get("dimensions", [])
+        if isinstance(d, dict) and "name" in d and "threshold" in d
+    ]
+
+
+def load_gate_dimensions(gate_num: int) -> list[dict]:
+    """Return *gate_num*'s dimension entries, in the order the YAML declares them.
+
+    The order is load-bearing for anything that renders the list into prose:
+    a set would make the generated text reorder itself between runs and turn
+    every regeneration into a diff.
+
+    Entries are copied for the same reason ``load_gate_thresholds`` copies —
+    the read is cached, so handing out the cached dicts would let one caller's
+    edit reach every later reader.
+    """
+    return [dict(d) for d in _read_gate_dimensions(gate_num)]
+
+
+def load_score_gate(gate_num: int) -> float | None:
+    """Return the composite score a gate must reach, or None if it declares none.
+
+    ``score_gate`` is the number the prose calls "composite ≥ N". It lives in
+    the same YAML as the per-dimension thresholds and is read the same way, for
+    the same reason.
+    """
+    value = _read_gate_config(gate_num).get("score_gate")
+    return None if value is None else float(value)
+
+
+def framework_owned_dimensions(gate_num: int) -> dict[str, str]:
+    """Return ``{dimension: tool}`` for the dimensions the harness scores itself.
+
+    Two shapes, both derived from the YAML rather than from a list kept here:
+
+    * ``requires_tool_execution: false`` — traceability and adversarial_review;
+      finalize_gate patches their scores in (harness_bridge's S4 skips them).
+    * ``tool: code-review-graph`` — architecture. It does require tool
+      execution, but the tool is the framework's own: ``crg_independent``
+      computes the score in finalize_gate and overrides whatever the agent
+      wrote. harness_bridge's ``_TOOL_OUTPUT_PATTERNS`` states the same
+      exception for the same reason.
+
+    An agent that self-scores one of these is writing a number the framework is
+    about to replace, so every prompt that enumerates dimensions has to say
+    which ones they are — and saying it from here keeps that sentence correct
+    when a gate config gains or loses one (Round 38 站1 added architecture to
+    gate 2; three hand-written prompts did not notice).
+    """
+    return {
+        str(d["name"]): str(d.get("tool", ""))
+        for d in _read_gate_dimensions(gate_num)
+        if d.get("requires_tool_execution") is False
+        or d.get("tool") == "code-review-graph"
+    }
+
+
+def _read_gate_thresholds(gate_num: int) -> dict[str, float]:
     return {
         str(d["name"]): float(d["threshold"])
-        for d in (raw or {}).get("dimensions", [])
-        if isinstance(d, dict) and "name" in d and "threshold" in d
+        for d in _read_gate_dimensions(gate_num)
     }
 
 

@@ -493,7 +493,15 @@ _LINE_CEILING: dict[str, int] = {
     # crg_excludes / crg_cohesion_healthy". Round 38 站3 removed the waiver in
     # code and left these telling the agent to use it; saying what to do
     # instead costs one line more than saying what to do.
-    "scripts/plangen/blocks.py": 1695,
+    # 2026-08-06 (Round 39 站3): +25 — _GATE_META stops being a hand-written
+    # table of every gate's dimensions and thresholds (4 data lines) filtered by
+    # string matching on rendered tokens (36 lines), and becomes a renderer over
+    # harness/gate_configs/*.yaml filtering by dimension *name* through
+    # core.harness_config._DIM_TO_FEATURE. The removed copy was wrong in two
+    # places at the time it was replaced (gate 1 listed 3 of 4 dimensions, gate 2
+    # 11 of 12). Most of the growth is the comment recording that measurement;
+    # the renderer itself is roughly the size of the filter it replaced.
+    "scripts/plangen/blocks.py": 1720,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
