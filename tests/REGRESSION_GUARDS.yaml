@@ -1512,3 +1512,88 @@
 - test: tests/e2e/test_cli_journeys.py::TestPerFrStepJourneys::test_a_red_test_and_a_red_commit_asks_for_green
   bug: "the entry state of the same journey — without it the two above could both hold for a machine that always answers TDD-GREEN"
   fixed_in: "R41-站4 (positive control)"
+
+- test: tests/test_canonical_diff_phantom_ac.py::test_a_machine_readable_block_heading_is_not_a_requirement
+  bug: "`_FR_HEADER_RE`'s `(?:FR|NFR|AC)[-\\w]*` matched zero characters after the prefix, so `## FR Block (machine-readable)` — a section templates/SRS.md:78 and docs/P1_SOP.md:23 REQUIRE — became a 21st acceptance clause labelled `FR` and scored `invention`. taskq-renew wrote the block and was charged for it; taskq-plus never wrote it and scored 0 inventions"
+  fixed_in: "R42-站1 (label must carry a digit; verified against every SRS on disk — 1 of 132 matched headings drops)"
+
+- test: tests/test_canonical_diff_phantom_ac.py::test_the_last_requirement_does_not_swallow_the_machine_readable_block
+  bug: "the regex fix alone is wrong: clause bodies run match to match, so a dropped heading hands its section to the clause before it — taskq-renew's NFR-12 body went 9,773 -> 13,960 chars and would have been scored against the JSON"
+  fixed_in: "R42-站1 (the block leaves the text via srs_machine_block_span, not just the heading)"
+
+- test: tests/test_canonical_diff_phantom_ac.py::test_a_real_requirement_heading_is_still_extracted
+  bug: "positive control — `### FR-01:`, `#### AC1` and AC->parent resolution must survive a tightening whose whole point is dropping one match"
+  fixed_in: "R42-站1"
+
+- test: tests/test_declared_tests_must_exist.py::test_an_unimplemented_declared_test_is_named_not_just_counted
+  bug: "spec-coverage computed the missing-test list, printed it, and returned only (exit_code, pct). taskq-renew's 81/89 = 91.011235955056...% IS its committed `traceability` score to the last digit — the count reached the verdict, the eight names reached stdout"
+  fixed_in: "R42-站2 (spec_coverage_report returns declared/implemented/covered/missing/pct from one count)"
+
+- test: tests/test_declared_tests_must_exist.py::test_a_missing_test_carries_the_derivation_that_asked_for_it
+  bug: "a bare name cannot say which requirement lost its evidence — renew's eight were three nfr_pattern, four fault_injection and one static scan, every one a p95 budget or a survives-SIGKILL case"
+  fixed_in: "R42-站2"
+
+- test: tests/test_undelivered_tests_reach_the_verdict.py::test_the_missing_names_reach_the_ledger_and_the_verdict
+  bug: "recorded whether or not the check passes — renew cleared Gate 4's 90% threshold by one point WITH the eight absent, which is exactly the run nobody re-derives later"
+  fixed_in: "R42-站2 (degradation ledger `spec:undelivered` + gate result `spec_undelivered`/`spec_declared`)"
+
+- test: tests/test_undelivered_tests_reach_the_verdict.py::test_a_fully_delivered_spec_writes_no_ledger_line
+  bug: "the ledger is for events; 'everything declared exists' is not one. But the gate-result field is still written empty, so a reader can tell 'nothing missing' from 'this record predates the field'"
+  fixed_in: "R42-站2 (Round 39 站2's rule, applied to a second field)"
+
+- test: tests/test_undelivered_tests_reach_the_verdict.py::test_the_recorded_names_are_json_serialisable
+  bug: "the gate-result patch block writes these rows straight into JSON — a dict carrying anything unserialisable would crash the write that persists the verdict"
+  fixed_in: "R42-站2"
+
+- test: tests/test_srs_machine_block_is_required.py::test_an_srs_without_its_fr_block_is_a_violation
+  bug: "templates/SRS.md:78 ships `## 7. FR Block (machine-readable)` and docs/P1_SOP.md:23/:58 require it; its absence produced one WARNING on stdout and nothing else. taskq-plus AND taskq-api both passed Phase 1 without it, and both are read downstream as declaring no FR metadata"
+  fixed_in: "R42-站3 (check_srs_structure joins the artifact-consistency set: informational at P1, blocking from P2)"
+
+- test: tests/test_srs_machine_block_is_required.py::test_an_srs_with_its_fr_block_is_clean
+  bug: "positive control — taskq-renew's shape must pass, or the check would fine the project that complied for a second time"
+  fixed_in: "R42-站3"
+
+- test: tests/test_srs_machine_block_is_required.py::test_a_project_with_no_srs_at_all_is_not_this_check_s_business
+  bug: "jurisdiction — Round 40 站1 made this exact mistake in the other direction, firing on a fixture because the artifact it audits was absent rather than wrong"
+  fixed_in: "R42-站3"
+
+- test: tests/test_srs_machine_block_is_required.py::test_an_srs_declaring_no_functional_requirements_is_out_of_jurisdiction
+  bug: "found by the new check firing on test_preflight_nfr_coverage_only_checked_from_p3's NFR-only stub: no FRs means no FR metadata for a block to carry. taskq-plus's SRS has eight FR sections, so the narrowing costs nothing the check exists for"
+  fixed_in: "R42-站3 (measured after narrowing: plus + api still caught, taskq + renew still clean)"
+
+- test: tests/test_srs_machine_block_is_required.py::test_the_block_is_found_without_any_sentinel
+  bug: "站0 wrote this file against sentinel pairs and a `{\"requirements\": ...}` key; neither is the contract. srs_machine_block finds the block by CONTENT because both heading- and sentinel-based paths were tried on a live 8-FR SRS and both missed it"
+  fixed_in: "R42-站3 (a test written against a contract the framework does not have tests nothing)"
+
+- test: tests/test_composite_carries_its_denominator.py::test_a_published_composite_names_the_weight_it_covered
+  bug: "the composite is a weighted mean over the dimensions that were scored, and three of them can be switched off in the project's own committed harness_config.json. taskq-plus published 98.707 over weight 0.86; taskq-renew published 93.166 over 1.00; both rows read `| Gate 4 composite score | >= 85 | {value} |`"
+  fixed_in: "R42-站4b (measurement_scope: weight_covered/weight_total/dimensions_scored/unscored/disabled)"
+
+- test: tests/test_composite_carries_its_denominator.py::test_a_dimension_that_could_not_be_measured_leaves_the_denominator_too
+  bug: "Round 35 keeps a could-not-measure from being scored zero; nothing kept it from being invisible"
+  fixed_in: "R42-站4b"
+
+- test: tests/test_composite_carries_its_denominator.py::test_disabling_a_dimension_cannot_hide_inside_the_number
+  bug: "renew's own dimension scores with plus's config give 94.328 against its real 93.166 — measuring less raised the score by 1.16, and no artifact recorded which of the two a reader was looking at"
+  fixed_in: "R42-站4b (no verdict changes; the scope is what tells the two numbers apart)"
+
+- test: tests/test_single_file_community.py::test_a_community_that_is_one_file_names_that_file
+  bug: "taskq-renew's storage-load-sub1/sub2 are Leiden splitting one file's internals (task_store.py, 12,575 bytes — LARGER than taskq-plus's 4,608, five files in storage/ on both sides), and three of the gate's four printed remedies assume a community is a set of modules. Calibration was the only executable one left after R38 removed the waiver"
+  fixed_in: "R42-站5 (dominant_file on the finding + a remedy that names the file; the score is unchanged)"
+
+- test: tests/test_single_file_community.py::test_a_genuinely_multi_module_community_names_no_file
+  bug: "without a majority rule this degrades into naming whichever file appears most, attaching a file to every finding and erasing the distinction it exists to draw"
+  fixed_in: "R42-站5"
+
+- test: tests/test_single_file_community.py::test_a_plurality_is_not_a_majority
+  bug: "two of five is the largest share and still not most of the community"
+  fixed_in: "R42-站5 (>50% of the sampled member paths, same sample limitation as _is_non_product)"
+
+- test: tests/test_single_file_community.py::test_a_healthy_community_carries_no_finding_at_all
+  bug: "the field rides on unhealthy records only — a healthy community has nothing to remedy and must not grow a remedy field"
+  fixed_in: "R42-站5"
+
+- test: tests/test_test_type_coverage.py::test_all_seven_derivation_types_are_registered
+  bug: "the seven derivation types are one importable list, and a TEST_SPEC with six of them names the seventh"
+  fixed_in: "R42-站2"
+

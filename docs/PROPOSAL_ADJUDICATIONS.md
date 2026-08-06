@@ -1967,3 +1967,114 @@ run-fr-step --step TDD-IMPROVE（stub spawner）
 
 同一顆 clone 上 FR-01/02/03 的 GREEN 判定不變（Gate 1 cascade 短路），
 只有 FR-04 翻轉——per-FR-family 而非全套的範圍選擇，是這件事的原因。
+
+---
+
+# Round 42 —— 宣告了就要交，少宣告的沒事
+
+老闆令三段遞進：(1) 為何評比報告顯示 taskq-plus → taskq-renew 品質雙雙下降；
+(2) 源頭 P1/P2 產出物就有落差；(3) **實際量測**兩份 SRS/SAD 的設計品質。
+
+**受控實驗**：兩份輸入規格完全相同——`taskq-plus/SPEC.md` 與 `taskq-renew/SPEC.md`
+都是 494 行，diff 只有專案名。兩個 pin 隔 83 個 commit
+（`d5810d6` R27 站8 → `c09fae1` R37 站5）。同一份輸入、不同框架版本。
+
+## 一、評比報告七項論據的逐項裁決
+
+| # | 報告的話 | 裁決 | 實測 |
+|---|---|---|---|
+| 1 | plus 7,008 個測試 vs renew 504 | **不成立** | `def test_` 實數 452 vs **494**（renew 較多）；gate 證據自己寫 496/469 passed；字串 `7008` 在 taskq-plus 全部產物裡找不到 |
+| 2 | SPEC_TRACKING 136 行 vs 68 行 | **無效指標** | 兩邊都是 8 FR + 12 NFR，**覆蓋相同**；renew 每列更寬（17,117 vs 13,106 bytes）|
+| 3 | renew Invention = 1（臆造需求）| **框架自己的 bug** | 那筆是 `{"label":"FR"}` —— `## FR Block (machine-readable)` 被 AC 抽取器當成第 21 條 AC。而那個標題是 templates/SRS.md:78 要求的 |
+| 4 | plus Invention = 0（完美）| **它沒寫那個區塊** | `srs_machine_block` 實跑：taskq / taskq-renew 有，**taskq-plus / taskq-api 沒有** |
+| 5 | STRIDE 9 vs 7 = 20 分 | **框架不計數** | `security_design` 只要求「每個 boundary ≥1 threat」。plus 4 邊界 9 威脅、renew **6** 邊界 7 威脅；兩邊 STRIDE 類別覆蓋同為 5/6，`check_security_design` 對兩邊都是 **0 違規** |
+| 6 | 架構 100 vs 77.8 | **兩把尺** | `crg_cohesion_healthy` **0.2** vs **0.25**；且 77.8 算在 R37 診斷出的 11/47 檔截斷圖上 |
+| 7 | renew 靠 DA-Waiver 通過 | **屬實但已失效** | R38 站3 移除豁免效力，現在請求會被拒絕 |
+| — | 品質 98.71 → 93.57 | **不同分母** | 98.707 在 **0.86 權重**上（13 維），93.166 在 **1.00** 上。renew 若照 plus 的 config 關掉 mutation → **94.328（+1.16）** |
+
+## 二、SRS / SAD / TEST_SPEC 實測（老闆第三問）
+
+**SRS 沒有一面倒。** plus 較強：distinct AC 編號 **63** vs 41、每條需求
+canonical citation **20/20** vs 8/20、§5 可機器判定的驗收列 **30** vs 22。
+renew 較強：DERIVED 出處標註 **61** vs 39、SPEC § 引用 **147** vs 109、
+帶單位量化值 **18** vs 13、MUST/必須 **14** vs 8、機器可讀 FR Block **有** vs 無、
+`derived_present=False` 的 AC **0** vs 1。兩邊 20/20 條需求都有 ≥1 AC。
+
+**SAD 平手偏 renew。** FR/NFR 引用覆蓋都是 12/12；plus SAB modules 21、renew 19；
+renew trust boundary **6 個**且有向（`CLI user → submit validator`），plus **4 個**較粗；
+兩邊每個 boundary 都有 threat、每個 threat 都有 `verified_by`、STRIDE 類別同為 5/6。
+
+**TEST_SPEC —— 這裡才是真的落差。** renew 宣告 **81** 支（含 9 個 nfr_pattern），
+plus 宣告 **64** 支（**0 個** nfr_pattern）。而框架自己的 checker：
+plus **92/93 = 98.9%**、renew **81/89 = 91.0%**，renew 的 **8 支從未實作**，
+全部是 p95 效能與寫入中被 SIGKILL 仍原子這兩類。**老闆的直覺在這一項上是對的。**
+
+Gate 4 的門檻是 **90.0**，renew 的 91.011... 過了一分。而
+`81/89*100 = 91.01123595505618` 與其 gate4_result.json 的 `traceability`
+**逐位元相同**——數字走完全程，八個名字停在 stdout。
+
+## 三、誘因結構（本輪的根）
+
+| 少做什麼 | 誰做了 | 得到什麼 |
+|---|---|---|
+| SRS 不寫 FR Block（模板必填）| plus、api | 一行 WARNING，P1 通過 |
+| TEST_SPEC 不宣告 nfr_pattern | plus（0 個）| 沒東西可缺 |
+| 宣告 81 支只交 73 支 | renew | 91.0% > 90.0，全綠 |
+| 關掉 mutation 維度 | plus | composite **+1.16** |
+
+**母體第 13 次：合規的成本由被判定方承擔。** R17 立的是「prompt 說的與 gate 執的
+必須一致」；這一輪是同一句話的另一面——**框架要求 A、框架的另一個讀者罰 A、
+而不做 A 只有一行警告或一個寬到抓不到的門檻。**
+
+## 四、站0 四項前提的實測結果
+
+1. **收緊 regex 不是全部**：naive 收緊讓 renew 的 NFR-12 body 由 9,773 漲到
+   13,960 字元（吞掉 JSON）。區塊必須在切分前離開文本。
+2. **幻影只有一個形狀**：四個 SRS 共 132 個匹配標題，只有 renew 的
+   `## FR Block` 標籤裡沒有數字。taskq-advance 不存在。
+3. **門檻是宣告的不是推導的**，且 **Gate 4 是 90 不是我原本寫的 60**
+   （G1 40 / G2 60 / G3 80 / G4 90）。→ 站2 只搬運既有診斷，不改數字。
+4. **`SCORE_SOURCE_FRAMEWORK_NA` 走不通**：它只在框架**跑過**工具時設定，
+   而 flag-disabled 維度根本不進那個迴圈。→ 站4d 降級為只記錄，不改判定。
+
+## 五、明列不做（附再開條件）
+
+- **站4a 撤回，紅測試刪除而非改綠。** 計畫主張七型每個 FR 都要，而
+  `derive_test_cases.md` 兩處說相反：「Classification drives which questions
+  generate mandatory vs optional」、「Skip a pattern if it clearly does not
+  apply」，Q7 標為 conditional。平版七選七會罰一個正確跳過的專案——**本輪自己
+  的病灶**。查過最近的既有機制：trace 維度 4c 的 `nfr_untested` 對**兩個專案
+  都是 `[]`**（plus 的測試逐一提到每個 NFR，即使 TEST_SPEC 零推導），所以它答
+  的是別的問題。可執法的子規則是 prompt 唯一無條件的那句「Step-1b-forced
+  patterns may NOT be skipped」，但那需要把 SAD 的 architecture-risk trait 解析
+  成 forced 集合——本輪沒有量過那個輸入。**再開條件**：量到 forced 集合的解析
+  路徑，或任一專案在 nfr_pattern 全缺的情況下仍過 Gate 4。
+- **不改 spec-coverage 的五個門檻**（前提3：宣告值）。再開條件：缺口清單上線後
+  仍有專案在門檻內漏掉整類 NFR 測試。
+- **不改 STRIDE 計分**（框架刻意只要求 per-boundary 覆蓋）。
+- **不給 `crg_cohesion_healthy` 加下限**（憑空定 floor 是發明門檻；正解是可見）。
+- **不改 D6 的分數**：一個 12.5 KB 的檔內部形成兩個互不相連的叢集是不是架構
+  問題，本輪沒有立場裁決，憑空排除等於重建 R38 移除的豁免。
+- **不重判 taskq-plus / taskq-renew 的既有 gate 結果。**
+
+## 六、我自己在本輪犯的三個錯（都已更正）
+
+1. **AC 數量**：第一次用 `AC-\d+-\d+` 掃，得出「plus 有 0 條 AC」——錯。plus 用
+   `AC-FR-01.a` 格式，通用 pattern 掃出 **63 條**，比 renew 的 41 **多**。
+   一個只認得一種命名法的量測器把「格式不同」讀成「東西不存在」——**正是本輪
+   D1 的同一種錯**。
+2. **STRIDE**：第一次呼叫 `extract_security_block` 後直接讀 `sec['boundaries']`，
+   得出兩邊都是 0——錯。該函式**刻意不解開** `security_design:` 根鍵（docstring
+   明說），鍵名是 `trust_boundaries`。
+3. **站0 的兩個測試契約寫錯**：`test_canonical_diff_phantom_ac` 的 fixture 用
+   `{"requirements": ...}`、`test_srs_machine_block_is_required` 用 sentinel 對，
+   兩者都不是框架的規則（是 `functional_requirements` + 內容偵測）。
+   **一個對著框架沒有的契約寫的測試什麼都沒測。**
+
+## 七、驗證
+
+pytest 6891 → **6910**；guards 365 → **385**；ruff clean；`--check` 9/9；
+`node --check` 11/11；sim 94/94。端到端（`/tmp` 唯讀，不碰原專案）：
+`canonical_diff` 對 renew 真實 SRS 由 `total_ac 21 / invention 1` 變
+`total_ac 20 / invention 0`；`spec_coverage_report` 逐支列出那 8 支；
+`check_srs_structure` 對 plus/api 報 violation、對 taskq/renew 乾淨。

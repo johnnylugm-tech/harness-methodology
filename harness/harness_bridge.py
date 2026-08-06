@@ -2946,6 +2946,16 @@ class HarnessBridge:
                             for _u in _unhealthy[:8]:  # cap at 8 to avoid flooding
                                 _issues = ", ".join(_u.get("issues", []))
                                 print(f"  ❌ {_u['name']:<35} cohesion={_u['cohesion']:.3f}  size={_u['size']}  [{_issues}]")
+                                # Round 42 站5: when the community is one
+                                # file's internals, say so and say where. The
+                                # three code-level remedies below all assume a
+                                # community is a set of modules; none of them
+                                # can act on this shape, which is how
+                                # calibration became the only lever left.
+                                if _u.get("dominant_file"):
+                                    print(f"       ↳ this community is mostly {_u['dominant_file']} — "
+                                          "its internals, not a module boundary. Split that file "
+                                          "along the clusters, or connect them.")
                             if len(_unhealthy) > 8:
                                 print(f"  ... +{len(_unhealthy) - 8} more (see .sessi-work/crg_metrics.json)")
                             print()

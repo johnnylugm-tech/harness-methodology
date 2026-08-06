@@ -147,7 +147,13 @@ _LINE_CEILING: dict[str, int] = {
     # crg_metrics.json is already in scope. Both sit where the values they
     # report are computed; carrying them to the write site instead would
     # mean loading the gate config and crg_metrics twice.
-    "harness/harness_bridge.py": 3818,
+    # 2026-08-07: +10 more — Round 42 站5: the unhealthy-community printout
+    # names the file when the community is one file's internals. Three of
+    # the four remedies below it assume a community is a set of modules;
+    # taskq-renew's storage-load-sub1/sub2 are Leiden splitting
+    # task_store.py, so none of them applied and calibration was the only
+    # lever left after R38 removed the waiver.
+    "harness/harness_bridge.py": 3828,
     # 2026-08-04 (Round 35 站3): +37 — `_mutation_artifact_violations` returns
     # two lists instead of one (a missing artifact is a run to repair, not a
     # claim to withdraw) and its call moved above the agent-score early exit,

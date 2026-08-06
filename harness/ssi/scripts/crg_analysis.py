@@ -204,6 +204,38 @@ def compute_community_cohesion_score(
                     return True
         return False
 
+    def _dominant_file(files: "list[str]", rel) -> "Optional[str]":
+        """The single file this community is mostly made of, if there is one.
+
+        Round 42 站5. taskq-renew's two unhealthy communities,
+        `storage-load-sub1` (size 12, cohesion 0.00) and `storage-load-sub2`
+        (size 11, cohesion 0.00), are Leiden splitting the INTERNALS of one
+        file — `storage/task_store.py`, 12,575 bytes, larger than taskq-plus's
+        4,608-byte version of the same module, with both projects shipping
+        five files in `storage/`. Nothing is fragmented on disk.
+
+        That matters because of what the gate then tells the agent to do. Of
+        the four remedies `harness_bridge` prints — add cross-module imports,
+        merge small communities, split communities over 50, calibrate — the
+        first three assume a community is a set of modules. None of them can
+        act on one file's internal clusters, which leaves calibration as the
+        only lever, and Round 38 removed the waiver that used to be the other
+        one. Naming the file is what makes the remedy addressable.
+
+        Majority, not plurality: >50 % of the sampled member paths. The `files`
+        list is capped at 30 entries by the dump, so this is a sample-based
+        judgement — the same limitation `_is_non_product` above carries and
+        for the same reason.
+        """
+        if not files:
+            return None
+        counts: dict = {}
+        for f in files:
+            path = rel(f).split("::", 1)[0]
+            counts[path] = counts.get(path, 0) + 1
+        path, n = max(counts.items(), key=lambda kv: kv[1])
+        return path if n > len(files) / 2 else None
+
     _scored_communities = [c for c in communities if not _is_non_product(c)]
     _excluded = len(communities) - len(_scored_communities)
 
@@ -218,14 +250,16 @@ def compute_community_cohesion_score(
         if size > COMMUNITY_OVERSIZED:
             reasons.append(f"oversized({size})")
         if reasons:
-            unhealthy.append(
-                {
-                    "name": c.get("name", "unknown"),
-                    "cohesion": cohesion,
-                    "size": size,
-                    "issues": reasons,
-                }
-            )
+            _entry = {
+                "name": c.get("name", "unknown"),
+                "cohesion": cohesion,
+                "size": size,
+                "issues": reasons,
+            }
+            _dominant = _dominant_file(c.get("files", []), _rel)
+            if _dominant:
+                _entry["dominant_file"] = _dominant
+            unhealthy.append(_entry)
         else:
             healthy += 1
 
