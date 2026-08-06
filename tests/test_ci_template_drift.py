@@ -90,17 +90,34 @@ def test_one_changed_byte_is_drift(tmp_path: Path) -> None:
     )
 
 
-def test_a_missing_workflow_is_drift(tmp_path: Path) -> None:
-    """Absent is the degenerate case of out-of-date, not a separate world.
+def test_a_deleted_workflow_is_drift(tmp_path: Path) -> None:
+    """Deleted is the degenerate case of out-of-date, not a separate world.
 
-    A project whose phase deliverables already require this file (the P3+
-    plan checks `.github/workflows/harness_quality_gate.yml exists`) does not
-    get to be silently un-gated because the file was deleted rather than
-    edited.
+    A project does not get to be silently un-gated because the file was
+    removed rather than edited. The observable trace that a deployment
+    happened is the workflows directory init-project creates.
     """
-    project = _init_project(tmp_path, None)
+    project = _init_project(tmp_path, "")
+    deployed_ci_path(project).unlink()
     drift = ci_template_drift(project)
     assert drift is not None and "not deployed" in drift
+
+
+def test_a_project_that_was_never_ci_installed_is_silent(tmp_path: Path) -> None:
+    """The first draft of this file asserted the opposite, and the e2e
+    golden-path fixture caught it: a methodology project driven without
+    `init-project` has no .github/ at all, and doctor called that clean
+    project unhealthy.
+
+    This function's subject is a deployed copy. Saying "your copy is out of
+    date" about a copy that was never made is an accusation the framework
+    cannot substantiate, and absence from P3 onward is already the phase
+    deliverable checks' job (`.github/workflows/harness_quality_gate.yml
+    exists`). Round 22's rule: not every true statement belongs in every
+    check.
+    """
+    project = _init_project(tmp_path, None)
+    assert ci_template_drift(project) is None
 
 
 def test_the_report_names_the_command_that_repairs_it(tmp_path: Path) -> None:

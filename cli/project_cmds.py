@@ -19,6 +19,7 @@ from typing import Any
 
 from core import claude_md
 from core.atomic_io import atomic_write_json
+from core.ci_template import ci_template_drift, ci_template_path, deployed_ci_path
 from core.phase_topology import PHASE_DIRS, VALID_PHASES
 from core.sessions_spawn_logger import SessionsSpawnLogger
 from core.harness_provenance import enforcer_sha
@@ -148,11 +149,15 @@ def cmd_init_project(args: argparse.Namespace) -> int:
 
     # 2. Write CI workflow
     print("\n[2/11] Writing CI workflow...")
-    workflows_dir = project / ".github" / "workflows"
-    workflows_dir.mkdir(parents=True, exist_ok=True)
-    workflow_path = workflows_dir / "harness_quality_gate.yml"
+    workflow_path = deployed_ci_path(project)
+    workflow_path.parent.mkdir(parents=True, exist_ok=True)
     if workflow_path.exists() and not args.overwrite:
+        # An existing copy may be an older template. Round 40: say so here
+        # rather than only in doctor — this is the moment someone is looking.
+        drift = ci_template_drift(project)
         print(f"   SKIP: {workflow_path} already exists (use --overwrite to overwrite)")
+        if drift:
+            print("   WARN: the existing copy is not the template this harness ships")
     else:
         try:
             workflow_path.write_text(_harness_workflow_template())
@@ -1484,10 +1489,14 @@ def cmd_audit_phase(args: argparse.Namespace) -> int:
 def _harness_workflow_template() -> str:
     """Return the content of .github/workflows/harness_quality_gate.yml for a target project.
 
-    Reads directly from templates/harness_quality_gate.yml — the single source of truth.
-    init-project and harness-init.sh both deploy the same file, so there is no drift.
+    Reads directly from templates/harness_quality_gate.yml — the single source
+    of truth. This used to add "so there is no drift", which was true of the
+    moment of deployment and of no moment after it: the framework edits the
+    template, the copy in a consumer repo is edited by nobody, and taskq-renew
+    was measured two rounds behind. `core.ci_template.ci_template_drift` is the
+    part that makes the sentence true; doctor is what reads it.
     """
-    template_path = Path(__file__).parent.parent / "templates" / "harness_quality_gate.yml"
+    template_path = ci_template_path()
     if not template_path.exists():
         raise FileNotFoundError(
             f"Workflow template not found: {template_path}\n"

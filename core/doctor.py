@@ -207,6 +207,13 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # not re-litigate it.
     findings.extend(_check_dimension_scope_drift(project))
 
+    # 14. The deployed CI workflow vs the template this harness ships
+    # (Round 40 站1). Offline, cross-file, at-rest — the same shape as
+    # git-sync and dimension-scope, and doctor is the one command that runs
+    # inside a consumer repo with the harness beside it, so it can see both
+    # files at once.
+    findings.extend(_check_ci_template_drift(project))
+
     # NOT here: the CI verdict for HEAD (Round 37). It was wired in and taken
     # back out — doctor is at-rest, offline, cross-FILE reconciliation, and a
     # `gh run list` per invocation makes every doctor call network-bound and
@@ -251,6 +258,25 @@ def _check_dimension_scope_drift(project: Path) -> list[Finding]:
         f"{latest.get('gate')}` so the verdict and the configuration agree, "
         f"or restore the feature flags the verdict was produced under.",
     )]
+
+
+def _check_ci_template_drift(project: Path) -> list[Finding]:
+    """WARN when the project's CI workflow is not the one this harness ships.
+
+    Round 40 站1. `init-project` copies templates/harness_quality_gate.yml
+    verbatim and never revisits it, so a project keeps running the gates of
+    whichever harness version installed it. taskq-renew was measured carrying
+    `|| true` (Round 37 removed it) and `--threshold 80` (Round 38 removed it)
+    long after both landed here.
+
+    WARN, never ERROR: an out-of-date CI file is not a wrong verdict, it is an
+    old one, and the repair is a single command the operator runs when they
+    choose to.
+    """
+    from core.ci_template import ci_template_drift
+
+    drift = ci_template_drift(project)
+    return [Finding("ci-template", "WARN", drift)] if drift else []
 
 
 def _check_submodule_behind(project: Path) -> list[Finding]:
