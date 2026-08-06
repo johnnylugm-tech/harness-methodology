@@ -27,6 +27,7 @@ the existing mutation_testing dimension — deliberately not re-scored here.
 
 from __future__ import annotations
 
+import ast as _ast
 import re
 from pathlib import Path
 
@@ -201,6 +202,60 @@ def _fr_has_property_test(fr_id: str, test_blobs: list[str]) -> bool:
     return False
 
 
+def _is_structural_tautology(predicate: str) -> bool:
+    """Detect canonical placeholder invariants by AST structure.
+
+    A structural tautology is an identity that is True by definition regardless
+    of input values — it expresses no constraint on system behaviour and is used
+    as a placeholder to bind a future obligation (documented in TEST_SPEC
+    guidance as "degenerate tautology, degrading to needs_review").
+
+    Detected patterns (purely structural, not evaluative):
+
+    * ``VAR == VAR`` — same ``ast.Name`` node on both sides of ``==``
+    * ``LITERAL == LITERAL`` — same ``ast.Constant`` value on both sides
+    * ``LITERAL != ""`` — a non-empty string literal compared to ``""``
+
+    Returns False for anything else, including predicates that happen to be
+    true for a specific input but are not identity statements (e.g. ``x > 0``
+    when ``x = 1`` is NOT a tautology — it constrains the input).
+    """
+    try:
+        tree = _ast.parse(predicate.strip(), mode="eval").body
+    except SyntaxError:
+        return False
+
+    # VAR == VAR  — same Name node on both sides
+    if (
+        isinstance(tree, _ast.Compare)
+        and len(tree.ops) == 1
+        and isinstance(tree.ops[0], _ast.Eq)
+    ):
+        left, right = tree.left, tree.comparators[0]
+        if isinstance(left, _ast.Name) and isinstance(right, _ast.Name):
+            return left.id == right.id
+        if isinstance(left, _ast.Constant) and isinstance(right, _ast.Constant):
+            return left.value == right.value
+
+    # LITERAL != ""  — non-empty string literal compared to empty string
+    if (
+        isinstance(tree, _ast.Compare)
+        and len(tree.ops) == 1
+        and isinstance(tree.ops[0], _ast.NotEq)
+    ):
+        left, right = tree.left, tree.comparators[0]
+        if (
+            isinstance(left, _ast.Constant)
+            and isinstance(left.value, str)
+            and left.value != ""
+            and isinstance(right, _ast.Constant)
+            and right.value == ""
+        ):
+            return True
+
+    return False
+
+
 def check_property_spec(project: Path, *, require_execution: bool) -> list[Violation]:
     """Return Violations for declared-property self-consistency + execution.
 
@@ -220,6 +275,9 @@ def check_property_spec(project: Path, *, require_execution: bool) -> list[Viola
 
     violations: list[Violation] = []
     # 1. self-consistency of declared invariants (reuse the red_assertion engine)
+    # Also collect which invariants are structural tautologies per FR.
+    _tautology_frs: set[str] = set()
+    _non_tautology_frs: set[str] = set()
     for fr_id, props in props_by_fr.items():
         cases = cases_by_fr.get(fr_id, [])
         for v in check_test_spec_consistency(cases, props):
@@ -227,11 +285,49 @@ def check_property_spec(project: Path, *, require_execution: bool) -> list[Viola
                 check_type=v.check_type, rule_id=v.rule_id or fr_id, severity=v.severity,
                 message=f"{fr_id} property {v.rule_id or ''}: {v.message}".replace("  ", " "),
                 extra=v.extra))
+        # Classify each invariant as tautology or real.  A tautology whose free
+        # variables are not all in the case inputs goes through Decider B and is
+        # NOT a structural identity — only Decider-A tautologies count.
+        _all_tautology = True
+        for p in props:
+            try:
+                _free = {n.id for n in _ast.walk(_ast.parse(p.predicate.strip(), mode="eval"))
+                         if isinstance(n, _ast.Name) and isinstance(n.ctx, _ast.Load)}
+            except SyntaxError:
+                _free = set()
+            _case_ids = set(p.applies_to)
+            _case_inputs: set[str] = set()
+            for cid in _case_ids:
+                for case in cases:
+                    if case.case_id == cid:
+                        _case_inputs |= set(case.inputs)
+            # Only classify as tautology if all free variables are case inputs
+            # (Decider A — the invariant is evaluable) AND the predicate is a
+            # structural identity.  A tautology that references outputs (Decider B)
+            # is meaningful — it constrains the output relative to itself.
+            if _free <= _case_inputs and _is_structural_tautology(p.predicate):
+                violations.append(Violation(
+                    check_type="tautology_placeholder", rule_id=fr_id, severity="info",
+                    message=(f"{fr_id} property {p.rule_id!r}: predicate "
+                             f"{p.predicate!r} is a structural tautology — "
+                             f"real invariant and property-based test expected "
+                             f"by fulfill_phase {p.fulfill_phase or 4}")))
+            else:
+                _all_tautology = False
+        if _all_tautology and props:
+            _tautology_frs.add(fr_id)
+        elif props:
+            _non_tautology_frs.add(fr_id)
 
     # 2. execution existence — declaring an invariant obliges a property test
     if require_execution:
         test_blobs = _load_test_sources(project)
         for fr_id in sorted(props_by_fr):
+            # FRs whose only declared invariants are structural tautologies
+            # have nothing to verify — skip the execution check.  A single
+            # real invariant keeps the FR in the execution path.
+            if fr_id in _tautology_frs and fr_id not in _non_tautology_frs:
+                continue
             if not _fr_has_property_test(fr_id, test_blobs):
                 violations.append(Violation(
                     check_type="property_not_executed", rule_id=fr_id, severity="error",

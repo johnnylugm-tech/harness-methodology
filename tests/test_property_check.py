@@ -292,3 +292,125 @@ def test_fulfill_phase_uses_max_across_frs(tmp_path: Path) -> None:
     r6 = _hooks(proj, 6).preflight_property_spec()
     assert r6["passed"] is False and r6["errors"] == 2
     assert r6.get("fulfill_phase") == 6
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Structural tautology detection (VAR == VAR, LITERAL == LITERAL, etc.)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_TAUT_FR = """### FR-01: tautology round-trip
+
+| # | Test Function | Inputs | Type | Derivation |
+|---|---|---|---|---|
+| 1 | `test_fr01_roundtrip` | source="abc" | happy_path | Q1 |
+
+**Properties**
+| property_id | invariant | applies_to |
+|---|---|---|
+| P1-id | `source == source` | 1 |
+"""
+
+
+def test_tautology_var_eq_var_skips_execution(tmp_path: Path) -> None:
+    """An FR whose only invariant is VAR == VAR → no property_not_executed error."""
+    proj = _project(tmp_path, _TAUT_FR)
+    vs = check_property_spec(proj, require_execution=True)
+    errors = [v for v in vs if v.severity == "error"]
+    assert not errors, f"tautology-only FR should have 0 errors, got: {errors}"
+    infos = [v for v in vs if v.check_type == "tautology_placeholder"]
+    assert len(infos) == 1
+
+
+def test_tautology_literal_eq_literal_skips_execution(tmp_path: Path) -> None:
+    body = _TAUT_FR.replace("`source == source`", '`"hello" == "hello"`')
+    proj = _project(tmp_path, body)
+    vs = check_property_spec(proj, require_execution=True)
+    errors = [v for v in vs if v.severity == "error"]
+    assert not errors
+
+
+def test_tautology_nonempty_literal_neq_empty_skips_execution(
+    tmp_path: Path,
+) -> None:
+    body = _TAUT_FR.replace("`source == source`", '`"hello" != ""`')
+    proj = _project(tmp_path, body)
+    vs = check_property_spec(proj, require_execution=True)
+    errors = [v for v in vs if v.severity == "error"]
+    assert not errors
+
+
+def test_mixed_tautology_and_real_still_requires_execution(
+    tmp_path: Path,
+) -> None:
+    """A single real invariant keeps the FR in the execution path."""
+    body = (
+        "### FR-01: mixed\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_x` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to |\n"
+        "|---|---|---|\n"
+        "| P1-id | `source == source` | 1 |\n"
+        "| P1-real | `len(source) == 3` | 1 |\n"
+    )
+    proj = _project(tmp_path, body)
+    vs = check_property_spec(proj, require_execution=True)
+    errors = [v for v in vs if v.severity == "error"]
+    not_executed = [v for v in errors if v.check_type == "property_not_executed"]
+    assert len(not_executed) == 1, (
+        f"mixed invariants should still require execution, got {len(not_executed)} errors"
+    )
+    # tautology should still be reported as info
+    infos = [v for v in vs if v.check_type == "tautology_placeholder"]
+    assert len(infos) == 1
+
+
+def test_non_tautology_still_requires_execution(tmp_path: Path) -> None:
+    """`len(source) > 0` is a real constraint, not a structural identity."""
+    body = (
+        "### FR-01: real\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_x` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to |\n"
+        "|---|---|---|\n"
+        "| P1-real | `len(source) > 0` | 1 |\n"
+    )
+    proj = _project(tmp_path, body)
+    vs = check_property_spec(proj, require_execution=True)
+    errors = [v for v in vs if v.severity == "error"]
+    assert any(v.check_type == "property_not_executed" for v in errors)
+
+
+def test_tautology_with_output_var_still_requires_execution(
+    tmp_path: Path,
+) -> None:
+    """A tautology referencing an output variable (Decider B path) is NOT
+    a structural identity — it constrains the output relative to itself."""
+    body = (
+        "### FR-01: output tautology\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | `test_fr01_x` | source=\"abc\" | happy_path | Q1 |\n\n"
+        "**Properties**\n"
+        "| property_id | invariant | applies_to |\n"
+        "|---|---|---|\n"
+        "| P1-out | `result == result` | 1 |\n"
+    )
+    proj = _project(tmp_path, body)
+    vs = check_property_spec(proj, require_execution=True)
+    # result is NOT a case input → goes through Decider B
+    # → not classified as structural tautology → execution required
+    assert any(v.check_type == "property_not_executed" for v in vs), (
+        "output-variable tautology should still require execution"
+    )
+
+
+def test_tautology_info_at_p3(tmp_path: Path) -> None:
+    """At P3 (require_execution=False), tautology info still appears."""
+    proj = _project(tmp_path, _TAUT_FR)
+    vs = check_property_spec(proj, require_execution=False)
+    assert not [v for v in vs if v.severity == "error"]
+    assert any(v.check_type == "tautology_placeholder" for v in vs)
