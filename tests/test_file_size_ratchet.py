@@ -167,7 +167,15 @@ _LINE_CEILING: dict[str, int] = {
     # discover_modules_at() (removed inline loop, +docstring paragraph
     # explaining the delegation) instead of a locally re-implemented rglob
     # loop that had silently diverged (never skipped __pycache__).
-    "cli/gate_cmds.py": 2672,
+    # 2026-08-07: +26 lines — Round 42 站2: `_record_undelivered_tests` puts
+    # the declared-but-absent test names into the degradation ledger and onto
+    # the namespace the gate-result patch block reads. The percentage they are
+    # a ratio of has always been in the verdict (taskq-renew's `traceability`
+    # score IS 81/89*100); the eight names behind it went to stdout only. The
+    # helper lives beside `_finalize_gate_cross_checks`, its single caller, so
+    # the one count feeds both records — moving it out would separate the
+    # ledger write from the check whose numbers it reports.
+    "cli/gate_cmds.py": 2698,
     # 2026-08-05: +16 net — _print_fr_scoped_overrides_py now runs every
     # co-owning FR's test file alongside fr_id's own one when a declared
     # source file (per fr_module_traceability) is shared by more than one

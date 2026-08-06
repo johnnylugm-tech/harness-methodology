@@ -179,6 +179,73 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
     return results
 
 
+def spec_coverage_report(
+    project: Path,
+    *,
+    fr_id: "str | None" = None,
+    _items: "list[dict] | None" = None,
+) -> dict:
+    """Which declared tests exist, which do not, and the ratio between them.
+
+    Round 42 站2. `_run_spec_coverage_check` has always known exactly which
+    declared tests are absent — it prints them — and has always returned only
+    `(exit_code, pct)`. The list was a local; stdout was the only place it
+    went.
+
+    Measured on taskq-renew with this module's own checker: 81/89 = 91.011...%
+    against Gate 4's threshold of 90.0, over by one point. That ratio is not
+    merely close to the `traceability` score in its committed
+    gate4_result.json — it is that number to the last digit
+    (91.01123595505618). So the count reached the verdict, the artifact and
+    the quality report, and the eight names behind it reached a terminal:
+    three `nfr_pattern`, four `fault_injection`, one static scan, every one of
+    them a p95 budget or a survives-SIGKILL case.
+
+    Returns ``{declared, implemented, covered, missing, pct}`` where `covered`
+    and `missing` are the parsed TEST_SPEC rows, each keeping its `type`,
+    `derivation` and `fr_id` — without those a name cannot say which
+    requirement lost its evidence.
+
+    `pct` is 100.0 for an empty declaration set. That is the same vacuous-pass
+    answer `_run_spec_coverage_check` gives, and it is that function, not this
+    one, that decides whether an empty set is legitimate (it blocks when FRs
+    are defined). This function reports; it does not adjudicate.
+
+    `_items` is for `_run_spec_coverage_check`, which has already parsed and
+    filtered the rows and must not parse them a second time — two parses is
+    two chances to disagree about the denominator.
+    """
+    from core.utils.lang_patterns import project_language
+
+    items = _items
+    if items is None:
+        spec_path = ProjectLayout(project).test_spec_path
+        items = _parse_test_spec(spec_path) if spec_path.exists() else []
+        if fr_id:
+            items = [i for i in items if i["fr_id"] == fr_id]
+
+    # Bug #130 fix (2026-06-27): the canonical harness layout puts tests at
+    # `03-development/tests/`, not `<project>/tests/`. _scan_test_functions
+    # reads only the directory it's pointed at, so without scanning both
+    # paths D4 spec-coverage reports 0% on the canonical layout. Combine
+    # both scans (dedup via set union) so projects with either layout
+    # produce the correct coverage percentage.
+    _lang = project_language(project)
+    actual_fns: set = set()
+    for test_dir in _get_test_directories(project):
+        actual_fns |= _scan_test_functions(test_dir, _lang)
+
+    covered = [i for i in items if i["test_fn"] in actual_fns]
+    missing = [i for i in items if i["test_fn"] not in actual_fns]
+    return {
+        "declared": len(items),
+        "implemented": len(covered),
+        "covered": covered,
+        "missing": missing,
+        "pct": (len(covered) / len(items) * 100) if items else 100.0,
+    }
+
+
 def _run_spec_coverage_check(
     project: Path,
     threshold: float = 80.0,
@@ -283,22 +350,8 @@ def _run_spec_coverage_check(
                 print("  Agent A may have hallucinated names. Re-run derive_test_cases.md.")
             return (1, 0.0)
 
-    from core.utils.lang_patterns import project_language
-
-    # Bug #130 fix (2026-06-27): the canonical harness layout puts tests at
-    # `03-development/tests/`, not `<project>/tests/`. _scan_test_functions
-    # reads only the directory it's pointed at, so without scanning both
-    # paths D4 spec-coverage reports 0% on the canonical layout. Combine
-    # both scans (dedup via set union) so projects with either layout
-    # produce the correct coverage percentage.
-    _lang = project_language(project)
-    actual_fns = set()
-    for test_dir in _get_test_directories(project):
-        actual_fns |= _scan_test_functions(test_dir, _lang)
-
-    covered = [i for i in items if i["test_fn"] in actual_fns]
-    missing = [i for i in items if i["test_fn"] not in actual_fns]
-    pct = len(covered) / len(items) * 100
+    report = spec_coverage_report(project, fr_id=fr_id, _items=items)
+    covered, missing, pct = report["covered"], report["missing"], report["pct"]
 
     if verbose:
         scope = f" [{fr_id}]" if fr_id else ""

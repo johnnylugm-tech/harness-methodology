@@ -1709,6 +1709,46 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
               file=sys.stderr)
 
 
+def _record_undelivered_tests(
+    args: argparse.Namespace, project_path: Path
+) -> "list[dict]":
+    """Put the declared-but-absent test names where the verdict can be re-read.
+
+    Two destinations, for the two questions. The degradation ledger answers
+    "what did this run not deliver?" — the same question
+    `dimension_scope.record_dimension_scope` writes there for a switched-off
+    dimension, and the same shape. `args._spec_undelivered` carries the list
+    to the gate-result patch block so the committed artifact answers "what was
+    this score computed over?" without counting a second time.
+
+    Returns the list so a caller can act on it; today nobody does — the
+    threshold ladder (Gate 1 40, G2/G3/G4 60/80/90) is stated, not derived,
+    and replacing one stated number with a stricter stated number is not a
+    fix. What changes here is that a pass over the ladder no longer erases
+    what it passed over.
+    """
+    report = spec_coverage.spec_coverage_report(project_path)
+    missing = [
+        {"test_fn": m["test_fn"], "type": m["type"],
+         "derivation": m["derivation"], "fr_id": m["fr_id"]}
+        for m in report["missing"]
+    ]
+    args._spec_undelivered = missing  # type: ignore[attr-defined]
+    args._spec_declared = report["declared"]  # type: ignore[attr-defined]
+    if missing:
+        from core.degradation_ledger import record_degradation
+        record_degradation(
+            project_path, "spec:undelivered",
+            f"{len(missing)} of {report['declared']} declared tests do not exist",
+            why=("TEST_SPEC.md names them and no test function does; "
+                 "spec-coverage scored "
+                 f"{report['implemented']}/{report['declared']} "
+                 f"= {report['pct']:.1f}%"),
+            data={"missing": missing},
+        )
+    return missing
+
+
 def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
     """I-5/I-6: Gates 2-4 D4 spec-coverage + PR 4 trace dimension.
 
@@ -1725,6 +1765,14 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
         _sc_code, _sc_pct = spec_coverage._run_spec_coverage_check(
             project_path, _sc_threshold, verbose=True
         )
+        # Round 42 站2: the names travel with the number. The percentage
+        # already reaches the verdict, the artifact and the quality report —
+        # taskq-renew's `traceability` score IS 81/89*100 to the last digit —
+        # while the eight declared-but-absent tests behind it reached stdout
+        # and nothing else. Recorded whether or not the check passed: a run
+        # over its threshold with eight missing performance and
+        # crash-atomicity cases is exactly the run nobody re-derives later.
+        _record_undelivered_tests(args, project_path)
         if _sc_code != 0:
             print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
             print("  Fix: add test cases for the uncovered TEST_SPEC.md sections, then re-run.")
@@ -1964,6 +2012,18 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         _gp_json["quality_complete"] = result.quality_complete
                         _gp_json["verdict"] = "PASS" if result.quality_complete else "FAIL"
                         _gp_json["passed"] = result.quality_complete
+                        # Round 42 站2: the spec-coverage percentage is already
+                        # in this file (it is the `traceability` dimension's 4b
+                        # component). The names it is a ratio of go in beside
+                        # it, from the one count `_record_undelivered_tests`
+                        # took — not a second scan, which would be a second
+                        # denominator. Always present, empty included, so a
+                        # reader can tell "nothing missing" from "this record
+                        # predates the field" (Round 39 站2's rule).
+                        _gp_json["spec_undelivered"] = getattr(
+                            args, "_spec_undelivered", [])
+                        _gp_json["spec_declared"] = getattr(
+                            args, "_spec_declared", 0)
                         # Round 30: framework-owned dimensions (architecture via the
                         # independent CRG run, adversarial_review via its own override —
                         # harness_bridge.py's _CRG_ONLY_DIMS / _override_adversarial_review_
