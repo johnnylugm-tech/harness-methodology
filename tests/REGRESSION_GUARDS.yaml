@@ -1424,3 +1424,91 @@
 - test: tests/test_configuration_doc.py::test_the_wrapper_detector_is_derived_not_guessed
   bug: "a hardcoded list of helper names would go stale the next time someone writes _read_env(); and a function that takes a parameter but reads a fixed variable is not a wrapper — treating it as one would register an env var named after the default"
   fixed_in: "R40-站2"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Round 41 — the step machine: what "done" means, and what a step may report
+# ─────────────────────────────────────────────────────────────────────────────
+
+- test: tests/test_fr_step_completion_truth.py::test_green_is_not_done_while_its_own_tests_fail
+  bug: "_fr_step_already_done decided TDD-GREEN from a commit matching 'feat(FR-04): GREEN' plus a [FR-04] tag in some source docstring. taskq-api's FR-04 satisfied both with a suite three-red — two of the three being regressions in an FR that already held Gate 1 100.0 — so the pipeline advanced onto a broken baseline and could not get back"
+  fixed_in: "R41-站1 (the FR's own test family, measured through run_suite, which the framework has owned since R25 站1 and never consulted here)"
+
+- test: tests/test_fr_step_completion_truth.py::test_red_is_not_done_while_its_own_tests_pass
+  bug: "RED is defined by a test that FAILS; commit-grep plus file-exists reported done for a test that passes, which is the opposite state"
+  fixed_in: "R41-站1"
+
+- test: tests/test_fr_step_completion_truth.py::test_red_stays_done_once_green_has_landed
+  bug: "站1's fix judged RED by the tree forever. GREEN's job is to make that test pass, so from GREEN onward every completed FR read as not-done and resume-fr-phase looped back to TDD-RED — a fix for an unbounded loop that introduced one"
+  fixed_in: "R41-站4 (RED short-circuits on a landed GREEN; its evidence is destroyed by the step that follows it)"
+
+- test: tests/test_fr_step_completion_truth.py::test_green_is_done_when_its_own_tests_pass
+  bug: "a check that answers False everywhere blocks every project instead of the broken ones"
+  fixed_in: "R41-站1 (positive control)"
+
+- test: tests/test_fr_step_completion_truth.py::test_red_is_done_when_its_own_tests_fail
+  bug: "same control for the mirrored condition"
+  fixed_in: "R41-站1 (positive control)"
+
+- test: tests/test_fr_step_completion_truth.py::test_no_commit_still_means_not_done
+  bug: "a green suite proves the code works, not that this step ran — commit evidence stays a necessary condition (the 2026-07-21 relaxation that let a leftover artifact mark a step done)"
+  fixed_in: "R41-站1"
+
+- test: tests/test_fr_step_completion_truth.py::test_a_project_with_nothing_to_measure_keeps_its_old_answer
+  bug: "Round 32 站4: a measurement that could not be taken is not a failing measurement. run_suite returns ran=False for every js/ts project by design, and reading that as 'not done' would block their whole TDD chain"
+  fixed_in: "R41-站1"
+
+- test: tests/test_step_precondition_blocked.py::test_a_precondition_block_is_not_a_missing_commit
+  bug: "every commit-required step had to produce a commit, carve-out only for a GATE1 evaluator reporting pass=false. taskq-api's TDD-IMPROVE correctly refused to refactor a red baseline and returned commit=null; the framework recorded 'returned empty commit', EXECUTION_ERROR, exit 1, and the orchestrator re-dispatched into the identical refusal eight times"
+  fixed_in: "R41-站2 (PRECONDITION_BLOCKED joins _INNER_BLOCKED_SIGNATURES — Round 26's existing route for 'I could not run; here is why')"
+
+- test: tests/test_step_precondition_blocked.py::test_a_verified_precondition_block_aborts_with_remediation
+  bug: "a stop the caller cannot distinguish from any other failure leaves running the same command as its only move (Round 24: a block that does not say what to do is half a block)"
+  fixed_in: "R41-站2 (exit 35, the failing baseline named, both ways out printed)"
+
+- test: tests/test_step_precondition_blocked.py::test_an_unverified_precondition_claim_is_still_an_error
+  bug: "without checking the claim, PRECONDITION_BLOCKED becomes a universal opt-out from the commit requirement — any step could decline any work by naming a precondition nobody measured"
+  fixed_in: "R41-站2 (Round 35's rule: the framework's own measurement precedes the agent's claim)"
+
+- test: tests/test_step_failure_memory.py::test_an_identical_failure_on_an_unchanged_tree_is_refused
+  bug: "_turn_budget_escalated, _wallclock_escalated and no_progress_count are locals of cmd_run_fr_step while the execution model is one process per step, so every counter reset on every retry. taskq-api's FR-04 bought eight byte-identical failures for $6.02 across 3h11m"
+  fixed_in: "R41-站3 (core/step_failure_memory.py reads back the degradation ledger; exit 36)"
+
+- test: tests/test_step_failure_memory.py::test_the_refusal_is_recorded_in_the_ledger
+  bug: "the ledger held four lines for that entire run and not one of them mentioned the repetition"
+  fixed_in: "R41-站3"
+
+- test: tests/test_step_failure_memory.py::test_a_changed_tree_re_opens_the_step
+  bug: "a refusal with no way out would trade an unbounded retry loop for an unbreakable stop — the same defect facing the other way. Any repair re-opens the step; a blind re-run does not"
+  fixed_in: "R41-站3 (the tree fingerprint is half the key)"
+
+- test: tests/test_step_failure_memory.py::test_two_different_failures_are_not_one_repeat
+  bug: "counting on (FR, step) alone would turn 'this keeps happening' into 'this has happened twice' — different claims, and only the first justifies refusing to spend anything more"
+  fixed_in: "R41-站3 (the count keys on the signature)"
+
+- test: tests/test_transport_vs_semantic_failure.py::test_the_agents_own_words_do_not_diagnose_the_transport
+  bug: "_INFRA_ERROR_RE's members — 401, 403, 404, 429, 5xx, api key, authentication, rate limit, quota, permission denied — are the subject matter of any HTTP API project, and _effective_error_class re-derived the class from error_output, which since R26 站2 carries the sub-agent's verbatim reply. Four replies in taskq-api's own domain all classify INFRA_ERROR. Measured as a hazard, not a wound: 984 records across five projects, twelve re-derivations, all twelve correct"
+  fixed_in: "R41-站3 (a transport_error field carrying only CLI-envelope and stderr text; a registry can never tell 'the API returned 401' from 'the test asserts 401', only provenance can)"
+
+- test: tests/test_transport_vs_semantic_failure.py::test_a_semantic_failure_always_declares_no_transport
+  bug: "the reader can only use the right field if the writer always fills it — an _error_result path that omitted transport_error would silently fall back to scanning the agent's prose and no reader-side test would notice"
+  fixed_in: "R41-站3 (producer-side guard over every _error_result shape)"
+
+- test: tests/test_transport_vs_semantic_failure.py::test_a_transport_failure_carries_the_transport_text
+  bug: "over-scrubbing is the opposite failure: an empty field on a real network fault would make every one of them read as agent-logic error"
+  fixed_in: "R41-站3"
+
+- test: tests/test_transport_vs_semantic_failure.py::test_a_real_transport_failure_is_still_a_transport_failure
+  bug: "positive control on the exact text taskq-api's eight identical FR-04 failures carried — the separation must not cost the real signal"
+  fixed_in: "R41-站3"
+
+- test: tests/e2e/test_cli_journeys.py::TestPerFrStepJourneys::test_a_green_commit_over_a_still_red_test_asks_for_green_again
+  bug: "the per-FR step machine had no black-box coverage at all — sim_runner walks the workflow JS, the unit tests mocked the suite away — which is why D1/D2/D3 survived twenty-four rounds. _fr_step_already_done went untouched from 2026-07-21 through all of them"
+  fixed_in: "R41-站4 (resume-fr-phase driven as a real subprocess against a real repo; this journey is the taskq-api deadlock)"
+
+- test: tests/e2e/test_cli_journeys.py::TestPerFrStepJourneys::test_a_green_commit_over_a_passing_test_moves_on
+  bug: "this journey failed on its first run and found the TDD-RED regression 站1 had just introduced — no unit fixture could, because each held one step's evidence and the defect exists only in the sequence"
+  fixed_in: "R41-站4"
+
+- test: tests/e2e/test_cli_journeys.py::TestPerFrStepJourneys::test_a_red_test_and_a_red_commit_asks_for_green
+  bug: "the entry state of the same journey — without it the two above could both hold for a machine that always answers TDD-GREEN"
+  fixed_in: "R41-站4 (positive control)"

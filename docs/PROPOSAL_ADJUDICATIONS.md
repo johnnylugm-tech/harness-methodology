@@ -1860,3 +1860,110 @@ ruff clean；`--check` 9/9。
 反證 CP-3（把 `CRG_COMMUNITY_OVERSIZED` 的 env 層放回去）同時打紅
 `test_gate_knobs_are_not_ambient` **與** `test_every_env_var_read_is_documented`
 ——後者是缺口 B 的新掃描器帶來的，證明兩個修復互相扣住。
+
+---
+
+## Round 41（2026-08-06）—— 步驟機：判定「做完了」的那一層
+
+起點是老闆的問題：taskq-api 卡在 P3 FR-04，查它的執行紀錄與 harness git history，
+找根本性/結構性問題。
+
+答案：**taskq-api 不是 agent 做錯了，是框架走進了一個沒有出口的狀態**，而
+`resume-fr-phase` 會永遠把它導回同一個死結。本輪五站修完，該專案全程唯讀
+（量測期間另有 session 在手動修它，見下）。
+
+### 死結的完整因果鏈（每一步都有硬證據，量測於 17:17–17:22，HEAD `0311a42`）
+
+| # | 事實 | 證據 |
+|---|---|---|
+| 1 | TDD-GREEN 的 dispatch 在**提交之後**才被網路砍斷 | `0311a42 feat(FR-04): GREEN` 存在；同一步驟 spawn 紀錄 `status=ERROR error_class=INFRA_ERROR duration=1176s` |
+| 2 | 那個 GREEN 是壞的 | `pytest` **3 failed / 33 passed**，其中 2 條是 **FR-03 的回歸**（該 FR 已持有 Gate 1 100.0） |
+| 3 | 框架仍認定 GREEN 做完了 | `_fr_step_already_done("TDD-GREEN","FR-04")` → **True**（實跑） |
+| 4 | 流程被推到 TDD-IMPROVE | `resume-fr-phase --phase 3` → 實際輸出 `--step TDD-IMPROVE` |
+| 5 | TDD-IMPROVE 誠實拒絕 | `{"status":"DONE","refactored":false,"commit":null,"summary":"baseline test broken; no refactor performed"}` |
+| 6 | 框架把「正確地什麼都沒做」翻成錯誤 | `Commit-required step 'TDD-IMPROVE' returned empty commit` → EXECUTION_ERROR → exit 1 |
+| 7 | 回到第 4 步 | **8 次逐位元相同的失敗**、**$6.02**、**3h11m**，ledger 對這串重複零字 |
+
+第 3 步是根：**「這一步做完了」是用 commit message 考古決定的，從來沒問過這一步的
+定義本身。** 框架自 R25 站1 就擁有 `run_suite`（memo + fingerprint + per-test
+`test_outcomes`），有五個消費者——步驟完成判定不是其中之一。
+
+**為什麼 24 輪沒抓到**：`_fr_step_already_done` 最後一次實質修改是 `b36b233`
+（2026-07-21），早於 Round 17。R17–R40 重建了 gate / evidence / threshold /
+verdict 層；`tests/e2e/` 走 doctor / advance / fast-path / help，`sim_runner`
+走 workflow JS，**沒有任何黑箱路徑走 per-FR 步驟機**。
+母體第十二次：**被審計的面 ≠ 做決定的面**。
+
+### 五個發現與裁決
+
+| ID | 病灶 | 裁決 |
+|----|------|------|
+| **D1** | 步驟完成用 commit 考古，框架已有 `run_suite` 卻沒接 | 站1 接上，範圍限這個 FR 自己的測試族 |
+| **D2** | commit-required 步驟無法表達「前提破了，正確地什麼都沒做」 | 站2 `PRECONDITION_BLOCKED` 進既有 registry + 查核宣稱 |
+| **D3** | 失敗調適記憶全在 process 記憶體，執行模型卻是一步驟一 process | 站3 從 degradation ledger 讀回 |
+| **D4** | INFRA_ERROR 的簽章與消費專案領域詞彙重疊 | 站3 同一 commit（D3 的前提） |
+| **D5** | 步驟機無黑箱覆蓋 → 前三項活過 24 輪 | 站4 e2e journey |
+
+### 自我證偽與自我修正（兩件，都寫在這裡而不是藏起來）
+
+**(a) D4 是潛在危害，不是活傷口。** 合成樣本實測：HTTP API 專案的四種 agent
+回覆（「403」「rate limit」「require_api_key」「tests fail (401)」）全部被判
+INFRA_ERROR。但掃 5 專案 **984 筆**紀錄，`EXECUTION_ERROR → INFRA_ERROR` 的
+重推導只有 taskq 的 12 筆，**12 筆全對**。零真實誤判。所以它不獨立成站，
+而是 D3 的前提——D3 讓失敗分類第一次能改變控制流，那一刻危害才會變成傷口。
+
+**(b) 站1 的修法自己造了一個新迴圈，被站4 的 e2e 當場抓到。** 站1 給 TDD-RED
+的真值條件是「這個 FR 的測試失敗」，這在 RED 還是當前步驟時是對的，之後永遠是錯的
+——GREEN 的工作就是讓那條測試通過，所以從 GREEN 之後每個完成的 FR 都會讀成
+未完成，`resume-fr-phase` 把所有人送回 TDD-RED。**為了修一個無界迴圈而造出另一個。**
+正解：RED 的證據被它的下一步銷毀，所以樹只在 RED 還是當前步驟時能回答它；GREEN
+真正落地（commit 在且測試過）之後，commit 是唯一存在過的紀錄——這是步驟的性質，
+不是檢查的弱點。任何單元 fixture 都抓不到，因為每個只持有單一步驟的證據，
+缺陷只存在於序列中。
+
+**(c) 一條站0 測試斷言了錯的東西，被改正而不是被滿足。** 「不同的失敗應該得到
+自己的一次嘗試」對一個**發生在 dispatch 之前**的拒絕不可能成立——它按定義無法
+知道下一次會怎麼失敗。真正為真且已測的是：不同的失敗不會累加成一次重複。
+
+### 順帶查出的第三個 prompt↔gate 矛盾
+
+`build_tdd_improve_prompt` 第 5 步原文寫著 "If no refactor needed: no commit
+required."，輸出格式給的是 `"commit": "<hash or null>"`——**框架明文授權了它自己
+會拒絕的事**。taskq-api 的 agent 照做，然後被判為錯誤。這是 R17 站1 命名、
+R39 站0 立規則的同一形狀，活在唯一沒被審過的那個步驟裡。站2 一併修正。
+
+### 明列不做（附再開條件）
+
+- **TDD-IMPROVE 在綠 baseline 上「確實沒東西可重構」仍是錯誤。** 修完站2 後，
+  它是唯一剩下的無 commit 合法結局而沒有表示法。屬**潛在**而非活傷口：taskq /
+  taskq-plus / taskq-renew / taskq-api 每個 FR 都有 `refactor(FR-NN): IMPROVE`
+  commit，沒有 agent 報過「沒東西可做」。正解需要決定「一個不產生 commit 的步驟
+  如何記錄自己完成」，牽動 idempotency 契約，本輪刻意不碰。
+  **再開條件**：任一專案的 IMPROVE 步驟回報無可重構。
+- **不碰 taskq-api**（量測期間 17:18–17:37 另有 session 在手動修它，`app.py` /
+  `test_fr03.py` / `test_fr04.py` 陸續變動、`tests/conftest.py` 新建，而
+  `sessions_spawn.log` 無新紀錄 → 不是 harness 發的；17:37 該 session 已讓
+  FR-04 的 Gate 1 finalize）。全部驗收改用 `/tmp` clone pin 在 `0311a42`
+  並還原當時的 sentinel，與他們的編輯無關。
+- **不改任何門檻數值、不重判任何既有 gate 結果、不動 branch protection。**
+- **不為 INFRA_ERROR 加自動退避**：站3 只把分類建在正確的欄位上。
+
+### 驗證
+
+pytest 6866 → **6890** passed / 4 skipped；guards 344 → **365**；
+ruff clean；`--check` 9/9；`node --check` 11/11；sim 94/94。
+
+**端到端收尾判定**（`/tmp` clone pin `0311a42` + 還原的 deadlock sentinel，
+用該專案自己的 venv 跑真實測試）：
+
+```
+resume-fr-phase   修復前 → --step TDD-IMPROVE   （死結）
+                  修復後 → --step TDD-GREEN     （真正未完成的那一步）
+
+run-fr-step --step TDD-IMPROVE（stub spawner）
+  → [BLOCKED] Verified: this FR's own tests are failing.
+  → exit=35  dispatches=1
+```
+
+同一顆 clone 上 FR-01/02/03 的 GREEN 判定不變（Gate 1 cascade 短路），
+只有 FR-04 翻轉——per-FR-family 而非全套的範圍選擇，是這件事的原因。

@@ -238,10 +238,23 @@ classes because the fix loop had been guessing at both.
 | `error_class` | Means | Routes to |
 |---|---|---|
 | `STRUCTURAL` | Deterministic environment breakage; retry can never succeed | abort with remediation |
-| `INFRA` | The sub-agent reported a precondition blocker (`INFRA_BLOCKED`) — the tools never ran | abort; **never** CODE-FIX, never an identical re-dispatch |
+| `INFRA` | The sub-agent reported a blocker — `INFRA_BLOCKED` (the tools never ran) or `PRECONDITION_BLOCKED` (they ran and reported an unmet precondition) | abort; **never** CODE-FIX, never an identical re-dispatch |
 | `TURN_BUDGET` | Cut off at its max-turns ceiling; the agent was working, the budget ended | re-dispatch the SAME step once at double the ceiling, recorded in the degradation ledger |
 | `INFRA_ERROR` | Network / auth / rate-limit / model-unavailable | caller's retry policy |
 | `EXECUTION_ERROR` | Everything else | the ordinary fix loop |
+
+**Which text the class is derived from (Round 41 站3).** `_classify_dispatch_error`
+is a signature scan, and its members — 401, 403, 404, 429, 5xx, `api key`,
+`authentication`, `rate limit`, `quota`, `permission denied` — are also the
+subject matter of any project that builds an HTTP API. Since Round 26 站2
+`error_output` deliberately carries the sub-agent's verbatim reply, so re-deriving
+the class from that field hands the vote to whatever the agent happened to write:
+four replies drawn from taskq-api's own domain all classify `INFRA_ERROR`. Every
+record therefore carries a separate **`transport_error`** field — the CLI
+envelope and stderr, `""` on a semantic failure, absent only on records written
+before this round — and `core.failure_modes._effective_error_class` re-derives
+from that. No registry can distinguish "the API returned 401" from "the test
+asserts 401"; the strings are identical and only their provenance differs.
 
 Two rules this table encodes, both bought with real incidents:
 
@@ -640,3 +653,47 @@ different tree answers a different question.
 
 Route: **not INFRA and not CODE-FIX** — run `verify-gate` against the tree you
 are about to advance. The block message carries the command.
+
+## A step that correctly did nothing (Round 41 站2)
+
+Every commit-required step must produce a commit, with two carve-outs, and both
+are the same shape of honest answer:
+
+| the step reports | the framework does | exit |
+|---|---|---|
+| a GATE1/GATE1-DELTA verdict with `pass: false` | ordinary FAIL path — finalize-gate only commits on a pass | (fix loop) |
+| `PRECONDITION_BLOCKED`, **and the FR's tests really do fail** | stop, name the failing baseline, print both ways out | **35** |
+| `PRECONDITION_BLOCKED`, but the FR's tests pass | ordinary step failure — the claim is contradicted by the tree it describes | 1 |
+| `PRECONDITION_BLOCKED`, and the suite cannot be measured here | honoured, and recorded in the degradation ledger as accepted-without-verification | 35 |
+
+Route: **not CODE-FIX.** A refactor step handed a red baseline has no code
+defect to fix — refactoring over a red baseline is how a known failure becomes
+an unattributable one. Repair the named baseline, or revert the step that broke
+it.
+
+The incident: taskq-api's FR-04 TDD-IMPROVE reported
+`{"status": "DONE", "refactored": false, "commit": null, "summary": "baseline
+test broken; no refactor performed"}` — the correct answer — and the framework
+recorded `Commit-required step 'TDD-IMPROVE' returned empty commit`, exit 1. The
+prompt had meanwhile been telling the agent "If no refactor needed: no commit
+required", so the framework was punishing the agent for obeying it.
+
+## A failure the framework has already paid for (Round 41 站3)
+
+`run-fr-step` refuses (exit 36) when this `(FR, step)` has already failed
+`_STEP_RETRY_ATTEMPTS` times with an identical signature **on this exact tree**.
+
+Route: **neither INFRA nor CODE-FIX** — read
+`.methodology/degradations.jsonl` for the signature and fix its cause.
+
+Both bounds are derived rather than chosen. How many attempts: the number the
+in-process retry loop already spends. When the refusal lifts: when the tree
+changes — an identical prompt against an identical tree cannot produce a
+different answer, so any repair re-opens the step and a blind re-run does not.
+There is deliberately no override flag; a flag would be a way to keep paying.
+
+The incident: taskq-api's FR-04 failed eight times with byte-identical output
+across 3h11m for $6.02, and the ledger held four lines for the whole run, none
+of them about the repetition. Every counter that could have noticed —
+`_turn_budget_escalated`, `_wallclock_escalated`, `no_progress_count` — is a
+local of `cmd_run_fr_step`, and the execution model is one process per step.
