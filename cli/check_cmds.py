@@ -590,6 +590,7 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
         check_nfr_adr_coverage,
     )
     from core.quality_gate.security_design import check_security_design
+    from core.quality_gate.srs_structure import check_srs_structure
 
     phase_val = load_state(project, lenient=True).get("current_phase")
     current_phase = phase_val if isinstance(phase_val, int) else None
@@ -598,7 +599,12 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
                   + check_module_fr_coverage(project)
                   + ([] if getattr(args, 'forward_refs_only', False)
                      else check_nfr_adr_coverage(project))
-                  + check_security_design(project, phase=current_phase))
+                  + check_security_design(project, phase=current_phase)
+                  # Round 42 站3: the SRS's machine-readable FR Block. Added at
+                  # BOTH callers of this set in the same commit — the reason
+                  # `check_security_design` keeps its phase rules inside
+                  # itself is that two callers is two chances to disagree.
+                  + check_srs_structure(project))
     errors = [v for v in violations if v.severity == "error"]
     reviews = [v for v in violations if v.severity == "info"]
     for v in errors:

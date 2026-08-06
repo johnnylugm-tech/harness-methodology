@@ -610,7 +610,12 @@ _LINE_CEILING: dict[str, int] = {
     # records the skip in the degradation ledger. This is the switch that
     # turns CI's absolute architecture floor into an unconditional pass; its
     # only previous trace was an INFO line that dies with the CI log.
-    "cli/check_cmds.py": 1663,
+    # 2026-08-07: +6 lines — Round 42 站3: `check_srs_structure` joins the
+    # artifact-consistency violation set at both of its callers. Adding it at
+    # one caller and not the other is how `check_security_design` grew its
+    # "keep the phase rules inside the check" rule, so both call sites move in
+    # the same commit; the six lines here are the import and the addend.
+    "cli/check_cmds.py": 1669,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry

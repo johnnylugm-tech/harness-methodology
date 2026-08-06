@@ -1097,12 +1097,21 @@ class PhaseHooks:
             check_nfr_adr_coverage,
         )
         from core.quality_gate.security_design import check_security_design
+        from core.quality_gate.srs_structure import check_srs_structure
         print("\n[PRE-FLIGHT] Artifact Consistency")
         try:
             violations = check_forward_refs(self._layout.root) + check_module_fr_coverage(self._layout.root)
             if self.phase is not None and self.phase >= 3:
                 violations = violations + check_nfr_adr_coverage(self._layout.root)
             violations = violations + check_security_design(self._layout.root, phase=self.phase)
+            # Round 42 站3: the SRS's machine-readable FR Block. It joins this
+            # set rather than growing its own hook because the phase rule it
+            # needs is the one already here — informational at P1, blocking
+            # from P2, i.e. "the block exists by the time Phase 1 is over".
+            # taskq-plus and taskq-api both entered P2 without one and were
+            # read downstream as declaring no FR metadata; the only thing that
+            # said so was a WARNING on stdout.
+            violations = violations + check_srs_structure(self._layout.root)
         except Exception as e:  # noqa: BLE001 — fail-closed on scan error
             print(f"   [BLOCKED] artifact-consistency scan error: {e}")
             return {"passed": False, "blocking": True, "error": str(e)}
