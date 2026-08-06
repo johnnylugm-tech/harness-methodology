@@ -2024,6 +2024,19 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                             args, "_spec_undelivered", [])
                         _gp_json["spec_declared"] = getattr(
                             args, "_spec_declared", 0)
+                        # Round 42 站4: the composite's denominator, and the
+                        # ruler the architecture score was measured with. Both
+                        # were computed inside finalize_gate where the weights,
+                        # the disabled set and crg_metrics.json all are, and
+                        # stashed on the context — recomputing either here
+                        # would be a second derivation of the same quantity.
+                        _ms = getattr(ctx, "measurement_scope", None)
+                        if _ms:
+                            _gp_json["measurement_scope"] = _ms
+                        _ac = getattr(ctx, "architecture_calibration", None)
+                        if _ac and any(v is not None for v in _ac.values()):
+                            _gp_json.setdefault("breakdown", {}).setdefault(
+                                "architecture", {})["calibration"] = _ac
                         # Round 30: framework-owned dimensions (architecture via the
                         # independent CRG run, adversarial_review via its own override —
                         # harness_bridge.py's _CRG_ONLY_DIMS / _override_adversarial_review_

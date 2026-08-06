@@ -140,7 +140,14 @@ _LINE_CEILING: dict[str, int] = {
     # recording that, since the omission never failed a test.
     # (Owed to 站1's commit 8e54c60, which shipped this ratchet red; caught
     # one commit late because only the tail of the suite output was read.)
-    "harness/harness_bridge.py": 3748,
+    # 2026-08-07: +70 lines — Round 42 站4: `measurement_scope()` and its
+    # docstring (the taskq-plus 0.86-weight vs taskq-renew 1.00-weight
+    # measurement that makes the function necessary), plus the
+    # architecture-calibration stash at the end of the CRG override where
+    # crg_metrics.json is already in scope. Both sit where the values they
+    # report are computed; carrying them to the write site instead would
+    # mean loading the gate config and crg_metrics twice.
+    "harness/harness_bridge.py": 3818,
     # 2026-08-04 (Round 35 站3): +37 — `_mutation_artifact_violations` returns
     # two lists instead of one (a missing artifact is a run to repair, not a
     # claim to withdraw) and its call moved above the agent-score early exit,
@@ -175,7 +182,13 @@ _LINE_CEILING: dict[str, int] = {
     # helper lives beside `_finalize_gate_cross_checks`, its single caller, so
     # the one count feeds both records — moving it out would separate the
     # ledger write from the check whose numbers it reports.
-    "cli/gate_cmds.py": 2698,
+    # 2026-08-07: +13 lines — Round 42 站4: the gate-result patch block
+    # writes `measurement_scope` (what the composite was averaged over) and
+    # the architecture entry's `calibration` (which cohesion floor and how
+    # many files the CRG graph held). Both are read from the context, not
+    # recomputed — a second derivation of a denominator is a second
+    # denominator — so the lines here are the read and the two writes.
+    "cli/gate_cmds.py": 2711,
     # 2026-08-05: +16 net — _print_fr_scoped_overrides_py now runs every
     # co-owning FR's test file alongside fr_id's own one when a declared
     # source file (per fr_module_traceability) is shared by more than one

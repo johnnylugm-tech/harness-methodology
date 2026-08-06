@@ -292,6 +292,58 @@ def _mark_framework_na(dim_entry: dict, tool: str, returncode: int) -> None:
     dim_entry["score_source"] = SCORE_SOURCE_FRAMEWORK_NA
     dim_entry["na_verified_by"] = f"{tool} (rc={returncode})"
 
+
+def measurement_scope(
+    dims: "list[DimResult]",
+    weights: "dict[str, float]",
+    *,
+    disabled: "tuple[str, ...] | frozenset[str]" = (),
+) -> dict:
+    """What the composite was averaged over — the denominator, beside the number.
+
+    Round 42 站4. `harness/ssi/scripts/score.py:431` computes
+    ``overall_score = weighted_sum / weight_sum`` where ``weight_sum``
+    accumulates only the dimensions that were scored, and
+    `filter_enabled_dimensions` removes flag-disabled ones before that loop
+    ever sees them. Removing a dimension therefore RAISES the mean, and the
+    file that removes it — `.methodology/harness_config.json` — is committed
+    by the project being judged. The three that can be removed
+    (`mutation_testing`, `architecture`, `adversarial_review`) are the three
+    the framework scores itself.
+
+    Measured on the two projects that ran the same 494-line SPEC.md:
+    taskq-plus published composite 98.707 over weight 0.86 (13 dimensions,
+    mutation switched off and performance N/A); taskq-renew published 93.166
+    over 1.00. Recomputing plus's number from `gate4_p6_full.yaml`'s weights
+    reproduces the committed value to the last digit, so the arithmetic was
+    never in question — but both numbers are published in
+    `gate{N}_result.json` and in QUALITY_REPORT.md's
+    ``| Gate 4 composite score | >= 85 | {value} |`` row with nothing saying
+    what they were averaged over. A reader comparing them, which is what
+    happened, compares 0.86 of the quality surface against 1.00 of it.
+
+    Round 39 站2 made a disabled dimension visible in the ledger,
+    `gate_verify.jsonl` and the quality manifest. It did not make it visible
+    beside the number it moves, and `weight_covered` existed nowhere.
+    Round 37's rule — the denominator travels with the number — one level up.
+
+    This changes no verdict. A dimension that could not be measured is still
+    not scored zero (Round 35), and a project may still switch one off: a JS
+    project with no mutmut is a real case, and 站0 measured that the
+    `SCORE_SOURCE_FRAMEWORK_NA` path cannot speak for it — that marker is set
+    only where the framework RAN the tool, and a flag-disabled dimension never
+    reaches that loop.
+    """
+    scored = sorted(d.name for d in dims if d.score is not None)
+    unscored = sorted(d.name for d in dims if d.score is None)
+    return {
+        "weight_covered": round(sum(weights.get(n, 0.0) for n in scored), 10),
+        "weight_total": round(sum(weights.values()), 10),
+        "dimensions_scored": scored,
+        "dimensions_unscored": unscored,
+        "dimensions_disabled": sorted(disabled),
+    }
+
 # Minimum byte size for a tool_output file to be considered non-stub.
 # Real tool output is always larger than this; pure comment lines are typically
 # under 80 bytes.
@@ -2919,6 +2971,26 @@ class HarnessBridge:
                         f"score={float(_arch_score):.1f}"
                     )
                 dims = _new_dims
+            # Round 42 站4c: the ruler travels with the number. The
+            # calibration and the graph's size are computed already —
+            # `crg_independent.py` puts `_cohesion_threshold` inside
+            # `community_cohesion` and `_graph_files` / `_source_files`
+            # alongside it (Round 37 站2) — but they stop at
+            # `.sessi-work/crg_metrics.json`, which is gitignored and which
+            # advance-phase deletes, while the score they qualify is
+            # committed. taskq-plus scored architecture 100.0 at
+            # `crg_cohesion_healthy: 0.2` and taskq-renew 77.8 at 0.25, and
+            # neither gate result says which ruler it used. Written by the
+            # framework, not narrated by the agent: plus's evidence string
+            # mentioned its 0.2 in prose the agent wrote, renew's mentioned
+            # nothing.
+            _coh = (_crg_m or {}).get("community_cohesion") or {}
+            ctx.architecture_calibration = {  # type: ignore[attr-defined]
+                "cohesion_healthy": _coh.get("_cohesion_threshold"),
+                "community_oversized": _coh.get("_community_oversized"),
+                "graph_files": (_crg_m or {}).get("_graph_files"),
+                "source_files": (_crg_m or {}).get("_source_files"),
+            }
 
         # ── PR 4 (audit F-1.1 fix): framework trace score override ─────
         # The agent cannot compute the trace dimension (no tool to scan
@@ -3112,6 +3184,15 @@ class HarnessBridge:
             if _unverified_na:
                 _failing += [f"{n}=N/A (unverified)" for n in _unverified_na]
             print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
+
+        # Round 42 站4b: what the composite was averaged over, computed where
+        # the weights and the disabled set both already are. Stashed on the
+        # context rather than recomputed at the write site, for the reason
+        # `spec_coverage_report` takes its rows as an argument: a second
+        # derivation of the denominator is a second denominator.
+        ctx.measurement_scope = measurement_scope(  # type: ignore[attr-defined]
+            dims, _dim_weights, disabled=_disabled_dims,
+        )
 
         result = GateResult(
             gate_num=ctx.gate_num,
