@@ -45,6 +45,42 @@ consumed via `is_dim_disabled()`. `security_design` is NOT a gate dimension
 (no `_DIM_TO_FEATURE` entry) — it is a decidable preflight/CLI structural
 check, not a scored dimension (see §6).
 
+### Switching a dimension off leaves a record (Round 39 站2)
+
+The three dimension flags above are the only settings in this file that can
+change a gate's verdict. Switching one off is legitimate — a project may
+genuinely have no mutmut or no code-review-graph — but it is never silent.
+Any code path that skips a dimension because of a flag **must** route through
+`core/quality_gate/dimension_scope.py`:
+
+```python
+from core.quality_gate.dimension_scope import record_dimension_scope
+record_dimension_scope(project, gate=gate_num)
+```
+
+That is an obligation on new skip sites, not a suggestion. Before it existed,
+a `false` would drop the dimension from scoring, make `crg-arch-check` return
+0 on the spot — turning CI's absolute architecture floor into an unconditional
+pass — and skip Gate 4's CRG-recon check, leaving exactly one `print()` behind.
+Nothing reached the degradation ledger, the quality manifest, the gate result
+or `gate_verify.jsonl`.
+
+What a skip now produces:
+
+| Where | What |
+|---|---|
+| `.methodology/degradation_ledger.jsonl` | one entry per skipped dimension, component `gate:dimension-disabled`, naming the flag |
+| `.methodology/gate_verify.jsonl` | `dimensions_disabled` on the verdict — written even when empty, so "nothing was disabled" is distinguishable from a record predating the field |
+| `.methodology/quality_manifest.json` | the same field on the gate result |
+| `harness_cli.py doctor` | WARNs when the current flags disagree with the set the latest verdict was measured over |
+
+`harness_config.json` is committed, so a flag applies to CI as well as to a
+local run — which is what makes it a *calibration* rather than a local
+exemption. The same property is why calibrating `crg_excludes` /
+`crg_cohesion_healthy` (§ below) is the only sanctioned answer to a CRG false
+positive: a waiver reached one enforcer, a committed setting reaches all of
+them.
+
 ## `values` — tunable parameters
 
 Precedence everywhere: **per-FR `fr_config` (quality_manifest.json) >

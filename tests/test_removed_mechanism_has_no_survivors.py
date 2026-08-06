@@ -166,8 +166,17 @@ def test_no_consumer_reads_a_field_nothing_writes(mech: RemovedMechanism) -> Non
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:  # pragma: no cover - the repo does not ship these
-            continue
+        except SyntaxError as exc:
+            # Round 39 站4 — this used to `continue`. Running the station's
+            # counter-proof, an edit that both revived a `da_waiver_applied`
+            # read AND broke the file's syntax made this scan report green:
+            # the one file carrying the defect was the one file it skipped.
+            # A scan that goes quiet on the file it cannot read is abstaining,
+            # and Round 30's rule is that abstaining is not passing.
+            raise AssertionError(
+                f"{path.relative_to(REPO)} does not parse ({exc}), so this "
+                f"scan cannot tell whether it reads {mech.name}'s dead fields"
+            ) from exc
         for field in mech.orphan_fields:
             for lineno in _reads_field(tree, field):
                 offenders.append(f"{path.relative_to(REPO)}:{lineno} ({field})")

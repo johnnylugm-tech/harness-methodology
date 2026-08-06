@@ -1315,3 +1315,52 @@
 - test: tests/test_gate_verify.py::test_the_digest_covers_new_files_not_only_edits
   bug: "content-only hashing would miss a file being added or renamed — which is exactly how taskq-renew's CRG graph fell behind its own tree"
   fixed_in: "R38-站4 (delivered_tree_digest hashes (repo-relative path, content) pairs over iter_delivered_files)"
+
+# ── Round 39 ────────────────────────────────────────────────────────────────
+# 站1 is debt, not a deferral: Round 38 站3 removed the waiver in code and left
+# nine places still telling an agent to use it, four of them in shipped
+# workflow JS. 站2/站3 are R38-DEFER-1 and R38-DEFER-2.
+
+- test: tests/test_removed_mechanism_has_no_survivors.py::test_no_instruction_advises_a_removed_mechanism
+  bug: "Round 38 站3 made da_waiver unenforceable and six prompt producers kept instructing agents to write one — spec_phase4/6, plangen/blocks.py x2, evaluate_dimension.md's JSON template, ERROR_HANDLING.md's block-reason table — reaching phase4-testing.js, phase6-quality.js and run-all.js x2. The framework was teaching a remedy its own gate refuses, which is how a gate loop burns three rounds"
+  fixed_in: "R39-站1 (both routes stated in order: fix the structure, or calibrate crg_excludes / crg_cohesion_healthy; text sourced from block_reason.DIMENSION_HINTS rather than rewritten per site)"
+
+- test: tests/test_removed_mechanism_has_no_survivors.py::test_no_consumer_reads_a_field_nothing_writes
+  bug: "generate_quality_report.py still read quality_manifest's da_waiver_applied and rendered '✓ PASS (DA-waiver)' from it — R30's zombie shape, a live consumer of a field 站3 had stopped writing. A stale field left in an existing project's manifest would have turned a FAIL back into a PASS"
+  fixed_in: "R39-站1 (the validated_waivers parameter, the manifest read and the PASS branch removed; the scan is AST-based so prose recording the removal is not mistaken for a consumer)"
+
+- test: tests/test_removed_mechanism_has_no_survivors.py::test_the_registry_is_pinned
+  bug: "a registry that a later round can silently extend is not a record of what was removed"
+  fixed_in: "R39-站0"
+
+- test: tests/test_dimension_disable_is_recorded.py::test_a_disabled_dimension_is_recorded_not_just_printed
+  bug: "setting crg_architecture/mutation_testing/phase4_llm_review false dropped the dimension from scoring, made cmd_crg_arch_check return 0 on the spot (CI's absolute architecture floor became an unconditional pass) and skipped Gate 4's B3 CRG-recon check — leaving exactly one print(). A committed boolean could change the verdict while the verdict showed no sign of it"
+  fixed_in: "R39-站2 (core/quality_gate/dimension_scope.py records every skip in the degradation ledger; the switch stays, its invisibility does not — R38-DEFER-1)"
+
+- test: tests/test_dimension_disable_is_recorded.py::test_the_verdict_carries_the_dimensions_it_was_measured_over
+  bug: "R37 made a verdict carry the tree it was measured on and R38 站4 wrote that into gate_verify.jsonl; the dimension set was still implicit, so a PASS could not be told apart from a PASS over a smaller set"
+  fixed_in: "R39-站2 (dimensions_disabled travels in the verdict record and the quality manifest — the denominator travels with the number)"
+
+- test: tests/test_dimension_disable_is_recorded.py::test_a_fully_enabled_verdict_records_an_empty_set
+  bug: "an absent field cannot be told apart from 'nothing was disabled'; without writing the empty set, every verdict predating the field would read as fully-measured"
+  fixed_in: "R39-站2"
+
+- test: tests/test_dimension_disable_is_recorded.py::test_crg_arch_check_records_its_own_skip
+  bug: "the CI job is the enforcer that a disabled dimension silences most completely — it returns 0 and prints one line into a log nobody diffs"
+  fixed_in: "R39-站2"
+
+- test: tests/test_dimension_disable_is_recorded.py::test_the_map_is_the_one_in_harness_config
+  bug: "plangen/blocks.py carried a hand-written mirror of _DIM_TO_FEATURE, which is how a dimension ends up disabled in the plan and enabled in the gate"
+  fixed_in: "R39-站2 (dimension_scope reads core.harness_config._DIM_TO_FEATURE; R39-站3 made plangen read it too)"
+
+- test: tests/test_gate_dimension_prose_parity.py::test_prose_dimension_count_matches_the_gate_config
+  bug: "the prompts told agents how many dimensions they would be judged on and every count was wrong — phase3 said 9 against 12, phase4 said 15 against 16, phase6 said 14 against 15. Round 38 站1 had added architecture to gate 2 the day before and no copy moved with it"
+  fixed_in: "R39-站3 (spec_shared.render_gate_dims_summary / gate_dim_count read harness/gate_configs/*.yaml — R38-DEFER-2)"
+
+- test: tests/test_gate_dimension_prose_parity.py::test_prose_dimension_list_matches_the_gate_config
+  bug: "the enumerated lists were complete-looking and short by three: traceability, mutation_testing and adversarial_review — all framework-owned or framework-blocking, i.e. exactly the dimensions an agent cannot discover by doing the work. A partial list reads as authoritative"
+  fixed_in: "R39-站3 (render_dimension_table + render_framework_owned_note, the latter deriving framework ownership from requires_tool_execution/tool rather than keeping a list)"
+
+- test: tests/test_gate_dimension_prose_parity.py::test_plangen_does_not_restate_thresholds
+  bug: "_GATE_META was a fourth full copy of every gate's dimensions and thresholds, outside the scan Round 38 站2 installed, and wrong in two places: gate 1 listed 3 of 4 dimensions (architecture_constraints missing) and gate 2 listed 11 of 12. Its feature-flag filter matched rendered token strings, so 'mutation_testing(70)' had to be spelled with its threshold to be removable"
+  fixed_in: "R39-站3 (_build_gate_meta renders from the gate configs and filters by dimension name through _DIM_TO_FEATURE)"

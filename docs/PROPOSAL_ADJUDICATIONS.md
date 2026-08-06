@@ -1592,3 +1592,146 @@ pytest 6789 → **6816** passed / 4 skipped；guards 304 → **319**；
 五條反證各自轉紅後以反向編輯還原，五個檔案位元組相同。
 四個消費專案（taskq / taskq-plus / taskq-renew / run-all-by-workflow）唯讀量到的
 architecture 樓地板都仍是 **80.0**——數值不變，來源改變。
+
+---
+
+## Round 39 —— 移除一個機制之後，它還活在框架說的話裡
+
+**日期**：2026-08-06　**來源**：老闆令「R38-DEFER-1 跟 DEFER-2 也展開成方案」
+
+展開兩項 DEFER 的前提查證時，先撞到一件更急的事，所以本輪第一站不是 DEFER，
+是還債。
+
+### 0 —— 我自己上一輪留下的漂移（站1）
+
+R38 站3 把 `da_waiver` 的**效力**從程式碼裡移除了，**九個地方**還在叫 agent
+去填它：
+
+| 生產者 | 交付到 |
+|---|---|
+| `spec_phase4.py` / `spec_phase6.py` | `phase4-testing.js`、`phase6-quality.js`、`run-all.js` ×2 |
+| `plangen/blocks.py` ×2 | 生成的 phaseN_plan.md |
+| `evaluate_dimension.md` 的 JSON 範本 | 每一次 gate 評估 |
+| `docs/ERROR_HANDLING.md` block-reason 表 | 人 |
+
+**框架在教 agent 做一件框架自己會擋的事。** 這是 R17 母體（prompt↔gate drift）
+的原樣重演，而且是我這一輪自己造的：站3 修了程式碼與 `DIMENSION_HINTS`，沒掃齊
+生成 prompt 的那一族。
+
+外加一個殭屍消費者：`generate_quality_report.py` 仍讀 `da_waiver_applied`，
+而站3 親手刪掉了寫入端（R30 的形狀）。對老闆現有專案最要緊的一條是：manifest
+裡殘留的舊欄位不得讓 FAIL 復活成 PASS——測試已釘住。
+
+> `plangen/blocks.py:1488` 的 "request a da_waiver from the Human Developer" 是
+> **不同語意**（人工核准 scope 例外），保留並改稱 `scope exception`。
+
+### A —— DEFER-1：棄權只留下一行 print（站2）
+
+三個可 disable 的維度（`mutation_testing` / `crg_architecture` /
+`phase4_llm_review`）關掉之後：維度退出計分與阻擋；`cmd_crg_arch_check` 直接
+`return 0`（**CI 的絕對樓地板變成無條件通過**）；Gate 4 的 B3 CRG-recon 檢查整段
+跳過。唯一痕跡是一行 `print()`——degradation ledger、quality manifest、gate
+result、R38 站4 的 `gate_verify.jsonl` 全都沒有。
+
+**一個 committed 的布林能改變判定，而判定本身看不出來。**
+
+### B —— DEFER-2：門檻全對，列舉不全、計數全錯（站3）
+
+| 生產者 | 散文宣稱 | 實際列出 | YAML |
+|---|---|---|---|
+| `spec_phase3.py` | 9 dims | — | **12** |
+| `spec_phase4.py` ×4 | 15 dims | 13 | **16** |
+| `spec_phase6.py` ×3 | 14 dims | 13 | **15** |
+| `plangen` gate 1 | 3 dims | 3 | **4** |
+| `plangen` gate 2 | 11 dims | 11 | **12** |
+
+列出的 13 個門檻值與 YAML 100% 相符——**數字從來不是問題**。漏掉的是
+`traceability` / `mutation_testing` / `adversarial_review` /
+`architecture_constraints`：每一個都是 framework-owned 或 framework-blocking，
+正好是 agent 做完工作也發現不了的那些。Agent 被告知會被 15 個維度評判，被展示
+13 個，實際被 16 個評分。
+
+gate 2 是最清楚的一例：R38 站1 前一天才把 architecture 加進
+`gate2_p3_exit.yaml`，兩份副本仍說 11 dims，還有一條測試斷言 gate 2 沒有 CRG
+註記。**副本在來源移動的那一刻就過期了。**
+
+> **母體第十一次：移除一個機制，不等於移除框架對它的陳述。**
+> R38 修的是「判定對誰有效」；本輪修的是「判定之外，框架還在說什麼」。
+
+### 裁決
+
+| # | 主張 | 裁決 |
+|---|---|---|
+| 站1 | 清掉 R38 站3 留下的九處 prompt 漂移 + 一個殭屍消費者 | **採納**。這是還債不是新功能，優先於兩項 DEFER。 |
+| DEFER-1 | 保留 disable 開關，但強制留痕 | **採納**（老闆裁定「保留 disable，但強制留痕」）。專案可能真的沒有 mutmut/CRG；不可見才是缺陷。 |
+| DEFER-1′ | `dimensions_disabled` 寫進 verdict 與 manifest（空集合也寫） | **採納**。R30「棄權不是通過」套在維度集合上：分母跟著數字走。 |
+| DEFER-2 | 維度清單、計數、framework-owned 分組、composite 全部 render | **採納**（老闆裁定「全部 render，接受文字變動」）。 |
+| DEFER-2′ | `pass_line_desc` 的 "CRG architecture ≥80" | **採納**（站3）。這是 80 的第十份陳述，R38 站2 的掃描（只認 `crg-arch-check --threshold`）沒碰到。 |
+| — | framework-owned 集合另立一份名單 | **否決**。改由 YAML 推導（`requires_tool_execution: false`，或 `tool: code-review-graph`）——`harness_bridge._TOOL_OUTPUT_PATTERNS` 早就為同一理由寫下同一個例外。 |
+| — | D4 spec-coverage 門檻併入 gate config | **不做**。它不是 gate 維度，config 裡沒有東西可讀；本輪只把每個檔案裡的 3 份字面值收成 1 個具名常數，跨檔案的第二份 SSOT（`plangen._SPEC_COVERAGE_THRESHOLDS`）留待有需求再說。 |
+
+### 順帶抓到的兩個活缺口
+
+1. **`phase6` 的 log 行還在說 "mutation_testing disabled by default"。**
+   `_DEFAULTS["mutation_testing"]` 是 `True`。R36 站1 把這句話收斂進
+   `render_mutation_flag_note()` 時漏了這一處——**同一個 default 的第七份陳述**，
+   也是 R36 自己的掃描沒涵蓋的那一份。已隨 log 行一併 render。
+2. **`node --check` 是活守衛。** 站3 render 出來的說明句含一個未跳脫的
+   撇號，落在單引號 JS 字串裡，直接打斷 phase4/phase6/run-all 三支。
+   R23 曾懷疑 `node --check` 是死守衛；這次它抓到真缺陷。
+
+### 三條釘住缺陷的舊測試（改為對賬，不再對數字）
+
+| 測試 | 問題 |
+|---|---|
+| `test_gate1_meta_has_3_dims` | 釘死 3。`architecture_constraints`（tier 1、import-linter、`evaluate_dimension.md` §"Gate 1 only"）是真維度，只是計畫從來沒列。改為 `test_gate1_meta_matches_the_gate_config`。 |
+| `test_no_crg_note_for_gate_2` | `assert "CRG" not in ...` 在 R38 站1 之後才悄悄變成假的。改為對 gate config 斷言。 |
+| `test_harness_phase_flowchart::get_code_phase_routing` | 用 regex 從 `blocks.py` 的**原始碼文字**刮 `_GATE_META`。一旦它改成計算值，刮取命中為空、每個 exit score 變成 `None`，而**測試照樣通過**——拿 `None` 去跟流程圖比對還全綠的 parity test，比沒有 parity test 更糟。改為 import 值。 |
+
+### 三次同形的自我誤報（掃描器精度）
+
+「解釋移除原因的散文」被掃描器當成「還在使用該機制」，本輪是第三次
+（R38 站2 一次、R39 站1 一次、站3 一次）。三次的正解都相同：**掃值不掃文字**。
+
+- 消費者掃描改為 AST（`d["x"]` / `d.get("x")` 才算讀取，散文不算）；
+- plangen 門檻掃描改為掃 AST 裡的字串**值**並排除 docstring；
+- `Tier 3 dims` 不是計數宣稱——加負向 lookbehind 與精度控制測試。
+
+### 反證跑出來的第四個發現
+
+`test_no_consumer_reads_a_field_nothing_writes` 原本 `except SyntaxError:
+continue`。跑 CP-2 時，一個同時「復活 `da_waiver_applied` 讀取」又「弄壞語法」
+的編輯讓這條掃描**回報全綠**——唯一帶著缺陷的檔案，正好是它唯一跳過的檔案。
+已改為明確 `AssertionError`：**掃描器讀不懂的檔案不是乾淨的檔案**（R30）。
+
+### 明列不做（附再開條件）
+
+- **不移除 disable 機制**：老闆已裁定保留。
+- **不改任何門檻數值**：本輪只改「誰說、說得對不對」，不改「是多少」。gate 3 /
+  gate 4 的計畫散文 render 後與手寫字串**位元組相同**。
+- **不重判既有專案的歷史 gate 結果**。
+- **既有專案的殘留欄位不做遷移**。唯讀量過四個消費專案，實測結果：
+
+  | 專案 | 殘留 | 現在的行為 |
+  |---|---|---|
+  | `taskq` | manifest `da_waiver_applied: ["architecture"]` + `da_waiver_needs_human_review: true`；`gate4_result.json` `da_waiver` 與 `breakdown/architecture/da_waiver` | manifest 兩個欄位**已無任何消費者**（站1 移除），不影響判定 |
+  | `taskq-renew` | 同上（無 breakdown 那一份） | 同上 |
+  | `run-all-by-workflow` | `gate2/gate3_result.json` 的 `da_waiver: {}`；`gate4_result.json` 的 `{"architecture": true}` | 空 dict 不觸發拒絕（迴圈不進 body）；gate 4 那一份會 |
+  | `taskq-plus` | 無 | — |
+
+  非空的 `da_waiver` 在下一次該 gate 的 finalize-gate 會被 R38 站3 拒絕，訊息
+  末行已指名動作（`Then remove da_waiver.<dim> from gateN_result.json and
+  re-run`）。四個專案目前都在 phase 9，不會自然重跑 Gate 4；除非 CR 重開，
+  否則不需要老闆做任何事。這是 R38 的既定行為，不是本輪新增。
+
+- **`taskq` / `taskq-plus` 的 `mutation_testing` 是關的**（實測）。它們的 Gate 4
+  判定是在 14 個維度上做的，不是 15——這正是站2 從今以後會落盤的那種事實，
+  但**不追溯既有判定**。
+
+### 驗證
+
+pytest 6816 → **6840** passed / 4 skipped；guards 319 → **330**；
+`--check` 9/9；ruff clean；`node --check` 11/11；sim 94/94。
+四條反證各自轉紅後以反向編輯還原，工作樹只留下反證本身揭露的那一項修復。
+plangen golden 的唯一 diff 就是兩處更正（gate 1 補 `architecture_constraints`、
+gate 2 補 `architecture` 與 CRG 註記）。
