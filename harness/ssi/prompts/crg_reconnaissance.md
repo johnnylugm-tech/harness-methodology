@@ -346,14 +346,17 @@ Emits `.sessi-work/crg_metrics.json` with:
 
 ### Explicit thresholds (deterministic, reviewable)
 
-All thresholds live in `scripts/crg_analysis.py` and are ENV-overridable:
+The recon/severity thresholds live in `scripts/crg_analysis.py` and are
+ENV-overridable. The three that decide the architecture gate
+(`COHESION_HEALTHY`, `COMMUNITY_OVERSIZED`, `COMMUNITY_MIN_SIZE`) are not —
+Round 40 站3 removed their env layer, because a shell variable that moves a
+gate verdict is a backdoor. Calibrate the cohesion floor with
+`crg_cohesion_healthy` in `.methodology/harness_config.json` instead.
 
 | Threshold                   | Default | Effect                                    |
 |-----------------------------|---------|-------------------------------------------|
 | `CRG_RISK_DEEP`             | 0.7     | risk ≥ → `eval_depth=deep`                |
 | `CRG_RISK_FAST`             | 0.3     | risk < → `eval_depth=fast`                |
-| `CRG_COHESION_HEALTHY`      | 0.3     | cohesion ≥ → healthy community            |
-| `CRG_COMMUNITY_OVERSIZED`   | 50      | size > → god-module candidate             |
 | `CRG_DEAD_CODE_RATIO`       | 0.05    | dead/total > → escalate low→medium        |
 | `CRG_HUB_CRIT_FANIN`        | 15      | fan_in ≥ → critical severity (if untested) |
 | `CRG_HUB_HIGH_FANIN`        | 8       | fan_in ≥ → high severity (if untested)    |

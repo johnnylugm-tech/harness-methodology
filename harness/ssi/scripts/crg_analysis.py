@@ -23,14 +23,16 @@ Explicit thresholds (documented, reviewable, changeable):
 
   RISK_DEEP_THRESHOLD          0.7    risk_score ≥ this → deep analysis mandatory
   RISK_FAST_THRESHOLD          0.3    risk_score < this → fast scan allowed
-  COHESION_HEALTHY             0.3    cohesion ≥ this = healthy community
-  COMMUNITY_OVERSIZED          50     size > this = god-module candidate
   DEAD_CODE_ESCALATE_RATIO     0.05   dead/total > 5% → escalate low → medium
   HUB_CRITICAL_FAN_IN          15     fan_in ≥ this = critical severity
   HUB_HIGH_FAN_IN              8      fan_in ≥ this = high severity
   FLOW_GOOD_HANDLER_PCT        80     ≥ this% flows with handlers = healthy
 
-All thresholds are ENV-overridable via CRG_* env vars for experimentation.
+The recon/severity thresholds are ENV-overridable via CRG_* env vars for
+experimentation and are registered in docs/CONFIGURATION.md. The three that
+decide the architecture gate — COHESION_HEALTHY, COMMUNITY_OVERSIZED,
+COMMUNITY_MIN_SIZE — are not (Round 40 站3); per-project calibration of the
+first goes through `crg_cohesion_healthy` in harness_config.json.
 """
 
 from typing import Optional
@@ -58,13 +60,33 @@ def _ti(name: str, default: int) -> int:
 
 RISK_DEEP_THRESHOLD = _tf("CRG_RISK_DEEP", 0.7)
 RISK_FAST_THRESHOLD = _tf("CRG_RISK_FAST", 0.3)
-COHESION_HEALTHY = _tf("CRG_COHESION_HEALTHY", 0.3)
-COMMUNITY_OVERSIZED = _ti("CRG_COMMUNITY_OVERSIZED", 50)
-COMMUNITY_MIN_SIZE = _ti("CRG_COMMUNITY_MIN_SIZE", 5)
 DEAD_CODE_ESCALATE_RATIO = _tf("CRG_DEAD_CODE_RATIO", 0.05)
 HUB_CRITICAL_FAN_IN = _ti("CRG_HUB_CRIT_FANIN", 15)
 HUB_HIGH_FAN_IN = _ti("CRG_HUB_HIGH_FANIN", 8)
 FLOW_GOOD_HANDLER_PCT = _ti("CRG_FLOW_GOOD_PCT", 80)
+
+# ---------- Thresholds that decide a gate (NOT env-overridable) ----------
+# Round 40 站3. These three are the only constants in this module that reach a
+# verdict: `compute_community_cohesion_score` is the formula
+# `harness/crg_independent.py` reuses to produce the framework-owned
+# architecture_score, which `crg-arch-check` blocks CI on from phase 3.
+#
+# They used to be _tf/_ti like their neighbours above, which made
+# `CRG_COMMUNITY_OVERSIZED=1000` in a shell profile enough to turn a 97-member
+# god community into a healthy one — in CI as easily as locally — while
+# docs/CONFIGURATION.md said, in a section headed "Deliberately NOT
+# configurable (anti-backdoor)", that `_community_oversized` was not
+# calibratable. One of those two statements had to go, and the code was the
+# one that was wrong.
+#
+# The sanctioned route survives and is better in every way that matters:
+# `crg_cohesion_healthy` in .methodology/harness_config.json reaches the
+# formula as the `cohesion_healthy` parameter. It is committed, so it applies
+# to CI and to a local run alike, and it is reviewable, so a calibration is a
+# decision someone made rather than a variable someone exported.
+COHESION_HEALTHY = 0.3
+COMMUNITY_OVERSIZED = 50
+COMMUNITY_MIN_SIZE = 5
 
 
 # ---------- Severity map for get_suggested_questions output ----------
@@ -120,10 +142,11 @@ def compute_community_cohesion_score(
     Optional per-project calibration (plumbed by the caller — this module
     must stay importable standalone under the CRG interpreter, so it never
     reads core.harness_config itself):
-      cohesion_healthy — overrides COHESION_HEALTHY. Precedence: explicit
-        param > CRG_COHESION_HEALTHY env var > builtin 0.3. The param is a
-        committed, reproducible project decision (harness_config.json) and
-        must beat ambient shell state.
+      cohesion_healthy — overrides COHESION_HEALTHY (builtin 0.3). Round 40
+        站3 removed the env layer that used to sit between them: this param,
+        fed from the committed harness_config.json, is now the only way to
+        move the number, because it is the only one CI and a local run
+        necessarily agree on.
       extra_excludes — fnmatch globs over repo-relative file paths; a
         community whose files are majority-matched (>50 %) is excluded
         from scoring, same rule as the tests/.methodology path detection.

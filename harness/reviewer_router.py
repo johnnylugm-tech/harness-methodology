@@ -2,7 +2,10 @@
 # Gap G2: Claude sub-agent reviewer — single backend, no MCP dependencies.
 # v3.0: Simplified from priority-chained Hermes→Gemini→sub-agent to Claude-only.
 #        Stateless sub-agent provides per-task isolation identical to the old
-#        sub-agent backstop; setup requires only the claude CLI (no env vars).
+#        sub-agent backstop; setup requires only the claude CLI — no backend
+#        env vars. (Round 40 站3: this line used to end "(no env vars)", twelve
+#        lines above three of them. The three below are decomposition tuning,
+#        not backend selection, and are registered in docs/CONFIGURATION.md.)
 from __future__ import annotations
 
 import json

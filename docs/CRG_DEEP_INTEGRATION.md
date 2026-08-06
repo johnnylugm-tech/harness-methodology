@@ -49,18 +49,27 @@ context but as the authoritative scorer for structural dimensions.
 
 ## CRG Analysis Thresholds
 
-All thresholds are environment-variable overridable (defined in `crg_analysis.py`):
+The recon/severity thresholds are environment-variable overridable (defined in
+`crg_analysis.py`, registered in [CONFIGURATION.md](CONFIGURATION.md)):
 
 | Env Var | Default | Effect |
 |---------|---------|--------|
 | `CRG_RISK_DEEP` | 0.7 | risk >= this → deep analysis |
 | `CRG_RISK_FAST` | 0.3 | risk < this → fast scan |
-| `CRG_COHESION_HEALTHY` | 0.3 | Community health minimum |
-| `CRG_COMMUNITY_OVERSIZED` | 50 | God-module threshold |
 | `CRG_DEAD_CODE_RATIO` | 0.05 | Dead code escalation threshold |
 | `CRG_HUB_CRIT_FANIN` | 15 | Critical fan-in threshold |
 | `CRG_HUB_HIGH_FANIN` | 8 | High fan-in threshold |
 | `CRG_FLOW_GOOD_PCT` | 80 | Flow health minimum |
+
+**Not overridable (Round 40 站3):** `COHESION_HEALTHY` (0.3),
+`COMMUNITY_OVERSIZED` (50) and `COMMUNITY_MIN_SIZE` (5). These three decide the
+framework-owned `architecture_score` that `crg-arch-check` blocks CI on, and an
+ambient shell variable that moves a gate verdict is a backdoor — the rows
+`CRG_COHESION_HEALTHY` / `CRG_COMMUNITY_OVERSIZED` used to occupy in this table
+contradicted CONFIGURATION.md's own anti-backdoor section. Per-project
+calibration of the cohesion floor goes through `crg_cohesion_healthy` in
+`.methodology/harness_config.json`, which is committed and therefore applies to
+CI and to a local run alike.
 
 ## Data Flow
 

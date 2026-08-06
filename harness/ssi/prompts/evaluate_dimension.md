@@ -385,7 +385,9 @@ API smoke path); the harness only checks that the declaration executes cleanly.
 At finalize-gate the harness itself runs `code-review-graph build` + `postprocess`
 (via `harness/crg_independent.py`) and computes `community_cohesion.score` — percent of
 healthy communities. A community is healthy when `cohesion >= threshold` (default 0.3;
-env `CRG_COHESION_HEALTHY`) and `size <= 50`; communities with `size < 5` are exempt
+per-project override: `crg_cohesion_healthy` in `.methodology/harness_config.json` —
+Round 40 站3 removed the env var, because a shell variable that moves a gate verdict
+is a backdoor) and `size <= 50`; communities with `size < 5` are exempt
 from the low-cohesion penalty (too few nodes for a meaningful edge-density estimate).
 Non-product communities are excluded from scoring when the name starts with
 `tests`/`test`, OR >50 % of files are under `tests/`/`.methodology/`, OR >50 % of

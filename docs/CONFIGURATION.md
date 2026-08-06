@@ -119,6 +119,14 @@ community is a finding, and `_community_oversized` is deliberately not
 calibratable. The floor itself (80) lives in `harness/gate_configs/*.yaml` and
 is not a per-project setting.
 
+Round 40 站3 made that paragraph true. It was written in Round 38 while
+`crg_analysis.py` still read all three of the constants behind those numbers —
+`COHESION_HEALTHY`, `COMMUNITY_OVERSIZED`, `COMMUNITY_MIN_SIZE` — from
+`CRG_*` environment variables, so `CRG_COMMUNITY_OVERSIZED=1000` in a shell
+profile turned a 97-member god community into a healthy one, in CI as easily
+as locally. The env layer is gone and
+`tests/test_gate_knobs_are_not_ambient.py` keeps it gone.
+
 ## Security Design (SAD.md §6 — threat-model-as-code)
 
 Gated by `features.security_design` (default `true`). `core.quality_gate.
@@ -167,13 +175,29 @@ scans the source and fails on unregistered additions.
 | `HARNESS_NO_GIT` | harness | Skip git commit/push side effects for this invocation (advance-phase, FR steps, git strategy). |
 | `HARNESS_CROSS_ARTIFACT_COV` | harness | `"1"` forces live `pytest --cov` in the cross-artifact check for this invocation; any other set value forces it off; unset defers to `features.cross_artifact_live_cov`. |
 | `CRG_METRICS_PATH` | harness | Override the CRG metrics JSON path read by the SSI scorer. |
+| `CRG_RISK_DEEP` | harness | CRG recon: risk score at or above which deep analysis is mandatory. |
+| `CRG_RISK_FAST` | harness | CRG recon: risk score below which a fast scan is allowed. |
+| `CRG_DEAD_CODE_RATIO` | harness | CRG recon: dead/total ratio above which a finding escalates low→medium. |
+| `CRG_HUB_CRIT_FANIN` | harness | CRG recon: fan-in at or above which an untested hub is critical severity. |
+| `CRG_HUB_HIGH_FANIN` | harness | CRG recon: fan-in at or above which an untested hub is high severity. |
+| `CRG_FLOW_GOOD_PCT` | harness | CRG recon: percentage of flows with error handlers that counts as healthy. |
+| `TASK_SIZE_THRESHOLD` | harness | reviewer_router: review-task size in chars above which the task is decomposed. |
+| `SUBTASK_MAX_SIZE` | harness | reviewer_router: max chars per sub-task when decomposing (paragraph split). |
+| `MAX_CONTEXT_LINES` | harness | reviewer_router: approved-summary lines injected as context into a sub-task. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | external | Standard OpenTelemetry exporter endpoint (observability). |
 | `OTEL_EXPORTER` | external | OpenTelemetry exporter selector (observability). |
 | `VIRTUAL_ENV` | system | Read to locate the active interpreter's tooling during env checks. |
 | `USER` | system | Default operator id for kill-switch audit logging. |
 | `CI` | system | When set, `run-phase` skips the spawn-substrate preflight probe (Round 29) — CI never dispatches an interactive per-FR loop, so there is no sub-agent substrate to validate, and the probe (which requires the `claude` CLI) can only ever fail there. |
 | `GITHUB_ACTIONS` | system | Same effect as `CI` above — GitHub Actions sets this even when the generic `CI` var is absent. |
-| `METHODOLOGY_CONSTITUTION_PROFILE` | harness | JSON string overriding the on-demand constitution profile (read via a variable name in `constitution/profile.py`, so the AST literal scan can't see it — registered by hand; the scanner's known limit). |
+| `METHODOLOGY_CONSTITUTION_PROFILE` | harness | JSON string overriding the on-demand constitution profile. The name reaching `os.environ.get` is a module constant, not a literal at the call site, so the AST scan cannot see it and this row is hand-written. Round 40 站3 closed the neighbouring hole — a name passed through a one-line helper — by deriving the helpers rather than listing them; this remaining shape is a genuine limit, not a licence to hand-register whatever the scan misses. |
+
+**Not in this table, on purpose:** `COHESION_HEALTHY`, `COMMUNITY_OVERSIZED`
+and `COMMUNITY_MIN_SIZE` in `harness/ssi/scripts/crg_analysis.py`. They were
+`CRG_*` env vars until Round 40 站3; they are the three constants that decide
+the framework-owned `architecture_score`, so they belong in the anti-backdoor
+list below rather than here. `tests/test_gate_knobs_are_not_ambient.py` fails
+if an env layer comes back.
 
 ## Deliberately NOT configurable (anti-backdoor)
 
@@ -181,6 +205,10 @@ Values that guard gate integrity must not become knobs — a configurable
 floor is a backdoor. This list is policy, enforced by review:
 
 - Gate 1 per-FR coverage floor (100% of the FR's owned source).
+- The three CRG constants that decide `architecture_score`: `COHESION_HEALTHY`,
+  `COMMUNITY_OVERSIZED`, `COMMUNITY_MIN_SIZE` (Round 40 站3 — the cohesion
+  floor's one sanctioned per-project route is `crg_cohesion_healthy` above,
+  which is committed and therefore applies to CI too).
 - Milestone entry-gate evidence requirements (`_MILESTONE_ENTRY_GATES`).
 - Ghost-detection / dispatch diff-budget heuristics (`agent_spawner`).
 - Deterministic-failure signature registry (`_STRUCTURAL_FAILURE_SIGNATURES`).

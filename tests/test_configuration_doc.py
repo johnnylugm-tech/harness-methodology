@@ -49,6 +49,43 @@ def test_every_registry_key_is_documented():
     )
 
 
+def _reads_environ(node: ast.Call) -> bool:
+    """True for `os.environ.get(...)` / `os.getenv(...)` call nodes."""
+    f = node.func
+    is_environ_get = (
+        isinstance(f, ast.Attribute) and f.attr == "get"
+        and isinstance(f.value, ast.Attribute) and f.value.attr == "environ"
+    )
+    is_getenv = isinstance(f, ast.Attribute) and f.attr == "getenv"
+    return bool(is_environ_get or is_getenv)
+
+
+def _env_wrappers(tree: ast.Module) -> dict[str, int]:
+    """Functions in *tree* that read whichever env var they are handed.
+
+    Round 40 站3. Returns `{function_name: index of the name parameter}` for
+    every module-level helper whose body passes one of its own parameters
+    straight to os.environ.get/os.getenv — derived from the code, not a list
+    of blessed helper names, so the next `_read_env(key, default)` someone
+    writes is covered the day it is written.
+
+    Three such helpers existed and hid twelve variables between them:
+    `_tf`/`_ti` in crg_analysis.py and `_parse_int_env` in reviewer_router.py.
+    """
+    wrappers: dict[str, int] = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [a.arg for a in fn.args.args]
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call) or not _reads_environ(node):
+                continue
+            if (node.args and isinstance(node.args[0], ast.Name)
+                    and node.args[0].id in params):
+                wrappers[fn.name] = params.index(node.args[0].id)
+    return wrappers
+
+
 def _env_keys_read_by_production_code() -> dict[str, list[str]]:
     keys: dict[str, list[str]] = {}
     for base in _PRODUCTION_BASES:
@@ -62,21 +99,29 @@ def _env_keys_read_by_production_code() -> dict[str, list[str]]:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
+            wrappers = _env_wrappers(tree)
+
+            def _record(name: str, lineno: int, _path: Path = path) -> None:
+                keys.setdefault(name, []).append(
+                    f"{_path.relative_to(REPO).as_posix()}:{lineno}")
+
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
-                f = node.func
-                is_environ_get = (
-                    isinstance(f, ast.Attribute) and f.attr == "get"
-                    and isinstance(f.value, ast.Attribute)
-                    and f.value.attr == "environ"
-                )
-                is_getenv = isinstance(f, ast.Attribute) and f.attr == "getenv"
-                if ((is_environ_get or is_getenv)
+                if (_reads_environ(node)
                         and node.args and isinstance(node.args[0], ast.Constant)
                         and isinstance(node.args[0].value, str)):
-                    rel = f"{path.relative_to(REPO).as_posix()}:{node.lineno}"
-                    keys.setdefault(node.args[0].value, []).append(rel)
+                    _record(node.args[0].value, node.lineno)
+                    continue
+                # A call to one of this module's own env wrappers, with the
+                # variable's name spelled out at the call site.
+                if isinstance(node.func, ast.Name) and node.func.id in wrappers:
+                    idx = wrappers[node.func.id]
+                    if len(node.args) <= idx:
+                        continue
+                    arg = node.args[idx]
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        _record(arg.value, node.lineno)
     return keys
 
 
@@ -122,6 +167,26 @@ def test_the_scanner_sees_a_key_read_through_a_wrapper():
         "env var read through a one-line helper is unregisterable by "
         "construction"
     )
+
+
+def test_the_wrapper_detector_is_derived_not_guessed():
+    """Positive and negative control for _env_wrappers.
+
+    A helper is an env wrapper because its body hands one of its *parameters*
+    to os.environ.get — not because it is named `_ti`. `read_flag` below takes
+    a parameter and reads the environment, but reads a fixed variable, so
+    treating it as a wrapper would attribute "on" to an env var named "on".
+    """
+    src = (
+        "import os\n"
+        "def _ti(name, default):\n"
+        "    return int(os.environ.get(name, default))\n"
+        "def read_flag(default):\n"
+        "    return os.environ.get('HARNESS_NO_GIT', default)\n"
+        "def _plain(a, b):\n"
+        "    return a + b\n"
+    )
+    assert _env_wrappers(ast.parse(src)) == {"_ti": 0}
 
 
 def test_env_scanner_actually_sees_known_reads():
