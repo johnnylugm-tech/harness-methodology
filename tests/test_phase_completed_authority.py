@@ -471,7 +471,7 @@ def test_advance_phase_heals_dangling_sha_before_staging(tmp_path, monkeypatch):
     # completed=1 keeps the path minimal (no exit gate, no CRG wiki).
     args = argparse.Namespace(project=str(proj), completed_phase=1)
     rc = phase_cmds.cmd_advance_phase(args)
-    assert rc == 0, f"advance-phase failed unexpectedly; stderr/log above"
+    assert rc == 0, "advance-phase failed unexpectedly; stderr/log above"
 
     # The committed state.json (post-handover) MUST carry a SHA that is
     # an ancestor of HEAD — i.e. the healed value, not the orphan.
