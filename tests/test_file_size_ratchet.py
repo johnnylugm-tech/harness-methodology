@@ -396,7 +396,13 @@ _LINE_CEILING: dict[str, int] = {
     # (core/step_failure_memory.py) rather than more of this file; what lands
     # here is the call site and its [BLOCKED] message (sized to current
     # 2255 -> 2255).
-    "cli/fr_cmds.py": 2255,
+    # 2026-08-06: +12 — Round 41 站4: TDD-RED stops asking the tree once GREEN
+    # has landed. GREEN's job is to destroy RED's evidence, so a tree-only
+    # answer sent resume-fr-phase back to TDD-RED for every completed FR — a
+    # loop introduced by 站1's fix for the other one, found by the new
+    # black-box journey rather than by any unit test (sized to current
+    # 2267 -> 2267).
+    "cli/fr_cmds.py": 2267,
     # 2026-07-21: +4 lines — review fix on fix/fr-step-already-done-cascade: reverted the sub-change that relaxed `if not committed: return False` to only fire for GATE1/GATE1-DELTA (it let TDD-RED/TDD-GREEN mark themselves done from a leftover, uncommitted artifact alone — reproduced live; commit evidence is a hard requirement again for every step). The GATE1 sentinel+quality_complete cascade already covers the phase-boundary scenario (FR-02 GREEN commits pre-dating the boundary) that relaxation was meant to fix, so no expressiveness is lost. Also replaced the multi-tag docstring scan's 4 unanchored substring patterns with a `[...]`-bracket-anchored, exact-tag-set match (`re.findall(r"\[([^\]]*)\]", text)` + membership check) — the substring version could false-positive match an unrelated prose comment like "# see FR-03, FR-09" with no enclosing brackets at all (also reproduced live).
     # 2026-07-21: +15 lines — fix/round-18-dispatch-ssot (Bug B): import `PRAGMA_NO_COVER_ALLOWLIST` alongside `PRAGMA_NO_COVER_GUIDANCE` and render the allowlist verbatim in the COVERAGE-FIX prompt so future widening of the tuple auto-propagates; replace the contradictory `raise NotImplementedError` example with one that matches the SSOT (`except BaseException: pass`).
     # 2026-07-21: +1 line — fix/round-18-dispatch-ssot (Bug A): add `"AMEND-SAB"` key to `_FR_STEP_COMMIT_PATTERNS` so `_fr_step_already_done` short-circuits a re-run whose amend-sab commit is already in git log.

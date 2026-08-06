@@ -112,6 +112,104 @@ class TestFastPathJourneys:
         assert "dry-run" in r.stdout
         assert git(e2e_project, "rev-parse", "HEAD").stdout.strip() == head_before
 
+class TestPerFrStepJourneys:
+    """Round 41 站4 — the per-FR step machine, from outside.
+
+    Nothing in this suite walked it before. `sim_runner` covers the workflow
+    JS; the unit tests around `_fr_step_already_done` covered its branches with
+    the suite mocked away. So the question "which step does the operator run
+    next" — the one `resume-fr-phase` exists to answer, and the one taskq-api's
+    FR-04 got wrong for 3h11m — had no black-box coverage at all, and the
+    function that answers it went untouched from 2026-07-21 through
+    twenty-four rounds of adversarial auditing.
+
+    `resume-fr-phase` is the whole step machine's decision logic with no
+    sub-agent attached: it reads git history, the tree and the manifest, and
+    prints one command. That makes it drivable exactly the way this suite
+    drives everything else — the real CLI, a real repo, no monkeypatching.
+    """
+
+    _SRC = (
+        '"""Widget. [FR-01]"""\n'
+        "\n"
+        "\n"
+        "def handle(value):\n"
+        "    return value.upper()\n"
+    )
+
+    def _p3_project(self, project, *, passing: bool):
+        """Give the P1 fixture a Phase-3 shape with FR-01 under TDD."""
+        (project / "03-development" / "src").mkdir(parents=True, exist_ok=True)
+        (project / "03-development" / "tests").mkdir(parents=True, exist_ok=True)
+        (project / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_ids": ["FR-01"]}) + "\n", encoding="utf-8",
+        )
+        (project / "conftest.py").write_text(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, str(Path(__file__).parent / '03-development' / 'src'))\n",
+            encoding="utf-8",
+        )
+        self._write_test(project, passing=passing)
+        git(project, "add", "-A")
+        git(project, "commit", "-m", "test(RED): failing test for FR-01")
+
+    def _write_test(self, project, *, passing: bool):
+        expected = "'X'" if passing else "'NOPE'"
+        (project / "03-development" / "tests" / "test_fr01.py").write_text(
+            "from widget import handle\n"
+            "\n"
+            "\n"
+            "def test_fr01_handles_input():\n"
+            f"    assert handle('x') == {expected}\n",
+            encoding="utf-8",
+        )
+
+    def _next_step(self, project) -> str:
+        r = run_cli(["resume-fr-phase", "--phase", "3"], project)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "--step" in r.stdout, r.stdout
+        return r.stdout.split("--step")[1].split()[0]
+
+    def test_a_red_test_and_a_red_commit_asks_for_green(self, e2e_project):
+        self._p3_project(e2e_project, passing=False)
+        assert self._next_step(e2e_project) == "TDD-GREEN"
+
+    def test_a_green_commit_over_a_still_red_test_asks_for_green_again(self, e2e_project):
+        """The taskq-api shape, at the command boundary.
+
+        A GREEN commit exists and a source file carries the FR tag — both
+        clauses the old check asked about — while the test that defines GREEN
+        still fails. Before Round 41 this printed TDD-IMPROVE, whose agent
+        refused the red baseline, whose refusal was recorded as an error, whose
+        remedy was to run this command again.
+        """
+        self._p3_project(e2e_project, passing=False)
+        (e2e_project / "03-development" / "src" / "widget.py").write_text(
+            self._SRC, encoding="utf-8",
+        )
+        git(e2e_project, "add", "-A")
+        git(e2e_project, "commit", "-m", "feat(FR-01): GREEN")
+
+        assert self._next_step(e2e_project) == "TDD-GREEN", (
+            "the pipeline advanced past a GREEN that did not make its test pass"
+        )
+
+    def test_a_green_commit_over_a_passing_test_moves_on(self, e2e_project):
+        """The control. The step machine must still advance when GREEN is real,
+        or the fix above would be a stop rather than a correction."""
+        self._p3_project(e2e_project, passing=False)
+        (e2e_project / "03-development" / "src" / "widget.py").write_text(
+            self._SRC, encoding="utf-8",
+        )
+        self._write_test(e2e_project, passing=True)
+        git(e2e_project, "add", "-A")
+        git(e2e_project, "commit", "-m", "feat(FR-01): GREEN")
+
+        assert self._next_step(e2e_project) == "TDD-IMPROVE"
+
+
+class TestSmokeJourneys2:
     def test_help_smoke(self):
         r = run_cli(["--help"])
         assert r.returncode == 0

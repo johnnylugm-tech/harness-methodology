@@ -179,6 +179,27 @@ def test_red_is_done_when_its_own_tests_fail(tmp_path):
     assert _fr_step_already_done("TDD-RED", "FR-01", project, phase=3) is True
 
 
+def test_red_stays_done_once_green_has_landed(tmp_path):
+    """RED's evidence is destroyed by the step that follows it.
+
+    Once GREEN has genuinely landed — commit present AND the test passing —
+    the tree can no longer answer "did a failing test exist here", and the
+    commit is the only record there will ever be. Judging RED by the tree
+    forever would send resume-fr-phase back to TDD-RED for every completed FR:
+    an unbounded loop introduced by the fix for the other one.
+
+    Found by tests/e2e/test_cli_journeys.py's step-machine journey, not by
+    this file — the unit fixtures each held a single step's evidence, and the
+    defect only appears in the sequence.
+    """
+    project = _fr_project(
+        tmp_path, test_body=_PASSING_TEST,
+        commit_subjects=["test(RED): failing test for FR-01", "feat(FR-01): GREEN"],
+    )
+    assert _fr_step_already_done("TDD-GREEN", "FR-01", project, phase=3) is True
+    assert _fr_step_already_done("TDD-RED", "FR-01", project, phase=3) is True
+
+
 def test_no_commit_still_means_not_done(tmp_path):
     """Commit evidence stays a necessary condition. A green suite proves the
     code works; it does not prove this step ran."""

@@ -2099,8 +2099,20 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
         test_file = test_dir / f"test_fr{num_str}.py"
         if not test_file.exists():
             return False
-        # A RED state is a test that FAILS. A passing one means this step's
-        # own outcome is absent however many commits carry its message.
+        # A RED state is a test that FAILS — but only while RED is still the
+        # current step. GREEN's whole job is to destroy that evidence, so after
+        # GREEN has genuinely landed the tree can no longer answer for RED and
+        # the commit is the only record there will ever be. Asking the tree
+        # anyway sends resume-fr-phase back to TDD-RED for every completed FR
+        # for the rest of the run: caught by the black-box journey in
+        # tests/e2e/test_cli_journeys.py, which is the first thing in this
+        # repository to walk the step machine from outside.
+        #
+        # Note the taskq-api case still resolves correctly: a GREEN commit whose
+        # tests fail is not a landed GREEN, so RED falls through to the tree and
+        # reads RED — which is exactly what it is.
+        if _fr_step_already_done("TDD-GREEN", fr_id, project, phase=phase):
+            return True
         return _fr_tests_say(project, fr_id, expected=suite_run.RED)
     elif step.upper() == "TDD-GREEN":
         src_dir = ProjectLayout(project).active_src_dir
