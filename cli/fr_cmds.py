@@ -33,6 +33,7 @@ from core.quality_gate.ghost_detector import (
     detect_ghost_changes,
     write_ghost_paper_trail,
 )
+from core.quality_gate import test_suite_run as suite_run
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
@@ -1797,6 +1798,28 @@ _FR_STEP_COMMIT_PATTERNS: dict[str, str] = {
 }
 
 
+def _fr_tests_say(project: Path, fr_id: str, *, expected: str) -> bool:
+    """Does this FR's own test family report *expected* (suite_run.RED/GREEN)?
+
+    Round 41 站1. The step-completion check used to answer "has this step been
+    done" from the commit log alone; this is the half that asks the step's own
+    definition. `fr_suite_verdict` runs the project's suite through
+    `run_suite`'s per-process memo, so the several calls one `run-fr-step`
+    makes cost one pytest invocation, not several.
+
+    UNKNOWN maps to True — "keep the answer the commit evidence already gave".
+    A project the framework cannot measure (non-Python, no source directory, no
+    test of this FR collected) must not have its steps declared incomplete by a
+    measurement that was never taken; Round 32 站4 settled that could-not-
+    measure is not a failing measurement, and settling it the other way here
+    would block every js/ts project's TDD chain outright.
+    """
+    verdict = suite_run.fr_suite_verdict(project, fr_id)
+    if verdict == suite_run.UNKNOWN:
+        return True
+    return verdict == expected
+
+
 def _fr_step_lineage_boundary(project: Path, phase: int | None) -> str | None:
     """Resolve the commit SHA marking the start of this phase's lineage.
 
@@ -1945,15 +1968,21 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
         num_str = fr_num_str(fr_id)
         test_dir = ProjectLayout(project).active_test_dir
         test_file = test_dir / f"test_fr{num_str}.py"
-        return test_file.exists()
+        if not test_file.exists():
+            return False
+        # A RED state is a test that FAILS. A passing one means this step's
+        # own outcome is absent however many commits carry its message.
+        return _fr_tests_say(project, fr_id, expected=suite_run.RED)
     elif step.upper() == "TDD-GREEN":
         src_dir = ProjectLayout(project).active_src_dir
         if not src_dir.exists():
             return False
         num_str = fr_num_str(fr_id)
+        tagged = False
         for py_file in src_dir.glob("**/*.py"):
             if num_str in py_file.name:
-                return True
+                tagged = True
+                break
             try:
                 text = py_file.read_text(encoding="utf-8", errors="replace")
             except OSError as exc:
@@ -1971,8 +2000,14 @@ def _fr_step_already_done(step: str, fr_id: str, project: Path, phase: int | Non
             # not a coincidental substring anywhere in the file.
             for _tag_block in re.findall(r"\[([^\]]*)\]", text):
                 if fr_id in {t.strip() for t in _tag_block.split(",")}:
-                    return True
-        return False
+                    tagged = True
+                    break
+            if tagged:
+                break
+        if not tagged:
+            return False
+        # Round 41 站1 — and the tests it was written to make pass, pass.
+        return _fr_tests_say(project, fr_id, expected=suite_run.GREEN)
     # TDD-IMPROVE / AMEND-SAB / GATE1: commit-grep success is sufficient
     # to mark the step done. GATE1 phase-scoping was already verified
     # at line 1700-1738 above; TDD-IMPROVE / AMEND-SAB rely solely on

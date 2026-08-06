@@ -373,7 +373,16 @@ _LINE_CEILING: dict[str, int] = {
     # failed dispatches on 600s timeouts, four consecutive on FR-02, each
     # re-dispatched into the same wall. Sized as a mirror of the turn-budget
     # pair immediately above it (sized to current 2040 -> 2091).
-    "cli/fr_cmds.py": 2091,
+    # 2026-08-06: +35 — Round 41 站1: `_fr_tests_say` plus the restructuring of
+    # the TDD-RED / TDD-GREEN branches of `_fr_step_already_done` so both ask
+    # the FR's own test family whether the step's defining condition holds
+    # instead of inferring it from a commit message. The measurement itself
+    # lives in core/quality_gate/test_suite_run.py (`fr_suite_verdict`); what
+    # is added here is the decision that consumes it, which is where the
+    # decision belongs. taskq-api's FR-04 sat behind that inference for 3h11m
+    # and $6.02 with a red suite the framework had never asked about (sized to
+    # current 2126 -> 2126).
+    "cli/fr_cmds.py": 2126,
     # 2026-07-21: +4 lines — review fix on fix/fr-step-already-done-cascade: reverted the sub-change that relaxed `if not committed: return False` to only fire for GATE1/GATE1-DELTA (it let TDD-RED/TDD-GREEN mark themselves done from a leftover, uncommitted artifact alone — reproduced live; commit evidence is a hard requirement again for every step). The GATE1 sentinel+quality_complete cascade already covers the phase-boundary scenario (FR-02 GREEN commits pre-dating the boundary) that relaxation was meant to fix, so no expressiveness is lost. Also replaced the multi-tag docstring scan's 4 unanchored substring patterns with a `[...]`-bracket-anchored, exact-tag-set match (`re.findall(r"\[([^\]]*)\]", text)` + membership check) — the substring version could false-positive match an unrelated prose comment like "# see FR-03, FR-09" with no enclosing brackets at all (also reproduced live).
     # 2026-07-21: +15 lines — fix/round-18-dispatch-ssot (Bug B): import `PRAGMA_NO_COVER_ALLOWLIST` alongside `PRAGMA_NO_COVER_GUIDANCE` and render the allowlist verbatim in the COVERAGE-FIX prompt so future widening of the tuple auto-propagates; replace the contradictory `raise NotImplementedError` example with one that matches the SSOT (`except BaseException: pass`).
     # 2026-07-21: +1 line — fix/round-18-dispatch-ssot (Bug A): add `"AMEND-SAB"` key to `_FR_STEP_COMMIT_PATTERNS` so `_fr_step_already_done` short-circuits a re-run whose amend-sab commit is already in git log.

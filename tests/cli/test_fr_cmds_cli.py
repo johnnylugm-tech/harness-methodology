@@ -1230,6 +1230,12 @@ class TestRunFrStep:
         class _FakeResult:
             returncode = 0
             stdout = "test(RED): failing test for FR-01"
+            # Round 41 站1: `stderr` is not decoration. This stub stands in for
+            # every subprocess this call path makes, and the path now includes
+            # run_suite's pytest invocation, which reads both streams. A stub
+            # that answers fewer questions than the object it impersonates
+            # fails as soon as the production code asks one more.
+            stderr = ""
 
         # Git log mock returns matching commit
         monkeypatch.setattr(_sp, "run", lambda *_, **__: _FakeResult())

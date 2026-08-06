@@ -65,6 +65,11 @@ __all__ = [
     "suite_timeout",
     "run_suite",
     "reset_suite_cache",
+    "fr_test_outcomes",
+    "fr_suite_verdict",
+    "GREEN",
+    "RED",
+    "UNKNOWN",
     "DEFAULT_SUITE_TIMEOUT",
 ]
 
@@ -470,3 +475,75 @@ def run_suite(project: "str | Path", *, force: bool = False) -> SuiteResult:
     result = _measure(root, test_target, cov_target)
     _CACHE[key] = (fingerprint, result)
     return result
+
+
+# Round 41 站1 — the three answers to "did this FR's tests pass".
+GREEN = "green"
+RED = "red"
+UNKNOWN = "unknown"
+
+
+def fr_test_outcomes(result: SuiteResult, fr_id: str) -> dict[str, str]:
+    """The subset of *result*'s per-test outcomes belonging to *fr_id*.
+
+    A test belongs to an FR when it lives in that FR's test file
+    (``test_fr04.py`` / ``test_fr4.py``) or when its own name carries the FR
+    number (``test_fr04_...``) — the two conventions the framework already
+    enforces elsewhere: `spec_coverage._git_test_patterns` builds the same file
+    names, and the project instructions require `test_frNN_xxx` test names.
+
+    Returns {} when the run produced no outcome data at all; callers must read
+    that together with `result.ran` / `result.passed` rather than as "this FR
+    has no failing tests" (see `fr_suite_verdict`).
+    """
+    from core.canonical_form import fr_num_str
+
+    outcomes = result.test_outcomes or {}
+    num = fr_num_str(fr_id)
+    try:
+        raw = str(int(num))
+    except ValueError:
+        raw = num
+    filenames = {f"test_fr{num}.py", f"test_fr{raw}.py"}
+    prefixes = (f"test_fr{num}", f"test_fr{raw}")
+    selected: dict[str, str] = {}
+    for key, outcome in outcomes.items():
+        path, _, name = key.partition("::")
+        if Path(path).name in filenames or name.startswith(prefixes):
+            selected[key] = outcome
+    return selected
+
+
+def fr_suite_verdict(project: "str | Path", fr_id: str) -> str:
+    """GREEN / RED / UNKNOWN for *fr_id*'s own tests, from one suite run.
+
+    Round 41 站1. This is the question a TDD step is defined by — GREEN means
+    the failing test now passes, RED means it still fails — and until this
+    round nothing asked it: step completion was decided by grepping the commit
+    log for the step's own commit message.
+
+    Scoped to this FR's tests on purpose. The whole suite may be red because of
+    the FR being worked on next, and it is Gate 1's job, not TDD-GREEN's, to
+    refuse on that. An FR answers for itself.
+
+    UNKNOWN is a real answer and must not be collapsed into RED (Round 32: a
+    measurement that could not be taken is not a failing measurement). It means
+    the suite was not measured at all, or it was measured and none of the tests
+    it collected belong to this FR — the framework cannot see this FR's tests,
+    which is not the same as seeing them fail.
+
+    A suite that could not even collect (`ran` with a non-zero return code and
+    no outcomes at all) IS reported RED: nothing passed, so nothing of this FR
+    passed. That is the canonical shape of a TDD-RED state — an import of the
+    not-yet-written module — and reading it as UNKNOWN would let a broken GREEN
+    call itself finished.
+    """
+    result = run_suite(project)
+    if not result.ran:
+        return UNKNOWN
+    selected = fr_test_outcomes(result, fr_id)
+    if not selected:
+        if not (result.test_outcomes or {}) and not result.passed:
+            return RED
+        return UNKNOWN
+    return GREEN if all(o == "passed" for o in selected.values()) else RED
