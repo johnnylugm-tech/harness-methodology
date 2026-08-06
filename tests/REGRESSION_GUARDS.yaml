@@ -1593,7 +1593,4 @@
   bug: "the field rides on unhealthy records only — a healthy community has nothing to remedy and must not grow a remedy field"
   fixed_in: "R42-站5"
 
-- test: tests/test_test_type_coverage.py::test_all_seven_derivation_types_are_registered
-  bug: "the seven derivation types are one importable list, and a TEST_SPEC with six of them names the seventh"
-  fixed_in: "R42-站2"
 
