@@ -1735,3 +1735,128 @@ pytest 6816 → **6840** passed / 4 skipped；guards 319 → **330**；
 四條反證各自轉紅後以反向編輯還原，工作樹只留下反證本身揭露的那一項修復。
 plangen golden 的唯一 diff 就是兩處更正（gate 1 補 `architecture_constraints`、
 gate 2 補 `architecture` 與 CRG 註記）。
+
+---
+
+## Round 40（2026-08-06）—— 已交付的副本，與沒人登記的旋鈕
+
+起點是老闆的一個問題：taskq-renew 的 CRG CI 紅，經 Round 39 之後還需要做什麼？
+
+答案是「Round 39 對它毫無影響」，但查證那句話的過程挖出兩個框架缺口。本輪
+只修這兩個缺口；taskq-renew 全程唯讀，一個位元組都沒動。
+
+### 前置量測（全部實跑，不是推論）
+
+| 事實 | 量法 | 結果 |
+|---|---|---|
+| taskq-renew CI 只有一個 job 紅 | `gh run view 31013799623` | CRG Architecture Gate，`architecture_score=57.1 (threshold 80)` |
+| 該紅是真的、可重現 | clone 到 `/tmp`，本地 CRG 2.3.6（與 CI pin 同版）跑 `run_independent_crg` | **57.1**，與 CI 逐位元相同；`_graph_files 47 == _source_files 47`（R37 覆蓋修復有效） |
+| 三個不健康社群 | 同上 | `storage-parser` size **97**（cohesion 0.31 合格，只因 oversized）、`observability-append` 0.2143、`service-cache` 0.2308 |
+| R38/R39 為何無影響 | `git log c09fae1..HEAD -- harness/crg_independent.py` | 零變更；taskq-renew 的 submodule 釘在 `c09fae1` = R37 站5，R38/R39 根本不在它的 CI 裡 |
+| 樓地板仍是 80 | `floor_for_phase(3/4/6/9/None)` | 全部 80.0 |
+
+`storage-parser` 不可校準：`_community_oversized` 在 CONFIGURATION.md 明文
+列為不可調。**唯一正解是拆那個 97 人社群**，這是 taskq-renew 自己的架構工作，
+不是框架能代勞的。
+
+### 缺口 A —— 已交付的 CI 模板沒有回流機制
+
+`init-project` 用 `write_text(_harness_workflow_template())` 部署，**零替換**，
+之後永不回頭。`_harness_workflow_template()` 的 docstring 寫著
+`both deploy the same file, so there is no drift` —— 對部署那一刻為真，對之後
+沒有任何一刻為真。
+
+實測 taskq-renew 的副本落後兩輪，且比我最初只比對 CRG job 區塊時報告的**更多**：
+
+```
+-          pip install -r harness/requirements.txt || true
+-          pip install pyyaml 2>/dev/null || true
+-        run: pip install -r harness/requirements.txt || true        (×3)
+-  crg-arch-check --project . --threshold 80 $BASELINE
+```
+
+最後那一行是重點。R38 站2 把 `--threshold` 從框架擁有的每個呼叫點移除，
+`tests/test_crg_threshold_ssot.py` 執法——**範圍是框架自己的檔案**。消費專案的
+副本在框架跑的每一個掃描之外，所以那個數字在唯一沒有測試看得到的檔案上活下來。
+與 R36「驗證生成器不等於驗證出貨物」同形，再往外一層。
+
+**正解**：`core/ci_template.py` 同時擁有模板路徑與交付路徑（「CI workflow 在哪」
+只說一次），並以位元組相等對賬——這只有在部署是逐字複製時才成立，而它就是。
+消費者是 `doctor`（離線、跨檔、靜態，與 git-sync / dimension-scope 同族），
+以及 `init-project` 在 `already exists` 分支的即時提示。WARN 不 ERROR。
+
+**管轄權，被 e2e fixture 修正**：我第一版把「完全沒有 `.github/`」也算漂移，
+結果 golden-path fixture（一個沒跑過 init-project 的方法論專案）被判不健康。
+對一份從未存在的副本說「你的副本過期了」是框架無法舉證的指控。已縮限為
+「有 workflows 目錄但沒有我們的檔案」才報。這一項寫進測試 docstring，不是
+默默改掉。
+
+### 缺口 B —— 決定 gate 的數字可以由 shell 決定
+
+`docs/CONFIGURATION.md` 有一節標題是 **Deliberately NOT configurable
+(anti-backdoor)**，且 R38 在裡面寫下 `_community_oversized` 不可校準。
+
+實測那句話是假的。`crg_analysis.py` 從環境變數讀三個常數：
+
+```python
+COHESION_HEALTHY    = _tf("CRG_COHESION_HEALTHY",    0.3)
+COMMUNITY_OVERSIZED = _ti("CRG_COMMUNITY_OVERSIZED", 50)
+COMMUNITY_MIN_SIZE  = _ti("CRG_COMMUNITY_MIN_SIZE",   5)
+```
+
+而 `compute_community_cohesion_score`——`crg_independent` 用來產生
+framework-owned `architecture_score` 的那條公式——三個全從 module scope 讀。
+`CRG_COMMUNITY_OVERSIZED=1000` 寫在 shell profile 裡，97 人社群就變健康，
+CI 與本地一樣容易，`crg_metrics.json` 只留下一個沒人 diff 的 `_community_oversized`。
+
+**掃描盲區是根因**：`test_configuration_doc.py` 的 env 掃描只認
+`os.environ.get("LITERAL")`，任何一層 wrapper 就完全逃逸。實測共 **12** 個
+env var 躲在三個一行 helper 後面（`crg_analysis` 的 `_tf`/`_ti`、
+`reviewer_router` 的 `_parse_int_env`）。其中 9 個記在**別的**文件裡
+（`CRG_DEEP_INTEGRATION.md` 與兩個 prompt，都沒有任何測試比對），
+`CRG_COMMUNITY_MIN_SIZE` 哪裡都沒有。
+
+**裁決**：
+
+| 對象 | 處置 | 理由 |
+|---|---|---|
+| 3 個決定 gate 判定的常數 | **減法**（env 層拿掉，變常數） | 登記它們等於承認後門合法。committed 的 `crg_cohesion_healthy` 已是正解且 CI 同樣適用 |
+| 6 個 CRG recon/severity 旋鈕 | 登記進 CONFIGURATION.md | 真的是分析調參，不進 `architecture_score` |
+| 3 個 reviewer_router 拆分旋鈕 | 登記進 CONFIGURATION.md | 同上；名字太泛（`TASK_SIZE_THRESHOLD` / `MAX_CONTEXT_LINES`），更該被登記 |
+| 掃描器 | 學會**推導** env wrapper | 硬編 helper 名單是又一份會過期的陳述 |
+
+env 表沒有 Default 欄，所以登記 9 個**沒有新增任何一份數字陳述**。
+
+**行為不變的證明**：減法後對 taskq-renew clone 重跑真實 scorer，
+`crg_cohesion_healthy: 0.25` 仍從它 committed 的 harness_config.json 生效
+（threshold 0.25 而非 builtin 0.3），`architecture_score` 仍是 **57.1**。
+value unchanged, source changed。
+
+### 順帶修正的假陳述（R39 母體：移除機制不等於移除陳述）
+
+`crg_analysis.py` 的 module docstring 與門檻表、參數優先序註解
+（`param > CRG_COHESION_HEALTHY env var > builtin`）、`CRG_DEEP_INTEGRATION.md`
+的表、`crg_reconnaissance.md` 的表、`evaluate_dimension.md` 的 cohesion 句、
+以及 `reviewer_router.py` 的 header——它在自己讀的三個 env var 上方 12 行寫著
+`no env vars`。
+
+### 明列不做
+
+- **不修 taskq-renew 的架構**。它是唯讀專案，且 57.1 的正解是拆 `storage-parser`，
+  屬於該專案的工作。
+- **不降 `crg_cohesion_healthy` 讓 CI 轉綠**。把 0.25 降到 0.21 會讓兩個
+  marginal 社群變健康、分數變 6/7 = 85.7、CI 立刻綠，而 97 人社群原封不動。
+  這是 workaround，已向老闆說明存在但不建議。
+- **不回填消費專案的 CI 檔**。doctor 現在會報，修復指令一行，何時執行是老闆的決定。
+- **不收斂那 6 個倖存 CRG 預設值在兩份文件裡的重複**。那是本輪之前就有的重述債，
+  不是本輪造成的，且收斂它要改一份 agent 會讀的 prompt。**再開條件**：下一次
+  有人改動這 6 個數字中的任何一個時一併處理。
+
+### 驗證
+
+pytest 6848 → **6866** passed / 4 skipped；guards 330 → **344**；
+ruff clean；`--check` 9/9。
+四條反證各自轉紅後以反向編輯還原，`git diff` 事後為空。
+反證 CP-3（把 `CRG_COMMUNITY_OVERSIZED` 的 env 層放回去）同時打紅
+`test_gate_knobs_are_not_ambient` **與** `test_every_env_var_read_is_documented`
+——後者是缺口 B 的新掃描器帶來的，證明兩個修復互相扣住。

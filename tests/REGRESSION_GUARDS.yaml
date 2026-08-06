@@ -1364,3 +1364,63 @@
 - test: tests/test_gate_dimension_prose_parity.py::test_plangen_does_not_restate_thresholds
   bug: "_GATE_META was a fourth full copy of every gate's dimensions and thresholds, outside the scan Round 38 站2 installed, and wrong in two places: gate 1 listed 3 of 4 dimensions (architecture_constraints missing) and gate 2 listed 11 of 12. Its feature-flag filter matched rendered token strings, so 'mutation_testing(70)' had to be spelled with its threshold to be removable"
   fixed_in: "R39-站3 (_build_gate_meta renders from the gate configs and filters by dimension name through _DIM_TO_FEATURE)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Round 40 — the copy nobody re-syncs, and the knob nobody registered
+# ─────────────────────────────────────────────────────────────────────────────
+
+- test: tests/test_ci_template_drift.py::test_the_template_this_check_compares_against_exists
+  bug: "positive control — an absent templates/harness_quality_gate.yml would make every comparison below vacuous and the scan would pass by proving nothing"
+  fixed_in: "R40-站1"
+
+- test: tests/test_ci_template_drift.py::test_a_copy_of_the_current_template_is_not_drift
+  bug: "init-project writes the template verbatim, so equality is the right predicate; if it ever stopped being verbatim this check would accuse every project at once"
+  fixed_in: "R40-站1 (core/ci_template.py)"
+
+- test: tests/test_ci_template_drift.py::test_one_changed_byte_is_drift
+  bug: "taskq-renew ran a CI file two framework rounds old — five `|| true` sites Round 37 站4 removed and the `--threshold 80` Round 38 站2 removed. test_crg_threshold_ssot.py enforces that removal across the framework's own files; a consumer's copy is outside every scan the framework runs, so a second source of the architecture floor survived on the one file no test could see"
+  fixed_in: "R40-站1 (ci_template_drift compares the deployed copy to the shipped template)"
+
+- test: tests/test_ci_template_drift.py::test_a_deleted_workflow_is_drift
+  bug: "deleting the workflow un-gates a project as completely as editing it, and leaves less trace"
+  fixed_in: "R40-站1"
+
+- test: tests/test_ci_template_drift.py::test_a_project_that_was_never_ci_installed_is_silent
+  bug: "the first draft reported every project with no .github/ as drifted, and called the e2e golden-path fixture — a methodology project driven without init-project — unhealthy. A check that fires on clean projects is a check people mute"
+  fixed_in: "R40-站1 (jurisdiction narrowed to projects that have a workflows directory)"
+
+- test: tests/test_ci_template_drift.py::test_the_report_names_the_command_that_repairs_it
+  bug: "Round 24: a block that does not say what to do is half a block"
+  fixed_in: "R40-站1 (REDEPLOY_COMMAND travels in the report)"
+
+- test: tests/test_ci_template_drift.py::test_doctor_reports_ci_template_drift
+  bug: "Round 30: a check nothing calls is half a mechanism. doctor is the one command that runs inside a consumer repo with the harness beside it, so it can see both files at once"
+  fixed_in: "R40-站1 (core/doctor.py::_check_ci_template_drift)"
+
+- test: tests/test_ci_template_drift.py::test_doctor_is_silent_when_the_copy_is_current
+  bug: "a WARN every clean project sees is a WARN nobody reads"
+  fixed_in: "R40-站1"
+
+- test: tests/test_gate_knobs_are_not_ambient.py::test_no_env_var_moves_a_constant_the_architecture_score_reads
+  bug: "crg_analysis.py read COHESION_HEALTHY, COMMUNITY_OVERSIZED and COMMUNITY_MIN_SIZE from CRG_* env vars. Those three decide the framework-owned architecture_score that crg-arch-check blocks CI on, so CRG_COMMUNITY_OVERSIZED=1000 in a shell profile turned a 97-member god community healthy — while docs/CONFIGURATION.md said, under 'Deliberately NOT configurable (anti-backdoor)', that _community_oversized was not calibratable"
+  fixed_in: "R40-站3 (the three are plain constants; per-project calibration goes through the committed crg_cohesion_healthy)"
+
+- test: tests/test_gate_knobs_are_not_ambient.py::test_no_env_var_moves_the_architecture_score_itself
+  bug: "asserting only on the constant would let a future indirection satisfy the rule while the shell still decided the verdict"
+  fixed_in: "R40-站3"
+
+- test: tests/test_gate_knobs_are_not_ambient.py::test_the_baseline_score_is_what_makes_this_test_meaningful
+  bug: "positive control — if the fixture communities were healthy at baseline, every 'score did not move' assertion would hold for an uninteresting reason"
+  fixed_in: "R40-站3"
+
+- test: tests/test_gate_knobs_are_not_ambient.py::test_the_committed_calibration_still_works
+  bug: "removing the env layer must not remove the sanctioned route: crg_cohesion_healthy reaches the formula as a parameter, and that is what a project with a genuine CRG false positive uses"
+  fixed_in: "R40-站3"
+
+- test: tests/test_configuration_doc.py::test_the_scanner_sees_a_key_read_through_a_wrapper
+  bug: "the env registry scan matched only a literal first argument to os.environ.get/os.getenv, so one level of indirection escaped it entirely — twelve variables behind three one-line helpers, three of which decided a gate verdict. CONFIGURATION.md called this 'the scanner's known limit' while hand-registering one var it missed"
+  fixed_in: "R40-站2 (_env_wrappers derives which functions read whichever name they are handed)"
+
+- test: tests/test_configuration_doc.py::test_the_wrapper_detector_is_derived_not_guessed
+  bug: "a hardcoded list of helper names would go stale the next time someone writes _read_env(); and a function that takes a parameter but reads a fixed variable is not a wrapper — treating it as one would register an env var named after the default"
+  fixed_in: "R40-站2"
