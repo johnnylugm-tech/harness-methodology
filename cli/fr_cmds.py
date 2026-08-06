@@ -17,9 +17,11 @@ import sys
 from pathlib import Path
 
 from cli import gate_cmds
-from cli.exit_codes import EX_FR_STEP_INFRA_ABORT
+from cli.exit_codes import EX_FR_STEP_INFRA_ABORT, EX_STEP_PRECONDITION_BLOCKED
 from core.agent_spawner import (
     _COMMIT_REQUIRED_STEPS,
+    PRECONDITION_BLOCKED,
+    blocked_inner_status_in,
     is_structurally_broken,
     turn_budget_exhausted,
 )
@@ -569,6 +571,12 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             _output = result.get("output", "")
             if _is_connector_disabled_failure(_output):
                 return _abort_dispatch_structurally_broken(fr_id, step, phase, project)
+            # Round 41 站2: "I could not run because my precondition is unmet"
+            # is a result, not a failure — but only if it is true.
+            if _reports_precondition_block(result):
+                _rc = _resolve_precondition_block(fr_id, step, phase, project, _output)
+                if _rc is not None:
+                    return _rc
             print(f"[run-fr-step] {fr_id} {step}: sub-agent {_status}")
             print(_output[:500])
             return 1
@@ -1304,6 +1312,71 @@ def _classify_infra_or_harness_bug(out: str) -> "tuple[str, str] | None":
         if sig in out:
             return "INFRA", sig
     return None
+
+
+def _reports_precondition_block(result: dict) -> bool:
+    """Did this dispatch report that the step's precondition is unmet?
+
+    Round 41 站2. Read from `inner_status` where spawn() put it, and re-derived
+    from the output text otherwise — the same two-directional read
+    `core.failure_modes._effective_error_class` uses, so a result that came
+    back through a path which did not stamp the field is still recognised.
+    """
+    if (result.get("inner_status") or "").upper() == PRECONDITION_BLOCKED:
+        return True
+    return blocked_inner_status_in(str(result.get("output") or "")) == PRECONDITION_BLOCKED
+
+
+def _resolve_precondition_block(
+    fr_id: str, step: str, phase: int, project: Path, output: str
+) -> int | None:
+    """Honour a reported precondition block, but only after checking it.
+
+    Returns the abort code when the block is real (or unverifiable), or None to
+    let the caller fall through to the ordinary error path when the claim is
+    contradicted by the framework's own measurement.
+
+    Round 35's rule, applied to a new claim: the framework's number comes before
+    the agent's. Without the check, "PRECONDITION_BLOCKED" would be a universal
+    opt-out from the commit requirement — any step could decline any work by
+    naming a precondition nobody verifies.
+
+    UNKNOWN honours the block and says so. The framework cannot measure the
+    project (non-Python, no source or test directory, no test of this FR
+    collected), so it has no ground to call the agent wrong; refusing on that
+    basis would put the step straight back into the loop this round exists to
+    end, and Round 39's rule says an abstention has to be visible rather than
+    silently resolved either way.
+    """
+    verdict = suite_run.fr_suite_verdict(project, fr_id)
+    if verdict == suite_run.GREEN:
+        print(
+            f"[run-fr-step] {fr_id} {step}: reported a blocked precondition, but "
+            f"this FR's tests pass — the claim is not supported by the tree it "
+            f"describes. Treating as an ordinary step failure.",
+            file=sys.stderr,
+        )
+        return None
+    if verdict == suite_run.UNKNOWN:
+        record_degradation(
+            project, component=f"run-fr-step:{step}",
+            what="precondition block accepted without verification",
+            why=f"{fr_id}: the suite could not be measured here, so the reported "
+                f"block is honoured on the sub-agent's word alone",
+        )
+    print(
+        f"\n[BLOCKED] {fr_id} {step}: the step's precondition is not met, so it "
+        f"correctly did nothing.\n"
+        f"  Verified: this FR's own tests are {'failing' if verdict == suite_run.RED else 'not measurable here'}.\n"
+        f"  This is NOT an agent-logic failure and re-dispatching it changes "
+        f"nothing — the next attempt meets the same baseline.\n"
+        f"  Sub-agent report: {output[:300]}\n"
+        f"  Fix the baseline, or revert the step that broke it, then re-run:\n"
+        f"    python harness_cli.py resume-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --project {project}",
+        file=sys.stderr,
+    )
+    return EX_STEP_PRECONDITION_BLOCKED
 
 
 def _abort_dispatch_infra_or_harness_bug(

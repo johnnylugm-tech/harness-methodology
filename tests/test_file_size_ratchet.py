@@ -382,7 +382,15 @@ _LINE_CEILING: dict[str, int] = {
     # decision belongs. taskq-api's FR-04 sat behind that inference for 3h11m
     # and $6.02 with a red suite the framework had never asked about (sized to
     # current 2126 -> 2126).
-    "cli/fr_cmds.py": 2126,
+    # 2026-08-06: +73 — Round 41 站2: `_reports_precondition_block` and
+    # `_resolve_precondition_block` — a step that reports an unmet precondition
+    # is checked against the framework's own suite run (Round 35's rule applied
+    # to a new claim) and, when the claim holds, aborted with the remediation
+    # instead of being re-dispatched into the identical refusal. Most of the
+    # weight is the [BLOCKED] message itself, which exists precisely because
+    # taskq-api's operator had none: eight identical failures and no sentence
+    # saying what to do (sized to current 2199 -> 2199).
+    "cli/fr_cmds.py": 2199,
     # 2026-07-21: +4 lines — review fix on fix/fr-step-already-done-cascade: reverted the sub-change that relaxed `if not committed: return False` to only fire for GATE1/GATE1-DELTA (it let TDD-RED/TDD-GREEN mark themselves done from a leftover, uncommitted artifact alone — reproduced live; commit evidence is a hard requirement again for every step). The GATE1 sentinel+quality_complete cascade already covers the phase-boundary scenario (FR-02 GREEN commits pre-dating the boundary) that relaxation was meant to fix, so no expressiveness is lost. Also replaced the multi-tag docstring scan's 4 unanchored substring patterns with a `[...]`-bracket-anchored, exact-tag-set match (`re.findall(r"\[([^\]]*)\]", text)` + membership check) — the substring version could false-positive match an unrelated prose comment like "# see FR-03, FR-09" with no enclosing brackets at all (also reproduced live).
     # 2026-07-21: +15 lines — fix/round-18-dispatch-ssot (Bug B): import `PRAGMA_NO_COVER_ALLOWLIST` alongside `PRAGMA_NO_COVER_GUIDANCE` and render the allowlist verbatim in the COVERAGE-FIX prompt so future widening of the tuple auto-propagates; replace the contradictory `raise NotImplementedError` example with one that matches the SSOT (`except BaseException: pass`).
     # 2026-07-21: +1 line — fix/round-18-dispatch-ssot (Bug A): add `"AMEND-SAB"` key to `_FR_STEP_COMMIT_PATTERNS` so `_fr_step_already_done` short-circuits a re-run whose amend-sab commit is already in git log.
@@ -472,7 +480,11 @@ _LINE_CEILING: dict[str, int] = {
     # of restating it, which is how the two classifiers over this one output came
     # to disagree (log said EXECUTION_ERROR, MAST said dispatch_timeout, and the
     # deciding one was the blind one).
-    "core/agent_spawner.py": 1260,
+    # 2026-08-06: +3 — Round 41 站2: PRECONDITION_BLOCKED joins
+    # _INNER_BLOCKED_SIGNATURES, with the incident that named it. One registry
+    # member and its provenance; the routing it enables lives in cli/fr_cmds.py
+    # (sized to current 1263 -> 1263).
+    "core/agent_spawner.py": 1263,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

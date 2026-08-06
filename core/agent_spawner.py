@@ -112,8 +112,19 @@ _INNER_NOOP_SIGNATURES: frozenset[str] = frozenset({
 # whether the agent volunteered a `"pass": false` key.
 # Incident and measurements: tests/test_infra_fail_separation.py's
 # TestBlockedReportSurvivesToTheGuard.
+#
+# Round 41 站2 — PRECONDITION_BLOCKED joins it. Same class of answer ("I could
+# not run; here is why"), different cause and different remedy: the tools DID
+# run and reported that the step's precondition is unmet — a refactor step
+# handed a red baseline. taskq-api's FR-04 TDD-IMPROVE said exactly that in the
+# only words it had ({"status": "DONE", "refactored": false, "commit": null,
+# "summary": "baseline test broken; no refactor performed"}), the commit-
+# required branch below called it a missing commit, and the step was
+# re-dispatched into the identical refusal eight times.
+PRECONDITION_BLOCKED = "PRECONDITION_BLOCKED"
 _INNER_BLOCKED_SIGNATURES: frozenset[str] = frozenset({
     "INFRA_BLOCKED",
+    PRECONDITION_BLOCKED,
 })
 
 # Unattended-execution override, passed via --append-system-prompt on every

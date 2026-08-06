@@ -26,10 +26,11 @@ def test_fr01_02_empty():
 
 [TASK]
 1. Run `python3 -m pytest tests/test_fr01.py -q` first — confirm all pass before any changes.
-2. Refactor source code in `03-development/src/` for clarity, remove duplication, improve naming.
-3. Re-run `python3 -m pytest tests/test_fr01.py -q` — must still pass.
-4. If changes made: `git commit -m 'refactor(FR-01): IMPROVE'`
-5. If no refactor needed: no commit required.
+2. If they do NOT all pass, STOP. Refactoring on a red baseline turns a known failure into an unattributable one. Make no change, commit nothing, and report {"status": "PRECONDITION_BLOCKED", "commit": null, "summary": "<which test fails and why this blocks the refactor>"}. The framework verifies that claim against its own run of these tests and stops the pipeline with your reason — it is a correct answer, not a failure, and it is the ONLY way to report an unmet precondition.
+3. Refactor source code in `03-development/src/` for clarity, remove duplication, improve naming.
+4. Re-run `python3 -m pytest tests/test_fr01.py -q` — must still pass.
+5. `git commit -m 'refactor(FR-01): IMPROVE'` — a commit is required to complete this step.
 
 [OUTPUT FORMAT]
-Return JSON: {"status": "DONE", "refactored": true/false, "commit": "<hash or null>", "summary": "<under 50 chars>"}
+Return JSON: {"status": "DONE", "refactored": true, "commit": "<hash>", "summary": "<under 50 chars>"}
+or, when step 2 stopped you: {"status": "PRECONDITION_BLOCKED", "commit": null, "summary": "<under 50 chars>"}

@@ -8,6 +8,10 @@ from cli.fr_prompts._shared import (
     _extract_test_spec_names,
     _sab_binding_block,
 )
+# The status string the prompt asks for is the one the spawner recognises —
+# rendered from the registry, never re-typed (Round 41 站2; the shape Round 17
+# 站1 established for gate thresholds and Round 39 站3 for dimension lists).
+from core.agent_spawner import PRECONDITION_BLOCKED
 
 
 def build_tdd_red_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, src_dir: str) -> str:
@@ -207,10 +211,19 @@ def build_tdd_improve_prompt(fr_id: str, phase: int, project: Path, srs_path: Pa
         f"{test_content or f'(read from {test_file})'}\n\n"
         f"[TASK]\n"
         f"1. Run `python3 -m pytest {test_file} -q` first — confirm all pass before any changes.\n"
-        f"2. Refactor source code in `{src_dir}/` for clarity, remove duplication, improve naming.\n"
-        f"3. Re-run `python3 -m pytest {test_file} -q` — must still pass.\n"
-        f"4. If changes made: `git commit -m 'refactor({fr_id}): IMPROVE'`\n"
-        f"5. If no refactor needed: no commit required.\n\n"
-        f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "refactored": true/false, '
-        f'"commit": "<hash or null>", "summary": "<under 50 chars>"}}'
+        f"2. If they do NOT all pass, STOP. Refactoring on a red baseline turns a "
+        f"known failure into an unattributable one. Make no change, commit nothing, "
+        f'and report {{"status": "{PRECONDITION_BLOCKED}", "commit": null, '
+        f'"summary": "<which test fails and why this blocks the refactor>"}}. '
+        f"The framework verifies that claim against its own run of these tests and "
+        f"stops the pipeline with your reason — it is a correct answer, not a "
+        f"failure, and it is the ONLY way to report an unmet precondition.\n"
+        f"3. Refactor source code in `{src_dir}/` for clarity, remove duplication, improve naming.\n"
+        f"4. Re-run `python3 -m pytest {test_file} -q` — must still pass.\n"
+        f"5. `git commit -m 'refactor({fr_id}): IMPROVE'` — a commit is required to "
+        f"complete this step.\n\n"
+        f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "refactored": true, '
+        f'"commit": "<hash>", "summary": "<under 50 chars>"}}\n'
+        f'or, when step 2 stopped you: {{"status": "{PRECONDITION_BLOCKED}", '
+        f'"commit": null, "summary": "<under 50 chars>"}}'
     )
