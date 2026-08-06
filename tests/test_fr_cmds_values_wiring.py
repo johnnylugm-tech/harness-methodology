@@ -350,7 +350,16 @@ class TestTurnBudgetEscalation:
         calls = self._dispatches(tmp_path, monkeypatch, [err])
         base = _STEP_MAX_TURNS["TDD-RED"]
         assert all(c["max_turns"] == base for c in calls)
-        assert not (tmp_path / ".methodology" / "degradations.jsonl").is_file()
+        # Round 41 站3: this used to assert the ledger file did not exist at
+        # all, which was a proxy for "nothing escalated" that held only while
+        # escalation was its only writer. A failed dispatch now leaves its own
+        # durable record there by design, so the claim is stated directly: no
+        # ESCALATION was recorded. The test's subject never changed.
+        ledger = tmp_path / ".methodology" / "degradations.jsonl"
+        body = ledger.read_text(encoding="utf-8") if ledger.is_file() else ""
+        assert "escalated" not in body, (
+            f"an ordinary execution error bought more room: {body!r}"
+        )
 
     def test_escalation_survives_an_unstamped_result(self, tmp_path, monkeypatch):
         """The decision re-derives from the output instead of trusting a stamp.

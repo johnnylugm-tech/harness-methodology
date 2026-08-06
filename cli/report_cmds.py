@@ -435,7 +435,14 @@ def cmd_run_report(args: argparse.Namespace) -> int:
 # phase/fr_id, any path. A corpus records failure SHAPES, not a log copy. That
 # is also why it is safe to carry shapes observed on one project into this
 # repo's fixtures at all.
-_CORPUS_FIELDS = ("role", "status", "error_output", "regression_flags", "inner_status")
+# Round 41 站3 added `transport_error`: it is a raw signal, not a verdict, and
+# it is the field `core.failure_modes._effective_error_class` re-derives from.
+# A corpus exported without it would exercise only the pre-Round-41 fallback
+# path, which is the opposite of what a corpus is for.
+_CORPUS_FIELDS = (
+    "role", "status", "error_output", "regression_flags", "inner_status",
+    "transport_error",
+)
 
 
 def build_failure_corpus(project: Path) -> list[dict]:

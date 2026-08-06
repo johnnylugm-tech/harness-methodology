@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import pytest
 
+from core import agent_spawner as core_spawner
 from core.agent_spawner import _classify_dispatch_error
 from core.failure_modes import _effective_error_class
 
@@ -83,6 +84,12 @@ def test_the_agents_own_words_do_not_diagnose_the_transport(label, error_output)
         "status": "ERROR",
         "error_class": "EXECUTION_ERROR",
         "error_output": error_output,
+        # What `_error_result` writes for a semantic failure: present and
+        # empty. The model was reached and replied, so there is no transport
+        # story — and saying so explicitly is what distinguishes this entry
+        # from one written before the field existed. The producer side of that
+        # promise is pinned by test_a_semantic_failure_always_declares_no_transport.
+        "transport_error": "",
         "fr_id": "FR-04",
     }
     assert _effective_error_class(entry) != "INFRA_ERROR", (
@@ -102,6 +109,48 @@ def test_a_real_transport_failure_is_still_a_transport_failure():
         "transport_error": "subtype=success API Error: Stream idle timeout - no chunks received",
     }
     assert _effective_error_class(entry) == "INFRA_ERROR"
+
+
+def test_a_semantic_failure_always_declares_no_transport():
+    """The producer half, and the load-bearing one.
+
+    The reader can only use the right field if the writer always fills it.
+    Every semantic re-classification goes through `_error_result`; if any of
+    them omitted `transport_error`, that entry would silently fall back to
+    scanning the agent's verbatim reply — the very hazard this separation
+    exists to remove — and no reader-side test would notice.
+    """
+    for kwargs in (
+        {"error_class": "EXECUTION_ERROR", "inner_status": "DONE"},
+        {"error_class": "INFRA", "inner_status": "INFRA_BLOCKED"},
+        {"error_class": "INFRA", "inner_status": "PRECONDITION_BLOCKED"},
+    ):
+        result = core_spawner._error_result(
+            "diagnostic", 'the API returned 403 and the rate limit was hit', **kwargs
+        )
+        assert result["transport_error"] == "", (
+            f"{kwargs['inner_status']}: a semantic failure did not declare "
+            f"itself free of transport evidence"
+        )
+        assert _effective_error_class({
+            "status": "ERROR", **{k: v for k, v in result.items()
+                                  if k in ("error_class", "transport_error")},
+            "error_output": result["output"],
+        }) != "INFRA_ERROR"
+
+
+def test_a_transport_failure_carries_the_transport_text():
+    """The other producer half: a real transport failure must not lose the
+    evidence by being over-scrubbed. `spawn`'s non-zero-exit branch writes the
+    `_extract_dispatch_error` output into both fields, and only that branch
+    may."""
+    import inspect
+    src = inspect.getsource(core_spawner.AgentSpawner.spawn)
+    assert '"transport_error": _err_output' in src, (
+        "spawn()'s transport-failure branch no longer records the transport "
+        "text — the classifier would see an empty field and read every network "
+        "fault as an agent-logic failure"
+    )
 
 
 def test_the_live_classifier_still_reads_the_text_it_is_given():

@@ -241,6 +241,16 @@ FIELDS_ABSENT_FROM_CORPUS: dict[str, str] = {
                     "no exported shape carries it yet. REMOVE this entry once a "
                     "post-Round-19 run is exported — until then _is_semantic_noop "
                     "remains unverified against real data.",
+    "transport_error": "the write side landed in Round 41 站3 (_log_dispatch "
+                       "emits it, and cli/report_cmds._CORPUS_FIELDS exports "
+                       "it); every corpus on record predates that commit. Those "
+                       "entries take _effective_error_class's documented "
+                       "fallback to `error_output`, which is why the classifier "
+                       "still explains all of them. REMOVE this entry once a "
+                       "post-Round-41 run is exported — until then the "
+                       "provenance split is verified only by unit tests "
+                       "(tests/test_transport_vs_semantic_failure.py), not "
+                       "against real data.",
 }
 
 

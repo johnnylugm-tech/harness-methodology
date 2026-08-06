@@ -17,7 +17,11 @@ import sys
 from pathlib import Path
 
 from cli import gate_cmds
-from cli.exit_codes import EX_FR_STEP_INFRA_ABORT, EX_STEP_PRECONDITION_BLOCKED
+from cli.exit_codes import (
+    EX_FR_STEP_INFRA_ABORT,
+    EX_STEP_PRECONDITION_BLOCKED,
+    EX_STEP_REPEATED_FAILURE,
+)
 from core.agent_spawner import (
     _COMMIT_REQUIRED_STEPS,
     PRECONDITION_BLOCKED,
@@ -35,6 +39,7 @@ from core.quality_gate.ghost_detector import (
     detect_ghost_changes,
     write_ghost_paper_trail,
 )
+from core import step_failure_memory as step_memory
 from core.quality_gate import test_suite_run as suite_run
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.state_io import StateCorruptError, load_quality_manifest, load_state
@@ -497,6 +502,17 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     # REGRESSION_GUARD (hard reject) and an already-exhausted STRUCTURAL
     # signature (Fix H-G already retried that 3x at the transport layer) are
     # never retried here — both fall straight through on attempt 1.
+    # Round 41 站3: what earlier PROCESSES already spent on this step. The
+    # in-process retry below is bounded; the outer loop that re-invokes this
+    # command was not bounded by anything, because every counter it could have
+    # read lived in a process that had exited.
+    _tree = step_memory.tree_fingerprint(project)
+    _seen_before = step_memory.repeated_failure(
+        project, fr_id, step, _tree, _STEP_RETRY_ATTEMPTS
+    )
+    if _seen_before is not None:
+        return _abort_repeated_failure(fr_id, step, phase, project, _seen_before)
+
     result: dict = {}
     _status: str | None = None
     for _step_attempt in range(1, _STEP_RETRY_ATTEMPTS + 1):
@@ -514,6 +530,12 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             permission_mode=_pmode,
         )
         _status = result.get("status")
+        # Round 41 站3: every failed dispatch leaves a durable record, keyed by
+        # (FR, step, signature, tree). Written before the retry decision so the
+        # in-process retry's own failures count too — they are dispatches the
+        # framework paid for, and the next process must know they happened.
+        if _status in _DISPATCH_ERROR_STATUSES:
+            step_memory.record_step_failure(project, fr_id, step, result, _tree)
         # Round 26: a turn-budget kill is retryable for EVERY step, GATE1 included,
         # because the remedy is more room rather than a different agent. Handing a
         # cut-off GATE1 to CODE-FIX sent a fixer at code with no defect — and the
@@ -1312,6 +1334,40 @@ def _classify_infra_or_harness_bug(out: str) -> "tuple[str, str] | None":
         if sig in out:
             return "INFRA", sig
     return None
+
+
+def _abort_repeated_failure(
+    fr_id: str, step: str, phase: int, project: Path, record: dict
+) -> int:
+    """Refuse to buy an identical failure again, and say what it was.
+
+    Round 41 站3. The refusal is not a verdict about the code — it is a
+    statement that this dispatch has already been made, against this tree, with
+    this outcome, as many times as the framework's own retry policy allows.
+    Repair anything in the tree and the refusal lifts on its own; there is no
+    flag to override it, because a flag would be a way to keep paying.
+    """
+    print(
+        f"\n[BLOCKED] {fr_id} {step}: this dispatch has already failed "
+        f"{record.get('seen')}x with an identical result on this exact tree "
+        f"({record.get('error_class') or 'failure'}, signature "
+        f"{record.get('signature')}). Refusing to spend another one.\n"
+        f"  Nothing has changed since those attempts — same commit, same "
+        f"working tree — so the next attempt meets the same conditions.\n"
+        f"  The failures are recorded in .methodology/degradations.jsonl "
+        f"(component run-fr-step:{step}).\n"
+        f"  Fix the cause; any change to the tree re-opens this step. Then:\n"
+        f"    python harness_cli.py resume-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --project {project}",
+        file=sys.stderr,
+    )
+    record_degradation(
+        project, component=f"run-fr-step:{step}",
+        what="dispatch refused — identical failure already recorded",
+        why=f"{fr_id} {step}: signature {record.get('signature')} seen "
+            f"{record.get('seen')}x on an unchanged tree",
+    )
+    return EX_STEP_REPEATED_FAILURE
 
 
 def _reports_precondition_block(result: dict) -> bool:

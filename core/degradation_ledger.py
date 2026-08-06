@@ -37,12 +37,24 @@ LEDGER_RELPATH = ".methodology/degradations.jsonl"
 _warned: set[tuple[str, str]] = set()
 
 
-def record_degradation(project: "str | Path", component: str, what: str, why: str = "") -> None:
+def record_degradation(
+    project: "str | Path", component: str, what: str, why: str = "",
+    data: "dict | None" = None,
+) -> None:
     """Record a graceful degradation: print a `[DEGRADED]` line to stderr
     (once per component+what per process) and append a JSON record to
     `<project>/.methodology/degradations.jsonl`. Never raises — a failure
     to write the ledger must not be worse than the degradation it was
     trying to record.
+
+    `data` is an optional machine-readable payload, written under its own key.
+    Round 41 站3 added it because the ledger acquired its first PROGRAMMATIC
+    reader: a step that has failed identically before must be recognised as
+    such across process boundaries, and `component`/`what`/`why` are free
+    prose. Recovering a failure signature by parsing an English sentence is how
+    a checker starts agreeing with its author instead of with the data
+    (Round 19 站1). Omitted from the record when None, so every existing
+    caller's entry is byte-identical to what it wrote before.
     """
     key = (component, what)
     if key not in _warned:
@@ -58,7 +70,41 @@ def record_degradation(project: "str | Path", component: str, what: str, why: st
             "what": what,
             "why": why,
         }
+        if data is not None:
+            entry["data"] = data
         with open(ledger_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:
         print(f"[WARN] failed to write degradation ledger entry: {exc}", file=sys.stderr)
+
+
+def read_degradations(project: "str | Path") -> list[dict]:
+    """Every ledger entry for *project*, oldest first; [] when there is none.
+
+    Round 41 站3 — the ledger has been append-only in both senses since Round 13
+    站1: written by many callers, read by none. It was designed to outlive the
+    run it describes (Round 27 站3 moved it out of the ephemeral .sessi-work
+    for exactly that reason), which makes it the one place a per-step process
+    can learn what previous processes already tried.
+
+    Malformed lines are skipped rather than raising: a debugging trail that
+    can crash the run it is describing would be worse than one with a hole,
+    and a partially-written last line is the normal shape of a killed process.
+    """
+    ledger_path = Path(project) / LEDGER_RELPATH
+    try:
+        raw = ledger_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    entries: list[dict] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, dict):
+            entries.append(parsed)
+    return entries

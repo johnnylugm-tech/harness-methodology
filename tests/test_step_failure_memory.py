@@ -154,14 +154,40 @@ def test_a_changed_tree_re_opens_the_step(tmp_path):
     )
 
 
-def test_a_different_failure_is_not_the_same_failure(tmp_path):
-    """Counting must key on the signature, not merely on (FR, step): a new
-    failure mode is new information and deserves its own attempt."""
+def test_two_different_failures_are_not_one_repeat(tmp_path):
+    """Counting keys on the signature, so unlike failures do not add up.
+
+    A step that fails two DIFFERENT ways has not repeated itself — it has
+    produced two pieces of information, and the framework still knows nothing
+    about what a third attempt would do. Merging them into one tally would turn
+    "this keeps happening" into "this has happened twice", which are different
+    claims and only the first justifies refusing to spend anything more.
+
+    Note what this test does NOT assert: that a third dispatch which *would*
+    have failed differently is allowed through. The refusal happens before the
+    dispatch, so nothing can know that; and after two identical failures on an
+    unchanged tree, declining to find out is the whole point.
+    """
+    class _TwoWays:
+        def __init__(self):
+            self.calls = 0
+
+        def spawn(self, **kwargs):
+            self.calls += 1
+            _ = kwargs
+            return {
+                "status": "ERROR", "error_class": "INFRA_ERROR", "exit_code": 1,
+                "output": _STREAM_IDLE if self.calls == 1 else "Agent produced no output",
+            }
+
     project = _project(tmp_path)
-    _run(project, _AlwaysFails())
-    other = _AlwaysFails("Agent produced no output at all")
-    _run(project, other)
-    assert other.calls >= 1, (
-        "a different failure signature was refused as a repeat — the framework "
-        "stopped distinguishing failures from each other"
+    first = _TwoWays()
+    _run(project, first)
+    assert first.calls == 2, "precondition: both in-process attempts ran"
+
+    second = _AlwaysFails()
+    _run(project, second)
+    assert second.calls >= 1, (
+        "two unlike failures were counted as one repeated failure — the "
+        "framework stopped distinguishing failures from each other"
     )

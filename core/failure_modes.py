@@ -137,9 +137,25 @@ def _effective_error_class(entry: dict) -> str:
     makes tests/fixtures/failure_corpus/ (which strips the field entirely) an
     end-to-end exercise of `error_output -> class -> mode` rather than a replay.
 
-    Entries whose EXECUTION_ERROR came from _validate_inner_json rather than the
-    regex are unaffected: their text matches no INFRA signature either, and the
-    semantic-no-op / missing-commit rules sit ahead of the INFRA rule anyway.
+    WHICH text is re-run matters as much as whether it is (Round 41 站3). An
+    earlier version of this docstring claimed entries from _validate_inner_json
+    were "unaffected: their text matches no INFRA signature either". That is
+    false for any project whose subject matter is the fault registry's
+    vocabulary — an HTTP API's agent writes "403", "api key", "rate limit" while
+    describing its own work, and `error_output` has carried the sub-agent's
+    verbatim reply since Round 26 站2, deliberately. Four such replies from
+    taskq-api's domain were checked and all four re-derived to INFRA_ERROR.
+    So the scan now reads `transport_error` — the CLI envelope and stderr, the
+    only text that is evidence ABOUT the transport rather than text the agent
+    chose. Empty means the model was reached and replied, which is itself the
+    answer: not a transport failure.
+
+    `error_output` remains the fallback for entries written before that field
+    existed, which is the whole of the recorded past including
+    tests/fixtures/failure_corpus/. Round 19 站1's reason for re-deriving at
+    all — reaching data already on disk with a registry fix — applies to
+    exactly those entries, and history cannot grow a field retroactively
+    without someone fabricating it.
 
     Re-derivation is restricted to FAILED entries, and that restriction is
     load-bearing. _log_dispatch writes `error_output` on every entry — on a
@@ -155,11 +171,14 @@ def _effective_error_class(entry: dict) -> str:
     stamped = str(entry.get("error_class") or "")
     if stamped and stamped != "EXECUTION_ERROR":
         return stamped
-    output = str(entry.get("error_output") or "")
-    if not output:
+    if "transport_error" in entry:
+        text = str(entry.get("transport_error") or "")
+    else:
+        text = str(entry.get("error_output") or "")
+    if not text:
         return stamped
     from core.agent_spawner import _classify_dispatch_error
-    return _classify_dispatch_error(output)
+    return _classify_dispatch_error(text)
 
 
 def _is_structural_env_breakage(entry: dict) -> bool:

@@ -390,7 +390,13 @@ _LINE_CEILING: dict[str, int] = {
     # weight is the [BLOCKED] message itself, which exists precisely because
     # taskq-api's operator had none: eight identical failures and no sentence
     # saying what to do (sized to current 2199 -> 2199).
-    "cli/fr_cmds.py": 2199,
+    # 2026-08-06: +56 — Round 41 站3: the pre-dispatch check that reads what
+    # earlier PROCESSES already spent on this step, and `_abort_repeated_failure`
+    # to explain the refusal. The memory itself is a new module
+    # (core/step_failure_memory.py) rather than more of this file; what lands
+    # here is the call site and its [BLOCKED] message (sized to current
+    # 2255 -> 2255).
+    "cli/fr_cmds.py": 2255,
     # 2026-07-21: +4 lines — review fix on fix/fr-step-already-done-cascade: reverted the sub-change that relaxed `if not committed: return False` to only fire for GATE1/GATE1-DELTA (it let TDD-RED/TDD-GREEN mark themselves done from a leftover, uncommitted artifact alone — reproduced live; commit evidence is a hard requirement again for every step). The GATE1 sentinel+quality_complete cascade already covers the phase-boundary scenario (FR-02 GREEN commits pre-dating the boundary) that relaxation was meant to fix, so no expressiveness is lost. Also replaced the multi-tag docstring scan's 4 unanchored substring patterns with a `[...]`-bracket-anchored, exact-tag-set match (`re.findall(r"\[([^\]]*)\]", text)` + membership check) — the substring version could false-positive match an unrelated prose comment like "# see FR-03, FR-09" with no enclosing brackets at all (also reproduced live).
     # 2026-07-21: +15 lines — fix/round-18-dispatch-ssot (Bug B): import `PRAGMA_NO_COVER_ALLOWLIST` alongside `PRAGMA_NO_COVER_GUIDANCE` and render the allowlist verbatim in the COVERAGE-FIX prompt so future widening of the tuple auto-propagates; replace the contradictory `raise NotImplementedError` example with one that matches the SSOT (`except BaseException: pass`).
     # 2026-07-21: +1 line — fix/round-18-dispatch-ssot (Bug A): add `"AMEND-SAB"` key to `_FR_STEP_COMMIT_PATTERNS` so `_fr_step_already_done` short-circuits a re-run whose amend-sab commit is already in git log.
@@ -484,7 +490,12 @@ _LINE_CEILING: dict[str, int] = {
     # _INNER_BLOCKED_SIGNATURES, with the incident that named it. One registry
     # member and its provenance; the routing it enables lives in cli/fr_cmds.py
     # (sized to current 1263 -> 1263).
-    "core/agent_spawner.py": 1263,
+    # 2026-08-06: +23 — Round 41 站3: the `transport_error` field on both
+    # failure shapes plus its _log_dispatch clause, and the comment explaining
+    # why a signature registry can never tell "the API returned 401" from "the
+    # test asserts 401" — provenance is the only thing that can, and the field
+    # IS that provenance (sized to current 1286 -> 1286).
+    "core/agent_spawner.py": 1286,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
     "scripts/phase_auditor.py": 1848,

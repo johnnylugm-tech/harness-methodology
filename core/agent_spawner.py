@@ -372,6 +372,13 @@ def _error_result(
         "status": "ERROR",
         "error_class": error_class,
         "inner_status": inner_status,
+        # Round 41 站3 — empty, and present. The model was reached and replied;
+        # there is no transport story here, and saying so explicitly is what
+        # lets a reader tell this apart from a record written before the field
+        # existed. `output` above is diagnostic + the agent's verbatim reply,
+        # so it is exactly the string that must never be read as evidence
+        # about the transport.
+        "transport_error": "",
     }
 
 
@@ -757,6 +764,11 @@ class AgentSpawner:
                 "status": "ERROR",
                 "exit_code": proc.returncode,
                 "error_class": _classify_dispatch_error(_err_output or ""),
+                # Round 41 站3 — this text came from the CLI envelope and
+                # stderr, not from the agent. Same value as `output` here
+                # because on this path they have the same source; the two
+                # diverge on the semantic path, which is the point.
+                "transport_error": _err_output,
             }
             post_diff = self._git_diff_numstat(self.project_path, base=pre_sha or "HEAD")
             regression_flags = self._dispatch_diff_budget(pre_diff, post_diff, pre_sha=pre_sha)
@@ -1003,6 +1015,17 @@ class AgentSpawner:
             # dispatches stay unchanged.
             if result.get("inner_status"):
                 _extra["inner_status"] = result["inner_status"]
+            # Round 41 站3: the transport's own account of the failure, kept
+            # apart from `error_output` — which since Round 26 站2 carries the
+            # sub-agent's verbatim reply, on purpose. Classification by
+            # signature cannot tell "the API returned 401" from "the test
+            # asserts 401"; the two strings are identical and only their
+            # provenance differs. This field is that provenance. It is the
+            # `_extract_dispatch_error` output on a non-zero exit, "" on a
+            # semantic failure (the model was reached, so there is no transport
+            # story to tell), and absent on a dispatch that never produced one.
+            if "transport_error" in result:
+                _extra["transport_error"] = result["transport_error"]
             # Round 14 站0: cost/turns/token fields lifted straight out of
             # the claude -p envelope (see _extract_envelope_metrics) —
             # previously parsed then discarded. Only present when the
