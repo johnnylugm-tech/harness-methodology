@@ -100,6 +100,14 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     34  advance-phase: the exit gate has no PASS verdict recorded for the tree
         being advanced — run verify-gate against this tree; a verdict measured
         on a different tree is not a verdict for this one
+    35  run-fr-step: the step correctly did nothing because its precondition
+        was not met (a refactor step cannot run on a red baseline) — not an
+        agent-logic error; repair the named baseline failure, or revert the
+        step that produced it, then re-run
+    36  run-fr-step: this (FR, step) pair has already failed with an identical
+        signature as many times as the in-process retry allows — refusing to
+        spend another dispatch on a failure that has not changed; read
+        .methodology/degradations.jsonl for the signature
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

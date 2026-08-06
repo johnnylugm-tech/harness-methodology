@@ -60,6 +60,8 @@ EX_CI_RED = 31
 EX_CI_VERDICT_UNAVAILABLE = 32
 EX_GATE_VERIFY_FAILED = 33
 EX_ADVANCE_GATE_VERDICT_MISSING = 34
+EX_STEP_PRECONDITION_BLOCKED = 35
+EX_STEP_REPEATED_FAILURE = 36
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -99,6 +101,8 @@ REGISTRY: dict[int, str] = {
     EX_CI_VERDICT_UNAVAILABLE: "verify-ci: the CI verdict could not be obtained (no gh, no network, no origin remote, or no run has appeared yet) — INFRA, not a pass; re-run once CI has reported",
     EX_GATE_VERIFY_FAILED: "verify-gate: at least one of the gate's three checks (last_gate, spec-coverage, crg-arch) failed — the verdict is recorded as FAIL in .methodology/gate_verify.jsonl; fix the named check and re-run",
     EX_ADVANCE_GATE_VERDICT_MISSING: "advance-phase: the exit gate has no PASS verdict recorded for the tree being advanced — run verify-gate against this tree; a verdict measured on a different tree is not a verdict for this one",
+    EX_STEP_PRECONDITION_BLOCKED: "run-fr-step: the step correctly did nothing because its precondition was not met (a refactor step cannot run on a red baseline) — this is not an agent-logic error and re-dispatching it changes nothing; repair the named baseline failure, or revert the step that produced it, then re-run",
+    EX_STEP_REPEATED_FAILURE: "run-fr-step: this (FR, step) pair has already failed with an identical signature as many times as the in-process retry allows — refusing to spend another dispatch on a failure that has not changed; read .methodology/degradations.jsonl for the signature and fix the underlying cause",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
     EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
 }
