@@ -93,6 +93,37 @@ def test_every_env_var_read_is_documented():
     )
 
 
+def test_the_scanner_sees_a_key_read_through_a_wrapper():
+    """Round 40 站0 — one level of indirection was a hole, not a limit.
+
+    The scan above matches `os.environ.get("LITERAL")` and `os.getenv("LITERAL")`.
+    Any function that takes the name as a parameter escapes it entirely, and
+    two production modules do exactly that:
+
+        harness/ssi/scripts/crg_analysis.py   _tf(name, default) / _ti(name, default)
+        harness/reviewer_router.py            _parse_int_env(key, default)
+
+    Twelve env vars were read through those three helpers. Nine of them
+    appeared in *other* documents (docs/CRG_DEEP_INTEGRATION.md and two SSI
+    prompts) that no test compares against anything; `CRG_COMMUNITY_MIN_SIZE`
+    appeared nowhere at all. Three of them decided the framework-owned
+    architecture score — see tests/test_gate_knobs_are_not_ambient.py.
+
+    `METHODOLOGY_CONSTITUTION_PROFILE` is registered by hand in
+    CONFIGURATION.md with a note calling this "the scanner's known limit". A
+    limit that lets a gate knob through is a hole, and the honest fix is to
+    make the scanner follow the wrapper rather than to keep hand-registering
+    whatever it misses.
+    """
+    keys = _env_keys_read_by_production_code()
+    assert "TASK_SIZE_THRESHOLD" in keys, (
+        "harness/reviewer_router.py reads TASK_SIZE_THRESHOLD via "
+        "_parse_int_env(key, default); the scanner did not see it, so any "
+        "env var read through a one-line helper is unregisterable by "
+        "construction"
+    )
+
+
 def test_env_scanner_actually_sees_known_reads():
     """Negative control: the AST scanner must find the known HARNESS_NO_GIT
     reads — an empty scan result would green-light anything."""
