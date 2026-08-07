@@ -28,6 +28,26 @@ HARNESS_CLI = Path(__file__).resolve().parents[2] / "harness_cli.py"
 # reason spec_phase1.py stopped hand-writing its diskPrefix literals.
 from core.quality_gate.legal_artifacts import anchor_for  # noqa: E402
 
+# Round 43 站2: advance-phase now refuses to leave a phase whose successor's
+# entry preflight reports blocking findings, and Round 42 站3 made a missing FR
+# Block one of those. This fixture is the golden path — the same reason it
+# already carries the DELIVERABLE_ANCHORS H1s, it carries the block a real
+# Phase 1 exit produces (templates/SRS.md §7, docs/P1_SOP.md step 4).
+# Built with json.dumps rather than written inline: the block's braces cannot
+# live in the f-string the anchors need.
+_FR_BLOCK = json.dumps({
+    "version": "1.0",
+    "phase": 1,
+    "project": "e2e-fixture",
+    "functional_requirements": [
+        {"id": f"FR-0{n}", "description": f"requirement {n}",
+         "implementation_functions": [f"fr_0{n}"],
+         "verification_method": "unit test"}
+        for n in (1, 2, 3)
+    ],
+    "non_functional_requirements": [],
+}, indent=2)
+
 _SRS = f"""{anchor_for("SRS.md")} — e2e fixture
 
 ## Functional Requirements
@@ -40,6 +60,14 @@ The system shall do thing two. Logic Verification Method: unit test.
 
 ### FR-03: third requirement
 The system shall do thing three. Logic Verification Method: unit test.
+
+## 7. FR Block (machine-readable)
+
+<!-- FR:START -->
+```json
+{_FR_BLOCK}
+```
+<!-- FR:END -->
 """
 
 _SPEC_TRACKING = f"""{anchor_for("SPEC_TRACKING.md")} — e2e fixture

@@ -321,6 +321,13 @@ def _mock_advance_phase_bypass_prechecks(monkeypatch):
     Round 39: cmd_advance_phase now also calls _verify_entry_gate at L526
     before _advance_fsm. Stub it the same way so these tests stay scoped
     to the post-precheck commit-staging logic, not the gate behaviour.
+
+    Round 43 站2: cmd_advance_phase now refuses the advance when the P(N+1)
+    entry preview returns obligations. These fixtures are minimal projects —
+    a SAD.md with no Security Design block reports one, which is correct and
+    is not what any test below is about. Stubbing the PUBLIC
+    PhaseHooks.preview_next_phase_blocking keeps them scoped; obligation
+    behaviour itself is covered in tests/test_advance_refuses_a_blocked_entry.py.
     """
     monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda _, __: 0)
     monkeypatch.setattr("cli.phase_cmds._advance_fsm", lambda *_, **__: None)
@@ -328,6 +335,10 @@ def _mock_advance_phase_bypass_prechecks(monkeypatch):
         "cli.phase_cmds._verify_entry_gate",
         lambda *_, **__: {"passed": True, "gate": "stub",
                            "reason": "test stub (phase-cmds-cli fixture)"},
+    )
+    monkeypatch.setattr(
+        "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+        lambda _self, _next_phase: [],
     )
 
 
@@ -1845,6 +1856,13 @@ class TestP7AdvanceGeneratesP8Baseline:
             "cli.phase_cmds._verify_entry_gate",
             lambda *_, **__: {"passed": True, "gate": "stub",
                                "reason": "test stub (P7 advance fixture)"},
+        )
+        # Round 43 站2: same reason as the bypass-prechecks helper — a stub
+        # tmp_path tree reports real P8-entry obligations, which is not what
+        # the P8 baseline generation tests are about.
+        monkeypatch.setattr(
+            "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+            lambda _self, _next_phase: [],
         )
         monkeypatch.setattr("core.claude_md.update_claude_md", lambda _: None)
         monkeypatch.setattr("core.claude_md.llm_clean_stale_claude_md", lambda _: None)

@@ -152,82 +152,39 @@ class TestHandoverGenerator:
         assert "old content" not in content
         assert "P7-exit-20260504" in content
 
-    def test_obligations_section_renders_blocking_table(self, tmp_path: Path):
-        """Round 14 A: HandoverGenerator.render(obligations=[...]) must emit
-        a 'P(N+1) Entry Obligations' section in the returned markdown, with
-        one row per Obligation (check_id, rule_id, location, message)."""
-        from core.phase_hooks import Obligation
+    def test_no_obligations_section_is_rendered(self, tmp_path: Path):
+        """Round 43 站2 removed the 'P(N+1) Entry Obligations' table.
 
+        Round 14 A rendered it here; Round 43 站2 made advance-phase refuse to
+        advance while those findings exist, so there is no handover for them
+        to ride into — a HANDOVER.md is written when a transition HAPPENS.
+        The findings now live in the [BLOCKED] message advance-phase prints
+        and in one `obligation:<check_id>` record per finding in
+        .methodology/degradations.jsonl.
+
+        This test replaces three that asserted the section rendered, one row
+        per obligation, with pipes escaped. Round 39's rule is that removing a
+        mechanism means removing its statements: a renderer whose producer is
+        gone is a statement that the mechanism still runs.
+        """
         gen = HandoverGenerator(tmp_path)
         content = gen.render(
-            checkpoint_id="P3-exit-20260726",
+            checkpoint_id="P3-exit-20260807",
             phase=3,
             task_background="bg",
             current_status="status",
             next_steps=["step 1"],
             resume_phase=4,
-            obligations=[
-                Obligation(
-                    check_id="property_spec",
-                    target_phase=4,
-                    rule_id="FR-03",
-                    message=("FR-03 declares a property invariant but no "
-                             "executing property-based test covers it"),
-                ),
-                Obligation(
-                    check_id="reliability_lint",
-                    target_phase=4,
-                    rule_id="py-mkstemp-outside-try",
-                    file="src/taskq/store.py",
-                    line=86,
-                    message=("WARNING py-mkstemp-outside-try "
-                             "src/taskq/store.py:86 — resolve before entering "
-                             "the target phase"),
-                ),
-            ],
         )
-        assert "P4 Entry Obligations" in content
-        assert "`property_spec`" in content
-        assert "`FR-03`" in content
-        assert "FR-03 declares a property invariant" in content
-        assert "`reliability_lint`" in content
-        assert "`py-mkstemp-outside-try`" in content
-        assert "`src/taskq/store.py:86`" in content
-
-    def test_obligations_section_omitted_when_empty(self, tmp_path: Path):
-        """An empty obligations list must NOT emit the obligations section
-        (avoids noise on clean advances)."""
-        gen = HandoverGenerator(tmp_path)
-        content = gen.render(
-            checkpoint_id="P4-exit-20260726",
-            phase=4,
-            task_background="bg",
-            current_status="status",
-            next_steps=["step 1"],
-            obligations=[],
-        )
-        assert "P5 Entry Obligations" not in content
         assert "Entry Obligations" not in content
 
-    def test_obligations_section_pipes_escaped(self, tmp_path: Path):
-        """Pipe characters in messages must be escaped so the markdown table
-        remains single-column (a message may legitimately contain '|')."""
-        from core.phase_hooks import Obligation
-
-        gen = HandoverGenerator(tmp_path)
-        content = gen.render(
-            checkpoint_id="P3-exit-20260726",
-            phase=3,
-            task_background="bg",
-            current_status="status",
-            next_steps=["step 1"],
-            resume_phase=4,
-            obligations=[Obligation(
-                check_id="x", target_phase=4, rule_id="R1",
-                message="a | b | c")],
-        )
-        # The pipe inside the message must be escaped to backslash-pipe
-        assert "a \\| b \\| c" in content
+    def test_render_takes_no_obligations_argument(self, tmp_path: Path):
+        """Guard the guard: the parameter is gone, not merely unused."""
+        import inspect
+        assert "obligations" not in inspect.signature(
+            HandoverGenerator.render).parameters
+        assert "obligations" not in inspect.signature(
+            HandoverGenerator.write).parameters
 
 
 # ── GitStrategy integration tests ───────────────────────────────────────────
@@ -1045,6 +1002,19 @@ class TestCmdAdvancePhase:
                 self.completed_phase = None
                 self.project = None
 
+        # Round 43 站2: cmd_advance_phase refuses the advance when the P(N+1)
+        # entry preview returns obligations. These tmp_path trees hold stub
+        # artifacts — a missing attestation, a SAD.md with no Security Design
+        # block — so the preview correctly reports findings that are not what
+        # any test using this helper is about. Stubbing the PUBLIC
+        # PhaseHooks.preview_next_phase_blocking keeps them scoped; the
+        # refusal itself is covered by
+        # test_advance_phase_refuses_rather_than_surfacing_obligations above
+        # and tests/test_advance_refuses_a_blocked_entry.py.
+        monkeypatch.setattr(
+            "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+            lambda _self, _next_phase: [],
+        )
         if skip_prechecks:
             monkeypatch.setattr(
                 "cli.phase_cmds._advance_prechecks", lambda project, phase: 0,
@@ -1505,10 +1475,17 @@ class TestCmdAdvancePhase:
                        verdict=PASS)
         cmd_advance_phase(a)
 
-    def test_advance_phase_surfaces_obligations_to_handover(self, tmp_path, monkeypatch):
-        """Round 14 A: when preview_next_phase_blocking returns obligations,
-        cmd_advance_phase must propagate them to HandoverGenerator.write so
-        the P(N+1) Entry Obligations table lands in HANDOVER.md."""
+    def test_advance_phase_refuses_rather_than_surfacing_obligations(
+        self, tmp_path, monkeypatch,
+    ):
+        """Round 43 站2 replaces Round 14 A's contract at this call site.
+
+        A2/A3 propagated the obligation list into HandoverGenerator.write and
+        _advance_fsm, and the advance then succeeded. Nothing read the table
+        back, and the state it produced — current_phase = N+1 while N+1's
+        entry preflight fails — is what the pre-push hook has to guess around.
+        cmd_advance_phase now refuses; no handover is written, because no
+        transition happened."""
         import io
         import json
         from core.phase_hooks import Obligation
@@ -1587,27 +1564,24 @@ class TestCmdAdvancePhase:
                                "crg_rc": 0},
                        verdict=PASS)
 
+        from cli.exit_codes import EX_ADVANCE_ENTRY_OBLIGATIONS
         exit_code = cmd_advance_phase(a)  # type: ignore[reportArgumentType]
-        assert exit_code == 0
+        assert exit_code == EX_ADVANCE_ENTRY_OBLIGATIONS
 
-        # Both call sites must receive the same obligations list.
-        assert "obligations" in write_kwargs, (
-            "HandoverGenerator.write missing 'obligations' — A2/A3 wiring broken"
+        assert write_kwargs == {}, (
+            "a refused advance wrote a handover for a transition that did not "
+            f"happen: {sorted(write_kwargs)}"
         )
-        assert len(write_kwargs["obligations"]) == 2
-        assert write_kwargs["obligations"][0].rule_id == "FR-03"
-        assert write_kwargs["obligations"][1].rule_id == "py-mkstemp-outside-try"
+        assert fsm_kwargs == {}, "state.json was written for a refused advance"
 
-        assert "obligations" in fsm_kwargs
-        assert fsm_kwargs["obligations"] == write_kwargs["obligations"]
-
-        # A4: when obligations exist, the over-promise "Ready to begin Phase N+1"
-        # must be replaced with a pointer to the obligations table.
-        status = write_kwargs.get("current_status", "")
-        assert "Ready to begin Phase 4" not in status, (
-            "A4 regression: status must drop the over-promise when obligations exist"
-        )
-        assert "obligation" in status.lower()
+        # The findings themselves reach a reader — one ledger record each.
+        ledger = (tmp_path / ".methodology" / "degradations.jsonl")
+        assert ledger.exists(), "no machine-readable record of the refusal"
+        rows = [json.loads(ln) for ln in
+                ledger.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        components = [r.get("component") for r in rows]
+        assert "obligation:property_spec" in components
+        assert "obligation:reliability_lint" in components
 
 
     def test_p1_missing_deliverable_blocks_advance(self, tmp_path, monkeypatch):

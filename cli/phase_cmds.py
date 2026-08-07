@@ -583,18 +583,64 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
               file=sys.stderr)
         _obligations = []
     if _obligations:
-        # Round 14 A4: stop over-promising "Ready to begin Phase N+1" — the
-        # obligation table below identifies what would block at entry.
-        status = (f"Phase {args.completed_phase} completed. "
-                  f"P{next_phase} entry has {len(_obligations)} obligation(s) "
-                  f"to resolve — see below."
-                  if not fr_total else
-                  f"Phase {args.completed_phase}: {fr_done}/{fr_total} FRs "
-                  f"Gate 1 PASS. Gate {last_gate_num}{gate_score_str} — "
-                  f"quality_complete. P{next_phase} entry has "
-                  f"{len(_obligations)} obligation(s) to resolve — see below.")
-        print(f"\n[advance-phase] {len(_obligations)} P{next_phase} entry "
-              "obligation(s) detected — see HANDOVER.md table.")
+        # Round 43 站2: refuse the advance. Round 14 A computed this list and
+        # Round 14 A4 stopped it over-promising "Ready to begin Phase N+1" —
+        # but the advance then ran anyway, and the table went into HANDOVER.md,
+        # which nothing in the pipeline reads back (`grep -r "Entry
+        # Obligations"`: one producer, four test assertions). Measured on
+        # taskq-api: the P3→P4 handover commit named five `# pragma: no cover`
+        # sites by file and line, and three commits later the push was
+        # rejected by the pre-push hook on exactly those five lines.
+        #
+        # The obligation's own definition is "would BLOCK entry to Phase N+1".
+        # Advancing into it produces a state with no truth value —
+        # current_phase says N+1 while N+1's entry preflight fails — which is
+        # why scripts/hooks/pre-push has to guess the phase to judge a commit
+        # at by pattern-matching HEAD's subject line. Not creating that state
+        # is the fix; the guess becoming removable is a consequence of it.
+        #
+        # The message carries the findings themselves rather than a pointer to
+        # them (R24 站1, tests/test_blocked_message_contract.py): each row
+        # already knows its check, its rule and, where the check reports one,
+        # its file and line.
+        from cli.exit_codes import EX_ADVANCE_ENTRY_OBLIGATIONS
+        print(
+            f"\n[BLOCKED] advance-phase: P{next_phase} entry has "
+            f"{len(_obligations)} unresolved obligation(s). Not advancing — "
+            f"state.json still reads phase {args.completed_phase}.\n"
+        )
+        for _ob in _obligations:
+            _where = ""
+            if _ob.file:
+                _where = f" {_ob.file}"
+                if _ob.line is not None:
+                    _where += f":{_ob.line}"
+            print(f"  - [{_ob.check_id}] {_ob.rule_id}{_where}\n"
+                  f"      {_ob.message}")
+        print(
+            f"\n  Fix: resolve each finding above, then re-run "
+            f"`advance-phase --completed {args.completed_phase}`. Each one is "
+            f"a check that will block at P{next_phase} entry regardless; "
+            f"resolving them here costs the same work and does not leave a "
+            f"phase recorded that cannot be entered.\n"
+        )
+        # Machine-readable form. The HANDOVER.md table stays (it is now the
+        # record of why the last advance was refused); the ledger is what a
+        # programmatic reader can consume — same shape Round 42 站2 used for
+        # spec:undelivered.
+        for _ob in _obligations:
+            record_degradation(
+                project, f"obligation:{_ob.check_id}",
+                f"P{next_phase} entry blocked by {_ob.rule_id}",
+                why=_ob.message,
+                data={
+                    "target_phase": _ob.target_phase,
+                    "rule_id": _ob.rule_id,
+                    "file": _ob.file,
+                    "line": _ob.line,
+                },
+            )
+        return EX_ADVANCE_ENTRY_OBLIGATIONS
 
     print(f"\n[advance-phase] Completed phase {args.completed_phase} → advancing to {next_phase}")
     # B1 (split-brain fix): capture the advance write-set BEFORE anything is
@@ -618,8 +664,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         _layout.release_checklist_path,
     ])
     _advance_fsm(project, args.completed_phase,
-                 last_gate=last_gate_num, last_fr=last_fr_id,
-                 obligations=_obligations)
+                 last_gate=last_gate_num, last_fr=last_fr_id)
     claude_md.update_claude_md(project)               # phase number just changed → refresh CLAUDE.md
     claude_md.llm_clean_stale_claude_md(project)      # remove stale manual harness status text
 
@@ -802,7 +847,6 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             f"Read the Phase {next_phase} plan and execute",
         ],
         resume_phase=next_phase,
-        obligations=_obligations,
     )
 
     # Commit locally (no push — next milestone push publishes to origin)
@@ -1523,8 +1567,7 @@ def _advance_commit_targets(
 
 def _advance_fsm(project: Path, completed_phase: int,
                  last_gate: int | None = None,
-                 last_fr: str | None = None,
-                 obligations: list | None = None) -> None:
+                 last_fr: str | None = None) -> None:
     """Write state.json — the single source of truth for phase state.
 
     Local hooks, CI, and all harness commands read .methodology/state.json::current_phase.
@@ -1599,7 +1642,6 @@ def _advance_fsm(project: Path, completed_phase: int,
                 f"Read the Phase {next_phase} plan and execute",
             ],
             resume_phase=next_phase,
-            obligations=obligations,
         )
 
         with StateTransaction(project) as txn:

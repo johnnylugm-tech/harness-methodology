@@ -28,12 +28,8 @@ import shlex
 import subprocess  # nosec B404
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 _log = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from core.phase_hooks import Obligation
 
 # Hard import by design: a soft fallback literal here is exactly what caused
 # the P8→9 crash (a stale range(1, 9) copy while the pipeline grew a phase).
@@ -191,7 +187,6 @@ class HandoverGenerator:
         plan_override: str | None = None,
         deliverables: list[str] | None = None,
         resume_phase: int | None = None,
-        obligations: list["Obligation"] | None = None,
     ) -> str:
         # API-boundary validation: the type hints say int, but bad callers
         # can still pass strings (or out-of-range ints). Either would
@@ -277,7 +272,6 @@ class HandoverGenerator:
             deliverables=list(deliverables) if deliverables else [],
             resume_phase=resume_phase,
             target_phase=_target,
-            obligations=obligations,
         )
 
     @property
@@ -350,7 +344,6 @@ class HandoverGenerator:
         deliverables: list[str] | None = None,
         resume_phase: int | None = None,
         target_phase: int | None = None,
-        obligations: list["Obligation"] | None = None,
     ) -> str:
         phase_name = _PHASE_NAMES.get(phase, f"Phase {phase}")
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -370,38 +363,19 @@ class HandoverGenerator:
             items_md = "\n".join(f"- {d}" for d in deliverables)
             deliverables_section = f"\n## 交付物清單\n\n{items_md}\n\n"
 
-        # Round 14 A: cross-phase carry-over obligations. Each row is a
-        # preflight finding that would block P(N+1) entry. The data class
-        # lives in `core.phase_hooks`; rendering here is presentational only.
-        obligations_section = ""
-        if obligations:
-            _target_for_table = (
-                target_phase if target_phase is not None
-                else (resume_phase if resume_phase is not None else phase + 1)
-            )
-            _ob_rows: list[str] = []
-            for ob in obligations:
-                location = "—"
-                if ob.file:
-                    location = f"{ob.file}"
-                    if ob.line is not None:
-                        location = f"{ob.file}:{ob.line}"
-                # Escape pipe characters so the markdown table cell stays
-                # single-column (a message may legitimately contain "|").
-                msg = ob.message.replace("|", "\\|")
-                _ob_rows.append(
-                    f"| `{ob.check_id}` | `{ob.rule_id}` | `{location}` | {msg} |"
-                )
-            ob_table_md = "\n".join(_ob_rows)
-            obligations_section = (
-                f"\n## P{_target_for_table} Entry Obligations\n\n"
-                f"> ⚠️ The following preflight findings would BLOCK entry to "
-                f"Phase {_target_for_table}. Resolve them before running the "
-                f"phase, otherwise the gate will fail.\n\n"
-                f"| Check | Rule | Location | Message |\n"
-                f"|-------|------|----------|---------|\n"
-                f"{ob_table_md}\n\n"
-            )
+        # Round 43 站2 removed the "P(N+1) Entry Obligations" table Round 14 A
+        # rendered here. A HANDOVER.md is written when a phase transition
+        # HAPPENS; advance-phase now refuses to advance while the next phase's
+        # entry preflight reports blocking findings, so there is no handover to
+        # carry them into. The findings live where a reader can act on them:
+        # the [BLOCKED] message advance-phase prints, and one
+        # `obligation:<check_id>` record per finding in
+        # .methodology/degradations.jsonl. `preview-next-phase` remains the
+        # read-only way to ask the question before attempting the advance.
+        #
+        # Removing the renderer with the producer is Round 39's rule: a
+        # mechanism that no longer runs must not leave a statement behind that
+        # says it does.
 
         # Git recovery block — critical for new session clone + resume
         gi = git_info or {}
@@ -488,7 +462,6 @@ class HandoverGenerator:
             f"## 任務背景\n\n"
             f"{task_background}\n\n"
             f"{deliverables_section}"
-            f"{obligations_section}"
             f"## 目前執行狀況\n\n"
             f"{current_status}\n\n"
             f"## 接下來的工作\n\n"

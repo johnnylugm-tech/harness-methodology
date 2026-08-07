@@ -108,6 +108,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         signature as many times as the in-process retry allows — refusing to
         spend another dispatch on a failure that has not changed; read
         .methodology/degradations.jsonl for the signature
+    37  advance-phase: the preflight simulated at the phase being entered
+        reports findings that would block entry there — the [BLOCKED] table
+        names each one by check, rule and file:line. state.json was NOT
+        advanced; resolve the listed findings and re-run
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)
