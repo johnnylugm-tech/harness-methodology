@@ -398,9 +398,24 @@ class TestReVerifyOverlay:
         from core import phase_hooks as ph_module
         monkeypatch.setattr(ph_module, "_dispatch_trace_auto_fix", mock_dispatch)
 
-        # --- Run preflight_traceability at P5 (blocking)
+        # --- Measure at P5 (blocking), then repair from what was measured.
+        # Round 43 站1: the repair moved out of preflight_traceability into
+        # PhaseHooks.repair_traceability_gap, called by cmd_run_phase. The
+        # overlay contract under test is unchanged — the untested list handed
+        # to the engine is still overlay-filtered, and the re-verify inside
+        # the repair still re-applies the overlay. What moved is who decides
+        # to write.
         hooks = ph_module.PhaseHooks(str(tmp_path), phase=5)
-        result = hooks.preflight_traceability()
+        measured = hooks.preflight_traceability()
+        assert measured["passed"] is False
+        assert dispatched_calls == [], (
+            "the check dispatched a repair — measuring must not write"
+        )
+
+        closed = hooks.repair_traceability_gap(
+            list(measured["untested"]), list(measured["uncoded"]),
+        )
+        result = {"passed": closed}
 
         # --- Verify auto-fix was dispatched for FR-08 (FR-07 was overlay-filtered)
         assert len(dispatched_calls) == 1, "auto-fix should have been dispatched"
@@ -560,13 +575,23 @@ def test_obligations_drift_detection_extracts_per_item() -> None:
 
 
 def test_obligations_sab_check_extracts_per_violation() -> None:
+    """Round 43 站1: the check_id is `sab`, the PREFLIGHT_CHECKS result key.
+
+    This test used to pass `"sab_check"` — the method name — which is what
+    both `_DELAYED_BLOCKING_PREFLIGHTS` and the extractor branch carried. The
+    branch worked when the test called it and was unreachable in production,
+    because `_do_preflight_all` keys its results by `"sab"`. The fixture and
+    the rule came from the same wrong source, so neither could catch the
+    other (Round 19's closed-loop shape).
+    """
     from core.phase_hooks import _obligations_from_preflight
 
-    res = {"passed": False, "violations": [
+    res = {"passed": False, "blocking": True, "violations": [
         "Layer L1: deps ['L9'] reference unknown layers",
     ], "layers": 2}
-    obls = _obligations_from_preflight("sab_check", res, target_phase=3)
+    obls = _obligations_from_preflight("sab", res, target_phase=3)
     assert len(obls) == 1
+    assert obls[0].check_id == "sab"
     assert "unknown layers" in obls[0].message
 
 

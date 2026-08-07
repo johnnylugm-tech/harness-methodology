@@ -23,7 +23,12 @@ from __future__ import annotations
 
 import inspect
 
-from core.phase_hooks import NON_PIPELINE_PREFLIGHTS, PREFLIGHT_CHECKS, PhaseHooks
+from core.phase_hooks import (
+    _DELAYED_BLOCKING_PREFLIGHTS,
+    NON_PIPELINE_PREFLIGHTS,
+    PREFLIGHT_CHECKS,
+    PhaseHooks,
+)
 
 # The 15 result keys external readers rely on (details["fsm"], details["sab"], …).
 _EXPECTED_KEYS = (
@@ -124,3 +129,25 @@ def test_registry_keys_pinned():
     """Renaming a result key breaks external readers (details['fsm'] etc.) —
     pin the exact key tuple; extend deliberately, never rename casually."""
     assert tuple(key for key, _ in PREFLIGHT_CHECKS) == _EXPECTED_KEYS
+
+
+def test_delayed_blocking_set_reads_registry_keys():
+    """The obligation filter selects by result KEY, so it must spell keys.
+
+    Round 43 站1. `_DELAYED_BLOCKING_PREFLIGHTS` is read by
+    `PhaseHooks.preview_next_phase_blocking` against `_do_preflight_all`'s
+    result dict, which is keyed by the first element of each PREFLIGHT_CHECKS
+    pair. It carried `"sab_check"` — the METHOD name — from Round 14 A until
+    Round 43, so every SAB finding was filtered out before it could become an
+    obligation, and `_obligations_from_preflight`'s branch for it never ran.
+
+    The completeness test above pins PREFLIGHT_CHECKS against the methods on
+    PhaseHooks. This pins the other direction: a second registry that reads
+    those keys may not name one that does not exist.
+    """
+    unknown = _DELAYED_BLOCKING_PREFLIGHTS - {key for key, _ in PREFLIGHT_CHECKS}
+    assert not unknown, (
+        f"_DELAYED_BLOCKING_PREFLIGHTS names {sorted(unknown)}, which "
+        f"_do_preflight_all never produces — findings from those checks can "
+        f"never become carry-over obligations"
+    )

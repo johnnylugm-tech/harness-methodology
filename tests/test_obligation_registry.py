@@ -52,38 +52,45 @@ def test_every_delayed_blocking_name_is_a_real_check_id():
     )
 
 
-def test_a_sab_violation_becomes_an_obligation(tmp_path, monkeypatch):
+def _project_with_a_p4_only_sab_violation(tmp_path):
+    """A real project whose SAB is clean at P3 and violated at P4.
+
+    `preflight_sab_check` skips the module-existence scan at P3 (the
+    implementation directories do not exist yet) and enforces it from P4. A
+    layer naming a module with no file on disk is therefore exactly the
+    "P(N) informational, P(N+1) blocking" shape the preview exists to surface.
+    """
+    (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".methodology" / "SAB.json").write_text(
+        json.dumps({
+            "layers": [
+                {"name": "domain", "modules": ["src/does_not_exist.py"]},
+            ],
+            "dependencies": {"domain": []},
+        }),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_a_sab_violation_becomes_an_obligation(tmp_path):
     """A blocking SAB finding must reach the obligation list, one row per violation."""
-    canned = {
-        "all_passed": False,
-        "details": {
-            key: {"passed": True, "skipped": True}
-            for key, _ in PREFLIGHT_CHECKS
-        },
-    }
-    canned["details"]["sab"] = {
-        "passed": False,
-        "blocking": True,
-        "violations": [
-            "Layer domain: 2 modules missing from codebase",
-            "Layer api: deps ['ghost'] reference unknown layers",
-        ],
-        "layers": 3,
-    }
-    monkeypatch.setattr(
-        PhaseHooks, "_do_preflight_all", lambda _self: canned
+    project = _project_with_a_p4_only_sab_violation(tmp_path)
+
+    hooks = PhaseHooks(str(project), phase=3, enable_kill_switch=False)
+    assert hooks.preflight_sab_check()["passed"] is True, (
+        "fixture premise: the SAB is clean at P3"
     )
 
-    hooks = PhaseHooks(str(tmp_path), phase=3, enable_kill_switch=False)
     obligations = hooks.preview_next_phase_blocking(4)
 
     sab_rows = [o for o in obligations if o.check_id == "sab"]
-    assert len(sab_rows) == 2, (
+    assert len(sab_rows) == 1, (
         f"expected one obligation per SAB violation; got "
         f"{[(o.check_id, o.message) for o in obligations]}"
     )
-    assert any("modules missing from codebase" in o.message for o in sab_rows)
-    assert all(o.target_phase == 4 for o in sab_rows)
+    assert "modules missing from codebase" in sab_rows[0].message
+    assert sab_rows[0].target_phase == 4
 
 
 def test_sab_check_says_whether_its_finding_blocks(tmp_path):
@@ -94,16 +101,9 @@ def test_sab_check_says_whether_its_finding_blocks(tmp_path):
     fails without saying so is invisible to the caller that has to decide
     whether the next phase can be entered.
     """
-    (tmp_path / ".methodology").mkdir(parents=True)
-    (tmp_path / ".methodology" / "SAB.json").write_text(
-        json.dumps({
-            "layers": [{"name": "domain", "modules": ["src/does_not_exist.py"]}],
-            "dependencies": {"domain": []},
-        }),
-        encoding="utf-8",
-    )
+    project = _project_with_a_p4_only_sab_violation(tmp_path)
 
-    hooks = PhaseHooks(str(tmp_path), phase=4, enable_kill_switch=False)
+    hooks = PhaseHooks(str(project), phase=4, enable_kill_switch=False)
     result = hooks.preflight_sab_check()
 
     assert result["passed"] is False, (

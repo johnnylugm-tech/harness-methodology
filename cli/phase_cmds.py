@@ -1739,11 +1739,33 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     if not pre["all_passed"]:
         # PR 9: most preflight failures are substantive gaps that need real
         # development work or a human. The exception is the trace gap
-        # (problem_type="missing_traceability"): PhaseHooks.preflight_traceability
-        # dispatches _dispatch_trace_auto_fix for one bounded attempt
-        # (per-strategy allowlist inside AutoFixEngine — only
-        # fix_missing_traceability is wired). Other strategies (coverage,
-        # drift, artifact chain) still emit stubs and are not production-wired.
+        # (problem_type="missing_traceability"), which gets one bounded
+        # auto-fix attempt (per-strategy allowlist inside AutoFixEngine — only
+        # fix_missing_traceability is wired; the other strategies emit stubs
+        # and are not production-wired).
+        #
+        # Round 43 站1: that attempt used to live INSIDE
+        # PhaseHooks.preflight_traceability, which made the one command that
+        # asks for a measurement — preview_next_phase_blocking, whose
+        # docstring promises it mutates nothing — repair the tree it was
+        # measuring. The repair belongs to this command, which is the caller
+        # that intends to change the project. Behaviour here is unchanged:
+        # the same bounded attempt, the same re-verify, and the check re-run
+        # so `all_passed` reflects the repaired tree.
+        _trace = pre["details"].get("traceability", {})
+        if _trace.get("blocking") and not _trace.get("passed") and (
+            _trace.get("untested") or _trace.get("uncoded")
+        ):
+            if hooks.repair_traceability_gap(
+                list(_trace.get("untested") or []),
+                list(_trace.get("uncoded") or []),
+            ):
+                pre["details"]["traceability"] = hooks.preflight_traceability()
+                pre["all_passed"] = all(
+                    r.get("passed", False) for r in pre["details"].values()
+                )
+
+    if not pre["all_passed"]:
         # If we reach this point, all preflights are still failing — block.
         print(f"\nPRE-FLIGHT FAILED: {pre['details']}")
         return 1

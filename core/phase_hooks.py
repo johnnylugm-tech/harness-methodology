@@ -65,9 +65,17 @@ class Obligation:
 # Preview only surfaces these — environmental / always-blocking checks
 # (kill_switch, tool_registry, constitution, FSM) are not carry-over
 # obligations and would only drown the operator in noise.
+#
+# These are PREFLIGHT_CHECKS *keys* (the first element of each pair), not
+# method names. Round 43 站1: the set carried "sab_check" — the method name —
+# from Round 14 A onward, so no SAB finding ever reached an obligation and the
+# `elif check_id == "sab_check"` branch below was unreachable. The subset
+# assertion in tests/test_preflight_registry.py now pins the two registries to
+# each other; it is the fourth instance of the registry-vs-consumer
+# disagreement Round 27 站4 catalogued.
 _DELAYED_BLOCKING_PREFLIGHTS: frozenset[str] = frozenset({
     "drift_detection",
-    "sab_check",
+    "sab",
     "traceability",
     "fr_spec_consistency",
     "property_spec",
@@ -132,7 +140,7 @@ def _obligations_from_preflight(
                     message=str(item.get("description",
                                           f"{_drift_type} drift detected")),
                 ))
-    elif check_id == "sab_check":
+    elif check_id == "sab":
         # Use `violations` (list of already-formatted strings).
         for v in res.get("violations") or []:
             out.append(Obligation(
@@ -611,14 +619,31 @@ class PhaseHooks:
                     "error": str(e), "blocking": blocking}
 
     def preflight_sab_check(self) -> Dict[str, Any]:
-        """Check SAB constitution compliance (P3+ only — architecture baseline drift)."""
+        """Check SAB constitution compliance (P3+ only — architecture baseline drift).
+
+        Reports ``blocking`` like every other member of
+        ``_DELAYED_BLOCKING_PREFLIGHTS``: a failure here fails
+        ``_do_preflight_all``'s ``all_passed`` from P3 on, and
+        ``preview_next_phase_blocking`` reads the key to decide whether a
+        finding is a carry-over obligation. Round 43 站1 — before this, the
+        key was simply absent, so `not res.get("blocking")` dropped every SAB
+        finding a second time even once the check_id was spelled right.
+
+        The delayed-blocking half is the module-existence scan below: at P3
+        the implementation directories do not exist yet so it is skipped, and
+        from P4 a SAB module with no file on disk is a violation. That is the
+        exact "P(N) informational, P(N+1) blocking" shape the preview exists
+        to surface.
+        """
         print("\n[PRE-FLIGHT] SAB Constitution Check (M2+)")
+        blocking = self.phase is None or self.phase >= 3
         sab_json = self._layout.methodology_dir / "SAB.json"
         if not sab_json.exists():
             if self.phase and self.phase >= 3:
                 print("   WARNING: .methodology/SAB.json not found — SAB baseline missing")
                 print("   Run: python3 scripts/generate_sab.py --project . [--overwrite]")
-                return {"passed": False, "message": "SAB.json not found — generate from SAD.md §6"}
+                return {"passed": False, "blocking": blocking,
+                        "message": "SAB.json not found — generate from SAD.md §6"}
             else:
                 print("   SAB.json not yet generated (P1/P2 — expected)")
                 return {"passed": True, "skipped": True, "message": "SAB not required before P3"}
@@ -626,7 +651,8 @@ class PhaseHooks:
         try:
             sab = json.loads(sab_json.read_text(encoding="utf-8"))
         except Exception as e:
-            return {"passed": False, "message": f"Failed to parse SAB.json: {e}"}
+            return {"passed": False, "blocking": blocking,
+                    "message": f"Failed to parse SAB.json: {e}"}
 
         layers = sab.get("layers", [])
         allowed_deps = sab.get("dependencies", {})
@@ -688,7 +714,8 @@ class PhaseHooks:
         else:
             print("   All SAB layers valid")
 
-        return {"passed": passed, "violations": violations, "layers": len(layers)}
+        return {"passed": passed, "blocking": blocking,
+                "violations": violations, "layers": len(layers)}
 
     def preflight_traceability(self) -> Dict[str, Any]:
         """Check ASPICE traceability: FR→code→test bidirectional links (P3+).
@@ -783,70 +810,12 @@ class PhaseHooks:
         if uncoded_list:
             print(f"   Uncoded FRs: {', '.join(uncoded_list)}")
 
-        # PR 9: dispatch one bounded auto-fix attempt at P5+ when blocked.
-        # Per-strategy allowlist lives inside AutoFixEngine — only
-        # `fix_missing_traceability` (problem_type='missing_traceability')
-        # is dispatched. Other strategies still emit stubs.
-        if blocking and not passed and (untested_list or uncoded_list):
-            _fixed = _dispatch_trace_auto_fix(
-                self.project_path, untested_list, uncoded_list,
-                phase=self.phase,
-            )
-            if _fixed:
-                try:
-                    _rt2, report2 = check_traceability(self.project_path)  # noqa: F841
-                    # PR 13 fix: re-apply the overlay to the re-verify report so that
-                    # manually-VERIFIED FRs (whose status lives only in the overlay)
-                    # do not reappear as untested after auto-fix.
-                    try:
-                        from core.traceability.overlay import (
-                            atomic_to_dict, is_overlay_row_verified,
-                            load_overlay, merge_overlay,
-                        )
-                        overlay2 = load_overlay(
-                            self.project_path / "TRACEABILITY_MATRIX.overlay.yaml"
-                        )
-                        if overlay2:
-                            merged2 = merge_overlay(atomic_to_dict(_rt2), overlay2)
-                            _overlay_untested: set = set(report2.get("untested", []))
-                            _overlay_uncoded: set = set(report2.get("uncoded", []))
-                            for fr_id, row in merged2.get("requirements", {}).items():
-                                if is_overlay_row_verified(row):
-                                    _overlay_untested.discard(fr_id)
-                                    _overlay_uncoded.discard(fr_id)
-                            report2 = dict(report2)
-                            report2["untested"] = list(_overlay_untested)
-                            report2["uncoded"] = list(_overlay_uncoded)
-                    except Exception as _overlay_err:
-                        print(f"   [WARN] re-verify overlay merge failed: {_overlay_err}")
-                    still_untested = report2.get("untested", [])
-                    still_uncoded = report2.get("uncoded", [])
-                    if not still_untested and not still_uncoded:
-                        passed = True
-                        print("   [auto-fix] re-verify: all gaps closed")
-                        # F-2.5 fix: auto-fix modified the source tree, so
-                        # attestation.json is now stale. Re-derive and
-                        # write it in-place so the next verify-trace
-                        # call (or CI step) doesn't fire on a phantom
-                        # mismatch. Developer still needs to `make attest`
-                        # (which stages) — this only refreshes the
-                        # canonical file.
-                        try:
-                            from scripts.build_trace_attestation import (
-                                build_attestation, write_attestation,
-                            )
-                            _att = build_attestation(self.project_path)
-                            write_attestation(self.project_path, _att)
-                            print("   [auto-fix] attestation.json refreshed")
-                        except Exception as _att_err:
-                            print(f"   [auto-fix] attestation refresh failed: {_att_err}",
-                                  file=sys.stderr)
-                    else:
-                        print(f"   [auto-fix] re-verify: {len(still_untested)} "
-                              f"untested, {len(still_uncoded)} uncoded remain")
-                except Exception as _post_err:
-                    print(f"   [auto-fix] post-fix re-verify error: {_post_err}",
-                          file=sys.stderr)
+        # PR 9's bounded auto-fix attempt used to run HERE, inside the check.
+        # Round 43 站1 moved it to `repair_traceability_gap` below, called by
+        # `cli/phase_cmds.py::cmd_run_phase` — the one command that asks for
+        # the tree to be changed. The other two callers of this method
+        # (`preview_next_phase_blocking`, which documents itself as mutating
+        # nothing, and the postflight path) ask for an answer.
         ghost = report.get("ghost_frs", [])
         if ghost:
             print(f"   Ghost FRs (non-blocking): {', '.join(ghost)} — in code/tests but not in SAD.md")
@@ -863,6 +832,84 @@ class PhaseHooks:
         
             "blocking": blocking,
         }
+
+    def repair_traceability_gap(
+        self, untested: "list[str]", uncoded: "list[str]",
+    ) -> bool:
+        """One bounded auto-fix attempt at a trace gap. Returns True if closed.
+
+        PR 9's repair, relocated out of `preflight_traceability` by Round 43
+        站1. The per-strategy allowlist lives inside `AutoFixEngine`: only
+        `fix_missing_traceability` (problem_type='missing_traceability') is
+        dispatched; the other four strategies still emit stubs and are not
+        production-wired (see SAD.md §3.18 for why their wirings were removed).
+
+        This writes: the engine fills FR annotations and test stubs into the
+        project tree, and on success `attestation.json` is re-derived in place
+        because the source tree it fingerprints has just changed. A caller
+        that wants a measurement rather than a change must call
+        `preflight_traceability` and stop there.
+        """
+        _fixed = _dispatch_trace_auto_fix(
+            self.project_path, untested, uncoded, phase=self.phase,
+        )
+        if not _fixed:
+            return False
+
+        from core.traceability.scanner import check_traceability
+        try:
+            _rt2, report2 = check_traceability(self.project_path)  # noqa: F841
+            # PR 13 fix: re-apply the overlay to the re-verify report so that
+            # manually-VERIFIED FRs (whose status lives only in the overlay)
+            # do not reappear as untested after auto-fix.
+            try:
+                from core.traceability.overlay import (
+                    atomic_to_dict, is_overlay_row_verified,
+                    load_overlay, merge_overlay,
+                )
+                overlay2 = load_overlay(
+                    self.project_path / "TRACEABILITY_MATRIX.overlay.yaml"
+                )
+                if overlay2:
+                    merged2 = merge_overlay(atomic_to_dict(_rt2), overlay2)
+                    _overlay_untested: set = set(report2.get("untested", []))
+                    _overlay_uncoded: set = set(report2.get("uncoded", []))
+                    for fr_id, row in merged2.get("requirements", {}).items():
+                        if is_overlay_row_verified(row):
+                            _overlay_untested.discard(fr_id)
+                            _overlay_uncoded.discard(fr_id)
+                    report2 = dict(report2)
+                    report2["untested"] = list(_overlay_untested)
+                    report2["uncoded"] = list(_overlay_uncoded)
+            except Exception as _overlay_err:
+                print(f"   [WARN] re-verify overlay merge failed: {_overlay_err}")
+            still_untested = report2.get("untested", [])
+            still_uncoded = report2.get("uncoded", [])
+            if still_untested or still_uncoded:
+                print(f"   [auto-fix] re-verify: {len(still_untested)} "
+                      f"untested, {len(still_uncoded)} uncoded remain")
+                return False
+            print("   [auto-fix] re-verify: all gaps closed")
+            # F-2.5 fix: auto-fix modified the source tree, so
+            # attestation.json is now stale. Re-derive and write it in-place
+            # so the next verify-trace call (or CI step) doesn't fire on a
+            # phantom mismatch. Developer still needs to `make attest`
+            # (which stages) — this only refreshes the canonical file.
+            try:
+                from scripts.build_trace_attestation import (
+                    build_attestation, write_attestation,
+                )
+                _att = build_attestation(self.project_path)
+                write_attestation(self.project_path, _att)
+                print("   [auto-fix] attestation.json refreshed")
+            except Exception as _att_err:
+                print(f"   [auto-fix] attestation refresh failed: {_att_err}",
+                      file=sys.stderr)
+            return True
+        except Exception as _post_err:
+            print(f"   [auto-fix] post-fix re-verify error: {_post_err}",
+                  file=sys.stderr)
+            return False
 
     def preflight_fr_spec_consistency(self) -> Dict[str, Any]:
         """PR 7: SAD ↔ TEST_SPEC.md symmetric-difference check.

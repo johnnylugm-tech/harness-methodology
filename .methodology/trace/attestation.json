@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "198c825abed08e8ff2cd28d10f98f6daecb053d1",
-  "content_sha256": "b7016e84f008fa4684f6aa36b05c303af35e60e1c304fc813b55867a5cc9ef51",
+  "git_sha": "6486180364fd921aa3b787525f5754127efe8572",
+  "content_sha256": "5d88d4e42d1925e01c4b106e667c4b77a04bc0106f8d1e1dbd3c552293825583",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 114,
+      "total_links": 118,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-06",
@@ -206,11 +206,13 @@
         "code_files": [
           "tests/test_gate1_live_coverage.py",
           "tests/test_phase_hooks_adapter.py",
+          "tests/test_preview_is_read_only.py",
           "tests/test_traceability_pipeline.py"
         ],
         "test_files": [
           "tests/test_gate1_live_coverage.py",
           "tests/test_phase_hooks_adapter.py",
+          "tests/test_preview_is_read_only.py",
           "tests/test_traceability_pipeline.py"
         ],
         "sad_module": "—",
@@ -221,10 +223,12 @@
         "status": "verified",
         "srs_section": null,
         "code_files": [
-          "tests/test_phase_hooks_adapter.py"
+          "tests/test_phase_hooks_adapter.py",
+          "tests/test_preview_is_read_only.py"
         ],
         "test_files": [
-          "tests/test_phase_hooks_adapter.py"
+          "tests/test_phase_hooks_adapter.py",
+          "tests/test_preview_is_read_only.py"
         ],
         "sad_module": "—",
         "priority": "HIGH"
