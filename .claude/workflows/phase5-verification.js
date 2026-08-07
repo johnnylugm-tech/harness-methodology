@@ -607,13 +607,26 @@ if (!advancePass) {
 // local until whatever runs next happened to push it. Publish it now.
 phase('Sync')
 log('git push origin main (publish advance handover commit)')
-const syncReport = await dispatch(
-  'Run EXACTLY this command via Bash:\n'
+const SYNC_MAX_ATTEMPTS = 3
+const SYNC_PROMPT = 'Run this command via Bash:\n'
   + 'git -C ' + REPO + ' push origin main\n\n'
-  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>".',
-  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },
-)
-if (!/SYNC:\s*PASS/.test(String(syncReport ?? ''))) {
+  + 'If the push is REJECTED, the pre-push hook has already printed why: it runs the full phase preflight, so the blocker is almost always project CONTENT (a `# pragma: no cover`, a missing artifact block, an unregistered SAB module), not the network. Read the blocker list, fix exactly what it names, and push again. Do NOT use --no-verify. If the output contains [HARNESS-BUG], stop — harness-methodology crashed and there is nothing in this project to fix.\n\n'
+  + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>"'
+  + ' (if the pre-push hook printed a blocker list, include it verbatim).'
+let syncReport = ''
+let syncPass = false
+for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
+  syncReport = await dispatch(SYNC_PROMPT, { label: 'sync-' + sAttempt, phase: 'Sync', agentType: 'general-purpose' })
+  const syncText = String(syncReport ?? '')
+  syncPass = /SYNC:\s*PASS/.test(syncText)
+  if (syncPass) break
+  if (/\[HARNESS-BUG\]/.test(syncText)) {
+    log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
+    return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
+  }
+  log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
+}
+if (!syncPass) {
   return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
 }
 

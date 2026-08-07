@@ -717,21 +717,25 @@ if (!advancePass) {
 // local until whatever runs next happened to push it. Publish it now.
 phase('Sync')
 log('git push origin main (publish advance handover commit)')
-const SYNC_PROMPT = 'Run EXACTLY this command via Bash:\n'
+const SYNC_MAX_ATTEMPTS = 3
+const SYNC_PROMPT = 'Run this command via Bash:\n'
   + 'git -C ' + REPO + ' push origin main\n\n'
+  + 'If the push is REJECTED, the pre-push hook has already printed why: it runs the full phase preflight, so the blocker is almost always project CONTENT (a `# pragma: no cover`, a missing artifact block, an unregistered SAB module), not the network. Read the blocker list, fix exactly what it names, and push again. Do NOT use --no-verify. If the output contains [HARNESS-BUG], stop — harness-methodology crashed and there is nothing in this project to fix.\n\n'
   + 'Report final outcome as plain text: "SYNC: PASS" or "SYNC: FAIL — <one-line reason>"'
-  + ' (if a pre-push hook printed a blocker list, include it verbatim).'
-let syncReport = await dispatch(SYNC_PROMPT, { label: 'sync', phase: 'Sync', agentType: 'general-purpose' })
-let syncPass = /SYNC:\s*PASS/.test(String(syncReport ?? ''))
-if (!syncPass) {
-  // One retry only — covers transient failures (DNS/auth-token blips), not
-  // a real pre-push gate block, which is deterministic and won't clear on
-  // its own.
-  log('  Sync FAIL on first attempt — retrying once (covers transient network failures)')
-  syncReport = await dispatch(SYNC_PROMPT, { label: 'sync-retry', phase: 'Sync', agentType: 'general-purpose' })
-  syncPass = /SYNC:\s*PASS/.test(String(syncReport ?? ''))
+  + ' (if the pre-push hook printed a blocker list, include it verbatim).'
+let syncReport = ''
+let syncPass = false
+for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
+  syncReport = await dispatch(SYNC_PROMPT, { label: 'sync-' + sAttempt, phase: 'Sync', agentType: 'general-purpose' })
+  const syncText = String(syncReport ?? '')
+  syncPass = /SYNC:\s*PASS/.test(syncText)
+  if (syncPass) break
+  if (/\[HARNESS-BUG\]/.test(syncText)) {
+    log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
+    return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
+  }
+  log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
-
 if (!syncPass) {
   // Do NOT auto `--no-verify` (HR-17 forbids bypassing the gate without a
   // human decision). Surface the blocker instead of terminating with a bare
@@ -744,7 +748,7 @@ if (!syncPass) {
     + 'existing content; create the file only if it truly does not exist):\n\n'
     + '## Sync Blocked — manual push required\n\n'
     + 'The Phase 3 advance handover commit landed locally but `git push origin main` '
-    + 'did not pass the pre-push hook:\n\n'
+    + 'did not pass the pre-push hook after ' + SYNC_MAX_ATTEMPTS + ' attempts, the last of which was allowed to fix what the hook named:\n\n'
     + '```\n' + blockers + '\n```\n\n'
     + 'Resolve the blocker(s) above, then run `git push origin main` manually. '
     + 'Do NOT use `--no-verify` without explicit human sign-off.\n',

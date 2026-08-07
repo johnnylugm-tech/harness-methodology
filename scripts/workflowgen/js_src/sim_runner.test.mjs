@@ -233,12 +233,32 @@ test('phase3 TDD loop: [HARNESS-BUG] banner in the GATE1 log aborts the FR loop 
 // safety net). phase7 is the simplest consumer (Sync is its last phase box).
 test('phase7 Sync: a FAIL verdict early-returns an error (post-advance push did not PASS)', async () => {
   const overrides = [
-    { match: /^sync$/, respond: 'SYNC: FAIL — simulated push rejection' },
+    { match: /^sync-\d+$/, respond: 'SYNC: FAIL — simulated push rejection' },
     ...happyOverrides(),
   ]
-  const { result } = await runWorkflow(WF('phase7-risk.js'), makeHappyResponder(overrides))
+  const { result, events } = await runWorkflow(WF('phase7-risk.js'), makeHappyResponder(overrides))
   assert.ok(result.error, 'a Sync FAIL must produce a structured error, not a silent pass-through')
   assert.match(result.error, /post-advance push did not PASS/)
+  // Round 43 站3: the step now retries WITH repair authority before giving up.
+  // A content blocker needs a second attempt after the fix; an unbounded loop
+  // would spin on a blocker no agent can clear.
+  const attempts = events.agents.filter((a) => a.label.startsWith('sync-')).length
+  assert.equal(attempts, 3, 'Sync must exhaust its bounded retry, not stop at one')
+})
+
+// Round 43 站3: [HARNESS-BUG] is not a project blocker. Retrying it buys the
+// same crash, and "fixing" the project aims CODE-FIX at a defect that is not
+// there (Round 13 站2's routing rule).
+test('phase7 Sync: [HARNESS-BUG] stops the loop instead of retrying', async () => {
+  const overrides = [
+    { match: /^sync-\d+$/, respond: 'SYNC: FAIL — [HARNESS-BUG] crash bundle at .methodology/crash/x.json' },
+    ...happyOverrides(),
+  ]
+  const { result, events } = await runWorkflow(WF('phase7-risk.js'), makeHappyResponder(overrides))
+  assert.equal(result.harness_bug_detected, true, JSON.stringify(result).slice(0, 200))
+  assert.equal(result.step, 'sync')
+  const attempts = events.agents.filter((a) => a.label.startsWith('sync-')).length
+  assert.equal(attempts, 1, 'a harness crash must stop the loop on the first sighting')
 })
 
 // ---- 4. garbage B response no longer crashes the A/B machine ---------------
@@ -632,13 +652,13 @@ for (let n = 1; n <= 8; n += 1) {
     // appear here because the sim supplies args.repo, so neither path spawns
     // it — the saving is real but conditional, and invisible to this testbed.
     //
-    // The `sync` dispatch is the other, and it IS visible: six phases fold it
+    // The Sync dispatch is the other, and it IS visible: six phases fold it
     // into `advance-phase --push` (Round 23 站3). SYNC_FOLDED names them, and
     // the assertion below is exact in both directions — run-all may drop that
     // one label from those six and NOTHING else, anywhere.
     const expected = solo.events.agents
       .map((a) => a.label)
-      .filter((label) => !(SYNC_FOLDED.includes(n) && label === 'sync'))
+      .filter((label) => !(SYNC_FOLDED.includes(n) && label.startsWith('sync-')))
     assert.deepEqual(phaseLabels(events, n), expected,
       `run-all's P${n} dispatch sequence drifted from phase${n}'s`)
   })
@@ -665,7 +685,7 @@ test('run-all drops exactly the six foldable Sync dispatches, and nothing else',
     `expected ${soloTotal} - 6 + 1 dispatches, got ${runAllTotal}`)
 
   for (let n = 1; n <= 8; n += 1) {
-    const syncCalls = phaseLabels(events, n).filter((l) => l === 'sync').length
+    const syncCalls = phaseLabels(events, n).filter((l) => l.startsWith('sync-')).length
     assert.equal(syncCalls, SYNC_FOLDED.includes(n) ? 0 : 1,
       `P${n} sync dispatch count is wrong for the fold policy`)
   }

@@ -901,7 +901,7 @@ _LINE_CEILING: dict[str, int] = {
     # `crg_check: bool`. The generator now decides only whether the check runs;
     # the number comes from the gate config. Growth is the docstring recording
     # that all three callers used to pass 80.0.
-    "scripts/workflowgen/js_blocks.py": 1565,
+    "scripts/workflowgen/js_blocks.py": 1620,  # 2026-08-07: +55 — Round 43 站3: render_sync_verified gained a bounded retry WITH repair authority, a [HARNESS-BUG] early exit, and an `on_blocked` terminal branch so P3's bespoke second Sync implementation could be deleted (spec_phase3.py:_render_phase3_sync went from ~60 rendered lines to a call plus its own terminal). Net across the two files is roughly flat; the growth here is the SYNC_REPAIR_CLAUSE constant (tests/test_sync_may_repair.py asserts it appears in every shipped Sync block, so it may not be inline prose) and the comment recording why a bare re-send at a pre-push content blocker was the defect Round 41 站3 named. Splitting js_blocks.py is a separate question from this change and is not attempted here.
 }
 
 

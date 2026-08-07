@@ -139,9 +139,12 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "carriers authoritative where present"),
     (r"^milestone-", "mixed", "text-token",
      "push-milestone variants; GUARD step makes re-runs idempotent"),
-    (r"^(sync|sync-retry|sync-push|sync-handover-note)$", "mixed", "text-token",
+    (r"^(sync-|sync|sync-push|sync-handover-note)$", "mixed", "text-token",
      "git push origin main; /SYNC:\\s*PASS/ prose — hardening candidate "
-     "(a git-log proxy carrier would be canonical)"),
+     "(a git-log proxy carrier would be canonical). Round 43 站3: the bare "
+     "`sync` label became `sync-' + sAttempt` (the extractor sees the literal "
+     "prefix `sync-`) when every Sync step gained a bounded retry WITH repair "
+     "authority; `sync-retry` is gone with P3's second Sync implementation"),
     (r"^orch-post$", "mixed", "none",
      "spec-coverage-check (per FR, in-prompt bash loop) + one project-wide "
      "amend-sab; fire-and-report (40% advisory floor). Round 22 站1 collapsed "

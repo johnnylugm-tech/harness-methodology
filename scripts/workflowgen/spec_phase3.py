@@ -325,39 +325,28 @@ def _render_phase3_milestones() -> str:
 
 
 def _render_phase3_sync() -> str:
-    """phase3's Sync is the most elaborate of any migrated phase: a retry-once
-    (covers transient network/auth blips, not a real pre-push gate block)
-    followed by a HANDOVER.md-append fallback (never --no-verify without a
-    human decision — HR-17) if both attempts fail. Every other migrated
-    phase's Sync is much simpler (render_sync_verified);
-    phase3 accumulated this extra resilience first (its own comments are the
-    origin of the "ported from phase3" references throughout the other
-    files), so it stays its own renderer rather than forcing the others to
-    match its complexity."""
-    return (
-        "// Bug A fix (2026-07-07): advance-phase intentionally commits the handover\n"
-        "// locally without pushing (harness/cli/phase_cmds.py: \"next milestone push\n"
-        "// publishes to origin\"). This workflow ends right after Advance with no\n"
-        "// next-phase push queued, so the handover commit was left stranded on\n"
-        "// local until whatever runs next happened to push it. Publish it now.\n"
-        "phase('Sync')\n"
-        "log('git push origin main (publish advance handover commit)')\n"
-        "const SYNC_PROMPT = 'Run EXACTLY this command via Bash:\\n'\n"
-        "  + 'git -C ' + REPO + ' push origin main\\n\\n'\n"
-        "  + 'Report final outcome as plain text: \"SYNC: PASS\" or \"SYNC: FAIL — <one-line reason>\"'\n"
-        "  + ' (if a pre-push hook printed a blocker list, include it verbatim).'\n"
-        "let syncReport = await agent(SYNC_PROMPT, { label: 'sync', phase: 'Sync', agentType: 'general-purpose' })\n"
-        "let syncPass = /SYNC:\\s*PASS/.test(String(syncReport ?? ''))\n"
-        "if (!syncPass) {\n"
-        "  // One retry only — covers transient failures (DNS/auth-token blips), not\n"
-        "  // a real pre-push gate block, which is deterministic and won't clear on\n"
-        "  // its own.\n"
-        "  log('  Sync FAIL on first attempt — retrying once (covers transient network failures)')\n"
-        "  syncReport = await agent(SYNC_PROMPT, { label: 'sync-retry', phase: 'Sync', agentType: 'general-purpose' })\n"
-        "  syncPass = /SYNC:\\s*PASS/.test(String(syncReport ?? ''))\n"
-        "}\n"
-        "\n"
-        "if (!syncPass) {\n"
+    """phase3's Sync, on the shared renderer with its own terminal branch.
+
+    Round 43 站3 deleted the second Sync implementation this file used to
+    carry. It differed from `render_sync_verified` in two ways: it retried
+    once, and on a second failure it wrote a "Sync Blocked" section into
+    HANDOVER.md and returned a structured MANUAL_REQUIRED result instead of a
+    bare error.
+
+    The retry was the defect — it re-sent an IDENTICAL prompt under a comment
+    about transient network blips, at a pre-push hook that runs the full phase
+    preflight and therefore rejects on deterministic project content. That is
+    Round 41 站3's "stop buying the same failure twice" in the one step of the
+    pipeline that had no authority to fix anything. The shared renderer now
+    retries WITH that authority.
+
+    The terminal branch is genuinely phase-3-specific and is passed in: state
+    .json is already authoritative for Phase 4 (Advance PASS'd above), so the
+    handover commit is stranded on local rather than the phase being wrong,
+    and a human needs the blocker list where the next session will read it.
+    Never auto `--no-verify` (HR-17).
+    """
+    return B.render_sync_verified(on_blocked=(
         "  // Do NOT auto `--no-verify` (HR-17 forbids bypassing the gate without a\n"
         "  // human decision). Surface the blocker instead of terminating with a bare\n"
         "  // error: state.json current_phase is already authoritative for Phase 4\n"
@@ -369,7 +358,8 @@ def _render_phase3_sync() -> str:
         "    + 'existing content; create the file only if it truly does not exist):\\n\\n'\n"
         "    + '## Sync Blocked — manual push required\\n\\n'\n"
         "    + 'The Phase 3 advance handover commit landed locally but `git push origin main` '\n"
-        "    + 'did not pass the pre-push hook:\\n\\n'\n"
+        "    + 'did not pass the pre-push hook after ' + SYNC_MAX_ATTEMPTS + ' attempts, "
+        "the last of which was allowed to fix what the hook named:\\n\\n'\n"
         "    + '```\\n' + blockers + '\\n```\\n\\n'\n"
         "    + 'Resolve the blocker(s) above, then run `git push origin main` manually. '\n"
         "    + 'Do NOT use `--no-verify` without explicit human sign-off.\\n',\n"
@@ -385,10 +375,10 @@ def _render_phase3_sync() -> str:
         "    sync_status: 'MANUAL_REQUIRED',\n"
         "    blockers,\n"
         "    artifacts: ['03-development/src/', 'tests/', '.methodology/gate2_result.json', 'HANDOVER.md'],\n"
-        "    notes: 'Phase 3 complete (Advance PASS) but the handover commit could not be auto-pushed — see HANDOVER.md \"Sync Blocked\" section for the pre-push blocker list.',\n"
+        "    notes: 'Phase 3 complete (Advance PASS) but the handover commit could not be auto-pushed — "
+        "see HANDOVER.md \"Sync Blocked\" section for the pre-push blocker list.',\n"
         "  }\n"
-        "}\n"
-    )
+    ))
 
 
 # See spec_phase4._D4_THRESHOLD_P4 — spec-coverage-check's floor is not a gate

@@ -24,6 +24,10 @@ from pathlib import Path
 _JS_SRC_DIR = Path(__file__).resolve().parent / "js_src"
 _EXPORT_RE = re.compile(r"^export\s+(?=function\b)", re.MULTILINE)
 
+# One statement of the crash-banner shape, shared by every site that routes on
+# it (Round 13 站2: HARNESS_BUG and INFRA must not be sent to CODE-FIX).
+HARNESS_BUG_RE_JS = r"/\[HARNESS-BUG\]/"
+
 
 def render_rule_prose(rule_id: str) -> str:
     """Canonical @rule prose from harness/prompts/rules/<id>.md, JS-escaped
@@ -500,7 +504,7 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"{i}// human-actionable env-var cause), this means harness-methodology itself crashed —\n"
         f"{i}// the FR loop cannot proceed until a human fixes the harness bug, and treating it\n"
         f"{i}// as a code-quality FAIL would send CODE-FIX at a defect that isn't there.\n"
-        f"{i}if (/\\[HARNESS-BUG\\]/.test(frReportText)) {{\n"
+        f"{i}if ({HARNESS_BUG_RE_JS}.test(frReportText)) {{\n"
         f"{i}  log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, "
         f"aborting remaining FRs')\n"
         f"{i}  return {{ harness_bug_detected: true, phase: {phase}, fr_id: frId, gate1Pass, "
@@ -819,19 +823,71 @@ def render_advance_loop(
     )
 
 
-def render_sync_verified(*, extra_lines: list[str] | None = None) -> str:
-    """The Bug A fix (2026-07-07) Sync variant: a bare `git push` plus a
-    plain-text PASS/FAIL regex verdict check that early-returns an error on
-    FAIL. Used by every phase-exit Sync step except P3 (its own bespoke
-    retry/fallback Sync). Round 28: P8 migrated onto this from the old
-    unconditional render_sync() — P8's Sync was the one phase-exit push in
-    the pipeline with no verdict check at all. Optional extra_lines appends
-    phase-specific confirmation steps (e.g. P8's tag-push check) into the
-    same verdict-checked report. Otherwise no phase-specific content; unlike
-    every other phase box this one also has no boxed `// Phase: Sync` divider
-    comment in the original files, so it does not call render_phase_header().
+# Round 43 站3. `scripts/hooks/pre-push` runs `harness_cli.py run-phase
+# --phase N` — the full fifteen-check preflight — on every push. What it
+# rejects is almost never the network; it is a pragma, a missing FR Block, an
+# unregistered SAB module. Until this round the Sync step that performs that
+# push was the one blocking step in the pipeline with no authority to fix
+# anything: a bare `git push`, and in P3's case the SAME instruction dispatched
+# a second time under a comment about transient network failures. Round 41 站3's
+# rule — diagnose the transport from the transport's own text, and stop buying
+# the same failure twice — is what re-sending an identical prompt at a
+# deterministic content failure violates.
+#
+# The correct shape was already in the same generated file: render_push_loop's
+# P1 Push step runs push-checkpoint up to five times with "Read the error and
+# fix if FAIL", through the identical hook.
+#
+# The clause is a module constant, not inline prose, because
+# tests/test_sync_may_repair.py asserts it appears in every shipped Sync block.
+# A test that restated the wording would drift from it (Round 33 站1 /
+# Round 36 站1: render from one source, assert against that source).
+SYNC_ATTEMPTS_CONST = "SYNC_MAX_ATTEMPTS"
+SYNC_MAX_ATTEMPTS = 3
+
+SYNC_REPAIR_CLAUSE = (
+    "If the push is REJECTED, the pre-push hook has already printed why: it "
+    "runs the full phase preflight, so the blocker is almost always project "
+    "CONTENT (a `# pragma: no cover`, a missing artifact block, an "
+    "unregistered SAB module), not the network. Read the blocker list, fix "
+    "exactly what it names, and push again. Do NOT use --no-verify. If the "
+    "output contains [HARNESS-BUG], stop — harness-methodology crashed and "
+    "there is nothing in this project to fix."
+)
+
+
+def render_sync_verified(
+    *,
+    extra_lines: list[str] | None = None,
+    on_blocked: str | None = None,
+) -> str:
+    """The phase-exit Sync step: publish the advance handover commit.
+
+    Bounded retry WITH repair authority — see SYNC_REPAIR_CLAUSE above for why
+    a bare re-send was wrong. `[HARNESS-BUG]` in the output stops the loop
+    immediately: the harness crashed, the project has no defect to fix, and
+    another attempt buys the same failure.
+
+    Used by every phase-exit Sync step. Round 28 migrated P8 onto it from the
+    old unconditional render_sync(); Round 43 站3 migrated P3, whose bespoke
+    renderer was the second implementation of this step.
+
+    `extra_lines` appends phase-specific confirmation steps (P8's tag-push
+    check) into the same verdict-checked report. `on_blocked` replaces the
+    terminal branch for a phase that has something specific to say when the
+    push cannot be made — P3 writes a "Sync Blocked" section into HANDOVER.md
+    and returns a structured MANUAL_REQUIRED result. Default is a bare error
+    return.
+
+    Unlike every other phase box this one has no boxed `// Phase: Sync`
+    divider comment in the original files, so it does not call
+    render_phase_header().
     """
     extra = "".join(f"  + '{line}\\n'\n" for line in (extra_lines or []))
+    terminal = on_blocked if on_blocked is not None else (
+        "  return { error: 'post-advance push did not PASS', "
+        "raw: String(syncReport ?? '').slice(-500) }\n"
+    )
     return (
         "// Bug A fix (2026-07-07): advance-phase intentionally commits the handover\n"
         "// locally without pushing (harness/cli/phase_cmds.py: \"next milestone push\n"
@@ -840,16 +896,36 @@ def render_sync_verified(*, extra_lines: list[str] | None = None) -> str:
         "// local until whatever runs next happened to push it. Publish it now.\n"
         "phase('Sync')\n"
         "log('git push origin main (publish advance handover commit)')\n"
-        "const syncReport = await agent(\n"
-        "  'Run EXACTLY this command via Bash:\\n'\n"
+        f"const {SYNC_ATTEMPTS_CONST} = {SYNC_MAX_ATTEMPTS}\n"
+        "const SYNC_PROMPT = 'Run this command via Bash:\\n'\n"
         "  + 'git -C ' + REPO + ' push origin main\\n\\n'\n"
         + extra
-        + "  + 'Report final outcome as plain text: \"SYNC: PASS\" or \"SYNC: FAIL — <one-line reason>\".',\n"
-        "  { label: 'sync', phase: 'Sync', agentType: 'general-purpose' },\n"
-        ")\n"
-        "if (!/SYNC:\\s*PASS/.test(String(syncReport ?? ''))) {\n"
-        "  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }\n"
+        + f"  + '{SYNC_REPAIR_CLAUSE}\\n\\n'\n"
+        "  + 'Report final outcome as plain text: \"SYNC: PASS\" or \"SYNC: FAIL — <one-line reason>\"'\n"
+        "  + ' (if the pre-push hook printed a blocker list, include it verbatim).'\n"
+        "let syncReport = ''\n"
+        "let syncPass = false\n"
+        f"for (let sAttempt = 1; sAttempt <= {SYNC_ATTEMPTS_CONST}; sAttempt++) {{\n"
+        "  syncReport = await agent(SYNC_PROMPT, "
+        "{ label: 'sync-' + sAttempt, phase: 'Sync', agentType: 'general-purpose' })\n"
+        "  const syncText = String(syncReport ?? '')\n"
+        "  syncPass = /SYNC:\\s*PASS/.test(syncText)\n"
+        "  if (syncPass) break\n"
+        f"  if ({HARNESS_BUG_RE_JS}.test(syncText)) {{\n"
+        "    log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; "
+        "not a project blocker and not something a retry can clear')\n"
+        "    return { harness_bug_detected: true, step: 'sync', "
+        "message: 'git push was rejected by a harness-methodology crash "
+        "([HARNESS-BUG] — see the crash bundle path in the log), not by a "
+        "project quality failure. A human must fix the harness bug.', "
+        "raw: syncText.slice(-600) }\n"
+        "  }\n"
+        f"  log('  Sync attempt ' + sAttempt + '/' + {SYNC_ATTEMPTS_CONST} + "
+        "' did not PASS — read the pre-push blocker list, fix what it names, retry')\n"
         "}\n"
+        "if (!syncPass) {\n"
+        + terminal
+        + "}\n"
     )
 
 
