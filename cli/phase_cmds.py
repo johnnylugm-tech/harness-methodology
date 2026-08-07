@@ -624,6 +624,14 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
             f"resolving them here costs the same work and does not leave a "
             f"phase recorded that cannot be entered.\n"
         )
+        # Round 43 站4: some of these findings judge artifacts from phases
+        # that already passed. When the enforcement surface has moved since
+        # that phase was accepted, the operator is looking at a raised bar,
+        # not a regression they introduced. Diagnosis only — nothing is
+        # waived, and Round 38's rule stands.
+        _stale_note = _enforcer_moved_note(project, args.completed_phase)
+        if _stale_note:
+            print(_stale_note)
         # Machine-readable form. The HANDOVER.md table stays (it is now the
         # record of why the last advance was refused); the ledger is what a
         # programmatic reader can consume — same shape Round 42 站2 used for
@@ -1564,6 +1572,38 @@ def _advance_commit_targets(
     if next_phase == 8:
         targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
     return targets
+
+def _enforcer_moved_note(project: Path, up_to_phase: int) -> str:
+    """One line naming the phases whose recorded PASS predates a rule change.
+
+    Round 43 站4. Appended to advance-phase's obligation [BLOCKED] because
+    that message is where the question arises: a finding against a Phase 1
+    artifact, on a project whose Phase 1 passed five framework rounds ago,
+    reads as "you broke this" when the truth may be "the bar moved". The
+    data has been recorded since Round 19 站3 / Round 29 站4 and never read
+    for this.
+
+    Diagnosis only. Nothing is waived — Round 38's rule is that no threshold
+    may be, and grandfathering a rule to artifacts accepted before it existed
+    is the same rule inverted: the framework could then never raise its own
+    bar. Empty string when there is nothing to say, so a caller can print it
+    unconditionally-guarded and add no noise.
+    """
+    from core.harness_provenance import phase_verdict_staleness
+    moved: list[str] = []
+    for phase in range(1, up_to_phase + 1):
+        if phase_verdict_staleness(project, phase):
+            moved.append(str(phase))
+    if not moved:
+        return ""
+    return (
+        f"  [note] Phase(s) {', '.join(moved)} recorded their PASS under a "
+        f"different enforcement surface than the one running now. A finding "
+        f"above against one of their artifacts may be a raised bar rather "
+        f"than something this session broke. It is not waived either way — "
+        f"`doctor` names which paths changed.\n"
+    )
+
 
 def _advance_fsm(project: Path, completed_phase: int,
                  last_gate: int | None = None,

@@ -189,6 +189,13 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # recorded enforcer_sha that no longer exists stayed invisible.
     findings.extend(_check_enforcer_provenance(project))
 
+    # 11c. Which recorded phase verdicts were made under a different enforcer
+    # (Round 43 站4). 11b asks whether the recorded SHA still resolves; this
+    # asks the question the operator actually has when a check fires on an
+    # artifact from a phase that passed — did the rules move, or did I break
+    # something.
+    findings.extend(_check_phase_verdict_staleness(project))
+
     # 12. harness/ submodule behind origin (Round 25 站3b). Relocated from
     # _advance_prechecks, where it was advance-phase's ONLY network call — a
     # `git fetch` on every single advance, non-blocking, printing the same four
@@ -370,6 +377,44 @@ def _check_enforcer_provenance(project: Path) -> list[Finding]:
             f"{ {k.rsplit('/', 1)[-1]: v[:8] for k, v in current.items()} }. "
             f"Fix: compare that against the `enforcer_surface` in those files; "
             f"if they match, the verdict stands and only its label is stale.",
+        ))
+    return findings
+
+
+def _check_phase_verdict_staleness(project: Path) -> list[Finding]:
+    """WARN for each completed phase whose enforcement surface has since moved.
+
+    Round 43 站4. `_check_enforcer_provenance` above asks whether a recorded
+    enforcer SHA still resolves. This asks the question an operator actually
+    has when a preflight fires on an artifact belonging to a phase that
+    already passed: did the rules change, or did I break something.
+
+    Measured case: Round 42 站3 turned a missing SRS FR Block from a warning
+    into a P2+ block. taskq-api's Phase 1 was accepted five rounds earlier and
+    then failed a check that did not exist when it passed, with nothing able
+    to say so.
+
+    WARN, never ERROR, and it changes no verdict. Grandfathering the rule
+    would mean the framework can never raise its own bar (Round 38's
+    no-waivable-threshold rule, inverted); what a stale recorded PASS needs is
+    to stop claiming to be current, not to be honoured.
+    """
+    from core.harness_provenance import phase_verdict_staleness
+    from core.phase_topology import VALID_PHASES
+
+    findings: list[Finding] = []
+    for phase in sorted(VALID_PHASES):
+        moved = phase_verdict_staleness(project, phase)
+        if not moved:
+            continue
+        findings.append(Finding(
+            "provenance", "WARN",
+            f"Phase {phase}'s recorded PASS was measured under a different "
+            f"enforcement surface — {', '.join(moved['moved'])} changed since. "
+            f"A check that fires on a Phase {phase} artifact may be a raised "
+            f"bar rather than a regression you introduced. The verdict is not "
+            f"waived: fix what the check names. This is here so you know which "
+            f"of the two it is.",
         ))
     return findings
 

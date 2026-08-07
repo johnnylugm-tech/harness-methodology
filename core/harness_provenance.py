@@ -32,7 +32,10 @@ import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-__all__ = ["harness_root", "enforcer_sha", "enforcer_surface", "ENFORCER_SURFACE_PATHS"]
+__all__ = [
+    "harness_root", "enforcer_sha", "enforcer_surface",
+    "ENFORCER_SURFACE_PATHS", "phase_verdict_staleness",
+]
 
 _UNKNOWN = "unknown"
 
@@ -125,3 +128,71 @@ def enforcer_surface() -> dict[str, str]:
                 exc_info=True,
             )
     return result
+
+
+def phase_verdict_staleness(
+    project: "str | Path", phase: int,
+) -> "dict | None":
+    """Has the enforcement surface moved since Phase N was accepted?
+
+    Round 43 站4. `state.json::phase_completed[N]` already records the git
+    object IDs of `core/quality_gate`, `harness/harness_bridge.py` and
+    `harness/gate_configs` as they stood when the phase was accepted (Round 19
+    站3, Round 29 站4). Nothing compared them to the present: `core/doctor.py`
+    is the only reader and it asks whether the recorded SHA still resolves.
+
+    So when Round 42 站3 turned a missing SRS FR Block from a warning into a
+    P2+ block, taskq-api — whose Phase 1 was accepted at `c09fae1`, five
+    rounds earlier — failed a check that did not exist when it passed, and
+    nothing in the tooling could say so. The operator reads "your Phase 1
+    artifact is wrong"; the truth is "the bar moved".
+
+    The verdict does not change. Grandfathering a rule to artifacts accepted
+    before it existed would mean the framework can never raise its own bar —
+    Round 38's no-waivable-threshold rule, inverted. What this makes possible
+    is for the recorded PASS to stop claiming to be current.
+    `EX_ADVANCE_GATE_VERDICT_MISSING` already carries the sibling of this rule
+    on the other axis: a verdict measured on a different TREE is not a verdict
+    for this one; a verdict measured by a different ENFORCER is not a verdict
+    under this one.
+
+    Returns None when there is nothing to say — no recorded verdict for that
+    phase, or no recorded surface, or the surface is unchanged. Otherwise
+    ``{"moved": [path, ...], "recorded": {...}, "current": {...}}``, listing
+    only the paths whose object ID differs. Paths recorded as ``"unknown"``
+    (git was unavailable when the verdict was made) are skipped: an absent
+    measurement is not a changed one (Round 32/35 — could-not-measure is not a
+    finding). Never raises; provenance metadata must not be able to block.
+    """
+    from core.state_io import load_state
+    try:
+        state = load_state(project, lenient=True)
+    except Exception:  # pylint: disable=broad-exception-caught
+        # Same reasoning as enforcer_sha/enforcer_surface above: provenance
+        # metadata must never be able to block. `lenient=True` already routes
+        # a corrupt state.json to the degradation ledger, so anything reaching
+        # here is unexpected — logged at DEBUG rather than swallowed silently.
+        import logging
+        logging.getLogger(__name__).debug(
+            "phase_verdict_staleness: state.json unreadable for %s", project,
+            exc_info=True,
+        )
+        return None
+    entry = (state.get("phase_completed") or {}).get(str(phase))
+    if not isinstance(entry, dict):
+        return None
+    recorded = entry.get("enforcer_surface")
+    if not isinstance(recorded, dict) or not recorded:
+        return None
+
+    current = enforcer_surface()
+    moved = [
+        path for path, was in recorded.items()
+        if was != _UNKNOWN
+        and current.get(path, _UNKNOWN) != _UNKNOWN
+        and current.get(path) != was
+    ]
+    if not moved:
+        return None
+    return {"moved": sorted(moved), "recorded": dict(recorded),
+            "current": dict(current)}
