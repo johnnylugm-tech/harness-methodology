@@ -130,6 +130,26 @@ def test_doctor_names_the_phase_whose_rules_moved(tmp_path):
     assert "core/quality_gate" in findings[0].message
 
 
+def test_run_doctor_actually_runs_the_check(tmp_path):
+    """The wiring, not just the function.
+
+    Counter-proof discipline caught this: unwiring
+    `_check_phase_verdict_staleness` from `run_doctor`'s dispatch list left
+    every test above green, because they all called the function directly.
+    A check nobody runs is the exact shape this round exists to close, and
+    the first draft of its own guard had it.
+    """
+    from core.doctor import run_doctor
+
+    findings = run_doctor(_stale_project(tmp_path))
+
+    assert any("recorded PASS was measured under a different enforcement "
+               "surface" in f.message for f in findings), (
+        "run_doctor did not run the staleness check: "
+        f"{[f.message[:60] for f in findings]}"
+    )
+
+
 def test_doctor_says_nothing_when_the_surface_has_not_moved(tmp_path):
     from core.doctor import _check_phase_verdict_staleness
     from core.harness_provenance import enforcer_surface

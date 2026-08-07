@@ -2078,3 +2078,91 @@ pytest 6891 → **6910**；guards 365 → **385**；ruff clean；`--check` 9/9�
 `canonical_diff` 對 renew 真實 SRS 由 `total_ac 21 / invention 1` 變
 `total_ac 20 / invention 0`；`spec_coverage_report` 逐支列出那 8 支；
 `check_srs_structure` 對 plus/api 報 violation、對 taskq/renew 乾淨。
+
+---
+
+# Round 43（2026-08-07）—— 框架算對了，然後把答案丟掉
+
+老闆令：taskq-api 卡在 P3→P4。先查證 `.claude/projects/-Users-johnny-projects-taskq-api/memory/cases/2026-08-07-harness-unattended-gap.md`
+的真實性與根源性，再把查出來的展開成可執行的修復方案，**確認根因並套用正解，不許 workaround**。
+
+## 一、該報告三項主張的逐項裁決
+
+| # | 主張 | 裁決 | 證據 |
+|---|---|---|---|
+| R43-報告-1 | 框架偵測不到那些 blocker，需要人介入 | **證偽** | taskq-api `HANDOVER.md:54-65` 在 push 失敗前 3 個 commit 就列出全部 5 個 `# pragma: no cover`，含 file:line，外加一筆 `property_spec FR-07` |
+| R43-報告-2 | `run-all.js` 沒有 retry-with-repair loop、沒有 escalate-to-agent | **證偽** | 每個 preflight 都派有寫入權的 agent（prompt：`ONLY preflight commands + fixes`，最多 3 輪）；advance 步驟明寫「`[BLOCKED]` 那則訊息就是修復指令，逐字照做再重跑」 |
+| R43-報告-3 | auto-fix 覆蓋率 1/17 是缺口，應擴充 strategy | **誤診，且方向與已有裁決相反** | `SAD.md:164` 記錄那些接線是**刻意移除**的：端到端驗證證明 strategy「emitting empty stubs or appending comments」。另 `PREFLIGHT_CHECKS` 是 **15** 個不是 17 |
+
+**定調**：真正的病灶不是偵測，是**偵測與執行之間斷線**。框架把正確答案（含檔名行號）寫進
+HANDOVER.md，然後派一個只被授權執行 `git push` 的 agent 去撞牆，撞兩次，收工。
+任何後續報告若再以「harness 偵測不到 / 需要更多 auto-fix strategy」提出，引用 R43-報告-1
+與 R43-報告-3 駁回。
+
+## 二、五項實測發現與落地
+
+| ID | 病灶 | 正解 | 出處 |
+|----|------|------|------|
+| **D1a** | `_DELAYED_BLOCKING_PREFLIGHTS` 收錄 `"sab_check"`（**方法名**），`_do_preflight_all` 的結果鍵是 `"sab"`。**兩道獨立的消音**：名字對不上被濾掉一次；即使名字對了，`preflight_sab_check` 不回 `blocking` 鍵，`not res.get("blocking")` 再濾掉一次。SAB 從來沒有出現在任何一張 obligation 表上，`elif check_id == "sab_check"` 分支自 Round 15 起不可達 | 兩處改名 + `preflight_sab_check` 回報 `blocking` + `tests/test_preflight_registry.py` 加子集斷言（R27 站4 同形第四例） | `core/phase_hooks.py` |
+| **D1b** | `preview_next_phase_blocking` 的 docstring 寫「without mutating any state」，卻在 phase≥5 經 `preflight_traceability` 派 AutoFixEngine 寫檔。15 個 preflight 只有這一個會寫 | 修復搬出檢查 → `PhaseHooks.repair_traceability_gap`，由 `cmd_run_phase` 呼叫（R18 病灶歸位）。生產行為不變：`preflight_all` 只有一個生產呼叫者且只讀 `all_passed` | `core/phase_hooks.py`、`cli/phase_cmds.py` |
+| **D1c** | obligations 表**零自動消費者**。`grep -r "Entry Obligations"` = 1 個生產者 + 4 個測試斷言 | advance-phase 阻擋（exit 37），`[BLOCKED]` 帶逐條 file:line，每條落 `obligation:<check_id>` ledger。**HANDOVER 表與其接線一併刪除**（R39：移除機制要連陳述一起移除） | `cli/phase_cmds.py`、`harness/handover_generator.py` |
+| **D2** | 10 支 Sync 步驟全無修復權；P3 把**同一句** prompt 重發一次，註解寫 "covers transient network failures"，而 pre-push hook 跑的是完整 preflight（內容失敗，確定性的） | `render_sync_verified` 加有界重試 + `SYNC_REPAIR_CLAUSE` + `[HARNESS-BUG]` 早退；**刪除 `spec_phase3._render_phase3_sync` 第二套實作**，改用 `on_blocked` 傳終局分支 | `scripts/workflowgen/js_blocks.py`、`spec_phase3.py` |
+| **D3** | `phase_completed[N].enforcer_surface` 自 R19 站3/R29 站4 就有，唯一讀者只問「這個 SHA 還解析得出來嗎」。Round 42 站3 的新規則打到 taskq-api 五輪前通過的 P1，工具無法說出「是門檻變了」 | `phase_verdict_staleness()` + 兩個消費者（doctor WARN、obligation `[BLOCKED]` 尾註）。**只診斷，不豁免** | `core/harness_provenance.py`、`core/doctor.py` |
+
+**母體第 14 次：框架算出了真值，然後把它渲染成散文丟進一個沒有讀者的檔案。**
+R24 立「不說做什麼的 block 是半塊」——這裡的 block 說得很清楚（檔名行號都有），
+但它不是 block，是一則 prose warning。R30 立「棄權≠通過」——這裡連棄權都不是。
+
+## 三、D3 的正解為什麼不是 grandfathering
+
+老闆指示「不要考慮目前執行中的專案，專注在 harness 的正解上」。推導：
+
+一條**不能**套用到「規則出現前就通過的產物」的規則，等於框架永遠不能提高自己的標準——
+這正是 R38「任何門檻不可豁免」的反面。記錄下來的 PASS 本來就只是
+「**在 E1 之下**通過」，不是「通過」。缺的不是判定，是**那份判定不肯承認自己是舊的**。
+
+`EX_ADVANCE_GATE_VERDICT_MISSING` 已經立過同一句話的另一個軸：
+「在不同的**樹**上量出的判定不是這棵樹的判定」。本輪是它的姊妹：
+**在不同的執法者下量出的判定，不是這個執法者的判定。**
+兩則訊息都逐字寫明「不豁免」，因為下一個讀者的直覺會是把它改成豁免通道。
+
+## 四、明列不做（附再開條件）
+
+| 項目 | 理由 | re-open 條件 |
+|---|---|---|
+| 擴充 auto-fix strategy 覆蓋率 | `SAD.md:164` 記錄移除理由是它們產出假修復（空 stub / 加註解） | 某個 strategy 能在真實專案上通過它宣稱要通過的 check，並留下可驗證收據 |
+| 移除 `scripts/hooks/pre-push:47-52` 用 HEAD subject 猜 phase 的啟發式 | 站2 消除了它的存在理由（handover commit 不再可能帶未清 obligation），但退場是後果不是本輪動作 | 站2 上線後在真實專案量到 handover commit 不可能再帶未清 obligation |
+| preview 仍會 append degradation ledger | 那個 degradation 是真的發生了（drift detector 退回空 baseline），R13 的規則是不得靜默遺忘。與「檢查修復它所量測的東西」不同類 | 若量到 preview 的 ledger 記錄使 `run-report` 的降級統計失真 |
+| 改 spec-coverage / gate 門檻數字、改 STRIDE 計分、加任何 waiver | 與 R42 同 | 同 R42 |
+
+## 五、我自己在本輪犯的錯（已更正，記錄防止重複）
+
+1. **`.coverage` 的假訊號**。第一次量 preview 是否寫檔時，我用 `cp -R` 複製 taskq-api
+   到 `/tmp`、跑 preview、比對指紋，看到 `.coverage` 消失，判定「preview 刪了檔」。
+   **錯的**——重新複製一份，原專案本來就已經沒有 `.coverage` 了（並行 session 的動作）。
+   訊號是我自己製造的。D1b 最後是由 `tests/test_preview_is_read_only.py` 的記錄樁
+   實測確診（`phase: 5` 觸發），不是由那次檔案系統觀察。
+2. **`/tmp` fixture 被自己的 `rm -rf` 清掉後，`diff` 對兩個不存在的檔案成功**，
+   我的 shell 一行接著 `&& echo "identical"` —— 一個空的比對印出了通過。重跑時改成
+   先印檔案數再比對。**這正是本輪在講的事：一個沒有分母保護的檢查會在什麼都沒量到時說 PASS。**
+
+## 六、驗證
+
+pytest 6918 → **6957**；guards 385；ruff clean；`generate_workflows.py --check` 9/9；
+`node --check` 11/11；sim 94 → **95**（新增 `[HARNESS-BUG]` 早退測試）。
+
+端到端（`/tmp` 副本，五個 taskq 專案全程唯讀）：
+
+- **站1a**：SAB 在 P3 乾淨、在 P4 違規的專案 → `preview_next_phase_blocking(4)` 回
+  `[('sab', 'Layer domain: 1 modules missing from codebase')]`（修復前：`[]`）
+- **站1b**：taskq-api 副本跑 preview → `repair_traceability_gap` **零呼叫**，
+  1173 個檔案的內容指紋前後**逐位元相同**
+- **站2**：`tests/e2e/test_cli_journeys.py::test_unresolved_entry_obligation_refuses_exit_37`
+  —— 真 CLI 黑箱：抽掉 SRS 的 FR Block → exit **37**、`current_phase` 仍為 1、
+  無 HANDOVER.md、ledger 有 `obligation:artifact_consistency`
+- **站2 順帶量到的順序事實**：taskq-api 副本實跑 `advance-phase --completed 4` 回
+  **exit 34**（`EX_ADVANCE_GATE_VERDICT_MISSING`）——退出 gate 的裁決在 obligation
+  之前。順序正確：入口義務在出口 gate 未過之前沒有意義
+- **站4**：手改副本的 `phase_completed[1].enforcer_surface` → doctor 回
+  `WARN Phase 1's recorded PASS was measured under a different enforcement surface
+  — core/quality_gate changed since`

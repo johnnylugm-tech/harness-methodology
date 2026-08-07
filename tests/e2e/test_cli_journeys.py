@@ -93,6 +93,47 @@ class TestAdvanceJourneys:
         r2 = run_cli(["advance-phase", "--completed", "1"], e2e_project)
         assert r2.returncode == 0, r2.stdout + r2.stderr
 
+    def test_unresolved_entry_obligation_refuses_exit_37(self, e2e_project):
+        """Round 43 站2 journey, through the real CLI.
+
+        Strip the machine-readable FR Block out of the fixture's SRS — the
+        deliverable Round 42 站3 made a P2+ blocking requirement — and the
+        P2 entry preview reports it. advance-phase must refuse rather than
+        record a phase whose own entry preflight rejects the tree.
+        """
+        from cli.exit_codes import EX_ADVANCE_ENTRY_OBLIGATIONS
+
+        srs = e2e_project / "01-requirements" / "SRS.md"
+        text = srs.read_text(encoding="utf-8")
+        head, sep, _ = text.partition("## 7. FR Block (machine-readable)")
+        assert sep, "fixture premise: the SRS carries the FR Block"
+        srs.write_text(head, encoding="utf-8")
+        git(e2e_project, "add", "-A")
+        git(e2e_project, "commit", "-m", "drop the FR Block")
+
+        r = run_cli(["advance-phase", "--completed", "1"], e2e_project)
+
+        assert r.returncode == EX_ADVANCE_ENTRY_OBLIGATIONS, r.stdout + r.stderr
+        assert "[BLOCKED]" in r.stdout
+        assert "SRS-FR-BLOCK" in r.stdout, (
+            "the block must name the finding, not point at a file (R24 站1)"
+        )
+        state = json.loads(
+            (e2e_project / ".methodology" / "state.json").read_text()
+        )
+        assert state["current_phase"] == 1, (
+            "advanced into a phase whose entry preflight rejects the tree"
+        )
+        assert not (e2e_project / "HANDOVER.md").exists(), (
+            "a handover was written for a transition that did not happen"
+        )
+        ledger = e2e_project / ".methodology" / "degradations.jsonl"
+        assert ledger.exists()
+        rows = [json.loads(ln) for ln in
+                ledger.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert any(r.get("component") == "obligation:artifact_consistency"
+                   for r in rows), [r.get("component") for r in rows]
+
 
 class TestFastPathJourneys:
     def test_pre_commit_check_passes_on_clean_phase1(self, e2e_project):

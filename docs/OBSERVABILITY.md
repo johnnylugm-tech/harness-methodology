@@ -89,6 +89,17 @@ no-progress loops (`no_progress_count >= 2`) here before returning exit 2,
 eliminating the blind spot where silent `return 2` previously left no trail
 for `run-report`.
 
+**Round 43 站2** added the `obligation:<check_id>` family. When
+`advance-phase` refuses because the preflight simulated at the phase being
+entered reports blocking findings (exit
+`EX_ADVANCE_ENTRY_OBLIGATIONS`), each finding gets one record: `component`
+is `obligation:reliability_lint`, `obligation:artifact_consistency`, … and
+`data` carries `target_phase`, `rule_id`, `file`, `line`. Before this, the
+findings were rendered into a markdown table in HANDOVER.md that no
+automated reader consumed — `grep -r "Entry Obligations"` returned one
+producer and four test assertions — and the advance proceeded anyway. The
+table is gone; this is where a programmatic reader now looks.
+
 ### `.methodology/crash/crash_<timestamp>_<pid>.json`
 
 **Round 28 站4 moved this out of `.sessi-work/` for the same reason as the

@@ -1594,3 +1594,109 @@
   fixed_in: "R42-站5"
 
 
+
+# ── Round 43（2026-08-07）—— 框架算對了，然後把答案丟掉 ─────────────────────
+
+- test: tests/test_obligation_registry.py::test_every_delayed_blocking_name_is_a_real_check_id
+  bug: "_DELAYED_BLOCKING_PREFLIGHTS carried 'sab_check' — the METHOD name — while _do_preflight_all keys its results by 'sab'. Every SAB finding was filtered out before it could become an obligation, from Round 14 A until Round 43"
+  fixed_in: "R43-站1a"
+
+- test: tests/test_obligation_registry.py::test_a_sab_violation_becomes_an_obligation
+  bug: "the extractor branch for SAB (_obligations_from_preflight's elif) had never been reachable in production; the only test of it called the same wrong key, so fixture and rule agreed with each other and not with the code path"
+  fixed_in: "R43-站1a"
+
+- test: tests/test_obligation_registry.py::test_sab_check_says_whether_its_finding_blocks
+  bug: "preflight_sab_check returned no `blocking` key, so `not res.get('blocking')` dropped its findings a SECOND time even under the right check_id — two independent silencers on one check"
+  fixed_in: "R43-站1a"
+
+- test: tests/test_preflight_registry.py::test_delayed_blocking_set_reads_registry_keys
+  bug: "the completeness test pinned PREFLIGHT_CHECKS against PhaseHooks' methods; nothing pinned the second registry that reads those keys. Fourth instance of the registry-vs-consumer disagreement Round 27 站4 catalogued"
+  fixed_in: "R43-站1a"
+
+- test: tests/test_preview_is_read_only.py::test_the_preview_dispatches_no_repair
+  bug: "preview_next_phase_blocking documents itself as mutating no state and, at phase>=5 with an open trace gap, dispatched AutoFixEngine against the real project tree — measured, not read: the recording stub fires with phase=5"
+  fixed_in: "R43-站1b (the repair moved to PhaseHooks.repair_traceability_gap, called by cmd_run_phase)"
+
+- test: tests/test_preview_is_read_only.py::test_the_traceability_check_itself_dispatches_no_repair
+  bug: "fourteen preflights read; preflight_traceability wrote. A check that repairs cannot be run for an answer"
+  fixed_in: "R43-站1b"
+
+- test: tests/test_preview_is_read_only.py::test_the_repair_entry_point_exists_and_is_public
+  bug: "the two tests above patch a name; if the repair moves again and the name goes with it, patching a nonexistent attribute would read as a pass"
+  fixed_in: "R43-站1b"
+
+- test: tests/test_advance_refuses_a_blocked_entry.py::test_advance_refuses_while_the_next_entry_is_blocked
+  bug: "cmd_advance_phase computed the P(N+1) obligations, printed them, wrote them into HANDOVER.md and advanced anyway. taskq-api's P3→P4 handover named five pragma sites by file and line; three commits later the push was rejected on exactly those five"
+  fixed_in: "R43-站2 (EX_ADVANCE_ENTRY_OBLIGATIONS, before _advance_fsm)"
+
+- test: tests/test_advance_refuses_a_blocked_entry.py::test_the_block_names_the_finding
+  bug: "a [BLOCKED] that points at a table instead of carrying the finding is the shape R24 站1 closed everywhere else"
+  fixed_in: "R43-站2"
+
+- test: tests/test_advance_refuses_a_blocked_entry.py::test_a_clean_preview_still_advances
+  bug: "negative control — a refusal that fires on an obligation-free advance would stop every project"
+  fixed_in: "R43-站2"
+
+- test: tests/test_handover_generator.py::TestHandoverGenerator::test_no_obligations_section_is_rendered
+  bug: "Round 14 A's 'P(N+1) Entry Obligations' renderer outlived its producer: with the advance refused there is no handover for the findings to ride into, and a renderer with no producer says the mechanism still runs (R39)"
+  fixed_in: "R43-站2 (renderer + parameter removed with the wiring)"
+
+- test: tests/test_handover_generator.py::TestHandoverGenerator::test_render_takes_no_obligations_argument
+  bug: "an unused parameter left on the signature invites the wiring back without the mechanism"
+  fixed_in: "R43-站2"
+
+- test: tests/test_handover_generator.py::TestCmdAdvancePhase::test_advance_phase_refuses_rather_than_surfacing_obligations
+  bug: "A2/A3 propagated obligations into HandoverGenerator.write and _advance_fsm and the advance then succeeded; nothing read the table back"
+  fixed_in: "R43-站2 (no handover written, one ledger record per finding)"
+
+- test: tests/e2e/test_cli_journeys.py::TestAdvanceJourneys::test_unresolved_entry_obligation_refuses_exit_37
+  bug: "black-box: strip the FR Block Round 42 站3 made P2+ blocking and the real CLI must refuse rather than record a phase whose own entry preflight rejects the tree"
+  fixed_in: "R43-站2"
+
+- test: tests/test_sync_may_repair.py::test_the_shipped_workflows_have_sync_steps
+  bug: "guard the guard — an empty scan of the shipped JS must not read as a pass"
+  fixed_in: "R43-站3"
+
+- test: tests/test_sync_may_repair.py::test_every_sync_step_may_repair_its_blocker
+  bug: "all ten shipped Sync steps pushed through the full pre-push preflight with a prompt containing only `git push origin main`, while the identical hook is what P1's Push loop is allowed to fix"
+  fixed_in: "R43-站3 (SYNC_REPAIR_CLAUSE, read from the generator so rewording moves the test with it)"
+
+- test: tests/test_sync_may_repair.py::test_every_sync_step_retries_under_a_bound
+  bug: "P3 re-sent an IDENTICAL prompt under a comment about transient network failures, at a hook that rejects on deterministic project content — R41 站3's 'stop buying the same failure twice' in the one step with no repair authority"
+  fixed_in: "R43-站3"
+
+- test: tests/test_phase_verdict_is_dated.py::test_a_moved_enforcement_surface_is_reported
+  bug: "state.json has recorded enforcer_surface per completed phase since R19 站3 / R29 站4 and nothing compared it to the present; Round 42 站3's new rule failed taskq-api's Phase 1 five rounds after it passed, with no way to say the bar had moved"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_an_unchanged_surface_reports_nothing
+  bug: "a staleness reader that fires on every phase is prose nobody reads — the failure mode this whole round is about"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_a_phase_with_no_recorded_verdict_reports_nothing
+  bug: "jurisdiction (R40 站1): absent is not stale"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_an_unmeasured_surface_path_is_not_a_moved_one
+  bug: "'unknown' means git was unavailable when the verdict was written; treating it as a change is could-not-measure scored as a finding (R32/R35)"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_doctor_names_the_phase_whose_rules_moved
+  bug: "core/doctor.py was the only reader of enforcer_surface and asked a different question — whether the recorded SHA still resolves"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_doctor_says_nothing_when_the_surface_has_not_moved
+  bug: "negative control — the enforcement surface changes almost daily during framework development, so a reader that always fires is noise"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_the_advance_block_note_names_the_stale_phases
+  bug: "the obligation [BLOCKED] is where the operator's question arises: is this a raised bar or something I broke"
+  fixed_in: "R43-站4 (diagnosis only — the verdict is not waived, R38 stands)"
+
+- test: tests/test_phase_verdict_is_dated.py::test_the_advance_block_note_is_empty_when_there_is_nothing_to_say
+  bug: "a sentence printed on every block regardless is the prose-nobody-reads shape again"
+  fixed_in: "R43-站4"
+
+- test: tests/test_phase_verdict_is_dated.py::test_run_doctor_actually_runs_the_check
+  bug: "counter-proof discipline caught this in R43 站5: unwiring _check_phase_verdict_staleness from run_doctor's dispatch left every other test in the file green, because they all called the function directly. A check nobody runs is the exact shape this round exists to close, and the first draft of its own guard had it"
+  fixed_in: "R43-站5"
