@@ -96,7 +96,7 @@ async function resolveRepo() {
     { label: 'resolve-repo', agentType: 'general-purpose' }
   )
   const text = String(r ?? '').trim()
-  const match = text.match(/REPO=(\\S+)/)
+  const match = text.match(/REPO=(\\/[A-Za-z0-9_.\\/-]+)/)
   if (match && match[1].startsWith('/')) {
     log('  REPO: auto-detected via walk-up = ' + match[1])
     return match[1]
