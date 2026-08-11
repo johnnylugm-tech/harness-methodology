@@ -130,6 +130,15 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "to regenerate it. Do not hand-edit it into shape; a hand-repaired file hides "
         "whichever step produced the broken one.",
     ),
+    "crg_graph_incomplete": (
+        "The architecture graph covers fewer files than the project delivers",
+        "The score would be a score of a subset. Make each named file parseable by "
+        "code-review-graph, or take it out of the delivered set (delete it, or "
+        ".gitignore it if it is generated). Do NOT lower the architecture score to "
+        "work around it — the framework owes the measurement, not the project. "
+        "Full coverage is the normal outcome of a correct build, measured at "
+        "exact parity on every project this rule was validated against.",
+    ),
     "crg_independent_failed": (
         "The harness's independent CRG measurement failed to run",
         "The framework could not compute its own architecture number, so the agent's "

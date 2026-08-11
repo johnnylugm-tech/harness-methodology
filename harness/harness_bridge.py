@@ -2898,6 +2898,44 @@ class HarnessBridge:
                     details={"crg_independent_failed": [str(_crg_err)]},
                 ) from _crg_err
 
+            # Round 44 站3: and the score must be a score of THIS tree. A graph
+            # that covers fewer files than the project delivers produces a
+            # number about a subset; Round 37 站2 measured what that costs
+            # (taskq-renew: 77.8 over 11 of 47 files, against CI's 57.1 over
+            # all of them) and forced one full rebuild, then recorded whatever
+            # survived it and moved on. Round 42 站4c carried the denominator
+            # into the result and nothing read it either.
+            #
+            # `infra_fail`, not a low score: the project cannot fix CRG's
+            # parser, and Round 32 站4's rule is that a dimension the
+            # framework could not measure is the framework's problem — never
+            # a number the project may lower to work around.
+            from harness.crg_independent import graph_coverage_gap
+            _unparsed = graph_coverage_gap(_crg_m)
+            if _unparsed:
+                raise GateBlockedError(
+                    ctx.gate_num,
+                    GateResult(
+                        gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                        open_critical=1, open_high=0,
+                        quality_complete=False, rounds_used=0,
+                    ),
+                    details={"crg_graph_incomplete": [
+                        f"architecture cannot be scored: the code-review-graph "
+                        f"covers {_crg_m.get('_graph_files')} file(s) and this "
+                        f"project delivers {_crg_m.get('_source_files')}. A "
+                        f"score computed over a subset is a score of that "
+                        f"subset.",
+                        *(f"  unparsed: {p}" for p in _unparsed),
+                        "Fix: make each file above parseable by "
+                        "code-review-graph, or take it out of the delivered "
+                        "set (delete it, or .gitignore it if it is generated). "
+                        "Do NOT lower the architecture score to work around "
+                        "this — the framework, not the project, owes the "
+                        "measurement.",
+                    ]},
+                )
+
             # Hard regression block (interactive gate — mirrors CI crg-arch-check):
             # architecture must not regress vs the prior exit baseline even if its
             # absolute score still clears the threshold.

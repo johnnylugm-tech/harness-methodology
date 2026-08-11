@@ -153,7 +153,7 @@ _LINE_CEILING: dict[str, int] = {
     # taskq-renew's storage-load-sub1/sub2 are Leiden splitting
     # task_store.py, so none of them applied and calibration was the only
     # lever left after R38 removed the waiver.
-    "harness/harness_bridge.py": 3828,
+    "harness/harness_bridge.py": 3866,  # 2026-08-11: +38 — Round 44 站3: the architecture dimension refuses to produce a score when the code-review-graph covers fewer files than the project delivers. Round 37 站2 forced one full rebuild and recorded whatever survived it; Round 42 站4c carried graph_files/source_files into the result's calibration block; a repository-wide grep found one producer and no consumer comparing them. taskq-advance logged four crg:graph-scope residuals in Phase 3 (41 graphed / 47 delivered) with architecture at 91.7. Raised as `infra_fail` (crg_graph_incomplete), not as a low score, because the project cannot fix CRG's parser and Round 32 站4's rule is that an unmeasurable dimension is the framework's debt, never a number the project may lower. The size is the GateBlockedError with its per-file list and the comment recording that distinction; the predicate itself is one call to crg_independent.graph_coverage_gap.
     # 2026-08-04 (Round 35 站3): +37 — `_mutation_artifact_violations` returns
     # two lists instead of one (a missing artifact is a run to repair, not a
     # claim to withdraw) and its call moved above the agent-score early exit,

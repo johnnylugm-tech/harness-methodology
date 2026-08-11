@@ -137,6 +137,35 @@ def needs_full_rebuild(
     return graph_files != source_files, source_files - graph_files
 
 
+def graph_coverage_gap(metrics: "dict") -> list[str]:
+    """The delivered source files the graph never parsed, sorted.
+
+    Round 44 站3. `needs_full_rebuild` above already forces one full rebuild
+    when the graph does not cover the delivered tree; what survives that
+    rebuild was recorded in the degradation ledger and, since Round 42 站4c,
+    counted in the gate result's `calibration` block as
+    `graph_files`/`source_files`. Nothing compared the two: a repository-wide
+    grep finds one producer and no consumer.
+
+    Measured on taskq-advance's Phase 3, four such residuals — 41 files
+    graphed against 47 delivered — while `architecture` scored 91.7 and
+    passed. Its final round reached 50/50, so no wrong verdict was observed;
+    the gap is that nothing would have stopped one. Station 0 premise 3
+    re-measured the predicate on every live project (taskq 20/20,
+    taskq-renew 47/47, taskq-api 40/40, taskq-advance 50/50,
+    run-all-by-workflow 22/22): full coverage is reachable, so a score
+    measured over less than the delivered tree is a score of something else.
+
+    Empty for metrics written before `_unparsed_files` existed — Round 39/40:
+    a record predating a field is not a violation, and Round 32/35: an absent
+    measurement is not a finding.
+    """
+    unparsed = metrics.get("_unparsed_files")
+    if not isinstance(unparsed, list):
+        return []
+    return sorted(str(p) for p in unparsed)
+
+
 def _delivered_sources(root: str) -> set[str]:
     """The project's delivered source files, in its own language."""
     from core.utils.delivery_scope import iter_delivered_files
@@ -268,6 +297,18 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
         # question nobody could answer about taskq-renew's 77.8.
         "_graph_files": len(_graph_files),
         "_source_files": len(_sources),
+        # Round 44 站3: the names, not just the shortfall. A count cannot be
+        # acted on; `harness_bridge` refuses the architecture dimension on
+        # this list and prints it, so the operator learns which file CRG
+        # could not parse (R24 站1 — a block carries the remediation).
+        # Repo-relative and sorted: the absolute paths above are resolved for
+        # set arithmetic and are noise in an operator message.
+        "_unparsed_files": sorted(
+            str(Path(p).relative_to(Path(root).resolve()))
+            if str(p).startswith(str(Path(root).resolve()))
+            else str(p)
+            for p in _residual_missing
+        ),
         "_build_type": _sub,
     }
     out = Path(work_dir) / "crg_metrics.json"
