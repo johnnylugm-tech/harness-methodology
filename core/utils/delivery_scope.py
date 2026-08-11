@@ -48,6 +48,7 @@ alter projects that have nothing to do with the defect this closes.
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 from pathlib import Path
 from typing import Iterator
@@ -55,7 +56,8 @@ from typing import Iterator
 from core.utils.lang_patterns import SKIP_DIRS
 
 __all__ = ["iter_delivered_files", "delivered_file_set", "delivered_tree_digest",
-           "is_git_repo"]
+           "committed_tree_digest", "is_git_repo", "is_harness_volatile",
+           "HARNESS_VOLATILE_PATHS", "HARNESS_VOLATILE_PREFIXES"]
 
 _LS_FILES = ("git", "ls-files", "--cached", "--others", "--exclude-standard",
              "-z")
@@ -134,8 +136,102 @@ def delivered_file_set(root: Path) -> set[str]:
     return {str(p.resolve()) for p in iter_delivered_files(root)}
 
 
+# ── which files, versus which version of them (Round 44 站1) ────────────────
+#
+# The module above answers "which files belong to this project". A gate
+# verdict needs a second answer — "which version of them was I measured on" —
+# and `delivered_tree_digest` was built on the first without the two being
+# separated. Two consequences, both measured:
+#
+#   * `record_verdict` computed the digest and then appended its own line to
+#     `.methodology/gate_verify.jsonl`, a delivered file, so the digest it
+#     recorded could never match itself again (2245e64, 2026-08-11). The fix
+#     there named two files in a frozenset. Every `.methodology/` file the
+#     harness writes after taking a digest is the next instance of it: on
+#     taskq-advance `verify-gate` ran three times in the six minutes before
+#     its P3→P4 advance, each recording a PASS at one unchanged `git_sha`
+#     against a different tree digest.
+#   * `phase_completed[N].sha` names a commit while the checks that produced
+#     it ran on the working tree, and nothing compared the two.
+#
+# `HARNESS_VOLATILE_*` is the declared set of paths the harness writes as a
+# side effect of running: append-only ledgers, caches, locks and progress
+# state. None of them is an input to any score, so leaving them out of a
+# verdict's tree cannot change what that verdict means.
+#
+# It is deliberately NOT "all of `.methodology/`". Station 0 premise 1
+# measured that `harness_config.json` carries `crg_excludes` and
+# `crg_cohesion_healthy`, which decide what the architecture score is
+# measured over (core/harness_config.py:317) while only `cohesion_healthy`
+# reaches the gate result. Excluding the directory would let a scoring input
+# move under a recorded PASS.
+#
+# It is a denylist, which this module's own docstring rules out for delivery
+# scope — and the reason it is acceptable here is that its two failure
+# directions are not symmetric. An unregistered volatile file makes a digest
+# refuse to match, which is noise; an unregistered *config* file under a
+# positive registry would make a verdict outlive a change to its own inputs,
+# which is a wrong PASS. `tests/test_verdict_digest_scope.py` turns the noise
+# into a red test at development time.
+HARNESS_VOLATILE_PATHS: frozenset[str] = frozenset({
+    ".methodology/state.json",            # last_update moves on every command
+    ".methodology/heartbeat.json",
+    ".methodology/last_block.md",
+    ".methodology/gate_verify.jsonl",     # this digest's own ledger
+    ".methodology/degradations.jsonl",
+    ".methodology/gate_timestamps.jsonl",
+    ".methodology/sessions_spawn.log",
+    ".methodology/hooks.log",
+    ".methodology/effort_metrics.db",
+    ".methodology/fr_progress.json",      # per-FR progress, rewritten per step
+    ".methodology/.gate1_scores.json",
+    ".methodology/.txn_journal.json",
+})
+
+HARNESS_VOLATILE_PREFIXES: tuple[str, ...] = (
+    ".methodology/decision_logs/",   # audit trail; left scoring in R21 站3
+    ".methodology/lessons/",         # cross-round failure memory
+    ".methodology/crash/",           # crash-triage dumps
+    ".sessi-work/",                  # per-round scratch, deleted by advance
+)
+
+
+def is_harness_volatile(rel: str) -> bool:
+    """True when *rel* (repo-relative, posix) is harness bookkeeping.
+
+    Lock files are matched by suffix rather than listed: they are created and
+    removed by name of whatever they guard, so enumerating them would be the
+    one-directory-behind denylist this module exists to avoid.
+    """
+    if rel in HARNESS_VOLATILE_PATHS or rel.endswith(".lock"):
+        return True
+    return rel.startswith(HARNESS_VOLATILE_PREFIXES)
+
+
+def _digest(entries: "Iterator[tuple[str, str]]") -> str:
+    """sha256 over ``(repo-relative posix path, content fingerprint)`` pairs.
+
+    One implementation for both digests below, so "the tree on disk" and "the
+    tree git recorded" cannot drift into two different rulers (Round 33: one
+    contract, one statement). Path *and* content, because content alone would
+    miss a file being added or renamed — exactly how taskq-renew's graph fell
+    behind its tree.
+    """
+    h = hashlib.sha256()
+    for rel, fingerprint in entries:
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(fingerprint.encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def _fingerprint(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
 def delivered_tree_digest(root: Path, *, exclude: frozenset[str] = frozenset()) -> str:
-    """A sha256 over (repo-relative path, file content) for the delivered tree.
+    """A sha256 over the delivered tree **as it stands on disk**.
 
     Round 38: a verdict has to carry the tree it was measured on. Round 37's
     lesson was that a number is only as good as the tree it was measured over;
@@ -144,35 +240,126 @@ def delivered_tree_digest(root: Path, *, exclude: frozenset[str] = frozenset()) 
     verdict from before the last three edits answers just as well as a current
     one.
 
-    Path *and* content, both: content alone would miss a file being added or
-    renamed, which is exactly how taskq-renew's graph fell behind its tree.
-
     Unreadable files contribute their error rather than being skipped —
     a tree we could only partly read must not digest the same as one we read
     completely (Round 32/35: an unmeasurable input is not a passing input).
 
-    `exclude`: repo-relative posix paths to omit. A caller that writes a
-    delivered file as a side effect of computing this digest (Round 42: the
-    verdict ledger appends its own line, and the degradation ledger appends
-    one whenever a dimension is disabled) must exclude that path — otherwise
-    the digest it just wrote is stale the instant it returns, and can never
-    match itself again. Empty by default: every other caller measures the
-    project tree with nothing to except.
+    A symlink is digested by its target *path*, not by the bytes it points at,
+    so this agrees with `committed_tree_digest` — git stores the target string
+    — and so a link cannot be re-pointed without the digest noticing. taskq-api
+    delivers 13 of them (its integration tests link to the unit tests).
+
+    Round 44: `HARNESS_VOLATILE_*` paths are always omitted. `exclude` remains
+    for callers with a further path of their own to drop.
     """
     root = Path(root)
-    h = hashlib.sha256()
-    for path in iter_delivered_files(root):
-        try:
-            rel = path.relative_to(root).as_posix()
-        except ValueError:  # pragma: no cover - iter_delivered_files is rooted
-            rel = path.as_posix()
-        if rel in exclude:
+
+    def _entries() -> "Iterator[tuple[str, str]]":
+        for path in iter_delivered_files(root):
+            try:
+                rel = path.relative_to(root).as_posix()
+            except ValueError:  # pragma: no cover - iter_delivered_files is rooted
+                rel = path.as_posix()
+            if rel in exclude or is_harness_volatile(rel):
+                continue
+            try:
+                if path.is_symlink():
+                    yield rel, _fingerprint(os.readlink(path).encode("utf-8"))
+                else:
+                    yield rel, _fingerprint(path.read_bytes())
+            except OSError as exc:
+                yield rel, f"<unreadable: {exc.__class__.__name__}>"
+
+    return _digest(_entries())
+
+
+def committed_tree_digest(root: Path, rev: str = "HEAD") -> str:
+    """The same digest, over the tree **git recorded at** *rev*.
+
+    Round 44 站1. `delivered_tree_digest` answers "what is on disk right now",
+    which is the right question for a scanner and the wrong one for a
+    milestone: `state.json::phase_completed[N].sha` names a commit, and a
+    reader of that record needs to know whether the checks that produced it
+    ran on what the commit contains. On taskq-advance they did not — the
+    `@given` tests that unblocked its P3→P4 entry entered git fourteen
+    minutes after the phase had turned over.
+
+    Returns `""` when *rev* cannot be resolved (rebased away, garbage
+    collected, not a git repo). A caller must treat that as "no measurement",
+    never as a mismatch — Round 32/35.
+    """
+    root = Path(root)
+    try:
+        listing = subprocess.run(
+            ["git", "-C", str(root), "ls-tree", "-r", "-z", rev],
+            capture_output=True, text=True, timeout=_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if listing.returncode != 0:
+        return ""
+
+    wanted: list[tuple[str, str]] = []   # (object id, repo-relative path)
+    for record in listing.stdout.split("\0"):
+        if not record:
             continue
-        h.update(rel.encode("utf-8"))
-        h.update(b"\0")
+        meta, _, rel = record.partition("\t")
+        parts = meta.split()
+        if len(parts) < 3 or parts[1] != "blob":
+            # `commit` entries are submodule gitlinks; their contents belong
+            # to the submodule, matching iter_delivered_files' own skip.
+            continue
+        if is_harness_volatile(rel):
+            continue
+        wanted.append((parts[2], rel))
+
+    if not wanted:
+        return _digest(iter(()))
+
+    contents = _batch_blob_fingerprints([oid for oid, _rel in wanted], root)
+    if contents is None:
+        return ""
+    return _digest(
+        (rel, contents.get(oid, "<unreadable: MissingBlob>"))
+        for oid, rel in wanted
+    )
+
+
+def _batch_blob_fingerprints(
+    object_ids: "list[str]", root: Path,
+) -> "dict[str, str] | None":
+    """`{object id: sha256 of its bytes}` via one `git cat-file --batch`.
+
+    One subprocess for the whole tree; `git cat-file` streams
+    ``<oid> <type> <size>\\n<payload>\\n`` per request. None on any failure,
+    which the caller turns into "no measurement".
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "cat-file", "--batch"],
+            input=("\n".join(object_ids) + "\n").encode("ascii"),
+            capture_output=True, timeout=_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if proc.returncode != 0:
+        return None
+
+    out: bytes = proc.stdout
+    result: dict[str, str] = {}
+    pos = 0
+    while pos < len(out):
+        eol = out.find(b"\n", pos)
+        if eol == -1:
+            break
+        header = out[pos:eol].decode("utf-8", "replace").split()
+        if len(header) < 3:
+            return None
         try:
-            h.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii"))
-        except OSError as exc:
-            h.update(f"<unreadable: {exc.__class__.__name__}>".encode("utf-8"))
-        h.update(b"\n")
-    return h.hexdigest()
+            size = int(header[2])
+        except ValueError:
+            return None
+        start = eol + 1
+        result[header[0]] = _fingerprint(out[start:start + size])
+        pos = start + size + 1   # trailing newline git appends after payload
+    return result

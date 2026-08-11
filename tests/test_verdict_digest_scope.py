@@ -167,6 +167,22 @@ def test_a_scoring_input_under_methodology_still_invalidates_the_verdict(
     )
 
 
+def test_the_two_ledgers_that_started_this_are_registered_volatile() -> None:
+    """Parity, not a second copy of the path (R27 站4).
+
+    `delivery_scope` sits below `quality_gate` and cannot import from it, so
+    the two ledger paths appear as literals in `HARNESS_VOLATILE_PATHS`. This
+    keeps them tied to the constants their owners declare — the exact pair
+    `2245e64` had to name by hand.
+    """
+    from core.degradation_ledger import LEDGER_RELPATH as _DEGRADATIONS
+    from core.quality_gate.gate_verify import _LEDGER_RELPATH as _VERDICTS
+    from core.utils.delivery_scope import HARNESS_VOLATILE_PATHS
+
+    assert _VERDICTS in HARNESS_VOLATILE_PATHS
+    assert _DEGRADATIONS in HARNESS_VOLATILE_PATHS
+
+
 # ── the two digests answer two questions and must agree when they overlap ───
 
 def test_the_committed_and_delivered_digests_agree_on_a_clean_tree(
