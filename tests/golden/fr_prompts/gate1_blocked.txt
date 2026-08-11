@@ -36,10 +36,10 @@ tool_evidence requirement described in step 3 below.
    The output contains FR-SCOPED TOOL OVERRIDES — exact commands for each
    dimension.  Use those commands, not the generic ones in evaluate_dimension.md.
 
-2. Run the four tool commands from step 1's FR-SCOPED TOOL OVERRIDES:
-   a. linting:               ruff check ... (exact command shown in run-gate output)
-   b. type_safety:           pyright ... (exact command shown in run-gate output)
-   c. test_coverage:         coverage run / pytest ... (exact command shown in run-gate output)
+2. Run the 4 tool commands from step 1's FR-SCOPED TOOL OVERRIDES:
+   a. linting:                  ruff check ... (exact command shown in run-gate output)
+   b. type_safety:              pyright ... (exact command shown in run-gate output)
+   c. test_coverage:            coverage run / pytest ... (exact command shown in run-gate output)
    d. architecture_constraints: PYTHONPATH=src lint-imports (exact command shown in run-gate output)
    Save each tool's output to .sessi-work/round_1/tools/<dimension>.txt
 
@@ -50,8 +50,8 @@ tool_evidence requirement described in step 3 below.
      "quality_complete": true,            // true if overall_score >= 80
      "rounds_used": 1,
      "breakdown": {
-       "linting":               {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of ruff stdout>"},
-       "type_safety":           {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of pyright stdout>"},
+       "linting": {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of ruff stdout>"},
+       "type_safety": {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of pyright stdout>"},
        "test_coverage": {
            "score": <0-100>, "threshold": 80,
            "tests_passed": <int>,   // REQUIRED: count from pytest summary line
@@ -71,12 +71,13 @@ tool_evidence requirement described in step 3 below.
    '{N} failed' and blocks immediately if any test is red — even at 96% coverage.
 
    Scoring formulas:
-   - linting:      ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)
-   - type_safety:  parse pyright JSON summary.errorCount: max(0, 100 - errorCount×5)
+   - linting: ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)
+   - type_safety: parse pyright JSON summary.errorCount: max(0, 100 - errorCount×5)
    - test_coverage: score = min(coverage_pct, spec_cov_pct).
      spec_cov_pct = (existing_required_tests / total_required) × 100.
      Currently: 1 required tests missing → spec_cov_pct = 67% → score capped at 67.
      ALL required tests must exist and pass — partial spec coverage = partial score.
+   - architecture_constraints: lint-imports exit 0 → 100; any contract broken → 0
 
 4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase 3 --fr-id FR-01 --project <PROJECT>`
    If finalize-gate prints [BLOCKED], include the exact error in your output summary.

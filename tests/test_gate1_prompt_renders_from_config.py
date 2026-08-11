@@ -99,8 +99,11 @@ def test_a_fifth_dimension_reaches_all_three_places(project, monkeypatch):
     ]
     _use_gate1_yaml(project, dims, monkeypatch)
     monkeypatch.setitem(
-        gate_prompts.GATE1_SCORING_PROSE, "error_handling",
-        "ast-error-handling scan: with_handler / total × 100",
+        gate_prompts.GATE1_DIMENSION_PROSE, "error_handling", {
+            "tool_hint": "ast-error-handling ...",
+            "evidence_of": "ast-error-handling stdout",
+            "scoring": "with_handler / total × 100",
+        },
     )
 
     text = _build(project)

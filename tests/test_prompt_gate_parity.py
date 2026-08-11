@@ -166,10 +166,14 @@ def test_registry_covers_exactly_the_expected_rule_ids():
 
 
 def test_gate1_yaml_thresholds_match_standard_ssot():
-    """Legitimises the prompt sourcing thresholds from _GATE1_DIMENSION_STANDARD:
-    gate1_per_fr.yaml's tool-dim thresholds MUST equal the standard table.
-    If gate1 ever needs distinct thresholds, this fails — forcing a dedicated
-    gate1 SSOT rather than a silently-wrong prompt."""
+    """gate1_per_fr.yaml's tool-dim thresholds MUST equal the standard table.
+
+    Round 45 站4 moved the PROMPT off `_GATE1_DIMENSION_STANDARD` and onto
+    `load_gate_dimensions(1)` — the YAML itself — so this no longer legitimises
+    the prompt. The table is still live for `core/quality_gate/sab_parser.py`,
+    which merges it, so the two must still agree; a divergence would now
+    mis-instruct the SAB path rather than the prompt.
+    """
     thr = _gate1_dim("threshold")
     for name in ("linting", "type_safety", "test_coverage"):
         assert thr[name] == _GATE1_DIMENSION_STANDARD[name], (
@@ -181,16 +185,25 @@ def test_gate1_yaml_thresholds_match_standard_ssot():
 def test_no_unbound_hardcoded_threshold_in_prompt():
     """Completeness /母體封口: the GATE1 threshold floor must be sourced from
     the SSOT, never a re-introduced literal. A future `max(90.0, ...)` slip is
-    exactly the finding-A drift class; this makes it fail at author time."""
-    from cli.fr_prompts.gate import build_gate1_prompt
-    src = inspect.getsource(_build_fr_step_prompt) + inspect.getsource(build_gate1_prompt)
+    exactly the finding-A drift class; this makes it fail at author time.
+
+    Round 45 站4: the SSOT is now `load_gate_dimensions(1)` — gate1_per_fr.yaml
+    read directly, one dimension at a time — rather than the derived
+    `_GATE1_DIMENSION_STANDARD` table. That closes the half `b288c9d` could
+    not: a threshold sourced from the table still left the dimension SET and
+    the WEIGHTS as prose, and the set is what drifted.
+    """
+    from cli.fr_prompts.gate import _gate1_dimensions, build_gate1_prompt
+    src = (inspect.getsource(_build_fr_step_prompt)
+           + inspect.getsource(build_gate1_prompt)
+           + inspect.getsource(_gate1_dimensions))
     for literal in ("max(90.0", "max(85.0", "max(80.0"):
         assert literal not in src, (
             f"{literal!r}: a hand-copied gate threshold floor is back in the "
-            f"prompt builder. Source it from _GATE1_DIMENSION_STANDARD (finding "
-            f"A) so it cannot drift from gate1_per_fr.yaml.")
-    assert "_GATE1_DIMENSION_STANDARD" in src, (
-        "the GATE1 prompt no longer sources thresholds from the SSOT")
+            f"prompt builder. Source it from load_gate_dimensions(1) so it "
+            f"cannot drift from gate1_per_fr.yaml.")
+    assert "load_gate_dimensions(1)" in src, (
+        "the GATE1 prompt no longer sources its dimensions from the YAML")
 
 
 def test_overall_score_weight_asymmetry_is_pinned(tmp_path):
@@ -203,11 +216,15 @@ def test_overall_score_weight_asymmetry_is_pinned(tmp_path):
     pin enforces.
     """
     prompt = _render("GATE1", tmp_path)
-    assert "× 0.25" in prompt, (
-        "GATE1 prompt no longer teaches the 0.25×4 overall_score formula. "
-        "If the YAML weight changed, update gate1_per_fr.yaml AND this test "
-        "in the same commit (the pin mechanism enforces deliberate change).")
     weights = _gate1_dim("weight")
+    # Round 45 站4: the prompt renders the formula FROM these weights, so the
+    # assertion is now an equivalence rather than a literal pin — a weight
+    # change in the YAML flows into the prompt and this still holds, while a
+    # prompt that stopped rendering the formula does not.
+    for _dim, _w in weights.items():
+        assert f"{_dim}.score × {_w:g}" in prompt, (
+            f"GATE1 prompt's overall_score formula does not carry {_dim} at "
+            f"the weight gate1_per_fr.yaml declares ({_w})")
     assert all(weights[d] == 0.25 for d in weights), (
         "gate1_per_fr.yaml dimension weights diverged from 0.25 — the "
         "documented prompt(0.25×4)/YAML(0.25×4) unification must be "
