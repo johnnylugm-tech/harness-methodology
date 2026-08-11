@@ -335,14 +335,26 @@ class TestPersistentCommitIntervals:
         ok, _ = check_commit_intervals(str(tmp_path), 4, 1)
         assert ok
 
-    def test_trim_to_max_entries(self, tmp_path):
-        """File is trimmed to GATE_TIMESTAMPS_MAX_ENTRIES after each write."""
-        from core.quality_gate.gate1_evidence import record_gate_timestamp, GATE_TIMESTAMPS_FILE, GATE_TIMESTAMPS_MAX_ENTRIES
-        for i in range(GATE_TIMESTAMPS_MAX_ENTRIES + 20):
+    def test_history_is_not_trimmed(self, tmp_path):
+        """Round 45 站2 replaces the old 200-row trim.
+
+        This file is one of the two channels `verify_finalize_evidence`
+        corroborates a receipt against, and receipts are never pruned — so a
+        trim guaranteed that a long enough project would be accused of forging
+        its own early phases. Measured: 131 bytes per row, so the cap bounded
+        the file at 26 KB and an unpruned 30-FR nine-phase run at ~70 KB.
+        There was no growth to bound.
+        """
+        from core.quality_gate.gate1_evidence import (
+            GATE_TIMESTAMPS_FILE, record_gate_timestamp,
+        )
+        for i in range(220):
             record_gate_timestamp(tmp_path, 4, 1, f"FR-{i:03d}")
         ts_file = tmp_path / ".methodology" / GATE_TIMESTAMPS_FILE
-        lines = [line for line in ts_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-        assert len(lines) == GATE_TIMESTAMPS_MAX_ENTRIES
+        lines = [line for line in ts_file.read_text(encoding="utf-8").splitlines()
+                 if line.strip()]
+        assert len(lines) == 220
+        assert '"fr_id": "FR-000"' in lines[0]
 
     def test_dotfile_migration(self, tmp_path):
         """Legacy .gate_timestamps.jsonl is renamed to gate_timestamps.jsonl on first use."""
@@ -367,21 +379,27 @@ class TestPersistentCommitIntervals:
 # ---------------------------------------------------------------------------
 
 class TestGate1ScoreRecording:
-    """record_gate1_score prunes stale phase entries."""
+    """record_gate1_score keeps every phase it has recorded."""
 
-    def test_stale_phases_pruned(self, tmp_path):
-        """Phases older than (current - 1) are pruned from .gate1_scores.json."""
+    def test_earlier_phases_are_kept(self, tmp_path):
+        """Round 45 站2 removed a prune of everything older than (current - 1).
+
+        Its stated reason was to bound file growth; measured, the whole file
+        unpruned is 1,706 bytes at 10 FRs x 8 phases. Its cost was thirty
+        ERROR-level fabrication accusations against taskq-advance, whose
+        sentinels for phases 3-5 outlived the scores the same runs wrote.
+        """
         import json as _json
-        from core.quality_gate.gate1_evidence import record_gate1_score, GATE1_SCORES_FILE
+        from core.quality_gate.gate1_evidence import GATE1_SCORES_FILE, record_gate1_score
         record_gate1_score(tmp_path, 3, "FR-01", 90.0)
         record_gate1_score(tmp_path, 4, "FR-01", 85.0)
         record_gate1_score(tmp_path, 5, "FR-01", 92.0)
         data = _json.loads(
             (tmp_path / ".methodology" / GATE1_SCORES_FILE).read_text(encoding="utf-8")
         )
-        assert "3" not in data, "Phase 3 should be pruned (two phases back)"
-        assert "4" in data
-        assert "5" in data
+        assert data["3"] == {"FR-01": 90.0}
+        assert data["4"] == {"FR-01": 85.0}
+        assert data["5"] == {"FR-01": 92.0}
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,6 @@ __all__ = [
     "fr_code_changed_since_last_gate1",
     "validate_fr_coverage_immediate",
     "GATE_TIMESTAMPS_FILE",
-    "GATE_TIMESTAMPS_MAX_ENTRIES",
     "GATE1_SCORES_FILE",
     "record_gate_timestamp",
     "gate1_evidence_exists",
@@ -107,8 +106,6 @@ def _finalize_sentinel_path(project: Path, gate: int, fr_id: str | None, phase: 
 # Non-dotfile (consistent with other .methodology/ files like state.json, sessions_spawn.log).
 # Replaces the old ".gate_timestamps.jsonl" hidden file name used before 2026-05-18.
 GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
-GATE_TIMESTAMPS_MAX_ENTRIES = 200
-# Sizing: 22 FRs × max_fix_rounds(3) × 3 phases ≈ 200; increase if FR count > 22.
 
 GATE1_SCORES_FILE = ".gate1_scores.json"
 
@@ -288,11 +285,38 @@ def verify_finalize_evidence(
             )
         if gate == 1 and fr_id:
             scores = _read_gate1_scores(project)
-            recorded = (scores.get(str(phase)) or {}).get(fr_id)
-            if recorded is None:
+            # Round 45 站2: the phase KEY is the discriminator. Until this
+            # round `record_gate1_score` pruned everything older than
+            # `phase - 1` while sentinels accumulated forever, so a project two
+            # phases past a sentinel was accused of fabricating it — thirty
+            # such accusations on taskq-advance, all false. The prune is gone,
+            # but no removal restores what earlier runs already dropped.
+            #
+            # A register that holds OTHER phases but not this one is a register
+            # the prune has already been through: it cannot speak about this
+            # phase, and silence is the honest answer (Round 32/35:
+            # could-not-measure is not a finding; Round 39/40: a record
+            # predating a mechanism is not a violation).
+            #
+            # A phase whose key IS present was written by the finalize runs of
+            # that phase's other FRs, so this FR's absence is a genuine
+            # contradiction and keeps its ERROR. The first FR of a phase is the
+            # one case this cannot see; the `finalize` row check above covers
+            # it, since finalize-gate writes that row in the same function.
+            #
+            # An entirely absent or unreadable register keeps Round 32 站2's
+            # ERROR untouched — the three artifacts have one author, and a
+            # receipt standing alone is what that station exists to refuse.
+            phase_scores = scores.get(str(phase))
+            recorded = (phase_scores or {}).get(fr_id)
+            if scores and phase_scores is None:
+                pass  # cannot corroborate — not an accusation
+            elif recorded is None:
                 problems.append(
                     f"{path.name}: no {fr_id} entry for phase {phase} in "
-                    f"{GATE1_SCORES_FILE} — the same run writes both"
+                    f"{GATE1_SCORES_FILE}, which does hold "
+                    f"{', '.join(sorted(phase_scores or {})) or 'no FRs'} for "
+                    f"that phase — the same run writes both"
                 )
             elif receipt.get("score") is not None and abs(
                 float(recorded) - float(receipt["score"])
@@ -394,7 +418,13 @@ def record_gate_timestamp(
 ) -> None:
     """Append gate commit timestamp to .methodology/gate_timestamps.jsonl (P1 persistence).
 
-    Trims to the last GATE_TIMESTAMPS_MAX_ENTRIES entries to bound file growth.
+    Round 45 站2 removed a trim to the last 200 rows. This file is one of the
+    two channels `verify_finalize_evidence` corroborates a finalize receipt
+    against, and receipts are never pruned — so the trim guaranteed that a long
+    enough project would be accused of forging its own early phases. Measured
+    on taskq-advance: 131 bytes per row, so the 200-row cap bounded the file at
+    26 KB and an unpruned 30-FR nine-phase run at roughly 70 KB. There was no
+    growth to bound.
 
     `source` records WHY the row exists, and the distinction matters because
     core/doctor.py treats this file as evidence:
@@ -440,17 +470,8 @@ def record_gate_timestamp(
         "ts": _time.time(), "iso": utc_now_iso(), "source": source,
     }
     try:
-        # Append
         with open(str(ts_file), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
-        # Trim to last GATE_TIMESTAMPS_MAX_ENTRIES lines
-        raw = ts_file.read_text(encoding="utf-8")
-        lines = [line for line in raw.splitlines() if line.strip()]
-        if len(lines) > GATE_TIMESTAMPS_MAX_ENTRIES:
-            ts_file.write_text(
-                "\n".join(lines[-GATE_TIMESTAMPS_MAX_ENTRIES:]) + "\n",
-                encoding="utf-8",
-            )
     except OSError:
         pass  # Non-blocking
 
@@ -567,9 +588,20 @@ def check_commit_intervals(
 def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> None:
     """Track Gate 1 composite score per FR for inter-FR variance check.
 
-    Prunes phases older than (phase - 1) to bound file growth; the previous phase
-    data is kept so finalize-gate can still reference it, but anything further back
-    is stale and safe to drop.
+    Round 45 站2 removed a prune of every phase older than ``phase - 1``, whose
+    stated reason was to bound file growth. Measured: the whole file unpruned
+    is 1,706 bytes at 10 FRs across 8 phases and 5,519 at 30 across 9. There
+    was nothing to bound, and the window had a cost — `.sessi-work/sentinels/`
+    is never pruned, `verify_finalize_evidence` requires the two to agree, and
+    `doctor` runs that check for every sentinel it finds. On a copy of
+    taskq-advance at Phase 7 that produced **thirty ERROR-level accusations of
+    fabrication** against a project that had passed every gate: one per FR per
+    phase whose scores the window had already dropped.
+
+    Removing the prune fixes it going forward. It cannot restore what earlier
+    runs already discarded, which is why `verify_finalize_evidence` also learned
+    to tell "this register never knew about that phase" from "this register
+    knows the phase and contradicts you".
     """
     scores_file = project / ".methodology" / GATE1_SCORES_FILE
     scores: dict = {}
@@ -585,10 +617,6 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
                 why=str(exc),
             )
     scores.setdefault(str(phase), {})[fr_id] = score
-    # Prune stale phases — keep current and previous only
-    stale = [k for k in list(scores.keys()) if int(k) < phase - 1]
-    for k in stale:
-        del scores[k]
     try:
         atomic_write_json(scores_file, scores)
     except Exception as exc:  # pylint: disable=broad-exception-caught
