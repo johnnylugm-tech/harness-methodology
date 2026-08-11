@@ -191,6 +191,13 @@ _VALUE_DEFAULTS: dict[str, Any] = {
     # mathematically unsatisfiable for correct code, hard-BLOCKing the
     # pipeline for hours) is the reason graduation exists.
     "checker_enforcement": {},
+    # Round 45 站1 — per-file ceiling for copying a dimension's cited
+    # tool_output into .methodology/gate_evidence/ so the verdict outlives the
+    # gitignored work directory. The largest cited evidence measured across
+    # five projects was 19,994 bytes; this is a pathology guard an order of
+    # magnitude above that, not a routine path. Over the ceiling the citation
+    # stays pointed at the original and the ledger records why.
+    "gate_evidence_max_bytes": 1_048_576,
 }
 
 
@@ -198,7 +205,8 @@ def _valid_value(key: str, v: Any) -> bool:
     """Type/range validation for a ``values`` entry (registry-declared)."""
     if key in ("drift_threshold", "phase_truth_threshold"):
         return isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < float(v) <= 100
-    if key in ("max_fix_rounds", "phase_truth_pytest_timeout"):
+    if key in ("max_fix_rounds", "phase_truth_pytest_timeout",
+               "gate_evidence_max_bytes"):
         return isinstance(v, int) and not isinstance(v, bool) and v >= 1
     if key == "permission_mode":
         return isinstance(v, str) and bool(v)

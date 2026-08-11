@@ -2648,9 +2648,32 @@ class HarnessBridge:
         # stub comments, files that are too small, and content that does not match
         # the expected tool output structure are all rejected.
         # Round 27 站3: fingerprint each piece of evidence as S3 clears it, and
-        # carry the fingerprints into the result below. The verdict and the proof
-        # of what it read then live in one file and one commit, and cannot be
-        # separated by a cleanup of the gitignored work directory.
+        # carry the fingerprints into the result below.
+        #
+        # Round 45 站1: that sentence used to end "…and cannot be separated by
+        # a cleanup of the gitignored work directory", and it was half true.
+        # The fingerprints were kept; the files they fingerprint were not.
+        # Measured across five projects' committed gate results, 149 of 162
+        # cited tool_output paths no longer resolve, because every one of them
+        # points under `.sessi-work/` — the first line the harness writes into
+        # each project's own .gitignore. A sha256 of a file nobody has is a
+        # claim that cannot be checked.
+        #
+        # So the citations are re-pointed at copies under `.methodology/`
+        # BEFORE S3 reads them: every check below then runs on the file a
+        # later reader can actually open, and the digest's `source` names it.
+        # This adds no judgement — S3's existence, containment and content
+        # checks are untouched.
+        from core.quality_gate.gate_evidence_store import persist_cited_evidence
+        if persist_cited_evidence(Path(ctx.project_root), ctx.gate_num, raw):
+            # The re-pointing has to reach the file, not just this dict: the
+            # digest block below re-reads `result_path` from disk, and
+            # cli/gate_cmds.py copies that same file to
+            # .methodology/gate{N}_result.json. Written only when something
+            # actually moved, so a run that changes nothing leaves the agent's
+            # bytes alone.
+            _atomic_write_gate_result(result_path, raw)
+
         _evidence_digests: dict = {}
         _tool_violations = _check_tool_evidence(ctx, raw, _evidence_digests)
         if _evidence_digests:

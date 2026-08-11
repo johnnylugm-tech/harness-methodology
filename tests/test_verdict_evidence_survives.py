@@ -156,6 +156,67 @@ def test_an_already_durable_citation_is_still_resolvable(tmp_path):
     assert json.loads(cited.read_text())["score"] == 77.6
 
 
+# ── the re-pointing has to reach the file, not just the dict ────────────────
+
+def test_finalize_writes_the_new_citation_to_the_result_file(
+    tmp_path, monkeypatch,
+):
+    """`finalize_gate` holds `raw` in memory but the digest block re-reads the
+    file from disk, and cli/gate_cmds.py copies that same file into
+    `.methodology/gate{N}_result.json`. A re-pointing that lived only in the
+    dict would be thrown away by both.
+
+    Blocked on purpose, via a second dimension that cites nothing: the citation
+    must be persisted even when a later check refuses the gate — same rule the
+    evidence digests already follow (`harness_bridge.py:2657`).
+    """
+    from harness.harness_bridge import GateBlockedError, HarnessBridge
+    from core.quality_gate.constitution.profile import DimensionConfig, GateConfig
+
+    _gate_yaml(tmp_path, 2, [
+        {"name": "linting", "requires_tool_execution": True, "tool": "ruff",
+         "threshold": 90},
+        {"name": "type_safety", "requires_tool_execution": True,
+         "tool": "pyright", "threshold": 85},
+    ], monkeypatch)
+
+    work = tmp_path / ".sessi-work"
+    (work / "round_1" / "tools").mkdir(parents=True)
+    (work / "round_1" / "tools" / "linting.txt").write_text(
+        "All checks passed!\n", encoding="utf-8")
+    result_path = work / "gate2_result.json"
+    result_path.write_text(json.dumps({
+        "overall_score": 95.0, "meets_target": True, "quality_complete": True,
+        "open_critical_count": 0, "open_high_count": 0,
+        "breakdown": {
+            "linting": {"score": 100.0, "threshold": 90,
+                        "tool_output": ".sessi-work/round_1/tools/linting.txt"},
+            "type_safety": {"score": 90.0, "threshold": 85},
+        },
+    }), encoding="utf-8")
+
+    ssi = Path(__file__).parent.parent / "harness" / "ssi"
+    ctx = GateContext(
+        gate_num=2,
+        config=GateConfig(gate_num=2, score_gate=80.0, max_rounds=3,
+                          dimensions=[DimensionConfig(name="linting",
+                                                      threshold=90.0)]),
+        project_root=str(tmp_path), phase=3, fr_id=None,
+        ssi_scripts_dir=str(ssi / "scripts"),
+        ssi_prompts_dir=str(ssi / "prompts"),
+        ssi_schemas_dir=str(ssi / "schemas"),
+        work_dir=str(work),
+    )
+
+    with pytest.raises(GateBlockedError):
+        HarnessBridge().finalize_gate(ctx)
+
+    on_disk = json.loads(result_path.read_text(encoding="utf-8"))
+    cited = on_disk["breakdown"]["linting"]["tool_output"]
+    assert cited.startswith(".methodology/gate_evidence/gate2/"), cited
+    assert (tmp_path / cited).is_file()
+
+
 # ── the two ways it must NOT act ────────────────────────────────────────────
 
 def test_a_path_escaping_the_project_is_left_for_s3_to_refuse(tmp_path):
