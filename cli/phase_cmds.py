@@ -333,6 +333,21 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
     return wrote
 
 
+# Round 43: the harness submodule is always mounted at this fixed path
+# (init-project / submodule_guard.py both hardcode "harness" too — there is
+# no per-project override anywhere), and it ships its own test fixtures
+# shaped like the framework's canonical `03-development/` layout. mypy has
+# no default boundary at a nested `.git` the way ruff's file-walker does, so
+# `mypy .` from a consumer project's root walks straight into
+# harness/tests/fixtures/.../03-development/tests/conftest.py and collides
+# with the consumer's own 03-development/tests/conftest.py ("Duplicate
+# module named conftest") the moment the latter exists — aborting the whole
+# type-check before it examines anything else. Named here so the exclusion
+# is independently testable rather than an inline literal in the
+# subprocess.run() call below.
+_MYPY_EXCLUDE_ARGS = ["--exclude", "^harness/"]
+
+
 def cmd_advance_phase(args: argparse.Namespace) -> int:
     """Advance to next phase: update state.json atomically.
 
@@ -2572,7 +2587,7 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
             # 0.3 Type Safety (mypy)
             if shutil.which("mypy"):
-                _mp_r = subprocess.run([sys.executable, "-m", "mypy", ".", "--ignore-missing-imports"], cwd=str(project))
+                _mp_r = subprocess.run([sys.executable, "-m", "mypy", ".", "--ignore-missing-imports", *_MYPY_EXCLUDE_ARGS], cwd=str(project))
                 if _mp_r.returncode != 0:
                     print("\n[BLOCKED] Type Safety (mypy) failure.")
                     print("  Please fix the type errors before advancing.")
