@@ -630,7 +630,12 @@ class TestRunToolPythonPathInjection:
 
     def test_flat_layout_project_env_untouched(self, tmp_path, monkeypatch):
         # No 03-development/src and no src/ → active_src_dir does not
-        # .is_dir() → injection must not fire even for a pytest tool.
+        # .is_dir() → PYTHONPATH injection must not fire even for a pytest
+        # tool. env itself is no longer None here (2026-08-11: env now
+        # always starts from venv_scoped_env, fixing the FR-09-class bug
+        # where a bare tool name resolved via the harness's ambient PATH
+        # instead of the target project's own .venv) — only PYTHONPATH
+        # staying absent is what this test pins.
         captured = {}
         real_run = __import__("subprocess").run
 
@@ -644,7 +649,8 @@ class TestRunToolPythonPathInjection:
         (tests_dir / "test_x.py").write_text("def test_ok():\n    assert True\n",
                                               encoding="utf-8")
         run_tool("pytest-cov", str(tmp_path))
-        assert captured["env"] is None
+        assert captured["env"] is not None
+        assert "PYTHONPATH" not in captured["env"]
 
 
 class TestRunToolCovTargetScoping:

@@ -186,11 +186,23 @@ def run_tool(
     #
     # An existing PYTHONPATH is extended, never replaced: a caller who set one
     # meant it.
-    env = None
+    #
+    # Bug #129/#128/#123 class, this call site: env used to start from
+    # os.environ.copy() (or None — fully inherited — when the project had no
+    # src dir), so a bare tool name like "pytest" resolved via whatever the
+    # calling shell's ambient PATH said, not the target project's own venv.
+    # On one machine that picked a stray Python-3.9-associated pytest ahead of
+    # the project's 3.11 .venv/bin/pytest, which then failed to even collect
+    # test files using PEP 604 `X | Y` syntax — S4 read that as "tool ran but
+    # produced no readable score" (core.agent_spawner._child_env solved the
+    # identical class of bug for spawned sub-agents; this reuses that pattern
+    # via core.utils.venv_env instead of a third inline .venv probe).
+    from pathlib import Path as _Path
+    from core.utils.venv_env import venv_scoped_env
+    env = venv_scoped_env(_Path(root))
     from core.utils.project_layout import ProjectLayout
     src_dir = ProjectLayout(root).active_src_dir
     if src_dir.is_dir():
-        env = os.environ.copy()
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = (
             str(src_dir) if not existing

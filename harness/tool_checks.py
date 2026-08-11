@@ -35,18 +35,27 @@ DIM_FALLBACK_CHECKS: dict[str, tuple[str, str]] = {
 }
 
 
-def run_tool_check(check_cmd: str, cwd: str | None = None) -> bool:
+def run_tool_check(
+    check_cmd: str, cwd: str | None = None, env: dict[str, str] | None = None
+) -> bool:
     """Run a shell availability probe; True when it exits 0.
 
     *cwd* is the target project root: some check_cmds are cwd-relative —
     `npx --no-install <tool>` resolves node_modules from cwd, and the
     tsc-checkjs probe does `test -f tsconfig.checkjs.json`. Passing it
     explicitly decouples the probe from the harness's ambient cwd.
+
+    *env* defaults to None (fully inherited ambient env, unchanged
+    behavior) — callers that know the target project root should pass
+    `core.utils.venv_env.venv_scoped_env(Path(project_root))` so a bare
+    tool name in *check_cmd* (e.g. "pytest --version") resolves against
+    the project's own .venv/bin instead of whatever's first on the
+    harness's ambient PATH (same bug class as tool_runners.run_tool).
     """
     result = subprocess.run(
         ["bash", "-c", check_cmd],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=10, text=True, cwd=cwd,
+        timeout=10, text=True, cwd=cwd, env=env,
     )
     return result.returncode == 0
 
@@ -74,10 +83,19 @@ def check_tool_for_dim(
             f"language not fully supported (see harness/toolchains/registry.py)"
         )
 
+    # Same bug class tool_runners.run_tool fixes: a bare check_cmd (e.g.
+    # "pytest --version") resolves via the harness's ambient PATH, not the
+    # target project's own venv, unless scoped here.
+    check_env = None
+    if project_root:
+        from pathlib import Path as _Path
+        from core.utils.venv_env import venv_scoped_env
+        check_env = venv_scoped_env(_Path(project_root))
+
     spec = get_tool_spec(resolved) if resolved else None
     if spec is not None:
         try:
-            ok = run_tool_check(spec.check_cmd, cwd=project_root)
+            ok = run_tool_check(spec.check_cmd, cwd=project_root, env=check_env)
             return ok, (
                 "" if ok else f"{dim_name}: {spec.human_name} ({resolved}) not found"
             )
@@ -90,7 +108,7 @@ def check_tool_for_dim(
         return True, ""  # No tool requirement — pass (LLM-evaluated dimension)
     check_cmd, human_name = info
     try:
-        ok = run_tool_check(check_cmd, cwd=project_root)
+        ok = run_tool_check(check_cmd, cwd=project_root, env=check_env)
         return ok, ("" if ok else f"{dim_name}: {human_name} not found")
     except Exception:
         return False, f"{dim_name}: {human_name} check failed"

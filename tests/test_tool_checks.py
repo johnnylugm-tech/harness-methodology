@@ -14,6 +14,9 @@ resolver instead of staging a harness/gate_configs/ directory tree.
 """
 from __future__ import annotations
 
+import os
+import subprocess
+
 import pytest
 
 import core.quality_gate.gate_thresholds as _gt
@@ -112,4 +115,90 @@ def test_verify_gate_tools_still_checks_inside_ci(tmp_path, monkeypatch):
     ok, missing = tool_checks.verify_gate_tools(1, str(tmp_path))
     assert ok is False, "a CI env var must not turn a missing tool into a pass"
     assert any("ruff" in m for m in missing)
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-11 — venv-scoped env for S2 tool-availability probes (FR-09
+# infra_fail class). check_tool_for_dim / run_tool_check used to run every
+# check_cmd with the harness's fully-inherited ambient env (not even
+# PYTHONPATH, let alone PATH) — a stray same-named tool ahead of the target
+# project's .venv/bin on PATH could make S2 wrongly report the wrong
+# version's availability. See test_tool_env_parity.py for the parallel fix
+# in tool_runners.run_tool (S4's independent tool re-run).
+# ---------------------------------------------------------------------------
+
+
+def test_run_tool_check_passes_env_through_to_subprocess(monkeypatch):
+    seen = {}
+
+    def _fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        seen["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tool_checks.subprocess, "run", _fake_run)
+    marker_env = {"PATH": "/marker/bin", "VIRTUAL_ENV": "/marker"}
+    tool_checks.run_tool_check("true", cwd="/tmp", env=marker_env)
+    assert seen["env"] == marker_env, (
+        "run_tool_check must pass its env argument through to subprocess.run "
+        "unchanged, so a caller-supplied venv-scoped env actually takes effect"
+    )
+
+
+def test_run_tool_check_defaults_to_none_env_unchanged_behavior(monkeypatch):
+    """Backward compatibility: a caller that doesn't pass env= must see the
+    same fully-inherited-ambient-env behavior as before this change."""
+    seen = {}
+
+    def _fake_run(cmd, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tool_checks.subprocess, "run", _fake_run)
+    tool_checks.run_tool_check("true", cwd="/tmp")
+    assert seen["env"] is None
+
+
+def test_check_tool_for_dim_uses_venv_scoped_env_when_project_root_given(
+    tmp_path, monkeypatch
+):
+    """check_tool_for_dim must resolve check_cmd's bare tool name against
+    the target project's own .venv/bin, not the harness's ambient PATH —
+    the S2 analog of the S4 fix in tool_runners.run_tool."""
+    bin_dir = tmp_path / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+
+    seen = {}
+
+    def _fake_run(cmd, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tool_checks.subprocess, "run", _fake_run)
+    ok, diag = tool_checks.check_tool_for_dim(
+        "linting", "ruff", "python", project_root=str(tmp_path)
+    )
+    assert ok is True, diag
+    path_parts = (seen["env"].get("PATH") or "").split(os.pathsep)
+    assert path_parts[0] == str(bin_dir), (
+        f"expected the project's .venv/bin first on PATH: {path_parts[:3]}"
+    )
+    assert seen["env"].get("VIRTUAL_ENV") == str(tmp_path / ".venv")
+
+
+def test_check_tool_for_dim_without_project_root_uses_no_env_override(
+    monkeypatch,
+):
+    """No project_root means no venv to resolve against — env stays None,
+    same as calling run_tool_check directly with no env (backward
+    compatible for any caller that doesn't pass project_root)."""
+    seen = {}
+
+    def _fake_run(cmd, **kwargs):
+        seen["env"] = kwargs.get("env")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tool_checks.subprocess, "run", _fake_run)
+    tool_checks.check_tool_for_dim("linting", "ruff", "python", project_root=None)
+    assert seen["env"] is None
 

@@ -121,8 +121,14 @@ def test_an_existing_pythonpath_is_extended_not_replaced(
 
 
 def test_a_project_with_no_source_root_still_runs_the_tool(tmp_path, monkeypatch):
-    """No src dir to inject is not a reason to refuse to run, and env stays
-    None (inherit unchanged) rather than becoming a copy with nothing added.
+    """No src dir to inject PYTHONPATH for is not a reason to refuse to run.
+
+    env is no longer None in this case (2026-08-11: env now always starts
+    from venv_scoped_env, which fixes the FR-09-class bug where a bare tool
+    name resolved via the harness's ambient PATH instead of the target
+    project's own .venv — see test_tool_env_parity's venv-PATH tests below).
+    A project with no venv still gets a full os.environ copy (unchanged
+    resolution, just no longer a bare None that skips PYTHONPATH handling).
     The degradation ledger already covers the scan-scope half of this
     (Round 31 站6).
 
@@ -134,7 +140,10 @@ def test_a_project_with_no_source_root_still_runs_the_tool(tmp_path, monkeypatch
     (tmp_path / ".methodology").mkdir()
     seen = _captured_env(monkeypatch, "ruff", tmp_path)
     assert seen["cmd"], seen
-    assert seen["env"] is None, seen["env"]
+    assert seen["env"] is not None, seen["env"]
+    assert "PYTHONPATH" not in seen["env"], (
+        "no src dir was found, so PYTHONPATH must not be injected"
+    )
 
 
 def test_the_test_target_comes_from_the_one_resolver():
@@ -148,4 +157,77 @@ def test_the_test_target_comes_from_the_one_resolver():
     assert 'os.path.join(root, "03-development", "tests")' not in src, (
         "run_tool still hardcodes the test directory probe next to its own "
         "call to resolve_targets, whose first return value is that answer"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-11 — venv-scoped PATH (FR-09 infra_fail class)
+#
+# S4's whole purpose is independently re-running the tool the agent claims
+# ran, to catch fabricated scores. But run_tool resolved every tool by bare
+# name via subprocess.run's inherited PATH — never the target project's own
+# .venv. On a live P7 run, that picked a stray Python-3.9-associated pytest
+# ahead of the project's 3.11 .venv/bin/pytest; the wrong interpreter failed
+# to even collect test files using PEP 604 `X | Y` syntax, and S4 reported
+# "tool ran but produced no readable score" (infra_fail) — not a code defect,
+# a harness-side environment-resolution gap. core.agent_spawner._child_env
+# already solved the identical bug class for spawned sub-agents ("Bug
+# #129/#128/#123 class root cause: orchestrated runs inherit the shell env
+# which may not have .venv/bin in PATH"); these tests pin run_tool doing the
+# same for its own subprocess.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def project_with_venv(tmp_path):
+    """A project with its own .venv/bin containing a marker executable that
+    is deliberately NOT on the ambient PATH, so a passing test proves the
+    venv's copy — not an ambient ammbient one — was selected."""
+    bin_dir = tmp_path / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    marker = bin_dir / "probe-tool"
+    marker.write_text("#!/bin/sh\necho venv-version\n", encoding="utf-8")
+    marker.chmod(0o755)
+    return tmp_path
+
+
+def test_run_tool_prepends_project_venv_to_path(project_with_venv, monkeypatch):
+    seen = _captured_env(monkeypatch, "ruff", project_with_venv)
+    venv_bin = str(project_with_venv / ".venv" / "bin")
+    path_parts = (seen["env"].get("PATH") or "").split(os.pathsep)
+    assert path_parts and path_parts[0] == venv_bin, (
+        f"expected the project's .venv/bin first on PATH, got: {path_parts[:3]}"
+    )
+
+
+def test_run_tool_sets_virtual_env(project_with_venv, monkeypatch):
+    seen = _captured_env(monkeypatch, "ruff", project_with_venv)
+    assert seen["env"].get("VIRTUAL_ENV") == str(project_with_venv / ".venv"), (
+        seen["env"].get("VIRTUAL_ENV")
+    )
+
+
+def test_run_tool_falls_back_to_ambient_path_with_no_venv(tmp_path, monkeypatch):
+    """No .venv/venv directory at all — PATH still resolves (unchanged
+    behavior for projects without their own virtualenv), just via a real
+    env dict now instead of env=None (see test_a_project_with_no_source_
+    root_still_runs_the_tool above)."""
+    seen = _captured_env(monkeypatch, "ruff", tmp_path)
+    assert seen["env"].get("PATH"), "PATH must still resolve with no venv present"
+    assert "VIRTUAL_ENV" not in seen["env"], (
+        "no venv was found — VIRTUAL_ENV must not be fabricated"
+    )
+
+
+def test_venv_path_is_prepended_not_appended(project_with_venv, monkeypatch):
+    """An ambient PATH entry containing a same-named but wrong tool must
+    not shadow the venv's version — the venv's bin dir must come first,
+    order matters for subprocess's PATH search."""
+    monkeypatch.setenv("PATH", "/usr/bin:/bin" + os.pathsep + os.environ.get("PATH", ""))
+    seen = _captured_env(monkeypatch, "ruff", project_with_venv)
+    venv_bin = str(project_with_venv / ".venv" / "bin")
+    path_parts = (seen["env"].get("PATH") or "").split(os.pathsep)
+    assert path_parts[0] == venv_bin, (
+        f"venv bin dir must be first regardless of what the ambient PATH "
+        f"already contained: {path_parts[:5]}"
     )
