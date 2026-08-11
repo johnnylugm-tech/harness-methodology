@@ -30,6 +30,7 @@ it was measured over, so the verdict now carries that tree with it.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,33 @@ pytestmark = [pytest.mark.core]
 def _project(tmp_path: Path) -> Path:
     (tmp_path / ".methodology").mkdir()
     (tmp_path / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    return tmp_path
+
+
+def _git(*args: str, cwd: Path) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True,
+                    capture_output=True, text=True)
+
+
+@pytest.fixture()
+def git_project(tmp_path: Path) -> Path:
+    """A real git repo, unlike `_project` above.
+
+    `iter_delivered_files` takes a different code path per Round 37: inside a
+    git repo it is `git ls-files --cached --others --exclude-standard`, which
+    does NOT apply the `SKIP_DIRS` denylist that hides `.methodology` on the
+    non-git `_project` fixture (core/utils/lang_patterns.py). Production
+    always runs inside a git repo — a bug that only manifests on that path
+    (Round 42: the ledger digesting its own about-to-be-appended line) is
+    invisible to every test built on `_project` alone.
+    """
+    _git("init", "-q", cwd=tmp_path)
+    _git("config", "user.email", "t@example.com", cwd=tmp_path)
+    _git("config", "user.name", "t", cwd=tmp_path)
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    _git("add", "-A", cwd=tmp_path)
+    _git("commit", "-q", "-m", "seed", cwd=tmp_path)
     return tmp_path
 
 
@@ -180,3 +208,89 @@ def test_a_corrupt_ledger_blocks_rather_than_passes(tmp_path: Path) -> None:
     ok, why = has_matching_pass(project, gate=4)
     assert ok is False
     assert why
+
+
+# ── Round 42: the digest must not measure its own bookkeeping ────────────
+#
+# `record_verdict` writes `delivered_tree_sha256` (a digest of the whole
+# project) and then appends a new line to the ledger holding that very
+# digest. In a real git repo, `.methodology/gate_verify.jsonl` is inside
+# delivery scope (nothing gitignores it, and SKIP_DIRS does not apply on the
+# git path) — so the digest a verdict records always describes a tree that
+# no longer exists by the time the append lands. `has_matching_pass` then
+# re-derives the digest fresh and can never match: a permanent, deterministic
+# self-invalidation, not a race. `_project`/`tmp_path` above cannot reproduce
+# this — `.methodology` is in SKIP_DIRS, so the non-git walk never sees the
+# ledger at all. These tests use `git_project` specifically to close that
+# gap.
+
+def test_a_pass_verdict_satisfies_itself_in_a_git_repo(git_project: Path) -> None:
+    """The primary regression: recording a PASS must not immediately
+    invalidate itself the moment it lands on disk."""
+    from core.quality_gate.gate_verify import has_matching_pass, record_verdict
+
+    record_verdict(
+        git_project, gate=2, phase=3,
+        checks={"last_gate_ok": True, "spec_coverage_rc": 0, "crg_rc": 0},
+        verdict="PASS",
+    )
+    ok, why = has_matching_pass(git_project, gate=2)
+    assert ok is True, why
+
+
+def test_a_pass_verdict_satisfies_itself_with_a_disabled_dimension(
+    git_project: Path,
+) -> None:
+    """record_verdict also writes to the degradation ledger (a second
+    delivered file) whenever a dimension is disabled — that write happens
+    after the digest is taken too, so excluding only the verdict ledger
+    itself is not sufficient. Mirrors a real project shape (harness_config.json
+    with a feature turned off)."""
+    from core.quality_gate.gate_verify import has_matching_pass, record_verdict
+
+    (git_project / ".methodology" / "harness_config.json").write_text(
+        json.dumps({"version": 1, "values": {}, "features": {"mutation_testing": False}}),
+        encoding="utf-8",
+    )
+    _git("add", "-A", cwd=git_project)
+    _git("commit", "-q", "-m", "disable mutation_testing", cwd=git_project)
+
+    record_verdict(
+        git_project, gate=2, phase=3,
+        checks={"last_gate_ok": True, "spec_coverage_rc": 0, "crg_rc": 0},
+        verdict="PASS",
+    )
+    ok, why = has_matching_pass(git_project, gate=2)
+    assert ok is True, why
+
+
+def test_a_real_source_change_still_invalidates_the_git_repo_verdict(
+    git_project: Path,
+) -> None:
+    """Negative control: excluding the harness's own bookkeeping ledgers must
+    not swallow genuine project changes too."""
+    from core.quality_gate.gate_verify import has_matching_pass, record_verdict
+
+    record_verdict(git_project, gate=2, phase=3, checks={}, verdict="PASS")
+    assert has_matching_pass(git_project, gate=2)[0] is True
+
+    (git_project / "mod.py").write_text("x = 999\n", encoding="utf-8")
+    ok, why = has_matching_pass(git_project, gate=2)
+    assert ok is False
+    assert "changed" in why.lower() or "tree" in why.lower()
+
+
+def test_a_later_gates_verdict_does_not_invalidate_an_earlier_ones_git_repo(
+    git_project: Path,
+) -> None:
+    """The ledger keeps growing as later gates get verified — an earlier
+    gate's already-recorded, still-current verdict must survive that growth,
+    not just its own single append."""
+    from core.quality_gate.gate_verify import has_matching_pass, record_verdict
+
+    record_verdict(git_project, gate=2, phase=3, checks={}, verdict="PASS")
+    assert has_matching_pass(git_project, gate=2)[0] is True
+
+    record_verdict(git_project, gate=3, phase=4, checks={}, verdict="PASS")
+    assert has_matching_pass(git_project, gate=2)[0] is True
+    assert has_matching_pass(git_project, gate=3)[0] is True

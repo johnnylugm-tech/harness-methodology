@@ -38,11 +38,27 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.degradation_ledger import LEDGER_RELPATH as _DEGRADATIONS_RELPATH
 from core.utils.delivery_scope import delivered_tree_digest
 
 __all__ = ["LEDGER_NAME", "record_verdict", "has_matching_pass", "read_verdicts"]
 
 LEDGER_NAME = "gate_verify.jsonl"
+_LEDGER_RELPATH = f".methodology/{LEDGER_NAME}"
+
+# Round 42: files a verdict's own computation mutates as a side effect —
+# the ledger's own about-to-be-appended line, and the degradation ledger
+# whenever record_dimension_scope finds a disabled dimension. Both are
+# inside git's delivery scope (neither is gitignored) and both are written
+# AFTER the digest below is taken, so leaving them in the digest makes the
+# recorded value stale the instant record_verdict() returns — permanently,
+# since has_matching_pass() always re-derives a fresh digest that already
+# reflects the append. Excluding them here does not change whether either
+# file stays committed (both remain git-tracked audit trails, same as
+# gate_timestamps.jsonl) — it only changes what "the tree a verdict was
+# measured on" means: the project being verified, not the harness's own
+# bookkeeping about verifying it.
+_DIGEST_EXCLUDE = frozenset({_LEDGER_RELPATH, _DEGRADATIONS_RELPATH})
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -90,7 +106,7 @@ def record_verdict(
         "gate": int(gate),
         "phase": int(phase),
         "git_sha": _git_sha(project),
-        "delivered_tree_sha256": delivered_tree_digest(project),
+        "delivered_tree_sha256": delivered_tree_digest(project, exclude=_DIGEST_EXCLUDE),
         "dimensions_disabled": record_dimension_scope(project, gate=gate),
         "checks": dict(checks),
         "verdict": verdict,
@@ -150,7 +166,7 @@ def has_matching_pass(project: Path, gate: int) -> "tuple[bool, str]":
             f"({latest.get('checks')}). Fix the failing check, then re-run "
             f"`harness_cli.py verify-gate --gate {gate}`."
         )
-    current = delivered_tree_digest(project)
+    current = delivered_tree_digest(project, exclude=_DIGEST_EXCLUDE)
     if latest.get("delivered_tree_sha256") != current:
         return False, (
             f"the gate {gate} PASS was measured on a different tree — the "

@@ -134,7 +134,7 @@ def delivered_file_set(root: Path) -> set[str]:
     return {str(p.resolve()) for p in iter_delivered_files(root)}
 
 
-def delivered_tree_digest(root: Path) -> str:
+def delivered_tree_digest(root: Path, *, exclude: frozenset[str] = frozenset()) -> str:
     """A sha256 over (repo-relative path, file content) for the delivered tree.
 
     Round 38: a verdict has to carry the tree it was measured on. Round 37's
@@ -150,6 +150,14 @@ def delivered_tree_digest(root: Path) -> str:
     Unreadable files contribute their error rather than being skipped —
     a tree we could only partly read must not digest the same as one we read
     completely (Round 32/35: an unmeasurable input is not a passing input).
+
+    `exclude`: repo-relative posix paths to omit. A caller that writes a
+    delivered file as a side effect of computing this digest (Round 42: the
+    verdict ledger appends its own line, and the degradation ledger appends
+    one whenever a dimension is disabled) must exclude that path — otherwise
+    the digest it just wrote is stale the instant it returns, and can never
+    match itself again. Empty by default: every other caller measures the
+    project tree with nothing to except.
     """
     root = Path(root)
     h = hashlib.sha256()
@@ -158,6 +166,8 @@ def delivered_tree_digest(root: Path) -> str:
             rel = path.relative_to(root).as_posix()
         except ValueError:  # pragma: no cover - iter_delivered_files is rooted
             rel = path.as_posix()
+        if rel in exclude:
+            continue
         h.update(rel.encode("utf-8"))
         h.update(b"\0")
         try:
