@@ -114,6 +114,33 @@ excluded — see `core.utils.delivery_scope.is_harness_volatile` and
 `cli/phase_cmds.py::_advance_commit_targets`, which are the two sources the
 check reads rather than restating.
 
+**Round 45 站5** added `doctor:<check>`, one record per ERROR-level finding.
+`advance-phase` runs `core.doctor.run_doctor` once, after the phase has turned
+over, and writes every ERROR here. `<check>` is the finding's own check name
+(`gate1-evidence`, `provenance`, `milestone-tree`, …), so this file is where
+you look for what the framework thought of the state its own advance left
+behind.
+
+Until this round `run_doctor` had exactly one caller — the `doctor` CLI
+command itself. Round 43 站4's enforcer provenance, Round 44 站4's
+milestone-tree check and Round 45 站3's per-FR evidence reconciliation had
+therefore never been read at a phase boundary.
+
+Three things it deliberately does not do: it does not block (the exit code is
+unchanged), it does not record WARN findings (taskq-advance's doctor output is
+seven WARNs; writing those every advance would bury the ERRORs), and it does
+not run before the advance. A doctor that raises is itself recorded, as
+`doctor:unavailable` — a diagnostic that fell over must not read as a clean
+run.
+
+**Round 45 站1** added `gate:evidence-too-large` and
+`gate:evidence-not-persisted`. `finalize_gate` copies each dimension's cited
+`tool_output` under `.methodology/gate_evidence/gate{N}/` so the verdict's
+citations survive the gitignored `.sessi-work/`; a file over
+`values.gate_evidence_max_bytes`, or one the copy could not write, keeps its
+original citation and lands a record here saying which and why. Measured
+across five projects before this shipped: 162 cited files, 13 still present.
+
 ### `.methodology/crash/crash_<timestamp>_<pid>.json`
 
 **Round 28 站4 moved this out of `.sessi-work/` for the same reason as the

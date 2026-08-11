@@ -50,6 +50,7 @@ from core.phase_topology import (
     phase_name,
 )
 from core.degradation_ledger import record_degradation
+from core.doctor import run_doctor
 from core.harness_provenance import enforcer_sha, enforcer_surface
 from core.utils.delivery_scope import committed_tree_digest
 from core.utils.project_layout import ProjectLayout
@@ -347,6 +348,65 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
 # is independently testable rather than an inline literal in the
 # subprocess.run() call below.
 _MYPY_EXCLUDE_ARGS = ["--exclude", "^harness/"]
+
+
+def _run_doctor_after_advance(project: Path) -> None:
+    """Run the framework's own read of its state, and give the ERRORs a reader.
+
+    Round 45 站5. `grep -rn "run_doctor"` over the whole repository found ONE
+    call site: cli/project_cmds.py, which IS the `doctor` command. advance-phase
+    did not call it, preflight did not call it, and none of the nine generated
+    workflow JS files mention it. So three mechanisms built to be read at a
+    phase boundary had never been read at one — Round 43 站4's enforcer
+    provenance, Round 44 站4's milestone-tree check, and Round 45 站3's per-FR
+    evidence reconciliation. Round 43's mother pattern (detected, no executor)
+    at the level of a whole command.
+
+    Deliberately weak wiring, in three respects:
+
+    * It runs AFTER the phase has turned over, so nothing here can undo a
+      milestone that is already correct.
+    * Only ERROR findings reach the degradation ledger. taskq-advance's doctor
+      output is seven WARNs (six provenance, one submodule); writing those
+      every advance would bury the thing this exists to surface.
+    * The exit code does not change. A check whose false-positive rate was 100%
+      four hours before this station shipped (station 2's thirty accusations)
+      does not get the power to stop a pipeline. It gets a reader. Same
+      standing as Round 43 站4's phase_verdict_staleness: a diagnosis, not a
+      waiver.
+
+    `run_doctor` measured 1.15s on a copy of taskq-advance, so it runs whole —
+    no subset registry, one fewer mechanism than the plan budgeted for.
+    """
+    try:
+        findings = run_doctor(project)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # The phase has already turned over and the milestone is correct. A
+        # diagnostic that raises must not look like a successful clean run
+        # either (docs/ERROR_HANDLING.md), so it says so and is recorded.
+        print(f"  [WARN] doctor could not run after the advance: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        record_degradation(
+            project, "doctor:unavailable",
+            f"doctor raised after the phase advanced: {type(exc).__name__}",
+            why=("the advance itself is correct; nothing checked the state it "
+                 "left behind"),
+        )
+        return
+
+    errors = [f for f in findings if f.severity == "ERROR"]
+    if not errors:
+        return
+    print(f"\n[advance-phase] doctor: {len(errors)} error(s) in the state this "
+          f"advance left behind — recorded, not blocking:", file=sys.stderr)
+    for finding in errors:
+        print(f"  [ERROR] {finding.check}: {finding.message}", file=sys.stderr)
+        record_degradation(
+            project, f"doctor:{finding.check}", finding.message,
+            why=("found by doctor immediately after the phase advanced; the "
+                 "advance is not reversed, but this state is what the next "
+                 "phase starts from"),
+        )
 
 
 def cmd_advance_phase(args: argparse.Namespace) -> int:
@@ -1168,6 +1228,8 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 )
                 return 28
             print("[advance-phase] Pushed the handover commit to origin.")
+
+    _run_doctor_after_advance(project)
 
     print(f"[advance-phase] Done — local hooks and CI now target phase {next_phase}")
     # Restore CWD if any internal Python code (hook, library) changed it.
