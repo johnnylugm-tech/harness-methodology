@@ -25,6 +25,7 @@ __all__ = [
     "validate_fr_coverage_immediate",
     "GATE_TIMESTAMPS_FILE",
     "GATE1_SCORES_FILE",
+    "per_fr_result_path",
     "record_gate_timestamp",
     "gate1_evidence_exists",
     "check_commit_intervals",
@@ -110,6 +111,21 @@ GATE_TIMESTAMPS_FILE = "gate_timestamps.jsonl"
 GATE1_SCORES_FILE = ".gate1_scores.json"
 
 
+def per_fr_result_path(project: Path, gate: int, fr_id: str) -> Path:
+    """Where finalize-gate keeps ONE FR's gate result, permanently.
+
+    `.methodology/gate{N}_result.json` is a rolling alias — every FR's finalize
+    overwrites it, so after a phase it holds whichever FR went last. This is the
+    per-FR copy, and it is the artifact a receipt for that FR has to be able to
+    point at.
+
+    Round 45 站3: the path was written out by hand in three places
+    (cli/_shared.py's two resolvers and cli/gate_cmds.py's writer). It is stated
+    here once and read from here, which is the shape this whole round is about.
+    """
+    return project / ".methodology" / "gate_results" / f"gate{gate}" / f"{fr_id}.json"
+
+
 EVIDENCE_SOURCE_FINALIZE = "finalize"
 EVIDENCE_SOURCE_SKIP = "skip"
 
@@ -128,7 +144,20 @@ EVIDENCE_SOURCE_SKIP = "skip"
 # a gate{N}_result.json that survives S3/S4 — which is the thing the gate
 # already exists to prevent. The other fields let a later reader say WHICH run
 # this was without re-deriving it.
-RECEIPT_SCHEMA = 1
+#
+# Schema 2 (Round 45 站3): `result_sha256` is the digest of THIS FR's own
+# `gate_results/gate{N}/{fr}.json`, not of the rolling `gate{N}_result.json`
+# alias the next FR's finalize overwrites. Under schema 1 that digest became
+# unresolvable the moment another FR finalized — by construction, for every FR
+# of a phase but the last — so a schema-1 receipt's digest is not evidence of
+# anything and is not compared. Existence of the per-FR file is checked for
+# both: that file has been written since 2026-07-15 (Fix H-E), so a receipt of
+# either vintage had one.
+RECEIPT_SCHEMA = 2
+# Schema 1 receipts stay readable. A hard cut here would refuse every receipt
+# on every existing project — the opposite of Round 39/40's rule that a record
+# predating a mechanism is not a violation.
+RECEIPT_SCHEMAS_ACCEPTED = frozenset({1, 2})
 
 
 def format_finalize_receipt(
@@ -184,7 +213,7 @@ def read_finalize_receipt_text(text: str) -> "dict | None":
         data = json.loads(text)
     except (TypeError, ValueError):
         return None
-    if not isinstance(data, dict) or data.get("schema") != RECEIPT_SCHEMA:
+    if not isinstance(data, dict) or data.get("schema") not in RECEIPT_SCHEMAS_ACCEPTED:
         return None
     if "gate" not in data or "result_sha256" not in data:
         return None
@@ -200,7 +229,20 @@ def write_finalize_receipt(
     score: float | None,
     result_path: "Path | None",
 ) -> Path:
-    """Write the receipt to its sentinel path and return that path."""
+    """Write the receipt to its sentinel path and return that path.
+
+    Round 45 站3: for a per-FR gate the receipt digests THIS FR's own result,
+    not the rolling `gate{N}_result.json` alias the caller usually hands in —
+    that alias is overwritten by the next FR's finalize, so a receipt pointing
+    at it stops resolving before anyone has done anything wrong. The choice is
+    made here rather than at each call site so a schema-2 receipt cannot be
+    written against the wrong artifact.
+    """
+    if fr_id:
+        _per_fr = per_fr_result_path(project, gate, fr_id)
+        if _per_fr.is_file():
+            result_path = _per_fr
+
     path = _finalize_sentinel_path(project, gate, fr_id, phase=phase)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -272,6 +314,8 @@ def verify_finalize_evidence(
             f"{path.name}: the receipt names no gate result — it cannot "
             f"attest a verdict it does not identify"
         )
+    elif fr_id:
+        problems.extend(_per_fr_result_problems(project, gate, fr_id, receipt))
 
     if phase is not None:
         rows = _finalize_timestamp_rows(project, gate, phase, fr_id)
@@ -326,6 +370,84 @@ def verify_finalize_evidence(
                     f"match the {recorded} recorded in {GATE1_SCORES_FILE}"
                 )
     return problems
+
+
+def _per_fr_result_problems(
+    project: Path, gate: int, fr_id: str, receipt: dict,
+) -> list:
+    """Dereference the receipt's `result_sha256` against this FR's own result.
+
+    Round 45 站3. taskq-advance's last commit, `30638d9 feat(FR-09): Gate1
+    PASS — score=100.0 [phase=7]`, deleted five sibling FRs' Gate 1 results in
+    539 lines of removal. `fr_progress.json`, `.gate1_scores.json` and
+    CLAUDE.md's FR Registry all still say those five scored 100.0. Nothing
+    noticed, because `doctor` corroborates the manifest against the receipt and
+    `gate_timestamps.jsonl`, and both of those survived.
+
+    No new register is needed: Round 32 站1 put `result_sha256` in the receipt
+    exactly so a verdict names the artifact it was taken on. The pointer was
+    never dereferenced.
+
+    Existence is asked of every receipt: `gate_results/gate{N}/{fr}.json` has
+    been written since 2026-07-15, so a receipt of either vintage had one, and
+    its absence is unambiguous.
+
+    The digest is compared only for schema-2 receipts. A schema-1 receipt
+    digested the rolling `gate{N}_result.json` alias, which the next FR's
+    finalize overwrites — so for every FR of a phase but the last, that digest
+    was already unresolvable before anyone touched anything. Comparing it would
+    manufacture one accusation per FR: the same false-positive machine station
+    2 has just finished dismantling.
+    """
+    from core.quality_gate.evidence_digest import digest_of_file
+
+    per_fr = per_fr_result_path(project, gate, fr_id)
+    if not per_fr.is_file():
+        return [
+            f"{fr_id} (phase {receipt.get('phase')}): the finalize receipt "
+            f"names a gate {gate} result no longer on disk — "
+            f"{per_fr.relative_to(project)} is missing"
+            f"{_deleted_by(project, per_fr)}. The score registers still carry "
+            f"this FR; re-run finalize-gate for it, or restore the file."
+        ]
+
+    if int(receipt.get("schema") or 1) < 2:
+        return []
+
+    expected = receipt.get("result_sha256")
+    if digest_of_file(per_fr, source=str(per_fr)).get("sha256") == expected:
+        return []
+    return [
+        f"{fr_id}: {per_fr.relative_to(project)} is not the result this "
+        f"receipt was taken on — its sha256 does not match the receipt's "
+        f"{str(expected)[:12]}. The evidence behind this verdict was "
+        f"rewritten after it was made."
+    ]
+
+
+def _deleted_by(project: Path, path: Path) -> str:
+    """`" (deleted by <sha> <subject>)"`, or `""` when git cannot say.
+
+    Names the commit rather than leaving the reader to go looking — Round 24
+    站1's rule that a refusal states its cause, applied to an absence.
+    """
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(project), "log", "--diff-filter=D", "-1",
+             "--format=%h %s", "--", str(path.relative_to(project))],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ""
+    line = proc.stdout.strip().splitlines()[0] if proc.stdout.strip() else ""
+    # `%h %s` starts with an abbreviated sha. Anything else is not git speaking
+    # — the message must not repeat whatever a caller's stubbed subprocess
+    # happened to return.
+    head = line.split(" ", 1)[0] if line else ""
+    if proc.returncode != 0 or not re.fullmatch(r"[0-9a-f]{7,40}", head):
+        return ""
+    return f" (deleted by {line})"
 
 
 def gate1_phase_summary(project: Path, phase: int, fr_ids: "list | None" = None) -> dict:

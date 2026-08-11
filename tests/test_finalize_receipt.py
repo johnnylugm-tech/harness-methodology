@@ -209,8 +209,19 @@ def test_a_receipt_whose_score_contradicts_the_registry_is_rejected(tmp_path):
 
 def test_the_legitimate_combination_passes(tmp_path):
     """The counter-case, so the check cannot be satisfied by blocking
-    everything: a genuine finalize writes all three, and that must pass."""
+    everything: a genuine finalize writes all three, and that must pass.
+
+    Round 45 站3: a genuine finalize writes a FOURTH thing — the FR's own
+    `gate_results/gate1/FR-01.json`, which cli/gate_cmds.py has persisted since
+    2026-07-15 and which the receipt now points at. Writing it here is what
+    makes this fixture the legitimate combination rather than three quarters
+    of one.
+    """
     _make_p3_project(tmp_path)
+    per_fr = gate1_evidence.per_fr_result_path(tmp_path, 1, "FR-01")
+    per_fr.parent.mkdir(parents=True, exist_ok=True)
+    per_fr.write_text(json.dumps({"verdict": "PASS", "fr_id": "FR-01"}),
+                      encoding="utf-8")
     result = tmp_path / ".methodology" / "gate1_result.json"
     result.write_text(json.dumps({"verdict": "PASS"}), encoding="utf-8")
     gate1_evidence.write_finalize_receipt(

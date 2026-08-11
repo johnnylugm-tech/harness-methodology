@@ -452,6 +452,7 @@ _LINE_CEILING: dict[str, int] = {
     # clarifying it must run BEFORE advance-phase for a phase-scoped C10
     # result (no workflow JS ever calls it automatically).
     # 2026-07-24: +1 line — pyright type narrowing fix for L647 trig union.
+    "core/quality_gate/gate1_evidence.py": 922,  # 2026-08-12: first entry (was 858, under the 900 default) — Round 45 站3: `per_fr_result_path` as the SSOT the two cli/_shared.py resolvers and cli/gate_cmds.py's writer now call instead of spelling `.methodology/gate_results/gate{N}/{fr}.json` themselves, plus `_per_fr_result_problems` (dereference the receipt's result_sha256 against that file) and `_deleted_by` (name the commit that removed it). Most of the growth is the docstrings recording why a schema-1 receipt's digest is not compared — the alias it pointed at is overwritten by the next FR's finalize, so comparing it would manufacture one false accusation per FR. Station 2 also DELETED the two retention windows from this file, so the net is smaller than the additions.
     "core/quality_gate/red_assertion_check.py": 1020,  # 2026-07-26: +6 — Round 14 B1: SubAssertion gains fulfill_phase field (1 dataclass line + 5-line docstring note) for the Direction-B TEST_SPEC Properties fulfill-phase schema (sized to current 1011).
     # 2026-07-17: +10 lines — Round 13 站1: exception-swallow ratchet
     # paydown — 13 previously-unlogged broad excepts now print a [WARN]

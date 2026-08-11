@@ -20,6 +20,7 @@ from core.quality_gate import gate1_evidence
 from core.quality_gate.gate1_evidence import (  # noqa: F401  (re-export, see below)
     _finalize_sentinel_path,
     _sentinel_path,
+    per_fr_result_path,
 )
 from core.state_io import load_quality_manifest, load_state
 from core.utils.script_loader import load_harness_script
@@ -34,11 +35,18 @@ from core.utils.script_loader import load_harness_script
 def _seed_finalize_evidence(
     project: Path, *, gate: int, phase: int | None, fr_id: str | None,
 ) -> None:
-    """Write the three artifacts a genuine finalize-gate PASS leaves behind.
+    """Write the artifacts a genuine finalize-gate PASS leaves behind.
 
     Kept in one place so the fixture helper below cannot drift into seeding a
     combination `verify_finalize_evidence` calls illegal — which would make
     the cross-check untestable through its own fixture.
+
+    Round 45 站3 added the fourth: for a per-FR gate, the FR's own
+    `gate_results/gate{N}/{fr}.json`, which cli/gate_cmds.py has persisted
+    since 2026-07-15 and which the receipt now points at. Seeding it here is
+    the same rule Round 32 站1 wrote for this helper — a fixture that emits a
+    shape production never emits makes every test using it pass for a reason
+    production does not have.
     """
     result_path = project / ".methodology" / f"gate{gate}_result.json"
     if not result_path.is_file():
@@ -48,6 +56,15 @@ def _seed_finalize_evidence(
                         "composite_score": 100.0}),
             encoding="utf-8",
         )
+    if fr_id:
+        _per_fr = per_fr_result_path(project, gate, fr_id)
+        if not _per_fr.is_file():
+            _per_fr.parent.mkdir(parents=True, exist_ok=True)
+            _per_fr.write_text(
+                json.dumps({"gate": gate, "phase": phase, "fr_id": fr_id,
+                            "verdict": "PASS", "composite_score": 100.0}),
+                encoding="utf-8",
+            )
     gate1_evidence.write_finalize_receipt(
         project, gate=gate, phase=phase, fr_id=fr_id, score=100.0,
         result_path=result_path,
@@ -227,9 +244,7 @@ def gate_result_paths(
         project / ".methodology" / f"gate{gate}_result.json",
     ]
     if fr_id:
-        candidates.append(
-            project / ".methodology" / "gate_results" / f"gate{gate}" / f"{fr_id}.json"
-        )
+        candidates.append(per_fr_result_path(project, gate, fr_id))
     candidates.append(project / f"gate{gate}_result.json")
     return candidates
 
@@ -259,10 +274,10 @@ def gate_verdict_paths(
       3. .methodology/gate{N}_result.json                (backward-compat alias)
     `.sessi-work/` is deliberately absent: a draft is not a verdict.
     """
-    per_fr_dir = project / ".methodology" / "gate_results" / f"gate{gate}"
+    per_fr_dir = per_fr_result_path(project, gate, "unused").parent
     candidates: list[Path] = []
     if fr_id:
-        candidates.append(per_fr_dir / f"{fr_id}.json")
+        candidates.append(per_fr_result_path(project, gate, fr_id))
     elif per_fr_dir.is_dir():
         candidates.extend(sorted(per_fr_dir.glob("*.json")))
     candidates.append(project / ".methodology" / f"gate{gate}_result.json")

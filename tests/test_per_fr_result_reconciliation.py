@@ -49,12 +49,19 @@ pytestmark = [pytest.mark.core]
 
 
 def _per_fr_path(project: Path, gate: int, fr_id: str) -> Path:
-    return project / ".methodology" / "gate_results" / f"gate{gate}" / f"{fr_id}.json"
+    from core.quality_gate.gate1_evidence import per_fr_result_path
+    return per_fr_result_path(project, gate, fr_id)
 
 
 @pytest.fixture()
 def finalized(tmp_path: Path):
-    """One FR finalized the way cli/gate_cmds.py leaves the disk."""
+    """One FR finalized the way cli/gate_cmds.py leaves the disk.
+
+    `.methodology/gate1_result.json` deliberately holds a DIFFERENT FR's
+    payload: it is a rolling alias every finalize overwrites, so after a phase
+    it carries whichever FR went last. That is the state taskq-advance is in,
+    and it is what makes the per-FR copy the only durable per-FR artifact.
+    """
     meth = tmp_path / ".methodology"
     meth.mkdir()
     payload = json.dumps({
@@ -62,7 +69,10 @@ def finalized(tmp_path: Path):
         "overall_score": 100.0, "quality_complete": True,
     }, indent=2)
 
-    (meth / "gate1_result.json").write_text(payload, encoding="utf-8")
+    (meth / "gate1_result.json").write_text(json.dumps({
+        "gate": 1, "phase": 7, "fr_id": "FR-09", "verdict": "PASS",
+        "overall_score": 100.0, "quality_complete": True,
+    }, indent=2), encoding="utf-8")
     per_fr = _per_fr_path(tmp_path, 1, "FR-03")
     per_fr.parent.mkdir(parents=True, exist_ok=True)
     per_fr.write_text(payload, encoding="utf-8")

@@ -2086,12 +2086,8 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                                             f"renaming per-FR file to {_gf_json_fr_id}.json (canonical summary still written)",
                                             file=sys.stderr,
                                         )
-                                _gp_per_fr = (
-                                    project_path
-                                    / ".methodology"
-                                    / "gate_results"
-                                    / f"gate{args.gate}"
-                                    / f"{_gf_per_fr_name}.json"
+                                _gp_per_fr = gate1_evidence.per_fr_result_path(
+                                    project_path, args.gate, _gf_per_fr_name,
                                 )
                                 # Idempotency guard: if the per-FR file already
                                 # represents a completed PASS, refuse to
@@ -2346,6 +2342,9 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             phase=args.phase,
             fr_id=fr_id,
             score=result.score,
+            # Round 45 站3: write_finalize_receipt redirects this to the FR's
+            # own gate_results/gate{N}/{fr}.json when there is one — the alias
+            # below is overwritten by the next FR's finalize.
             result_path=project_path / ".methodology" / f"gate{args.gate}_result.json",
         )
         print(f"  receipt         : {_fsf.relative_to(project_path)}")
