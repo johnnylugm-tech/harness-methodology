@@ -38,8 +38,6 @@ import io
 import json
 from pathlib import Path
 
-import pytest
-
 import harness_cli as _hc_entry  # noqa: F401  entry-first before cli imports
 from harness_cli import cmd_finalize_gate
 
