@@ -18,7 +18,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from cli import _shared
 from core import claude_md
@@ -51,6 +51,7 @@ from core.phase_topology import (
 )
 from core.degradation_ledger import record_degradation
 from core.harness_provenance import enforcer_sha, enforcer_surface
+from core.utils.delivery_scope import committed_tree_digest
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
 from core.utils.timefmt import utc_now_iso
@@ -396,6 +397,62 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # of 80) and its first-round gate4-verify PASS cannot be adjudicated at
     # all. A missing verdict blocks rather than warns: a check we cannot show
     # was run is not a check that passed.
+    # Round 44 站2: and the tree that verdict was measured on must be the tree
+    # this command is about to record. Placed first among the pre-write
+    # checks: a dirty tree makes `has_matching_pass` pass (the verdict was
+    # measured on the same dirty tree), so asking for the commit first is the
+    # only order in which the operator is told the actionable thing.
+    #
+    # Measured on taskq-advance, P3→P4, 2026-08-11: the entry obligation for
+    # FR-02/FR-06 was cleared at 13:14 by writing `@given` into two test
+    # files, `81bbeb4 handover: advance to Phase 4` recorded the phase at
+    # 13:17:55 without them, and they entered git at 13:32. `git archive
+    # 81bbeb4 | grep -rl "@given"` is empty. The HANDOVER.md that commit
+    # generates tells the next session to `git clone`, and that clone fails
+    # the check the advance had just satisfied.
+    _uncommitted = _uncommitted_deliverables(project, args.completed_phase,
+                                             args.completed_phase + 1)
+    if _uncommitted:
+        from cli.exit_codes import EX_ADVANCE_UNCOMMITTED_DELIVERABLES
+        _head_short = _git_head_short(project)
+        print(
+            f"\n[BLOCKED] advance-phase: {len(_uncommitted)} delivered "
+            f"file(s) differ from {_head_short}.\n"
+            f"  Phase {args.completed_phase} is about to be recorded as a "
+            f"commit on top of {_head_short}, and that commit will not contain the "
+            f"content below — but the checks that let this phase exit were "
+            f"measured on it.\n",
+            file=sys.stderr,
+        )
+        for _rel in _uncommitted:
+            print(f"  - {_rel}", file=sys.stderr)
+        print(
+            f"\n  Fix: commit them, then re-run `advance-phase --completed "
+            f"{args.completed_phase}`. A file generated at runtime belongs in "
+            f".gitignore instead — it is not a deliverable, and tracking it "
+            f"makes every tree digest disagree with the last one.",
+            file=sys.stderr,
+        )
+        _exit_gate = EXIT_GATE_MAP.get(args.completed_phase)
+        if _exit_gate:
+            print(
+                f"  Committing changes the delivered tree, so gate "
+                f"{_exit_gate} will ask to be re-verified against it. That is "
+                f"the point: the verdict and the commit have to be about the "
+                f"same tree.",
+                file=sys.stderr,
+            )
+        for _rel in _uncommitted:
+            record_degradation(
+                project, "milestone:uncommitted",
+                f"P{args.completed_phase} exit blocked by {_rel}",
+                why=("the milestone commit would not contain this file's "
+                     "current content, and the phase's checks were measured "
+                     "on it"),
+                data={"completed_phase": args.completed_phase, "file": _rel},
+            )
+        return EX_ADVANCE_UNCOMMITTED_DELIVERABLES
+
     if args.completed_phase in EXIT_GATE_MAP:
         from cli.exit_codes import EX_ADVANCE_GATE_VERDICT_MISSING
         from core.quality_gate.gate_verify import has_matching_pass
@@ -1034,6 +1091,18 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                         # produced, and nothing could say so.
                         "enforcer_sha": enforcer_sha(),
                         "enforcer_surface": enforcer_surface(),
+                        # Round 44 站2: WHICH TREE this phase was judged on.
+                        # The three fields above say when, by whom and at
+                        # which commit; none of them said what the checks
+                        # actually read. On taskq-advance they read two test
+                        # files that entered git fourteen minutes after this
+                        # record was written. The invariant at the top of
+                        # cmd_advance_phase means this equals the commit's
+                        # own tree, and recording it lets `doctor` re-derive
+                        # that from the artifact alone.
+                        "delivered_tree_sha256": committed_tree_digest(
+                            project, _head.stdout.strip(),
+                        ),
                     }
                     # Preserve the recovery audit if a self-heal ran during
                     # the verify_entry_gate that gated this commit — top-level
@@ -1587,6 +1656,92 @@ def _advance_commit_targets(
     if next_phase == 8:
         targets += ["08-config/CONFIG_RECORDS.md", "08-config/RELEASE_CHECKLIST.md"]
     return targets
+
+def _git_head_short(project: Path) -> str:
+    """`HEAD`'s short sha, or the word HEAD when git cannot answer."""
+    proc = subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "--short", "HEAD"],
+        capture_output=True, text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else "HEAD"
+
+
+def _uncommitted_deliverables(
+    project: Path, completed_phase: int, next_phase: int,
+) -> list[str]:
+    """Delivered files whose content differs from HEAD's, sorted.
+
+    Round 44 站2. Two exemptions, both taken from an existing single source
+    rather than restated here:
+
+      * `core.utils.delivery_scope.is_harness_volatile` — append-only
+        ledgers, caches, locks, `.sessi-work/`. The harness writes them by
+        running; they are not the project.
+      * `_advance_commit_targets` called with every optional flag on — the
+        maximal set of files THIS command rewrites and stages a few hundred
+        lines below. Refusing to advance because HANDOVER.md is stale would
+        be unsatisfiable: regenerating it is what the advance does. Measured
+        on taskq-api, `M HANDOVER.md` is its resting state.
+
+    Everything else is content a clone will not have. That deliberately
+    includes `.methodology/harness_config.json` and `.methodology/SAB.json`,
+    which are scoring inputs (station 0 premise 1) and are not in the
+    advance's write set.
+
+    Empty list when git cannot answer — a check that cannot run does not
+    block (the gate verdict check immediately after this one is the one that
+    refuses on missing evidence).
+    """
+    from core.utils.delivery_scope import is_harness_volatile
+
+    proc = subprocess.run(
+        # `-uall`, not the default: git collapses an entirely untracked
+        # directory into one `?? dir/` record, which then matches no
+        # exemption and names no file the operator can act on. Caught by
+        # tests/e2e/test_cli_journeys.py, which reported `.methodology/trace/`
+        # while the file inside it is one this command stages itself.
+        ["git", "-C", str(project), "status", "--porcelain", "-z", "-uall"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return []
+
+    owned = set(_advance_commit_targets(
+        completed_phase, next_phase,
+        manifest_regenerated=True, fr_progress_exists=True,
+        gate_timestamps_exists=True, stage_pass_exists=True,
+        plan_exists=True, attestation_exists=True, setup_cfg_written=True,
+    ))
+
+    dirty: set[str] = set()
+    for rel in _porcelain_paths(proc.stdout):
+        if rel in owned or is_harness_volatile(rel):
+            continue
+        dirty.add(rel)
+    return sorted(dirty)
+
+
+def _porcelain_paths(stdout: str) -> "Iterator[str]":
+    """Repo-relative paths out of `git status --porcelain -z`.
+
+    NUL-separated so a path containing a newline cannot be read as two, and
+    unquoted so a non-ASCII path is not escaped — the same reasoning as
+    `core/utils/delivery_scope.py`'s `git ls-files -z`. A rename record
+    carries its source path in a second NUL-terminated field, which is
+    dropped: the destination is the one that has to be committed.
+    """
+    fields = [f for f in stdout.split("\0") if f]
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        status, rel = entry[:2], entry[3:]
+        if status[0] in ("R", "C"):
+            index += 1        # skip the source path that follows
+        yield rel
+
 
 def _enforcer_moved_note(project: Path, up_to_phase: int) -> str:
     """One line naming the phases whose recorded PASS predates a rule change.

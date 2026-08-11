@@ -112,6 +112,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         reports findings that would block entry there — the [BLOCKED] table
         names each one by check, rule and file:line. state.json was NOT
         advanced; resolve the listed findings and re-run
+    38  advance-phase: delivered files differ from HEAD, so the commit about to
+        record this phase does not contain the tree the phase's checks were
+        measured on — the [BLOCKED] list names each file. Commit the listed
+        work (or gitignore it, if it is generated at runtime) and re-run
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

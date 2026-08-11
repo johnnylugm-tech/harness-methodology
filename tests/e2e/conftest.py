@@ -115,6 +115,16 @@ def e2e_project(tmp_path):
     _git(proj, "config", "user.email", "e2e@example.com")
     _git(proj, "config", "user.name", "e2e")
     _git(proj, "config", "core.hooksPath", ".git/hooks")
+    # Round 44 站2: a real project gets these from `harness_cli.py init`
+    # (harness/git_strategy.py::_GITIGNORE_ENTRIES). Without them the fixture
+    # delivers files a real project never delivers — `attestation.latest.json`
+    # is regenerated on every trace build and is gitignored precisely so it
+    # does not count as project content. Read from the SSOT rather than
+    # restated, so a new entry there reaches this fixture too.
+    from harness.git_strategy import _GITIGNORE_ENTRIES
+    (proj / ".gitignore").write_text(
+        "\n".join(_GITIGNORE_ENTRIES) + "\n", encoding="utf-8",
+    )
 
     meth = proj / ".methodology"
     meth.mkdir()

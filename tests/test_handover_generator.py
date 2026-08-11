@@ -975,6 +975,29 @@ class TestCmdPushMilestone:
 
 # ─── cmd_advance_phase ──────────────────────────────────────────────────────
 
+def _stub_run(stdout: str = ""):
+    """A `subprocess.run` stand-in that answers `git status` truthfully.
+
+    Round 44 站2. The three gate-variance tests below each carried their own
+    copy of a blanket stub returning the same canned pytest output for EVERY
+    subprocess call. `cmd_advance_phase` now runs `git status --porcelain -z
+    -uall` before it writes anything, and a stub that answers that with
+    coverage output makes the command parse `TOTAL 10 0 100%` as a filename
+    and refuse. Empty output — a clean tree — is what these fixtures build,
+    so it is also what the stub should say.
+
+    One helper instead of five copies: the next check to read a new git verb
+    has one place to teach.
+    """
+    def _run(cmd, **_kw):
+        class R:
+            returncode = 0
+            stderr = ""
+        R.stdout = "" if "status" in (cmd or []) else stdout  # type: ignore[attr-defined]
+        return R()
+    return _run
+
+
 class TestCmdAdvancePhase:
     """Tests for cmd_advance_phase HANDOVER regeneration and git operations."""
 
@@ -1588,12 +1611,7 @@ class TestCmdAdvancePhase:
         """P1 missing required deliverables → blocked with exit 8 via C1."""
         (tmp_path / ".methodology").mkdir()
 
-        def _fake_run(cmd, **kw):
-            class R:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-            return R()
+        _fake_run = _stub_run()
 
         exit_code, _ = self._call_advance_phase(
             monkeypatch, tmp_path, completed=1, skip_prechecks=False,
@@ -1624,12 +1642,7 @@ class TestCmdAdvancePhase:
             f'{anchor_for("TEST_INVENTORY.yaml")} — fixture\ntests: []'
         )
 
-        def _fake_run(cmd, **kw):
-            class R:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-            return R()
+        _fake_run = _stub_run()
 
         exit_code, _ = self._call_advance_phase(
             monkeypatch, tmp_path, completed=1, skip_prechecks=False,
@@ -1846,13 +1859,8 @@ class TestCmdAdvancePhase:
                 f"# stub for {fr}\n", encoding="utf-8"
             )
 
-        def _fake_run(cmd, **kw):
-            class R:
-                returncode = 0
-                # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
-                stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
-                stderr = ""
-            return R()
+        # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
+        _fake_run = _stub_run("===== test session starts =====\nTOTAL    10  0  100%\n")
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
@@ -1909,13 +1917,8 @@ class TestCmdAdvancePhase:
                 f"\"\"\"[{fr}] stub module.\"\"\"\n", encoding="utf-8"
             )
 
-        def _fake_run(cmd, **kw):
-            class R:
-                returncode = 0
-                # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
-                stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
-                stderr = ""
-            return R()
+        # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
+        _fake_run = _stub_run("===== test session starts =====\nTOTAL    10  0  100%\n")
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,
@@ -1977,12 +1980,8 @@ class TestCmdAdvancePhase:
                 f"\"\"\"[{fr}] stub module.\"\"\"\n", encoding="utf-8"
             )
 
-        def _fake_run(cmd, **kw):
-            class R:
-                returncode = 0
-                stdout = "===== test session starts =====\nTOTAL    10  0  100%\n"
-                stderr = ""
-            return R()
+        # Gate 1 per-FR live pytest needs TOTAL coverage in stdout
+        _fake_run = _stub_run("===== test session starts =====\nTOTAL    10  0  100%\n")
 
         exit_code, output = self._call_advance_phase(
             monkeypatch, tmp_path, completed=3, skip_prechecks=False,

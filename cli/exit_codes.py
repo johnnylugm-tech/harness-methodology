@@ -63,6 +63,7 @@ EX_ADVANCE_GATE_VERDICT_MISSING = 34
 EX_STEP_PRECONDITION_BLOCKED = 35
 EX_STEP_REPEATED_FAILURE = 36
 EX_ADVANCE_ENTRY_OBLIGATIONS = 37
+EX_ADVANCE_UNCOMMITTED_DELIVERABLES = 38
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -105,6 +106,7 @@ REGISTRY: dict[int, str] = {
     EX_STEP_PRECONDITION_BLOCKED: "run-fr-step: the step correctly did nothing because its precondition was not met (a refactor step cannot run on a red baseline) — this is not an agent-logic error and re-dispatching it changes nothing; repair the named baseline failure, or revert the step that produced it, then re-run",
     EX_STEP_REPEATED_FAILURE: "run-fr-step: this (FR, step) pair has already failed with an identical signature as many times as the in-process retry allows — refusing to spend another dispatch on a failure that has not changed; read .methodology/degradations.jsonl for the signature and fix the underlying cause",
     EX_ADVANCE_ENTRY_OBLIGATIONS: "advance-phase: the preflight simulated at the phase being entered reports findings that would block entry there — the [BLOCKED] table names each one by check, rule and file:line. state.json was NOT advanced: a project whose current_phase names a phase its own entry preflight rejects is a state with no truth value. Resolve the listed findings and re-run",
+    EX_ADVANCE_UNCOMMITTED_DELIVERABLES: "advance-phase: delivered files differ from HEAD, so the commit about to record this phase does not contain the tree the phase's checks were measured on — the [BLOCKED] list names each file. Harness bookkeeping and the files this command rewrites itself are excluded. Commit the listed work (or gitignore it, if it is generated at runtime) and re-run",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
     EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
 }

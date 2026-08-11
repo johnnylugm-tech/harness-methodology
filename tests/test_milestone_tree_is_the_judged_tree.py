@@ -121,9 +121,10 @@ def test_advance_refuses_a_modified_deliverable(advance_project, capsys):
         f"checks were measured on"
     )
     assert _state(proj)["current_phase"] == 1
-    out = capsys.readouterr().out
-    assert "[BLOCKED]" in out
-    assert "src/app.py" in out, "the block must name the files, not the rule"
+    # stderr, matching the gate-verdict refusal this one sits next to.
+    err = capsys.readouterr().err
+    assert "[BLOCKED]" in err
+    assert "src/app.py" in err, "the block must name the files, not the rule"
 
 
 def test_advance_refuses_an_untracked_deliverable(advance_project):
