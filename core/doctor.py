@@ -14,6 +14,7 @@ An auto-repair path would itself become a fabrication surface.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 from dataclasses import dataclass
@@ -221,6 +222,13 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # files at once.
     findings.extend(_check_ci_template_drift(project))
 
+    # 15. the tree a milestone certifies vs the tree its commit records
+    # (Round 44 站4). Station 2 makes the two agree from now on; this is the
+    # reader for records written before that, and the only one that can name
+    # a phase already turned over on work that was never committed. WARN, and
+    # it re-judges nothing — the same standing as _check_phase_verdict_staleness.
+    findings.extend(_check_milestone_tree_matches_verdict(project))
+
     # NOT here: the CI verdict for HEAD (Round 37). It was wired in and taken
     # back out — doctor is at-rest, offline, cross-FILE reconciliation, and a
     # `gh run list` per invocation makes every doctor call network-bound and
@@ -415,6 +423,109 @@ def _check_phase_verdict_staleness(project: Path) -> list[Finding]:
             f"bar rather than a regression you introduced. The verdict is not "
             f"waived: fix what the check names. This is here so you know which "
             f"of the two it is.",
+        ))
+    return findings
+
+
+def _check_milestone_tree_matches_verdict(project: Path) -> list[Finding]:
+    """WARN for each completed phase whose commit is not the tree it was judged on.
+
+    Round 44 站4. Two comparisons, in order, and both compare digests taken
+    under the same definition — a cross-definition comparison would report
+    every project as broken the day the definition moved, which is what the
+    first draft of this function did.
+
+      1. `phase_completed[N].delivered_tree_sha256` (station 2) against the
+         tree of `phase_completed[N].sha`. Exact, and the whole point of
+         recording the field.
+      2. For records written before that field existed: the phase's last PASS
+         verdict, which since station 1 carries both `delivered_tree_sha256`
+         (the tree measured) and `head_tree_sha256` (the tree git had). When
+         those two differ, the verdict was measured on content nobody had
+         committed. Both come out of one row, so no definition can drift
+         between them.
+
+    This is the shape taskq-advance's Phase 3 has: `81bbeb4` recorded as the
+    milestone at 13:17:55, the `@given` tests that unblocked its P4 entry
+    first entering git at 13:32, and `git archive 81bbeb4 | grep -rl @given`
+    empty.
+
+    Diagnosis, never a re-judgement — the same standing as
+    `_check_phase_verdict_staleness` above. The verdict does not move and
+    nothing is waived. What changes is that a milestone certifying a tree
+    nobody committed stops being invisible.
+
+    Silence when neither comparison is available (Round 39/40 — a record
+    predating a field is not a violation) or when git can no longer resolve
+    the sha (Round 32/35 — could-not-measure is not a finding).
+    """
+    from core.phase_topology import EXIT_GATE_MAP
+    from core.quality_gate.gate_verify import PASS, read_verdicts
+    from core.utils.delivery_scope import committed_tree_digest
+
+    try:
+        state = load_state(project, lenient=True)
+    except Exception:  # pylint: disable=broad-exception-caught
+        # `lenient=True` already routes a corrupt state.json to the
+        # degradation ledger; doctor does not re-report it.
+        logging.getLogger(__name__).debug(
+            "milestone-tree check: state.json unreadable for %s", project,
+            exc_info=True,
+        )
+        return []
+
+    completed = state.get("phase_completed") or {}
+    if not isinstance(completed, dict):
+        return []
+    verdicts, _err = read_verdicts(project)
+
+    findings: list[Finding] = []
+    for key in sorted(completed, key=lambda k: str(k)):
+        entry = completed.get(key)
+        if not isinstance(entry, dict):
+            continue
+        sha = entry.get("sha")
+        if not isinstance(sha, str) or not sha:
+            continue
+
+        recorded = entry.get("delivered_tree_sha256")
+        if isinstance(recorded, str) and recorded:
+            actual = committed_tree_digest(project, sha)
+            if not actual or actual == recorded:
+                continue
+            findings.append(Finding(
+                "provenance", "WARN",
+                f"Phase {key} was certified on a tree its own commit does not "
+                f"contain — the milestone records {recorded[:12]} and "
+                f"{sha[:12]}'s tree digests to {actual[:12]}. A clone of that "
+                f"commit is not what the phase's checks read. The verdict is "
+                f"not re-judged; this says which tree it was about.",
+            ))
+            continue
+
+        try:
+            gate = EXIT_GATE_MAP[int(key)]
+        except (KeyError, ValueError, TypeError):
+            continue
+        passes = [r for r in verdicts
+                  if r.get("gate") == gate and r.get("verdict") == PASS]
+        if not passes:
+            continue
+        latest = passes[-1]
+        measured = latest.get("delivered_tree_sha256")
+        committed = latest.get("head_tree_sha256")
+        if not isinstance(measured, str) or not isinstance(committed, str):
+            continue
+        if not measured or not committed or measured == committed:
+            continue
+        findings.append(Finding(
+            "provenance", "WARN",
+            f"Phase {key}'s gate {gate} PASS was measured on uncommitted "
+            f"content — the verdict read tree {measured[:12]} while git held "
+            f"{committed[:12]}, and the milestone is recorded at {sha[:12]}. "
+            f"Work that satisfied the phase's checks was in the working "
+            f"directory and not in any commit. The verdict is not re-judged; "
+            f"this says which tree it was about.",
         ))
     return findings
 

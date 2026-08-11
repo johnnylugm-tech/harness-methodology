@@ -1,12 +1,19 @@
 """A recorded milestone can be checked against the verdict that produced it.
 
-Round 44 站0/站4. Station 2 makes new advances record
-`phase_completed[N].delivered_tree_sha256`, so from then on the milestone and
-the verdict can be compared directly. Records written before that field
-existed — taskq-advance's `"3"`, whose `sha` is `81bbeb4`, a commit with no
-`@given` in it — still have one comparison available: the tree of that commit
-against the `delivered_tree_sha256` of the last PASS recorded for the phase's
-exit gate.
+Round 44 站0/站4. Two comparisons, and both stay inside one digest
+definition:
+
+  1. `phase_completed[N].delivered_tree_sha256` (station 2) against the tree
+     of `phase_completed[N].sha`.
+  2. For records predating that field: the phase's last PASS verdict, which
+     since station 1 carries both `delivered_tree_sha256` (the tree measured)
+     and `head_tree_sha256` (the tree git held). Different values mean the
+     verdict was measured on content nobody had committed.
+
+Comparing across the two — a verdict's recorded digest against a freshly
+computed one — is what the first draft did, and it would have reported every
+project as broken the day station 1 changed what the digest covers. The
+`_stale_definition` guard below pins that.
 
 This is diagnosis, never a re-judgement. Same standing as Round 43 站4's
 `phase_verdict_staleness`: the score does not move, nothing is waived, and
@@ -14,9 +21,9 @@ Round 38's rule that no threshold may be waived is untouched. What changes is
 that a milestone which certifies a tree nobody committed stops being
 invisible.
 
-Silence is the answer when there is nothing to compare (no recorded digest and
-no verdict for that gate) — Round 39/40: a record predating a field is not a
-violation; Round 32/35: could-not-measure is not a finding.
+Silence when neither comparison is available — Round 39/40: a record
+predating a field is not a violation; Round 32/35: could-not-measure is not a
+finding.
 """
 
 from __future__ import annotations
@@ -98,6 +105,7 @@ def test_a_milestone_certified_on_an_uncommitted_tree_is_named(
         "waived, not that the phase failed"
     )
     assert "Phase 3" in findings[0].message
+    assert "uncommitted content" in findings[0].message
 
 
 def test_a_milestone_whose_commit_carries_the_judged_tree_is_silent(
@@ -126,6 +134,31 @@ def test_a_recorded_tree_digest_is_compared_directly(
 def test_nothing_to_compare_says_nothing(milestone_project: Path) -> None:
     """No recorded digest and no verdict for the exit gate."""
     proj = milestone_project
+    _write_state(proj, {"sha": _head(proj)})
+
+    assert _check_milestone(proj) == []
+
+
+def test_a_verdict_predating_the_head_tree_field_says_nothing(
+    milestone_project: Path,
+) -> None:
+    """The guard against comparing across two digest definitions.
+
+    A verdict recorded before station 1 has `delivered_tree_sha256` computed
+    under the old scope and no `head_tree_sha256` at all. Comparing that
+    digest with a freshly computed one would report every project as broken
+    the day the definition moved — which is what the first draft of this
+    check did, and what it reported on a real taskq-advance copy.
+    """
+    proj = milestone_project
+    (proj / "test_property.py").write_text("from hypothesis import given\n",
+                                           encoding="utf-8")
+    row = _record_verdict(proj)
+    assert "head_tree_sha256" in row, "station 1 records it"
+
+    ledger = proj / ".methodology" / "gate_verify.jsonl"
+    legacy = {k: v for k, v in row.items() if k != "head_tree_sha256"}
+    ledger.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
     _write_state(proj, {"sha": _head(proj)})
 
     assert _check_milestone(proj) == []
@@ -172,7 +205,8 @@ def test_run_doctor_actually_runs_the_check(milestone_project: Path) -> None:
 
     findings = run_doctor(proj)
 
-    assert any("was certified on a tree" in f.message for f in findings), (
+    assert any("measured on uncommitted content" in f.message
+               for f in findings), (
         "run_doctor did not run the milestone-tree check: "
         f"{[f.message[:60] for f in findings]}"
     )
