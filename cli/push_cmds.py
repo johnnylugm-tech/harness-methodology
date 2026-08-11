@@ -338,26 +338,32 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
         )
         return 0
 
-    # Bug fix (P8 E2E 2026-07-04): write last_milestone_command + last_milestone_at
-    # to state.json BEFORE commit_and_push_* so the audit fields land in the
-    # pushed commit. See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
+    # Bug fix (P8 E2E 2026-07-04): write last_milestone_command to state.json
+    # BEFORE commit_and_push_* so the audit field lands in the pushed commit.
+    # See plan: ~/.claude/plans/abundant-stargazing-hejlsberg.md
     #
     # Revert-on-failure: ci_state_helper.cmd_is_p8 trusts last_milestone_command
     # alone (no success flag), so any exit below this point that didn't actually
     # push (validation failure or commit_and_push_* returning False) must restore
-    # these fields — otherwise a failed/blocked milestone still reads as pushed.
+    # this field — otherwise a failed/blocked milestone still reads as pushed.
+    #
+    # Round 45 站6 removed `last_milestone_at`, written here and nowhere else
+    # and read by nothing in py, js, docs or tests. It was worse than inert:
+    # `cli/phase_cmds.py`'s advance-phase updates last_milestone_command
+    # without touching it, so the pair was permanently inconsistent — measured
+    # on taskq-advance, `last_milestone_command: "advance-phase
+    # --completed-phase 6"` sat beside an `at` from the P5→P6 push-milestone
+    # four and a half hours earlier. A dead field that makes a live field look
+    # broken (Round 39: removing a mechanism means removing its statements).
     state_path = project / ".methodology" / "state.json"
     _prev_last_milestone_command = None
-    _prev_last_milestone_at = None
     _wrote_milestone_state = False
     if state_path.exists():
         try:
             with file_lock(state_lock_path(project)):
                 _state_data = load_state(project)
                 _prev_last_milestone_command = _state_data.get("last_milestone_command")
-                _prev_last_milestone_at = _state_data.get("last_milestone_at")
                 _state_data["last_milestone_command"] = f"push-milestone --type {milestone_type}"
-                _state_data["last_milestone_at"] = datetime.now(timezone.utc).isoformat()
                 atomic_write_json(state_path, _state_data)
                 _wrote_milestone_state = True
         except Exception as _state_err:  # pylint: disable=broad-exception-caught
@@ -375,10 +381,6 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
                     _sd.pop("last_milestone_command", None)
                 else:
                     _sd["last_milestone_command"] = _prev_last_milestone_command
-                if _prev_last_milestone_at is None:
-                    _sd.pop("last_milestone_at", None)
-                else:
-                    _sd["last_milestone_at"] = _prev_last_milestone_at
                 atomic_write_json(state_path, _sd)
         except Exception as _revert_err:  # pylint: disable=broad-exception-caught
             print(f"  [WARN] Could not revert stale milestone audit fields: {_revert_err}")

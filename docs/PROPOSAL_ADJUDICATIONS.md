@@ -2274,3 +2274,150 @@ vs `head_tree_sha256`）。誠實的代價：**taskq-advance 今天跑 doctor �
 - **D3 的嚴重度是推論而非實證**：本輪未在任何一份**最終**判定上觀測到覆蓋不足。
   若日後量到一份最終 gate result 的 `calibration.graph_files < source_files`，
   那才是實證，記進本節。
+
+---
+
+## Round 45（2026-08-12）—— 判定被保存，證明判定的東西沒有
+
+**來源**：老闆令「檢視 taskq-advance 在 P4~P6 的執行過程和紀錄以及 harness-methodology
+的 git history，探討是否有其他根本性或結構性問題」。無外部報告，本輪五項發現全部
+自行量測得出。
+
+### 主要發現：一份 96 分的發布判定，引用了 11 個不存在的檔案
+
+taskq-advance 停在 Phase 7。它的 P6 出口判定 `gate4_result.json`
+（`composite_score: 95.978`, `verdict: PASS`）逐維度列出 `tool_output` 作為證據。
+
+| 判定 | breakdown 維度 | 引用的檔案不存在 |
+|---|---|---|
+| `gate4_result.json`（P6 出口，發布判定） | 15 | **11** |
+| `gate3_result.json`（P4 出口） | 16 | **9** |
+
+站0 把量測擴到五個專案的所有已 commit 判定：
+
+| 專案 | cited | 仍存在 |
+|---|---|---|
+| taskq | 36 | 0 |
+| taskq-plus | 37 | 1 |
+| taskq-renew | 36 | 0 |
+| taskq-api | 12 | 0 |
+| taskq-advance | 41 | 12 |
+| **合計** | **162** | **13**（92% 懸空） |
+
+不存在的原因不是誰刪錯了 —— 它們全部指向 `.sessi-work/`，而
+`.sessi-work/` 是 **harness 自己**寫進每個專案 `.gitignore` 的第一條
+（`harness/git_strategy.py::_GITIGNORE_ENTRIES`）。
+
+### 根源
+
+**框架從來沒有在任何一個地方宣告：哪一份紀錄要活多久、由誰保證。**
+每個寫入者各自決定保存期限，每個檢查者各自假設別人還在：
+
+| 登記處 | 實際生命週期 | 誰假設它還在 |
+|---|---|---|
+| `breakdown[*].tool_output` → `.sessi-work/` | gitignored，跑完即失 | 判定自己（永久 commit） |
+| `.sessi-work/sentinels/*.finalized` | gitignored，**永不修剪** | doctor、advance-phase |
+| `.gate1_scores.json` | tracked，**只留當前+前一個 phase** | `verify_finalize_evidence` |
+| `gate_timestamps.jsonl` | tracked，**修剪到最後 200 筆** | doctor 的第二證據通道 |
+| `gate_results/gate{N}/{fr}.json` | tracked，**可被任何 commit 刪掉** | 沒有人 |
+
+R44 母體的下一層：R44 修「判定指向哪個版本」，本輪是「判定指向的東西還在不在」。
+
+### 站0 三項前提查證（兩項修正了計畫）
+
+1. **cited tool_output 體積** —— 上表。仍存在的最大 19,994 B（`bug_hunt_report.json`，
+   本來就在 `.methodology/`）；`.sessi-work` 內最大 4,264 B。
+   **無任何 scancode 原始輸出樣本存活**，所以 1 MB 上限是外推，據實記錄。
+2. **`.gate1_scores.json` 的 2-phase 窗口是否必要** —— 不必要。10 FR × 8 phase =
+   **1,706 bytes**；30 FR × 9 phase = 5,519。`gate_timestamps.jsonl` 131 B/row，
+   200-row cap 上界 26 KB。**「bound file growth」在實測下不成立** → 兩個窗口都拿掉（減法優先）。
+3. **advance-phase 跑 doctor 的耗時** —— `run_doctor` **1.15s**。站5 跑完整 doctor，
+   **不需要子集 registry**，比計畫少造一個機制。
+
+### 計畫的兩句敘述被程式碼推翻（已更正）
+
+- `evidence_digest` **已經**涵蓋 `tool_output`（`harness_bridge.py:1227`；
+  taskq-advance gate4 有 14 個維度的指紋），不是只有 `setup.cfg`/`.gitleaksignore`。
+- `_check_tool_evidence` **已經**對所有 `requires_tool_execution` 維度阻擋不存在的
+  `tool_output`（`:1211`），不是只有 skip-list 工具。
+
+所以框架在下判定的那一刻檢查了證據存在、也算了指紋 —— **它唯一沒做的是讓那個檔案活下來**。
+`harness_bridge.py:2650` 的註解白紙黑字寫著指紋與判定
+「cannot be separated by a cleanup of the gitignored work directory」；
+指紋活下來了，被指紋的東西沒有。**14 個 sha256 對應 14 個不存在的檔案。**
+
+### 五站修復
+
+| 站 | 做了什麼 | 真實資料驗收 |
+|---|---|---|
+| 1 | `persist_cited_evidence` 把引用的 `tool_output` 複製到 `.methodology/gate_evidence/gate{N}/` 並改寫引用，寫回結果檔。零新增判定邏輯 | finalize 後 `.sessi-work` 全刪，引用仍解得開 |
+| 2 | 兩個保存窗口移除（`GATE_TIMESTAMPS_MAX_ENTRIES` 一併刪除，不留死常數）；`verify_finalize_evidence` 分「無法佐證」與「矛盾」 | `/tmp/r45-adv` doctor **30 error → 0 error** |
+| 3 | 收據改指 per-FR 結果檔（`RECEIPT_SCHEMA` 1→2，兩者皆可讀），`verify_finalize_evidence` 解 `result_sha256` | doctor **精確指名 FR-03/05/06/08/10 五筆，並說出是 `30638d9` 刪的** |
+| 4 | GATE1 prompt 三處由 `load_gate_dimensions(1)` 渲染；`GATE1_DIMENSION_PROSE` 缺項在 build 時炸 | golden 重生時發現**第三處活漂移**：`architecture_constraints` 在 `b288c9d` 之後仍缺席於 Scoring formulas |
+| 5 | advance-phase 跑 `run_doctor`，ERROR 落 `doctor:<check>`，不阻擋 | **今天在 taskq-advance 上產出為零**（站2 之後只剩 WARN），照實記錄 |
+
+### 本輪自己的錯（必記）
+
+**站1 第一版只改了記憶體裡的 dict。** 站0 的六條紅測試全部呼叫純函式，
+所以沒有一條會發現磁碟上的檔案、以及 `cli/gate_cmds.py` 複製到 `.methodology/`
+的那一份，仍然引用 `.sessi-work/`。是讀程式碼發現的，不是測試發現的 ——
+補了一條走 `finalize_gate` 並斷言持久化 JSON 的測試（刻意走 BLOCKED 路徑）。
+
+**站3 第一版會製造新的假指控。** schema-1 收據指的是滾動別名
+`gate{N}_result.json`，下一個 FR 的 finalize 就會覆蓋它 —— 依構造，一個 phase
+裡除了最後一個 FR，每一份收據的 `result_sha256` 早就解不開。第一版比對它，
+在真副本上對 FR-01/FR-02 各產生 4 筆「evidence was rewritten」。
+schema 版本化之後歸零。**站2 才剛拆掉三十筆假指控，四小時後差點自己造一批。**
+
+### 站6 在收口時抓到的第三個自己的錯
+
+taskq-advance 在本輪進行中被另一個 session 推到 **Phase 9**（`e69fcf4`），
+P8 重跑了十支 FR。副作用：`30638d9` 刪掉的五個檔**被 P8 的 finalize 寫回來了** ——
+框架不是偵測到而復原，是碰巧覆蓋回去。
+
+但量測揭露一件結構性的事：`gate_results/gate1/{fr}.json` **路徑裡沒有 phase**，
+一個 FR 永遠只有一格，每個重跑該 FR 的 phase 都覆寫它。現況：
+
+| FR | 檔案內的 phase |
+|---|---|
+| FR-01 / 02 / 04 / 07 / 09 | 7（從未被刪） |
+| FR-03 / 05 / 06 / 08 / 10 | **8**（P8 寫回來的） |
+
+所以那五支 FR 的 **phase-7 判定，現在沒有任何對應產物**。
+
+**站3 因此埋了一顆未爆彈**：schema-2 收據會拿 phase-7 的 digest 去比對 phase-8
+的檔案，對每一支 FR、每一個 phase 邊界、永遠。**站2 才剛拆掉的假指控機器，
+在下一站被我自己重建了一次。** 站6 修法：只有當磁碟上的產物與收據同 phase 時
+才比對內容；不同 phase 是合法的後續執行，存在性照查，內容不予置評。
+
+三次自我糾錯的共同形狀：**站1 只改了記憶體、站3 第一版跨 schema 比對、
+站3 第二版跨 phase 比對** —— 每一次都是「比對了兩個不同定義下的東西」，
+與 R44 站4 的錯誤同型。
+
+### 明列不做（附再開條件）
+
+| 項目 | 理由 |
+|---|---|
+| 不動 `cli/gate_cmds.py` 的 `--fr-id` 不一致改寫語意 | `b288c9d` 8/11 剛落地。本輪只讓「證據不見了」被說出來。改寫語意是否應改成整筆拒絕，是下一輪候選 |
+| 收據本身住在 gitignored 的 `.sessi-work/sentinels/` | **站3 在 fresh clone 上因此沉默。** 與站1 同一個病（證據住在不持久的地方），本輪不擴大到「把收據也搬進 `.methodology/`」——下一輪候選 |
+| `cli/fr_prompts/gate.py` 有一段重複死碼 | `spec_section` 在 21-31 行算一次、41-49 行覆寫一次。與本輪需求無關，**告知不刪** |
+| 不改任何 gate 門檻、權重、維度集合的數值 | 站4 只改「誰來說」 |
+
+### 減法
+
+`last_milestone_at` 移除。全 repo 零讀者（py/js/docs/tests），只有
+`cli/push_cmds.py` 寫它與 revert 它。而 `cli/phase_cmds.py` 的 advance-phase
+更新 `last_milestone_command` 卻不碰它 —— 量測於 taskq-advance：
+`command: "advance-phase --completed-phase 6"` 配一個四個半小時前 P5→P6
+push-milestone 的 `at`。**一個死欄位讓一個活欄位看起來是壞的**（R39 母體）。
+
+### 我查過但**不**列為缺陷的
+
+| 候選 | 裁決 |
+|---|---|
+| `gate_timestamps.jsonl` 每一列都沒有 verdict/score，卻被 doctor 當證據 | **不是 bug**。`record_gate_timestamp` 只在所有檢查通過之後才呼叫（`cli/gate_cmds.py`，註解明說「Failed attempts must not leave a trace」），「有列」蘊含「通過了」 |
+| run-report 在 per-FR 檔被刪後會張冠李戴 | **被我自己證偽**。`_gate_provenance_report` 不傳 `fr_id`，glob 目錄取第一個並 `break`，且把該檔自己的 `fr_id` 一起印出（`report_cmds.py:168-186`） |
+| `gate:s4:test_coverage` 抽象棄權讓 agent 的數字免審 | **程式碼是對的**（`harness_bridge.py:1675-1690` 記 ledger 並丟進 `unverifiable`，2693 拋 `GateBlockedError`）。P4–P7 反覆出現的真因是 `run_tool` 從 ambient PATH 撿到 3.9 的 pytest —— **同一棵樹會因為誰啟動它而 PASS 或 infra_fail** —— 08-11 22:58 `8eb1992` 已修 |
+| P6 被完整跑了兩次（`1b98c93` 16:55 與 `5f51fb5` 20:42 兩個 release commit） | **沒有框架機制被牽連**。兩次之間 10 支 FR + Gate 4 全部重跑，`phase_completed["6"]` 只記第二次。列為觀察 |
+| `crg:graph-scope`：16:55:54 圖只涵蓋 51/53 個交付檔，同一分鐘 Gate 4 PASS 96.0 | **不是新缺陷 —— 是 R44 站3 的活實例**。R44 誠實記過「我沒有在任何一份最終判定上觀測到覆蓋不足」，**現在觀測到了**，回填該條 |
+| `spec:undelivered` 23/89、traceability 74.16 vs yaml 100 | R44 已裁決，不重查 |

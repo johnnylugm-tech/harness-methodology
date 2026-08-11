@@ -414,6 +414,23 @@ def _per_fr_result_problems(
     if int(receipt.get("schema") or 1) < 2:
         return []
 
+    # The path carries no phase: `gate_results/gate{N}/{fr}.json` is one slot
+    # per FR, rewritten by every phase that re-runs that FR's gate. Measured on
+    # taskq-advance after its P8 run — FR-03, FR-05, FR-06, FR-08 and FR-10 now
+    # hold phase-8 results while their phase-7 receipts still exist. That is a
+    # legitimate later run, not a rewrite of this verdict's evidence, and
+    # comparing across it would fire for every FR at every phase boundary
+    # forever: the same false-accusation machine station 2 removed, rebuilt one
+    # station later. Existence has been checked; content cannot be.
+    try:
+        _on_disk_phase = json.loads(
+            per_fr.read_text(encoding="utf-8")
+        ).get("phase")
+    except (OSError, ValueError):
+        _on_disk_phase = None
+    if _on_disk_phase is not None and _on_disk_phase != receipt.get("phase"):
+        return []
+
     expected = receipt.get("result_sha256")
     if digest_of_file(per_fr, source=str(per_fr)).get("sha256") == expected:
         return []

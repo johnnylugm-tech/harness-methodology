@@ -400,7 +400,10 @@ class TestPushMilestoneStateJsonWriteBeforePush:
         # 1. on-disk content
         sd = json.loads(state_path.read_text(encoding="utf-8"))
         assert sd["last_milestone_command"] == "push-milestone --type p8"
-        assert "last_milestone_at" in sd
+        # Round 45 站6 removed last_milestone_at: written only here, read
+        # by nothing, and left permanently stale by advance-phase updating
+        # its sibling without it.
+        assert "last_milestone_at" not in sd
         assert sd["existing"] is True  # pre-existing keys preserved
 
         # 2. ordering: state.json write must precede commit_and_push_p8
@@ -455,7 +458,6 @@ class TestPushMilestoneStateJsonWriteBeforePush:
 
         sd = json.loads(state_path.read_text(encoding="utf-8"))
         assert "last_milestone_command" not in sd
-        assert "last_milestone_at" not in sd
         assert sd["existing"] is True
 
     def test_reverted_on_push_failure(self, tmp_path, monkeypatch):

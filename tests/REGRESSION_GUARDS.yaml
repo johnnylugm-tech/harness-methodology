@@ -1810,3 +1810,113 @@
 - test: tests/test_milestone_tree_doctor.py::test_run_doctor_actually_runs_the_check
   bug: "R43 站4 shipped a check nobody ran, guarded by tests that all called it directly; the counter-proof only went red after a test drove run_doctor end to end. Registered here so the second instance of that shape cannot repeat it"
   fixed_in: "R44-站4"
+
+# ── Round 45 — 判定被保存，證明判定的東西沒有 ───────────────────────────────
+
+- test: tests/test_verdict_evidence_survives.py::test_the_cited_evidence_survives_a_cleanup_of_the_work_directory
+  bug: "measured across five projects' committed gate results, 162 dimensions cite a tool_output file and 13 of those files still exist. taskq, taskq-renew and taskq-api have none at all; taskq-advance's P6 release verdict (composite 95.978, PASS) carries 14 sha256 values for 14 files that do not exist. Every cited path is under .sessi-work/, which the harness itself writes as the first line of each project's .gitignore"
+  fixed_in: "R45-站1 (persist_cited_evidence copies them under .methodology/gate_evidence/ and re-points the citation)"
+
+- test: tests/test_verdict_evidence_survives.py::test_the_surviving_copy_lives_under_methodology
+  bug: ".methodology/ is what a clone gets; .sessi-work/ is what it does not"
+  fixed_in: "R45-站1"
+
+- test: tests/test_verdict_evidence_survives.py::test_the_digest_names_the_path_that_survived
+  bug: "harness_bridge.py:2650 claimed the fingerprints and the proof 'cannot be separated by a cleanup of the gitignored work directory'. Half of it shipped: S3 verified existence (:1211) and fingerprinted the file (:1227), and nothing kept it. A sha256 of a file nobody has is a claim that cannot be checked"
+  fixed_in: "R45-站1 (persist runs before S3, so the digest's source names the surviving copy)"
+
+- test: tests/test_verdict_evidence_survives.py::test_an_already_durable_citation_is_still_resolvable
+  bug: "a dimension already citing .methodology/ must not be broken by the copy"
+  fixed_in: "R45-站1"
+
+- test: tests/test_verdict_evidence_survives.py::test_finalize_writes_the_new_citation_to_the_result_file
+  bug: "the first draft mutated finalize_gate's in-memory dict only, and every station-0 test called the pure function — so nothing would have noticed that the file on disk, and the copy cli/gate_cmds.py persists to .methodology/, still cited .sessi-work/. Deliberately asserted on a BLOCKED path: the citation must survive a later refusal"
+  fixed_in: "R45-站1 (conditional write-back, added during implementation after the gap was found by reading)"
+
+- test: tests/test_verdict_evidence_survives.py::test_a_path_escaping_the_project_is_left_for_s3_to_refuse
+  bug: "copying a path that escapes the project root would launder an escape into a citation that resolves; containment is already S3's refusal to make"
+  fixed_in: "R45-站1"
+
+- test: tests/test_verdict_evidence_survives.py::test_an_oversized_file_is_recorded_not_silently_dropped
+  bug: "a thing the framework chose not to do is not a thing that did not happen (R32/R35) — over values.gate_evidence_max_bytes the citation stays put and the ledger says why"
+  fixed_in: "R45-站1"
+
+- test: tests/test_evidence_retention_window.py::test_a_score_from_five_phases_ago_is_still_on_record
+  bug: "record_gate1_score pruned every phase older than (phase - 1) 'to bound file growth'. Measured: the whole file unpruned is 1,706 bytes at 10 FRs x 8 phases. .sessi-work/sentinels/ is never pruned (120 files on taskq-advance) and verify_finalize_evidence demands the two agree, so doctor emitted THIRTY ERROR-level fabrication accusations against a project that passed every gate"
+  fixed_in: "R45-站2 (both retention windows removed; GATE_TIMESTAMPS_MAX_ENTRIES deleted, not left as a constant nobody reads)"
+
+- test: tests/test_evidence_retention_window.py::test_a_phase_the_register_never_knew_is_not_an_accusation
+  bug: "removing the prune cannot restore what earlier runs already dropped; a register holding other phases but not this one cannot speak about it, and silence is the honest answer (R32/R35, R39/R40)"
+  fixed_in: "R45-站2"
+
+- test: tests/test_evidence_retention_window.py::test_an_fr_missing_from_a_phase_the_register_does_know_is_an_accusation
+  bug: "negative control — the phase key was written by that phase's other FRs, so this FR's absence is a real contradiction and keeps its ERROR"
+  fixed_in: "R45-站2"
+
+- test: tests/test_evidence_retention_window.py::test_a_score_that_disagrees_with_the_receipt_is_still_an_accusation
+  bug: "R32 站2's content contract must survive the retention fix untouched"
+  fixed_in: "R45-站2"
+
+- test: tests/test_per_fr_result_reconciliation.py::test_a_deleted_per_fr_result_is_named
+  bug: "30638d9 'feat(FR-09): Gate1 PASS — score=100.0 [phase=7]' deleted FR-03/05/06/08/10.json in 539 lines of removal, and fr_progress.json, .gate1_scores.json and CLAUDE.md's FR Registry all still say those five scored 100.0. The receipt has carried result_sha256 since R32 站1 and nobody had ever dereferenced the pointer"
+  fixed_in: "R45-站3 (verify_finalize_evidence resolves it; the message names the deleting commit)"
+
+- test: tests/test_per_fr_result_reconciliation.py::test_a_rewritten_per_fr_result_is_named
+  bug: "present but not the artifact the verdict was taken on — R26 站2's rule that evidence must not be rewritable under a recorded verdict"
+  fixed_in: "R45-站3 (schema-2 receipts only; a schema-1 receipt digested the rolling alias, which the next FR's finalize overwrites by construction)"
+
+- test: tests/test_per_fr_result_reconciliation.py::test_a_finalized_fr_with_its_result_on_disk_is_clean
+  bug: "negative control — the check must not fire on what a genuine finalize leaves behind"
+  fixed_in: "R45-站3"
+
+- test: tests/test_per_fr_result_reconciliation.py::test_a_receipt_that_names_no_result_keeps_its_existing_complaint
+  bug: "R32 站1's 'names no gate result' refusal must not be replaced or duplicated by the new dereference"
+  fixed_in: "R45-站3"
+
+- test: tests/test_gate1_prompt_renders_from_config.py::test_a_fifth_dimension_reaches_all_three_places
+  bug: "the GATE1 template listed 3 of the 4 dimensions gate1_per_fr.yaml declares (b288c9d, 2026-08-11), so an agent reading it verbatim produced a result whose architecture_constraints block had no tool_evidence and S3 blocked FR-09 on a live P7. That fix typed the fourth in; the copy stayed, so the fifth would drift the same way"
+  fixed_in: "R45-站4 (all three places render from load_gate_dimensions(1))"
+
+- test: tests/test_gate1_prompt_renders_from_config.py::test_the_formula_uses_the_weights_the_yaml_declares
+  bug: "b288c9d also had to hand-correct 0.33/0.33/0.34 to 0.25x4 — the weights were prose too"
+  fixed_in: "R45-站4"
+
+- test: tests/test_gate1_prompt_renders_from_config.py::test_every_threshold_comes_from_the_same_place
+  bug: "three of the four thresholds went through the SSOT and architecture_constraints was a literal 100"
+  fixed_in: "R45-站4"
+
+- test: tests/test_gate1_prompt_renders_from_config.py::test_a_dimension_with_no_scoring_prose_is_a_build_time_failure
+  bug: "how to run a tool and how to score its output are prose and do not belong in the YAML; a dimension with no entry would produce a prompt that says nothing about a dimension the gate will score. Regenerating the goldens found a third live instance: architecture_constraints was still absent from the Scoring formulas list after b288c9d"
+  fixed_in: "R45-站4 (GATE1_DIMENSION_PROSE, one entry per dimension, KeyError at build time)"
+
+- test: tests/test_gate1_prompt_renders_from_config.py::test_the_shipped_config_still_renders_four_dimensions
+  bug: "anchor on the real YAML — the render must not change the prompt's subject matter, only where it comes from"
+  fixed_in: "R45-站4"
+
+- test: tests/test_advance_runs_doctor.py::test_an_error_finding_reaches_the_ledger
+  bug: "grep -rn 'run_doctor' found ONE call site — cli/project_cmds.py, which IS the doctor command. R43 站4's enforcer provenance, R44 站4's milestone-tree check and R45 站3's per-FR reconciliation had never been read at a phase boundary. R43's mother pattern at the level of a whole command"
+  fixed_in: "R45-站5 (advance-phase runs it; ERRORs land as doctor:<check>)"
+
+- test: tests/test_advance_runs_doctor.py::test_the_advance_still_turns_the_phase_over
+  bug: "station 2 removed thirty false ERRORs from this same command four hours earlier; a check with that history gets a reader, not the power to stop a pipeline"
+  fixed_in: "R45-站5 (exit code unchanged, runs after the advance)"
+
+- test: tests/test_advance_runs_doctor.py::test_warnings_are_not_ledger_rows
+  bug: "taskq-advance's doctor output is seven WARNs; writing those every advance would bury the ERRORs the wiring exists to surface"
+  fixed_in: "R45-站5"
+
+- test: tests/test_advance_runs_doctor.py::test_a_doctor_crash_does_not_take_the_advance_with_it
+  bug: "the phase has already turned over, so a diagnostic that raises must not undo a correct milestone — nor read as a clean run (docs/ERROR_HANDLING.md)"
+  fixed_in: "R45-站5 (doctor:unavailable + printed)"
+
+- test: tests/test_anti_fabrication.py::TestGate1ScoreRecording::test_earlier_phases_are_kept
+  bug: "replaces test_stale_phases_pruned, which pinned the retention window this round removed. Rewritten rather than deleted so the new contract is the one on record"
+  fixed_in: "R45-站2"
+
+- test: tests/test_anti_fabrication.py::TestPersistentCommitIntervals::test_history_is_not_trimmed
+  bug: "replaces test_trim_to_max_entries. gate_timestamps.jsonl is one of the two channels a finalize receipt is corroborated against and receipts are never pruned, so the 200-row cap guaranteed a long enough project would be accused of forging its own early phases"
+  fixed_in: "R45-站2"
+
+- test: tests/test_per_fr_result_reconciliation.py::test_a_later_phase_rerunning_the_fr_is_not_a_rewrite
+  bug: "found by measuring the live project after station 3 had already shipped. gate_results/gate1/{fr}.json carries no phase — it is ONE slot per FR, rewritten by every phase that re-runs that FR's gate. taskq-advance advanced to Phase 9 mid-round and its P8 run left FR-03/05/06/08/10 holding phase-8 results beside their phase-7 receipts. Comparing across that would have fired for every FR at every phase boundary forever: station 2's false-accusation machine rebuilt one station later"
+  fixed_in: "R45-站6 (digest compared only when the artifact on disk is for the receipt's own phase)"

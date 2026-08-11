@@ -129,6 +129,29 @@ def test_a_rewritten_per_fr_result_is_named(finalized):
     assert "sha256" in joined or "digest" in joined, problems
 
 
+def test_a_later_phase_rerunning_the_fr_is_not_a_rewrite(finalized):
+    """Found by measuring the live project after station 3 had shipped.
+
+    `gate_results/gate1/{fr}.json` carries no phase — it is ONE slot per FR,
+    rewritten by every phase that re-runs that FR's gate. taskq-advance
+    advanced to Phase 9 during this round, and its P8 run left FR-03, FR-05,
+    FR-06, FR-08 and FR-10 holding phase-8 results while their phase-7
+    receipts still exist.
+
+    That is a legitimate later run, not evidence rewritten under a verdict.
+    Comparing across it would fire for every FR at every phase boundary
+    forever — the same false-accusation machine station 2 removed, rebuilt one
+    station later.
+    """
+    project, per_fr = finalized
+    per_fr.write_text(json.dumps({
+        "gate": 1, "phase": 8, "fr_id": "FR-03", "verdict": "PASS",
+        "overall_score": 100.0, "quality_complete": True,
+    }, indent=2), encoding="utf-8")
+
+    assert verify_finalize_evidence(project, 1, 7, "FR-03") == []
+
+
 def test_a_receipt_that_names_no_result_keeps_its_existing_complaint(tmp_path):
     """Round 32 站1 already refuses a receipt with no `result_sha256`. This
     station must not turn that into a different (or a second) complaint."""
