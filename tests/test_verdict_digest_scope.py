@@ -67,6 +67,17 @@ def git_project(tmp_path: Path) -> Path:
     _git("config", "user.name", "t", cwd=tmp_path)
     (tmp_path / ".methodology").mkdir()
     (tmp_path / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    # A COMMITTED volatile file. Without one, HEAD's tree contains nothing the
+    # volatile rule applies to, and the equivalence test below cannot tell
+    # whether both digests apply that rule or neither does — counter-proof 2
+    # of this round stayed green against a `committed_tree_digest` that had
+    # stopped filtering at all. Real projects commit these (taskq-advance
+    # tracks gate_verify.jsonl, degradations.jsonl and state.json), so the
+    # fixture without one was the unfaithful thing.
+    (tmp_path / ".methodology" / "gate_verify.jsonl").write_text(
+        '{"gate": 1, "verdict": "PASS"}\n', encoding="utf-8")
+    (tmp_path / ".methodology" / "state.json").write_text(
+        '{"current_phase": 3}\n', encoding="utf-8")
     _git("add", "-A", cwd=tmp_path)
     _git("commit", "-q", "-m", "seed", cwd=tmp_path)
     return tmp_path

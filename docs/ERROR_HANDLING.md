@@ -325,6 +325,27 @@ compatibility-risk change than a documentation pass, and every site also
 prints an identifying `[BLOCKED]`/`[FATAL]` message, so the exit code alone
 was never the only signal a caller has.
 
+### Round 44: exit 38, and a one-time re-verify
+
+`EX_ADVANCE_UNCOMMITTED_DELIVERABLES` (38) is `advance-phase` refusing to
+record a phase on a tree git does not hold. It fires before anything is
+written, names every file, and writes one `milestone:uncommitted` degradation
+each. Harness bookkeeping and the files the command rewrites itself are
+excluded — see `core.utils.delivery_scope.is_harness_volatile` and
+`cli/phase_cmds.py::_advance_commit_targets`.
+
+Two remedies, and only the operator knows which applies: commit the file, or
+`.gitignore` it if it is generated at runtime. A tracked runtime artifact
+makes every tree digest disagree with the last one, which is a slower version
+of the same defect.
+
+**One-time migration.** Round 44 站1 narrowed what `delivered_tree_sha256`
+covers, so every verdict recorded before it digests a different set. The
+first `advance-phase` in each existing project will therefore hit exit 34
+(`EX_ADVANCE_GATE_VERDICT_MISSING`) once and ask for `verify-gate` to be
+re-run. That is the correct outcome, not a regression: a verdict should be
+re-measured under the definition it will be checked against.
+
 ## What this round deliberately did not do
 
 - No auto-patching of harness's own code (see the crash-boundary section

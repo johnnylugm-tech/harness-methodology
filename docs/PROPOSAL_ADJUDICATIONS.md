@@ -2166,3 +2166,111 @@ pytest 6918 → **6957**；guards 385；ruff clean；`generate_workflows.py --ch
 - **站4**：手改副本的 `phase_completed[1].enforcer_surface` → doctor 回
   `WARN Phase 1's recorded PASS was measured under a different enforcement surface
   — core/quality_gate changed since`
+
+---
+
+## Round 44（2026-08-11）—— 被判定的樹，與被記錄的樹
+
+**來源**：老闆令「檢視 taskq-advance 在 P1~P3 的執行過程和紀錄以及 harness-methodology
+的 git history，探討是否有其他根本性或結構性問題」。無外部報告，本輪三項發現全部
+自行量測得出。
+
+### 主要發現：一次可逐秒重建的實例
+
+taskq-advance 的 P3→P4 交接（本機時區）：
+
+| 時刻 | 事件 | 證據 |
+|---|---|---|
+| 13:14:07 | `advance-phase` 被 R43 站2 的入口義務擋下：FR-02、FR-06 無 property-based test | `degradations.jsonl` `obligation:property_spec` ×2，ts=1786425247 |
+| 13:17:36 | `verify-gate` 記下 Gate 2 PASS | `gate_verify.jsonl` 第 6 列 |
+| 13:17:55 | `81bbeb4 handover: advance to Phase 4` —— advance 成功 | `phase_completed["3"].sha` |
+| 13:32 | `8075e1f` —— `@given` 測試**第一次進入 git** | `git log -1 -- test_fr02.py` |
+
+`git archive 81bbeb4 | grep -rl "@given"` → 空。
+**把 Phase 3 記為完成的那個 commit，不包含解除封鎖它的證據。**
+它自己產生的 HANDOVER.md 第一行叫下一個 session `git clone` —— 那棵樹過不了
+它剛核發通行證的檢查。
+
+第二個獨立印記：`gate_verify.jsonl` 有 3 列 Gate 2 PASS 掛在同一個 `git_sha c4698c2`
+上，帶 3 個不同的 `delivered_tree_sha256`。框架把矛盾寫進同一列，沒有讀者。
+
+### 根源
+
+`iter_delivered_files` 用 `git ls-files --cached --others --exclude-standard` 取路徑，
+**內容從工作目錄讀**。對掃描器正確（P3 TDD 先寫實作後 commit，traceability 必須看見）。
+`delivered_tree_digest` 沿用它去回答另一個問題——「這份 PASS 判的是哪一個版本」——
+而它的鄰居欄位是 `git_sha`，兩者從不對賬。
+
+**「哪些檔案」與「哪一個版本」是兩個問題，框架用同一個函式回答兩者。**
+R37 修的是量測**範圍**，沒修量測**基底**。
+
+`grep -rn "status --porcelain" cli/ core/ scripts/` → per-step 有髒樹守衛
+（`cli/fr_cmds.py:475`），phase 里程碑沒有。
+
+### 站0 三項前提的量測結果
+
+| 前提 | 結果 |
+|---|---|
+| 1. 把 `.methodology/` 整個移出 verdict digest 是否安全 | **證偽**。`harness_config.json` 的 `crg_excludes` / `crg_cohesion_healthy` 直接決定 architecture 的量測範圍（`core/harness_config.py:317`），而只有 `cohesion_healthy` 旅行進 `calibration`。改為宣告式 volatile 集合，並留一條守衛證明 `.methodology/` 下的評分輸入仍會使判定失效 |
+| 2. advance 要求工作目錄乾淨會擋住什麼 | 扣掉 `.methodology/`、`.sessi-work/` 後：taskq / taskq-plus / taskq-renew / run-all-by-workflow 皆 0；taskq-api 有 `HANDOVER.md`（advance 自己重寫並 staged）與 harness gitlink；taskq-advance 有 `taskq.db`，一個被納入 git 的 runtime SQLite。豁免集合因此是 `is_harness_volatile` + 極大 `_advance_commit_targets`；`taskq.db` 是**專案端產生者寫錯位置**，不是放寬檢查的理由 |
+| 3. CRG 覆蓋落差的實際分布 | **成立**。`needs_full_rebuild` 的相等謂詞可達成：taskq 20/20、taskq-renew 47/47、taskq-api 40/40、taskq-advance 50/50、run-all-by-workflow 22/22。taskq-plus 14/37 是舊圖未重建，非 CRG 解析不了 |
+
+### 三項修復
+
+- **站1**（D2）`delivery_scope` 分岔出「交付版本」：`is_harness_volatile`
+  取代 `gate_verify._DIGEST_EXCLUDE` 的兩元素 denylist（`2245e64`，三天前），
+  `committed_tree_digest` 與 `delivered_tree_digest` 共用一個 `_digest`，
+  symlink 兩邊都以 target 路徑入摘要（taskq-api 交付 13 個）。
+  `record_verdict` 加記 `head_tree_sha256`。**不改任何阻擋行為。**
+- **站2**（D1）`cmd_advance_phase` 在寫任何東西之前拒絕：exit 38 +
+  逐檔 `milestone:uncommitted` + `phase_completed[N].delivered_tree_sha256`。
+  排在 gate-verdict 檢查**之前**：髒樹會讓 `has_matching_pass` 通過
+  （判定就是量在同一棵髒樹上），所以「先 commit」是唯一可操作的第一則訊息。
+- **站3**（D3）圖沒蓋到的檔案不能算進通過的分數：`graph_coverage_gap`
+  + `crg_graph_incomplete` 的 `infra_fail`。**不新增覆蓋率旋鈕**——
+  相等謂詞已是既有 SSOT 且有實測依據，可調下限就是給被判定方一個新旋鈕（R27 母體）。
+- **站4** doctor 回溯偵測，WARN，不重判。
+
+### 本輪自己犯的錯（站4 第一版）
+
+站4 的第一版比較「判定記下的 digest」與「現在算出的 digest」，
+在真實的 taskq-advance 副本上產出了**看起來正確的發現**：
+
+```
+[WARN] Phase 3 was certified on a tree its own commit does not contain —
+the last gate 2 PASS names a0a1e230b315, and 81bbeb44e786's tree digests
+to 78fd61e42e37.
+```
+
+結論的實質是真的（`git archive 81bbeb4 | grep -rl "@given"` 為空），
+**但那個輸出不是它的證據**：站1 已經改變了 digest 涵蓋的集合。直接量測 81bbeb4 的樹：
+
+```
+Round 44 scope   78fd61e42e37…
+pre-R44 scope    27601c2acd41…
+```
+
+兩把尺。這個比較分不出「樹變了」與「尺變了」，而且會在站1 上線當天
+把每個專案都報成壞的。改為**兩個數字都取自同一列判定**（`delivered_tree_sha256`
+vs `head_tree_sha256`）。誠實的代價：**taskq-advance 今天跑 doctor 這條檢查是沉默的**，
+因為它 ledger 裡每一列判定都早於 `head_tree_sha256`。一次 verify-gate 就會補上。
+
+### 明確記為非缺陷（避免下輪重查）
+
+| 候選 | 裁決 |
+|---|---|
+| traceability 74.16 對上 gate2 yaml 宣告的 threshold 100 卻 PASS | **不是 bug**。`min(4a,4b,4c)` 取綁定分量的門檻（4b@G2=60），result 誠實寫 `threshold: 60.0`。yaml 的 100 對讀者誤導——記為觀察，不動 |
+| `gate:s4:*`「工具算不出分數」 | **已正確處理**：R32 站4 的 `unverifiable` 走 `infra_fail` 阻擋 |
+| `mutation_testing` 被專案 feature flag 關掉 | **最終判定未受影響**：關閉發生在 08-10 17:36–20:54，最終 gate2 `dimensions_disabled` 為空、mutation=77.8。R39 站2 的可見性機制有效 |
+| `spec:undelivered` 23/89 卻 PASS | **設計如此**：4b 在 Gate 2 的門檻是 60%，74.2% 合格 |
+| degradation ledger 106 列中約 65 列是 6 個事實的重複 | 噪音，非缺陷 |
+
+### 再開條件
+
+- **不擴充 auto-fix strategy**（R43 已記，條件未達）。
+- **不動 `scripts/hooks/pre-push:47-52` 的 HEAD-subject 猜測**：站2 消除了「current_phase
+  說 N+1 而 N+1 進不去」的其中一個來源，但 R43 站2 的 obligation 路徑才是主因，
+  兩者都上線後才具備退場條件。
+- **D3 的嚴重度是推論而非實證**：本輪未在任何一份**最終**判定上觀測到覆蓋不足。
+  若日後量到一份最終 gate result 的 `calibration.graph_files < source_files`，
+  那才是實證，記進本節。

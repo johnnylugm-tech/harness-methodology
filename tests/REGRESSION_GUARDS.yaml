@@ -1700,3 +1700,113 @@
 - test: tests/test_phase_verdict_is_dated.py::test_run_doctor_actually_runs_the_check
   bug: "counter-proof discipline caught this in R43 站5: unwiring _check_phase_verdict_staleness from run_doctor's dispatch left every other test in the file green, because they all called the function directly. A check nobody runs is the exact shape this round exists to close, and the first draft of its own guard had it"
   fixed_in: "R43-站5"
+
+# ── Round 44 — the tree that was judged, and the tree that was recorded ──────
+
+- test: tests/test_milestone_tree_is_the_judged_tree.py::test_advance_refuses_a_modified_deliverable
+  bug: "the phase turned over while a delivered file differed from HEAD, so the commit recording the phase did not contain the content its checks were measured on. taskq-advance P3->P4: the obligation for FR-02/FR-06 was cleared at 13:14 in the working tree, 81bbeb4 recorded the phase at 13:17:55, and `git archive 81bbeb4 | grep -rl @given` is empty"
+  fixed_in: "R44-站2 (exit 38, before _advance_fsm)"
+
+- test: tests/test_milestone_tree_is_the_judged_tree.py::test_advance_refuses_an_untracked_deliverable
+  bug: "the sharper half — a brand-new test file is visible to every check via `git ls-files --others` and absent from every clone"
+  fixed_in: "R44-站2"
+
+- test: tests/test_milestone_tree_is_the_judged_tree.py::test_the_refusal_lands_in_the_ledger
+  bug: "a refusal that exists only as terminal output has no machine reader — same shape R43 站2 gave the obligation block"
+  fixed_in: "R44-站2 (milestone:uncommitted)"
+
+- test: tests/test_milestone_tree_is_the_judged_tree.py::test_the_advances_own_write_set_does_not_block_it
+  bug: "blocking on HANDOVER.md would be unsatisfiable — regenerating and staging it is what the advance does. Measured on taskq-api, `M HANDOVER.md` is its resting state"
+  fixed_in: "R44-站2 (exemption read from _advance_commit_targets, not restated)"
+
+- test: tests/test_milestone_tree_is_the_judged_tree.py::test_harness_bookkeeping_does_not_block_it
+  bug: "`.methodology/` is dirty by design at the moment of an advance, because this command is what is about to write it"
+  fixed_in: "R44-站2 (exemption read from delivery_scope.is_harness_volatile)"
+
+- test: tests/test_milestone_tree_is_the_judged_tree.py::test_the_milestone_records_the_tree_it_certified
+  bug: "phase_completed[N] recorded when, by whom and at which commit (R19 站3, R29 站4) and never what the checks actually read"
+  fixed_in: "R44-站2 (delivered_tree_sha256)"
+
+- test: tests/test_verdict_digest_scope.py::test_a_verdict_matches_itself_immediately
+  bug: "record_verdict computed the digest and then appended its own line to a delivered file, so the recorded value was stale the instant it returned (diagnosed by 2245e64)"
+  fixed_in: "R44-站1 (restated as the property rather than the patch)"
+
+- test: tests/test_verdict_digest_scope.py::test_a_verdict_survives_the_harness_writing_its_own_bookkeeping
+  bug: "2245e64 named two files; heartbeat.json, sessions_spawn.log, decision_logs/, lessons/ and state.json's last_update all keep moving after a verdict is taken. taskq-advance ran verify-gate three times in the six minutes before its advance, one git_sha, three tree digests"
+  fixed_in: "R44-站1 (is_harness_volatile — the completeness test, not the list)"
+
+- test: tests/test_verdict_digest_scope.py::test_a_changed_deliverable_still_invalidates_the_verdict
+  bug: "negative control — R38 站4's rule that a PASS measured on a different tree is not a PASS for this one must survive the narrowing"
+  fixed_in: "R44-站1"
+
+- test: tests/test_verdict_digest_scope.py::test_a_scoring_input_under_methodology_still_invalidates_the_verdict
+  bug: "station 0 premise 1 falsified 'exclude .methodology/ wholesale': harness_config.json carries crg_excludes and crg_cohesion_healthy, which decide what the architecture score is measured over, and only cohesion_healthy travels into the result"
+  fixed_in: "R44-站1 (the exclusion is a declared volatile set, not the directory)"
+
+- test: tests/test_verdict_digest_scope.py::test_the_two_ledgers_that_started_this_are_registered_volatile
+  bug: "delivery_scope sits below quality_gate and cannot import from it, so the two ledger paths are literals — parity keeps them tied to the constants their owners declare (R27 站4)"
+  fixed_in: "R44-站1"
+
+- test: tests/test_verdict_digest_scope.py::test_the_committed_and_delivered_digests_agree_on_a_clean_tree
+  bug: "two digests answering two questions must not become two rulers — line endings, gitlinks and symlinks are three ways they can silently disagree"
+  fixed_in: "R44-站1 (one shared _digest)"
+
+- test: tests/test_verdict_digest_scope.py::test_the_committed_digest_ignores_the_working_tree
+  bug: "the whole point of the second digest: it answers which version git recorded, not what is on disk now"
+  fixed_in: "R44-站1"
+
+- test: tests/test_verdict_digest_scope.py::test_the_committed_digest_of_a_missing_rev_is_empty_not_a_crash
+  bug: "a rebased or garbage-collected milestone cannot be measured, and a caller must be able to tell that apart from a mismatch (R32/R35)"
+  fixed_in: "R44-站1"
+
+- test: tests/test_crg_scope.py::test_the_metrics_name_the_files_the_graph_never_parsed
+  bug: "the graph-coverage shortfall was recorded as a count in the ledger and as two numbers in calibration; a repository-wide grep found one producer and no consumer comparing them"
+  fixed_in: "R44-站3 (_unparsed_files + graph_coverage_gap)"
+
+- test: tests/test_crg_scope.py::test_a_fully_covered_graph_reports_no_gap
+  bug: "negative control — station 0 premise 3 measured exact parity on five of six live projects, so equality is reachable and must not be a permanent block"
+  fixed_in: "R44-站3"
+
+- test: tests/test_crg_scope.py::test_metrics_predating_the_field_report_no_gap
+  bug: "a crg_metrics.json written before _unparsed_files existed is not a violation (R39/R40) and is not a measurement (R32/R35)"
+  fixed_in: "R44-站3"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_graph_that_misses_delivered_files_produces_no_architecture_score
+  bug: "architecture scored 91.7 over 41 of 47 delivered files and the gate passed it through. taskq-advance logged four crg:graph-scope residuals in Phase 3; its final round reached 50/50, so the gap is that nothing would have stopped a wrong verdict, not that one occurred"
+  fixed_in: "R44-站3 (infra_fail, not a low score — the project cannot fix CRG's parser)"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_graph_covering_the_delivered_tree_still_scores
+  bug: "negative control for the refusal above"
+  fixed_in: "R44-站3"
+
+- test: tests/test_milestone_tree_doctor.py::test_a_milestone_certified_on_an_uncommitted_tree_is_named
+  bug: "nothing could say, after the fact, that a phase had been certified on content nobody committed"
+  fixed_in: "R44-站4 (WARN — diagnosis, never a re-judgement)"
+
+- test: tests/test_milestone_tree_doctor.py::test_a_recorded_tree_digest_is_compared_directly
+  bug: "station 2's forward path — phase_completed[N].delivered_tree_sha256 against the tree of its own sha, no verdict lookup needed"
+  fixed_in: "R44-站4"
+
+- test: tests/test_milestone_tree_doctor.py::test_a_verdict_predating_the_head_tree_field_says_nothing
+  bug: "the first draft compared a verdict's recorded digest against a freshly computed one, across station 1's change to what the digest covers. Measured on 81bbeb4's tree: 78fd61e42e37 under the new scope, 27601c2acd41 under the old. It fired on a real taskq-advance copy and the output was not evidence — the comparison could not distinguish 'the tree moved' from 'the ruler moved', and would have reported every project as broken the day station 1 landed"
+  fixed_in: "R44-站4 (both digests now come out of one verdict row)"
+
+- test: tests/test_milestone_tree_doctor.py::test_a_milestone_whose_commit_carries_the_judged_tree_is_silent
+  bug: "negative control — a check that always fires is the prose-nobody-reads shape"
+  fixed_in: "R44-站4"
+
+- test: tests/test_milestone_tree_doctor.py::test_nothing_to_compare_says_nothing
+  bug: "no recorded digest and no verdict for the exit gate is an absent measurement, not a violation (R39/R40, R32/R35)"
+  fixed_in: "R44-站4"
+
+- test: tests/test_milestone_tree_doctor.py::test_a_phase_with_no_exit_gate_is_not_examined
+  bug: "EXIT_GATE_MAP is {3: 2, 4: 3, 6: 4} — a phase with no exit gate has no verdict its milestone could contradict"
+  fixed_in: "R44-站4"
+
+- test: tests/test_milestone_tree_doctor.py::test_an_unresolvable_sha_says_nothing
+  bug: "a rebased or garbage-collected milestone cannot be measured (R32/R35)"
+  fixed_in: "R44-站4"
+
+- test: tests/test_milestone_tree_doctor.py::test_run_doctor_actually_runs_the_check
+  bug: "R43 站4 shipped a check nobody ran, guarded by tests that all called it directly; the counter-proof only went red after a test drove run_doctor end to end. Registered here so the second instance of that shape cannot repeat it"
+  fixed_in: "R44-站4"

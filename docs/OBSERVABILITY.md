@@ -100,6 +100,20 @@ automated reader consumed — `grep -r "Entry Obligations"` returned one
 producer and four test assertions — and the advance proceeded anyway. The
 table is gone; this is where a programmatic reader now looks.
 
+**Round 44 站2** added `milestone:uncommitted`, one record per file. When
+`advance-phase` refuses because delivered files differ from HEAD (exit
+`EX_ADVANCE_UNCOMMITTED_DELIVERABLES`), `data` carries `completed_phase` and
+`file`. Same shape and same reason as the family above: the commit about to
+record the phase would not contain content the phase's checks were measured
+on. Measured on taskq-advance's P3→P4, the two files were
+`03-development/tests/test_fr02.py` and `test_fr06.py`, and they entered git
+fourteen minutes after the phase had turned over.
+
+Harness bookkeeping and the files `advance-phase` rewrites itself are
+excluded — see `core.utils.delivery_scope.is_harness_volatile` and
+`cli/phase_cmds.py::_advance_commit_targets`, which are the two sources the
+check reads rather than restating.
+
 ### `.methodology/crash/crash_<timestamp>_<pid>.json`
 
 **Round 28 站4 moved this out of `.sessi-work/` for the same reason as the
@@ -716,8 +730,17 @@ alongside `gate_timestamps.jsonl` and `degradations.jsonl`.
 | field | why it is there |
 |---|---|
 | `checks` | the raw per-check outcome, not a summary. The summary is what the workflow acts on; these are what makes a later "which of these two is wrong?" answerable. |
-| `delivered_tree_sha256` | `sha256` over (repo-relative path, content) for `iter_delivered_files`. A PASS is only a PASS for the tree it was measured on. |
+| `delivered_tree_sha256` | `sha256` over (repo-relative path, content) for `iter_delivered_files`, **as it stands on disk**, minus `core.utils.delivery_scope.is_harness_volatile`. A PASS is only a PASS for the tree it was measured on. |
+| `head_tree_sha256` | the same digest over the tree git recorded at HEAD (Round 44 站1). Equal to the field above means the verdict was measured on committed content; different means it was not. Recorded, never blocking — a gate legitimately runs mid-Phase-3 on a dirty tree. `advance-phase` is where the difference becomes a refusal (exit 38), because that is where a commit starts claiming to be the phase. |
 | `git_sha` | HEAD at verify time — for correlating with CI, which checks out a commit rather than a working tree. |
+
+`delivered_tree_sha256` excludes harness bookkeeping from Round 44 onward.
+Verdicts recorded before that carry a digest over a different set, so **they
+are not comparable with one computed now** — a reader must use
+`head_tree_sha256`'s presence to tell the two populations apart, exactly as
+`core/doctor.py::_check_milestone_tree_matches_verdict` does. The first draft
+of that check compared across the two and produced a finding that looked
+right and proved nothing.
 
 Before this file existed, `crg_rc` returned **zero hits** across taskq-renew's
 entire `.methodology/` after a complete P1–P8 run. That run's P6 recorded a CRG
