@@ -27,6 +27,15 @@ the gate2/3/4 fallback path AND the agent output contract, out of station-1
 scope. test_overall_score_weight_asymmetry_is_pinned records the current
 state so any change is deliberate; re-open when overall_score's dim set is
 adjudicated.
+
+Resolution (2026-08-11, Bug A fix for P7 FR-09 false-positive block):
+The 3-dim / 4-dim divergence was the prompt-side cause of the P7 FR-09
+escalation — the agent template omitted the architecture_constraints
+dimension, so even agents that filled out the 3 dims got a sub-1.0
+overall_score due to the missing 4th dim. The prompt's overall_score
+formula now matches the YAML's 0.25×4. test_overall_score_weight_
+asymmetry_is_pinned is updated to pin the new unified state — the
+deliberate change register this test exists to enforce is now closed.
 """
 
 from __future__ import annotations
@@ -185,17 +194,24 @@ def test_no_unbound_hardcoded_threshold_in_prompt():
 
 
 def test_overall_score_weight_asymmetry_is_pinned(tmp_path):
-    """DEFERRED finding-A item (see module docstring): the prompt's 0.33/0.34
-    overall_score weights diverge from gate1_per_fr.yaml's 0.25×4. gate1 has no
-    CRG override so the agent's reported overall_score is adopted — the prompt
-    is the de-facto authority; the YAML weight is dead config for gate1. This
-    PINS the current asymmetry so any change is deliberate. Re-open: when
-    overall_score's dim set is adjudicated."""
+    """PINS the unified 0.25×4 overall_score formula (was 0.33/0.33/0.34, 3 dims).
+
+    History: see module docstring. As of 2026-08-11 the prompt's
+    overall_score formula is `(0.25 × 4 dims)`, matching gate1_per_fr.yaml.
+    Any future change to either the prompt or the YAML must update this
+    test in the same commit — that is the deliberate-change trade the
+    pin enforces.
+    """
     prompt = _render("GATE1", tmp_path)
-    assert "× 0.33" in prompt and "× 0.34" in prompt, (
-        "GATE1 prompt no longer teaches the 0.33/0.33/0.34 overall_score "
-        "weights — if this changed deliberately, re-adjudicate the asymmetry")
+    assert "× 0.25" in prompt, (
+        "GATE1 prompt no longer teaches the 0.25×4 overall_score formula. "
+        "If the YAML weight changed, update gate1_per_fr.yaml AND this test "
+        "in the same commit (the pin mechanism enforces deliberate change).")
     weights = _gate1_dim("weight")
-    assert weights["linting"] == 0.25, (
-        "gate1_per_fr.yaml linting weight changed from 0.25 — the documented "
-        "prompt(0.33)/YAML(0.25) asymmetry must be re-evaluated")
+    assert all(weights[d] == 0.25 for d in weights), (
+        "gate1_per_fr.yaml dimension weights diverged from 0.25 — the "
+        "documented prompt(0.25×4)/YAML(0.25×4) unification must be "
+        "re-adjudicated")
+    assert "architecture_constraints" in weights, (
+        "gate1_per_fr.yaml no longer declares architecture_constraints — "
+        "the Pin must be re-evaluated together with the dimension set")

@@ -147,6 +147,15 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     "tests/test_reviewer_router_mediums2.py": 1,
     "tests/test_rotate_decision_logs.py": 1,
     "tests/test_sab_parser.py": 1,
+    # 2026-08-11: test_gate_result_writer.py stubs cli._shared._make_git to
+    # disable git operations during subprocess-less finalize-gate invocation.
+    # Same seam test_handover_generator.py already uses (lines 854, 2378,
+    # 2419, 2497) — established pattern for invoking cmd_finalize_gate
+    # in-process without a real git repo. The behaviour under test is the
+    # per-FR writer invariants (fr_id consistency + idempotency guard),
+    # which exist in the public function cmd_finalize_gate; only the git
+    # side effect is stubbed.
+    "tests/test_gate_result_writer.py": 1,
 }
 
 

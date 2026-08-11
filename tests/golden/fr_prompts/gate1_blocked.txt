@@ -36,10 +36,11 @@ tool_evidence requirement described in step 3 below.
    The output contains FR-SCOPED TOOL OVERRIDES — exact commands for each
    dimension.  Use those commands, not the generic ones in evaluate_dimension.md.
 
-2. Run the three tool commands from step 1's FR-SCOPED TOOL OVERRIDES:
-   a. linting:      ruff check ... (exact command shown in run-gate output)
-   b. type_safety:  pyright ... (exact command shown in run-gate output)
-   c. test_coverage: coverage run / pytest ... (exact command shown in run-gate output)
+2. Run the four tool commands from step 1's FR-SCOPED TOOL OVERRIDES:
+   a. linting:               ruff check ... (exact command shown in run-gate output)
+   b. type_safety:           pyright ... (exact command shown in run-gate output)
+   c. test_coverage:         coverage run / pytest ... (exact command shown in run-gate output)
+   d. architecture_constraints: PYTHONPATH=src lint-imports (exact command shown in run-gate output)
    Save each tool's output to .sessi-work/round_1/tools/<dimension>.txt
 
 3. Write `.sessi-work/gate1_result.json` with this EXACT schema:
@@ -49,18 +50,19 @@ tool_evidence requirement described in step 3 below.
      "quality_complete": true,            // true if overall_score >= 80
      "rounds_used": 1,
      "breakdown": {
-       "linting":       {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of ruff stdout>"},
-       "type_safety":   {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of pyright stdout>"},
+       "linting":               {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of ruff stdout>"},
+       "type_safety":           {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of pyright stdout>"},
        "test_coverage": {
            "score": <0-100>, "threshold": 80,
            "tests_passed": <int>,   // REQUIRED: count from pytest summary line
            "tests_failed": <int>,   // REQUIRED: must be 0 — any failed test blocks the gate
            "tests_skipped": <int>,  // REQUIRED: count skipped tests
            "tool_evidence": "<first 500 chars of coverage/pytest stdout>"
-       }
+       },
+       "architecture_constraints": {"score": <0-100>, "threshold": 100, "tool_evidence": "<first 500 chars of lint-imports stdout>"}
      }
    }
-   overall_score = (linting.score × 0.33 + type_safety.score × 0.33 + test_coverage.score × 0.34).
+   overall_score = (linting.score × 0.25 + type_safety.score × 0.25 + test_coverage.score × 0.25 + architecture_constraints.score × 0.25).
    quality_complete = (overall_score >= 80) AND (every dimension score >= its threshold).
    CRITICAL: `tool_evidence` is REQUIRED for every dimension.
    If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.

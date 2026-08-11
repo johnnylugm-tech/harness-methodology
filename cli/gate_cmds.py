@@ -2060,18 +2060,82 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         # the latest-alias write above (which has its own try/except).
                         if fr_id:
                             try:
+                                # Trust direction: the JSON's internal fr_id is
+                                # authoritative; the CLI arg is a route hint. If
+                                # they disagree we refuse to write the per-FR
+                                # file under the wrong name (the symptom that
+                                # produced the P7 FR-09 false-positive block:
+                                # a sub-agent called finalize-gate directly with
+                                # different --fr-id values, each one overwriting
+                                # a different sibling FR's history file). The
+                                # canonical summary above is still written so the
+                                # gate's aggregate state can update.
+                                _gf_force = bool(getattr(args, "force", False))
+                                _gf_json_fr_id = _gp_json.get("fr_id")
+                                _gf_per_fr_name = fr_id
+                                if _gf_json_fr_id and _gf_json_fr_id != fr_id:
+                                    if _gf_force:
+                                        print(
+                                            f"  [WARN] fr_id mismatch: cli={fr_id} json={_gf_json_fr_id} "
+                                            f"(forced; writing to {fr_id}.json)"
+                                        )
+                                    else:
+                                        _gf_per_fr_name = _gf_json_fr_id
+                                        print(
+                                            f"  [BLOCKED] fr_id mismatch: cli={fr_id} json={_gf_json_fr_id}; "
+                                            f"renaming per-FR file to {_gf_json_fr_id}.json (canonical summary still written)",
+                                            file=sys.stderr,
+                                        )
                                 _gp_per_fr = (
                                     project_path
                                     / ".methodology"
                                     / "gate_results"
                                     / f"gate{args.gate}"
-                                    / f"{fr_id}.json"
+                                    / f"{_gf_per_fr_name}.json"
                                 )
-                                _gp_per_fr.parent.mkdir(parents=True, exist_ok=True)
-                                _gp_per_fr.write_text(_payload, encoding="utf-8")
-                                print(
-                                    f"  per-fr          : {_gp_per_fr.relative_to(project_path)}"
-                                )
+                                # Idempotency guard: if the per-FR file already
+                                # represents a completed PASS, refuse to
+                                # overwrite unless --force. Without this guard
+                                # a sub-agent that re-runs finalize-gate against
+                                # a sibling FR (or the same FR with a stale
+                                # `.sessi-work/gate{N}_result.json`) will
+                                # silently clobber a passing record. The guard
+                                # only fires on (quality_complete AND verdict
+                                # PASS) so genuine re-runs after a real failure
+                                # (where the file's quality_complete is false)
+                                # still proceed normally.
+                                if (
+                                    not _gf_force
+                                    and _gp_per_fr.exists()
+                                ):
+                                    try:
+                                        _gf_existing = json.loads(
+                                            _gp_per_fr.read_text(encoding="utf-8")
+                                        )
+                                    except (OSError, json.JSONDecodeError):
+                                        _gf_existing = {}
+                                    if (
+                                        _gf_existing.get("quality_complete") is True
+                                        and _gf_existing.get("verdict") == "PASS"
+                                    ):
+                                        print(
+                                            f"  [BLOCKED] per-FR result already complete: "
+                                            f"{_gp_per_fr.relative_to(project_path)}. "
+                                            f"To re-run, re-invoke finalize-gate with --force.",
+                                            file=sys.stderr,
+                                        )
+                                    else:
+                                        _gp_per_fr.parent.mkdir(parents=True, exist_ok=True)
+                                        _gp_per_fr.write_text(_payload, encoding="utf-8")
+                                        print(
+                                            f"  per-fr          : {_gp_per_fr.relative_to(project_path)}"
+                                        )
+                                else:
+                                    _gp_per_fr.parent.mkdir(parents=True, exist_ok=True)
+                                    _gp_per_fr.write_text(_payload, encoding="utf-8")
+                                    print(
+                                        f"  per-fr          : {_gp_per_fr.relative_to(project_path)}"
+                                    )
                             except OSError as _gp_pf_err:
                                 print(
                                     f"  [WARN] Could not persist per-FR gate result: {_gp_pf_err}"
@@ -2667,6 +2731,9 @@ def register(sub) -> None:
     fg.add_argument("--fr-id",   default=None, help="FR ID (Gate 1 only)", dest="fr_id")
     fg.add_argument("--no-git",  action="store_true", dest="no_git",
                     help="Disable git commit/push after gate pass")
+    fg.add_argument("--force",   action="store_true", dest="force",
+                    help="Allow overwriting an already-complete per-FR result "
+                         "and ignore fr_id inconsistencies (operator escape hatch)")
     fg.set_defaults(func=cmd_finalize_gate)
 
     # run-env-check (project-aware environment readiness — inline LLM evaluation)

@@ -194,7 +194,14 @@ _LINE_CEILING: dict[str, int] = {
     # many files the CRG graph held). Both are read from the context, not
     # recomputed — a second derivation of a denominator is a second
     # denominator — so the lines here are the read and the two writes.
-    "cli/gate_cmds.py": 2711,
+    "cli/gate_cmds.py": 2800,  # 2026-08-11: +89 lines — Bug B fix for P7 FR-09
+    # false-positive block: per-FR writer in _cmd_finalize_gate_impl grows
+    # from ~10 lines to ~75 lines (fr_id consistency check + idempotency
+    # guard that prevents a sub-agent from clobbering a sibling FR's per-FR
+    # history file). The new code keeps the writer inline (surgical change
+    # inside the existing function) rather than extracting a helper, to
+    # minimize blast radius; if a future change takes this file over 2900,
+    # split the writer into _write_per_fr_gate_result as the next step.
     # 2026-08-05: +16 net — _print_fr_scoped_overrides_py now runs every
     # co-owning FR's test file alongside fr_id's own one when a declared
     # source file (per fr_module_traceability) is shared by more than one
