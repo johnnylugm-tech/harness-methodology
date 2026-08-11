@@ -113,6 +113,58 @@ def test_a_passing_score_is_written_as_a_baseline() -> None:
     assert reason == ""
 
 
+# --------------------------------------------------------------------------
+# Round 44 站0 — the shortfall was measured, recorded, and acted on by nobody
+# --------------------------------------------------------------------------
+#
+# Round 37 站2 made the graph reconcile against the delivered tree and forced
+# one full rebuild when it did not cover it. What remains after that rebuild
+# is recorded and then dropped:
+#
+#     record_degradation(root, "crg:graph-scope",
+#         f"after a full build the graph covers {len(_graph_files)} file(s) "
+#         f"and the project delivers {len(_sources)} — the architecture "
+#         f"score is measured over the graph's set")
+#
+# Round 42 站4c then made the denominator travel: `_graph_files` /
+# `_source_files` reach the gate result's `calibration` block. Measured on
+# taskq-advance, four such degradations were written during Phase 3 (41 files
+# graphed against 47 delivered), and `grep -rn "graph_files"` over the whole
+# repository finds one producer and no consumer that compares the two.
+#
+# `needs_full_rebuild` already fixed the predicate: equality, measured on the
+# clean taskq-renew clone at 47 == 47. Station 0 premise 3 re-measured it on
+# every live project — taskq 20/20, taskq-renew 47/47, taskq-api 40/40,
+# taskq-advance 50/50, run-all-by-workflow 22/22. Equality is reachable, so a
+# score measured over less than the delivered tree is a score of something
+# else.
+
+def test_the_metrics_name_the_files_the_graph_never_parsed() -> None:
+    """A count cannot be acted on; a list can (Round 24 站1)."""
+    from harness.crg_independent import graph_coverage_gap
+
+    assert graph_coverage_gap({
+        "_graph_files": 2, "_source_files": 3,
+        "_unparsed_files": ["03-development/src/b.py"],
+    }) == ["03-development/src/b.py"]
+
+
+def test_a_fully_covered_graph_reports_no_gap() -> None:
+    from harness.crg_independent import graph_coverage_gap
+
+    assert graph_coverage_gap({
+        "_graph_files": 3, "_source_files": 3, "_unparsed_files": [],
+    }) == []
+
+
+def test_metrics_predating_the_field_report_no_gap() -> None:
+    """Round 39/40: a record older than the field is not a violation, and
+    Round 32/35: could-not-measure is not a finding."""
+    from harness.crg_independent import graph_coverage_gap
+
+    assert graph_coverage_gap({"architecture_score": 91.7}) == []
+
+
 def test_a_missing_score_is_not_silently_treated_as_passing() -> None:
     """Round 35's rule: a run that could not measure has no score, and no
     score is not a passing score."""

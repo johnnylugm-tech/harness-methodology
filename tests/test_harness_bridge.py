@@ -399,6 +399,123 @@ class TestFinalizeGate:
         assert arch.score == 16.7
         assert blocked.value.result.quality_complete is False
 
+    def test_a_graph_that_misses_delivered_files_produces_no_architecture_score(
+        self, tmp_path, monkeypatch
+    ):
+        """Round 44 站3 — the shortfall was already measured and then dropped.
+
+        Round 37 站2 reconciles the graph against the delivered tree and
+        forces one full rebuild. What survives that rebuild is written to the
+        degradation ledger ("the architecture score is measured over the
+        graph's set") and, since Round 42 站4c, into the result's
+        `calibration` block as `graph_files` / `source_files`. Nothing
+        compares them: `grep -rn "graph_files"` over the repository finds one
+        producer and no consumer.
+
+        Measured on taskq-advance, Phase 3: four `crg:graph-scope` residual
+        degradations, 41 files graphed against 47 delivered. Its final round
+        happened to reach 50/50, which is why no wrong verdict was observed —
+        the gap is that nothing would have stopped one.
+
+        Round 32 站4's rule: a dimension the framework could not measure is
+        an `infra_fail`, the framework's problem to fix, and never a score the
+        project may lower to work around.
+        """
+        from core.quality_gate.constitution.profile import DimensionConfig, GateConfig
+
+        self._patch_gate_config(tmp_path, monkeypatch)
+        config = GateConfig(
+            gate_num=2, score_gate=80.0, max_rounds=3,
+            dimensions=[DimensionConfig(name="linting", threshold=75.0),
+                        DimensionConfig(name="architecture", threshold=80.0,
+                                        weight=0.0)],
+        )
+        ctx = self._make_context(tmp_path, gate_num=2, config=config)
+        self._write_result(ctx, {
+            "overall_score": 90.0, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0}},
+        })
+
+        def _fake_crg(project_root, work_dir):
+            # 91.7 is taskq-advance's real Phase 3 architecture score — a
+            # comfortably passing number, measured over part of the tree.
+            Path(work_dir, "crg_metrics.json").write_text(
+                json.dumps({
+                    "architecture_score": 91.7,
+                    "community_cohesion": {"score": 91.7, "unhealthy": []},
+                    "large_functions_penalty": 0,
+                    "_graph_files": 41, "_source_files": 47,
+                    "_unparsed_files": [
+                        "03-development/src/taskq_api/routers/health.py",
+                        "03-development/src/taskq_api/schemas/task.py",
+                    ],
+                }),
+                encoding="utf-8")
+            return {}
+
+        bridge = HarnessBridge()
+        with patch("harness.crg_independent.run_independent_crg", _fake_crg):
+            with pytest.raises(GateBlockedError) as blocked:
+                bridge.finalize_gate(ctx)
+
+        details = blocked.value.details or {}
+        assert "crg_graph_incomplete" in details, (
+            "architecture scored 91.7 over 41 of 47 delivered files and the "
+            f"gate passed it through — details were {sorted(details)}"
+        )
+        rendered = json.dumps(details["crg_graph_incomplete"])
+        assert "routers/health.py" in rendered, (
+            "the block must name the unparsed files (R24 站1), not just count them"
+        )
+
+    def test_a_graph_covering_the_delivered_tree_still_scores(
+        self, tmp_path, monkeypatch
+    ):
+        """Negative control: equality is reachable, and it must not block.
+
+        Station 0 premise 3 measured it on every live project — taskq 20/20,
+        taskq-renew 47/47, taskq-api 40/40, taskq-advance 50/50,
+        run-all-by-workflow 22/22.
+        """
+        from core.quality_gate.constitution.profile import DimensionConfig, GateConfig
+
+        self._patch_gate_config(tmp_path, monkeypatch)
+        config = GateConfig(
+            gate_num=2, score_gate=80.0, max_rounds=3,
+            dimensions=[DimensionConfig(name="linting", threshold=75.0, weight=1.0),
+                        DimensionConfig(name="architecture", threshold=80.0,
+                                        weight=0.0)],
+        )
+        ctx = self._make_context(tmp_path, gate_num=2, config=config)
+        self._write_result(ctx, {
+            "overall_score": 90.0, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0}},
+        })
+
+        def _fake_crg(project_root, work_dir):
+            Path(work_dir, "crg_metrics.json").write_text(
+                json.dumps({
+                    "architecture_score": 91.7,
+                    "community_cohesion": {"score": 91.7, "unhealthy": []},
+                    "large_functions_penalty": 0,
+                    "_graph_files": 50, "_source_files": 50,
+                    "_unparsed_files": [],
+                }),
+                encoding="utf-8")
+            return {}
+
+        bridge = HarnessBridge()
+        with patch("harness.crg_independent.run_independent_crg", _fake_crg):
+            with patch.object(bridge, "_update_quality_manifest"):
+                with patch.object(bridge, "_log"):
+                    with patch.object(bridge, "_effort"):
+                        result = bridge.finalize_gate(ctx)
+
+        arch = next(d for d in result.dimensions if d.name == "architecture")
+        assert arch.score == 91.7
+
     def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path, monkeypatch):
         """Real JSON->DimResult path (not an injected DimResult bypassing
         construction, as the test above uses): a literal `"score": null` in
