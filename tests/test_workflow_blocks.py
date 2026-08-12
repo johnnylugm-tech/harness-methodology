@@ -1,0 +1,100 @@
+"""Round 48 站0 — the one pipeline event nobody records is where the pipeline stopped.
+
+`run-report` aggregates three sources: `.sessi-work/sessions_spawn.log`,
+`.methodology/degradations.jsonl`, and the per-gate result files. A workflow
+halt appears in none of them. It exists only as the JS return value, which
+reaches the conversation and is then gone — so "this project blocks at P4
+preflight every single time" is not a queryable fact about any project.
+
+These tests pin the ledger's behaviour: a halt is recorded with the coordinate
+that identifies it, an unresolved halt stays visible, and a relaunch that hits
+the SAME coordinate is distinguishable from one that got past it. That last
+one is what makes "the repair worked" checkable instead of claimed.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+
+@pytest.fixture()
+def project(tmp_path):
+    (tmp_path / ".methodology").mkdir(parents=True)
+    return tmp_path
+
+
+def _ledger(project):
+    return project / ".methodology" / "workflow_blocks.jsonl"
+
+
+def test_a_halt_is_recorded_with_its_coordinate(project):
+    from core.fault_owner import Owner
+    from core.workflow_blocks import record_block
+
+    record_block(
+        project,
+        phase=4,
+        step="Entry & Preflight",
+        owner=Owner.UNKNOWN,
+        message="Phase 4 preflight did not PASS in 3 orchestrator attempts",
+    )
+
+    rows = [json.loads(line) for line in _ledger(project).read_text().splitlines()]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["phase"] == 4
+    assert row["step"] == "Entry & Preflight"
+    assert row["owner"] == Owner.UNKNOWN
+    assert row["signature"], "a block must carry the coordinate that identifies it"
+    assert row["resolved"] is False
+
+
+def test_the_same_halt_twice_shares_one_signature(project):
+    """Two runs blocking at the same place is the fact worth seeing. A
+    signature that changed every time (a timestamp, a pid) would make the
+    repeat invisible — the same defect Round 41 站3 paid for."""
+    from core.fault_owner import Owner
+    from core.workflow_blocks import read_blocks, record_block
+
+    for _ in range(2):
+        record_block(
+            project,
+            phase=4,
+            step="Entry & Preflight",
+            owner=Owner.UNKNOWN,
+            message="Phase 4 preflight did not PASS in 3 orchestrator attempts",
+        )
+    signatures = {row["signature"] for row in read_blocks(project)}
+    assert len(signatures) == 1
+
+
+def test_a_different_step_is_a_different_block(project):
+    from core.fault_owner import Owner
+    from core.workflow_blocks import read_blocks, record_block
+
+    record_block(project, phase=4, step="Entry & Preflight", owner=Owner.UNKNOWN, message="a")
+    record_block(project, phase=4, step="Gate 3", owner=Owner.UNKNOWN, message="a")
+    assert len({row["signature"] for row in read_blocks(project)}) == 2
+
+
+def test_open_blocks_excludes_resolved_ones(project):
+    from core.fault_owner import Owner
+    from core.workflow_blocks import open_blocks, record_block, resolve_block
+
+    sig = record_block(
+        project, phase=4, step="Gate 3", owner=Owner.HARNESS, message="crg_independent_failed"
+    )
+    assert len(open_blocks(project)) == 1
+    resolve_block(project, sig, resolution="repair-harness pushed 0123abc")
+    assert open_blocks(project) == []
+
+
+def test_resolving_a_signature_that_was_never_recorded_is_refused(project):
+    """A receipt for a block nobody recorded is a claim with no subject —
+    Round 45's rule (a verdict outlives its proof) at the ledger layer."""
+    from core.workflow_blocks import UnknownBlockError, resolve_block
+
+    with pytest.raises(UnknownBlockError):
+        resolve_block(project, "sha256:deadbeef", resolution="claimed fixed")
