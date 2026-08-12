@@ -137,6 +137,35 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
     # Ensure .sessi-work/ exists before writing the sentinel and result.
     Path(ctx.work_dir).mkdir(parents=True, exist_ok=True)
 
+    # ── Round 47 站5b: the project's own runtime dependencies ────────────────
+    # Phase 3 onward only. That is where the project first has code whose
+    # declared dependencies must be installed; at P1/P2 there is nothing to
+    # declare yet, and demanding a manifest then would block every project on
+    # its first command. Done BEFORE the evaluation, not inside the verdict,
+    # so preparing and judging stay apart.
+    # A missing manifest blocks and says so — 老闆's ruling: 阻擋，且不猜測依賴.
+    if args.phase >= 3:
+        from harness.env_repair import install_project_dependencies
+        from harness.toolchains import get_project_language
+        _deps = install_project_dependencies(
+            Path(project), language=get_project_language(project)
+        )
+        if _deps.installed:
+            print(f"[REPAIR] env-check: installed project dependencies from "
+                  f"{_deps.manifest.name if _deps.manifest else '?'}")
+        if not _deps.ok:
+            print(
+                f"\n[BLOCKED] env-check: {_deps.blocked_reason}\n"
+                f"  Fix: add the manifest that declares this project's runtime\n"
+                f"  dependencies, then re-run:\n"
+                f"    python harness_cli.py run-env-check --phase {args.phase} "
+                f"--project {project}\n"
+                f"  This is the installer stating its precondition, not a verdict on\n"
+                f"  any NFR — a requirement that names these files is enforced by its\n"
+                f"  own tests, separately."
+            )
+            return 1
+
     # Write sentinel so finalize-env-check can verify run-env-check was called.
     sf = _sentinel_env_path(Path(project))
     sf.parent.mkdir(parents=True, exist_ok=True)

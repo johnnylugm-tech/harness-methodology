@@ -205,7 +205,15 @@ _LINE_CEILING: dict[str, int] = {
     # the gate configs had never met. The comment explaining why the two
     # lists are NOT merged (different probers, different namespaces) is most
     # of the size.
-    "cli/gate_cmds.py": 2835,  # 2026-08-11: +89 lines — Bug B fix for P7 FR-09
+    # 2026-08-12: 2835 -> 2864 (+29). Round 47 站5b: run-env-check installs
+    # the PROJECT's declared dependencies before evaluating, at phase 3+ only
+    # (P1/P2 have no code to declare for, and demanding a manifest there would
+    # block every project on its first command). The block carries its own
+    # remediation and states, in the message itself, that it is the installer's
+    # precondition and not a verdict on any NFR — the same file is required by
+    # taskq-advance's NFR-07, whose enforcement is its own tests, and two
+    # enforcers for one fact is the shape Round 38 had to undo.
+    "cli/gate_cmds.py": 2864,  # 2026-08-11: +89 lines — Bug B fix for P7 FR-09
     # false-positive block: per-FR writer in _cmd_finalize_gate_impl grows
     # from ~10 lines to ~75 lines (fr_id consistency check + idempotency
     # guard that prevents a sub-agent from clobbering a sibling FR's per-FR

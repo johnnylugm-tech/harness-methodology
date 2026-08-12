@@ -304,6 +304,29 @@ class TestCmdRunEnvCheck:
         monkeypatch.setattr("cli.gate_cmds._verify_env_check_claims", lambda _: [])
         assert cmd_run_env_check(args) == 0
 
+    def test_phase_1_does_not_demand_a_dependency_manifest(self, tmp_path, monkeypatch):
+        """Round 47 站5b's precondition starts at P3, where code first exists.
+
+        The project-dependency install blocks when nothing declares what the
+        project needs. At P1 and P2 nothing has been written yet, so demanding
+        a manifest there would block every project on its first command — the
+        check would be right about the file and wrong about the moment. This
+        pins the phase gate, which is one `if` away from silently regressing.
+        """
+        from harness_cli import cmd_run_env_check
+        self._setup_mock_result(
+            tmp_path,
+            '{"ready": true, "env_vars": {"required": [], "optional_missing": []}}',
+            monkeypatch,
+        )
+        assert not (tmp_path / "requirements.txt").exists()
+
+        for phase in (1, 2):
+            args = argparse.Namespace(project=str(tmp_path), phase=phase, fr_id=None)
+            assert cmd_run_env_check(args) == 0, (
+                f"phase {phase} demanded a manifest from a project with no code yet"
+            )
+
     def test_unset_mandatory_var_exits_1(self, tmp_path, monkeypatch, capsys):
         """A var classified mandatory but absent from the environment blocks —
         and it blocks on the MEASUREMENT, not on what the agent claimed."""

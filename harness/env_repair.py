@@ -47,7 +47,26 @@ from pathlib import Path
 
 import harness.toolchains.bootstrap as _ssot
 
-__all__ = ["RepairOutcome", "repair_missing_tools"]
+__all__ = [
+    "RepairOutcome",
+    "repair_missing_tools",
+    "PROJECT_MANIFESTS",
+    "ProjectDepsOutcome",
+    "project_manifest",
+    "install_project_dependencies",
+]
+
+# What a Python project uses to DECLARE what it needs, most specific first.
+# The framework installs from one of these or from nothing: reconstructing a
+# dependency list from imports, or from `pip freeze` of whatever happens to be
+# installed, would make the framework the author of one of the project's own
+# deliverables. 老闆's Round 47 ruling: block, and do not guess.
+PROJECT_MANIFESTS: tuple[str, ...] = (
+    "requirements.lock",
+    "requirements.txt",
+    "pyproject.toml",
+    "package.json",
+)
 
 
 @dataclass
@@ -192,6 +211,129 @@ def repair_missing_tools(
 
     outcome.still_missing = reprobe(fixable, root) if fixable else []
     _record(root, tool_ids, outcome)
+    return outcome
+
+
+@dataclass
+class ProjectDepsOutcome:
+    """Whether the PROJECT's own runtime dependencies could be installed."""
+
+    manifest: "Path | None" = None
+    installed: bool = False
+    blocked_reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.blocked_reason
+
+
+def _manifest_search_roots(project: Path) -> "list[Path]":
+    """Where a manifest may live, using the layout SSOT rather than a guess.
+
+    Measured 2026-08-12 across the five live projects: taskq-plus declares its
+    dependencies at `03-development/requirements.txt`, not at the repo root —
+    which is the canonical layout this framework itself imposes
+    (ProjectLayout.phase3_development_dir). A root-only search would have
+    reported "declares nothing" about a project that declares plainly, and
+    then blocked it. Looking only where the framework already looks is the
+    difference between a precondition and a false accusation.
+    """
+    from core.utils.project_layout import ProjectLayout
+
+    roots = [project]
+    try:
+        layout = ProjectLayout(project)
+        for candidate in (layout.phase3_development_dir, layout.active_src_dir.parent):
+            if candidate not in roots and candidate.is_dir():
+                roots.append(candidate)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] env-repair: could not resolve the project layout "
+              f"({exc}) — searching the repo root only", file=sys.stderr)
+    return roots
+
+
+def project_manifest(project: "Path | str") -> "Path | None":
+    """The first dependency manifest *project* declares, or None."""
+    root = Path(project)
+    for search_root in _manifest_search_roots(root):
+        for name in PROJECT_MANIFESTS:
+            candidate = search_root / name
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def install_project_dependencies(
+    project: "Path | str", *, language: str = "python", run=subprocess.run
+) -> ProjectDepsOutcome:
+    """Install what the project DECLARES it needs — never what it appears to use.
+
+    Round 47 站5b. This is the other half of the environment: the framework's
+    own toolchain comes from harness/toolchains/bootstrap.py, and a project's
+    runtime dependencies come from the project. taskq-advance is the live case
+    — its SPEC's NFR-07 requires requirements.txt, requirements.lock and
+    08-config/SBOM.json, and `ls`/`find` show none of the three exist.
+
+    A missing manifest BLOCKS and names itself. It is not an NFR-07 verdict:
+    that requirement is enforced by its own tests (Round 46 站1 made their
+    skipping visible). This is the installer stating its precondition — it was
+    asked to prepare an environment and nothing declares what that environment
+    is. The two happen to point at the same file; they are different facts with
+    different owners, and conflating them would be Round 38's shape (one
+    dimension, several enforcers).
+    """
+    outcome = ProjectDepsOutcome()
+    root = Path(project)
+
+    if language != "python":
+        # Not a silent no-op: leaving a false pass is worse than leaving a gap.
+        outcome.blocked_reason = (
+            f"project language is {language!r}; Round 47 implements the Python "
+            f"bootstrap only. Install this project's dependencies yourself "
+            f"(npm ci / equivalent) — the framework will not pretend it did."
+        )
+        return outcome
+
+    manifest = project_manifest(root)
+    if manifest is None:
+        outcome.blocked_reason = (
+            "no dependency manifest: none of "
+            + ", ".join(PROJECT_MANIFESTS)
+            + " exists in "
+            + ", ".join(str(r) for r in _manifest_search_roots(root))
+            + ". The framework was asked to prepare this "
+            "project's environment and nothing in the project declares what it "
+            "needs. It will not infer a dependency list from imports or from "
+            "`pip freeze` — that would make the framework the author of one of "
+            "the project's deliverables. Add the manifest, then re-run."
+        )
+        return outcome
+
+    outcome.manifest = manifest
+    if manifest.name in ("requirements.txt", "requirements.lock"):
+        args = ["-r", str(manifest)]
+    elif manifest.name == "pyproject.toml":
+        args = [str(root)]
+    else:  # package.json reached with language == "python"
+        outcome.blocked_reason = (
+            f"{manifest.name} is the only manifest present but the project's "
+            f"language is python — the two disagree; fix state.json or add a "
+            f"Python manifest."
+        )
+        return outcome
+
+    proc = run(
+        [_installer_python(root), "-m", "pip", "install", *args],
+        capture_output=True,
+        text=True,
+    )
+    if getattr(proc, "returncode", 1) != 0:
+        outcome.blocked_reason = (
+            f"installing from {manifest.name} failed:\n"
+            f"{(getattr(proc, 'stderr', '') or '')[-400:]}"
+        )
+        return outcome
+    outcome.installed = True
     return outcome
 
 

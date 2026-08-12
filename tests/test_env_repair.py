@@ -58,6 +58,76 @@ def test_repair_reprobes_instead_of_trusting_the_installer(tmp_path):
     assert "scancode" in outcome.still_missing
 
 
+def test_a_project_that_declares_nothing_is_named_not_guessed(tmp_path):
+    """The installer states its precondition; it does not invent a manifest.
+
+    taskq-advance is the live case: its SPEC's NFR-07 requires
+    requirements.txt, requirements.lock and 08-config/SBOM.json, and `ls` /
+    `find` show none of the three exist. 老闆's Round 47 ruling for that shape
+    is 阻擋，且不猜測依賴 — reconstructing the list from imports or from
+    `pip freeze` would make the framework the author of one of the project's
+    own deliverables.
+    """
+    from harness.env_repair import install_project_dependencies
+
+    project = tmp_path / "declares-nothing"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "app.py").write_text("import fastapi\n", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):  # pragma: no cover - must not be reached
+        calls.append(list(argv))
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    outcome = install_project_dependencies(project, run=fake_run)
+
+    assert calls == [], f"the framework guessed a dependency: {calls}"
+    assert outcome.ok is False
+    assert outcome.installed is False
+    assert "requirements.txt" in outcome.blocked_reason
+    assert "pip freeze" in outcome.blocked_reason, (
+        "the message must say what it refused to do, not only that it stopped"
+    )
+
+
+def test_a_declared_manifest_is_installed_from(tmp_path):
+    """With a manifest present, install from THAT and nothing else."""
+    from harness.env_repair import install_project_dependencies
+
+    project = tmp_path / "declares-something"
+    project.mkdir()
+    manifest = project / "requirements.txt"
+    manifest.write_text("fastapi==0.1.0\n", encoding="utf-8")
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    outcome = install_project_dependencies(project, run=fake_run)
+
+    assert outcome.ok and outcome.installed
+    assert outcome.manifest == manifest
+    assert len(calls) == 1 and calls[0][-2:] == ["-r", str(manifest)]
+
+
+def test_a_non_python_project_blocks_rather_than_pretending(tmp_path):
+    """Round 47 implements the Python bootstrap only, and says so out loud."""
+    from harness.env_repair import install_project_dependencies
+
+    project = tmp_path / "js"
+    project.mkdir()
+    (project / "package.json").write_text("{}", encoding="utf-8")
+
+    outcome = install_project_dependencies(project, language="typescript")
+
+    assert outcome.ok is False
+    assert outcome.installed is False
+    assert "typescript" in outcome.blocked_reason
+
+
 def test_an_external_binary_is_never_pip_installed(tmp_path):
     """gitleaks has no pip step; repair reports it and does not shell out."""
     from harness.env_repair import repair_missing_tools
