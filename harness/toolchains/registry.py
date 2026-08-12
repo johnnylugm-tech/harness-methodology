@@ -58,6 +58,13 @@ class ToolSpec:
     timeout: int
     check_cmd: str          # shell probe; exit 0 = installed
     human_name: str         # diagnostic label for missing-tool messages
+    # Round 47 站1: how the tool GETS here, stated beside how it is checked.
+    # One of "requirements" | "gate-extras" | "external" | "npm" | "builtin";
+    # harness/toolchains/bootstrap.py says what each means and why there are
+    # five. No default: a new ToolSpec must say where it comes from, or the
+    # repair path would silently guess (and the seven contradicting prose
+    # statements this field replaced all began as a guess).
+    install_step: str
     cmd: Optional[tuple[str, ...]] = None
     scorer: Optional[str] = None
     skip_inline: bool = False
@@ -81,6 +88,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd=f"ruff --version 2>&1 || {sys.executable} -m ruff --version 2>&1",
         human_name="ruff",
+        install_step="requirements",
         scorer="ruff",
     ),
     "mypy": ToolSpec(
@@ -90,6 +98,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=60,
         check_cmd="mypy --version 2>&1",
         human_name="mypy",
+        install_step="requirements",
         scorer="mypy",
     ),
     "pyright": ToolSpec(
@@ -98,6 +107,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=60,
         check_cmd="pyright --version 2>&1",
         human_name="pyright",
+        install_step="requirements",
         scorer="pyright",
     ),
     "pytest-cov": ToolSpec(
@@ -107,6 +117,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=120,
         check_cmd="pytest --version 2>&1 && coverage --version 2>&1",
         human_name="pytest + coverage",
+        install_step="requirements",
         scorer="pytest-cov",
     ),
     "pytest": ToolSpec(
@@ -115,6 +126,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=120,
         check_cmd="pytest --version 2>&1",
         human_name="pytest",
+        install_step="requirements",
         scorer="pytest",
     ),
     "gitleaks": ToolSpec(
@@ -125,6 +137,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd="gitleaks version 2>&1",
         human_name="gitleaks",
+        install_step="external",
         scorer="gitleaks",
     ),
     "bandit": ToolSpec(
@@ -134,6 +147,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=60,
         check_cmd="bandit --version 2>&1",
         human_name="bandit",
+        install_step="requirements",
         scorer="bandit",
     ),
     "radon-cc": ToolSpec(
@@ -142,6 +156,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-cc)",
+        install_step="requirements",
         scorer="radon-cc",
     ),
     "readability-v2": ToolSpec(
@@ -150,6 +165,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (readability-v2)",
+        install_step="requirements",
         scorer="readability-v2",
     ),
     "radon-mi": ToolSpec(
@@ -158,6 +174,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-mi)",
+        install_step="requirements",
         scorer="radon-mi",
     ),
     # --benchmark-only: run only tests using the `benchmark` fixture.
@@ -170,6 +187,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=180,
         check_cmd=f"pytest --version 2>&1 && {sys.executable} -c 'import pytest_benchmark' 2>&1",
         human_name="pytest-benchmark",
+        install_step="requirements",
         scorer="pytest-benchmark",
     ),
     # Integration coverage: run only the integration suite and measure real
@@ -184,6 +202,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=180,
         check_cmd="pytest --version 2>&1 && coverage --version 2>&1",
         human_name="pytest + coverage (integration)",
+        install_step="requirements",
         scorer="pytest-cov-integration",
     ),
     # In-process Python ast scanners (no external binary). Check probes verify
@@ -194,6 +213,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd=f"{sys.executable} -c 'import ast; ast.parse(\"x=1\")' 2>&1",
         human_name="ast (assertions)",
+        install_step="builtin",
         scorer="ast-assertions",
         in_process=True,
     ),
@@ -202,6 +222,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd=f"{sys.executable} -c 'import ast; ast.parse(\"try:\\n pass\\nexcept: pass\")' 2>&1",
         human_name="ast (error-handling)",
+        install_step="builtin",
         scorer="ast-error-handling",
         in_process=True,
     ),
@@ -210,6 +231,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=30,
         check_cmd=f"{sys.executable} -c 'import ast; ast.parse(\"def f():\\n \\\"\\\"\\\"doc\\\"\\\"\\\"\\n pass\")' 2>&1",
         human_name="ast (docstrings)",
+        install_step="builtin",
         scorer="ast-docstrings",
         in_process=True,
     ),
@@ -231,6 +253,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=1800,
         check_cmd="mutmut --help 2>&1",
         human_name="mutmut",
+        install_step="requirements",
         skip_inline=True,
     ),
     "import-linter": ToolSpec(
@@ -239,6 +262,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=60,
         check_cmd="lint-imports --help 2>&1",
         human_name="import-linter",
+        install_step="gate-extras",
         scorer="exit-code-binary",
         required_config_file=".importlinter",
     ),
@@ -248,6 +272,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=300,
         check_cmd="make --version 2>&1",
         human_name="System Verification Target",
+        install_step="external",
         scorer="exit-code-binary",
     ),
     "scancode": ToolSpec(
@@ -255,6 +280,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=0,
         check_cmd="scancode --version 2>&1",
         human_name="scancode-toolkit",
+        install_step="gate-extras",
         skip_inline=True,
     ),
     # ── Language-agnostic ────────────────────────────────────────────────────
@@ -265,6 +291,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=0,
         check_cmd="code-review-graph status 2>&1",
         human_name="code-review-graph",
+        install_step="gate-extras",
         skip_inline=True,
     ),
     # ── JavaScript / TypeScript toolchain ────────────────────────────────────
@@ -277,6 +304,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=60,
         check_cmd="npx --no-install eslint --version 2>&1",
         human_name="eslint",
+        install_step="npm",
         scorer="eslint",
     ),
     "tsc": ToolSpec(
@@ -285,6 +313,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=120,
         check_cmd="npx --no-install tsc --version 2>&1",
         human_name="tsc (typescript)",
+        install_step="npm",
         scorer="tsc",
     ),
     # Pure-JS type checking: JSDoc types via tsc --checkJs. The include/exclude
@@ -300,6 +329,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         # would misread as a real type error; gate S2 must block instead.
         check_cmd="test -f tsconfig.checkjs.json && npx --no-install tsc --version 2>&1",
         human_name="tsc --checkJs (typescript)",
+        install_step="npm",
         scorer="tsc",
     ),
     # No --reporter flag: vitest 4 removed the "basic" reporter; the default
@@ -311,6 +341,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=240,
         check_cmd="npx --no-install vitest --version 2>&1",
         human_name="vitest + coverage-v8",
+        install_step="npm",
         scorer="coverage-summary",
         output_artifact="coverage/coverage-summary.json",
     ),
@@ -321,6 +352,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=240,
         check_cmd="npx --no-install jest --version 2>&1",
         human_name="jest + coverage",
+        install_step="npm",
         scorer="coverage-summary",
         output_artifact="coverage/coverage-summary.json",
     ),
@@ -332,6 +364,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=240,
         check_cmd="npx --no-install vitest --version 2>&1",
         human_name="vitest + coverage (integration)",
+        install_step="npm",
         scorer="coverage-summary",
         output_artifact="coverage/coverage-summary.json",
     ),
@@ -343,6 +376,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=240,
         check_cmd="npx --no-install jest --version 2>&1",
         human_name="jest + coverage (integration)",
+        install_step="npm",
         scorer="coverage-summary",
         output_artifact="coverage/coverage-summary.json",
     ),
@@ -353,6 +387,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=120,
         check_cmd="semgrep --version 2>&1",
         human_name="semgrep (vendored JS ruleset)",
+        install_step="requirements",
         scorer="semgrep",
     ),
     # Runner-agnostic benchmark convention: `node benchmarks/run.mjs` emits
@@ -366,6 +401,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=180,
         check_cmd="node --version 2>&1",
         human_name="node benchmarks (tinybench)",
+        install_step="external",
         scorer="js-bench",
     ),
     # StrykerJS — skip-list like mutmut (full mutation runs are minutes-long);
@@ -375,6 +411,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=0,
         check_cmd="npx --no-install stryker --version 2>&1",
         human_name="StrykerJS",
+        install_step="npm",
         skip_inline=True,
     ),
     # In-process tree-sitter scanners (shared by javascript and typescript;
@@ -386,6 +423,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (assertions)",
+        install_step="requirements",
         scorer="ast-assertions",
         in_process=True,
     ),
@@ -395,6 +433,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (error-handling)",
+        install_step="requirements",
         scorer="ast-error-handling",
         in_process=True,
     ),
@@ -404,6 +443,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (JSDoc coverage)",
+        install_step="requirements",
         scorer="ast-docstrings",
         in_process=True,
     ),
@@ -415,6 +455,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         check_cmd=(f"{sys.executable} -c 'import tree_sitter, tree_sitter_javascript, "
                    "tree_sitter_typescript' 2>&1"),
         human_name="tree-sitter (maintainability index)",
+        install_step="requirements",
         scorer="radon-mi",
         in_process=True,
     ),

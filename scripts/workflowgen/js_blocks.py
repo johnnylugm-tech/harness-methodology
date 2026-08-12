@@ -24,6 +24,19 @@ from pathlib import Path
 _JS_SRC_DIR = Path(__file__).resolve().parent / "js_src"
 _EXPORT_RE = re.compile(r"^export\s+(?=function\b)", re.MULTILINE)
 
+
+def _crg_standalone_specs() -> str:
+    """`code-review-graph==X igraph==Y`, with both versions read from the SSOT.
+
+    The gate-verify dispatch cannot assume an earlier step in THIS session
+    installed CRG, so it installs it inline — which means the workflow files
+    carry a pin. Rendering it keeps that pin equal to the one bootstrap.py
+    states, instead of being a fourth hand-typed copy.
+    """
+    from harness.toolchains import bootstrap
+
+    return " ".join(bootstrap.pinned_spec(p) for p in ("code-review-graph", "igraph"))
+
 # One statement of the crash-banner shape, shared by every site that routes on
 # it (Round 13 站2: HARNESS_BUG and INFRA must not be sent to CODE-FIX).
 HARNESS_BUG_RE_JS = r"/\[HARNESS-BUG\]/"
@@ -1072,7 +1085,12 @@ def render_gate_loop(
         # declare igraph as a pip dependency, so without it CRG silently
         # degrades to a coarse directory-based grouping that scores
         # differently from CI (which always has igraph present first).
-        + f"    + '`pip install -q code-review-graph==2.3.6 igraph==1.0.0 >/dev/null 2>&1; ' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate {gate_num} --phase {phase} --spec-threshold {d4_threshold}; echo \"RC=$?\"`\\n'\n"
+        # Round 47 站1: both pins are RENDERED, not typed. They used to be a
+        # literal in this string, a second literal in the CI template and an
+        # unpinned third in cli/project_cmds.py — and the CI template's own
+        # :610-624 note records what a version disagreement costs (architecture
+        # 66.7 in CI vs a committed baseline of 100.0, same commit).
+        + f"    + '`pip install -q {_crg_standalone_specs()} >/dev/null 2>&1; ' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate {gate_num} --phase {phase} --spec-threshold {d4_threshold}; echo \"RC=$?\"`\\n'\n"
         + f"    + 'It runs all three of Gate {gate_num}\\'s checks — state.json last_gate >= {gate_num}, spec-coverage, and the CRG architecture floor — and appends the verdict, with a digest of the tree it measured, to .methodology/gate_verify.jsonl. advance-phase re-derives that digest and refuses a phase whose exit gate has no matching PASS, so a verdict you did not actually produce cannot carry the phase.\\n'\n"
         + "    + 'Then report via the StructuredOutput tool: verify_rc = the exact numeric exit code echoed on the final RC= line; detail = the command\\'s last [verify-gate] line.',\n"
         + f"    {{ label: 'gate{gate_num}-verify-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA }},\n"

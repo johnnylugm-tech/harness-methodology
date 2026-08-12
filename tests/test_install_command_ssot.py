@@ -43,8 +43,15 @@ _PIP_LINE = re.compile(r"pip3?\s+install\s+(?P<args>[^\n|&;]+)")
 
 
 def _pip_invocations(text: str) -> list[list[str]]:
-    """Every `pip install …` in *text*, as its argument token list."""
-    return [m.group("args").split() for m in _PIP_LINE.finditer(text)]
+    """Every `pip install …` COMMAND in *text*, as its argument token list.
+
+    Comments are stripped first, in both the YAML and the shell sense (the
+    template's `run:` blocks are shell). A note explaining why a pip line was
+    removed is prose about an install, not an install — counting it would make
+    the test fail on its own explanation.
+    """
+    stripped = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+    return [m.group("args").split() for m in _PIP_LINE.finditer(stripped)]
 
 
 def test_the_ci_template_pins_what_the_ssot_pins():

@@ -18,15 +18,33 @@ import subprocess
 import sys
 import json
 
+# The one install statement for everything requirements.txt pins.
+_REQS = "pip install -r harness/requirements.txt"
+
+# The install column below is a COPY of harness/toolchains/bootstrap.py's
+# answer, kept literal because this file is a vendored, zero-dependency script
+# invoked as `python3 harness/harness/ssi/scripts/verify_tools.py`
+# (INTEGRATION.md:77) with only its own directory on sys.path. Equality with
+# the SSOT is enforced by
+# tests/test_install_command_ssot.py::test_the_vendored_tool_table_agrees_with_the_ssot
+# — Round 47 站1, after this table told users `pipx install code-review-graph`
+# (a third installer for a package the CI template pins at 2.3.6) and
+# `pip3 install mutmut` (which resolves to 3.x, the version requirements.txt
+# pins away from because it is incompatible with this repo's sys.path layout).
+
 # Language-independent requirements (every project).
 CORE_COMMON = {
     "git": ("git --version", "git 2.0+"),
     "code-review-graph": (
         "code-review-graph status",
-        "pipx install code-review-graph",
+        "pip install code-review-graph==2.3.6",
         "Architecture analysis (required)",
     ),
-    "gitleaks": ("gitleaks version", "brew install gitleaks", "Secrets scanning"),
+    "gitleaks": (
+        "gitleaks version",
+        "brew install gitleaks  # or: go install github.com/gitleaks/gitleaks/v8@latest",
+        "Secrets scanning",
+    ),
 }
 
 # Per-language gate toolchain requirements (state.json `language`).
@@ -34,12 +52,14 @@ CORE_BY_LANG = {
     "python": {
         "python3": ("python3 --version", "Python 3.10+"),
         "pip3": ("pip3 --version", "pip 20+"),
-        "ruff": ("ruff --version", "pip3 install ruff", "Linting"),
-        "pyright": ("pyright --version", "pip3 install pyright", "Type safety"),
-        "pytest": ("pytest --version", "pip3 install pytest", "Testing"),
-        "coverage": ("coverage --version", "pip3 install coverage", "Coverage"),
-        "bandit": ("bandit --version", "pip3 install bandit", "Security (SAST)"),
-        "radon": ("radon --version", "pip3 install radon", "Maintainability index"),
+        # All six are pinned in requirements.txt; one install brings them all,
+        # at the versions the scores were calibrated against.
+        "ruff": ("ruff --version", _REQS, "Linting"),
+        "pyright": ("pyright --version", _REQS, "Type safety"),
+        "pytest": ("pytest --version", _REQS, "Testing"),
+        "coverage": ("coverage --version", _REQS, "Coverage"),
+        "bandit": ("bandit --version", _REQS, "Security (SAST)"),
+        "radon": ("radon --version", _REQS, "Maintainability index"),
     },
     "javascript": {
         "node": ("node --version", "Node.js 18+"),
@@ -84,7 +104,10 @@ def core_tools_for(language: str, test_runner: str | None = None) -> dict:
 
 EXTENDED_TOOLS = {
     # HIGH priority
-    "mutmut": ("mutmut --help", "pip3 install mutmut", "Python mutation testing"),
+    # NOT `pip install mutmut`: that resolves to 3.x, which requirements.txt
+    # pins away from ("mutmut 3.x is incompatible with this repo's sys.path
+    # layout"). The pin is 2.5.1 and lives in requirements.txt.
+    "mutmut": ("mutmut --help", _REQS, "Python mutation testing"),
     "stryker": (
         "stryker --version",
         "npm install -g @stryker-mutator/core",
@@ -110,7 +133,7 @@ EXTENDED_TOOLS = {
     # LOW priority
     "scancode": (
         "scancode --version",
-        "pip3 install scancode-toolkit",
+        "pip install scancode-toolkit==32.4.1",
         "License scanning",
     ),
     "syft": ("syft --version", "brew install syft", "SBOM generation"),
