@@ -579,6 +579,19 @@ _LINE_CEILING: dict[str, int] = {
     # why a signature registry can never tell "the API returned 401" from "the
     # test asserts 401" — provenance is the only thing that can, and the field
     # IS that provenance (sized to current 1286 -> 1286).
+    # 2026-08-12: first entry (was 882, under the 900 default) — Round 48 站2:
+    # _check_open_workflow_blocks, which WARNs on unresolved harness-owned halts
+    # so an operator running doctor after a dead run is told the route (the
+    # harness repair workflow) rather than left to guess. The check is already
+    # as narrow as it can be — the ledger query lives in
+    # core/workflow_blocks.harness_owned_open_blocks and the full listing is
+    # run-report's job, so doctor carries only the finding.
+    #
+    # Recorded honestly: this file was at 882 before the round, so ANY new check
+    # crosses the 900 default. Prose was tightened once and then stopped, because
+    # shaving a docstring to dodge a threshold is not what the threshold is for.
+    # The next check added here should split the file instead of raising this.
+    "core/doctor.py": 911,
     "core/agent_spawner.py": 1286,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
@@ -987,7 +1000,15 @@ _LINE_CEILING: dict[str, int] = {
     # carries a pin at all. Generator output is byte-identical
     # (generate_workflows.py --check 9/9), so the growth buys parity, not
     # behaviour. Splitting js_blocks.py remains a separate question.
-    "scripts/workflowgen/js_blocks.py": 1637,  # 2026-08-07: +55 — Round 43 站3: render_sync_verified gained a bounded retry WITH repair authority, a [HARNESS-BUG] early exit, and an `on_blocked` terminal branch so P3's bespoke second Sync implementation could be deleted (spec_phase3.py:_render_phase3_sync went from ~60 rendered lines to a call plus its own terminal). Net across the two files is roughly flat; the growth here is the SYNC_REPAIR_CLAUSE constant (tests/test_sync_may_repair.py asserts it appears in every shipped Sync block, so it may not be inline prose) and the comment recording why a bare re-send at a pre-push content blocker was the defect Round 41 站3 named. Splitting js_blocks.py is a separate question from this change and is not attempted here.
+    # 2026-08-12: +33 — Round 48 站2: RECORD_BLOCK_FN_BLOCK, the single hoisted
+    # helper every one of run-all's terminal exits calls before returning. It
+    # lives here rather than in spec_runall.py for the same reason every other
+    # shared block does — it is JS text, and the file that assembles run-all
+    # imports its blocks, it does not author them. Sized deliberately: the
+    # alternative (a recordBlock call at each of the 125 halt sites in the eight
+    # phase generators) was measured at roughly 8 KB of run-all's remaining
+    # 12,241-byte headroom, against 2,328 for this one.
+    "scripts/workflowgen/js_blocks.py": 1670,  # 2026-08-07: +55 — Round 43 站3: render_sync_verified gained a bounded retry WITH repair authority, a [HARNESS-BUG] early exit, and an `on_blocked` terminal branch so P3's bespoke second Sync implementation could be deleted (spec_phase3.py:_render_phase3_sync went from ~60 rendered lines to a call plus its own terminal). Net across the two files is roughly flat; the growth here is the SYNC_REPAIR_CLAUSE constant (tests/test_sync_may_repair.py asserts it appears in every shipped Sync block, so it may not be inline prose) and the comment recording why a bare re-send at a pre-push content blocker was the defect Round 41 站3 named. Splitting js_blocks.py is a separate question from this change and is not attempted here.
 }
 
 

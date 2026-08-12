@@ -720,7 +720,43 @@ test('run-all fails closed when the cursor cannot be read', async () => {
     RUNALL, makeHappyResponder([{ match: /^phase-cursor$/, respond: null }, ...happyOverrides()]),
   )
   assert.match(String(result.error ?? ''), /current_phase/)
-  assert.equal(events.agents.length, 1, 'nothing beyond the cursor read may run')
+  // Round 48 站2: the cursor read, then ONE dispatch to write the halt down,
+  // and nothing else. Before that second dispatch existed this asserted a bare
+  // length of 1; the run still stopped in the same place, it just left no
+  // record that it had.
+  assert.deepEqual(
+    events.agents.map((a) => a.label), ['phase-cursor', 'record-block'],
+    'nothing beyond the cursor read and its halt record may run',
+  )
+})
+
+// ---- Round 48 站2: a halt is written down, once ----------------------------
+// The 125 terminal halt sites across the eight phase files all funnel through
+// the four driver branches below, so one recording point covers every one of
+// them — but only when the driver actually reaches it. Without this scenario
+// the recordBlock calls could be dropped and every other test would stay green,
+// which is the exact blind spot Round 27 站6 opened this file for run-all to fix.
+test('round48: a phase that halts records where it stopped, exactly once', async () => {
+  // Only the cursor is pinned: with no happy-path overrides the run reaches
+  // Phase 8's post-advance push and stops there, which is the driver's
+  // `outcome.error` branch — the one 93 of the 125 halt sites arrive through.
+  const { result, events } = await runWorkflow(
+    RUNALL, makeHappyResponder([cursorAt(8)]),
+  )
+  assert.match(String(result.error ?? ''), /Phase 8/)
+  const recorded = events.agents.filter((a) => a.label === 'record-block')
+  assert.equal(recorded.length, 1, 'one dispatch, once per aborted run — not once per retry')
+  assert.match(recorded[0].prompt, /harness_cli\.py record-block --project/)
+  assert.match(recorded[0].prompt, /--phase 8 /, 'the record must name the phase it stopped in')
+})
+
+test('round48: a run that completes records no block at all', async () => {
+  const { events } = await runAllFrom1()
+  assert.equal(
+    events.agents.filter((a) => a.label === 'record-block').length, 0,
+    'a successful run has no halt to record — an unconditional call would make '
+    + 'the ledger a log of runs rather than a log of blocks',
+  )
 })
 
 test('run-all does nothing when the project is past Phase 8', async () => {

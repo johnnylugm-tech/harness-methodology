@@ -61,6 +61,12 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "Phase 1 would re-run requirements on an advanced project"),
     (r"^env-check$", "carrier", "schema",
      "run-env-check && finalize-env-check; RC= line transcribed to rc"),
+    (r"^record-block$", "carrier", "none",
+     "Round 48 站2: fixed `harness_cli.py record-block` invocation at each of "
+     "run-all's terminal exits. Deliberately ungated — the halt it records has "
+     "ALREADY been decided by the branch that called it, so a verdict on this "
+     "dispatch's own reply could only override a fact with a report about it. "
+     "The classification happens in core/fault_owner.py, not in the reply"),
     # Round 22 站3 removed ctx-check-: its `json.load(ctxFile)` probe proved
     # exactly what the load-ctx-a read below runs and fails on, and on phase3
     # its verdict was never even read (Fix D short-circuits ahead of it).

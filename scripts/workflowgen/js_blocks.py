@@ -150,6 +150,39 @@ const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
 log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 """
 
+RECORD_BLOCK_FN_BLOCK = """\
+// ---- Round 48 站2: where the run stopped, written down ----
+// Every terminal exit below funnels through this. Before it, a halt existed
+// only as this script's return value: run-report reads sessions_spawn.log,
+// degradations.jsonl and the gate result files, and a workflow halt is in
+// none of them. The one event nobody recorded was where the pipeline stopped.
+//
+// It SPENDS a dispatch, unlike __dispatchFlushPreamble's ride-along. That is
+// unavoidable: this sandbox has no filesystem and no shell, and a halt is
+// terminal, so there is no next dispatch to ride on. One dispatch, once per
+// aborted run.
+//
+// Classification is NOT done here. harness_cli.py record-block calls
+// core/fault_owner.py and prints the owner; a copy of that table inside a
+// workflow string literal would be one fact in two places, on a surface no
+// unit test can reach.
+async function recordBlock(phaseNo, step, message) {
+  const clean = (s) => String(s == null ? '' : s).replace(/'/g, '').replace(/\\s+/g, ' ').slice(0, 800)
+  const cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
+    + ' --phase ' + phaseNo + " --step '" + clean(step) + "' --message '" + clean(message) + "'"
+  try {
+    await agent(
+      'Run EXACTLY this command via the Bash tool, then report its stdout verbatim as your final message. Do nothing else.\\n`'
+      + cmd + '`\\n'
+      + 'It records where this run stopped and who owns the failure. It always exits 0; if it does not, report that verbatim rather than retrying.',
+      { label: 'record-block', phase: 'Phase Cursor', agentType: 'general-purpose' },
+    )
+  } catch (e) {
+    log('record-block dispatch failed (the halt below is still the real result): ' + String((e && e.message) || e).slice(0, 160))
+  }
+}
+"""
+
 HUNT_MODEL_BLOCK = """\
 // Bug hunt should use a DIFFERENT model from the developer (minimise same-source bias).
 const HUNT_MODEL = (args && typeof args === 'object' && typeof args.huntModel === 'string') ? args.huntModel : 'claude-opus-4-8'

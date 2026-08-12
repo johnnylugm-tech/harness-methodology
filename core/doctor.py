@@ -174,6 +174,7 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # a confirmed harness bug yet — WARN (not ERROR: this is a maintenance
     # backlog item, not a state inconsistency blocking the current run).
     findings.extend(_check_crash_bundles(project))
+    findings.extend(_check_open_workflow_blocks(project))
 
     # 10. spawn-log authenticity (Round 21 站3): entries that carry none of the
     # dispatch envelope AgentSpawner always records were not produced by a
@@ -715,6 +716,37 @@ def _check_crash_bundles(project: Path) -> list[Finding]:
         f"{CRASH_DIR_RELPATH}/ — harness-methodology crashed on its own bug at "
         f"least once. Triage: harness_cli.py crash-triage --project {project} "
         f"(add --open-cr to file a CR-BUG ticket in the harness repo)")]
+
+
+def _check_open_workflow_blocks(project: Path) -> list[Finding]:
+    """Halts nobody has closed (Round 48 站2).
+
+    A harness-owned block is reported at WARN rather than ERROR for the same
+    reason `_check_crash_bundles` is: it is a true statement about a run that
+    already ended, not a defect in the tree being inspected right now. What
+    makes it worth a line at all is that it names the repair route — a block
+    the framework attributed to ITSELF must not be handed to a fix agent
+    pointed at the project's code.
+
+    Deliberately narrow: ONLY harness-owned blocks are reported. `run-report`
+    already lists every open block with its owner and repeat count, and a
+    second reader printing the same rows would be one fact in two places.
+    What earns a doctor line is the routing consequence, which run-report can
+    describe but doctor is the command people run when something is wrong.
+    """
+    from core.workflow_blocks import LEDGER_RELPATH, harness_owned_open_blocks
+
+    harness_owned = harness_owned_open_blocks(project)
+    if not harness_owned:
+        return []
+    where = ", ".join(f"P{r.get('phase')}/{r.get('step')}" for r in harness_owned[:5])
+    return [Finding(
+        "workflow-blocks", "WARN",
+        f"{len(harness_owned)} unresolved harness-owned block(s) in "
+        f"{LEDGER_RELPATH} ({where}) — the framework attributed these to its "
+        f"own code, so they are not project quality failures. Run the harness "
+        f"repair workflow; do not dispatch a fix agent at this project. Full "
+        f"list: harness_cli.py run-report --project {project}")]
 
 
 def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]:

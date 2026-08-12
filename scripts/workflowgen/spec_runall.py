@@ -268,10 +268,13 @@ def _render_driver(all_titles: list[str]) -> str:
         f"    {{ label: 'phase-cursor', phase: '{_CURSOR_TITLE}', agentType: 'general-purpose', schema: PHASE_SCHEMA }},\n"
         "  )\n"
         "} catch (e) {\n"
-        "  return { error: 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200), "
+        "  const cursorErr = 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200)\n"
+        "  await recordBlock(0, 'phase-cursor', cursorErr)\n"
+        "  return { error: cursorErr, "
         "note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' }\n"
         "}\n"
         "if (!(cursor && Number.isInteger(cursor.current_phase))) {\n"
+        "  await recordBlock(0, 'phase-cursor', 'run-all: could not read current_phase from .methodology/state.json')\n"
         "  return { error: 'run-all: could not read current_phase from .methodology/state.json', "
         "note: 'Refusing to guess a starting phase. Check the file, then relaunch.' }\n"
         "}\n"
@@ -290,16 +293,20 @@ def _render_driver(all_titles: list[str]) -> str:
         "  try {\n"
         "    outcome = await PHASE_RUNNERS[n]()\n"
         "  } catch (e) {\n"
-        "    return { error: 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300), "
+        "    const crashMsg = 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300)\n"
+        "    await recordBlock(n, 'workflow-crash', crashMsg)\n"
+        "    return { error: crashMsg, "
         "phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. "
         "Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' }\n"
         "  }\n"
         "  if (outcome && outcome.session_limit_blocked) {\n"
+        "    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'))\n"
         "    return { session_limit_blocked: true, phase: n, phases_run: phasesRun, "
         "detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — "
         "it resumes from state.json and every completed phase short-circuits.' }\n"
         "  }\n"
         "  if (outcome && outcome.error) {\n"
+        "    await recordBlock(n, 'phase-error', String(outcome.error))\n"
         "    return { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, "
         "phase: n, phases_run: phasesRun, detail: outcome }\n"
         "  }\n"
@@ -311,6 +318,7 @@ def _render_driver(all_titles: list[str]) -> str:
         "  // a run in which harness itself crashed on FR-01 walked on through P4-P8\n"
         "  // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.\n"
         f"  if (!outcome || outcome.{PHASE_COMPLETE_KEY} !== true) {{\n"
+        "    await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'))\n"
         "    return { error: 'run-all stopped in Phase ' + n + ': the phase returned without "
         "reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || "
         "'no message'), "
@@ -361,6 +369,8 @@ def generate_runall() -> str:
         B.BUDGET_GUARD_BLOCK,
         "",
         B.WRITE_SCOPE_BLOCK,
+        "",
+        B.RECORD_BLOCK_FN_BLOCK,
         "",
         B.render_schemas(list(_SCHEMA_UNION)),
         "",

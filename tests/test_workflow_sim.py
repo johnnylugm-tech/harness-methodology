@@ -91,4 +91,12 @@ def test_sim_testbed_passes():
     # structurally-broken-dispatch exits in the four per-FR delta loops that had
     # neither. This is the first coverage of the runtime's ONLY error behaviour —
     # terminating the run — as opposed to the null-return shape it already had.
-    assert int(m.group(1)) >= 91, f"sim suite shrank: only {m.group(1)} passing tests (floor 91)"
+    # 91 -> 97 by Round 48 站2 (2026-08-12). The suite was already at 95 when
+    # this round started (the floor had not been raised since Round 28); the
+    # two new scenarios take it to 97 and the floor now matches. They pin that
+    # a halt spends exactly ONE dispatch writing itself down, and that a run
+    # which completes writes nothing. Before them, the recordBlock calls could
+    # be dropped from spec_runall.py and every other test in this file would
+    # still pass, because none of them reached a halt and then looked at what
+    # had been recorded.
+    assert int(m.group(1)) >= 97, f"sim suite shrank: only {m.group(1)} passing tests (floor 97)"

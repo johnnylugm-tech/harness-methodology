@@ -189,6 +189,40 @@ def _gate_provenance_report(project: Path) -> dict:
     return {"available": True, "gates": gates}
 
 
+def _workflow_block_report(project: Path) -> dict:
+    """Where runs stopped, and who owns each stop (Round 48 站2).
+
+    The one run artifact that had no reader because it had no writer. Counts
+    are per SIGNATURE, not per row: a block recorded three times is one place
+    the pipeline keeps stopping, and reporting it as three would flatten the
+    fact worth seeing back into a total.
+    """
+    from core.workflow_blocks import open_blocks, read_blocks
+
+    rows = read_blocks(project)
+    if not rows:
+        return {"available": False}
+    still_open = open_blocks(project)
+    repeats = Counter(row.get("signature") for row in rows if not row.get("resolved"))
+    return {
+        "available": True,
+        "total_records": len(rows),
+        "open": len(still_open),
+        "by_owner": dict(Counter(row.get("owner", "?") for row in still_open)),
+        "open_blocks": [
+            {
+                "signature": row.get("signature"),
+                "phase": row.get("phase"),
+                "step": row.get("step"),
+                "owner": row.get("owner"),
+                "seen": repeats.get(row.get("signature"), 1),
+                "message": (row.get("message") or "")[:160],
+            }
+            for row in still_open
+        ],
+    }
+
+
 def _degradation_report(project: Path) -> dict:
     from core.degradation_ledger import LEDGER_RELPATH
     entries = _read_jsonl(project / LEDGER_RELPATH)
@@ -263,6 +297,7 @@ def build_report(project: Path) -> dict:
         "failure_modes": _failure_modes_report(project),
         "gate_provenance": _gate_provenance_report(project),
         "degradations": _degradation_report(project),
+        "workflow_blocks": _workflow_block_report(project),
         "crash_bundles": _crash_report(project),
         "trajectory": _trajectory_report(project),
     }
@@ -379,6 +414,35 @@ def _render_human(report: dict) -> str:
             )
         for item in dg["by_component_what"]:
             lines.append(f"    {item['component']}: {item['what']} ({item['count']})")
+
+    wb = report["workflow_blocks"]
+    lines.append("")
+    from core.workflow_blocks import LEDGER_RELPATH as _blocks_rel
+    lines.append(f"## Workflow blocks ({_blocks_rel})")
+    if not wb["available"]:
+        lines.append("  n/a — no run has recorded a halt in this project")
+    else:
+        lines.append(f"  records: {wb['total_records']}  open: {wb['open']}")
+        if wb["by_owner"]:
+            lines.append("  by owner: " + ", ".join(
+                f"{owner}={count}" for owner, count in sorted(wb["by_owner"].items())))
+        for item in wb["open_blocks"]:
+            seen = f" (seen {item['seen']}x)" if item["seen"] > 1 else ""
+            lines.append(
+                f"    P{item['phase']} / {item['step']} [{item['owner']}]{seen}: "
+                f"{item['message']}"
+            )
+        if wb["by_owner"].get("harness"):
+            lines.append(
+                "  ^ a harness-owned block is not a project quality failure — "
+                "run the harness repair workflow, not a fix agent"
+            )
+        if wb["by_owner"].get("unknown"):
+            lines.append(
+                "  ^ unknown means the halt carried no evidence of ownership. "
+                "It is not a project failure by default; see "
+                "core/fault_owner.py's text rules for what would name one"
+            )
 
     cr = report["crash_bundles"]
     lines.append("")
@@ -541,7 +605,79 @@ def cmd_log_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_record_block(args: argparse.Namespace) -> int:
+    """Record where a workflow stopped, and say who owns it (Round 48 站2).
+
+    The Workflow sandbox has no filesystem, no shell and no clock (see
+    run-all.js's own Round 26 note), so a workflow cannot write this itself —
+    it spends one dispatch on this command. `log-dispatch` avoids that cost by
+    riding along on the NEXT dispatch's prompt, which is unavailable here by
+    definition: a halt is terminal, and there is no next dispatch. One
+    dispatch, once per aborted run, is the price of the run's last fact.
+
+    Classification happens HERE rather than in the generated JS. The owner
+    table is `core/fault_owner.py`; putting a copy of it in a workflow string
+    literal would be Round 36's shape (one fact, N statements) on a surface
+    nobody can unit-test.
+
+    Exit code is always 0. This command reports a block that already happened;
+    failing it would replace the caller's real problem with a bookkeeping one.
+    """
+    from core.fault_owner import classify_fault, routes_to_harness_repair
+    from core.workflow_blocks import record_block
+
+    project = Path(args.project).resolve()
+    verdict = classify_fault(exit_code=args.exit_code, text=args.message)
+    try:
+        signature = record_block(
+            project,
+            phase=args.phase,
+            step=args.step,
+            owner=verdict.owner,
+            message=args.message,
+            exit_code=args.exit_code,
+            evidence=verdict.evidence,
+        )
+    except OSError as exc:
+        print(f"[record-block] could not write the ledger: {exc}", file=sys.stderr)
+        return 0
+
+    routes = routes_to_harness_repair(verdict)
+    print(json.dumps({
+        "signature": signature,
+        "owner": verdict.owner,
+        "evidence": verdict.evidence,
+        "repair_workflow": ".claude/workflows/harness-repair.js" if routes else None,
+    }, ensure_ascii=False))
+    if routes:
+        print(
+            "[record-block] owner=harness — this is not a project quality "
+            "failure. Launch the harness repair workflow with this signature, "
+            "then relaunch run-all.",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def register(sub) -> None:
+    rb = sub.add_parser(
+        "record-block",
+        help="Record where a workflow stopped and classify whose fault it is "
+             "(harness / project / infra / unknown) — the one pipeline event "
+             "that landed nowhere before Round 48",
+    )
+    rb.add_argument("--project", default=".", help="Project root (default: .)")
+    rb.add_argument("--phase", type=int, required=True, help="Phase 1-8")
+    rb.add_argument("--step", required=True,
+                    help="The phase box the run stopped in, e.g. 'Gate 3'")
+    rb.add_argument("--message", required=True,
+                    help="The halt message, verbatim — framework-authored text "
+                         "only (see core/fault_owner.py on why an agent's reply "
+                         "must not be classified)")
+    rb.add_argument("--exit-code", type=int, default=None,
+                    help="Exit code, when the halt came from a CLI command")
+    rb.set_defaults(func=cmd_record_block)
+
     ld = sub.add_parser(
         "log-dispatch",
         help="Append workflow-substrate dispatch records (role/phase/status) to "

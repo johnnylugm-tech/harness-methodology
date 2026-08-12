@@ -295,9 +295,9 @@ def classify_fault(
                 f"exit {exit_code} carries two owners and the message did not "
                 f"say which — see core/fault_owner.py::_DISCRIMINATORS",
             )
-        owner = OWNER_BY_EXIT.get(exit_code)
-        if owner is not None:
-            return FaultVerdict(owner, f"exit {exit_code}")
+        registered = OWNER_BY_EXIT.get(exit_code)
+        if registered is not None:
+            return FaultVerdict(registered, f"exit {exit_code}")
         return FaultVerdict(
             Owner.UNKNOWN,
             f"exit {exit_code} is not registered in cli/exit_codes.py's REGISTRY",

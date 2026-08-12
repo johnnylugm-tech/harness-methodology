@@ -91,6 +91,38 @@ def test_open_blocks_excludes_resolved_ones(project):
     assert open_blocks(project) == []
 
 
+def test_doctor_warns_on_a_harness_owned_block_and_names_the_route(project):
+    """The consumer that decides what happens next.
+
+    A block the framework attributed to ITSELF must not be handed to a fix
+    agent pointed at the project — Round 13 站2's routing rule, applied to the
+    one signal that did not exist when that rule was written.
+    """
+    from core.doctor import _check_open_workflow_blocks
+    from core.fault_owner import Owner
+    from core.workflow_blocks import record_block
+
+    record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS,
+                 message="crg_independent_failed")
+    findings = _check_open_workflow_blocks(project)
+    assert len(findings) == 1
+    assert findings[0].severity == "WARN"
+    assert "not project quality failures" in findings[0].message
+    assert "P3/Gate 2" in findings[0].message
+
+
+def test_doctor_stays_quiet_about_blocks_it_does_not_own_the_route_for(project):
+    """run-report lists every open block. doctor reports only the subset whose
+    route differs, so the two readers do not print the same rows."""
+    from core.doctor import _check_open_workflow_blocks
+    from core.fault_owner import Owner
+    from core.workflow_blocks import record_block
+
+    record_block(project, phase=4, step="Gate 3", owner=Owner.PROJECT, message="x")
+    record_block(project, phase=4, step="Preflight", owner=Owner.UNKNOWN, message="y")
+    assert _check_open_workflow_blocks(project) == []
+
+
 def test_resolving_a_signature_that_was_never_recorded_is_refused(project):
     """A receipt for a block nobody recorded is a claim with no subject —
     Round 45's rule (a verdict outlives its proof) at the ledger layer."""

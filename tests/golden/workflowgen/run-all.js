@@ -188,6 +188,38 @@ const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
 log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 
 
+// ---- Round 48 站2: where the run stopped, written down ----
+// Every terminal exit below funnels through this. Before it, a halt existed
+// only as this script's return value: run-report reads sessions_spawn.log,
+// degradations.jsonl and the gate result files, and a workflow halt is in
+// none of them. The one event nobody recorded was where the pipeline stopped.
+//
+// It SPENDS a dispatch, unlike __dispatchFlushPreamble's ride-along. That is
+// unavoidable: this sandbox has no filesystem and no shell, and a halt is
+// terminal, so there is no next dispatch to ride on. One dispatch, once per
+// aborted run.
+//
+// Classification is NOT done here. harness_cli.py record-block calls
+// core/fault_owner.py and prints the owner; a copy of that table inside a
+// workflow string literal would be one fact in two places, on a surface no
+// unit test can reach.
+async function recordBlock(phaseNo, step, message) {
+  const clean = (s) => String(s == null ? '' : s).replace(/'/g, '').replace(/\s+/g, ' ').slice(0, 800)
+  const cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
+    + ' --phase ' + phaseNo + " --step '" + clean(step) + "' --message '" + clean(message) + "'"
+  try {
+    await dispatch(
+      'Run EXACTLY this command via the Bash tool, then report its stdout verbatim as your final message. Do nothing else.\n`'
+      + cmd + '`\n'
+      + 'It records where this run stopped and who owns the failure. It always exits 0; if it does not, report that verbatim rather than retrying.',
+      { label: 'record-block', phase: 'Phase Cursor', agentType: 'general-purpose' },
+    )
+  } catch (e) {
+    log('record-block dispatch failed (the halt below is still the real result): ' + String((e && e.message) || e).slice(0, 160))
+  }
+}
+
+
 // ---- Gate verdict schemas (flat, top-level consts — playbook §5.2/§5.3) ----
 // Verdict authority rule: heavy orchestrator agents keep prose narrative;
 // their PASS/FAIL is NEVER parsed from that prose. A separate bash-proxy
@@ -4069,9 +4101,12 @@ try {
     { label: 'phase-cursor', phase: 'Phase Cursor', agentType: 'general-purpose', schema: PHASE_SCHEMA },
   )
 } catch (e) {
-  return { error: 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200), note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' }
+  const cursorErr = 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200)
+  await recordBlock(0, 'phase-cursor', cursorErr)
+  return { error: cursorErr, note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' }
 }
 if (!(cursor && Number.isInteger(cursor.current_phase))) {
+  await recordBlock(0, 'phase-cursor', 'run-all: could not read current_phase from .methodology/state.json')
   return { error: 'run-all: could not read current_phase from .methodology/state.json', note: 'Refusing to guess a starting phase. Check the file, then relaunch.' }
 }
 const startPhase = cursor.current_phase
@@ -4087,12 +4122,16 @@ for (let n = startPhase; n <= 8; n++) {
   try {
     outcome = await PHASE_RUNNERS[n]()
   } catch (e) {
-    return { error: 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300), phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' }
+    const crashMsg = 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300)
+    await recordBlock(n, 'workflow-crash', crashMsg)
+    return { error: crashMsg, phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' }
   }
   if (outcome && outcome.session_limit_blocked) {
+    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'))
     return { session_limit_blocked: true, phase: n, phases_run: phasesRun, detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — it resumes from state.json and every completed phase short-circuits.' }
   }
   if (outcome && outcome.error) {
+    await recordBlock(n, 'phase-error', String(outcome.error))
     return { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, phase: n, phases_run: phasesRun, detail: outcome }
   }
   // Round 28 — fail CLOSED, like the cursor read above. The two branches
@@ -4103,6 +4142,7 @@ for (let n = startPhase; n <= 8; n++) {
   // a run in which harness itself crashed on FR-01 walked on through P4-P8
   // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.
   if (!outcome || outcome.phase_complete !== true) {
+    await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'))
     return { error: 'run-all stopped in Phase ' + n + ': the phase returned without reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || 'no message'), phase: n, phases_run: phasesRun, detail: outcome, note: 'A phase sets phase_complete only on its single success exit. Anything else — a terminal abort such as a harness crash or a broken dispatch environment, or a shape this driver does not recognise — stops the run rather than advancing on an unfinished phase.' }
   }
   phasesRun.push(n)
