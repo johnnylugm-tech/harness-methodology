@@ -37,6 +37,7 @@ field names and types; this docstring is the human-readable projection.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field, fields as _dc_fields
 from pathlib import Path
 from typing import Optional
@@ -172,6 +173,23 @@ _GATE1_DIMENSION_STANDARD: dict[str, float] = load_gate_thresholds(1)
 # Free-form targets like "p95 < 3s" are intentionally NOT parsed (different semantics).
 _NFR_TARGET_NUM_RE = re.compile(r"(?:≥|>=)\s*(\d+(?:\.\d+)?)")
 
+# A dimension score is 0-100. Anything above that is not one, whatever the
+# sentence around it says, and admitting it produces a floor no score can ever
+# clear — a gate that can only block, with a message naming a "threshold" that
+# is really a millisecond budget. That exact failure happened once already on
+# the sibling `quality_targets` path (harness_bridge.py:3733, `p95_latency_ms`
+# → performance floor 3000) and was fixed there and only there.
+#
+# Round 46 站4 measured the four live projects before touching this. The parse
+# is load-bearing and correct three times — taskq-plus test_assertion_quality
+# 80 (standard 70), taskq-renew and taskq-advance integration_coverage 80
+# (standard 75) — so the planned deletion would have LOWERED three projects'
+# floors, and a "%-suffix required" rule would have discarded five more
+# correct floors written without the sign ("MI >= 80", "mutation score >= 70").
+# The refusal is therefore narrow: reject the impossible, keep the rest
+# byte-identical.
+_MAX_DIMENSION_SCORE = 100.0
+
 # The standard floor for every dimension ANY gate scores, gate 4 first.
 #
 # Round 27 站2: derive_gate_score_overrides consulted gate 4 alone, and three
@@ -225,7 +243,10 @@ def derive_gate_score_overrides(nfr_dim_mapping: dict, nfr_traceability: dict) -
     """(7) SAB enforcement: turn NFR-backed dimensions into gate_score_overrides
     (threshold floors, only-raise). An NFR mapped to a dimension means that dimension
     must clear at least its standard gate threshold — a da_waiver cannot drop it below.
-    If the NFR target carries an explicit "≥N" floor, the stricter value wins.
+    If the NFR target carries an explicit "≥N" floor and N is a possible
+    dimension score, the stricter value wins; an N above 100 is refused and
+    reported, because the target's unit is not stated anywhere and a floor
+    nothing can reach is worse than no floor at all (see `_MAX_DIMENSION_SCORE`).
     """
     overrides: dict = {}
     for nfr_id, dim in nfr_dim_mapping.items():
@@ -236,7 +257,19 @@ def derive_gate_score_overrides(nfr_dim_mapping: dict, nfr_traceability: dict) -
         if isinstance(v, dict):
             m = _NFR_TARGET_NUM_RE.search(str(v.get("target", "")))
             if m:
-                floor = max(floor, float(m.group(1)))
+                claimed = float(m.group(1))
+                if claimed <= _MAX_DIMENSION_SCORE:
+                    floor = max(floor, claimed)
+                else:
+                    print(
+                        f"[harness] {nfr_id}: target asks for '>= {m.group(1)}', "
+                        f"which is not a 0-100 {dim} score — its unit is not "
+                        f"stated and it cannot be used as a threshold floor. "
+                        f"{dim} keeps its standard floor of {floor}. Express a "
+                        f"stricter floor as a score, or declare it directly in "
+                        f"the SAB's gate_score_overrides.",
+                        file=sys.stderr,
+                    )
         overrides[dim] = max(overrides.get(dim, 0.0), float(floor))
     return overrides
 
