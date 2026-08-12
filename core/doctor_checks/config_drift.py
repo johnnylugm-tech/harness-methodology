@@ -1,0 +1,120 @@
+"""doctor checks: settings that drifted from what reads them.
+
+Split out of core/doctor.py in R49-B. Three checks that ask the same question
+of three different files — whether a value the framework still reads matches
+the value something else has since changed:
+
+  dimension scope   the SSI dimension roster vs what the gate config scores
+  enforcement keys  enforcement.json keys vs the ones any code still reads
+  testpaths         pyproject's testpaths vs the suite the gate measures
+
+They share no code with each other and none with the rest of doctor; grouping
+them is about what the next reader needs open at once, which is the only
+thing a split can buy.
+
+Nothing here decides anything. doctor REPORTS — see core/doctor.py's own
+docstring on why an auto-repair path would become a fabrication surface.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from core.doctor_checks import Finding
+from core.utils.project_layout import ProjectLayout
+
+def _check_dimension_scope_drift(project: Path) -> list[Finding]:
+    """WARN when the dimensions in force differ from the last verdict's set.
+
+    Round 39 站2. A verdict in `.methodology/gate_verify.jsonl` records which
+    dimensions were disabled when it was produced. Turning one off (or back on)
+    afterwards does not invalidate the tree digest — the code did not change —
+    but it does mean the recorded PASS was measured against a different set of
+    rules than the ones now in force.
+
+    Silent when there is no verdict yet: that case is `advance-phase`'s BLOCK,
+    and repeating it here would only add noise to every fresh project.
+    """
+    from core.quality_gate.dimension_scope import disabled_dimensions
+    from core.quality_gate.gate_verify import read_verdicts
+
+    rows, err = read_verdicts(project)
+    if err or not rows:
+        return []
+    latest = rows[-1]
+    if "dimensions_disabled" not in latest:
+        return []  # recorded before the field existed — nothing to compare
+    recorded = sorted(latest.get("dimensions_disabled") or [])
+    current = sorted(disabled_dimensions(project))
+    if recorded == current:
+        return []
+    return [Finding(
+        "dimension-scope", "WARN",
+        f"gate {latest.get('gate')}'s recorded verdict was measured with "
+        f"dimensions_disabled={recorded}, but harness_config.json now says "
+        f"{current}. Fix: re-run `harness_cli.py verify-gate --gate "
+        f"{latest.get('gate')}` so the verdict and the configuration agree, "
+        f"or restore the feature flags the verdict was produced under.",
+    )]
+
+
+# hr_overrides + phase_truth: legacy fallbacks read by phase_truth_verifier
+# (migrated to harness_config values.phase_truth_* in Round 9 站3).
+# constitution: still a live override layer — constitution/profile.py's
+# load_profile() merges enforcement.json["constitution"] into the on-demand
+# constitution profile (found by dogfooding this very check on the harness
+# repo: the station-0 sweep grepped for the dataclass names and missed
+# profile.py's string-literal path read).
+_ENFORCEMENT_LIVE_KEYS = {"hr_overrides", "phase_truth", "constitution"}
+
+
+def _check_enforcement_zombie_keys(layout: ProjectLayout) -> list[Finding]:
+    cfg_path = layout.enforcement_config_path
+    if not cfg_path.is_file():
+        return []
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return [Finding("enforcement-config", "WARN",
+                        f"{cfg_path.name} is not valid JSON — nothing reads a "
+                        f"broken file, but a hand-edit probably went wrong")]
+    if not isinstance(cfg, dict):
+        return []
+    zombie = sorted(k for k in cfg if k not in _ENFORCEMENT_LIVE_KEYS)
+    if not zombie:
+        return []
+    return [Finding("enforcement-config", "WARN",
+                    f"enforcement.json keys {zombie} have no consumer (the "
+                    f"EnforcementConfig reader was removed as dead code); only "
+                    f"{sorted(_ENFORCEMENT_LIVE_KEYS)} are still read, and only "
+                    f"as legacy fallbacks — migrate them to harness_config.json "
+                    f"values.phase_truth_threshold / values.phase_truth_pytest_timeout "
+                    f"and delete this file")]
+
+
+def _check_testpaths_drift(project: Path) -> list[Finding]:
+    """Name the test files the project left out of its own default run.
+
+    Reports, never rewrites — same contract as Round 31 站4's mutation
+    `scope_drift`. The file carrying the declaration is separately
+    fingerprinted into the verdict (DIMENSION_EXCLUSION_FILES), so the
+    decision is in the artifacts; this says out loud what it means.
+    """
+    from core.quality_gate.testpaths_scope import testpaths_drift
+
+    drift = testpaths_drift(project)
+    if not drift or not drift["not_in_declared"]:
+        return []
+    missing = drift["not_in_declared"]
+    shown = ", ".join(missing[:5]) + (f" +{len(missing) - 5} more"
+                                      if len(missing) > 5 else "")
+    return [Finding(
+        "testpaths-drift", "WARN",
+        f"{Path(drift['declared_source']).name} declares "
+        f"{len(drift['declared'])} testpaths entr"
+        f"{'y' if len(drift['declared']) == 1 else 'ies'}, but "
+        f"{len(missing)} collected test file(s) are not covered by any of "
+        f"them: {shown}. A bare `pytest` measures the declared set; the "
+        f"framework measures the whole test directory. Both numbers are "
+        f"real — they are just not the same number.")]

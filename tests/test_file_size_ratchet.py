@@ -599,7 +599,15 @@ _LINE_CEILING: dict[str, int] = {
     # and collapsing the two would lose the distinction the reconciliation
     # exists to make. Still inside the same function; the split note above
     # stands and now has one more caller behind it.
-    "core/doctor.py": 923,
+    #
+    # 2026-08-13: 923 -> 251 (-672). R49-B did what the note above said the next
+    # check should do. The fourteen checks moved into core/doctor_checks/ in four
+    # families (config_drift, git_state, ledgers, verdicts); doctor.py keeps
+    # run_doctor, which is the one thing that has to know about all of them, and
+    # re-exports the names its callers already import. The entry stays at the new
+    # size rather than being deleted: a file that just shed 672 lines is exactly
+    # the file worth watching.
+    "core/doctor.py": 251,
     "core/agent_spawner.py": 1286,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
