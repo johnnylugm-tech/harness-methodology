@@ -2421,3 +2421,105 @@ push-milestone 的 `at`。**一個死欄位讓一個活欄位看起來是壞的*
 | P6 被完整跑了兩次（`1b98c93` 16:55 與 `5f51fb5` 20:42 兩個 release commit） | **沒有框架機制被牽連**。兩次之間 10 支 FR + Gate 4 全部重跑，`phase_completed["6"]` 只記第二次。列為觀察 |
 | `crg:graph-scope`：16:55:54 圖只涵蓋 51/53 個交付檔，同一分鐘 Gate 4 PASS 96.0 | **不是新缺陷 —— 是 R44 站3 的活實例**。R44 誠實記過「我沒有在任何一份最終判定上觀測到覆蓋不足」，**現在觀測到了**，回填該條 |
 | `spec:undelivered` 23/89、traceability 74.16 vs yaml 100 | R44 已裁決，不重查 |
+
+---
+
+## Round 46（2026-08-12）—— 證人缺席不算作證失敗
+
+老闆令：重新完整檢視 taskq-advance P1–P8 的執行紀錄、**一份外部審計報告**、
+以及 harness 的 git history，探討是否有其他根本性／結構性問題。
+
+### 外部審計報告的逐條裁決
+
+| 審計主張 | 裁決 | 硬證據 |
+|---|---|---|
+| 缺 `08-config/SBOM.json` / `requirements.txt` / `requirements.lock` | **屬實** | `08-config/` 只有 `CONFIG_RECORDS.md` + `RELEASE_CHECKLIST.md`；全樹 find 無此三檔 |
+| NFR-01 效能基準只是空殼 placeholder | **屬實** | 全套件唯一 benchmark 是 `test_placeholder_benchmark`，mean **28.2 ns** |
+| 違反 NFR-09 零 skip 鐵律（17 skipped） | **屬實** | 實跑 → **255 passed, 17 skipped** |
+| `verify-system` 未實作 NFR-12 的 Alembic 往返與服務冒煙 | **屬實** | `verify-system: test lint coverage`，四步鏈一步都沒有 |
+| 用 `--exit-zero` 規避錯誤 | **部分屬實** | `lint` 的 `--exit-zero` 永不失敗；但 `test`/`coverage` 仍會失敗，所以 `verify-system` 並非完全不可失敗。**`@exit 0` 是誤診** —— make 的相依失敗會在到達它之前中止 |
+| SRS/矩陣「無中生有」的 NFR-99 | **證偽** | NFR-99 是**框架自己的約定**（`PROJECT_BRIEF.md:237`、`phase1_plan.md:97` 的 `R-CANONICAL-INTERP-001`），且 `compute_trace_dimension` 明文把它排除在 4c 分母外。不是專案捏造，是框架指示的 |
+| FINAL_SIGN_OFF 靠 conditional pass 繞過 NFR-01/NFR-09 | **屬實，成因在框架** | 逐字：「NFR-01 (performance): Conditional PASS — p95 benchmark rows still absent; dimension scoring uses framework override path」。框架給的分數是 **100.0** |
+
+### 根源
+
+**一支自稱驗證某條需求的測試，如果沒有執行，框架把它記成「沒有意見」，
+而不是「證據缺席」。於是需求被違反的那一刻，正好是它的證人消失的那一刻。**
+
+taskq-advance 的 17 個 skip 裡 14 個在 `test_spec_nfr.py`，每一個都是需求守衛
+在該需求被違反時 skip 掉自己：SBOM 存在性測試因為 SBOM 不存在而 skip、零-skip
+測試因為專案有 skip 而 skip、零-zero-assert 測試因為有 28 個 zero-assert 而 skip。
+而 `TRACEABILITY_MATRIX.md` 至今記著 NFR-05/07/09 全部 `VERIFIED`。
+
+三個看得見 skip 的地方沒有一個有執法權：`scanner.py:380` 檔案級 credit 且丟棄
+不通過的函式、`run_assertions` 是靜態 AST 看不到 runtime skip、
+`_check_test_skip_ratio` 只 print 且硬編 10%（17/272 = 6.25%，連 WARN 都沒觸發）。
+
+### 站0 的四個前提：一個推翻了方案
+
+| 前提 | 結果 | 影響 |
+|---|---|---|
+| FR 側是否同病 | **同病**（`scanner.py:277` 同形），但 taskq-advance 上 **10/10 → 10/10 零影響**（`[FR-XX]` 與 `test_frNN.py` 兩條 credit 路徑都量過） | 仍然一起修（R8 站1 規矩），用既有的 `IN_PROGRESS`，不新增 TraceStatus 成員 |
+| D4 減法對四專案 floor 的影響 | **推翻預設方案**。解析是活的且三次都正確：taskq-plus `test_assertion_quality` 80（標準 70）、taskq-renew/taskq-advance `integration_coverage` 80（標準 75） | 刪掉會**放寬**三個專案；`%` 限定會放寬一個並誤殺五個（`MI >= 80`、`mutation score >= 70`）。改為**只拒絕 > 100** |
+| 四專案的 `make verify-system` | taskq / taskq-plus / taskq-renew / taskq-advance **都有 target**（`make -n`，未執行）。taskq-api 無 Makefile 也無 `state.json`，非活專案 | 站5 加進 gate 3/4 不會因「沒有 target」擋住任何活專案。**exit code 未量測** —— 執行會寫入唯讀專案 |
+| 零-row 是否有活實例 | `gate4_result.json` 逐字引用該分支（"rc=0 … no benchmark rows → score = max(0.0, 100) = 100"）。**但**同一棵樹今天產生 1 個 row（`test_placeholder_benchmark`，加於 `1b98c93`，該 phase 兩個 release commit 的第一個） | 分支可達且錯誤，這點可由單元測試證明；**「那份 100 是否經由零-row 路徑產生」無法從產物證明**，誠實記錄 |
+
+### 五站
+
+| 站 | 做了什麼 |
+|---|---|
+| 站1 | `scan_test_{fr,nfr}_absent_witnesses`：走同一批函式、問同一個 `_function_has_any_passing_test`，把它丟掉的那一半留下來。4c 的 covered 改為「在覆蓋表內**且**無缺席證人」，4a 同理，兩者**逐支指名**而非給百分比。矩陣 NFR 三態 VERIFIED/PARTIAL/PENDING。**不新增阻擋點** —— traceability 本來就是 threshold 100 的 blocking 維度 |
+| 站2 | `_parse_skip_counts` SSOT；WARN 保留 10% 門檻（它問的是覆蓋子集問題，對那件事誠實），ledger 無門檻（`gate:test-skips`） |
+| 站3 | `_score_pytest_benchmark` 的 `rc=0` 且零 row → `None`（R32 站4 漏掉的另一半）；刪掉 `harness_bridge.py` 宣稱 p95「is enforced inside the performance dimension's benchmark scorer」的假陳述 |
+| 站4 | `derive_gate_score_overrides` 拒絕 > 100 的匹配並印出理由；四專案輸出與既存 `gate_score_overrides` 位元組相同 |
+| 站5 | `execute_verification_target` 進 gate 3/gate 4（weight 0、threshold 100）；prompt 的「Gate 2 only」與 `sab_parser` 註解同步修正；plangen/workflowgen golden 與三支 shipped JS 由生成器重生 |
+
+### 真實資料驗收（唯讀，走框架自己的 junit parser）
+
+```
+4c before 100.0 -> after 75.0   （Gate 4 門檻 90 → BLOCK）
+  NFR-05 <- test_spec_nfr.py::test_readme_exists (skipped)
+  NFR-07 <- test_spec_nfr.py::test_license_file_exists (skipped)
+  NFR-07 <- test_spec_nfr.py::test_sbom_license_field (skipped)
+  NFR-09 <- test_spec_nfr.py::test_pytest_zero_skipped (skipped)
+  NFR-09 <- test_spec_nfr.py::test_zero_assertion_free (skipped)
+  NFR-09 <- test_spec_nfr.py::test_zero_skipped (skipped)
+FR absent witnesses: NONE
+```
+
+**框架自己指名的三條，正好是審計報告指控的三條。**
+
+### 本輪明確未解（不假裝解了）
+
+- **「通過但沒測到」**：taskq-advance 的 5 支 `# NFR-01` 標註測試全部通過，
+  而 SPEC 的 p95 < 30ms 從未被任何一支斷言。站1 對這個形態完全無能為力，
+  而它可能比「證人缺席」更常見。唯一可能區分它的是 4b（TEST_SPEC → 測試），
+  而 4b 今天只比對**測試名**，不比對斷言。**列為下一輪候選，現成樣本已在手。**
+- **`license_compliance` 掃的是專案自己的 src，不是依賴樹**。屬實，但不是本輪
+  修法；NFR-07 缺的三個交付物由站1 抓到（它們的存在性測試 skip 了）。
+- **框架不讀 `verify-system` 的內容**。站5 只保證它每道出口都被執行；
+  SPEC 要求的四步鏈由專案自己的標註測試執法。
+
+### 我查過但**不**列為缺陷的
+
+| 候選 | 裁決 |
+|---|---|
+| SRS/矩陣的 `NFR-99` 是無中生有 | **證偽**，見上表 |
+| `NFR-99 \| — \| PENDING` 讓一條 PENDING 需求通過最終 gate | **不是缺陷**。4c 排除 NFR-99 是刻意且有註解的；PENDING 是它的正確狀態 |
+| `Makefile` 的 `@exit 0` 是規避 | **誤診**。相依失敗會在到達它之前中止 make。真正不可失敗的是 `lint` 的 `--exit-zero`，而 ruff 的 `--exit-zero` 框架自己也在用（`registry.py:80/133`，為了拿 JSON），掃這個 token 會製造假指控 |
+| `_check_tests_failed` 只讀 `test_coverage.tool_evidence` 的 regex | **不是 bug**。R26-DEFER-2 已裁決，且 evidence 缺席時 S3 已阻擋 |
+| `taskq` gate3 的 `performance` 有分數但 `tool_output` 為空字串 | **早於機制不是違規**（R39/R40）。該產物早於 R32 的證據要求；今天的 `requires_tool_execution` 會擋。列為觀察 |
+
+### 唯讀邊界的誠實紀錄
+
+本輪對 taskq-advance **執行過它自己的測試套件三次**（取 junit outcomes 做站1
+的真實資料驗收），以及 `make -n verify-system`（dry run，不執行）。
+
+- **tracked 樹零變更**：`git status` 上唯一的 `M .methodology/state.json` mtime
+  是 `2026-08-12 00:14:57` —— 另一個 session 十二小時前的 P8→P9 advance，不是本輪。
+- **但有一個副作用**：`taskq.db` 的 mtime 是 `2026-08-12 11:40:54`，是本輪跑測試
+  寫的。它自 `f3fbdf0` 起已 untrack，所以不進版本控制 —— 但「唯讀」這個詞在這裡
+  不完全準確，照實記。
+- `.benchmarks/` 與 `.pytest_cache/` 的 mtime 是 08-07，不是本輪（全程 `-p no:cacheprovider`）。
+- 六個專案**都沒有** `.methodology/gate_evidence/`、**都沒有** `gate:test-skips`
+  ledger 列 —— 本輪的機制沒有在任何專案上跑過。

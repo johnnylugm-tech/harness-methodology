@@ -1920,3 +1920,71 @@
 - test: tests/test_per_fr_result_reconciliation.py::test_a_later_phase_rerunning_the_fr_is_not_a_rewrite
   bug: "found by measuring the live project after station 3 had already shipped. gate_results/gate1/{fr}.json carries no phase — it is ONE slot per FR, rewritten by every phase that re-runs that FR's gate. taskq-advance advanced to Phase 9 mid-round and its P8 run left FR-03/05/06/08/10 holding phase-8 results beside their phase-7 receipts. Comparing across that would have fired for every FR at every phase boundary forever: station 2's false-accusation machine rebuilt one station later"
   fixed_in: "R45-站6 (digest compared only when the artifact on disk is for the receipt's own phase)"
+
+- test: tests/test_requirement_witness_absent.py::test_an_absent_witness_is_reported_not_discarded
+  bug: "Round 25 made the coverage scanners outcome-aware and the per-function outcomes have flowed in ever since; scanner.py:277 and :380 `continue` past a function that did not pass and forget it. The data to name it was already in hand"
+  fixed_in: "R46-站1 (scan_test_{fr,nfr}_absent_witnesses over the same walk)"
+
+- test: tests/test_requirement_witness_absent.py::test_a_requirement_with_an_absent_witness_is_not_covered
+  bug: "coverage credit is granted per FILE, so one passing sibling covered for every guard in the same file that never ran. taskq-advance: test_licenses_in_allowlist passed, so NFR-07 was VERIFIED while test_sbom_license_field and test_license_file_exists skipped themselves with 'SBOM.json not found' and 'LICENSE missing'. Measured on the real tree, 4c 100.0 -> 75.0, naming NFR-05/07/09"
+  fixed_in: "R46-站1 (4c covered = in the map AND no absent witness)"
+
+- test: tests/test_requirement_witness_absent.py::test_all_witnesses_passing_is_unchanged
+  bug: "a rule that blocks a healthy project is a worse defect than the one it fixes — the strict reading must be invisible when every witness showed up"
+  fixed_in: "R46-站1"
+
+- test: tests/test_requirement_witness_absent.py::test_the_fr_side_uses_the_word_it_already_has
+  bug: "scan_test_fr_coverage has the identical shape (scanner.py:277). Zero impact on taskq-advance (10/10 either way) and fixed anyway — leaving a same-shaped sibling behind is what R8 站1, R20 and R39 each re-diagnosed"
+  fixed_in: "R46-站1 (IN_PROGRESS, not a new TraceStatus member)"
+
+- test: tests/test_requirement_witness_absent.py::test_the_matrix_says_partial_and_says_why
+  bug: "the NFR table had two states, so 'some of this requirement's tests never ran' had to render as VERIFIED. taskq-advance's matrix says VERIFIED for NFR-05/07/09 to this day"
+  fixed_in: "R46-站1 (PARTIAL, with the absent functions printed in the row)"
+
+- test: tests/test_skip_count_reaches_the_ledger.py::test_the_summary_line_is_parsed_once_for_both_readers
+  bug: "_check_test_skip_ratio parsed the counts and printed them; nothing stored them. The WARN's ratio question and the ledger's count question would drift apart if each parsed its own"
+  fixed_in: "R46-站2 (_parse_skip_counts SSOT)"
+
+- test: tests/test_skip_count_reaches_the_ledger.py::test_the_ratio_warning_keeps_its_threshold
+  bug: "taskq-advance's 17 skips are 6.25% of 272 — under the 10% threshold, so nothing printed, while three of its NFRs had guards skipping themselves. The threshold is right for the coverage question and is why that check can never be the enforcer for the requirement question"
+  fixed_in: "R46-站2 (threshold kept verbatim; enforcement lives in 站1)"
+
+- test: tests/test_skip_count_reaches_the_ledger.py::test_the_ledger_row_has_no_ratio_threshold
+  bug: "one skipped test is worth a record even when it is not worth a warning — collapsing the two questions into one number is how the framework ended up with a skip check that could not see NFR-09"
+  fixed_in: "R46-站2 (gate:test-skips on any skipped > 0)"
+
+- test: tests/test_benchmark_no_rows_is_not_full_marks.py::test_a_clean_exit_with_no_benchmark_rows_scores_nothing
+  bug: "evaluate_dimension.md says 'No benchmarks -> score is None ... not a free 100'. The scorer honoured it on exit 5 and (R32 站4) on every other non-zero code, leaving rc=0 with zero rows returning the initial 100 — the row loop only ever subtracts. taskq-advance's gate4_result.json cites this branch verbatim for performance = 100.0"
+  fixed_in: "R46-站3"
+
+- test: tests/test_tool_runners.py::TestScorePytestBenchmark::test_a_header_with_no_data_rows_measured_nothing
+  bug: "replaces test_no_benchmark_rows_returns_100, which pinned the defect by name. Rewritten rather than deleted so the contract is the one on record"
+  fixed_in: "R46-站3"
+
+- test: tests/test_tool_runners.py::TestScorePytestBenchmark::test_empty_output_measured_nothing
+  bug: "replaces test_empty_output_returns_100 — same inversion"
+  fixed_in: "R46-站3"
+
+- test: tests/test_nfr_floor_units.py::test_a_latency_budget_does_not_become_a_performance_floor
+  bug: "derive_gate_score_overrides reads the first >=N out of free-text and makes it a 0-100 floor with the unit never established. Above 100 that is a floor nothing can clear: a gate that can only block, naming a 'threshold' that is really a millisecond budget. The identical failure fired once on the sibling quality_targets path (p95_latency_ms -> performance floor 3000) and was fixed there only"
+  fixed_in: "R46-站4"
+
+- test: tests/test_nfr_floor_units.py::test_a_percentage_floor_above_the_standard_is_still_honoured
+  bug: "the planned deletion of the parse would have LOWERED three live projects' floors — taskq-plus test_assertion_quality 80, taskq-renew and taskq-advance integration_coverage 80. Measured at station 0 before any code moved"
+  fixed_in: "R46-站4 (refuse only > 100)"
+
+- test: tests/test_nfr_floor_units.py::test_a_bare_number_below_100_is_still_honoured
+  bug: "a '%'-suffix rule would have discarded five more correct floors written without the sign ('MI >= 80', 'mutation score >= 70'). Both candidate fixes were worse than the bug"
+  fixed_in: "R46-站4"
+
+- test: tests/test_verify_target_regated.py::test_every_phase_exit_gate_runs_the_projects_verify_target
+  bug: "execute_verification_target lived in gate 2 alone, so a project's own end-to-end declaration was confirmed once at P3 and never executed again through P8. taskq-advance at Phase 9 has a verify-system chaining test/lint/coverage — none of NFR-12's four required steps — that no gate after Gate 2 ever ran"
+  fixed_in: "R46-站5 (gates 3 and 4, weight 0, threshold 100)"
+
+- test: tests/test_verify_target_regated.py::test_the_new_entries_carry_no_weight
+  bug: "gate 2 keeps its 0.10 — that weight is inside a shipped composite and moving it would re-score a finished gate. The new entries must add a blocker without moving any other dimension's share"
+  fixed_in: "R46-站5"
+
+- test: tests/test_verify_target_regated.py::test_the_prompt_no_longer_calls_it_gate_2_only
+  bug: "the heading agents read said 'Gate 2 only' — R17's prompt/gate drift shape, a sentence outliving the arrangement it described"
+  fixed_in: "R46-站5"
