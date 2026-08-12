@@ -21,6 +21,10 @@ already paid for.
 
 from __future__ import annotations
 
+import argparse
+import json
+import subprocess
+
 import pytest
 
 
@@ -208,6 +212,92 @@ def test_already_on_main_needs_no_checkout():
     plan = checkout_plan(current_branch="main", dirty_paths=[])
     assert plan.must_checkout is False
     assert plan.refusal == ""
+
+
+# --------------------------------------------------------------------------
+# 6. The command itself — the refusals reached through argparse, not the
+#    predicates in isolation. A policy that only exists in a helper nobody
+#    calls is the shape this whole round is about.
+# --------------------------------------------------------------------------
+
+def _harness_repo(tmp_path, *, guards="guards:\n- test: a\n- test: b\n- test: c\n"):
+    """A minimal harness checkout mounted the way every live project mounts it."""
+    root = tmp_path / "harness"
+    (root / ".claude" / "workflows").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "scripts" / "workflowgen").mkdir(parents=True)
+    (tmp_path / ".methodology").mkdir()
+    (root / "harness_cli.py").write_text("", encoding="utf-8")
+    (root / "tests" / "REGRESSION_GUARDS.yaml").write_text(guards, encoding="utf-8")
+    (root / ".claude" / "workflows" / "phase1-requirements.js").write_text(
+        "console.log(1)\n", encoding="utf-8")
+    (root / "scripts" / "workflowgen" / "spec_phase1.py").write_text(
+        "x = 1\n", encoding="utf-8")
+    for argv in (["init", "-q", "."], ["config", "user.email", "b@e.com"],
+                 ["config", "user.name", "Bot"], ["add", "-A"],
+                 ["commit", "-q", "-m", "init"]):
+        subprocess.run(["git", "-C", str(root), *argv], check=True,
+                       capture_output=True)
+    return root
+
+
+def _ticket(tmp_path, **overrides):
+    payload = {"signature": "sha256:abc", "phase": 3, "step": "Gate 2",
+               "message": "crg_independent_failed", "repro": "exit 1"}
+    payload.update(overrides)
+    path = tmp_path / "ticket.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _run(tmp_path, ticket, *flags):
+    from cli.repair_cmds import cmd_repair_harness
+
+    args = argparse.Namespace(project=str(tmp_path), ticket=str(ticket),
+                              check_repro=False, land=False, push=False)
+    for flag in flags:
+        setattr(args, flag, True)
+    return cmd_repair_harness(args)
+
+
+def test_cli_refuses_a_guard_deletion_before_it_runs_anything_expensive(tmp_path):
+    _harness_repo(tmp_path)
+    (tmp_path / "harness" / "tests" / "REGRESSION_GUARDS.yaml").write_text(
+        "guards:\n- test: a\n- test: b\n", encoding="utf-8")
+    assert _run(tmp_path, _ticket(tmp_path), "land", "push") == 1
+
+
+def test_cli_refuses_a_generated_file_edited_without_its_generator(tmp_path):
+    root = _harness_repo(tmp_path)
+    (root / ".claude" / "workflows" / "phase1-requirements.js").write_text(
+        "console.log(2)\n", encoding="utf-8")
+    assert _run(tmp_path, _ticket(tmp_path), "land") == 1
+
+
+def test_cli_refuses_when_the_failure_does_not_reproduce(tmp_path):
+    _harness_repo(tmp_path)
+    ticket = _ticket(tmp_path, repro="exit 0")
+    assert _run(tmp_path, ticket, "check_repro") == 1
+
+
+def test_cli_confirms_a_failure_that_does_reproduce(tmp_path):
+    _harness_repo(tmp_path)
+    assert _run(tmp_path, _ticket(tmp_path), "check_repro") == 0
+
+
+def test_cli_requires_exactly_one_phase_flag(tmp_path):
+    """Neither flag must not silently land. Both is a contradiction."""
+    _harness_repo(tmp_path)
+    ticket = _ticket(tmp_path)
+    assert _run(tmp_path, ticket) == 1
+    assert _run(tmp_path, ticket, "check_repro", "land") == 1
+
+
+def test_cli_refuses_a_ticket_with_no_reproduction_command(tmp_path):
+    _harness_repo(tmp_path)
+    path = tmp_path / "ticket.json"
+    path.write_text(json.dumps({"signature": "sha256:abc"}), encoding="utf-8")
+    assert _run(tmp_path, path, "check_repro") == 1
 
 
 if __name__ == "__main__":  # pragma: no cover

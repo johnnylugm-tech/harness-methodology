@@ -290,6 +290,10 @@ def build_parser() -> argparse.ArgumentParser:
     from cli.report_cmds import register as _register_report_cmds
     _register_report_cmds(sub)
 
+    # ── Round 48 站3: repair-harness (cli/repair_cmds.py) ───────────────────
+    from cli.repair_cmds import register as _register_repair_cmds
+    _register_repair_cmds(sub)
+
 
     from cli.gate_cmds import register as _register_gate_cmds
     _register_gate_cmds(sub)
