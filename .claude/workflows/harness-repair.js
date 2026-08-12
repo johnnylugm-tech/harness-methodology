@@ -178,7 +178,7 @@ const reproRc = await dispatch(
   { label: 'repair-repro', phase: 'Reproduce', agentType: 'general-purpose', schema: RC_SCHEMA },
 )
 if (!(reproRc && reproRc.rc === 0)) {
-  return { error: 'harness-repair: the reported failure did not reproduce', rc: reproRc ? reproRc.rc : null, note: 'A report is a claim; the reproduction is the evidence. Nothing in harness is edited on the strength of a report alone — re-check the ticket\u2019s repro command, or close the block as not-reproducible.' }
+  return { error: 'harness-repair: the reported failure did not reproduce, or the submodule could not be prepared', rc: reproRc ? reproRc.rc : null, note: 'A report is a claim; the reproduction is the evidence. Nothing in harness is edited on the strength of a report alone. This step also returns the submodule to main while the tree is still clean, and refuses if it is off main WITH uncommitted edits — read the printed refusal: it says which of the two happened.' }
 }
 
 

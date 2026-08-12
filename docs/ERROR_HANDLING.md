@@ -383,6 +383,17 @@ What `repair-harness` refuses, and the incident behind each refusal:
 | `harness/gate_configs/*.yaml` touched | Round 38 站2 — that floor is the one CI applies to every project |
 | an entry removed from `tests/REGRESSION_GUARDS.yaml` | guards only grow |
 | the six-check self-gate is not green | harness is a submodule; main is what every project tracks |
+| `--land` on anything but `main` | the tree the self-gate measures must be the tree that gets committed |
+| `--check-repro` on a submodule that is off `main` AND dirty | moving it would carry or clobber someone else's edits |
+
+The last two are one rule seen from both ends. Branch normalisation happens in
+`--check-repro`, before any edit, because that is the last moment the tree is
+clean; `--land` then refuses to move anything. The first version did the
+opposite — self-gate, then `git checkout main`, then commit — and measured
+2026-08-12, two of the six live projects carry the submodule on a detached
+HEAD, where that checkout swaps every file `main` has moved on while carrying
+the fix across. The six checks would have passed on one tree and the commit
+landed on another: Round 44's finding inside the repair executor itself.
 
 Edits under `core/quality_gate/` and `harness/harness_bridge.py` are explicitly
 NOT refused — R31, R32, R33 and R45 were all defects inside that code, so a

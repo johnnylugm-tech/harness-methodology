@@ -59,6 +59,7 @@ __all__ = [
     "forbidden_edit_violations",
     "guard_count_violations",
     "checkout_plan",
+    "push_failure_reason",
     "changed_paths",
     "run_self_gate",
     "reproduce",
@@ -208,14 +209,47 @@ def checkout_plan(*, current_branch: str, dirty_paths: "list[str]") -> CheckoutP
     taskq-renew both carry the harness submodule on a DETACHED HEAD. A commit
     made there is reachable from nothing — which is exactly how Round 29/30
     lost enforcer_sha 01bb3bb4, still named by eight gate results.
+
+    The clobber refusal fires only when a checkout is actually needed. A dirty
+    tree already on the target branch is not a hazard, it is the normal state
+    of a repair mid-flight, and refusing it would have made this predicate
+    unusable at the only moment it matters.
     """
-    if dirty_paths:
+    must_checkout = current_branch != "main"
+    if must_checkout and dirty_paths:
         return CheckoutPlan(False, "main", (
-            "the harness submodule has uncommitted edits and a checkout would "
-            "clobber them: " + ", ".join(sorted(dirty_paths)[:10]) +
+            "the harness submodule is not on main and has uncommitted edits, "
+            "so moving to main would carry or clobber them: " +
+            ", ".join(sorted(dirty_paths)[:10]) +
             ". Commit or stash them, then re-run"
         ))
-    return CheckoutPlan(current_branch != "main", "main", "")
+    return CheckoutPlan(must_checkout, "main", "")
+
+
+# `git push` failures this repo can name. Anything else returns "" — a wrong
+# diagnosis sends the operator at the wrong problem, and Round 45 is the round
+# that measured what 30 false accusations cost.
+_PUSH_DIAGNOSES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bnon-fast-forward\b|\(fetch first\)|\(non-fast-forward\)", re.I),
+     "the remote branch carries commits this checkout does not have, so the "
+     "push was rejected as non-fast-forward. Fetch, rebase onto origin/main, "
+     "and re-run the self-gate on THAT tree before pushing — the six checks "
+     "passed on a tree that no longer describes what would land"),
+    (re.compile(r"protected branch|refusing to allow|GH006", re.I),
+     "the remote refused the write on branch-protection grounds. This is not a "
+     "repairable condition from here and no rule may be changed to clear it"),
+    (re.compile(r"Authentication failed|Permission denied|could not read Username",
+                re.I),
+     "the remote rejected the credentials. Nothing about the fix is in question"),
+)
+
+
+def push_failure_reason(stderr: str) -> str:
+    """Name the cause when it is recognisable, and say nothing when it is not."""
+    for pattern, reason in _PUSH_DIAGNOSES:
+        if pattern.search(stderr or ""):
+            return reason
+    return ""
 
 
 def _python_for(harness_root: "str | Path") -> str:

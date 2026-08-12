@@ -300,5 +300,101 @@ def test_cli_refuses_a_ticket_with_no_reproduction_command(tmp_path):
     assert _run(tmp_path, path, "check_repro") == 1
 
 
+# --------------------------------------------------------------------------
+# 7. The tree the self-gate measured must be the tree that gets committed.
+#
+#    The first version of this command ran the six checks and THEN checked out
+#    main, so on the two live projects whose submodule sits on a detached HEAD
+#    the checkout swapped the working tree — carrying the fix across — and the
+#    commit landed on a tree no check had ever seen. Round 44's shape (被判定的
+#    樹 vs 被記錄的樹) inside the repair that this round shipped. Branch
+#    normalisation belongs BEFORE the edit, when the tree is still clean.
+# --------------------------------------------------------------------------
+
+def _detach(root):
+    subprocess.run(["git", "-C", str(root), "checkout", "--detach", "-q"],
+                   check=True, capture_output=True)
+
+
+def _head_sha(root):
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def _branch(root):
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True).stdout.strip()
+
+
+def test_land_refuses_a_detached_head_rather_than_checking_out_after_the_gate(
+        tmp_path, capsys):
+    root = _harness_repo(tmp_path)
+    _detach(root)
+    before = _head_sha(root)
+    (root / "harness_cli.py").write_text("# the fix\n", encoding="utf-8")
+
+    assert _run(tmp_path, _ticket(tmp_path), "land") == 1
+    err = capsys.readouterr().err
+    assert "detached" in err.lower(), err
+    assert "--check-repro" in err, "the refusal must name the phase that fixes it"
+    assert _head_sha(root) == before, "nothing may be committed from a detached HEAD"
+
+
+def test_check_repro_returns_the_submodule_to_main_while_the_tree_is_clean(tmp_path):
+    root = _harness_repo(tmp_path)
+    _detach(root)
+
+    assert _run(tmp_path, _ticket(tmp_path), "check_repro") == 0
+    assert _branch(root) == "main"
+
+
+def test_check_repro_refuses_to_move_a_submodule_with_uncommitted_edits(
+        tmp_path, capsys):
+    """The live caller `checkout_plan`'s clobber refusal never had.
+
+    Its only production call site passed a hard-coded empty dirty list, so the
+    refusal could not fire — a guard whose executor was wired to nothing, which
+    is the exact defect this round is about.
+    """
+    root = _harness_repo(tmp_path)
+    _detach(root)
+    (root / "harness_cli.py").write_text("# someone else's work\n", encoding="utf-8")
+
+    assert _run(tmp_path, _ticket(tmp_path), "check_repro") == 1
+    assert "harness_cli.py" in capsys.readouterr().err
+    assert _branch(root) == "HEAD", "a refusal must not move HEAD"
+
+
+def test_a_dirty_tree_already_on_main_needs_no_checkout_and_is_not_refused():
+    """`--land` always runs on a dirty tree — that is its precondition. Only a
+    checkout can clobber, so only a checkout justifies the refusal."""
+    from core.harness_repair import checkout_plan
+
+    plan = checkout_plan(current_branch="main", dirty_paths=["core/doctor.py"])
+    assert plan.must_checkout is False
+    assert plan.refusal == ""
+
+
+# --------------------------------------------------------------------------
+# 8. A rejected push says why it was rejected.
+# --------------------------------------------------------------------------
+
+def test_a_non_fast_forward_push_is_not_reported_as_a_network_problem():
+    from core.harness_repair import push_failure_reason
+
+    reason = push_failure_reason(
+        " ! [rejected]        main -> main (fetch first)\n"
+        "error: failed to push some refs to 'github.com:o/r.git'\n")
+    assert "connectivity" not in reason.lower()
+    assert "fetch" in reason.lower() or "behind" in reason.lower()
+
+
+def test_an_unrecognised_push_failure_does_not_claim_to_know_the_cause():
+    from core.harness_repair import push_failure_reason
+
+    assert push_failure_reason("something nobody has seen before") == ""
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__]))

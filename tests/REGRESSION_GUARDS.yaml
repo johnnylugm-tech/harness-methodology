@@ -2126,6 +2126,22 @@
   bug: "with neither --check-repro nor --land the command silently took the landing path — verify and 'commit and push' must never be the same invocation by accident"
   fixed_in: "R48-站3"
 
+- test: tests/test_repair_harness.py::test_land_refuses_a_detached_head_rather_than_checking_out_after_the_gate
+  bug: "the first --land ran the six-check self-gate and THEN checked out main, so on the two live projects whose submodule sits on a detached HEAD the checkout swapped every file main had moved on — carrying the fix across — and the commit landed on a tree no check had seen. Round 44's 被判定的樹 vs 被記錄的樹, inside the repair executor this round shipped"
+  fixed_in: "R48-站8 (branch normalisation moved to --check-repro; --land refuses to move the tree it measured)"
+
+- test: tests/test_repair_harness.py::test_check_repro_refuses_to_move_a_submodule_with_uncommitted_edits
+  bug: "checkout_plan's clobber refusal had exactly one production caller and it passed a hard-coded empty dirty list, so the refusal could not fire — a guard whose executor was wired to nothing, which is the母體 this very round is about"
+  fixed_in: "R48-站8 (the live caller, with the real dirty set)"
+
+- test: tests/test_repair_harness.py::test_a_dirty_tree_already_on_main_needs_no_checkout_and_is_not_refused
+  bug: "the refusal fired on any dirty tree, including one already on main where no checkout is needed. --land ALWAYS runs on a dirty tree — that is its precondition — so the over-broad predicate would have made the guard unusable at the only moment it matters"
+  fixed_in: "R48-站8 (only a needed checkout can clobber)"
+
+- test: tests/test_repair_harness.py::test_a_non_fast_forward_push_is_not_reported_as_a_network_problem
+  bug: "every push failure was reported as 'Fix connectivity', which points the operator at the wrong problem — origin/main having moved is the common case and needs a rebase plus a re-run of the self-gate, not a network check. Round 45 measured what a false accusation costs"
+  fixed_in: "R48-站8 (push_failure_reason; an unrecognised cause returns nothing rather than guessing)"
+
 - test: tests/test_auto_fix_registry.py::test_every_reachable_problem_type_is_either_live_or_retired
   bug: "core/auto_fix/ registers 13 strategies behind 31 detector outcomes and exactly ONE has a production caller. The other twelve append keywords to raise a score, write TBD stubs for absent deliverables, generate `assert True` tests, or rewrite a failing assertion to the observed value — 'registered but unreachable' was a third state with no reason attached to it"
   fixed_in: "R48-站6 (core/auto_fix/wiring.py; AutoFixEngine.fix refuses a retired problem_type at the dispatch)"

@@ -5,7 +5,8 @@ one measures harness-methodology, and it is the only workflow whose subject is
 the code doing the measuring — so every step it takes is arranged so that the
 framework, not the agent, holds the verdict:
 
-  reproduce   `repair-harness --check-repro` runs the ticket's command and
+  reproduce   `repair-harness --check-repro` returns the submodule to `main`
+              while the tree is still clean, runs the ticket's command, and
               reports its exit code. The agent transcribes the number.
   hypothesis  an A agent locates the defect and says what it thinks the cause
               is. Prose, deliberately unschematised — this is the one step
@@ -119,9 +120,9 @@ def _render_reproduce() -> str:
         + "  { label: 'repair-repro', phase: 'Reproduce', agentType: 'general-purpose', schema: RC_SCHEMA },\n"
         + ")\n"
         + "if (!(reproRc && reproRc.rc === 0)) {\n"
-        + "  return { error: 'harness-repair: the reported failure did not reproduce', "
+        + "  return { error: 'harness-repair: the reported failure did not reproduce, or the submodule could not be prepared', "
         + "rc: reproRc ? reproRc.rc : null, "
-        + "note: 'A report is a claim; the reproduction is the evidence. Nothing in harness is edited on the strength of a report alone — re-check the ticket\\u2019s repro command, or close the block as not-reproducible.' }\n"
+        + "note: 'A report is a claim; the reproduction is the evidence. Nothing in harness is edited on the strength of a report alone. This step also returns the submodule to main while the tree is still clean, and refuses if it is off main WITH uncommitted edits — read the printed refusal: it says which of the two happened.' }\n"
         + "}\n"
     )
 

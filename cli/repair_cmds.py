@@ -78,7 +78,7 @@ def cmd_repair_harness(args: argparse.Namespace) -> int:
     from core.harness_repair import (
         RepairPreconditions, changed_paths, checkout_plan,
         forbidden_edit_violations, generated_file_violations,
-        guard_count_violations, reproduce, run_self_gate,
+        guard_count_violations, push_failure_reason, reproduce, run_self_gate,
     )
 
     if args.check_repro == args.land:
@@ -97,7 +97,32 @@ def cmd_repair_harness(args: argparse.Namespace) -> int:
         return 1
     repro_cmd = str(ticket["repro"])
 
+    branch = (_git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout or "").strip()
+
     if args.check_repro:
+        # Branch normalisation happens HERE, before anything is edited, because
+        # this is the last moment the tree is clean. Doing it after the fix —
+        # which is what the first version of this command did, between the
+        # self-gate and the commit — makes `git checkout main` swap every file
+        # main has moved on while carrying the fix across, so the tree the six
+        # checks measured is not the tree that gets committed. Round 44's
+        # finding, reproduced inside the repair executor.
+        plan = checkout_plan(current_branch=branch, dirty_paths=changed_paths(root))
+        if plan.refusal:
+            _print_refusal(plan.refusal)
+            return 1
+        if plan.must_checkout:
+            co = _git(root, "checkout", plan.target_branch)
+            if co.returncode != 0:
+                _print_refusal(
+                    f"could not check out {plan.target_branch} (HEAD was at "
+                    f"{branch}); a repair committed from a detached HEAD is "
+                    f"reachable from nothing",
+                    [(co.stderr or "").strip()[-300:]])
+                return 1
+            print(f"[repair-harness] moved the submodule from {branch} to "
+                  f"{plan.target_branch} before any edit")
+
         reproduced = reproduce(root, repro_cmd)
         if reproduced is None:
             _print_refusal(
@@ -119,10 +144,18 @@ def cmd_repair_harness(args: argparse.Namespace) -> int:
             "first; this command verifies and commits it, it does not author it")
         return 1
 
-    branch = (_git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout or "").strip()
-    plan = checkout_plan(current_branch=branch, dirty_paths=[])
-    if plan.refusal:
-        _print_refusal(plan.refusal)
+    target = checkout_plan(current_branch=branch, dirty_paths=dirty).target_branch
+    if branch != target:
+        _print_refusal(
+            f"the harness submodule is on {branch!r}, not {target!r}, so the "
+            f"tree the self-gate is about to measure is not the tree that "
+            f"would be committed",
+            [f"HEAD is detached at {branch}." if branch == "HEAD" else
+             f"HEAD is on branch {branch}.",
+             f"Run `repair-harness --check-repro` first: it moves the "
+             f"submodule to {target} while the tree is still clean, which is "
+             f"the only point at which moving it is safe.",
+             "Nothing was measured, stashed or committed."])
         return 1
 
     violations: list[str] = []
@@ -172,15 +205,6 @@ def cmd_repair_harness(args: argparse.Namespace) -> int:
             + ["Nothing was committed. Fix the failing check(s) and re-run --land."])
         return 1
 
-    if plan.must_checkout:
-        co = _git(root, "checkout", plan.target_branch)
-        if co.returncode != 0:
-            _print_refusal(
-                f"could not check out {plan.target_branch} before committing "
-                f"(HEAD was detached at {branch})",
-                [(co.stderr or "").strip()[-300:]])
-            return 1
-
     for path in dirty:
         _git(root, "add", "--", path)
     message = (
@@ -197,20 +221,25 @@ def cmd_repair_harness(args: argparse.Namespace) -> int:
                        [(commit.stderr or commit.stdout or "").strip()[-300:]])
         return 1
     sha = (_git(root, "rev-parse", "HEAD").stdout or "").strip()[:12]
-    print(f"[repair-harness] committed {sha} on {plan.target_branch}")
+    print(f"[repair-harness] committed {sha} on {target}")
 
     if not args.push:
         print("[repair-harness] --push not given; the fix is committed locally only")
         return 0
-    push = _git(root, "push", "origin", plan.target_branch)
+    push = _git(root, "push", "origin", target)
     if push.returncode != 0:
+        stderr = (push.stderr or "").strip()
+        known = push_failure_reason(stderr)
         _print_refusal(
             "the commit landed locally but `git push` failed — it is NOT rolled "
-            "back", [(push.stderr or "").strip()[-300:],
-                     f"Fix connectivity and run: git -C {root} push origin "
-                     f"{plan.target_branch}"])
+            "back",
+            [stderr[-300:]]
+            + ([known] if known else
+               ["The cause is not one this command recognises; read the git "
+                "output above rather than a guess."])
+            + [f"When it is resolved: git -C {root} push origin {target}"])
         return 1
-    print(f"[repair-harness] pushed {sha} to origin/{plan.target_branch}")
+    print(f"[repair-harness] pushed {sha} to origin/{target}")
 
     signature = ticket.get("signature")
     if signature:
