@@ -229,6 +229,43 @@ class AutoFixEngine:
         if allowed_node:
             context.details["allowed_node_name"] = allowed_node
 
+        # Round 48 站6: a RETIRED problem_type is refused at the dispatch, and
+        # deliberately HERE rather than at the top of fix().
+        #
+        # Twelve of the thirteen registered strategies are unreachable from any
+        # production path, and reading them is why they stay that way: they
+        # append keywords to raise a score, write TBD stubs for absent
+        # deliverables, generate `assert True` tests, or rewrite a failing
+        # assertion to whatever value was observed. Each makes a checker quiet
+        # without making its subject true.
+        #
+        # Placed after the escalation checks because those answer a different
+        # question — may ANY fix run right now (kill switch, integrity freeze,
+        # phase timeout, low confidence) — and a retired strategy must not
+        # shadow a kill-switch escalation with its own refusal. The first draft
+        # put it first and turned 14 escalation tests red, which is the ordering
+        # saying so.
+        #
+        # The refusal lives in code, not only in core/auto_fix/wiring.py's
+        # table, because a retirement that leaves the code reachable is a
+        # statement with no executor behind it — the exact defect this round is
+        # about. See wiring.RETIRED_STRATEGIES for the per-strategy reason.
+        from core.auto_fix.wiring import RETIRED_STRATEGIES, is_retired
+
+        if is_retired(problem_type):
+            return FixResult(
+                success=False,
+                strategy=FixStrategy.HUMAN_REQUIRED,
+                problem_type=problem_type,
+                confidence=0.0,
+                action_taken=(
+                    f"refused: the {problem_type!r} strategy is retired — "
+                    f"{RETIRED_STRATEGIES[problem_type]}"
+                ),
+                error=f"retired strategy: {problem_type!r}",
+                rounds_used=context.retry_count,
+            )
+
         # Apply fix
         from core.auto_fix.strategies import STRATEGY_REGISTRY
 

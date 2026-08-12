@@ -6,6 +6,7 @@ from pathlib import Path
 from core.auto_fix import (
     AutoFixEngine,
     FixContext,
+    FixResult,
     FixStrategy,
     EscalationCondition,
 )
@@ -531,27 +532,33 @@ class TestAutoFixEngine:
         assert result.escalation == EscalationCondition.HARDCODED_SECRETS
 
     def test_gate4_escalates_after_max_rounds(self, tmp_path: Path):
+        # Round 48 站6: driven through check_escalation directly rather than
+        # through fix(). Every strategy that used to serve as the vehicle here
+        # is retired (it appended keywords to raise the very score being
+        # escalated about), and a unit test of the escalation LADDER should not
+        # need a strategy to run at all — the ladder is what is under test.
         engine = AutoFixEngine(project_root=tmp_path, phase=6)
         context = FixContext(
             source="gate",
-            problem_type="gate4_blocked",
+            problem_type="low_constitution_score",
             severity="critical",
             phase=6,
             project_root=tmp_path,
             gate_num=4,
-            details={"gate_num": 4, "score": 70.0, "problem_type": "low_constitution_score", "dimension": "correctness", "files": [str(tmp_path / "test.py")]},
+            details={"gate_num": 4, "score": 70.0},
             retry_count=3,
         )
-        (tmp_path / "test.py").write_text("dummy", encoding="utf-8")
-        result = engine.fix(context)
-        assert result.strategy == FixStrategy.AUTO_FIX_WITH_VERIFICATION
-        assert result.escalation == EscalationCondition.GATE4_BLOCKED
+        engine._round_counters[f"{context.source}:{context.problem_type}"] = 3
+        result = FixResult(success=False, strategy=FixStrategy.AUTO_FIX_WITH_VERIFICATION,
+                           problem_type=context.problem_type, confidence=80.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) == EscalationCondition.GATE4_BLOCKED
 
     def test_hr12_escalation_after_max_rounds(self, tmp_path: Path):
         engine = AutoFixEngine(project_root=tmp_path, phase=3, max_rounds=1)
         context = FixContext(
-            source="constitution/low_keyword_density",
-            problem_type="low_keyword_density",
+            source="framework_enforcer/missing_traceability",
+            problem_type="missing_traceability",
             severity="medium",
             phase=3,
             project_root=tmp_path,
@@ -582,8 +589,8 @@ class TestAutoFixEngine:
             encoding="utf-8",
         )
         context = FixContext(
-            source="constitution/low_keyword_density",
-            problem_type="low_keyword_density",
+            source="framework_enforcer/missing_traceability",
+            problem_type="missing_traceability",
             severity="medium",
             phase=3,
             project_root=tmp_path,
@@ -602,8 +609,8 @@ class TestAutoFixEngine:
             encoding="utf-8",
         )
         context = FixContext(
-            source="constitution/low_keyword_density",
-            problem_type="low_keyword_density",
+            source="framework_enforcer/missing_traceability",
+            problem_type="missing_traceability",
             severity="medium",
             phase=3,
             project_root=tmp_path,
@@ -628,8 +635,10 @@ class TestAutoFixEngine:
             source="gate/gate1", problem_type="low_score",
             severity="high", phase=3, project_root=tmp_path, details={},
         )
-        result = engine.fix(context)
-        assert result.escalation == EscalationCondition.HR13_TIMEOUT
+        result = FixResult(success=False, strategy=FixStrategy.AUTO_FIX,
+                           problem_type=context.problem_type, confidence=80.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) == EscalationCondition.HR13_TIMEOUT
 
     def test_gate_score_below_min_escalates(self, tmp_path: Path):
         """Gate score < gate_min_score (60) after gate_min_rounds (3) → escalation."""
@@ -640,8 +649,10 @@ class TestAutoFixEngine:
             severity="high", phase=3, project_root=tmp_path,
             details={"score": 45.0}, gate_num=1, retry_count=3,
         )
-        result = engine.fix(context)
-        assert result.escalation == EscalationCondition.GATE_SCORE_LOW
+        result = FixResult(success=False, strategy=FixStrategy.AUTO_FIX,
+                           problem_type=context.problem_type, confidence=80.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) == EscalationCondition.GATE_SCORE_LOW
 
     def test_gate_score_ok_no_escalation(self, tmp_path: Path):
         """Gate score >= gate_min_score → no GATE_SCORE_LOW escalation."""
@@ -653,26 +664,33 @@ class TestAutoFixEngine:
             severity="medium", phase=3, project_root=tmp_path,
             details={"score": 75.0}, gate_num=1, retry_count=3,
         )
-        result = engine.fix(context)
-        assert result.escalation != EscalationCondition.GATE_SCORE_LOW
+        result = FixResult(success=True, strategy=FixStrategy.AUTO_FIX,
+                           problem_type=context.problem_type, confidence=80.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) != EscalationCondition.GATE_SCORE_LOW
 
     def test_confidence_below_70_escalates(self, tmp_path: Path):
         """Confidence < 70 after max_rounds for problem type → escalation."""
         engine = AutoFixEngine(project_root=tmp_path, phase=3,
                                confidence_threshold=70.0)
         # Must use a known problem_type so _max_rounds_for returns a value
-        engine._round_counters["constitution/low_keyword_density:low_keyword_density"] = 3
+        engine._round_counters["framework_enforcer/missing_traceability:missing_traceability"] = 3
         context = FixContext(
-            source="constitution/low_keyword_density",
-            problem_type="low_keyword_density",
+            source="framework_enforcer/missing_traceability",
+            problem_type="missing_traceability",
             severity="medium", phase=3, project_root=tmp_path, details={},
             retry_count=3,
         )
-        # fix() will run auto-fix → gets low confidence → check_escalation triggers
-        result = engine.fix(context)
-        # LOW_CONFIDENCE triggers when rounds >= _max_rounds_for and confidence < threshold
-        # _max_rounds_for uses CLASSIFICATION_TABLE — default max_rounds=3, so rounds=3 ≥ 3
-        assert result.escalation == EscalationCondition.LOW_CONFIDENCE
+        # Round 48 站6: the confidence is supplied here rather than produced by
+        # a strategy. The one LIVE strategy always reports 90, and every
+        # strategy that used to report below 70 is retired — so after this round
+        # LOW_CONFIDENCE is not reachable through fix() at all. That is recorded
+        # in docs/PROPOSAL_ADJUDICATIONS.md rather than kept alive by leaving a
+        # fabricating strategy wired up to feed it.
+        result = FixResult(success=True, strategy=FixStrategy.AUTO_FIX,
+                           problem_type=context.problem_type, confidence=55.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) == EscalationCondition.LOW_CONFIDENCE
 
     def test_kill_switch_open_escalates(self, tmp_path: Path):
         """source contains 'kill_switch' → _human_condition_for returns KILL_SWITCH."""

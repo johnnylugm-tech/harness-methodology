@@ -4,7 +4,13 @@ import json
 import pytest
 from pathlib import Path
 
-from core.auto_fix import AutoFixEngine, FixContext, FixStrategy, EscalationCondition
+from core.auto_fix import (
+    AutoFixEngine,
+    FixContext,
+    FixResult,
+    FixStrategy,
+    EscalationCondition,
+)
 from core.auto_fix.classifier import CLASSIFICATION_TABLE
 from core.auto_fix.strategies import STRATEGY_REGISTRY
 
@@ -28,10 +34,17 @@ class TestAutoFixPipelineIntegration:
             project_root=tmp_path,
             details={"artifact_name": "TEST_DOC"},
         )
+        # Round 48 站6: inverted. This used to assert the stub was written.
+        # `missing_artifact` writes a TBD stub for an absent deliverable, which
+        # turns "the artifact is missing" into "the artifact is empty" — and
+        # Round 42 站3 is the round that made a missing required deliverable a
+        # block rather than a warning. The strategy is retired; the engine
+        # refuses it and says which reason applies.
         result = engine.fix(context)
-        assert result.success
-        assert result.confidence >= 90.0
-        assert result.strategy == FixStrategy.AUTO_FIX
+        assert not result.success
+        assert result.strategy == FixStrategy.HUMAN_REQUIRED
+        assert "retired" in (result.error or "")
+        assert "TBD stub" in result.action_taken
 
     def test_full_cycle_low_keyword_density(self, tmp_path: Path):
         """Low keyword density → keywords added → score improves."""
@@ -52,11 +65,18 @@ class TestAutoFixPipelineIntegration:
                 "files": [str(test_file)],
             },
         )
+        # Round 48 站6: inverted. Appending a dimension's keywords so the
+        # constitution scorer counts them is score gaming performed by the
+        # framework; the score would then measure the repair.
         result = engine.fix(context)
-        assert result.success
+        assert not result.success
+        assert "retired" in (result.error or "")
+        assert test_file.read_text(encoding="utf-8") == "# SRS\nNo security content.", (
+            "a refused strategy must not have written anything"
+        )
 
     def test_full_cycle_missing_section_headers(self, tmp_path: Path):
-        """Missing sections → headers added → file enriched."""
+        """A retired header-stuffing strategy is refused and writes nothing."""
         test_file = tmp_path / "doc.md"
         test_file.write_text("# Doc", encoding="utf-8")
 
@@ -70,7 +90,11 @@ class TestAutoFixPipelineIntegration:
             details={"files": [str(test_file)]},
         )
         result = engine.fix(context)
-        assert result.success
+        assert not result.success
+        assert "retired" in (result.error or "")
+        assert test_file.read_text(encoding="utf-8") == "# Doc", (
+            "a refused strategy must not have written anything"
+        )
 
     def test_escalation_gate_score_too_low(self, tmp_path: Path):
         """Gate score < 60 after min_rounds → escalate."""
@@ -86,8 +110,12 @@ class TestAutoFixPipelineIntegration:
             details={"score": 45.0, "problem_type": "low_constitution_score"},
             retry_count=3,
         )
-        result = engine.fix(context)
-        assert result.escalation == EscalationCondition.GATE_SCORE_LOW
+        # Round 48 站6: driven through check_escalation. The vehicle strategy is
+        # retired, and the escalation LADDER is what this test is about.
+        result = FixResult(success=False, strategy=FixStrategy.AUTO_FIX_WITH_VERIFICATION,
+                           problem_type=context.problem_type, confidence=80.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) == EscalationCondition.GATE_SCORE_LOW
 
     def test_escalation_low_confidence_after_three_attempts(self, tmp_path: Path):
         """Low confidence after max rounds → escalate."""
@@ -103,10 +131,16 @@ class TestAutoFixPipelineIntegration:
             details={"problem_type": "low_coverage"},
             retry_count=3,
         )
-        result = engine.fix(context)
-        # low_coverage strategy returns confidence=50, which is < 70 threshold
-        # After 3 rounds (max_rounds=3 for this type), confidence < threshold → escalate
-        assert result.escalation is not None
+        # Round 48 站6: the confidence is supplied rather than produced. The
+        # strategy that used to return 50 wrote `assert True` test stubs; after
+        # its retirement no live strategy reports below 70, so LOW_CONFIDENCE is
+        # unreachable through fix(). Recorded in the adjudication ledger rather
+        # than kept alive by a fabricating strategy.
+        engine._round_counters[f"{context.source}:{context.problem_type}"] = 3
+        result = FixResult(success=True, strategy=FixStrategy.AUTO_FIX,
+                           problem_type=context.problem_type, confidence=50.0,
+                           action_taken="synthetic result for the escalation ladder")
+        assert engine.check_escalation(context, result) is not None
 
     def test_no_escalation_for_auto_fix_on_first_attempt(self, tmp_path: Path):
         """Simple auto-fix on first attempt → no escalation."""

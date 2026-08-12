@@ -35,17 +35,30 @@ from __future__ import annotations
 import pytest
 
 
-def test_every_registered_strategy_is_either_live_or_retired():
+def test_every_reachable_problem_type_is_either_live_or_retired():
+    """The denominator is what can be REACHED or DISPATCHED, not one of the two.
+
+    Two problem types (`hardcoded_secrets`, `hard_rule_violation`) are routed to
+    by CLASSIFICATION_TABLE but have no STRATEGY_REGISTRY entry at all — they
+    classify HUMAN_REQUIRED and the engine escalates before it would look one
+    up. Comparing against the strategy registry alone would leave those two
+    undeclared, and comparing against the table alone would miss a registered
+    strategy nothing routes to. The union is the honest set.
+    """
+    from core.auto_fix.classifier import CLASSIFICATION_TABLE
     from core.auto_fix.strategies import STRATEGY_REGISTRY
     from core.auto_fix.wiring import LIVE_STRATEGIES, RETIRED_STRATEGIES
 
-    registered = set(STRATEGY_REGISTRY)
+    reachable = set(STRATEGY_REGISTRY) | {
+        entry["problem_type"] for entry in CLASSIFICATION_TABLE.values()
+    }
     declared = set(LIVE_STRATEGIES) | set(RETIRED_STRATEGIES)
-    assert registered == declared, (
-        "every problem_type in STRATEGY_REGISTRY must be declared LIVE (with a "
-        "production caller and a re-verify) or RETIRED (with a reason). "
-        f"undeclared={sorted(registered - declared)} "
-        f"declared-but-unregistered={sorted(declared - registered)}"
+    assert reachable == declared, (
+        "every problem_type reachable from CLASSIFICATION_TABLE or dispatchable "
+        "through STRATEGY_REGISTRY must be declared LIVE (with a production "
+        "caller and a re-verify) or RETIRED (with a reason). "
+        f"undeclared={sorted(reachable - declared)} "
+        f"declared-but-unreachable={sorted(declared - reachable)}"
     )
 
 
