@@ -2134,6 +2134,10 @@
   bug: "checkout_plan's clobber refusal had exactly one production caller and it passed a hard-coded empty dirty list, so the refusal could not fire — a guard whose executor was wired to nothing, which is the母體 this very round is about"
   fixed_in: "R48-站8 (the live caller, with the real dirty set)"
 
+- test: tests/test_prompt_rules.py::test_every_rule_citation_has_a_rule_behind_it
+  bug: "a prompt saying `@rule R-XXX` tells the agent that rule exists. Two citations named no file — R-SRS-FR-BLOCK-001 (3dad941, prose hand-written inline into two generated .js files) and R-CANONICAL-SPEC-PATH-001 (Round 15 站5). Every check in test_prompt_rules.py passed throughout, because they all key on loader CALLS and a fabricated citation has no loader call: the blind spot had the same shape as the defect. The regex also only knew `_rule_block` (the markdown renderer) and not `render_rule_prose` (the workflow-JS renderer), so a rule loaded only from the JS side would have been reported as a dead orphan"
+  fixed_in: "R49-A (marker scan + both loaders in _RULE_CALL; the static citation became a real rule file with byte-identical shipped .js, the one that interpolates a JS value had its citation dropped — rules are shared with the markdown renderer, which has no such value)"
+
 - test: tests/test_repair_harness.py::test_the_fixture_does_not_inherit_the_hosts_default_branch
   bug: "the harness fixture used a bare `git init`, so its branch name came from the host's init.defaultBranch. Two --check-repro tests passed on the author's machine (git creates main) and failed on CI run 31613445606 (runner creates master) — the verdict was the environment's, not the code's. Asserting the branch alone would not bite on a main-defaulting host, so the guard injects the config"
   fixed_in: "R48-站8 (git init -b main, pinned under an injected init.defaultBranch=master)"
