@@ -44,7 +44,11 @@ _AUTHORITY = GATE_CONFIGS
 _SCANNED = (
     REPO / "scripts" / "workflowgen",
     REPO / "templates",
+    # R49-B split cli/check_cmds.py: the command bodies AND their argparse
+    # blocks now live in cli/checks/, so scanning the old path alone would
+    # police an 81-line dispatcher and miss every threshold restatement.
     REPO / "cli" / "check_cmds.py",
+    REPO / "cli" / "checks",
     REPO / ".claude" / "workflows",
 )
 
@@ -127,7 +131,7 @@ def test_the_workflow_generators_carry_no_crg_threshold_parameter() -> None:
 def _crg_arch_parser_var(tree: ast.Module) -> str:
     """The local name `sub.add_parser("crg-arch-check", ...)` was bound to.
 
-    Scoping by variable rather than by flag name matters: `check_cmds.py`
+    Scoping by variable rather than by flag name matters: `cli/checks/gates.py`
     defines a `--threshold` on `spec-coverage-check` too, and that one is a
     different dimension with its own authority. A scan that matched every
     `--threshold` would report it and push a later reader toward "fixing" an
@@ -146,7 +150,7 @@ def _crg_arch_parser_var(tree: ast.Module) -> str:
         if isinstance(target, ast.Name):
             return target.id
     raise AssertionError(
-        "no `<var> = sub.add_parser('crg-arch-check', ...)` in cli/check_cmds.py — "
+        "no `<var> = sub.add_parser('crg-arch-check', ...)` in cli/checks/gates.py — "
         "this scan can no longer find the parser it is meant to police"
     )
 
@@ -154,7 +158,9 @@ def _crg_arch_parser_var(tree: ast.Module) -> str:
 def test_crg_arch_check_has_no_hard_coded_default_floor() -> None:
     """``default=80.0`` was statement 9 — the one that would survive even
     after every caller stopped passing the flag."""
-    tree = ast.parse((REPO / "cli" / "check_cmds.py").read_text(encoding="utf-8"))
+    # R49-B 站3 moved this parser out of cli/check_cmds.py's 295-line
+    # register() into the family that owns the command it dispatches to.
+    tree = ast.parse((REPO / "cli" / "checks" / "gates.py").read_text(encoding="utf-8"))
     parser_var = _crg_arch_parser_var(tree)
     defaults: list[str] = []
     for node in ast.walk(tree):

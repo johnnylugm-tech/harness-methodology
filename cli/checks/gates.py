@@ -192,3 +192,69 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
             print(f"[crg-arch-check] INFO: baseline {bp} not found — drift check skipped")
     print("[crg-arch-check] OK")
     return 0
+
+
+def register(sub) -> None:
+    """Wire the gate/CI subcommands onto the main subparser action.
+
+    R49-B 站3: a command's flags now live beside its body, so adding one
+    touches this file and nothing else. Moved verbatim out of
+    cli/check_cmds.py's 295-line register().
+    """
+    # spec-coverage-check (D4 unified — TEST_SPEC.md → tests/, single source of truth)
+    scc = sub.add_parser(
+        "spec-coverage-check",
+        help="D4 unified: compare TEST_SPEC.md items against actual test implementations",
+    )
+    scc.add_argument("--project", default=".", help="Project root (default: .)")
+    scc.add_argument("--threshold", type=float, default=80.0,
+                     help="Minimum spec coverage percentage (default: 80.0)")
+    scc.add_argument("--fr-id", default=None, dest="fr_id",
+                     help="Check only a specific FR (e.g. FR-03)")
+    scc.set_defaults(func=cmd_spec_coverage_check)
+
+    # crg-arch-check (CI: non-interactive deterministic CRG architecture gate)
+    cac = sub.add_parser(
+        "crg-arch-check",
+        help="Non-interactive CRG architecture gate (CI): independent score + drift regression",
+    )
+    cac.add_argument("--project", default=".", help="Project root (default: .)")
+    cac.add_argument("--threshold", type=float, default=None,
+                     help="Override the architecture floor. Omit it — the "
+                          "default is resolved from the project's phase via "
+                          "harness/gate_configs/, the only place the number "
+                          "lives (Round 38).")
+    cac.add_argument("--baseline", default=None,
+                     help="Prior crg_baseline_pN.json for drift regression check")
+    cac.add_argument("--drift-threshold", type=float, default=0.4,
+                     help="Maximum structural drift vs baseline (default: 0.4)")
+    cac.set_defaults(func=cmd_crg_arch_check)
+
+    # verify-ci (Round 37: read back what the push produced)
+    vci = sub.add_parser(
+        "verify-ci",
+        help="Read GitHub Actions' verdict for a pushed commit; red blocks, unobtainable is INFRA",
+    )
+    vci.add_argument("--project", default=".", help="Project root (default: .)")
+    vci.add_argument("--sha", default=None,
+                     help="Commit to ask about (default: HEAD)")
+    vci.add_argument("--wait", type=int, default=0,
+                     help="Seconds to wait for CI to report (default: 0 — ask once)")
+    vci.set_defaults(func=cmd_verify_ci)
+
+    # verify-gate (Round 38: run the gate's three checks and write the verdict down)
+    vg = sub.add_parser(
+        "verify-gate",
+        help="Run a gate's verification checks and append the verdict (with the "
+             "tree digest it was measured on) to .methodology/gate_verify.jsonl",
+    )
+    vg.add_argument("--project", default=".", help="Project root (default: .)")
+    vg.add_argument("--gate", type=int, required=True, help="Gate number (2/3/4)")
+    vg.add_argument("--phase", type=int, required=True, help="Phase being exited")
+    vg.add_argument("--spec-threshold", type=float, required=True,
+                    dest="spec_threshold",
+                    help="Minimum spec-coverage percentage for this gate")
+    vg.add_argument("--drift-threshold", type=float, default=0.4,
+                    dest="drift_threshold",
+                    help="Maximum CRG structural drift vs the P4 baseline")
+    vg.set_defaults(func=cmd_verify_gate)

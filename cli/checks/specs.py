@@ -377,3 +377,76 @@ def cmd_verify_spec(args: argparse.Namespace) -> int:
             print("\n  [INFO] --fix shows suggestions only. Apply fixes manually.")
 
     return 0 if not result["issues"] else 1
+
+
+def register(sub) -> None:
+    """Wire the cross-artifact check subcommands onto the main subparser action.
+
+    R49-B 站3: a command's flags now live beside its body, so adding one
+    touches this file and nothing else. Moved verbatim out of
+    cli/check_cmds.py's 295-line register().
+    """
+    # check-test-spec-consistency (P2: TEST_SPEC.md self-consistency gate)
+    ctsc = sub.add_parser(
+        "check-test-spec-consistency",
+        help="P2: prove TEST_SPEC.md sub-assertions are self-consistent (no unsatisfiable case)",
+    )
+    ctsc.add_argument("--project", default=".", help="Project root (default: .)")
+    ctsc.add_argument("--fr-id", dest="fr_id", default=None, help="Check only this FR (e.g. FR-03)")
+    ctsc.set_defaults(func=cmd_check_test_spec_consistency)
+
+    # check-test-mirrors-spec (P3: test faithfully implements TEST_SPEC.md)
+    ctms = sub.add_parser(
+        "check-test-mirrors-spec",
+        help="P3: verify a RED test mirrors TEST_SPEC.md verbatim (run after the test is written)",
+    )
+    ctms.add_argument("--project", default=".", help="Project root (default: .)")
+    ctms.add_argument("--fr-id", dest="fr_id", required=True, help="FR id (e.g. FR-01)")
+    ctms.add_argument("--test-file", dest="test_files", nargs="+", required=True, help="Path(s) to the RED test file(s); accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py")
+    ctms.set_defaults(func=cmd_check_test_mirrors_spec)
+
+    # check-spec-alignment (P1: canonical_spec ↔ SRS front-edge coverage gate)
+    csa = sub.add_parser(
+        "check-spec-alignment",
+        help="P1: prove SRS.md covers the canonical_spec (no dropped/invented FR); "
+             "ingestion-mode only, N/A under elicitation",
+    )
+    csa.add_argument("--project", default=".", help="Project root (default: .)")
+    csa.set_defaults(func=cmd_check_spec_alignment)
+
+    # check-property-spec (Direction B: opt-in property-declaration gate)
+    cps = sub.add_parser(
+        "check-property-spec",
+        help="Verify TEST_SPEC `**Properties**` invariants are self-consistent and "
+             "executed by a property-based test (hypothesis/fast-check); opt-in per FR",
+    )
+    cps.add_argument("--project", default=".", help="Project root (default: .)")
+    cps.add_argument("--no-require-execution", action="store_true",
+                     dest="no_require_execution",
+                     help="Check invariant self-consistency only (pre-P4 usage); do not "
+                          "require an executing property test yet")
+    cps.set_defaults(func=cmd_check_property_spec)
+
+    # check-artifact-consistency (P2/P3: forward-ref legality + NFR→ADR coverage)
+    aci = sub.add_parser(
+        "check-artifact-consistency",
+        help="P2/P3: catch invented forward-reference filenames (ARCHITECTURE.md vs "
+             "SAD.md), module/FR-NFR ownership drift between TRACEABILITY_MATRIX.md "
+             "and SPEC_TRACKING.md, and NFRs dropped from ADR.md's traceability table",
+    )
+    aci.add_argument("--project", default=".", help="Project root (default: .)")
+    aci.add_argument("--forward-refs-only", action="store_true",
+                     dest="forward_refs_only",
+                     help="Check forward references only (skip NFR→ADR coverage; "
+                          "useful at P1/P2 when ADR.md does not exist yet)")
+    aci.set_defaults(func=cmd_check_artifact_consistency)
+
+    # verify-spec
+    vs = sub.add_parser(
+        "verify-spec",
+        help="Verify implementation complies with spec requirements (6-dimension check)",
+    )
+    vs.add_argument("--project", default=".", help="Project root (default: .)")
+    vs.add_argument("--fix", action="store_true",
+                    help="Show fix suggestions for each issue (no auto-fix)")
+    vs.set_defaults(func=cmd_verify_spec)

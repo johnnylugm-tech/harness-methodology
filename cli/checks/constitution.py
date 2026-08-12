@@ -16,6 +16,7 @@ import json
 import sys
 from pathlib import Path
 
+from core.phase_topology import VALID_PHASES
 from core.utils.project_layout import ProjectLayout
 
 def cmd_check_logic(args: argparse.Namespace) -> int:
@@ -188,3 +189,45 @@ def _print_constitution_result(result, composite_threshold, profile, phase: int,
     print(f"\n  [FAIL] Constitution quality {result.score:.0f}% < {composite_threshold:.0f}%")
     print("  Add substantive coverage of the missing keywords listed above, then re-run check-constitution until PASS.")
     return 1
+
+
+def register(sub) -> None:
+    """Wire the constitution subcommands onto the main subparser action.
+
+    R49-B 站3: a command's flags now live beside its body, so adding one
+    touches this file and nothing else. Moved verbatim out of
+    cli/check_cmds.py's 295-line register().
+    """
+    # check-logic
+    cl = sub.add_parser(
+        "check-logic",
+        help="Check code for logic correctness (output/branch/lazy-init/semantic)",
+    )
+    cl.add_argument("--project", default=".", help="Project root (default: .)")
+    cl.add_argument("--srs",     default=None, help="SRS.md path for semantic validation")
+    cl.set_defaults(func=cmd_check_logic)
+
+    cc = sub.add_parser(
+        "check-constitution",
+        help="Check document quality against constitution standards for a phase",
+    )
+    cc.add_argument("--phase",   required=True, type=int, choices=VALID_PHASES,
+                    help="Phase to check (1–8)")
+    cc.add_argument("--project", default=".", help="Project root (default: .)")
+    cc.add_argument(
+        "--file",
+        default=None,
+        help=(
+            "Scope the check to a single file (relative to --project, or absolute). "
+            "Missing file = vacuous pass (exit 0). "
+            "Default (omitted): scan the whole phase directory."
+        ),
+    )
+    cc.set_defaults(func=cmd_check_constitution)
+
+    # print-legal-artifacts (SSOT exposure for workflow JS prompts — DRY fix)
+    pla = sub.add_parser(
+        "print-legal-artifacts",
+        help="Print legal-deliverable filenames as JSON (SSOT for workflow JS)",
+    )
+    pla.set_defaults(func=cmd_print_legal_artifacts)

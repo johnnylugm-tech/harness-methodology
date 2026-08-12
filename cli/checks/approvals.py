@@ -310,3 +310,89 @@ def _resolve_deliverable_ids(
     if fr_ids:
         return fr_ids
     return load_quality_manifest(project, lenient=True).get("fr_ids", [])
+
+
+def register(sub) -> None:
+    """Wire the approval/manifest subcommands onto the main subparser action.
+
+    R49-B 站3: a command's flags now live beside its body, so adding one
+    touches this file and nothing else. Moved verbatim out of
+    cli/check_cmds.py's 295-line register().
+    """
+    # check-manifest-integrity (Fix IV — single source of truth for the
+    # manifest-corruption check; workflow JS should call this instead of
+    # reimplementing it inline)
+    cmi = sub.add_parser(
+        "check-manifest-integrity",
+        help="Validate quality_manifest.json structure (fr_ids/fr_module_traceability/"
+             "gate1 truncation patterns) — single source of truth for the check "
+             "workflow JS previously reimplemented inline",
+    )
+    cmi.add_argument("--project", default=".", help="Project root (default: .)")
+    cmi.add_argument("--phase", type=int, default=None,
+                     help="Current phase number (enables the Gate-1-emptied corruption "
+                          "check, which only applies at phase >= 3)")
+    cmi.set_defaults(func=cmd_check_manifest_integrity)
+
+    # manifest
+    mf = sub.add_parser("manifest", help="Generate quality_manifest.json at P2 exit")
+    mf.add_argument("--fr-ids", nargs="+", required=True, metavar="FR_ID")
+    mf.add_argument("--sad",    default="02-architecture/SAD.md", help="Path to SAD.md")
+    mf.add_argument("--no-git", action="store_true", dest="no_git",
+                    help="Disable git commit/push after manifest generation")
+    mf.add_argument("--force", action="store_true",
+                    help="Overwrite an existing quality_manifest.json "
+                         "(default: preserve existing manifest)")
+    mf.set_defaults(func=cmd_manifest)
+
+    # generate-verification-report  (P5 — fixes Finding #16)
+    gvr = sub.add_parser(
+        "generate-verification-report",
+        help="Generate 05-verification/VERIFICATION_REPORT.md from manifest + SRS.md",
+    )
+    gvr.add_argument("--project", default=".", help="Project root (default: .)")
+    gvr.set_defaults(func=cmd_generate_verification_report)
+
+    # verify-agent-b-approvals
+    vab = sub.add_parser(
+        "verify-agent-b-approvals",
+        help="Verify Agent B approval JSONs exist for all FRs (blocks if missing or non-APPROVE)",
+    )
+    vab.add_argument("--phase",   type=int, required=True, help="Current phase number")
+    vab.add_argument("--project", default=".", help="Project root (default: .)")
+    vab.add_argument("--fr-ids",  default="", dest="fr_ids",
+                     help="Comma-separated FR IDs (default: read from quality_manifest.json)")
+    vab.set_defaults(func=cmd_verify_agent_b_approvals)
+
+    # write-approval (architectural fix for Bug v22 — replaces LLM-as-shell-wrapper persistApproval)
+    wa = sub.add_parser(
+        "write-approval",
+        help="Deterministically persist an Agent B approval JSON to disk + verify in one call "
+             "(replaces workflow JS persistApproval LLM-as-shell-wrapper; atomic write + size check, "
+             "exit 0=ok 1=write-fail 2=verify-fail).",
+    )
+    wa.add_argument("--project", default=".", help="Project root (default: .)")
+    wa.add_argument("--fr-id", required=True, dest="fr_id",
+                    help="Deliverable ID (e.g. 'SRS.md'). File written to "
+                         ".methodology/agent_b_approvals/<fr-id>.json")
+    wa.add_argument("--json", default=None,
+                    help="JSON payload as a string. Use single quotes around the JSON to escape "
+                         "inner double quotes in shell.")
+    wa.add_argument("--stdin", action="store_true",
+                    help="Read JSON payload from stdin (alternative to --json for large payloads)")
+    wa.set_defaults(func=cmd_write_approval)
+
+    # verify-file (architectural fix — replaces 18 LLM-as-shell-wrapper verify sites in 6 phases)
+    vf = sub.add_parser(
+        "verify-file",
+        help="Deterministically verify a file exists + meets size/parse criteria "
+             "(replaces workflow JS ctxCheck / load-ctx-a / envReport / persistApproval verify). "
+             "Exit 0=ok, 1=missing/invalid.",
+    )
+    vf.add_argument("--file", required=True, help="File path to verify (absolute, or relative to --project)")
+    vf.add_argument("--project", default=".", help="Project root for relative --file paths (default: .)")
+    vf.add_argument("--expect", choices=["any", "json", "yaml", "text"], default="any",
+                    help="Content expectation: any (default) | json (parse) | yaml (parse) | text (any)")
+    vf.add_argument("--min-bytes", type=int, default=1, dest="min_bytes",
+                    help="Minimum file size in bytes (default: 1)")
+    vf.set_defaults(func=cmd_verify_file)

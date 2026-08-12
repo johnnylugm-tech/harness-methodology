@@ -292,3 +292,31 @@ def _run_gap_analysis(project: Path, similarity: float = 0.6, spec: str = "SPEC.
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"  [M3] Gap analysis error: {exc}")
         return {"skipped": True, "error": str(exc)}
+
+
+def register(sub) -> None:
+    """Wire the advisory subcommands onto the main subparser action.
+
+    R49-B 站3: a command's flags now live beside its body, so adding one
+    touches this file and nothing else. Moved verbatim out of
+    cli/check_cmds.py's 295-line register().
+    """
+    # bug-hunt-targets (v2.9 C4 — Gate-3 adversarial-review targeting manifest)
+    bht = sub.add_parser(
+        "bug-hunt-targets",
+        help="Aggregate hunt-targeting signals (declared/CRG/survivors/coverage) "
+             "into .methodology/bug_hunt_targets.json",
+    )
+    bht.add_argument("--project", default=".", help="Project root (default: .)")
+    bht.set_defaults(func=cmd_bug_hunt_targets)
+
+    # run-gap-analysis (M3)
+    ga = sub.add_parser(
+        "run-gap-analysis",
+        help="M3: Detect gaps between SPEC.md and codebase implementation",
+    )
+    ga.add_argument("--project",    default=".", help="Project root (default: .)")
+    ga.add_argument("--spec",       default="SPEC.md", help="Path to SPEC.md")
+    ga.add_argument("--similarity", type=float, default=0.6,
+                    help="Similarity threshold for matching (default: 0.6)")
+    ga.set_defaults(func=cmd_run_gap_analysis)

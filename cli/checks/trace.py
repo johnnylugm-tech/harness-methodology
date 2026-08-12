@@ -100,3 +100,47 @@ def cmd_verify_trace(args: argparse.Namespace) -> int:
     print(f"\nverify-trace{gate_tag}  project={project}")
     print(f"  {msg}")
     return code
+
+
+def register(sub) -> None:
+    """Wire the trace attestation subcommands onto the main subparser action.
+
+    R49-B 站3: a command's flags now live beside its body, so adding one
+    touches this file and nothing else. Moved verbatim out of
+    cli/check_cmds.py's 295-line register().
+    """
+    # migrate-trace-overlay (PR 2)
+    mto = sub.add_parser(
+        "migrate-trace-overlay",
+        help="Wrap TRACEABILITY_MATRIX.md in AUTO-GEN sentinels (one-time)",
+    )
+    mto.add_argument("--project", default=".", help="Target project root path")
+    mto.add_argument("--dry-run", action="store_true",
+                     help="Print the change without writing files")
+    mto.set_defaults(func=cmd_migrate_trace_overlay)
+
+    # build-trace-attestation (PR 3)
+    bta = sub.add_parser(
+        "build-trace-attestation",
+        help="Re-derive matrix and write git-anchored SHA-256 attestation",
+    )
+    bta.add_argument("--project", required=True)
+    bta.add_argument("--overlay", default=None)
+    bta.add_argument("--trace-dir", default=".methodology/trace")
+    bta.add_argument("--write", action="store_true", default=True,
+                     help="Write attestation to .methodology/trace/ (default: True; "
+                          "pass --no-write for build-only)")
+    bta.add_argument("--no-write", dest="write", action="store_false",
+                     help="Build matrix but do NOT write attestation files")
+    bta.set_defaults(func=cmd_build_trace_attestation)
+
+    # verify-trace (PR 3)
+    vt = sub.add_parser(
+        "verify-trace",
+        help="Re-derive and verify committed attestation (CI/gate use)",
+    )
+    vt.add_argument("--project", required=True)
+    vt.add_argument("--overlay", default=None)
+    vt.add_argument("--gate", type=int, default=None)
+    vt.add_argument("--trace-dir", default=".methodology/trace")
+    vt.set_defaults(func=cmd_verify_trace)

@@ -738,7 +738,13 @@ _LINE_CEILING: dict[str, int] = {
     # which is the better end state, but it is a separate operation with a
     # different failure mode (a subcommand silently unregistered) and it gets
     # its own commit rather than riding in on a body move.
-    "cli/check_cmds.py": 354,
+    #
+    # 2026-08-13: 354 -> 81. R49-B 站3 did that separate commit. The 24
+    # add_parser blocks went to the family that owns the command each
+    # dispatches to, so a command's flags and its body are now in one file.
+    # What is left is the re-exports and a register() that names the six
+    # families — which is the whole of what this module is for.
+    "cli/check_cmds.py": 81,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry
