@@ -369,7 +369,7 @@ blocks: an agent-claimed pass for a suite that does not exist is unverifiable.
 > asked for ≥80 across all of `src`. The measurement must answer the question the
 > requirement asked.
 
-### execute_verification_target (Tier 1 — Gate 2 only, tool-scored: system-verification)
+### execute_verification_target (Tier 1 — Gates 2/3/4, tool-scored: system-verification)
 
 **Does the project's own end-to-end verification target actually run?**
 ```bash
@@ -378,6 +378,13 @@ make verify-system
 **Score formula:** exit 0 → 100, any other exit → 0. The target is the project's
 declaration of what "the system works" means end to end (full suite + a CLI or
 API smoke path); the harness only checks that the declaration executes cleanly.
+
+Re-run at every phase exit, not only at Gate 2 (Round 46 站5). What the target
+*contains* is the project's own statement, and the harness does not read it —
+so if the SPEC requires particular steps in it (a migration round-trip, a
+service smoke path), the project's own `# NFR-XX`-annotated tests are what
+enforce that, and since Round 46 站1 those tests must actually pass for the
+requirement to count as covered.
 
 ### architecture (Tier 3 — CRG-ONLY, framework-owned)
 

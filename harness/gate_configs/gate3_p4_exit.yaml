@@ -19,6 +19,13 @@ dimensions:
   - { name: documentation,         tier: 3, threshold: 75,  weight: 0.00, tool: ast-docstrings,         requires_tool_execution: true }
   - { name: test_assertion_quality, tier: 2, threshold: 60,  weight: 0.01, tool: ast-assertions,             requires_tool_execution: true }
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.02, tool: pytest-benchmark,   requires_tool_execution: true }
+  # Round 46 站5: the project's own end-to-end verification target, re-run at
+  # every phase exit rather than only at Gate 2. Weight 0 (traceability's
+  # shape): it blocks by threshold and moves no other dimension's share, so
+  # every composite above is unchanged. A project declared what "the system
+  # works" means at P3 and the framework confirmed it once; between P4 and P8
+  # the declaration was never executed again.
+  - { name: execute_verification_target, tier: 1, threshold: 100, weight: 0.00, tool: system-verification, requires_tool_execution: true }
   # PR 4: see gate2_p3_exit.yaml for semantics.
   - { name: traceability,          tier: 2, threshold: 100, weight: 0.10, tool: harness-trace,  requires_tool_execution: false }
   # v2.9 C2: framework-owned adversarial bug-hunt verdict (weight 0 — blocking

@@ -5,7 +5,7 @@
 // the blocks shared across phase workflow files). Regenerate with:
 //   python3 scripts/workflowgen/generate_workflows.py --write --phase 4
 //
-// Structure: FR-loop型 + adversarial bug hunt + Gate 3 (16 dims) exit.
+// Structure: FR-loop型 + adversarial bug hunt + Gate 3 (17 dims) exit.
 // CHECKPOINT-0 TEST_PLAN → per-FR GATE1-DELTA → TEST_RESULTS/COVERAGE →
 // Step 4b bug hunt (adversarial_review is a Gate 3 dim, needs bug_hunt_report.json)
 // → Gate 3 → p4-pre-gate3 milestone + advance.
@@ -20,7 +20,7 @@
 
 export const meta = {
   name: 'phase4-testing',
-  description: 'Phase 4 Testing — TEST_PLAN + per-FR GATE1-DELTA + adversarial bug hunt + Gate 3 (16 dims) exit (phase4_plan.md v2.12.0)',
+  description: 'Phase 4 Testing — TEST_PLAN + per-FR GATE1-DELTA + adversarial bug hunt + Gate 3 (17 dims) exit (phase4_plan.md v2.12.0)',
   phases: [
     { title: 'Entry & Preflight' },
     { title: 'Test Plan' },
@@ -600,7 +600,7 @@ await dispatch(
 // ══════════════════════════════════════════════════════════════════════════
 
 phase('Gate 3')
-log('Gate 3 exit (composite ≥80, 16 dims: 13 self-scored + architecture/traceability/adversarial_review framework-owned)')
+log('Gate 3 exit (composite ≥80, 17 dims: 14 self-scored + architecture/traceability/adversarial_review framework-owned)')
 let gate3Pass = false, gate3Report = '', gate3Blocked = false
 // Gate 3 pre-flight GUARD: only state.json.last_gate >= 3 proves this gate was
 // truly finalized (SSI dims passed AND Phase Truth passed) — see harness_cli.py finalize-gate.
@@ -629,7 +629,7 @@ if (!gate3Pass) for (let round = 1; round <= 3; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '1. G3a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 3 --phase 4 --project ' + REPO + '` (CRG recon runs inside automatically). Read the printed evaluation prompt.\n'
-    + '2. G3b: Evaluate ALL Gate 3 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate3_result.json.\n   16 dims per gate3_p4_exit.yaml: linting(90) type_safety(85) test_coverage(80) security(80) secrets_scanning(100) license_compliance(100) mutation_testing(70) integration_coverage(60) architecture(80) readability(80) error_handling(80) documentation(75) test_assertion_quality(60) performance(75) traceability(100) adversarial_review(100).\n   (A project\'s feature flags can remove dims; the `dimensions:` list run-gate just printed is the authoritative one.)\n   FRAMEWORK-OWNED (do NOT self-score — finalize-gate computes these and overwrites what you write): architecture (code-review-graph), traceability (harness-trace), adversarial_review (bug-hunt-report).\n   NOTE: mutation_testing is enabled by default via .methodology/harness_config.json (mutation_testing=true). To disable, set it false in harness_config.json — the harness then excludes it from the dim list and re-normalises the composite score.\n   For any failing dim: fix ROOT CAUSE in code (ruff/pyright/tests/bandit/readability_v2/ast-error-handling/pytest-benchmark), re-run the tool, update score. (readability tool is `python3 -m harness.toolchains.readability_v2` — NOT `radon mi` — per phase3/4/6_plan.md v2.12.0.) A low architecture score has no waiver route (Round 38): fix the structure, or — only for a genuine CRG false positive — calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json, which is committed and therefore applies to CI too.\n'
+    + '2. G3b: Evaluate ALL Gate 3 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate3_result.json.\n   17 dims per gate3_p4_exit.yaml: linting(90) type_safety(85) test_coverage(80) security(80) secrets_scanning(100) license_compliance(100) mutation_testing(70) integration_coverage(60) architecture(80) readability(80) error_handling(80) documentation(75) test_assertion_quality(60) performance(75) execute_verification_target(100) traceability(100) adversarial_review(100).\n   (A project\'s feature flags can remove dims; the `dimensions:` list run-gate just printed is the authoritative one.)\n   FRAMEWORK-OWNED (do NOT self-score — finalize-gate computes these and overwrites what you write): architecture (code-review-graph), traceability (harness-trace), adversarial_review (bug-hunt-report).\n   NOTE: mutation_testing is enabled by default via .methodology/harness_config.json (mutation_testing=true). To disable, set it false in harness_config.json — the harness then excludes it from the dim list and re-normalises the composite score.\n   For any failing dim: fix ROOT CAUSE in code (ruff/pyright/tests/bandit/readability_v2/ast-error-handling/pytest-benchmark), re-run the tool, update score. (readability tool is `python3 -m harness.toolchains.readability_v2` — NOT `radon mi` — per phase3/4/6_plan.md v2.12.0.) A low architecture score has no waiver route (Round 38): fix the structure, or — only for a genuine CRG false positive — calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json, which is committed and therefore applies to CI too.\n'
     + '3. G3c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + '`.\n\n'
     + '4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 80.0`. FAIL → add missing tests, re-run.\n'
     + '5. CRG-ARCH: `BASELINE=""; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE="--baseline ' + REPO + '/.methodology/crg_baseline_p4.json"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 3 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.\n'

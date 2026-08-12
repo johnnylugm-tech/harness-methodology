@@ -19,6 +19,8 @@ dimensions:
   - { name: performance,           tier: 3, threshold: 75,  weight: 0.06, tool: pytest-benchmark,  requires_tool_execution: true }
   - { name: integration_coverage,  tier: 2, threshold: 75,  weight: 0.05, tool: pytest-cov-integration,            requires_tool_execution: true }
   - { name: test_assertion_quality, tier: 2, threshold: 70,  weight: 0.00, tool: ast-assertions,            requires_tool_execution: true }
+  # Round 46 站5: see gate3_p4_exit.yaml. Weight 0, blocks by threshold.
+  - { name: execute_verification_target, tier: 1, threshold: 100, weight: 0.00, tool: system-verification, requires_tool_execution: true }
   # PR 4: see gate2_p3_exit.yaml for semantics.
   - { name: traceability,          tier: 2, threshold: 100, weight: 0.08, tool: harness-trace,  requires_tool_execution: false }
 blocking: true

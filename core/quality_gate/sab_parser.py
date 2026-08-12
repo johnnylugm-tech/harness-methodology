@@ -193,8 +193,9 @@ _MAX_DIMENSION_SCORE = 100.0
 # The standard floor for every dimension ANY gate scores, gate 4 first.
 #
 # Round 27 站2: derive_gate_score_overrides consulted gate 4 alone, and three
-# dimensions are not in gate 4 at all — architecture_constraints lives only in
-# gate 1, execute_verification_target only in gate 2. Their floor came back None
+# dimensions were not in gate 4 at all — architecture_constraints lives only in
+# gate 1, and execute_verification_target lived only in gate 2 until Round 46
+# 站5 put it back into gates 3 and 4. Their floor came back None
 # and the loop skipped them, so even a correct NFR mapping produced no override.
 # Measured during station 0 on a probe SAD: NFR-01 mapped to
 # architecture_constraints and gate_score_overrides was {}.
