@@ -35,6 +35,7 @@ made it the only such place — so that is where the conjunction belongs.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -101,4 +102,63 @@ def test_env_check_ready_requires_the_frameworks_own_tools(tmp_path, monkeypatch
     assert written["ready"] is False
     assert "scancode" in json.dumps(written), (
         "the result file must name the tool that made it not-ready"
+    )
+
+
+# ── Bug #131 (2026-08-12): underscore <-> dash tool-name normalization ──
+
+
+def test_underscore_name_resolves_to_dashed_binary_in_venv(tmp_path) -> None:
+    """Regression for the `pip-licenses` install trap.
+
+    Contract names the tool with the import-style spelling
+    `pip_licenses`; the package ships a console-script `pip-licenses`
+    (dash, no underscore). The probe MUST accept either spelling —
+    the contract is what the user wrote, the binary is what the
+    installer created, and asking the user to rename the binary is
+    not a fix.
+    """
+    from core.quality_gate.env_verify import _found_on_path_or_venv
+
+    bindir = "Scripts" if os.name == "nt" else "bin"
+    fake_bin = tmp_path / ".venv" / bindir
+    fake_bin.mkdir(parents=True)
+    dashed = fake_bin / "pip-licenses"
+    dashed.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+    dashed.chmod(0o755)
+
+    assert _found_on_path_or_venv("pip_licenses", tmp_path) is True, (
+        "underscore claim must resolve to dash binary in project venv"
+    )
+    assert _found_on_path_or_venv("pip-licenses", tmp_path) is True, (
+        "dash claim must still resolve to dash binary (no regression)"
+    )
+
+
+def test_underscore_name_does_not_match_unrelated_binary(tmp_path) -> None:
+    """Negative case: a name that has no underscore/dash variant on disk
+    must probe False. Guards the Bug #131 fix against a too-eager
+    implementation that invents unrelated candidates — a binary literally
+    named `pip-licenses` in venv bin must not satisfy a probe for
+    `nonexistent_tool_xyz` just because we now also probe
+    `nonexistent-tool-xyz` (which is also absent, so the result is False
+    either way; the assertion is that the dash variant does not make a
+    probe of `bandit` accidentally match `pip-licenses` because of some
+    prefix-stripping logic)."""
+    from core.quality_gate.env_verify import _found_on_path_or_venv
+
+    bindir = "Scripts" if os.name == "nt" else "bin"
+    fake_bin = tmp_path / ".venv" / bindir
+    fake_bin.mkdir(parents=True)
+    # venv has `pip-licenses` but not `nonexistent_tool_xyz`:
+    dashed = fake_bin / "pip-licenses"
+    dashed.write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
+    dashed.chmod(0o755)
+
+    # Must not return True just because an unrelated binary exists in
+    # the venv — a probe for a name absent from PATH and absent from
+    # the venv must probe False. (We use a clearly-synthetic name
+    # to avoid host-PATH cross-talk with real tools.)
+    assert _found_on_path_or_venv("nonexistent_tool_xyz", tmp_path) is False, (
+        "underscore/dash variant must not produce false positives on unrelated names"
     )

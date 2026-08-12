@@ -80,18 +80,40 @@ def _found_on_path_or_venv(name: str, project: Path) -> bool:
     sub-agents name the interpreter after the SAD version string, but the binary
     is `python3.11`. A wrong-version claim (python312 with only 3.11 installed)
     still fails every probe and stays flagged.
+
+    Bug #131 (2026-08-12): normalize underscore <-> dash variants. Many PyPI
+    packages ship a CLI entry-point whose console-script name uses a dash
+    (e.g. `pip-licenses`) while their import name uses an underscore
+    (e.g. `pip_licenses`) and the package directory uses neither
+    (e.g. `piplicenses`). env-check accepts the agent-claimed name verbatim,
+    so a contract that names `pip_licenses` (matching the agent's
+    `import pip_licenses` mental model) was probed against a binary that
+    does not exist; the project installed `pip-licenses` correctly, the
+    framework probed the wrong filename, and env-check failed forever.
+    The fix: try the underscore form *and* the dash form. Symmetric with
+    `_import_probe_spec`'s `name.replace("-", "_")`.
     """
-    if shutil.which(name) is not None:
-        return True
     bindir = _bin_dir()
     cands = [name]
+    # Underscore <-> dash variant (Bug #131).
+    if "_" in name:
+        cands.append(name.replace("_", "-"))
+    elif "-" in name:
+        cands.append(name.replace("-", "_"))
+    # Python version semantic name (Bug #129).
     pv = re.fullmatch(r"python[-_.]?(\d)[-_.]?(\d+)", name.lower())
     if pv:
         cands.append(f"python{pv.group(1)}.{pv.group(2)}")
+    # Dedupe while preserving order.
+    deduped: list[str] = []
+    for cn in cands:
+        if cn not in deduped:
+            deduped.append(cn)
+    cands = deduped
     venv_dirs = [os.environ.get("VIRTUAL_ENV", "")]
     venv_dirs += [str(project / d) for d in (".venv", "venv")]
     for cn in cands:
-        if cn != name and shutil.which(cn):
+        if shutil.which(cn) is not None:
             return True
         for vd in venv_dirs:
             if vd and os.path.exists(os.path.join(vd, bindir, cn)):
