@@ -2053,3 +2053,87 @@
 - test: tests/cli/test_gate_cmds_cli.py::TestCmdRunEnvCheck::test_phase_1_does_not_demand_a_dependency_manifest
   bug: "the project-dependency precondition starts at P3, where code first exists. Demanding a manifest at P1/P2 would block every project on its first command — right about the file, wrong about the moment"
   fixed_in: "R47-站5b (the phase gate)"
+
+- test: tests/test_fault_owner.py::test_a_non_crash_harness_defect_still_names_harness
+  bug: "[HARNESS-BUG] covers only an uncaught exception. A harness LOGIC bug emits an ordinary [BLOCKED] indistinguishable from a project defect — four such incidents are recorded in docs/ERROR_HANDLING.md (R31 pyright timeout reported as 'install pyright'; R32 PYTHONPATH reported as tool_score_fabrication; R33 citation regex reported as 'no such file'; R45 doctor's 30 false accusations), every one found by a human audit round and none by the running pipeline"
+  fixed_in: "R48-站1 (core/fault_owner.py's text rules)"
+
+- test: tests/test_fault_owner.py::test_an_unattributable_block_says_unknown_not_project
+  bug: "93 of the 125 halt sites say 'X did not PASS in N attempts' — no evidence about whose defect it is. Answering PROJECT would be Round 30's error at the attribution layer, and it is the expensive answer: it sends a fix agent at code that may be healthy"
+  fixed_in: "R48-站1 (UNKNOWN is a first-class verdict)"
+
+- test: tests/test_fault_owner.py::test_overloaded_exit_codes_need_their_message
+  bug: "five exit codes carry TWO owners (14/18/19/20/25), and cli/exit_codes.py's docstring lists a DIFFERENT set of four 'known inconsistencies' — neither list is a superset of the other. 25 is the sharpest: _abort_dispatch_infra_or_harness_bug receives the class (HARNESS_BUG or INFRA), prints it, and returns one code for both"
+  fixed_in: "R48-站1 (_DISCRIMINATORS; the number alone answers UNKNOWN)"
+
+- test: tests/test_fault_owner.py::test_every_registered_exit_code_has_an_owner
+  bug: "a code added without an owner is a block that cannot be routed — the completeness this round exists to establish, in both directions against cli/exit_codes.py's REGISTRY"
+  fixed_in: "R48-站1"
+
+- test: tests/test_workflow_blocks.py::test_a_halt_is_recorded_with_its_coordinate
+  bug: "run-report reads sessions_spawn.log, degradations.jsonl and the gate result files; a workflow halt appeared in none of them. The one event in the whole pipeline nobody recorded was where the pipeline stopped"
+  fixed_in: "R48-站2 (.methodology/workflow_blocks.jsonl)"
+
+- test: tests/test_workflow_blocks.py::test_the_same_halt_twice_shares_one_signature
+  bug: "a record keyed on anything that varies per run (timestamp, pid, run id) makes a repeat look like a new event. Round 41 站3: taskq-api's FR-04 failed eight times with byte-identical output across 3h11m for $6.02, and the ledger held four lines for the whole run, none about the repetition"
+  fixed_in: "R48-站2 (signature = phase + step + digit-normalised message)"
+
+- test: tests/test_workflow_blocks.py::test_resolving_a_signature_that_was_never_recorded_is_refused
+  bug: "accepting a receipt for a halt nobody wrote would let a repair close a block that never happened — Round 45's rule (a verdict must not outlive, or precede, its proof) at the ledger layer"
+  fixed_in: "R48-站2 (UnknownBlockError)"
+
+- test: tests/test_workflow_blocks.py::test_a_block_that_returns_after_being_resolved_says_so
+  bug: "'the repair worked' was a claim with no check behind it. A block marked RESOLVED that comes back at the same coordinate is a recorded verdict contradicted by the next run, and before this it was indistinguishable from a first sighting"
+  fixed_in: "R48-站5 (recurred_after_resolution; doctor reports it at ERROR)"
+
+- test: tests/test_workflow_blocks.py::test_doctor_warns_on_a_harness_owned_block_and_names_the_route
+  bug: "Round 13 站2's routing rule (HARNESS_BUG never goes to CODE-FIX) had no application to a signal that did not exist yet — a block the framework attributed to ITSELF being handed to a fix agent pointed at the project's code"
+  fixed_in: "R48-站2 (doctor names the repair route)"
+
+- test: tests/test_repair_harness.py::test_a_single_red_check_blocks_the_push_and_names_itself
+  bug: "harness is a submodule and main is what every consuming project tracks, so a 'mostly green' push ships a regression to all of them simultaneously"
+  fixed_in: "R48-站3 (老闆's ruling: 全套本地 gate 綠才 push)"
+
+- test: tests/test_repair_harness.py::test_a_check_that_could_not_run_is_not_a_pass
+  bug: "Round 30's rule at the self-gate: a repair that pushed because the sim runner was missing from the host would be indistinguishable from one that pushed because the sim passed"
+  fixed_in: "R48-站3 (None blocks; it is not False and not True)"
+
+- test: tests/test_repair_harness.py::test_editing_a_generated_workflow_without_its_generator_is_refused
+  bug: "883e9ca hand-edited four shipped .claude/workflows/*.js files; all 94 workflowgen tests stayed green while generate_workflows.py --check reported 4/9 DRIFT. A repair agent handed a workflow bug reaches for the .js file first, because that is the file the trace names"
+  fixed_in: "R48-站3 (generated_file_violations, enforced at --land)"
+
+- test: tests/test_repair_harness.py::test_touching_a_gate_threshold_is_refused
+  bug: "Round 38 站2 settled that the floor lives in harness/gate_configs/*.yaml and is the same one CI applies. A repair that edits it is not fixing a defect, it is lowering the bar for every project at once"
+  fixed_in: "R48-站3 (forbidden_edit_violations)"
+
+- test: tests/test_repair_harness.py::test_deleting_a_regression_guard_is_refused
+  bug: "a guard records an incident this project already paid for; removing one removes the memory, not the debt"
+  fixed_in: "R48-站3 (guard_count_violations — guards only grow)"
+
+- test: tests/test_repair_harness.py::test_a_failure_that_will_not_reproduce_is_not_repaired
+  bug: "a report is a claim; the reproduction is the evidence. Round 33 is the cost of skipping it — two rounds fixed a symptom whose premise ('the file is missing') was false, and the class survived both"
+  fixed_in: "R48-站3 (--check-repro runs before anything is edited)"
+
+- test: tests/test_repair_harness.py::test_a_fix_whose_revert_stays_green_is_not_a_root_cause
+  bug: "if undoing the change leaves the reproduction passing, the change did not cause the pass. The counter-proof is PERFORMED by the framework (git stash / repro / pop), not attested by the agent — Round 27's rule that the judged party must not supply the verdict"
+  fixed_in: "R48-站3 (RepairPreconditions.may_commit)"
+
+- test: tests/test_repair_harness.py::test_a_detached_head_must_be_checked_out_before_committing
+  bug: "measured 2026-08-12: taskq-plus and taskq-renew both carry the harness submodule on a DETACHED HEAD. A commit made there is reachable from nothing — how Round 29/30 lost enforcer_sha 01bb3bb4, still named by eight gate results"
+  fixed_in: "R48-站3 (checkout_plan)"
+
+- test: tests/test_repair_harness.py::test_cli_requires_exactly_one_phase_flag
+  bug: "with neither --check-repro nor --land the command silently took the landing path — verify and 'commit and push' must never be the same invocation by accident"
+  fixed_in: "R48-站3"
+
+- test: tests/test_auto_fix_registry.py::test_every_reachable_problem_type_is_either_live_or_retired
+  bug: "core/auto_fix/ registers 13 strategies behind 31 detector outcomes and exactly ONE has a production caller. The other twelve append keywords to raise a score, write TBD stubs for absent deliverables, generate `assert True` tests, or rewrite a failing assertion to the observed value — 'registered but unreachable' was a third state with no reason attached to it"
+  fixed_in: "R48-站6 (core/auto_fix/wiring.py; AutoFixEngine.fix refuses a retired problem_type at the dispatch)"
+
+- test: tests/test_auto_fix_registry.py::test_every_live_strategy_re_verifies_its_own_repair
+  bug: "a repair that reports success on the strength of having written something is Round 24's class (a field existing is not the field being true). Only fix_missing_traceability re-runs the check that failed"
+  fixed_in: "R48-站6 (StrategySpec.reverify is not optional)"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "the dispatch wrapper was being injected twice into harness-repair.js, so `dispatch` called itself and the run died on `Maximum call stack size exceeded`. node --check passed, generate_workflows.py --check passed, and all 130 workflow tests passed on that same file — only the simulation testbed saw it"
+  fixed_in: "R48-站4 (generate_composite no longer wraps; each composite generator returns finished text)"

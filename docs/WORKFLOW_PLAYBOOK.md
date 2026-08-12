@@ -961,6 +961,31 @@ python3 scripts/workflowgen/generate_workflows.py --check   # 9/9
 
 **等價性怎麼被鎖住**:`scripts/workflowgen/js_src/sim_runner.test.mjs` §11 對每個 N 斷言「run-all 的 `P<N> ·` dispatch 序列 == 單獨跑 `phaseN-*.js` 的序列」,§12 再用兩向精確差集鎖住唯一允許的差異(6 個 Sync 折進 `advance-phase --push`、多一次 cursor 讀)。**這證明的是 dispatch 序列,不是最終產出物位元組相等** —— 後者只有 live E2E 能證。
 
+### 13.2c `harness-repair.js` — 第 10 個生成檔(Round 48)
+
+`scripts/workflowgen/spec_repair.py` → `.claude/workflows/harness-repair.js`。
+與前九支不同的一點：**它的主體是 harness-methodology 本身**，不是某個專案的階段。
+
+只有 `harness_cli.py record-block` 把中止分類成 `owner=harness` 時才啟動。
+`owner=unknown` **不**啟動——「證明不了是專案的錯就去改框架」等於給修復 agent
+一個修改判定者的常設動機。
+
+七個 box：Ticket → Reproduce → Root Cause → Adversarial Review → Fix → Land →
+Handover。每一個**判定**都來自 harness CLI 的 exit code
+（`repair-harness --check-repro` 與 `repair-harness --land`），從不來自 agent 的散文；
+只有兩步是刻意不設 schema 的 judgment——診斷本身，以及試圖否證它的對抗式複查。
+
+四條標準規則（不改生成的 `.js`／不動 `gate_configs`／不刪 guard／修復必須是承重的）
+寫進每一個能寫入的 prompt，**同時**由 `repair-harness --land` 執法。
+prompt 負責問，CLI 負責判——這也是 prompt 可以寫得短的原因。
+
+Fix→Land 最多 3 輪，並把每次被拒的輸出餵回下一輪。不會為同一個拒絕花第四輪
+（R41 站3：taskq-api FR-04 以位元組相同的輸出失敗八次，$6.02）。
+
+**13.2 的 submodule bump 消費鏈在此處反向合攏**：修復由 harness-repair 推上
+harness-methodology main，專案端再 `git submodule` bump 過去，然後重啟 run-all——
+而重啟是**被對賬的**，不是被相信的（見 docs/ERROR_HANDLING.md）。
+
 ### 13.3 禁止在 submodule 內修補(HR-17)
 
 > **HR-17**(`CONSTITUTION.md` / `SKILL.md`)：**嚴禁從專案端修改

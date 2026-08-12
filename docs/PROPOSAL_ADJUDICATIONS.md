@@ -2596,3 +2596,94 @@ package.json 擁有它們，框架沒有話可說）與 `builtin`（ast-* 掃描
 taskq-advance 無 manifest；taskq-plus 在 `03-development/requirements.txt`；
 run-all-by-workflow 有 `pyproject.toml`）。第一版只搜 repo root，會把「明明有宣告」
 的 taskq-plus 誤判成「什麼都沒宣告」並擋掉它——改用 `ProjectLayout` 之後才對。
+
+---
+
+## Round 48 — 判定有結論，責任沒有歸屬 (2026-08-12)
+
+老闆令：完整盤點 P1–P8 造成 block 的節點，並對兩類成因導入自動修復——
+(1) harness bug（含 workflow JS）：停下當前 workflow，啟另一支專門修復的
+workflow JS，驗證真實性與根源性後修本地 harness submodule 並 push 到 main，
+再從中斷點復跑；(2) 專案本身的問題：比照 R47 env-check 導入自動修復。
+
+老闆四項裁決：修復器 = workflow JS + 新 CLI 指令／**全套本地 gate 綠才 push**／
+**先分類，只在判定為 harness 責任時觸發**／**收編既有 AutoFixEngine，逐項接線或退役**。
+
+### 盤點（P1–P8，全部實測）
+
+| 形狀 | 數量 | 指名責任方？ |
+|---|---|---|
+| `return { error: ... }` | **93** | ❌ 完全沒有 |
+| `session_limit_blocked` | 14 | ✅ infra |
+| `harness_bug_detected` | 13 | ✅ harness——但**只在未捕捉例外**時 |
+| `dispatch_structurally_broken` | 5 | ✅ infra |
+
+逐檔 P1 17／P2 23／P3 14／P4 17／P5 14／P6 11／P7 14／P8 15。
+**落盤到任何檔案的：0。** run-report 讀 spawn log／ledger／gate result，
+workflow 中止在三者皆無。
+
+根源：`[HARNESS-BUG]` 只涵蓋**崩潰**。harness 的**邏輯** bug 產出乾淨的
+`[BLOCKED]`，與專案缺陷同形。本文件自己記的四起（R31/R32/R33/R45）全部由
+人工稽核輪次發現，**無一由管線自己發現**。
+
+### 五項前提的實測結果（兩項改變了方案）
+
+| # | 前提 | 結果 |
+|---|---|---|
+| 1 | workflow 回傳值到得了主對話 | **文件支持，無活樣本**（不存在持久紀錄——那正是發現 1.2）。方案改為票據落盤、回傳值只帶指標，因此**不依賴此前提** |
+| 2 | run-all headroom 夠 | 327,759／340,000，餘 12,241（3.7%）。**驅動了設計**：125 個 halt 全部匯流到 driver 的四個終止分支，記錄點 6 處共 +2,328 bytes；逐點插入實測約需 8 KB |
+| 3 | auto_fix 逐支盤點 | **推翻方案的框架**。13 支註冊、1 支可達；其餘十二支是加關鍵字提分、寫 TBD 樁、生 `assert True` 測試、把失敗斷言改寫成觀測值。方案原寫「能修的接上」，量測說**幾乎全部該退役** |
+| 4 | 重號 exit code owner 衝突 | 方案預測 1 個，`cli/exit_codes.py` docstring 列 4 個「已知不一致」，**實際 owner 衝突有 5 個**（14/18/19/20/25），兩份清單互不包含。25 最尖銳：`_abort_dispatch_infra_or_harness_bug` **收到** class 卻用同一個 exit code 回傳兩者 |
+| 5 | 修復 agent 越權面 | 門檻（`harness/gate_configs/*.yaml`）禁改、guards 只增不減、判定器（`core/quality_gate/`、`harness_bridge.py`）**可改但須附反證**——R31/R32/R33/R45 全是那裡的缺陷，禁改清單涵蓋它就等於拒絕每一個真修復 |
+
+另測：六個活專案的 harness submodule，**taskq-plus 與 taskq-renew 在 detached HEAD**，
+其餘四個在 main，六個皆 clean。假設 main 的修復器會 commit 到不可達之處——
+R29/R30 就是這樣丟掉了八份 gate result 仍指名的 `enforcer_sha 01bb3bb4`。
+
+### 一個只有模擬測床看得見的活缺陷
+
+`generate_composite()` 注入 dispatch wrapper；harness-repair 需要 top-level
+boundary（必須在注入**之後**套用），於是它的生成器也注入了一次——文字被包了兩層，
+第二次插入第二個 wrapper 並把**第一個** wrapper 自己的 `await agent(` 改寫成
+`await dispatch(`，`dispatch` 呼叫自己。
+
+  `node --check` 過｜`generate_workflows.py --check` 過｜130 支 workflow 測試全過
+
+只有 sim 死在 `Maximum call stack size exceeded`。這是 R12 站1 造它的理由，
+也是它第二次抓到位元組比對套件在結構上看不見的東西。修法把注入移進各 composite
+生成器；run-all 產物**位元組相同**（328,085，`git diff --stat` 空）可證為 no-op。
+
+### 明列不做（附再開條件與量測）
+
+- **不刪 auto_fix 的十二支函式與 30 條 CLASSIFICATION_TABLE 條目。**
+  `tests/test_no_hardcoded_paths.py` 的 R20 站2 守衛以 `fix_low_coverage` 為**主體**，
+  且該守衛登記在 `tests/REGRESSION_GUARDS.yaml`——刪碼會讓一條已登記守衛描述一個
+  不存在的函式。守衛條目、測試、程式碼要在同一個 commit 退役，那是一輪減法自己的事。
+  本輪改為**在 dispatch 處拒絕**，讓退役有執行者而非只有標籤。
+- **`EscalationCondition.LOW_CONFIDENCE` 本輪之後不再可經 `fix()` 到達。**
+  唯一存活的 strategy 固定回報 90，所有回報低於 70 的都已退役。其單元測試改為直接
+  驅動 `check_escalation`（對「階梯」的測試本來就該是這個形狀）。
+  留一支會造假的 strategy 只為讓一個 escalation 保持可達，是本末倒置。
+- **不做巢狀 workflow**（R23-A 已裁決，本輪不推翻）。
+- **UNKNOWN 不觸發 harness 修復**（老闆裁決）。「證明不了是專案的錯就去改框架」
+  等於給修復 agent 一個修改判定者的常設動機。
+- **CLAUDE.md 不是交接文件的家**：`**/CLAUDE.md` 全域 gitignore，只寫在那裡的
+  交接永遠到不了消費專案。內容寫進 `docs/ERROR_HANDLING.md`。
+- **`core/doctor.py` 進入 god-file 清單**（882 → 923）。本輪開始前就在 882，
+  任何新檢查都會越過 900 預設。散文縮過一次就停手——為閃過門檻而削註解不是門檻的用途。
+  條目寫明：**下一個加進來的檢查應該拆檔，而不是再調高數字。**
+
+### 反證留下的一個假警報（記錄，因為下一輪會再踩）
+
+八條反證全部轉紅並還原。最後的全套驗證卻紅了一支
+`test_a_non_crash_harness_defect_still_names_harness`——而 `core/fault_owner.py`
+第 269 行明明寫著 `Owner.HARNESS`。
+
+原因是 **stale `.pyc`**：反證的編輯讓 `core/__pycache__/fault_owner.cpython-311.pyc`
+在 22:20 被重寫，還原用的 `cp` 落在**同一秒**（source mtime 22:20:46），
+Python 的 mtime 失效判斷是秒級的，於是快取被當成有效。清掉 `__pycache__` 後
+直接探測即回 `harness`，全套 7126 全綠。
+
+**教訓正是老闆的既有紀律**：還原要用**反向編輯**，不要用檔案複製。反向編輯改
+的是內容、時間跨度也拉得開；同秒 `cp` 會打敗 mtime 失效，讓一棵已經還原正確的
+樹看起來壞掉——而那正是「量測錯了，不是碼錯了」的形狀，本輪整輪都在講這件事。

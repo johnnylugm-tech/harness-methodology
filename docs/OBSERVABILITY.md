@@ -174,6 +174,54 @@ a platform toolchain, npm tools belong to the project's package.json). A row
 whose `unfixable` is non-empty means the call blocked with an install command
 for a human, not that repair failed.
 
+### `.methodology/workflow_blocks.jsonl`
+
+Where a run stopped, and whose tree has to change (Round 48 站2).
+
+Written by `harness_cli.py record-block`, which every terminal exit in
+`run-all.js` calls before returning. Until this round it did not exist, and the
+gap was structural rather than incidental: the eight generated phase workflows
+carry **125 terminal halt sites** and every one returned a JS object that
+reached the conversation and was then gone. Of the four artifacts above, none
+recorded it — so "this project blocks at P4 preflight every time" was something
+a human had to remember across sessions.
+
+Fields: `ts`, `signature`, `phase`, `step`, `owner`, `exit_code`, `message`,
+`evidence`, `resolved`, `recurred_after_resolution`, and `previous_resolution`
+when the block came back after being closed.
+
+**The signature is the point.** It is `(phase, step, message with digits
+normalised)`, hashed — so the same halt twice is one coordinate, not two
+events. A key that varied per run (a timestamp, a pid) would make a repeat look
+new, which is Round 41 站3's incident exactly: taskq-api's FR-04 failed eight
+times with byte-identical output across 3h11m for $6.02, and the ledger held
+four lines for the whole run, none of them about the repetition. Digits are
+stripped because "did not PASS in 3 attempts" and "...in 5 attempts" are the
+same block; the attempt count is the retry budget, not the defect.
+
+**`owner` comes from `core/fault_owner.py`, not from the workflow.** Putting a
+copy of that table in a JS string literal would be one fact in two places, on a
+surface no unit test can reach. Values are `harness` / `project` / `infra` /
+`unknown` / `none`; see docs/ERROR_HANDLING.md for what each one routes to.
+
+**Unlike `record_degradation`, this writer does not swallow failures.** A
+degradation that could not be recorded still leaves a completed run; a halt
+that could not be recorded leaves the repair loop with no subject and the
+re-run reconciliation with nothing to compare against.
+
+It costs one dispatch, once per aborted run. The ride-along trick
+`log-dispatch` uses is unavailable here by definition: a halt is terminal, so
+there is no next dispatch to carry the record.
+
+Two readers, each owning one fact:
+
+  - `run-report` lists every open block, its owner, how many times it recurred,
+    and marks any that returned after being resolved;
+  - `doctor` reports ONLY harness-owned blocks — at WARN because a run that
+    stopped is not a defect in the tree being inspected now, and at ERROR when
+    one marked RESOLVED has come back, because that is a recorded verdict the
+    next run contradicted.
+
 ### `.methodology/crash/crash_<timestamp>_<pid>.json`
 
 **Round 28 站4 moved this out of `.sessi-work/` for the same reason as the
