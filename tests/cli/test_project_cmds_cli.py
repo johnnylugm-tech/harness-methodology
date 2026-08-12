@@ -759,6 +759,17 @@ class TestInitProjectRootWrapper:
         # (incl. cli/project_cmds) resolve it via that module's namespace.
         from harness import tool_checks as _tc
         monkeypatch.setattr(_tc, "verify_gate_tools", lambda _g, _h, **_: ({}, []))
+        # Round 47 站2: step [10b] now really creates the venv and installs the
+        # pinned toolchain (it used to check importability in the CALLING
+        # interpreter and install nowhere). That is a network round-trip these
+        # wrapper tests have no interest in — stub it like every other
+        # heavyweight step above. tests/test_env_bootstrap.py owns its
+        # behaviour.
+        from scripts.bootstrap_env import BootstrapReport as _Report
+        monkeypatch.setattr(
+            _projc, "bootstrap_project_env",
+            lambda p: _Report(python=Path(p) / ".venv" / "bin" / "python"),
+        )
         monkeypatch.setattr(_projc, "_check_crg_available", lambda: True)
         monkeypatch.setattr(_projc, "_harness_workflow_template", lambda: "# ci\n")
         # S1: cmd_init_project (cli/project_cmds) binds atomic_write_json

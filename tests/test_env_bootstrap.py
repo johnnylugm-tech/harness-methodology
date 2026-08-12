@@ -73,6 +73,41 @@ def test_importability_is_judged_in_the_target_interpreter(tmp_path):
     assert missing_imports(py, ("yaml",)) == ["yaml"]
 
 
+def test_a_failed_pip_step_is_not_the_verdict(tmp_path):
+    """The probe decides, in both directions.
+
+    Measured on macOS 2026-08-12: the `gate-extras` round fails outright
+    because `scancode-toolkit==32.4.1` needs pyicu, which needs ICU headers —
+    on a host where `scancode --version` answers perfectly well from a system
+    install. Treating pip's exit code as the verdict would block that host for
+    a tool it already has, which is the same mistake as believing a green pip
+    over an absent tool.
+    """
+    from scripts.bootstrap_env import bootstrap
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / ".venv" / "bin").mkdir(parents=True)
+    (project / ".venv" / "bin" / "python").write_text("#!/bin/sh\n")
+
+    def failing_pip(argv, **kwargs):
+        failed = "pip" in argv and "install" in argv
+        return type(
+            "P", (), {"returncode": 1 if failed else 0, "stdout": "", "stderr": "boom"}
+        )()
+
+    # Absent on the first look (so the install is attempted), resolvable on the
+    # second (it came from somewhere pip is not, e.g. a system scancode).
+    answers = [["scancode"], []]
+
+    report = bootstrap(project, run=failing_pip, probe=lambda _p: answers.pop(0))
+
+    assert report.steps_run, "a missing tool must trigger the install"
+    assert report.failures, "a failed pip step must still be reported"
+    assert report.still_missing_tools == []
+    assert report.ok is True, "everything the step promised is present — that is the verdict"
+
+
 def test_requirements_alone_is_not_the_whole_gate_toolchain():
     """The three packages requirements.txt cannot carry have a home in the SSOT.
 

@@ -236,6 +236,26 @@ def step_for_tool(tool_id: str) -> "str | None":
     return spec.install_step if spec.install_step in ("requirements", "gate-extras") else None
 
 
+def tools_for_step(step_name: str) -> tuple[str, ...]:
+    """The tool_ids *step_name* is supposed to deliver.
+
+    What a pip round PROMISED is what makes it checkable. pip's exit code says
+    whether a resolve succeeded; this says what to probe afterwards to find out
+    whether that mattered — and it is the probe, not the exit code, that
+    decides (Round 24's pattern: a field existing is not the field being true,
+    in both directions).
+    """
+    from harness.toolchains.registry import TOOL_SPECS
+
+    return tuple(
+        sorted(
+            tool_id
+            for tool_id, spec in TOOL_SPECS.items()
+            if spec.install_step == step_name
+        )
+    )
+
+
 def pip_args(step: PipStep, requirements: "Path | str | None" = None) -> tuple[str, ...]:
     """The pip arguments for *step*, ready to follow `-m pip install`."""
     if step.from_requirements:

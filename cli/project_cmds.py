@@ -26,6 +26,9 @@ from core.harness_provenance import enforcer_sha
 from core.state_io import load_quality_manifest, load_state
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
+# Module level so it is patchable by name, like every other heavyweight
+# init-project step (_init_phase_dirs, _check_crg_available, ...).
+from scripts.bootstrap_env import bootstrap as bootstrap_project_env
 from harness import tool_checks
 
 
@@ -293,55 +296,31 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         # Auto-detect gh availability and offer setup
         _auto_offer_branch_protection(project)
 
-    # 10b. Harness runtime Python deps (pyyaml + jsonschema — required by
-    # `import yaml` in harness/tool_checks.py:123 and other harness CLI imports).
-    # Root-cause fix for the historical "first `python3 harness_cli.py run-phase`
-    # crashes with ModuleNotFoundError: No module named 'yaml'" class of bugs:
-    # init-project now installs these from harness/requirements.txt into the
-    # project venv automatically. USER_MANUAL.md §2.1 previously required the
-    # user to remember `pip install pyyaml`; that step is now obsolete but
-    # stays in the docs as a fallback for non-init-project installs.
-    print("\n[10b/11] Harness runtime Python deps (pyyaml + jsonschema)...")
-    _runtime_pkgs = ("yaml", "jsonschema")
-    _missing: list[str] = []
-    for _p in _runtime_pkgs:
-        try:
-            __import__(_p)
-        except ImportError:
-            _missing.append(_p)
-    if not _missing:
-        print("   OK — all runtime Python deps importable")
-    else:
-        print(f"   Missing: {', '.join(_missing)}")
-        _venv_py = project / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "python"
-        if _venv_py.exists():
-            print(f"   Auto-installing via {_venv_py} -m pip install -r {harness_root / 'requirements.txt'}")
-            _r = subprocess.run(
-                [str(_venv_py), "-m", "pip", "install", "-r", str(harness_root / "requirements.txt")],
-                capture_output=True, text=True, timeout=300,
-            )
-            if _r.returncode != 0:
-                print(f"   [BLOCKED] pip install failed:\n{_r.stderr[-400:]}")
-                return 1
-            # Re-verify — even a successful pip install can leave the import
-            # path stale (PEP 660 editable installs in particular).
-            _still: list[str] = []
-            for _p in _missing:
-                try:
-                    __import__(_p)
-                except ImportError:
-                    _still.append(_p)
-            if _still:
-                print(f"   [BLOCKED] Still missing after install: {_still}")
-                return 1
-            print("   OK — installed and importable")
-        else:
-            print(
-                f"   [BLOCKED] No project venv found.\n"
-                f"   Fix: python3 -m venv .venv && .venv/bin/python -m pip install -r {harness_root}/requirements.txt\n"
-                f"   Then re-run init-project."
-            )
-            return 1
+    # 10b. The interpreter the harness will actually run from.
+    #
+    # Round 47 站2 replaced this step's body. It used to decide importability
+    # with `__import__(pkg)` — which runs in THIS process — and then install
+    # into project/.venv. Any host whose ambient interpreter already had pyyaml
+    # got "OK — all runtime Python deps importable" over an empty project venv.
+    # It also checked 2 of the 20 packages requirements.txt pins, and when no
+    # venv existed it printed the `python -m venv` command rather than running
+    # it — which is why the framework depended on a virtualenv nothing built.
+    #
+    # scripts/bootstrap_env.py creates it, installs every pip step from the
+    # SSOT, and re-measures importability IN THAT interpreter.
+    print("\n[10b/11] Project interpreter + pinned toolchain...")
+    _report = bootstrap_project_env(project)
+    print(f"   interpreter: {_report.python} "
+          f"({'created' if _report.venv_created else 'existing'})")
+    print(f"   pip steps  : {', '.join(_report.steps_run) or 'none'}")
+    for _failure in _report.failures:
+        print(f"   [BLOCKED] {_failure}")
+    if _report.still_missing_imports:
+        print("   [BLOCKED] still not importable in that interpreter: "
+              + ", ".join(_report.still_missing_imports))
+    if not _report.ok:
+        return 1
+    print("   OK — installed and importable in the project's own interpreter")
 
     # 11. Gate tool availability (blocking — all Tier 1 tools required before project start).
     # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
@@ -447,6 +426,23 @@ def cmd_init_project(args: argparse.Namespace) -> int:
         print(line)
     print(f"  Full docs: {harness_root}/INTEGRATION.md")
     return 0
+
+
+def cmd_bootstrap_env(args: argparse.Namespace) -> int:
+    """Create the project's virtualenv and install the pinned toolchain into it.
+
+    Round 47 站2. Delegates to scripts/bootstrap_env.py — the same
+    implementation init-project's step [10b] and the P1 workflow's first
+    preflight command reach. That script is standalone and stdlib-only because
+    it has to work before the venv exists; this subcommand is the convenient
+    entry point once it does, and the one env repair calls in-process.
+    """
+    from scripts.bootstrap_env import main as _bootstrap_main
+
+    argv = ["--project", str(Path(args.project).resolve())]
+    if getattr(args, "json", False):
+        argv.append("--json")
+    return _bootstrap_main(argv)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -2009,6 +2005,22 @@ def register(sub) -> None:
     ip.add_argument("--setup-branch-protection", action="store_true",
                     help="Configure GitHub branch protection for main with required checks")
     ip.set_defaults(func=cmd_init_project)
+
+    # bootstrap-env
+    #
+    # A second entry point onto scripts/bootstrap_env.py, not a second
+    # implementation. The standalone script is the one that matters before a
+    # venv exists (harness_cli.py cannot import on an interpreter without
+    # pyyaml); this one exists so the same operation is reachable from the CLI
+    # once it does, and so env repair has an in-process caller.
+    be = sub.add_parser(
+        "bootstrap-env",
+        help="Create the project virtualenv the harness runs from and install "
+             "the pinned toolchain into it",
+    )
+    be.add_argument("--project", default=".", help="Project root (default: .)")
+    be.add_argument("--json", action="store_true", help="Machine-readable report")
+    be.set_defaults(func=cmd_bootstrap_env)
 
     # status
     st = sub.add_parser("status", help="Show current manifest + FSM state")
