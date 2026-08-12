@@ -45,6 +45,36 @@ def _cwd_pinned_to_harness_root(monkeypatch):
     monkeypatch.chdir(_HARNESS_ROOT)
 
 
+# ---------------------------------------------------------------------------
+# Default branch invariance (2026-08-12 incident, CI run 31613445606)
+# ---------------------------------------------------------------------------
+#
+# Round 48 站8 gave the harness submodule's branch NAME a verdict for the
+# first time (`--land` refuses anything but main). Two tests then passed here
+# and failed on the runner: `git init` takes its branch name from ambient
+# `init.defaultBranch`, this machine's git creates `main`, the runner's
+# creates `master`. The tests were measuring the host, not the code.
+#
+# Roughly thirty `git init` call sites in this suite inherit that name. Adding
+# `-b main` to each is thirty statements of one fact, and the thirty-first
+# call site would inherit again. Pinning it here is one statement, it covers
+# call sites that do not exist yet, and it covers git invoked by PRODUCTION
+# code under test — which no call-site edit can reach.
+#
+# GIT_CONFIG_COUNT is the env form of `git -c`, so it outranks the host's
+# system and global files (verified 2026-08-13 against a global config saying
+# master). A test that needs a different value sets these vars itself and
+# wins, which is exactly how
+# test_repair_harness.py::test_the_fixture_does_not_inherit_the_hosts_default_branch
+# proves that fixture pins its own branch independently of this.
+
+@pytest.fixture(autouse=True)
+def _git_default_branch_pinned(monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "main")
+
+
 @pytest.fixture(autouse=True)
 def _mock_physical_tools_for_test_suite(monkeypatch):
     """In test environment, physical CLI tools (gitleaks, import-linter,
