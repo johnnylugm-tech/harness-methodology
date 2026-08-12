@@ -154,6 +154,26 @@ skipping themselves. That second question is *enforced* by
 `compute_trace_dimension`'s absent-witness rule (Round 46 站1), which blocks
 through the traceability dimension — this row is observation, not verdict.
 
+**Round 47 站3** added `gate:env-repair`, one record per repair attempt, from
+`harness/env_repair.py`. It carries `requested`, `attempted_steps`,
+`unfixable`, `still_missing`, `installer_python` and `ci`.
+
+The reason it exists is the cost of the fix it accompanies. Before Round 47 a
+host missing a gate tool failed loudly, every run, at whichever of the six
+detection points it reached first. Now the framework installs the tool and
+continues — which means a machine that has been one `pip install` short for a
+month succeeds quietly and nobody learns that. The ledger is what keeps *"this
+environment needs repairing on every run"* answerable after the fact, the same
+reason Round 46 站2 put skip counts here. Repair is bounded to one attempt, so
+one row per (project, run) per group of missing tools; a project accumulating
+rows across runs is the signal to look at the host, not at the framework.
+
+`unfixable` is the interesting column: those are tools 老闆's Round 47
+boundary says the framework will not install (gitleaks is a Go binary, make is
+a platform toolchain, npm tools belong to the project's package.json). A row
+whose `unfixable` is non-empty means the call blocked with an install command
+for a human, not that repair failed.
+
 ### `.methodology/crash/crash_<timestamp>_<pid>.json`
 
 **Round 28 站4 moved this out of `.sessi-work/` for the same reason as the

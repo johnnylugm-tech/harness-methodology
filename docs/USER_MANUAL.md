@@ -56,11 +56,21 @@ P1 Requirements → P2 Architecture → P3 Implementation → P4 Testing
 # Python 3.10+
 python3 --version
 
-# PyYAML + jsonschema — `init-project` now installs these automatically into
-# the project venv (see step [10b/11] in cli/project_cmds.py::cmd_init_project).
-# The line below is a fallback for manual installs where init-project was
-# skipped (e.g. CI pre-stage, ad-hoc harness-cli invocation).
-pip install -r harness/requirements.txt
+# The interpreter and the pinned toolchain. Round 47 站2: this ONE command
+# creates .venv if absent, installs every pip step from the single source
+# (harness/toolchains/bootstrap.py), and re-checks importability in the
+# interpreter it just prepared. It is stdlib-only on purpose — it has to run
+# before the venv exists, which is why it is not `harness_cli.py <something>`.
+python3 harness/scripts/bootstrap_env.py --project .
+# (once .venv works, `python harness_cli.py bootstrap-env --project .` is the
+#  same implementation reached from the CLI)
+#
+# `init-project` and Phase 1's first preflight command both call it, so a
+# normal setup never types it. Run it by hand when neither has happened yet.
+#
+# It installs pip packages into the project venv and nothing else. Missing
+# external binaries (gitleaks, make) and npm-owned tools are reported with the
+# command to install them — the framework will not run brew, curl or sudo.
 
 # Clone the repo
 git clone https://github.com/johnnylugm-tech/harness-methodology.git

@@ -1988,3 +1988,68 @@
 - test: tests/test_verify_target_regated.py::test_the_prompt_no_longer_calls_it_gate_2_only
   bug: "the heading agents read said 'Gate 2 only' — R17's prompt/gate drift shape, a sentence outliving the arrangement it described"
   fixed_in: "R46-站5"
+
+# ── Round 47: the framework could judge an environment unfit and had no way to
+# make one fit. `ToolSpec.check_cmd` said how to ask whether a tool was there;
+# nothing said how to put one there, so six detection points each printed prose
+# and returned non-zero. ─────────────────────────────────────────────────────
+
+- test: tests/test_env_bootstrap.py::test_the_framework_can_create_the_venv_it_depends_on
+  bug: "every generated workflow opens with PY = REPO/.venv/bin/python and no code created it — a whole-tree grep for `python -m venv` found one hit, inside a BLOCKED message telling the operator to run it. P1 failed its first command three times and reported a retry-loop message with no mention of the missing interpreter"
+  fixed_in: "R47-站2 (scripts/bootstrap_env.py::ensure_venv)"
+
+- test: tests/test_env_bootstrap.py::test_importability_is_judged_in_the_target_interpreter
+  bug: "init-project [10b] decided importability with __import__() in the CALLING process and installed into project/.venv — any host whose ambient python had pyyaml printed 'OK — all runtime Python deps importable' over an empty project venv, and it checked 2 of the 20 packages requirements.txt pins"
+  fixed_in: "R47-站2 (missing_imports asks the target interpreter)"
+
+- test: tests/test_env_bootstrap.py::test_a_failed_pip_step_is_not_the_verdict
+  bug: "pip's exit code is not evidence in either direction — measured on macOS, gate-extras fails outright because scancode-toolkit needs ICU headers, on a host where `scancode --version` answers fine from a system install. Blocking there is the same mistake as believing a green pip over an absent tool"
+  fixed_in: "R47-站2 (BootstrapReport.ok comes from the probes)"
+
+- test: tests/test_env_bootstrap.py::test_requirements_alone_is_not_the_whole_gate_toolchain
+  bug: "a clean venv with only `pip install -r requirements.txt` still fails verify_all_gate_tools on code-review-graph, import-linter, scancode and gitleaks — only the CI yaml knew the rest of the sequence, and only CI could execute it"
+  fixed_in: "R47-站1 (bootstrap.PIP_STEPS + EXTERNAL_BINARIES)"
+
+- test: tests/test_env_repair.py::test_repair_reprobes_instead_of_trusting_the_installer
+  bug: "an installer exiting 0 is a claim about a resolve, not evidence the tool is runnable (Round 24's pattern). Repair must re-ask the tool's own check_cmd and believe that"
+  fixed_in: "R47-站3 (harness/env_repair.py)"
+
+- test: tests/test_env_repair.py::test_an_external_binary_is_never_pip_installed
+  bug: "gitleaks is a Go binary, make is a platform toolchain — `pip install` at them would fail slowly and report the wrong cause. 老闆's Round 47 boundary is pip into the project venv and nothing else"
+  fixed_in: "R47-站3"
+
+- test: tests/test_env_repair.py::test_a_project_that_declares_nothing_is_named_not_guessed
+  bug: "the framework must not infer a project's dependency list from imports or from `pip freeze` — that makes it the author of one of the project's own deliverables. taskq-advance is the live case: its NFR-07 requires requirements.txt / requirements.lock / SBOM.json and none of the three exists"
+  fixed_in: "R47-站5b (install_project_dependencies blocks and names itself)"
+
+- test: tests/test_env_repair.py::test_a_declared_manifest_is_installed_from
+  bug: "with a manifest present, install from THAT and nothing else. The search uses ProjectLayout because taskq-plus declares at 03-development/requirements.txt — a root-only search called a project that declares plainly 'declares nothing' and blocked it"
+  fixed_in: "R47-站5b"
+
+- test: tests/test_env_repair.py::test_a_non_python_project_blocks_rather_than_pretending
+  bug: "Round 47 implements the Python bootstrap only; a silent no-op for JS/TS would leave a false pass, which is worse than leaving a gap"
+  fixed_in: "R47-站5b"
+
+- test: tests/test_install_command_ssot.py::test_the_ci_template_pins_what_the_ssot_pins
+  bug: "code-review-graph had three installers (pipx / unpinned pip / pinned pip) and mutmut two, the unpinned one resolving to a 3.x requirements.txt pins away from. The CI template's own :610-624 note records the cost: architecture 66.7 in CI against a committed baseline of 100.0, same commit, source unchanged"
+  fixed_in: "R47-站1 (bootstrap.PINS)"
+
+- test: tests/test_install_command_ssot.py::test_the_ci_template_does_not_reinstall_what_requirements_already_pins
+  bug: "`pip install pyyaml` sat next to `pip install -r requirements.txt` — a second, unpinned statement about a package the first had already pinned at 6.0.3"
+  fixed_in: "R47-站1"
+
+- test: tests/test_install_command_ssot.py::test_the_vendored_tool_table_agrees_with_the_ssot
+  bug: "harness/ssi/scripts/verify_tools.py is a parallel (check_cmd, install_cmd) registry that INTEGRATION.md:77 tells users to run, and ten of its install commands disagreed with the framework's own"
+  fixed_in: "R47-站1"
+
+- test: tests/test_env_ready_implies_gate_tools.py::test_env_check_ready_requires_the_frameworks_own_tools
+  bug: "env_contract.cli_tools (what the PROJECT's documents declare) and the gate configs (what the FRAMEWORK needs to score) had never met. Measured across five live projects, all reporting ready=true while missing 11-16 of the 16 tools the registry requires"
+  fixed_in: "R47-站5a (_finalize_env_result takes both verdicts)"
+
+- test: tests/test_env_ready_implies_gate_tools.py::test_a_contract_with_nothing_in_it_is_ready_on_its_own_terms
+  bug: "evaluate_contract must keep answering only its own question — the two lists are not merged, because cli_tools is probed as PATH binaries and several registry tool_ids (ast-assertions, readability-v2, pytest-cov, system-verification) are not binaries at all"
+  fixed_in: "R47-站5a"
+
+- test: tests/cli/test_gate_cmds_cli.py::TestCmdRunEnvCheck::test_phase_1_does_not_demand_a_dependency_manifest
+  bug: "the project-dependency precondition starts at P3, where code first exists. Demanding a manifest at P1/P2 would block every project on its first command — right about the file, wrong about the moment"
+  fixed_in: "R47-站5b (the phase gate)"

@@ -2523,3 +2523,76 @@ FR absent witnesses: NONE
 - `.benchmarks/` 與 `.pytest_cache/` 的 mtime 是 08-07，不是本輪（全程 `-p no:cacheprovider`）。
 - 六個專案**都沒有** `.methodology/gate_evidence/`、**都沒有** `gate:test-skips`
   ledger 列 —— 本輪的機制沒有在任何專案上跑過。
+
+---
+
+## Round 47（2026-08-12）—— 能判定環境不合格，不能讓環境變合格
+
+老闆令：檢視 Env Check 的設計，導入自動修復（含工具安裝）。
+(1) P1 建構 harness-methodology 的 Python 執行環境；
+(2) P3 針對進行中專案所需的執行環境與工具安裝。
+
+老闆裁決三項邊界：只執行 pip 且只裝進專案 `.venv`；偵測到缺失就自動修，
+修不好才 block；專案側 manifest 缺席時**阻擋，且不猜測依賴**。
+
+### 根源
+
+> 框架把「這個工具怎麼檢查」寫成 registry 的一個欄位（`ToolSpec.check_cmd`），
+> 把「這個工具怎麼安裝」寫成七份散落的散文。
+> 於是六個偵測點都只能判斷不合格，沒有任何一條路徑能讓環境變合格。
+
+R43 母體（偵測到了卻沒有執行者）與 R36 母體（一份事實七份陳述）在環境層的交集。
+`harness/ssi/scripts/verify_tools.py` 甚至**已經有** `(check_cmd, install_cmd)`
+這個正確的資料形狀——它只是不在 SSOT 裡，也從來不可執行。
+
+### 四項前提的實測結果（兩項推翻了核准的方案）
+
+| # | 前提 | 結果 |
+|---|---|---|
+| 1 | `harness_cli.py` 能否在無 pyyaml 的直譯器 import | **確認不能**（乾淨 3.14 venv 實測 ModuleNotFoundError）。bootstrap 因此必須是 stdlib-only 獨立腳本。`harness.toolchains` 可以 stdlib-only import，所以 SSOT 放那裡 |
+| 2 | 只裝 requirements.txt 過不過得了 gate | **確認過不了**。PATH 收窄至 `/usr/bin:/bin` 加 node，仍缺 code-review-graph、import-linter、scancode（皆可 pip）與 gitleaks（外部二進位） |
+| 3 | CI 下 repair 是否誤觸發 | **推翻方案**。唯一跑 `run-phase` 的 CI job 先裝齊四者，repair 在那裡永遠不會觸發——原訂的 CI-skip 分支會是死碼，**刪除**。漂移改由站1 的 parity 測試守；repair 的直譯器解析為「有專案 venv 就用它，否則 `sys.executable`」，無 venv 的 CI 因此不需特例 |
+| 4 | 五專案 env_contract 缺哪些框架工具 | **推翻方案的 5a**。缺口 11–16 / 16（taskq 16、run-all-by-workflow 16、taskq-plus 14、taskq-renew 12、taskq-advance 11），全部 ready=true。但**不能合併兩份清單**：`cli_tools` 由 `probe_cli_tools` 以 PATH 二進位語意探測，而 registry 的 tool_id 有數個根本不是二進位（`ast-assertions`/`readability-v2`/`pytest-cov`/`system-verification` 各自帶 `check_cmd` 正是為此）。合併會把 `ast-assertions` 丟進必然失敗的探測，**擋掉每一個專案**。改為各自保留探測器，判定在 `_finalize_env_result` 取兩者交集 |
+
+### 五個新形態（方案只寫了三個）
+
+寫 `install_step` 逐一填完 34 個 ToolSpec 時多出兩個：`npm`（專案的
+package.json 擁有它們，框架沒有話可說）與 `builtin`（ast-* 掃描器探測
+`import ast`；失敗代表直譯器壞了，任何安裝都修不好，宣稱能修就是說謊）。
+自我審查說「若出現第四種要記錄而非硬湊」，兩種都記錄了。
+
+### 記錄但本輪不修
+
+- **`pyright==1.1.409` 首次執行需要 node**（nodeenv）。無 node 的主機上
+  `type_safety` 這個 tier-1 維度根本跑不起來。GitHub runner 與本機恰好都有
+  node，且 CI 只在 JS/TS 專案裝 node —— 潛伏，非活傷口。
+- **冷啟動的新裝二進位首次執行可能超過 `run_tool_check` 的 10 秒預算**
+  （mypy 實測一次；暖執行 0.18 秒，macOS Gatekeeper 驗證）。下一次即自癒。
+  為一個首跑假象調高共用 timeout 會改變每個 gate 的探測語意。
+- **`js_blocks.py:660/1262` 硬編 `REPO/harness/scripts/`**，dogfood 框架自身時
+  該路徑不存在。站4 的新指令用雙候選探測避開；原有兩處與本輪無關。
+- **P2–P8 直接進入的 venv-less checkout 仍無人建 venv。** 站4 只接 P1（老闆令
+  與核准方案的範圍）。plangen 的 `[PREFLIGHT-ENV]` 因此也只給 phase 1 ——
+  第一版寫進全部十個 plan golden，那會讓計畫宣稱一個 JS 只在 P1 執行的步驟，
+  已撤回。
+- **`core/pre_flight.py::check_env_vars` / `check_cli_tools` 是孤兒**（全樹只有
+  `tests/test_pre_flight.py` 引用）。與本輪無關 → 告知，不刪。
+
+### 誰修、誰不修
+
+修：init-project、run-phase、run-gate、run-fr-step、env-check —— 五個**意圖改變樹**的呼叫者。
+**不修：finalize-gate。** 它是判定者。工具若在 run-gate 與 finalize-gate 之間消失，
+代表證據與判定量的是兩棵不同的樹——那是值得阻擋的事實，不是該被抹平的事實。
+同一條界線 R43 站1 已經畫過（把 traceability 自動修復移出 `preflight_traceability`），
+也是 run-fr-step 的修復放在呼叫點而非 `_fr_step_preflight` 內的理由。
+
+### 站5b 的邊界
+
+「manifest 缺席」阻擋的是**安裝器的前提**，不是 NFR-07 的判定——後者由專案自己的
+測試執法（R46 站1 讓它們的 skip 現形）。兩者指向同一個檔案，是不同的事實、
+不同的擁有者；混為一談就是 R38 的形狀（一個事實、數個執法者）。訊息本身就這麼寫。
+
+實測後果（誠實記錄）：**五個活專案有三個會在 P3+ 被擋**（taskq、taskq-renew、
+taskq-advance 無 manifest；taskq-plus 在 `03-development/requirements.txt`；
+run-all-by-workflow 有 `pyproject.toml`）。第一版只搜 repo root，會把「明明有宣告」
+的 taskq-plus 誤判成「什麼都沒宣告」並擋掉它——改用 `ProjectLayout` 之後才對。
