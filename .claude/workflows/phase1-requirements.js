@@ -705,16 +705,19 @@ async function runPeerReview(approvedDocs) {
 
 // ---- Preflight (per phase1_plan.md Pre-Phase Preflight) ----
 phase('Preflight')
-log('Preflight: run-phase 1 + CI wiring + load-context (orchestrator-side retry: max 3 per plan)')
+log('Preflight: bootstrap-env + run-phase 1 + CI wiring + load-context (orchestrator-side retry: max 3 per plan)')
 
 let preflightReport = ''
 for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
   log('  --- Preflight attempt ' + pfAttempt + '/3 ---')
   preflightReport = await dispatch(
-    'YOU ARE THE PREFLIGHT ORCHESTRATOR. Your ONLY job is to run EXACTLY 3 bash commands (listed below) and report.\n'
+    'YOU ARE THE PREFLIGHT ORCHESTRATOR. Your ONLY job is to run EXACTLY 4 bash commands (listed below) and report.\n'
     + 'REPO: ' + REPO + '\n'
     + 'PYTHON: ' + PY + '\n\n'
-    + 'EXHAUSTIVE STEP LIST — run ONLY these 3 steps, in order:\n'
+    + 'EXHAUSTIVE STEP LIST — run ONLY these 4 steps, in order:\n'
+    + '0. Build the project interpreter (this creates ' + PY + ' — do NOT use PY for this step):\n'
+    + '   for p in "' + REPO + '/harness/scripts/bootstrap_env.py" "' + REPO + '/scripts/bootstrap_env.py"; do [ -f "$p" ] && python3 "$p" --project "' + REPO + '" && break; done\n'
+    + '   If it prints [BLOCKED]: report FAIL with that line verbatim. Every later step runs through the interpreter this creates.\n'
     + '1. ' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 1 --project ' + REPO + '\n'
     + '   If PASSES: note it. If FAILS: report FAIL — orchestrator retries per plan (max 3 total attempts).\n'
     + '2. Verify CI wiring (Bash test -f for each):\n'
@@ -726,7 +729,7 @@ for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
     + '4. READ THE LESSONS BLOCK: Bash `cat ' + REPO + '/.sessi-work/phase1_ctx.json` and READ the `lessons` field (compact markdown, "" if none). DO NOT repeat those past failure modes in your preflight or any follow-up P1 work. (Direction C — past lessons injection)\n\n'
     + 'Report final outcome as plain text: "PREFLIGHT: PASS" or "PREFLIGHT: FAIL — <one-line reason>".\n\n'
     + 'ABSOLUTE SCOPE RULES (violations will break the pipeline):\n'
-    + '- ONLY run the 3 steps above. Zero other harness commands.\n'
+    + '- ONLY run the 4 steps above. Zero other harness commands.\n'
     + '- DO NOT run validate-handoff — Phase 1 is the FIRST phase; there is no upstream phase to validate.\n'
     + '- DO NOT run advance-phase, push-checkpoint, run-gate, or any phase-transition command.\n'
     + '- DO NOT do B-2 review, constitution-check, or peer-review work.\n'

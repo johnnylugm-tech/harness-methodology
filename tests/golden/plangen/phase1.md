@@ -38,6 +38,15 @@ Phase 1 is the project starting point. Define complete SRS.
 
 ### Pre-Phase Preflight
 
+- **[PREFLIGHT-ENV]** Build the project interpreter and pinned toolchain:
+  ```bash
+  python3 harness/scripts/bootstrap_env.py --project .   # or scripts/bootstrap_env.py when the harness is not a submodule
+  ```
+  Creates `.venv` if absent, installs every pip step from `harness/toolchains/bootstrap.py`,
+  and re-checks importability **in that interpreter**. If it prints [BLOCKED], stop:
+  the framework installs pip packages into the project venv and nothing else — external
+  binaries (gitleaks, make) and npm-owned tools are yours to install.
+
 - **[PREFLIGHT]** Run phase hooks (FSM, Kill-Switch, Drift):
   ```bash
   python3 harness_cli.py run-phase --phase 1 --project .

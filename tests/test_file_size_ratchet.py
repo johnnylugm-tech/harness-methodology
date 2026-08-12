@@ -609,7 +609,13 @@ _LINE_CEILING: dict[str, int] = {
     # places at the time it was replaced (gate 1 listed 3 of 4 dimensions, gate 2
     # 11 of 12). Most of the growth is the comment recording that measurement;
     # the renderer itself is roughly the size of the filter it replaced.
-    "scripts/plangen/blocks.py": 1720,
+    # 2026-08-12: 1720 -> 1745 (+25). Round 47 站4: _preflight_steps gains a
+    # [PREFLIGHT-ENV] item for phase 1 — the interpreter every command below it
+    # runs through, which nothing built before this round. Gated to phase 1 so
+    # the plan text and phase1-requirements.js say the same thing; a project
+    # entered directly at P3 on a venv-less checkout is recorded in
+    # docs/PROPOSAL_ADJUDICATIONS.md as a next-round candidate, not widened here.
+    "scripts/plangen/blocks.py": 1745,
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
@@ -828,7 +834,13 @@ _LINE_CEILING: dict[str, int] = {
     # core.quality_gate.legal_artifacts so there is one place the anchor is
     # stated. Net effect on the generated JS is byte-identical apart from the
     # three prompt sentences that told the agent a substring match would do.
-    "scripts/workflowgen/spec_phase1.py": 949,
+    # 2026-08-12: 949 -> 962 (+13). Round 47 站4: the P1 preflight step list goes
+    # from 3 to 4. Step 0 cannot use PY (PY is what it creates) and cannot use
+    # harness_cli.py (that entrypoint imports pyyaml transitively, so on a
+    # machine lacking it the command that fixes the environment would itself
+    # fail to start). The two-candidate path probe and the comment recording
+    # both constraints are the growth.
+    "scripts/workflowgen/spec_phase1.py": 962,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/

@@ -336,16 +336,29 @@ def _render_phase1_preflight() -> str:
         "\n"
         "// ---- Preflight (per phase1_plan.md Pre-Phase Preflight) ----\n"
         "phase('Preflight')\n"
-        "log('Preflight: run-phase 1 + CI wiring + load-context (orchestrator-side retry: max 3 per plan)')\n"
+        "log('Preflight: bootstrap-env + run-phase 1 + CI wiring + load-context (orchestrator-side retry: max 3 per plan)')\n"
         "\n"
         "let preflightReport = ''\n"
         "for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {\n"
         "  log('  --- Preflight attempt ' + pfAttempt + '/3 ---')\n"
         "  preflightReport = await agent(\n"
-        "    'YOU ARE THE PREFLIGHT ORCHESTRATOR. Your ONLY job is to run EXACTLY 3 bash commands (listed below) and report.\\n'\n"
+        "    'YOU ARE THE PREFLIGHT ORCHESTRATOR. Your ONLY job is to run EXACTLY 4 bash commands (listed below) and report.\\n'\n"
         "    + 'REPO: ' + REPO + '\\n'\n"
         "    + 'PYTHON: ' + PY + '\\n\\n'\n"
-        "    + 'EXHAUSTIVE STEP LIST — run ONLY these 3 steps, in order:\\n'\n"
+        "    + 'EXHAUSTIVE STEP LIST — run ONLY these 4 steps, in order:\\n'\n"
+        # Round 47 站4: step 0 builds the interpreter every later step runs
+        # through. It must come first and it must NOT use PY — PY *is* what it
+        # creates. It must not use harness_cli.py either: that entrypoint
+        # imports pyyaml transitively (sab_parser/security_design/overlay are
+        # module-level `import yaml`), so on a machine whose python3 lacks it
+        # the command that fixes the environment would itself fail to start.
+        # scripts/bootstrap_env.py is stdlib-only for exactly this moment.
+        # The two-candidate probe mirrors harness-init.sh's HARNESS_CLI walk:
+        # the harness is at REPO/harness/ in a consumer project and at REPO/
+        # when the framework dogfoods itself.
+        "    + '0. Build the project interpreter (this creates ' + PY + ' — do NOT use PY for this step):\\n'\n"
+        "    + '   for p in \"' + REPO + '/harness/scripts/bootstrap_env.py\" \"' + REPO + '/scripts/bootstrap_env.py\"; do [ -f \"$p\" ] && python3 \"$p\" --project \"' + REPO + '\" && break; done\\n'\n"
+        "    + '   If it prints [BLOCKED]: report FAIL with that line verbatim. Every later step runs through the interpreter this creates.\\n'\n"
         "    + '1. ' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 1 --project ' + REPO + '\\n'\n"
         "    + '   If PASSES: note it. If FAILS: report FAIL — orchestrator retries per plan (max 3 total attempts).\\n'\n"
         "    + '2. Verify CI wiring (Bash test -f for each):\\n'\n"
@@ -357,7 +370,7 @@ def _render_phase1_preflight() -> str:
         "    + '4. READ THE LESSONS BLOCK: Bash `cat ' + REPO + '/.sessi-work/phase1_ctx.json` and READ the `lessons` field (compact markdown, \"\" if none). DO NOT repeat those past failure modes in your preflight or any follow-up P1 work. (Direction C — past lessons injection)\\n\\n'\n"
         "    + 'Report final outcome as plain text: \"PREFLIGHT: PASS\" or \"PREFLIGHT: FAIL — <one-line reason>\".\\n\\n'\n"
         "    + 'ABSOLUTE SCOPE RULES (violations will break the pipeline):\\n'\n"
-        "    + '- ONLY run the 3 steps above. Zero other harness commands.\\n'\n"
+        "    + '- ONLY run the 4 steps above. Zero other harness commands.\\n'\n"
         "    + '- DO NOT run validate-handoff — Phase 1 is the FIRST phase; there is no upstream phase to validate.\\n'\n"
         "    + '- DO NOT run advance-phase, push-checkpoint, run-gate, or any phase-transition command.\\n'\n"
         "    + '- DO NOT do B-2 review, constitution-check, or peer-review work.\\n'\n"

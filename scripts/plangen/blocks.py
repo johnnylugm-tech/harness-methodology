@@ -585,6 +585,31 @@ def _preflight_steps(phase: int) -> List[str]:
     return [
         "### Pre-Phase Preflight",
         "",
+        # Round 47 站4: the interpreter every command below runs through. Stated
+        # first because it is first: nothing built `.venv` before this round, and
+        # `python3 harness_cli.py` cannot be the command that fixes that (it
+        # imports pyyaml transitively). scripts/bootstrap_env.py is stdlib-only.
+        #
+        # Phase 1 only, matching phase1-requirements.js's step 0. A project
+        # entered directly at P3 on a checkout with no .venv still has nothing
+        # that builds one — recorded in docs/PROPOSAL_ADJUDICATIONS.md as a
+        # next-round candidate rather than widened here, because the plan text
+        # and the generated JS must say the same thing.
+        *([] if phase != 1 else [
+            "- **[PREFLIGHT-ENV]** Build the project interpreter and pinned toolchain:",
+            "  ```bash",
+            "  python3 harness/scripts/bootstrap_env.py --project .   "
+            "# or scripts/bootstrap_env.py when the harness is not a submodule",
+            "  ```",
+            "  Creates `.venv` if absent, installs every pip step from "
+            "`harness/toolchains/bootstrap.py`,",
+            "  and re-checks importability **in that interpreter**. If it prints "
+            "[BLOCKED], stop:",
+            "  the framework installs pip packages into the project venv and nothing "
+            "else — external",
+            "  binaries (gitleaks, make) and npm-owned tools are yours to install.",
+            "",
+        ]),
         "- **[PREFLIGHT]** Run phase hooks (FSM, Kill-Switch, Drift):",
         "  ```bash",
         f"  python3 harness_cli.py run-phase --phase {phase} --project .",
