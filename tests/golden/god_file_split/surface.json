@@ -1,0 +1,549 @@
+{
+  "cli": {
+    "advance-phase": [
+      "--completed",
+      "--help",
+      "--project",
+      "--push",
+      "-h"
+    ],
+    "amend-sab": [
+      "--drop",
+      "--dry-run",
+      "--help",
+      "--project",
+      "--reason",
+      "--resolve-phantom",
+      "--src-dir",
+      "--strict",
+      "--to",
+      "-h"
+    ],
+    "audit-phase": [
+      "--branch",
+      "--fail-on-critical",
+      "--help",
+      "--output",
+      "--phase",
+      "--project",
+      "--repo",
+      "--save",
+      "-h"
+    ],
+    "audit-structure": [
+      "--help",
+      "--json",
+      "--project",
+      "-h"
+    ],
+    "bootstrap-env": [
+      "--help",
+      "--json",
+      "--project",
+      "-h"
+    ],
+    "bug-hunt-targets": [
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "build-trace-attestation": [
+      "--help",
+      "--no-write",
+      "--overlay",
+      "--project",
+      "--trace-dir",
+      "--write",
+      "-h"
+    ],
+    "check-artifact-consistency": [
+      "--forward-refs-only",
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "check-constitution": [
+      "--file",
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "check-logic": [
+      "--help",
+      "--project",
+      "--srs",
+      "-h"
+    ],
+    "check-manifest-integrity": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "check-property-spec": [
+      "--help",
+      "--no-require-execution",
+      "--project",
+      "-h"
+    ],
+    "check-spec-alignment": [
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "check-test-mirrors-spec": [
+      "--fr-id",
+      "--help",
+      "--project",
+      "--test-file",
+      "-h"
+    ],
+    "check-test-spec-consistency": [
+      "--fr-id",
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "cr-close": [
+      "--cr",
+      "--help",
+      "--project",
+      "--skip-attestation",
+      "-h"
+    ],
+    "cr-open": [
+      "--description",
+      "--help",
+      "--project",
+      "--severity",
+      "--title",
+      "--type",
+      "-h"
+    ],
+    "cr-status": [
+      "--cr",
+      "--help",
+      "--json",
+      "--project",
+      "-h"
+    ],
+    "cr-update": [
+      "--cr",
+      "--help",
+      "--project",
+      "--set",
+      "--status",
+      "-h"
+    ],
+    "crash-triage": [
+      "--help",
+      "--open-cr",
+      "--project",
+      "-h"
+    ],
+    "crg-arch-check": [
+      "--baseline",
+      "--drift-threshold",
+      "--help",
+      "--project",
+      "--threshold",
+      "-h"
+    ],
+    "dispatch": [
+      "--fr-id",
+      "--help",
+      "--max-turns",
+      "--no-persona",
+      "--phase",
+      "--project",
+      "--prompt",
+      "--prompt-file",
+      "--role",
+      "--skip-deliverable-validation",
+      "--timeout",
+      "-h"
+    ],
+    "doctor": [
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "effort": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "export-failure-corpus": [
+      "--help",
+      "--out",
+      "--project",
+      "-h"
+    ],
+    "finalize-env-check": [
+      "--fr-id",
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "finalize-gate": [
+      "--force",
+      "--fr-id",
+      "--gate",
+      "--help",
+      "--no-git",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "gate4-tag": [
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "generate-next-plan": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "generate-verification-report": [
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "init-project": [
+      "--ci-only",
+      "--help",
+      "--language",
+      "--overwrite",
+      "--phase",
+      "--project",
+      "--setup-branch-protection",
+      "--test-runner",
+      "-h"
+    ],
+    "kill-switch": [
+      "--help",
+      "-h",
+      "<kill_action>"
+    ],
+    "load-context": [
+      "--help",
+      "--json",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "log-dispatch": [
+      "--batch",
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "manifest": [
+      "--force",
+      "--fr-ids",
+      "--help",
+      "--no-git",
+      "--sad",
+      "-h"
+    ],
+    "migrate-trace-overlay": [
+      "--dry-run",
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "mutation-test-score": [
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "plan-all": [
+      "--force",
+      "--help",
+      "--output-dir",
+      "--project",
+      "-h"
+    ],
+    "plan-phase": [
+      "--force",
+      "--help",
+      "--output",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "pre-commit-check": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "preview-next-phase": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "print-legal-artifacts": [
+      "--help",
+      "-h"
+    ],
+    "push-checkpoint": [
+      "--fr-ids",
+      "--help",
+      "--no-git",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "push-milestone": [
+      "--cr",
+      "--dry-run",
+      "--fr-done",
+      "--fr-ids",
+      "--fr-total",
+      "--help",
+      "--no-git",
+      "--project",
+      "--type",
+      "-h"
+    ],
+    "read-file": [
+      "--content",
+      "--content-out",
+      "--expect-prefix",
+      "--file",
+      "--help",
+      "--json-out",
+      "--max-length",
+      "--min-length",
+      "--quiet",
+      "-h"
+    ],
+    "record-block": [
+      "--exit-code",
+      "--help",
+      "--message",
+      "--phase",
+      "--project",
+      "--step",
+      "-h"
+    ],
+    "reload-policy": [
+      "--help",
+      "--policy-file",
+      "-h"
+    ],
+    "repair-harness": [
+      "--check-repro",
+      "--help",
+      "--land",
+      "--project",
+      "--push",
+      "--ticket",
+      "-h"
+    ],
+    "resume-fr-phase": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "run-env-check": [
+      "--force-reclassify",
+      "--fr-id",
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "run-fr-step": [
+      "--fr-id",
+      "--help",
+      "--max-fix-rounds",
+      "--max-turns",
+      "--no-mcp",
+      "--no-push",
+      "--permission-mode",
+      "--phase",
+      "--project",
+      "--srs",
+      "--step",
+      "--timeout",
+      "-h"
+    ],
+    "run-gap-analysis": [
+      "--help",
+      "--project",
+      "--similarity",
+      "--spec",
+      "-h"
+    ],
+    "run-gate": [
+      "--auto-amend-sab",
+      "--delta",
+      "--fr-id",
+      "--gate",
+      "--help",
+      "--phase",
+      "--project",
+      "--skip-preflight",
+      "-h"
+    ],
+    "run-phase": [
+      "--help",
+      "--phase",
+      "--project",
+      "--skip-substrate-probe",
+      "-h"
+    ],
+    "run-report": [
+      "--help",
+      "--json",
+      "--project",
+      "-h"
+    ],
+    "run-tool": [
+      "--help",
+      "--json",
+      "--project",
+      "--timeout-override",
+      "-h",
+      "<tool>"
+    ],
+    "spec-coverage-check": [
+      "--fr-id",
+      "--help",
+      "--project",
+      "--threshold",
+      "-h"
+    ],
+    "status": [
+      "--full",
+      "--help",
+      "--json",
+      "--project",
+      "-h"
+    ],
+    "sync-harness": [
+      "--branch",
+      "--help",
+      "--no-push",
+      "--project",
+      "--remote",
+      "--submodule",
+      "-h"
+    ],
+    "validate-handoff": [
+      "--from-phase",
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "verify-agent-b-approvals": [
+      "--fr-ids",
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
+    "verify-ci": [
+      "--help",
+      "--project",
+      "--sha",
+      "--wait",
+      "-h"
+    ],
+    "verify-file": [
+      "--expect",
+      "--file",
+      "--help",
+      "--min-bytes",
+      "--project",
+      "-h"
+    ],
+    "verify-gate": [
+      "--drift-threshold",
+      "--gate",
+      "--help",
+      "--phase",
+      "--project",
+      "--spec-threshold",
+      "-h"
+    ],
+    "verify-spec": [
+      "--fix",
+      "--help",
+      "--project",
+      "-h"
+    ],
+    "verify-trace": [
+      "--gate",
+      "--help",
+      "--overlay",
+      "--project",
+      "--trace-dir",
+      "-h"
+    ],
+    "write-approval": [
+      "--fr-id",
+      "--help",
+      "--json",
+      "--project",
+      "--stdin",
+      "-h"
+    ]
+  },
+  "functions": {
+    "cli.check_cmds::_generate_sab_json": "fa047878f191f32c",
+    "cli.check_cmds::_print_constitution_result": "17b9e34ecf7726bf",
+    "cli.check_cmds::_resolve_deliverable_ids": "fdb8c41ae3884a15",
+    "cli.check_cmds::_run_gap_analysis": "5347c0b6ac61b79b",
+    "cli.check_cmds::cmd_bug_hunt_targets": "ecee061ed581c30e",
+    "cli.check_cmds::cmd_build_trace_attestation": "3b124162533becfc",
+    "cli.check_cmds::cmd_check_artifact_consistency": "3b6055a62c820b76",
+    "cli.check_cmds::cmd_check_constitution": "67e6309860970ac6",
+    "cli.check_cmds::cmd_check_logic": "febc704e2224668f",
+    "cli.check_cmds::cmd_check_manifest_integrity": "50b9057d7200990f",
+    "cli.check_cmds::cmd_check_property_spec": "a70689f8d9e07862",
+    "cli.check_cmds::cmd_check_spec_alignment": "f6823fb3114e7b66",
+    "cli.check_cmds::cmd_check_test_mirrors_spec": "6791fac7f19c8d6a",
+    "cli.check_cmds::cmd_check_test_spec_consistency": "b0d38eda0acff0a9",
+    "cli.check_cmds::cmd_crg_arch_check": "d638746b262f45b9",
+    "cli.check_cmds::cmd_generate_verification_report": "29a22ee8c8814867",
+    "cli.check_cmds::cmd_manifest": "9f3f036de12ef2d8",
+    "cli.check_cmds::cmd_migrate_trace_overlay": "b65525cbb8402650",
+    "cli.check_cmds::cmd_print_legal_artifacts": "79e0b91b8b936651",
+    "cli.check_cmds::cmd_run_gap_analysis": "d4d015283ae44cc3",
+    "cli.check_cmds::cmd_spec_coverage_check": "83250456c777a5b7",
+    "cli.check_cmds::cmd_verify_agent_b_approvals": "711cb0c2d4ed114b",
+    "cli.check_cmds::cmd_verify_ci": "6bc3afa661c87068",
+    "cli.check_cmds::cmd_verify_file": "1157fdb97e811065",
+    "cli.check_cmds::cmd_verify_gate": "182bd72a429c4247",
+    "cli.check_cmds::cmd_verify_spec": "d849969a2639708b",
+    "cli.check_cmds::cmd_verify_trace": "a69351f714ce3397",
+    "cli.check_cmds::cmd_write_approval": "713a5a63b2fa882b",
+    "core.doctor::_check_ci_template_drift": "100905544439a543",
+    "core.doctor::_check_crash_bundles": "e6626ffc816e582a",
+    "core.doctor::_check_dimension_scope_drift": "7844fb1588ab3f88",
+    "core.doctor::_check_enforcement_zombie_keys": "646303e3c9d66dbe",
+    "core.doctor::_check_enforcer_provenance": "2a48b0f0f7d45d0b",
+    "core.doctor::_check_gate1_evidence": "71da4982dd726d5c",
+    "core.doctor::_check_git_sync": "cc2df8ea18f2405c",
+    "core.doctor::_check_heartbeat": "97b18eea9c93269c",
+    "core.doctor::_check_milestone_tree_matches_verdict": "3454640e60f62231",
+    "core.doctor::_check_open_workflow_blocks": "f82c9cfd7a32b402",
+    "core.doctor::_check_phase_verdict_staleness": "b1adbc40780fbf1f",
+    "core.doctor::_check_spawn_log_authenticity": "f43f49be4a9e739d",
+    "core.doctor::_check_submodule_behind": "5ffcd37502626736",
+    "core.doctor::_check_testpaths_drift": "020b9d1e53eda76e",
+    "core.doctor::_enforcer_shas_in": "91c22f1b7bc95364",
+    "core.doctor::_phase_from_sentinel_name": "822801208daa956b",
+    "core.doctor::run_doctor": "2b45fb752c2e429f"
+  }
+}

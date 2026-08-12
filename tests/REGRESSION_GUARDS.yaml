@@ -2134,6 +2134,14 @@
   bug: "checkout_plan's clobber refusal had exactly one production caller and it passed a hard-coded empty dirty list, so the refusal could not fire — a guard whose executor was wired to nothing, which is the母體 this very round is about"
   fixed_in: "R48-站8 (the live caller, with the real dirty set)"
 
+- test: tests/test_god_file_split_safety.py::test_every_split_function_moved_without_being_rewritten
+  bug: "a god-file split is a MOVE, and the one thing no existing check could tell apart is a move from a rewrite. test_file_size_ratchet.py sees cli/check_cmds.py (1682) and core/doctor.py (923) shrink either way; the unit tests pass either way, because a function edited while being relocated is still a function that does roughly what it did. The golden is 45 function bodies hashed by name, so a body that changes while moving names itself. Read through __module__ -> file -> AST rather than inspect.getsource, which has returned stale source in this repo before"
+  fixed_in: "R49-B 站0 (safety net woven BEFORE the first move; counter-proved by inserting one comment line into _check_crash_bundles — 'source changed: [core.doctor::_check_crash_bundles]')"
+
+- test: tests/test_god_file_split_safety.py::test_the_cli_surface_survives_the_split
+  bug: "a command whose register() call does not follow it into its new module still imports, still passes every unit test of its own function, and is simply absent from the CLI. Nothing in the suite walked the argparse tree, so 67 subcommands were held together only by the fact that they all lived in one register() 295 lines long"
+  fixed_in: "R49-B 站0 (every subcommand and its option strings snapshotted; counter-proved by deleting the verify-trace registration block — 'subcommands gone: [verify-trace]' — and restored by reversing the exact edit)"
+
 - test: tests/test_suite_environment.py::test_git_init_ignores_a_host_that_says_master
   bug: "roughly thirty `git init` call sites in this suite took their branch name from the host's init.defaultBranch. Harmless until Round 48 站8 gave that name a verdict, at which point two tests passed on the author's machine and failed on CI run 31613445606 (runner creates master). Adding -b main to thirty call sites is thirty statements of one fact and leaves the thirty-first inheriting again; it also cannot reach git invoked by PRODUCTION code under test. The pin lives in conftest as one statement. The test asserts it against a host config that actively says master, because on a main-defaulting machine a plain assertion cannot tell a working pin from a lucky default"
   fixed_in: "R49-D (conftest _git_default_branch_pinned via GIT_CONFIG_COUNT — the env form of `git -c`, which outranks system and global files; a test that needs the un-pinned behaviour sets the same vars and wins)"
