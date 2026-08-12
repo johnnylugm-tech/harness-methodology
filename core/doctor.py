@@ -740,13 +740,25 @@ def _check_open_workflow_blocks(project: Path) -> list[Finding]:
     if not harness_owned:
         return []
     where = ", ".join(f"P{r.get('phase')}/{r.get('step')}" for r in harness_owned[:5])
-    return [Finding(
+    returned = [r for r in harness_owned if r.get("recurred_after_resolution")]
+    findings = [Finding(
         "workflow-blocks", "WARN",
         f"{len(harness_owned)} unresolved harness-owned block(s) in "
         f"{LEDGER_RELPATH} ({where}) — the framework attributed these to its "
         f"own code, so they are not project quality failures. Run the harness "
         f"repair workflow; do not dispatch a fix agent at this project. Full "
         f"list: harness_cli.py run-report --project {project}")]
+    if returned:
+        # Round 48 站5: ERROR, not WARN. An unresolved block is a run that
+        # stopped; a block that was marked resolved and came back at the same
+        # coordinate is a recorded verdict contradicted by the next run.
+        findings.append(Finding(
+            "workflow-blocks", "ERROR",
+            f"{len(returned)} block(s) marked RESOLVED have returned at the "
+            f"same coordinate — a repair was recorded and did not hold. Do not "
+            f"re-run the same repair: read the previous_resolution field in "
+            f"{LEDGER_RELPATH} first"))
+    return findings
 
 
 def _check_gate1_evidence(project: Path, layout: ProjectLayout) -> list[Finding]:

@@ -591,7 +591,15 @@ _LINE_CEILING: dict[str, int] = {
     # crosses the 900 default. Prose was tightened once and then stopped, because
     # shaving a docstring to dodge a threshold is not what the threshold is for.
     # The next check added here should split the file instead of raising this.
-    "core/doctor.py": 911,
+    #
+    # 2026-08-12 (same round, station 5): +12 — the same check gained an ERROR
+    # branch for a block that was marked RESOLVED and came back at the same
+    # coordinate. That is a different severity from an unresolved block (a
+    # recorded verdict contradicted by the next run, versus a run that stopped),
+    # and collapsing the two would lose the distinction the reconciliation
+    # exists to make. Still inside the same function; the split note above
+    # stands and now has one more caller behind it.
+    "core/doctor.py": 923,
     "core/agent_spawner.py": 1286,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.

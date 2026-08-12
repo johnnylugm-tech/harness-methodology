@@ -123,6 +123,39 @@ def test_doctor_stays_quiet_about_blocks_it_does_not_own_the_route_for(project):
     assert _check_open_workflow_blocks(project) == []
 
 
+def test_a_block_that_returns_after_being_resolved_says_so(project):
+    """Round 48 站5 — the re-run reconciliation.
+
+    "The repair worked" is a claim. The check is whether the SAME coordinate
+    comes back, and it is made at the moment it does, so a relaunch costs no
+    extra dispatch to learn what only the ledger knows.
+    """
+    from core.fault_owner import Owner
+    from core.workflow_blocks import read_blocks, record_block, resolve_block
+
+    sig = record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS,
+                       message="crg_independent_failed")
+    resolve_block(project, sig, resolution="repair-harness pushed 0123abc")
+    record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS,
+                 message="crg_independent_failed")
+
+    latest = read_blocks(project)[-1]
+    assert latest["recurred_after_resolution"] is True
+    assert "0123abc" in latest["previous_resolution"]
+
+
+def test_a_first_sighting_is_not_a_recurrence(project):
+    from core.fault_owner import Owner
+    from core.workflow_blocks import read_blocks, record_block
+
+    record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS, message="x")
+    record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS, message="x")
+    assert all(not row["recurred_after_resolution"] for row in read_blocks(project)), (
+        "blocking twice without a repair in between is one unresolved block, "
+        "not a repair that failed to hold"
+    )
+
+
 def test_resolving_a_signature_that_was_never_recorded_is_refused(project):
     """A receipt for a block nobody recorded is a claim with no subject —
     Round 45's rule (a verdict outlives its proof) at the ledger layer."""

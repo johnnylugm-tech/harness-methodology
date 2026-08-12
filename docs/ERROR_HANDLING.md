@@ -307,6 +307,88 @@ score (`test_finalize_gate_null_breakdown_score_does_not_block`). Too lax lets a
 declared N/A through unchecked; too strict manufactures the fabrication it means
 to prevent.
 
+## Whose tree has to change, and what run-all does about it (Round 48)
+
+The five levels above say what KIND a failure is. They do not say whose defect
+it is, and until Round 48 nothing did: measured across the eight generated
+phase workflows, 125 terminal halt sites, of which **93 name no owner at all**
+(they read "X did not PASS in N attempts"), 19 name infrastructure, and 13 name
+harness — and those 13 fire only on an uncaught exception. A harness LOGIC bug
+does not crash; it emits an ordinary, well-formed `[BLOCKED]`, structurally
+identical to a project defect. The four incidents recorded in this document
+(R31, R32, R33, R45) are all that shape, and all four were found by a human
+audit round rather than by the running pipeline.
+
+`core/fault_owner.py` is the table. The question it answers is deliberately
+narrow: **whose tree must change before this block can clear?**
+
+| owner | means | route |
+|---|---|---|
+| `harness` | harness-methodology's own tree | `harness-repair` (below) |
+| `project` | the target project's tree | the ordinary fix loop — the `[BLOCKED]` message carries the remediation |
+| `infra` | neither tree; the environment | stop. A human, quota, connector or network has to change |
+| `unknown` | the evidence does not say | stop and record. **Not** a project failure by default |
+| `none` | nothing failed | exit 0, exit 130, the exit-16 tombstone |
+
+Five exit codes (`14`, `18`, `19`, `20`, `25`) carry TWO owners and are decided
+by the message; `cli/exit_codes.py`'s docstring lists a different, overlapping
+set of four "known inconsistencies", so neither list is a superset of the other.
+`25` is the sharpest: `_abort_dispatch_infra_or_harness_bug` receives the class
+(`HARNESS_BUG` or `INFRA`), prints it, and returns one exit code for both.
+
+### When run-all stops
+
+Every terminal exit in `run-all.js` calls `harness_cli.py record-block` first.
+That command classifies the halt and appends it to
+`.methodology/workflow_blocks.jsonl` with a stable signature — `(phase, step,
+message with digits normalised)`, hashed — so the same halt twice is one
+coordinate rather than two events (Round 41 站3's lesson: eight byte-identical
+failures over 3h11m left four ledger lines, none about the repetition).
+
+```
+run-all stops
+  └─ record-block prints {"signature", "owner", "evidence", "repair_workflow"}
+
+     owner=project | infra | unknown  → see the table above. None of these
+                                        launches the repair workflow.
+     owner=harness →
+        1. Workflow({ scriptPath: 'harness/.claude/workflows/harness-repair.js',
+                      args: { repo, ticket } })
+           reproduce → root-cause → adversarial review → fix →
+           `repair-harness --land --push`
+        2. git -C <repo>/harness pull --ff-only origin main
+           git -C <repo> add harness && git commit -m 'chore(harness): bump submodule past repair'
+        3. relaunch run-all
+```
+
+`unknown` deliberately does NOT route to harness-repair. "Could not prove the
+project's fault, so go edit the framework" would give a repair agent a standing
+motive to change the judge.
+
+### The repair is checked, not trusted
+
+`repair-harness --land` marks the block resolved. If the same coordinate blocks
+again on the next run, `record-block` sets `recurred_after_resolution`, prints
+the resolution that did not hold, and `doctor` reports it at **ERROR** — a
+different severity from an unresolved block, because a recorded verdict
+contradicted by the next run is a different fact from a run that stopped.
+
+What `repair-harness` refuses, and the incident behind each refusal:
+
+| refusal | why |
+|---|---|
+| the failure will not reproduce | a report is a claim; R33 is two rounds spent on a symptom whose premise was false |
+| reverting the fix leaves the reproduction passing | the change is not what made it pass |
+| a generated `.claude/workflows/*.js` edited without its generator | 883e9ca: 94 workflowgen tests green while `--check` said 4/9 DRIFT |
+| `harness/gate_configs/*.yaml` touched | Round 38 站2 — that floor is the one CI applies to every project |
+| an entry removed from `tests/REGRESSION_GUARDS.yaml` | guards only grow |
+| the six-check self-gate is not green | harness is a submodule; main is what every project tracks |
+
+Edits under `core/quality_gate/` and `harness/harness_bridge.py` are explicitly
+NOT refused — R31, R32, R33 and R45 were all defects inside that code, so a
+forbidden-path list covering it would refuse every real repair. The protection
+there is the counter-proof.
+
 ## Exit codes
 
 Single source of truth: **`cli/exit_codes.py`'s `REGISTRY` dict.**

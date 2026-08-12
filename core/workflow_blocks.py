@@ -99,6 +99,19 @@ def record_block(
     """
     signature = block_signature(phase, step, message)
     path = _ledger_path(project)
+
+    # Round 48 站5 — the re-run reconciliation, done HERE rather than at the
+    # start of the next run.
+    #
+    # "The repair worked" is a claim. The check is whether the SAME coordinate
+    # comes back, and the cheapest place to notice that is the moment it does:
+    # a fresh record whose signature already has a resolution behind it. Doing
+    # it in the workflow's Phase Cursor instead would cost a dispatch on every
+    # run, in a sandbox with no filesystem, to learn something only the ledger
+    # knows — and would learn it on the runs where nothing is wrong.
+    prior = _latest_by_signature(read_blocks(project)).get(signature)
+    recurred = bool(prior and prior.get("resolved"))
+
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": time.time(),
@@ -110,13 +123,23 @@ def record_block(
         "message": (message or "")[:2000],
         "evidence": evidence,
         "resolved": False,
+        "recurred_after_resolution": recurred,
     }
+    if recurred and prior is not None:
+        entry["previous_resolution"] = str(prior.get("resolution", ""))[:400]
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     print(
         f"[BLOCK] phase {phase} / {step} — owner={owner} signature={signature}",
         file=sys.stderr,
     )
+    if recurred:
+        print(
+            f"[BLOCK] this coordinate was marked RESOLVED before "
+            f"({entry['previous_resolution']}) and has come back. The repair "
+            f"was recorded, not verified — do not repeat it unchanged.",
+            file=sys.stderr,
+        )
     return signature
 
 

@@ -216,6 +216,7 @@ def _workflow_block_report(project: Path) -> dict:
                 "step": row.get("step"),
                 "owner": row.get("owner"),
                 "seen": repeats.get(row.get("signature"), 1),
+                "recurred_after_resolution": bool(row.get("recurred_after_resolution")),
                 "message": (row.get("message") or "")[:160],
             }
             for row in still_open
@@ -428,9 +429,16 @@ def _render_human(report: dict) -> str:
                 f"{owner}={count}" for owner, count in sorted(wb["by_owner"].items())))
         for item in wb["open_blocks"]:
             seen = f" (seen {item['seen']}x)" if item["seen"] > 1 else ""
+            back = " <- RETURNED AFTER A REPAIR" if item["recurred_after_resolution"] else ""
             lines.append(
-                f"    P{item['phase']} / {item['step']} [{item['owner']}]{seen}: "
+                f"    P{item['phase']} / {item['step']} [{item['owner']}]{seen}{back}: "
                 f"{item['message']}"
+            )
+        if any(i["recurred_after_resolution"] for i in wb["open_blocks"]):
+            lines.append(
+                "  ^ a block marked resolved has come back at the same "
+                "coordinate. The repair was recorded, not verified — do not "
+                "repeat it unchanged"
             )
         if wb["by_owner"].get("harness"):
             lines.append(
