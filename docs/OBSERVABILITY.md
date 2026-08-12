@@ -141,6 +141,19 @@ citations survive the gitignored `.sessi-work/`; a file over
 original citation and lands a record here saying which and why. Measured
 across five projects before this shipped: 162 cited files, 13 still present.
 
+**Round 46 站2** added `gate:test-skips`, one record per finalize where the
+`test_coverage` evidence reports any skipped test, carrying `skipped`,
+`total`, `gate` and `fr_id`. `_check_test_skip_ratio`'s printed WARN has been
+there since the early gates and keeps its 10% threshold — it asks whether
+coverage was computed from a subset of the suite, and about that it is
+honest. The ledger row has no threshold because it answers a different
+question: how many tests did not run at this gate, after the run, without a
+person having watched the console. taskq-advance's 17 skips are 6.25% of 272,
+so the WARN never printed, while three of its NFRs had their own guards
+skipping themselves. That second question is *enforced* by
+`compute_trace_dimension`'s absent-witness rule (Round 46 站1), which blocks
+through the traceability dimension — this row is observation, not verdict.
+
 ### `.methodology/crash/crash_<timestamp>_<pid>.json`
 
 **Round 28 站4 moved this out of `.sessi-work/` for the same reason as the

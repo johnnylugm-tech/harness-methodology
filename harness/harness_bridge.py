@@ -1282,6 +1282,28 @@ def _check_tests_failed(raw: dict) -> list[str]:
     return []
 
 
+def _parse_skip_counts(raw: dict) -> "tuple[int, int] | None":
+    """`(skipped, total)` from the test_coverage evidence, or None.
+
+    One parse, two readers: the ratio WARN below and the ledger row at the
+    finalize call site. Round 46 站2 split them apart because they answer
+    different questions — "is coverage computed from a subset?" has a ratio
+    threshold, "did any test not run?" does not.
+    """
+    breakdown = raw.get("breakdown", {})
+    evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
+    if not evidence:
+        return None
+    passed_m = re.search(r"(\d+)\s+passed", evidence)
+    skipped_m = re.search(r"(\d+)\s+skipped", evidence)
+    if not (passed_m and skipped_m):
+        return None
+    passed = int(passed_m.group(1))
+    skipped = int(skipped_m.group(1))
+    total = passed + skipped
+    return (skipped, total) if total else None
+
+
 def _check_test_skip_ratio(raw: dict, threshold: float = 0.10) -> str | None:
     """W1: Warn when a high fraction of tests are skipped.
 
@@ -1292,23 +1314,20 @@ def _check_test_skip_ratio(raw: dict, threshold: float = 0.10) -> str | None:
     This is a **WARN** (not BLOCK) — some projects legitimately skip tests
     that require real external services.
 
+    Scope note (Round 46 站2): this is a statement about *coverage*, and about
+    coverage it is honest. It is NOT the enforcer for "a requirement's own
+    test did not run" — that is `compute_trace_dimension`'s absent-witness
+    rule, which blocks through the traceability dimension. taskq-advance's
+    17 skips are 6.25 % of its suite and never tripped this warning, while
+    three of its NFRs had guards skipping themselves. Two questions, two
+    mechanisms; do not make this one carry the other's weight.
+
     Returns a warning string, or ``None`` if the skip ratio is within threshold.
     """
-    breakdown = raw.get("breakdown", {})
-    evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
-    if not evidence:
+    counts = _parse_skip_counts(raw)
+    if counts is None:
         return None
-
-    passed_m = re.search(r"(\d+)\s+passed", evidence)
-    skipped_m = re.search(r"(\d+)\s+skipped", evidence)
-    if not (passed_m and skipped_m):
-        return None
-
-    passed = int(passed_m.group(1))
-    skipped = int(skipped_m.group(1))
-    total = passed + skipped
-    if total == 0:
-        return None
+    skipped, total = counts
 
     skip_ratio = skipped / total
     if skip_ratio > threshold:
@@ -2756,6 +2775,23 @@ class HarnessBridge:
             _skip_warn = _check_test_skip_ratio(raw)
             if _skip_warn:
                 print(_skip_warn)
+            # Round 46 站2: the WARN above is printed and gone. Every skip gets
+            # a ledger row regardless of ratio — not as a verdict (the gate
+            # verdict for a requirement's own skipped guard comes from the
+            # traceability dimension), but so that "how many tests did not run
+            # at this gate" is answerable after the run without a person
+            # having watched the console.
+            _skip_counts = _parse_skip_counts(raw)
+            if _skip_counts and _skip_counts[0] > 0:
+                from core.degradation_ledger import record_degradation
+                _skipped, _total = _skip_counts
+                record_degradation(
+                    ctx.project_root, "gate:test-skips",
+                    f"{_skipped} of {_total} tests did not run",
+                    why="skipped tests contribute no coverage and no evidence",
+                    data={"skipped": _skipped, "total": _total,
+                          "gate": ctx.gate_num, "fr_id": ctx.fr_id},
+                )
 
             # ── W2: Sub-100% coverage advisory (non-blocking) ─────────────────
             # advance-phase (P3+) runs --cov-fail-under=100 on 03-development/src.
