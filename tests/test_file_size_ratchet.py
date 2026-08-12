@@ -691,7 +691,16 @@ _LINE_CEILING: dict[str, int] = {
     # one caller and not the other is how `check_security_design` grew its
     # "keep the phase rules inside the check" rule, so both call sites move in
     # the same commit; the six lines here are the import and the addend.
-    "cli/check_cmds.py": 1669,
+    # 2026-08-12: +13 lines — 3dad941 narrowed `--forward-refs-only` back to
+    # check_forward_refs alone. The entry above added check_srs_structure to
+    # the shared set without touching that branch, so the workflow's fast-fail
+    # step reported a missing SRS FR Block as an invented filename. Eleven of
+    # the thirteen lines are the comment stating which route carries one check
+    # and which carries five — the drift that entry warned about, happening to
+    # that entry. The ceiling moves here rather than in 3dad941 because that
+    # commit shipped without it and CI has been red since; splitting this file
+    # is a subtraction round of its own.
+    "cli/check_cmds.py": 1682,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry
@@ -848,7 +857,11 @@ _LINE_CEILING: dict[str, int] = {
     # machine lacking it the command that fixes the environment would itself
     # fail to start). The two-candidate path probe and the comment recording
     # both constraints are the growth.
-    "scripts/workflowgen/spec_phase1.py": 962,
+    # 2026-08-12: 962 -> 963 (+1). The SRS A prompt's MANDATORY FR Block
+    # directive, moved here from the two shipped .js files 3dad941 hand-edited.
+    # One prompt line in the generator replaces the same line written twice in
+    # generated output; splitting a file over it would be the wrong trade.
+    "scripts/workflowgen/spec_phase1.py": 963,
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
