@@ -317,13 +317,18 @@ class TestScorePytestBenchmark:
         output = self._HEADER_S + "test_pipeline   0.2   0.25\n"
         assert _score_pytest_benchmark(output, 0) == 100.0
 
-    def test_no_benchmark_rows_returns_100(self):
-        """Output with header but no data rows → nothing to penalise."""
-        assert _score_pytest_benchmark(self._HEADER_MS, 0) == 100.0
+    def test_a_header_with_no_data_rows_measured_nothing(self):
+        """Round 46 站3 inverted this. It read "nothing to penalise → 100",
+        which is the free 100 `evaluate_dimension.md` forbids: a table with no
+        rows is a suite that ran and measured nothing, and a project with no
+        real benchmark earns no performance score by having none."""
+        assert _score_pytest_benchmark(self._HEADER_MS, 0) is None
 
-    def test_empty_output_returns_100(self):
-        """Empty output (e.g. pytest ran but produced no table) → 100."""
-        assert _score_pytest_benchmark("", 0) == 100.0
+    def test_empty_output_measured_nothing(self):
+        """Same inversion. Round 32 站4 had already drawn this conclusion for
+        every non-zero exit code — "the row regex only ever SUBTRACTS" — and
+        left rc=0 returning the initial 100."""
+        assert _score_pytest_benchmark("", 0) is None
 
 
 # ---------------------------------------------------------------------------

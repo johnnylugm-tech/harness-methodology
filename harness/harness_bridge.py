@@ -3734,8 +3734,20 @@ class HarnessBridge:
         # threshold floor. max_complexity→complexity / min_reliability→reliability were
         # dead (no such gate dimension). p95_latency_ms is milliseconds — NOT a 0-100
         # score — feeding it here set performance's floor to 3000, which no score can
-        # clear; performance's floor comes from NFR derive_gate_score_overrides, and p95
-        # is enforced inside the performance dimension's benchmark scorer.
+        # clear; performance's floor comes from NFR derive_gate_score_overrides.
+        #
+        # Round 46 站3 struck the rest of that sentence, which said p95 "is
+        # enforced inside the performance dimension's benchmark scorer". It is
+        # not. `_score_pytest_benchmark` applies a fixed 1000ms/3000ms penalty
+        # its own docstring calls "cross-validation heuristics, not NFR
+        # targets"; no line of it reads a p95, a project's budget, or an NFR.
+        # A project's latency budget is enforced by the project's own
+        # `# NFR-01`-annotated tests, and since Round 46 站1 those have to
+        # actually pass for the requirement to count as covered. Naming an
+        # enforcer that does not exist is worse than naming none: it is why
+        # taskq-advance's FINAL_SIGN_OFF could record "NFR-01 … Conditional
+        # PASS … dimension scoring uses framework override path" next to a
+        # performance score of 100.0.
         _qt_map = {
             "min_coverage": "test_coverage",
             "min_security_score": "security",

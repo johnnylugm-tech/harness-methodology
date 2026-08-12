@@ -422,8 +422,9 @@ def _score_readability_v2(output: str, _returncode: int) -> Optional[float]:
 def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
     """Score pytest-benchmark text output.
 
-    Exit code 5 means no benchmark tests collected → return None (dimension skipped).
-    Otherwise parse the benchmark table for mean latencies and penalise slow benchmarks.
+    Returns None whenever nothing was measured — no rows means no measurement,
+    whatever the exit code says. Otherwise parse the benchmark table for mean
+    latencies and penalise slow benchmarks.
 
     Thresholds (cross-validation heuristics, not NFR targets):
       mean > 3000 ms → -50 pts per benchmark  (hard fail, clearly exceeds NFR-01 target)
@@ -455,8 +456,20 @@ def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
         r"^\s*(test_\S+)\s+([\d.]+(?:e[+-]?\d+)?)\s+([\d.]+(?:e[+-]?\d+)?)\s*$",
         re.MULTILINE,
     )
+    rows = list(row_re.finditer(output))
+    # Round 46 站3: the other half of Round 32 站4's finding. That round drew
+    # the right conclusion from "the loop only ever SUBTRACTS" and applied it
+    # to every non-zero exit code, leaving rc=0 with zero rows returning the
+    # initial 100 — the "free 100" evaluate_dimension.md explicitly forbids
+    # ("No benchmarks … → score is None … not a free 100"). A suite that ran
+    # cleanly and measured nothing has not earned a perfect performance score;
+    # it has not produced one. taskq-advance's gate4_result.json cites exactly
+    # this branch as its justification for performance = 100.0.
+    if not rows:
+        return None
+
     score = 100.0
-    for m in row_re.finditer(output):
+    for m in rows:
         mean_ms = float(m.group(2)) * to_ms
         if mean_ms > 3000.0:
             score -= 50.0
