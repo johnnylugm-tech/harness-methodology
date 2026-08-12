@@ -53,16 +53,28 @@ is not reachable through `fix()` at all. Its unit tests now drive
 anyway. Keeping a fabricating strategy wired up so one escalation stays
 reachable would be the tail wagging the dog; see docs/PROPOSAL_ADJUDICATIONS.md.
 
-WHAT THIS ROUND DELIBERATELY DID NOT DO
+THE CODE IS GONE (R49-C)
 
-Delete the twelve functions and their 30 CLASSIFICATION_TABLE entries. Measured
-blast radius: `tests/test_auto_fix.py`, `tests/test_no_hardcoded_paths.py` (whose
-Round 20 站2 guard has `fix_low_coverage` as its SUBJECT — that guard is
-registered in tests/REGRESSION_GUARDS.yaml and would be left describing a
-function that no longer exists). Removing dead code whose absence unregisters a
-guard is a subtraction round of its own; doing it as station 6 of eight would be
-the runaway-refactor failure mode. Re-open condition: a dedicated pass that
-retires the guard entry and the tests in the same commit as the code.
+Round 48 站6 left the twelve functions in place and refused them at the
+dispatch, on the reading that `tests/REGRESSION_GUARDS.yaml` had
+`fix_low_coverage` as a registered guard's SUBJECT. Reading that entry
+disproved it: the guard's `test:` field is
+`test_no_root_relative_test_or_src_dirs_outside_layout`, an AST lint, and
+`fix_low_coverage` appears in its bug narrative as one of three examples.
+Deleting the code unregistered nothing; it only needed the narrative updated
+in the same commit.
+
+So R49-C deleted them: 573 lines out of strategies.py (twelve strategies plus
+nine helpers that served only them, including the two that rewrote a failing
+assertion to the observed value), and 25 CLASSIFICATION_TABLE entries. Five
+entries stayed — `hardcoded_secrets` and the four `hard_rule_violation`
+sources classify HUMAN_REQUIRED, which is a true classification and the
+opposite of a fabricated repair.
+
+This table is what remains of them. `AutoFixEngine.fix()` still answers with
+the reason below when a detector reports one of these problem types, so the
+operator is told "that repair was retired because it fabricated its result"
+rather than a generic escalation.
 """
 
 from __future__ import annotations

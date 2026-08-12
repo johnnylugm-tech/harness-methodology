@@ -18,74 +18,18 @@ from core.auto_fix import FixStrategy
 # ── Master classification table ──────────────────────────────────────────────
 
 CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
-    # ── constitution/runner.py ──
-    "constitution/missing_artifact": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 95.0,
-        "max_rounds": 3,
-        "problem_type": "missing_artifact",
-    },
-    "constitution/low_score": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 70.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
     "constitution/hardcoded_secrets": {
         "strategy": FixStrategy.HUMAN_REQUIRED,
         "confidence": 0.0,
         "max_rounds": 0,
         "problem_type": "hardcoded_secrets",
     },
-    "constitution/low_keyword_density": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 85.0,
-        "max_rounds": 3,
-        "problem_type": "low_keyword_density",
-    },
-    "constitution/missing_section_headers": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 95.0,
-        "max_rounds": 2,
-        "problem_type": "missing_section_headers",
-    },
-    "constitution/hollow_content": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 90.0,
-        "max_rounds": 2,
-        "problem_type": "hollow_content",
-    },
 
-    # ── enforcement/framework_enforcer.py ──
-    "framework_enforcer/missing_spec_tracking": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 95.0,
-        "max_rounds": 2,
-        "problem_type": "missing_spec_tracking",
-    },
     "framework_enforcer/missing_traceability": {
         "strategy": FixStrategy.AUTO_FIX,
         "confidence": 90.0,
         "max_rounds": 2,
         "problem_type": "missing_traceability",
-    },
-    "framework_enforcer/constitution_score_low": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 70.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "framework_enforcer/coverage_low": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 60.0,
-        "max_rounds": 3,
-        "problem_type": "low_coverage",
-    },
-    "framework_enforcer/missing_aspice_docs": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 85.0,
-        "max_rounds": 2,
-        "problem_type": "missing_aspice_docs",
     },
 
     # ── enforcement/policy_engine.py ──
@@ -94,24 +38,6 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
         "confidence": 0.0,
         "max_rounds": 0,
         "problem_type": "hard_rule_violation",
-    },
-    "policy_engine/quality_gate_low": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 70.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "policy_engine/test_coverage_low": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 60.0,
-        "max_rounds": 3,
-        "problem_type": "low_coverage",
-    },
-    "policy_engine/missing_aspice_docs": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 85.0,
-        "max_rounds": 2,
-        "problem_type": "missing_aspice_docs",
     },
     "policy_engine/no_bypass_commands": {
         "strategy": FixStrategy.HUMAN_REQUIRED,
@@ -128,33 +54,7 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
         "problem_type": "hard_rule_violation",
     },
 
-    # ── gap_detector/ ──
-    "gap_detector/critical_gap": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 65.0,
-        "max_rounds": 3,
-        "problem_type": "gap_critical",
-    },
-    "gap_detector/major_gap": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 80.0,
-        "max_rounds": 2,
-        "problem_type": "gap_critical",
-    },
-    "gap_detector/minor_gap": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 85.0,
-        "max_rounds": 2,
-        "problem_type": "gap_critical",
-    },
 
-    # ── detection/drift_detector.py ──
-    "drift_detector/drift_low": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 55.0,
-        "max_rounds": 3,
-        "problem_type": "drift_detected",
-    },
 
     # ── kill_switch/ ──
     "kill_switch/circuit_open": {
@@ -164,67 +64,9 @@ CLASSIFICATION_TABLE: Dict[str, Dict[str, Any]] = {
         "problem_type": "hard_rule_violation",
     },
 
-    # ── core/quality_gate/phase_truth_verifier.py ──
-    "phase_truth_verifier/phase_truth_low": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 65.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "phase_truth_verifier/enforcement_block_failed": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 65.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "phase_truth_verifier/pytest_failures": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 50.0,
-        "max_rounds": 3,
-        "problem_type": "pytest_failures",
-    },
 
-    # ── core/review_schema_validator.py ──
-    "review_schema_validator/over_interpretation_gap": {
-        "strategy": FixStrategy.AUTO_FIX,
-        "confidence": 80.0,
-        "max_rounds": 2,
-        "problem_type": "over_interpretation_gap",
-    },
 
-    # ── gates ──
-    "gate/gate1_blocked": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 70.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "gate/gate2_blocked": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 70.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "gate/gate3_blocked": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 65.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
-    "gate/gate4_blocked": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 60.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
 
-    # ── phase_hooks / preflight ──
-    "phase_hooks/preflight_failure": {
-        "strategy": FixStrategy.AUTO_FIX_WITH_VERIFICATION,
-        "confidence": 70.0,
-        "max_rounds": 3,
-        "problem_type": "low_constitution_score",
-    },
 }
 
 # ── Dimension-specific confidence modifiers ──────────────────────────────────
@@ -299,15 +141,23 @@ def classify(
         key = source
         entry = CLASSIFICATION_TABLE.get(key)
 
-    # Second fallback: match by source prefix
+    # There is deliberately no third attempt.
+    #
+    # A prefix fallback used to live here: it walked the table and took the
+    # first entry whose source family matched, in dict order. That is a guess
+    # wearing a classification's clothes, and R49-C measured what it costs —
+    # after the fabricating strategies were deleted, `constitution/
+    # low_keyword_density` resolved to the first remaining `constitution/*`
+    # entry and reported problem_type "hardcoded_secrets" for a problem that
+    # has nothing to do with secrets.
+    #
+    # The old default was worse: an unrecognised source became
+    # AUTO_FIX_WITH_VERIFICATION at 65% confidence with problem_type
+    # "low_constitution_score" — a promise to repair, on a problem type the
+    # caller never reported, by a strategy that no longer exists. Unknown is
+    # its own answer here for the same reason it is in core/fault_owner.py.
     if entry is None:
-        for cls_key, cls_entry in CLASSIFICATION_TABLE.items():
-            if source.startswith(cls_key.split("/")[0]):
-                entry = cls_entry
-                break
-
-    if entry is None:
-        return (FixStrategy.AUTO_FIX_WITH_VERIFICATION, 65.0, 3, "low_constitution_score",
+        return (FixStrategy.HUMAN_REQUIRED, 0.0, 0, "unknown",
                 ErrorClass.QUALITY_DEFICIT)
 
     strategy = entry["strategy"]

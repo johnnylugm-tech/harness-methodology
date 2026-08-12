@@ -17,15 +17,7 @@ from core.auto_fix.classifier import (
     is_actual_secret,
     is_hard_rule_violation,
 )
-from core.auto_fix.strategies import (
-    STRATEGY_REGISTRY,
-    _fix_assertion_error,
-    fix_missing_artifact,
-    fix_missing_spec_tracking,
-    fix_keyword_density,
-    fix_section_headers,
-    fix_hollow_content,
-)
+from core.auto_fix.strategies import STRATEGY_REGISTRY
 from core.auto_fix.guardrails import (
     pre_fix_safety_check,
     post_fix_drift_check,
@@ -60,40 +52,62 @@ class TestClassifier:
         )
         assert strat == FixStrategy.HUMAN_REQUIRED
 
-    def test_classify_missing_keyword_auto_fix(self):
-        strat, conf, max_r, pt, *_ = classify(
-            "constitution/low_keyword_density",
-            {"problem_type": "low_keyword_density"},
-        )
-        assert strat == FixStrategy.AUTO_FIX
+    def test_a_retired_problem_type_is_not_classified_as_auto_fixable(self):
+        """R49-C deleted twelve strategies; the table stopped promising them.
 
-    def test_classify_constitution_low_score_auto_fix_verify(self):
-        strat, conf, max_r, pt, *_ = classify(
-            "constitution/low_score",
-            {"problem_type": "low_constitution_score"},
-        )
-        assert strat == FixStrategy.AUTO_FIX_WITH_VERIFICATION
-        assert 0 <= conf <= 100
+        Before, `constitution/low_keyword_density` classified as AUTO_FIX at
+        85% — a promise to repair, kept by appending the dimension's keywords
+        to the document so the scorer would count them. The strategy is gone
+        and so is the entry, and what remains is the honest answer.
+        """
+        for source, problem_type in (
+            ("constitution/low_keyword_density", "low_keyword_density"),
+            ("constitution/low_score", "low_constitution_score"),
+            ("gate/gate4_blocked", "low_coverage"),
+        ):
+            strat, conf, max_r, pt, *_ = classify(source, {"problem_type": problem_type})
+            assert strat == FixStrategy.HUMAN_REQUIRED, source
+            assert conf == 0.0 and max_r == 0, source
+            assert pt == "unknown", source
 
-    def test_classify_gate4_auto_fix_verify(self):
-        strat, conf, max_r, pt, *_ = classify(
-            "gate/gate4_blocked",
-            {"gate_num": 4, "problem_type": "low_constitution_score"},
-        )
-        assert strat == FixStrategy.AUTO_FIX_WITH_VERIFICATION
-        assert max_r == 3
+    def test_an_unrecognised_source_is_unknown_not_auto_fixable(self):
+        """The old default answered AUTO_FIX_WITH_VERIFICATION at 65% with
+        problem_type 'low_constitution_score' — inventing both the problem and
+        the promise to fix it, for a source it had never heard of."""
+        strat, conf, max_r, pt, *_ = classify("completely/unknown_source", {})
+        assert strat == FixStrategy.HUMAN_REQUIRED
+        assert conf == 0.0
+        assert max_r == 0
+        assert pt == "unknown"
 
-    def test_gate4_error_class_and_max_rounds(self):
+    def test_a_source_is_not_classified_by_its_family_prefix(self):
+        """The prefix fallback took the first table entry sharing a source
+        family, in dict order. After the deletions that made
+        `constitution/low_keyword_density` report 'hardcoded_secrets' — a
+        problem type with nothing to do with what was detected."""
+        _, _, _, pt, *_ = classify("constitution/something_new", {})
+        assert pt != "hardcoded_secrets"
+        assert pt == "unknown"
+
+    def test_dimension_confidence_applies_to_a_live_classification(self):
+        """Re-pointed in R49-C at the one entry that still routes to a repair."""
+        _, conf, _, _, _ = classify(
+            "framework_enforcer/missing_traceability",
+            {"dimension": "coverage", "problem_type": "missing_traceability"},
+        )
+        assert conf == DIMENSION_CONFIDENCE["coverage"]
+
+    def test_gate4_forces_gate_failure_error_class(self):
+        """The gate_num=4 override survives — but only where a classification
+        was actually found, which after R49-C means a live entry."""
         from core.auto_fix.error_class import ErrorClass
-        # Even if source is generic or non-gate, as long as details show gate_num=4,
-        # it should resolve to ErrorClass.GATE_FAILURE to prevent regression
+
         _, _, max_r, _, err_cls = classify(
-            "constitution_runner",
-            {"gate_num": 4, "problem_type": "low_constitution_score"},
+            "framework_enforcer/missing_traceability",
+            {"gate_num": 4, "problem_type": "missing_traceability"},
         )
         assert err_cls == ErrorClass.GATE_FAILURE
-        assert max_r == 3
-
+        assert max_r > 0
 
     def test_classify_hard_rule_never_auto_fix(self):
         strat, conf, max_r, pt, *_ = classify(
@@ -109,28 +123,6 @@ class TestClassifier:
         )
         assert strat == FixStrategy.HUMAN_REQUIRED
         assert max_r == 0
-
-    def test_dimension_confidence_modifies_security(self):
-        _, conf, _, _, _ = classify(
-            "constitution/low_score",
-            {"dimension": "security", "problem_type": "low_constitution_score"},
-        )
-        assert conf == DIMENSION_CONFIDENCE["security"]
-
-    def test_dimension_confidence_modifies_coverage(self):
-        _, conf, _, _, _ = classify(
-            "constitution/low_score",
-            {"dimension": "coverage", "problem_type": "low_constitution_score"},
-        )
-        assert conf == DIMENSION_CONFIDENCE["coverage"]
-
-    def test_classify_unknown_source_returns_sensible_default(self):
-        strat, conf, max_r, pt, *_ = classify(
-            "completely/unknown_source",
-            {},
-        )
-        assert strat == FixStrategy.AUTO_FIX_WITH_VERIFICATION
-        assert conf == 65.0
 
     def test_is_actual_secret_detects_password(self):
         assert is_actual_secret('password = "admin123"')
@@ -155,202 +147,6 @@ class TestClassifier:
 
 
 # ── Strategy tests ───────────────────────────────────────────────────────────
-
-
-class TestStrategies:
-    def test_fix_missing_artifact_generates_stub(self, tmp_path: Path):
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="missing_artifact",
-            severity="critical",
-            phase=1,
-            project_root=tmp_path,
-            details={"artifact_name": "TEST_ARTIFACT"},
-        )
-        success, action, conf = fix_missing_artifact(context, tmp_path)
-        assert success
-        assert conf == 95.0
-        assert (tmp_path / "01-requirements" / "TEST_ARTIFACT.md").exists()
-        assert "01-requirements" in action
-
-    def test_fix_missing_artifact_skips_existing(self, tmp_path: Path):
-        (tmp_path / "01-requirements").mkdir(parents=True)
-        existing = tmp_path / "01-requirements" / "EXISTING.md"
-        existing.write_text("# Existing")
-
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="missing_artifact",
-            severity="critical",
-            phase=1,
-            project_root=tmp_path,
-            details={"artifact_name": "EXISTING"},
-        )
-        success, action, conf = fix_missing_artifact(context, tmp_path)
-        assert success
-        assert "already exists" in action
-
-    def test_fix_missing_spec_tracking_generates_file(self, tmp_path: Path):
-        (tmp_path / "01-requirements").mkdir(parents=True)
-        context = FixContext(
-            source="framework_enforcer",
-            problem_type="missing_spec_tracking",
-            severity="high",
-            phase=1,
-            project_root=tmp_path,
-            details={},
-        )
-        success, action, conf = fix_missing_spec_tracking(context, tmp_path)
-        assert success
-        assert (tmp_path / "01-requirements" / "SPEC_TRACKING.md").exists()
-
-    def test_fix_keyword_density_adds_keywords(self, tmp_path: Path):
-        test_file = tmp_path / "test.md"
-        test_file.write_text("# Test\n\nNo security content here.", encoding="utf-8")
-
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="low_keyword_density",
-            severity="medium",
-            phase=3,
-            project_root=tmp_path,
-            details={
-                "dimension": "security",
-                "keywords": ["auth", "encrypt", "sanitize"],
-                "files": [str(test_file)],
-            },
-        )
-        success, action, conf = fix_keyword_density(context, tmp_path)
-        assert success
-        content = test_file.read_text()
-        assert "auth" in content.lower()
-
-    def test_fix_section_headers_adds_sections(self, tmp_path: Path):
-        test_file = tmp_path / "doc.md"
-        test_file.write_text("# Doc\nSome content.", encoding="utf-8")
-
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="missing_section_headers",
-            severity="medium",
-            phase=3,
-            project_root=tmp_path,
-            details={"files": [str(test_file)]},
-        )
-        success, action, conf = fix_section_headers(context, tmp_path)
-        assert success
-        content = test_file.read_text()
-        assert "## Overview" in content
-
-    def test_fix_hollow_content_expands_short_file(self, tmp_path: Path):
-        test_file = tmp_path / "short.md"
-        test_file.write_text("# Short", encoding="utf-8")
-
-        (tmp_path / ".methodology").mkdir(parents=True)
-        import json
-        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
-            json.dumps({"functional_requirements": [
-                {"id": "FR-001"}, {"id": "FR-002"}, {"id": "FR-003"},
-                {"id": "FR-004"}, {"id": "FR-005"},
-            ]}),
-            encoding="utf-8",
-        )
-
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="hollow_content",
-            severity="medium",
-            phase=3,
-            project_root=tmp_path,
-            details={"files": [str(test_file)]},
-        )
-        success, action, conf = fix_hollow_content(context, tmp_path)
-        assert success
-        content = test_file.read_text()
-        assert len(content) > 200
-
-    def test_fix_hollow_content_skips_long_file(self, tmp_path: Path):
-        test_file = tmp_path / "long.md"
-        test_file.write_text("# " + "A" * 300, encoding="utf-8")
-
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="hollow_content",
-            severity="medium",
-            phase=3,
-            project_root=tmp_path,
-            details={"files": [str(test_file)]},
-        )
-        success, action, conf = fix_hollow_content(context, tmp_path)
-        assert "Expanded 0" in action  # skipped because content > 200
-
-    def test_fix_assertion_error_preserves_space_and_fixes_all_matches(self):
-        """Bug fix: `replace(..., 1)` only fixed the first match.
-
-        Source has `assert x == 5` on TWO lines; failure message says
-        expected value is `3` (real pytest --tb=line format). The fix
-        must rewrite BOTH occurrences to `assert x == 3`, not just the
-        first.
-        """
-        content = (
-            "def test_one():\n"
-            "    assert x == 5\n"
-            "\n"
-            "def test_two():\n"
-            "    assert x == 5\n"
-        )
-        message = "assert x == 3"
-        out = _fix_assertion_error(content, message, "test_dummy")
-        assert out.count("assert x == 3") == 2, (
-            f"Expected both assertions fixed to `assert x == 3`, got:\n{out}"
-        )
-        assert "assert x == 5" not in out, (
-            f"Unfixed `assert x == 5` still present, got:\n{out}"
-        )
-
-    def test_fix_keyword_density_does_not_append_header_to_files_with_no_additions(self, tmp_path: Path):
-        """Bug fix: `added` counter was shared across files. After the
-        first file added any keyword, subsequent files also got a
-        `## Compliance` section header even when they themselves added
-        zero keywords.
-        """
-        # File 1: missing all keywords → should get header + bullets
-        f1 = tmp_path / "needs.md"
-        f1.write_text("# Doc\n\nNo security content here.", encoding="utf-8")
-
-        # File 2: already contains all keywords → must NOT be touched
-        f2 = tmp_path / "ok.md"
-        f2.write_text(
-            "# Doc\n\nWe use auth, encrypt, sanitize and audit and rotate.",
-            encoding="utf-8",
-        )
-        original_f2 = f2.read_text(encoding="utf-8")
-
-        context = FixContext(
-            source="constitution/runner",
-            problem_type="low_keyword_density",
-            severity="medium",
-            phase=3,
-            project_root=tmp_path,
-            details={
-                "dimension": "security",
-                "keywords": ["auth", "encrypt", "sanitize", "audit", "rotate"],
-                "files": [str(f1), str(f2)],
-            },
-        )
-        fix_keyword_density(context, tmp_path)
-
-        f1_content = f1.read_text(encoding="utf-8")
-        assert "## Security Compliance" in f1_content, (
-            f"File 1 should have section header, got:\n{f1_content}"
-        )
-
-        assert f2.read_text(encoding="utf-8") == original_f2, (
-            f"File 2 should be untouched (already had all keywords), got:\n{f2.read_text()}"
-        )
-        assert "## Security Compliance" not in f2.read_text(encoding="utf-8"), (
-            "File 2 got a Compliance section header despite adding zero keywords"
-        )
 
 
 # ── Guardrails tests ─────────────────────────────────────────────────────────
@@ -716,72 +512,6 @@ class TestAutoFixEngine:
 
 # ── Bug B fix: fix_over_interpretation_gap strategy (added 2026-06-28) ──────
 
-
-class TestFixOverInterpretationGap:
-    """Tests for the new `over_interpretation_gap` strategy registered alongside
-    Bug B (HR-12 regression guard). Strategy records a proposal file rather than
-    auto-applying semantic fixes — see strategies.py docstring for rationale."""
-
-    def test_strategy_is_registered(self):
-        from core.auto_fix.strategies import STRATEGY_REGISTRY, fix_over_interpretation_gap
-        assert STRATEGY_REGISTRY["over_interpretation_gap"] is fix_over_interpretation_gap
-
-    def test_records_proposal_with_canonical_ref(self, tmp_path: Path):
-        from core.auto_fix.strategies import fix_over_interpretation_gap
-        ctx = FixContext(
-            source="review_schema_validator",
-            problem_type="over_interpretation_gap",
-            severity="medium",
-            phase=1,
-            project_root=tmp_path,
-            details={
-                "canonical_ref": "SPEC.md:58",
-                "gap_message": "Ambiguous 'excluding subprocess execution'",
-                "fr_id": "NFR-01",
-                "deliverable": "01-requirements/SRS.md",
-            },
-        )
-        success, action, confidence = fix_over_interpretation_gap(ctx, tmp_path)
-        assert success is True
-        assert confidence == 60.0
-        proposal = tmp_path / ".methodology" / "trace" / "over_interpretation_proposal.md"
-        assert proposal.exists()
-        text = proposal.read_text()
-        assert "SPEC.md:58" in text
-        assert "NFR-01" in text
-        assert "DERIVED" in text
-        assert "NFR-99" in text
-
-    def test_returns_false_when_canonical_ref_missing(self, tmp_path: Path):
-        from core.auto_fix.strategies import fix_over_interpretation_gap
-        ctx = FixContext(
-            source="review_schema_validator",
-            problem_type="over_interpretation_gap",
-            severity="medium",
-            phase=1,
-            project_root=tmp_path,
-            details={"canonical_ref": "", "gap_message": "x"},
-        )
-        success, action, confidence = fix_over_interpretation_gap(ctx, tmp_path)
-        assert success is False
-        assert confidence == 0.0
-
-    def test_idempotent_on_duplicate_canonical_ref(self, tmp_path: Path):
-        from core.auto_fix.strategies import fix_over_interpretation_gap
-        ctx = FixContext(
-            source="review_schema_validator",
-            problem_type="over_interpretation_gap",
-            severity="medium",
-            phase=1,
-            project_root=tmp_path,
-            details={"canonical_ref": "SPEC.md:11", "gap_message": "x"},
-        )
-        fix_over_interpretation_gap(ctx, tmp_path)
-        fix_over_interpretation_gap(ctx, tmp_path)
-        proposal = tmp_path / ".methodology" / "trace" / "over_interpretation_proposal.md"
-        text = proposal.read_text()
-        # Only one header line for SPEC.md:11
-        assert text.count("## over_interpretation: SPEC.md:11") == 1
 
 # ── AutoFixEngine.fix() integration ──────────────────────────────────────────
 

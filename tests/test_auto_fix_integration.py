@@ -143,7 +143,17 @@ class TestAutoFixPipelineIntegration:
         assert engine.check_escalation(context, result) is not None
 
     def test_no_escalation_for_auto_fix_on_first_attempt(self, tmp_path: Path):
-        """Simple auto-fix on first attempt → no escalation."""
+        """A first attempt at a LIVE repair does not escalate.
+
+        Re-pointed in R49-C. It used to drive `missing_artifact`, whose
+        strategy wrote a TBD stub for an absent deliverable and was deleted;
+        with that gone the source classifies as unknown and correctly
+        escalates, so the old subject could no longer demonstrate the
+        no-escalation path. `missing_traceability` is the one strategy that
+        remains, and driving the check through the surviving path is the point
+        — an assertion about the ladder needs something the ladder actually
+        lets through.
+        """
         (tmp_path / ".methodology").mkdir(parents=True)
         (tmp_path / ".methodology" / "quality_manifest.json").write_text(
             json.dumps({"functional_requirements": [{"id": "FR-001"}]}),
@@ -152,13 +162,13 @@ class TestAutoFixPipelineIntegration:
 
         engine = AutoFixEngine(project_root=tmp_path, phase=1)
         context = FixContext(
-            source="constitution/missing_artifact",
-            problem_type="missing_artifact",
+            source="framework_enforcer/missing_traceability",
+            problem_type="missing_traceability",
             severity="critical",
             phase=1,
             project_root=tmp_path,
-            details={"artifact_name": "QUICK_DOC"},
-            retry_count=1,
+            details={"untested": [], "uncoded": []},
+            retry_count=0,
         )
         result = engine.fix(context)
         assert result.escalation is None

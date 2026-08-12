@@ -139,18 +139,32 @@ class AutoFixEngine:
         if context.problem_type and "problem_type" not in _details:
             _details["problem_type"] = context.problem_type
         context = replace(context, details=_details)
+        # What the CALLER reported, before classify() has its say. R49-C needs
+        # it: a retired problem type no longer appears in CLASSIFICATION_TABLE,
+        # so classify() answers "unknown" and the reason for the refusal —
+        # "that repair was retired because it fabricated its result" — would be
+        # replaced by a generic escalation the operator cannot act on.
+        reported_type = context.problem_type
         strategy, confidence, max_rounds, problem_type, error_class = self.classify(context)
         context.problem_type = problem_type
 
         # HUMAN_REQUIRED → escalate immediately
         if strategy == FixStrategy.HUMAN_REQUIRED:
+            from core.auto_fix.wiring import RETIRED_STRATEGIES, is_retired
+
             condition = self._human_condition_for(context)
+            retired = is_retired(reported_type or "")
             result = FixResult(
                 success=False,
                 strategy=strategy,
                 problem_type=problem_type,
                 confidence=0.0,
-                action_taken="Escalated to human — auto-fix not permitted",
+                action_taken=(
+                    f"refused: the {reported_type!r} strategy is retired — "
+                    f"{RETIRED_STRATEGIES[reported_type]}" if retired
+                    else "Escalated to human — auto-fix not permitted"
+                ),
+                error=f"retired strategy: {reported_type!r}" if retired else None,
                 escalation=condition,
                 rounds_used=context.retry_count,
             )

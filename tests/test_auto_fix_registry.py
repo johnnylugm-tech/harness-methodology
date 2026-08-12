@@ -53,12 +53,23 @@ def test_every_reachable_problem_type_is_either_live_or_retired():
         entry["problem_type"] for entry in CLASSIFICATION_TABLE.values()
     }
     declared = set(LIVE_STRATEGIES) | set(RETIRED_STRATEGIES)
-    assert reachable == declared, (
+
+    assert not (reachable - declared), (
         "every problem_type reachable from CLASSIFICATION_TABLE or dispatchable "
         "through STRATEGY_REGISTRY must be declared LIVE (with a production "
         "caller and a re-verify) or RETIRED (with a reason). "
-        f"undeclared={sorted(reachable - declared)} "
-        f"declared-but-unreachable={sorted(declared - reachable)}"
+        f"undeclared={sorted(reachable - declared)}"
+    )
+
+    # The other direction is one-way, and R49-C is why. Retirement started as a
+    # refusal at the dispatch, so a retired type still had a table entry to be
+    # refused FROM; then its code was deleted and its entry removed with it. A
+    # declared type that nothing routes to is now the normal end state of
+    # retirement — but only for RETIRED. A LIVE strategy nothing can reach is
+    # the half-built mechanism Round 30 is named after, and still fails here.
+    assert not (set(LIVE_STRATEGIES) - reachable), (
+        "a LIVE strategy must be reachable — declared live but nothing routes "
+        f"to it: {sorted(set(LIVE_STRATEGIES) - reachable)}"
     )
 
 
