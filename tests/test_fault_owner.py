@@ -123,3 +123,15 @@ def test_every_registered_exit_code_has_an_owner():
         f"core/fault_owner.py's OWNER_BY_EXIT: {missing}"
     )
     assert not extra, f"OWNER_BY_EXIT names code(s) absent from REGISTRY: {extra}"
+
+
+def test_the_discriminated_codes_are_exactly_the_ones_the_table_calls_unknown():
+    """A code the table calls UNKNOWN must either be genuinely unattributable
+    (exit 1's catch-all, exit 36's repeated-failure signature) or carry a
+    discriminator. An UNKNOWN with neither is an entry nobody finished."""
+    from core.fault_owner import DISCRIMINATED_EXITS, OWNER_BY_EXIT, Owner
+
+    unknown = {code for code, owner in OWNER_BY_EXIT.items() if owner == Owner.UNKNOWN}
+    genuinely_unattributable = {1, 36}
+    assert unknown - genuinely_unattributable == DISCRIMINATED_EXITS
+    assert DISCRIMINATED_EXITS == {14, 18, 19, 20, 25}
