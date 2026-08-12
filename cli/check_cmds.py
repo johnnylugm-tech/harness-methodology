@@ -596,15 +596,28 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     current_phase = phase_val if isinstance(phase_val, int) else None
 
     violations = (check_forward_refs(project)
-                  + check_module_fr_coverage(project)
+                  # `--forward-refs-only` is a cheap pre-push fast-fail for
+                  # invented filenames (Round 10's audit fix). Semantically
+                  # only `check_forward_refs` belongs there; the other four
+                  # checks (module_fr_coverage / nfr_adr_coverage /
+                  # security_design / srs_structure) are cross-artifact
+                  # consistency / structural checks that have their own
+                  # callers and gates, and bundling them into a fast-fail
+                  # route surfaces the wrong failure class to the workflow's
+                  # P1 Forward Ref Check step (which then mis-reports e.g.
+                  # an SRS-FR-BLOCK missing as "FWDREF: FAIL — invented
+                  # filename ARCHITECTURE.md"). Keep the default (full)
+                  # mode unchanged so all five still run; only the
+                  # `--forward-refs-only` route narrows to check_forward_refs.
                   + ([] if getattr(args, 'forward_refs_only', False)
-                     else check_nfr_adr_coverage(project))
-                  + check_security_design(project, phase=current_phase)
-                  # Round 42 站3: the SRS's machine-readable FR Block. Added at
-                  # BOTH callers of this set in the same commit — the reason
-                  # `check_security_design` keeps its phase rules inside
-                  # itself is that two callers is two chances to disagree.
-                  + check_srs_structure(project))
+                     else (check_module_fr_coverage(project)
+                           + check_nfr_adr_coverage(project)
+                           + check_security_design(project, phase=current_phase)
+                           # Round 42 站3: the SRS's machine-readable FR Block.
+                           # The reason `check_security_design` keeps its phase
+                           # rules inside itself is that two callers is two
+                           # chances to disagree.
+                           + check_srs_structure(project))))
     errors = [v for v in violations if v.severity == "error"]
     reviews = [v for v in violations if v.severity == "info"]
     for v in errors:

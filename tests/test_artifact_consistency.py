@@ -289,3 +289,97 @@ def test_artifact_consistency_is_wired_into_preflight_all() -> None:
         "artifact_consistency gate dropped from PREFLIGHT_CHECKS — invented "
         "filenames / NFR coverage gaps would stop blocking"
     )
+
+
+# ── --forward-refs-only route narrows the check set (Round 42 站3 wiring fix) ──
+
+
+# A real SRS that contains FR/NFR headings but is missing the
+# `## FR Block (machine-readable)` JSON section. check_srs_structure would
+# emit `SRS-FR-BLOCK` against this file in the full check; the forward-refs
+# route must NOT — that check is structurally unrelated to invented
+# filenames and its failure used to be misreported by the P1 Forward Ref
+# Check step as "FWDREF: FAIL — invented filename ARCHITECTURE.md".
+_SRS_WITHOUT_MACHINE_BLOCK = (
+    "# Software Requirements Specification\n"
+    "\n"
+    "## 1. Introduction\n"
+    "\n"
+    "### FR-01: task submission\n"
+    "\n"
+    "The submitted command is validated before anything is written.\n"
+    "\n"
+    "### NFR-01: performance\n"
+    "\n"
+    "Response time under 200ms.\n"
+)
+
+
+def test_forward_refs_only_skips_srs_structure_block_check(tmp_path, capsys) -> None:
+    """Regression for the round 42 站3 wiring bug: the P1 Forward Ref Check
+    workflow step runs `check-artifact-consistency --forward-refs-only`
+    as a cheap pre-push fast-fail for invented filenames, but
+    `check_srs_structure` was added to the same violation set without
+    updating the forward-refs-only branch — so an SRS missing its
+    machine-readable FR Block surfaced to the workflow as
+    "FWDREF: FAIL — invented filename ARCHITECTURE.md" (misclassified),
+    halting P1 even when no actual forward ref existed. The fix: when
+    `forward_refs_only=True`, run ONLY `check_forward_refs`; the other
+    four cross-artifact checks (module_fr_coverage, nfr_adr_coverage,
+    security_design, srs_structure) keep running in the default mode.
+    """
+    import argparse
+    from cli.check_cmds import cmd_check_artifact_consistency
+
+    _w(ProjectLayout(tmp_path).srs_path, _SRS_WITHOUT_MACHINE_BLOCK)
+    rc = cmd_check_artifact_consistency(
+        argparse.Namespace(project=str(tmp_path), forward_refs_only=True)
+    )
+    out = capsys.readouterr().out
+    assert rc == 0, (
+        f"forward_refs_only must skip srs_structure; got rc={rc}, stdout={out!r}"
+    )
+    assert "SRS-FR-BLOCK" not in out, (
+        f"forward_refs_only must not emit SRS-FR-BLOCK; got stdout={out!r}"
+    )
+
+
+def test_full_mode_runs_srs_structure_block_check(tmp_path, capsys) -> None:
+    """Companion to test_forward_refs_only_skips_srs_structure_block_check:
+    the default (full) mode MUST still run srs_structure, otherwise the SRS
+    FR Block regression would silently re-appear once the forward-refs
+    route is the only one exercised."""
+    import argparse
+    from cli.check_cmds import cmd_check_artifact_consistency
+
+    _w(ProjectLayout(tmp_path).srs_path, _SRS_WITHOUT_MACHINE_BLOCK)
+    rc = cmd_check_artifact_consistency(
+        argparse.Namespace(project=str(tmp_path), forward_refs_only=False)
+    )
+    out = capsys.readouterr().out
+    assert rc == 1, "full mode must still block on missing SRS FR Block"
+    assert "SRS-FR-BLOCK" in out, (
+        f"full mode must emit SRS-FR-BLOCK; got stdout={out!r}"
+    )
+
+
+def test_forward_refs_only_still_catches_illegal_filename(tmp_path, capsys) -> None:
+    """The forward_refs_only narrowing must NOT swallow the very thing the
+    route is named after: an invented forward reference (e.g.
+    `02-architecture/ARCHITECTURE.md` instead of `SAD.md`) must still block
+    in this mode. Without this guard, a too-eager fix could silently turn
+    the workflow's "Forward Ref Check" step into a no-op."""
+    import argparse
+    from cli.check_cmds import cmd_check_artifact_consistency
+
+    _w(ProjectLayout(tmp_path).traceability_matrix_path,
+       "Architecture doc: see 02-architecture/ARCHITECTURE.md for design.\n")
+    rc = cmd_check_artifact_consistency(
+        argparse.Namespace(project=str(tmp_path), forward_refs_only=True)
+    )
+    out = capsys.readouterr().out
+    assert rc == 1, "forward_refs_only must still block on invented filenames"
+    assert "ARCHITECTURE.md" in out, (
+        f"forward_refs_only must still report the illegal filename; "
+        f"got stdout={out!r}"
+    )
