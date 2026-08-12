@@ -729,7 +729,16 @@ _LINE_CEILING: dict[str, int] = {
     # that entry. The ceiling moves here rather than in 3dad941 because that
     # commit shipped without it and CI has been red since; splitting this file
     # is a subtraction round of its own.
-    "cli/check_cmds.py": 1682,
+    # 2026-08-13: 1682 -> 354 (-1328). R49-B 站2: the 24 command bodies and
+    # their 4 helpers moved into cli/checks/ in six families (specs, gates,
+    # trace, approvals, constitution, hunt). What is left is the argparse
+    # wiring — register() is ~295 of the 354 — plus the re-exports harness_cli
+    # and the tests import by name. Deliberately NOT split further: slicing
+    # register() per family would make a command's flags live beside its body,
+    # which is the better end state, but it is a separate operation with a
+    # different failure mode (a subcommand silently unregistered) and it gets
+    # its own commit rather than riding in on a body move.
+    "cli/check_cmds.py": 354,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry
