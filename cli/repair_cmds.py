@@ -115,9 +115,11 @@ def cmd_repair_harness(args: argparse.Namespace) -> int:
             co = _git(root, "checkout", plan.target_branch)
             if co.returncode != 0:
                 _print_refusal(
-                    f"could not check out {plan.target_branch} (HEAD was at "
-                    f"{branch}); a repair committed from a detached HEAD is "
-                    f"reachable from nothing",
+                    f"could not check out {plan.target_branch} — HEAD was "
+                    + (f"detached at {branch}" if branch == "HEAD"
+                       else f"on branch {branch!r}") +
+                    f", and a repair must land on {plan.target_branch}, which "
+                    f"is the ref every consuming project tracks",
                     [(co.stderr or "").strip()[-300:]])
                 return 1
             print(f"[repair-harness] moved the submodule from {branch} to "

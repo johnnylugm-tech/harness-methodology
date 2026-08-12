@@ -2134,6 +2134,10 @@
   bug: "checkout_plan's clobber refusal had exactly one production caller and it passed a hard-coded empty dirty list, so the refusal could not fire — a guard whose executor was wired to nothing, which is the母體 this very round is about"
   fixed_in: "R48-站8 (the live caller, with the real dirty set)"
 
+- test: tests/test_repair_harness.py::test_the_fixture_does_not_inherit_the_hosts_default_branch
+  bug: "the harness fixture used a bare `git init`, so its branch name came from the host's init.defaultBranch. Two --check-repro tests passed on the author's machine (git creates main) and failed on CI run 31613445606 (runner creates master) — the verdict was the environment's, not the code's. Asserting the branch alone would not bite on a main-defaulting host, so the guard injects the config"
+  fixed_in: "R48-站8 (git init -b main, pinned under an injected init.defaultBranch=master)"
+
 - test: tests/test_repair_harness.py::test_a_dirty_tree_already_on_main_needs_no_checkout_and_is_not_refused
   bug: "the refusal fired on any dirty tree, including one already on main where no checkout is needed. --land ALWAYS runs on a dirty tree — that is its precondition — so the over-broad predicate would have made the guard unusable at the only moment it matters"
   fixed_in: "R48-站8 (only a needed checkout can clobber)"

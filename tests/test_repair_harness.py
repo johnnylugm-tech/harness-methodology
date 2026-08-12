@@ -233,7 +233,13 @@ def _harness_repo(tmp_path, *, guards="guards:\n- test: a\n- test: b\n- test: c\
         "console.log(1)\n", encoding="utf-8")
     (root / "scripts" / "workflowgen" / "spec_phase1.py").write_text(
         "x = 1\n", encoding="utf-8")
-    for argv in (["init", "-q", "."], ["config", "user.email", "b@e.com"],
+    # `-b main` explicitly: a bare `git init` takes its branch name from
+    # ambient `init.defaultBranch`, and this fixture's verdicts depend on that
+    # name. Measured 2026-08-12 — CI run 31613445606 printed "HEAD was at
+    # master" while this machine's git creates `main`, so two `--check-repro`
+    # tests passed locally and failed on the runner. A test whose result is
+    # decided by the host's git config is not measuring the code.
+    for argv in (["init", "-q", "-b", "main", "."], ["config", "user.email", "b@e.com"],
                  ["config", "user.name", "Bot"], ["add", "-A"],
                  ["commit", "-q", "-m", "init"]):
         subprocess.run(["git", "-C", str(root), *argv], check=True,
@@ -364,6 +370,24 @@ def test_check_repro_refuses_to_move_a_submodule_with_uncommitted_edits(
     assert _run(tmp_path, _ticket(tmp_path), "check_repro") == 1
     assert "harness_cli.py" in capsys.readouterr().err
     assert _branch(root) == "HEAD", "a refusal must not move HEAD"
+
+
+def test_the_fixture_does_not_inherit_the_hosts_default_branch(tmp_path, monkeypatch):
+    """Otherwise this file's verdicts are the host's, not the code's.
+
+    CI run 31613445606: two `--check-repro` tests passed on the author's
+    machine and failed on the runner, whose git creates `master`. The refusal
+    printed "HEAD was at master" — the fixture had inherited
+    `init.defaultBranch`. Asserting the branch is not enough, because on a
+    main-defaulting host that assertion holds even with the bug; the config has
+    to be injected for the guard to bite everywhere.
+    """
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "master")
+
+    root = _harness_repo(tmp_path)
+    assert _branch(root) == "main"
 
 
 def test_a_dirty_tree_already_on_main_needs_no_checkout_and_is_not_refused():
