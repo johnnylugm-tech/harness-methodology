@@ -750,6 +750,65 @@ test('round48: a phase that halts records where it stopped, exactly once', async
   assert.match(recorded[0].prompt, /--phase 8 /, 'the record must name the phase it stopped in')
 })
 
+// ---- Round 48 站4: harness-repair, the workflow whose subject is harness ----
+// It is the only workflow that can edit the framework, so what matters is not
+// that it succeeds but that each refusal actually stops it. Four scenarios,
+// one per exit the design promises.
+const REPAIR = WF('harness-repair.js')
+const REPAIR_ARGS = { repo: '/sim/project', ticket: '/sim/project/.methodology/t.json' }
+
+test('round48: harness-repair refuses to start without a ticket', async () => {
+  const { result, events } = await runWorkflow(
+    REPAIR, makeHappyResponder([]), { args: { repo: '/sim/project' } },
+  )
+  assert.match(String(result.error ?? ''), /args\.ticket/)
+  assert.equal(events.agents.length, 0, 'not one dispatch may be spent without a ticket')
+})
+
+test('round48: harness-repair stops when the failure does not reproduce', async () => {
+  const { result, events } = await runWorkflow(
+    REPAIR,
+    makeHappyResponder([{ match: /^repair-repro$/, respond: { rc: 1 } }]),
+    { args: REPAIR_ARGS },
+  )
+  assert.match(String(result.error ?? ''), /did not reproduce/)
+  const labels = events.agents.map((a) => a.label)
+  assert.ok(!labels.some((l) => l.startsWith('repair-fix')),
+            'nothing may be edited before the failure is shown to be real')
+})
+
+test('round48: a rejected diagnosis stops the run before any edit', async () => {
+  const { result, events } = await runWorkflow(
+    REPAIR,
+    makeHappyResponder([
+      { match: /^repair-review$/, respond: { pass: false, reason: 'the named line is never reached' } },
+    ]),
+    { args: REPAIR_ARGS },
+  )
+  assert.match(String(result.error ?? ''), /adversarial review/)
+  const labels = events.agents.map((a) => a.label)
+  assert.ok(!labels.some((l) => l.startsWith('repair-fix')),
+            'a diagnosis that failed review must not reach the fixer')
+})
+
+test('round48: a land that keeps being refused never reports success', async () => {
+  const { result, events } = await runWorkflow(
+    REPAIR,
+    makeHappyResponder([{ match: /^repair-land-r/, respond: { rc: 1 } }]),
+    { args: REPAIR_ARGS },
+  )
+  assert.equal(result.repaired, undefined, 'a refused land is not a repair')
+  assert.match(String(result.error ?? ''), /did not land/)
+  assert.equal(events.agents.filter((a) => a.label.startsWith('repair-land-r')).length, 3,
+               'three rounds, then stop — not a fourth spent on a refusal it has failed to clear')
+})
+
+test('round48: a clean repair reports the submodule bump the project must make', async () => {
+  const { result } = await runWorkflow(REPAIR, makeHappyResponder([]), { args: REPAIR_ARGS })
+  assert.equal(result.repaired, true, JSON.stringify(result).slice(0, 300))
+  assert.ok(String(result.next.join(' ')).includes('harness pull'))
+})
+
 test('round48: a run that completes records no block at all', async () => {
   const { events } = await runAllFrom1()
   assert.equal(

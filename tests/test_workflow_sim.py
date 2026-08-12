@@ -99,4 +99,11 @@ def test_sim_testbed_passes():
     # be dropped from spec_runall.py and every other test in this file would
     # still pass, because none of them reached a halt and then looked at what
     # had been recorded.
-    assert int(m.group(1)) >= 97, f"sim suite shrank: only {m.group(1)} passing tests (floor 97)"
+    # 97 -> 102 by Round 48 站4: harness-repair joins the testbed with 5
+    # scenarios, one per exit its design promises (no ticket, no reproduction,
+    # a rejected diagnosis, three refused lands, a clean repair). The first run
+    # of them found a LIVE defect nothing else could see: the dispatch wrapper
+    # was being injected twice, so `dispatch` called itself and the run died on
+    # `Maximum call stack size exceeded`. node --check passed, --check passed,
+    # and all 130 workflow tests passed on that same file.
+    assert int(m.group(1)) >= 102, f"sim suite shrank: only {m.group(1)} passing tests (floor 102)"

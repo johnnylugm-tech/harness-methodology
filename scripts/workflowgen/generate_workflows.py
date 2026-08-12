@@ -34,27 +34,47 @@ GENERATORS = {
     8: (phase_specs.generate_phase8, "phase8-config.js"),
 }
 
-# Composite outputs: generated from the SAME per-phase generators above rather
-# than from a spec of their own, so they cannot drift from what the eight
-# phase files ship. Keyed by name because `--phase` means a methodology phase
-# number (1-8) and run-all is not one.
+# Outputs keyed by NAME rather than by phase number, because `--phase` means a
+# methodology phase (1-8) and neither of these is one. Two kinds live here:
+#
+#   run-all         composed from the eight per-phase generators above, so it
+#                   cannot drift from what those files ship;
+#   harness-repair  a standalone spec — its subject is harness-methodology
+#                   itself, not a project phase (Round 48 站4).
+#
+# Each entry's generator returns FINISHED text: run-all guards its inlined
+# bodies with its own driver, harness-repair applies the top-level boundary
+# itself. generate_composite therefore does not wrap, it just calls.
 COMPOSITES: dict[str, tuple[object, str]] = {}
 
 
 def _composites() -> dict[str, tuple[object, str]]:
-    # Imported lazily: spec_runall imports generate() from this module.
+    # Imported lazily: both specs import from this module.
     if not COMPOSITES:
+        from scripts.workflowgen.spec_repair import generate_repair
         from scripts.workflowgen.spec_runall import generate_runall
         COMPOSITES["run-all"] = (generate_runall, "run-all.js")
+        COMPOSITES["harness-repair"] = (generate_repair, "harness-repair.js")
     return COMPOSITES
 
 
 def generate_composite(name: str) -> str:
+    """Call the named generator. It returns FINISHED text — this does not wrap.
+
+    Round 48 站4 moved the dispatch-wrapper injection INTO each generator, and
+    it was not a stylistic move. This function used to inject, and when
+    harness-repair (which needs the top-level boundary, so it already had to
+    inject before wrapping) was added, the text got injected twice: the second
+    pass inserted a second wrapper AND rewrote the first wrapper's own
+    `await agent(` into `await dispatch(`, so `dispatch` called itself.
+
+    `node --check` passed. `generate_workflows.py --check` passed. All 130
+    workflow tests passed. The only thing that saw it was the simulation
+    testbed, where the run died with `Maximum call stack size exceeded` — which
+    is the whole reason Round 12 站1 built that testbed.
+    """
     fn, _ = _composites()[name]
-    # run-all inlines the per-phase generators' output, which generate() has
-    # already rewritten, so the wrapper must be injected once for the composite
-    # as a whole rather than per inlined section.
-    return _inject_dispatch_wrapper(fn())  # type: ignore[operator]
+    return fn()  # type: ignore[operator]
 
 
 def _inject_dispatch_wrapper(text: str) -> str:

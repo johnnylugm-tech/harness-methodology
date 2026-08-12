@@ -377,4 +377,12 @@ def generate_runall() -> str:
         "\n".join(bodies),
         _render_driver(all_titles),
     ]
-    return "\n".join(parts)
+    # Injected HERE, not by generate_composite (Round 48 站4): each composite
+    # generator now returns finished text, because harness-repair needs the
+    # top-level boundary applied AFTER the injection and a shared "wrap
+    # everything" step could only do one order. run-all still injects exactly
+    # once, over the assembled file — never per inlined body, which would emit
+    # eight `const __dispatchLog` declarations.
+    from .generate_workflows import _inject_dispatch_wrapper
+
+    return _inject_dispatch_wrapper("\n".join(parts))

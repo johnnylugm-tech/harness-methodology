@@ -47,7 +47,11 @@ from scripts.workflow_audit.extract import extract_js_agent_labels  # noqa: E402
 # same blind spot as one in a phase file.
 PHASE_FILES = sorted(
     [*(REPO / ".claude" / "workflows").glob("phase*.js"),
-     REPO / ".claude" / "workflows" / "run-all.js"]
+     REPO / ".claude" / "workflows" / "run-all.js",
+     # Round 48 站4: harness-repair joins for the same reason run-all did in
+     # Round 23 — an unregistered label here is the same blind spot, and this
+     # is the one workflow whose agents can edit the framework itself.
+     REPO / ".claude" / "workflows" / "harness-repair.js"]
 )
 
 # (label-literal regex, cls, verdict, note) — first match wins.
@@ -61,6 +65,29 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "Phase 1 would re-run requirements on an advanced project"),
     (r"^env-check$", "carrier", "schema",
      "run-env-check && finalize-env-check; RC= line transcribed to rc"),
+    # ── Round 48 站4: harness-repair. Every verdict comes from a harness CLI
+    #    exit code, never from the agent's prose — the ordinary rule, and it
+    #    matters more here because the agent is editing the code that produces
+    #    verdicts. The two `judgment` entries are the two steps whose OUTPUT is
+    #    the work: the diagnosis, and the argument against it.
+    (r"^repair-ticket$", "carrier", "schema",
+     "cat of the ticket JSON; owner==harness and a non-empty repro string "
+     "transcribed into VERDICT_SCHEMA"),
+    (r"^repair-repro$", "carrier", "schema",
+     "`repair-harness --check-repro` rc transcribed (RC_SCHEMA). rc=0 means "
+     "the reported failure REPRODUCED; the framework decides that, not the agent"),
+    (r"^repair-hypothesis$", "judgment", "none",
+     "the root-cause analysis IS the work product; deliberately unschematised "
+     "and gated by the adversarial reviewer below, not by a self-report"),
+    (r"^repair-review$", "judgment", "schema",
+     "adversarial challenge to the diagnosis; pass=false stops the run before "
+     "anything is edited (VERDICT_SCHEMA)"),
+    (r"^repair-fix-r$", "judgment", "none",
+     "applies the reviewed diagnosis; the land step below is the gate, so this "
+     "dispatch's own reply is never the verdict"),
+    (r"^repair-land-r$", "carrier", "schema",
+     "`repair-harness --land --push` rc transcribed (RC_SCHEMA) — that command "
+     "runs the counter-proof, the policy checks and the six-check self-gate"),
     (r"^record-block$", "carrier", "none",
      "Round 48 站2: fixed `harness_cli.py record-block` invocation at each of "
      "run-all's terminal exits. Deliberately ungated — the halt it records has "
