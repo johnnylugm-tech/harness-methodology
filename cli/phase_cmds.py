@@ -2089,11 +2089,26 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
     # component surfaces at setup, not deep inside Gate 3/4. No graceful degradation.
     _tools_ok, _missing_components = tool_checks.verify_all_gate_tools(str(project))
     if not _tools_ok:
+        # Round 47 站3: repair before blocking. run-phase is a caller that
+        # intends to prepare the tree, so it owns the fix — the same division
+        # Round 43 站1 drew when it moved the traceability auto-fix out of the
+        # measurement and into this command. The install commands used to be
+        # prose pointing at two documents; they are one SSOT now.
+        from harness.env_repair import repair_missing_tools
+        _outcome = repair_missing_tools(
+            project, tool_checks.all_missing_gate_tool_ids(str(project))
+        )
+        if _outcome.attempted_steps:
+            print(f"\n[REPAIR] run-phase: installed {', '.join(_outcome.attempted_steps)}")
+        _tools_ok, _missing_components = tool_checks.verify_all_gate_tools(str(project))
+    if not _tools_ok:
         print(
             "\n[BLOCKED] run-phase: required components not installed:\n"
             + "\n".join(f"  - {m}" for m in _missing_components)
-            + "\n  These are hard dependencies (no degradation). Install them, then re-run.\n"
-            "  See SKILL.md / harness/ssi/prompts/evaluate_dimension.md for install commands."
+            + "\n  These are hard dependencies (no degradation). Repair was attempted\n"
+            "  and did not resolve them — the framework installs pip packages into\n"
+            "  the project venv and nothing else (external binaries and npm-owned\n"
+            "  tools are yours). Install commands: harness/toolchains/bootstrap.py."
         )
         return 1
 

@@ -325,27 +325,50 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     # 11. Gate tool availability (blocking — all Tier 1 tools required before project start).
     # Driven by gate YAMLs so new requires_tool_execution entries are auto-detected.
     print("\n[11/11] Gate tool availability check...")
-    _missing_init: list[str] = []
-    for _gate_num in (1, 2, 3, 4):
-        # Gate configs come from the harness checkout; the language comes from
-        # the target project's freshly written state.json (state_root).
-        _, _missing = tool_checks.verify_gate_tools(
-            _gate_num, str(harness_root), state_root=str(project)
-        )
-        for _m in _missing:
-            if _m not in _missing_init:
-                _missing_init.append(_m)
+
+    def _gate_tool_gaps() -> "tuple[list[str], list[str]]":
+        """(human diagnostics, tool_ids) across all four gates.
+
+        Gate configs come from the harness checkout; the language comes from
+        the target project's freshly written state.json (state_root).
+        """
+        diagnostics: list[str] = []
+        ids: list[str] = []
+        for _gate_num in (1, 2, 3, 4):
+            _, _missing = tool_checks.verify_gate_tools(
+                _gate_num, str(harness_root), state_root=str(project)
+            )
+            for _m in _missing:
+                if _m not in diagnostics:
+                    diagnostics.append(_m)
+            for _t in tool_checks.missing_gate_tool_ids(
+                _gate_num, str(harness_root), state_root=str(project)
+            ):
+                if _t not in ids:
+                    ids.append(_t)
+        return diagnostics, ids
+
+    _missing_init, _missing_ids = _gate_tool_gaps()
+    if _missing_init:
+        # Round 47 站3: init-project exists to make a project ready, so it
+        # installs rather than printing three lines of unpinned prose (which
+        # were also the fourth and fifth copies of pins stated elsewhere —
+        # `pip install scancode-toolkit` unpinned next to CI's ==32.4.1).
+        from harness.env_repair import repair_missing_tools
+        _outcome = repair_missing_tools(project, _missing_ids)
+        if _outcome.attempted_steps:
+            print(f"  [REPAIR] installed {', '.join(_outcome.attempted_steps)}")
+        _missing_init, _missing_ids = _gate_tool_gaps()
     if _missing_init:
         print("  [BLOCKED] Required Tier 1 gate tools are not installed:")
         for _m in _missing_init:
             print(f"    ✗ {_m}")
         print(
-            "\n  All tools must be available before starting the project.\n"
+            "\n  Repair was attempted and did not resolve them. The framework\n"
+            "  installs pip packages into the project venv and nothing else —\n"
+            "  external binaries and npm-owned tools are yours to install.\n"
             "  tool_score=null is not accepted for Tier 1/2 dimensions (score.py R8).\n"
-            "  Install commands:\n"
-            "    pip install ruff mypy pytest pytest-cov 'mutmut<3'  # mutmut 2.x (3.x incompatible with most project layouts)\n"
-            "    pip install scancode-toolkit\n"
-            "    brew install gitleaks  # or: go install github.com/gitleaks/gitleaks/v8@latest\n"
+            "  Install commands: harness/toolchains/bootstrap.py.\n"
             "  Re-run init-project after installing."
         )
         return 1

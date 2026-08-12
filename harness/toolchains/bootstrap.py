@@ -70,7 +70,11 @@ __all__ = [
     "requirements_path",
     "requirements_packages",
     "step_for_tool",
+    "package_for_tool",
+    "pinned_spec",
+    "tools_for_step",
     "pip_args",
+    "install_command",
     "install_advice",
 ]
 
@@ -199,6 +203,17 @@ def requirements_pins() -> dict[str, str]:
         if match:
             pins[match.group(1).lower()] = match.group(2)
     return pins
+
+
+def package_for_tool(tool_id: str) -> "str | None":
+    """The pip requirement token that provides *tool_id*, when one is named.
+
+    Only `gate-extras` tools have a per-tool package: everything in the
+    requirements round comes from one `-r` install, and external/npm/builtin
+    tools have no pip package at all.
+    """
+    package = _GATE_EXTRA_PACKAGE.get(tool_id)
+    return pinned_spec(package) if package else None
 
 
 def pinned_spec(package: str) -> str:

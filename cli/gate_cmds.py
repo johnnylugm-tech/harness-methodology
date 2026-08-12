@@ -281,6 +281,41 @@ def _finalize_env_result(project: str, evaluated: dict) -> int:
     that contract is unchanged. The result file keeps its original schema, so
     finalize-env-check and the workflow JS cross-check need no changes.
     """
+    # ── Round 47 站5a: two lists, one verdict ────────────────────────────────
+    # `evaluated` answers the contract's question: are the env vars and tools
+    # THIS PROJECT's documents declare present? It has never been asked whether
+    # the tools the FRAMEWORK needs to score a gate are. Measured 2026-08-12,
+    # "registry requires, contract never mentions" across five live projects:
+    # taskq 16/16, run-all-by-workflow 16/16, taskq-plus 14/16, taskq-renew
+    # 12/16, taskq-advance 11/16 (whose contract names pip-licenses, which the
+    # framework never runs). All of them reported ready=true.
+    #
+    # The two lists are NOT merged. cli_tools entries are probed by
+    # probe_cli_tools, which resolves PATH binaries and importable packages;
+    # registry keys are tool_ids, several of which are neither
+    # (ast-assertions, readability-v2, pytest-cov, system-verification each
+    # carry their own check_cmd precisely because `which` cannot answer for
+    # them). Merging would push ast-assertions into a binary probe that must
+    # fail. Each list keeps its own prober; the verdict takes both, here —
+    # the one place Round 20 站1 left owning readiness → exit code.
+    _tools_ok, _missing_tools = tool_checks.verify_all_gate_tools(str(project))
+    if not _tools_ok:
+        from harness.env_repair import repair_missing_tools
+        _outcome = repair_missing_tools(
+            Path(project), tool_checks.all_missing_gate_tool_ids(str(project))
+        )
+        if _outcome.attempted_steps:
+            print(f"[REPAIR] env-check: installed {', '.join(_outcome.attempted_steps)}")
+        _tools_ok, _missing_tools = tool_checks.verify_all_gate_tools(str(project))
+    if not _tools_ok:
+        evaluated = dict(evaluated)
+        evaluated["ready"] = False
+        evaluated["gate_tools_missing"] = list(_missing_tools)
+        evaluated["summary"] = (
+            (evaluated.get("summary", "") + " | " if evaluated.get("summary") else "")
+            + "framework gate tools absent: " + "; ".join(_missing_tools)
+        )
+
     result_path = Path(project) / ".sessi-work" / "env_check_result.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(
@@ -289,9 +324,12 @@ def _finalize_env_result(project: str, evaluated: dict) -> int:
     if not evaluated.get("ready"):
         print(
             f"[BLOCKED] env-check: {evaluated.get('summary', 'environment not ready')}.\n"
-            f"  Verified against {env_contract.CONTRACT_RELPATH}; details in {result_path}.\n"
+            f"  Verified against {env_contract.CONTRACT_RELPATH} AND the gate configs;\n"
+            f"  details in {result_path}.\n"
             f"  Fix: export the missing variable(s) / install the missing tool(s), then\n"
             f"  re-run: python harness_cli.py run-env-check --phase <N> --project {project}\n"
+            f"  Repair installs pip packages into the project venv and nothing else;\n"
+            f"  install commands for the rest: harness/toolchains/bootstrap.py.\n"
             f"  If an item is listed there in error, correct its classification in\n"
             f"  {env_contract.CONTRACT_RELPATH} (it is a reviewable, version-controlled\n"
             f"  file) or re-run with --force-reclassify."
@@ -1080,12 +1118,23 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
     # "evaluate without tools, then install stub to pass finalize-gate".
     _tools_ok, _missing_tools = tool_checks.verify_gate_tools(args.gate, project)
     if not _tools_ok:
+        # Round 47 站3: run-gate PREPARES an evaluation, so it may repair.
+        # finalize-gate JUDGES one and deliberately may not — a tool that
+        # vanished between the two is a fact worth blocking on.
+        from harness.env_repair import repair_missing_tools
+        _outcome = repair_missing_tools(
+            Path(project), tool_checks.missing_gate_tool_ids(args.gate, project)
+        )
+        if _outcome.attempted_steps:
+            print(f"\n[REPAIR] run-gate: installed {', '.join(_outcome.attempted_steps)}")
+        _tools_ok, _missing_tools = tool_checks.verify_gate_tools(args.gate, project)
+    if not _tools_ok:
         print(
             f"\n[BLOCKED] run-gate: required tools not installed for Gate {args.gate}:\n"
             + "".join(f"  ✗ {m}\n" for m in _missing_tools)
-            + "\n  Install tools before starting evaluation.\n"
+            + "\n  Repair was attempted and did not resolve them.\n"
             "  tool_score=null is not accepted for Tier 1/2 dimensions (R8).\n"
-            "  See evaluate_dimension.md Step 1 for install commands."
+            "  Install commands: harness/toolchains/bootstrap.py."
         )
         return 8
 
@@ -1549,13 +1598,22 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
     project = str(project_path)
     fr_id = getattr(args, "fr_id", None) or None
 
-    # S0a: Tool availability
+    # S0a: Tool availability.
+    #
+    # Round 47 站3 wired env repair into the five callers that PREPARE
+    # (init-project, run-phase, run-gate, run-fr-step, env-check) and
+    # deliberately not into this one. finalize-gate is the judge: a tool that
+    # was there when run-gate produced the evidence and is gone now means the
+    # evidence and the verdict were measured against different environments.
+    # That is a fact worth blocking on, not one to install over.
     _tools_ok, _missing_tools = tool_checks.verify_gate_tools(args.gate, project)
     if not _tools_ok:
         print(
             f"\n[BLOCKED] Required tools not installed for Gate {args.gate}:\n"
             + "".join(f"  ✗ {m}\n" for m in _missing_tools)
-            + "\n  Install the missing tools and re-run finalize-gate.\n"
+            + "\n  Install the missing tools and re-run run-gate, then finalize-gate.\n"
+            "  finalize-gate does not repair the environment on purpose — it judges\n"
+            "  evidence, and repairing here would judge a tree the evidence never saw.\n"
             "  Tool scores must come from actual tool execution, not estimation."
         )
         return 8

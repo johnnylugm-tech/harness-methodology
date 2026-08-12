@@ -307,6 +307,22 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
 
     # 2. Pre-flight checks — must pass before agent dispatch
     preflight_ok, preflight_errors = _fr_step_preflight(step, project, fr_id, srs_path=srs_path)
+    if not preflight_ok and step in ("GATE1", "GATE1-DELTA", "CODE-FIX"):
+        # Round 47 站3: repair lives HERE, not inside _fr_step_preflight.
+        # A function whose whole contract is "(ok, errors)" must not install
+        # things — Round 43 站1 drew that line when it moved the traceability
+        # auto-fix out of preflight_traceability and into its caller. A P3 run
+        # is hours long; a tool can go missing after the phase entry that
+        # verified it, and this is the step that then needs it.
+        from harness.env_repair import repair_missing_tools
+        _gate1_missing = tool_checks.missing_gate_tool_ids(1, str(project))
+        if _gate1_missing:
+            _outcome = repair_missing_tools(project, _gate1_missing)
+            if _outcome.attempted_steps:
+                print(f"[REPAIR] run-fr-step: installed {', '.join(_outcome.attempted_steps)}")
+            preflight_ok, preflight_errors = _fr_step_preflight(
+                step, project, fr_id, srs_path=srs_path
+            )
     if not preflight_ok:
         print(f"\n[PRE-FLIGHT FAILED] run-fr-step --fr-id {fr_id} --step {step}", file=sys.stderr)
         for err in preflight_errors:

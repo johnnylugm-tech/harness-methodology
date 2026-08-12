@@ -22,6 +22,8 @@ __all__ = [
     "check_tool_for_dim",
     "verify_gate_tools",
     "verify_all_gate_tools",
+    "missing_gate_tool_ids",
+    "all_missing_gate_tool_ids",
 ]
 
 DIM_FALLBACK_CHECKS: dict[str, tuple[str, str]] = {
@@ -114,6 +116,59 @@ def check_tool_for_dim(
         return False, f"{dim_name}: {human_name} check failed"
 
 
+def _walk_gate_tools(
+    gate_num: int, project: str, state_root: str | None = None
+) -> "tuple[list[tuple[str, str | None, bool, str]], list[str]]":
+    """One walk of a gate's tool-scored dimensions, for two different readers.
+
+    Returns (rows, config_errors) where each row is
+    (dimension, resolved_tool_id, available, diagnostic).
+
+    Round 47 站3 extracted this because repair needs tool_ids and the existing
+    callers need human diagnostics. Recovering an id by parsing
+    "license_compliance: scancode-toolkit (scancode) not found" would be a
+    checker agreeing with its author instead of with the data (Round 19 站1),
+    so both answers come off the same walk instead.
+    """
+    from harness.toolchains import get_project_language, resolve_tool_id
+    target_root = state_root or project
+    language = get_project_language(target_root)
+    import yaml as _yaml
+    from core.quality_gate.gate_thresholds import gate_config_path as _gcp
+
+    cfg_path = _gcp(gate_num)
+
+    if not cfg_path.exists():
+        return [], [
+            f"gate config not found: {cfg_path} (gate {gate_num}). "
+            f"Expected framework-owned asset — is the harness checkout intact?"
+        ]
+
+    try:
+        cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except (_yaml.YAMLError, OSError) as exc:
+        return [], [f"gate config unreadable: {cfg_path.name} ({exc})"]
+
+    from harness.harness_bridge import filter_enabled_dimensions
+    cfg["dimensions"] = filter_enabled_dimensions(
+        cfg.get("dimensions", []), target_root
+    )
+
+    rows: list[tuple[str, str | None, bool, str]] = []
+    for dim in cfg.get("dimensions", []):
+        dim_name = dim.get("name", "")
+        requires_tool = dim.get("requires_tool_execution", False)
+        if not requires_tool:
+            continue  # LLM-evaluated dimension — skip tool check
+        tool_name = dim.get("tool")  # May be None for older configs
+        ok, diag = check_tool_for_dim(
+            dim_name, tool_name, language, project_root=target_root
+        )
+        resolved = resolve_tool_id(dim_name, language, yaml_tool=tool_name)
+        rows.append((dim_name, resolved, ok, diag))
+    return rows, []
+
+
 def verify_gate_tools(
     gate_num: int, project: str, state_root: str | None = None
 ) -> tuple[bool, list[str]]:
@@ -131,43 +186,39 @@ def verify_gate_tools(
 
     Returns (all_ok, missing_list).
     """
-    from harness.toolchains import get_project_language
-    target_root = state_root or project
-    language = get_project_language(target_root)
-    import yaml as _yaml
-    from core.quality_gate.gate_thresholds import gate_config_path as _gcp
+    rows, config_errors = _walk_gate_tools(gate_num, project, state_root)
+    if config_errors:
+        return False, config_errors
+    missing = [diag for _dim, _tool, ok, diag in rows if not ok and diag]
+    return len(missing) == 0, missing
 
-    cfg_path = _gcp(gate_num)
 
-    if not cfg_path.exists():
-        return False, [
-            f"gate config not found: {cfg_path} (gate {gate_num}). "
-            f"Expected framework-owned asset — is the harness checkout intact?"
-        ]
+def missing_gate_tool_ids(
+    gate_num: int, project: str, state_root: str | None = None
+) -> list[str]:
+    """The tool_ids a gate needs and cannot resolve — repair's input.
 
-    try:
-        cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-    except (_yaml.YAMLError, OSError) as exc:
-        return False, [f"gate config unreadable: {cfg_path.name} ({exc})"]
-
-    from harness.harness_bridge import filter_enabled_dimensions
-    cfg["dimensions"] = filter_enabled_dimensions(
-        cfg.get("dimensions", []), target_root
+    The same walk `verify_gate_tools` reports on, read for identity instead of
+    for prose. A dimension whose tool does not resolve to a registry id is
+    omitted: repair has nothing to install for it, and the human diagnostic
+    already names it.
+    """
+    rows, config_errors = _walk_gate_tools(gate_num, project, state_root)
+    if config_errors:
+        return []
+    return list(
+        dict.fromkeys(tool for _dim, tool, ok, _diag in rows if not ok and tool)
     )
 
-    missing: list[str] = []
-    for dim in cfg.get("dimensions", []):
-        dim_name = dim.get("name", "")
-        requires_tool = dim.get("requires_tool_execution", False)
-        if not requires_tool:
-            continue  # LLM-evaluated dimension — skip tool check
-        tool_name = dim.get("tool")  # May be None for older configs
-        ok, diag = check_tool_for_dim(
-            dim_name, tool_name, language, project_root=target_root
-        )
-        if not ok and diag:
-            missing.append(diag)
-    return len(missing) == 0, missing
+
+def all_missing_gate_tool_ids(project: str) -> list[str]:
+    """Every tool_id any gate needs and cannot resolve, in first-seen order."""
+    seen: list[str] = []
+    for gate_num in (1, 2, 3, 4):
+        for tool_id in missing_gate_tool_ids(gate_num, project):
+            if tool_id not in seen:
+                seen.append(tool_id)
+    return seen
 
 
 def verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
