@@ -156,6 +156,45 @@ def test_all_witnesses_passing_is_unchanged(project, monkeypatch):
     assert result.get("nfr_absent_witnesses") == [], result
 
 
+def test_the_fr_side_uses_the_word_it_already_has(tmp_path, monkeypatch):
+    """FR-01 with a skipped `[FR-01]` test is IN_PROGRESS, not VERIFIED.
+
+    `TraceStatus` already distinguishes "coded, not yet proven" from
+    "verified", so this needs no new status — and `in_progress` stays in
+    `ACTIVE_STATUSES`, so the 4a denominator does not move.
+    """
+    from scripts import build_traceability as bt
+
+    (tmp_path / "02-architecture").mkdir()
+    (tmp_path / "02-architecture" / "SAD.md").write_text("FR-01: alpha\n")
+    src = tmp_path / "03-development" / "src"
+    src.mkdir(parents=True)
+    (src / "alpha.py").write_text('"""[FR-01]"""\n')
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir()
+    (tests / "test_alpha.py").write_text(
+        'def test_alpha_happy():\n'
+        '    """[FR-01] the happy path."""\n'
+        '    assert True\n\n'
+        'def test_alpha_migration():\n'
+        '    """[FR-01] the round trip."""\n'
+        '    import pytest\n'
+        '    pytest.skip("too hard to test")\n',
+        encoding="utf-8",
+    )
+    rel = "03-development/tests/test_alpha.py"
+    _pin_outcomes(monkeypatch, {
+        f"{rel}::test_alpha_happy": "passed",
+        f"{rel}::test_alpha_migration": "skipped",
+    })
+
+    rt = bt.build_traceability(tmp_path)
+
+    assert rt.requirements["FR-01"].status.value == "in_progress", (
+        "one passing sibling in the same file used to make FR-01 verified"
+    )
+
+
 def test_the_matrix_says_partial_and_says_why(project, monkeypatch):
     """`VERIFIED` on a requirement with an absent witness is the shipped bug."""
     from scripts import build_traceability as bt

@@ -272,6 +272,36 @@ def resolve_threshold_effective(
     return threshold_4c
 
 
+def _measured_outcomes(project_path) -> "dict[str, str] | None":
+    """Per-function outcomes from the memoized suite run, or None.
+
+    `_parse_junit_outcomes` returns {} on parse failure OR when pytest's
+    collection phase aborted before any testcase ran (its own classname is
+    empty, so the parser skips it). Per its docstring callers must treat {}
+    as "no outcome data available", never as "zero tests ran" — otherwise
+    the outcome-aware scanners report 0% coverage on a project whose tests
+    cannot even be collected, masking the real failure (the test file itself)
+    behind a spurious traceability miss.
+    """
+    from core.quality_gate.test_suite_run import run_suite
+    suite_result = run_suite(project_path)
+    if suite_result.ran and suite_result.test_outcomes:
+        return suite_result.test_outcomes
+    return None
+
+
+def _fr_absent_witnesses(project_path) -> "dict[str, list[str]]":
+    """`{FR-XX: ["<file>::<func> (skipped)", ...]}` for the active FR scan."""
+    from core.traceability.scanner import scan_test_fr_absent_witnesses
+    from core.utils.project_layout import ProjectLayout
+    outcomes = _measured_outcomes(project_path)
+    if outcomes is None:
+        return {}
+    return scan_test_fr_absent_witnesses(
+        ProjectLayout(project_path).active_test_dir, outcomes, project_path,
+    )
+
+
 def compute_trace_dimension(project, gate: int) -> dict:
     """Compute the `traceability` gate dimension (PR 4).
 
@@ -312,7 +342,9 @@ def compute_trace_dimension(project, gate: int) -> dict:
         "threshold_4b": threshold_4b,
         "active_uncoded": [],
         "active_untested": [],
+        "fr_absent_witnesses": [],
         "nfr_untested": [],
+        "nfr_absent_witnesses": [],
         "blocking": True,
         "error": None,
     }
@@ -329,10 +361,16 @@ def compute_trace_dimension(project, gate: int) -> dict:
         completeness = report.get("completeness", {}) or {}
         missing = completeness.get("missing_mappings", {}) or {}
         active_uncoded, active_untested = _filter_active_frs(rt_full, missing)
-        total_active = sum(
-            1 for req in rt_full.requirements.values()
+        active_ids = {
+            req_id for req_id, req in rt_full.requirements.items()
             if req.status.value in ACTIVE_STATUSES
-        )
+        }
+        total_active = len(active_ids)
+        fr_absent = {
+            fr: witnesses
+            for fr, witnesses in _fr_absent_witnesses(project_path).items()
+            if fr in active_ids
+        }
         if total_active == 0:
             if rt_full.requirements and gate >= 2:
                 # FRs are defined in SAD.md but all still PENDING at Gate 2+:
@@ -348,13 +386,20 @@ def compute_trace_dimension(project, gate: int) -> dict:
             # `fr_without_test`. Subtracting both counts double-counts
             # the same FR. Use the set union (incomplete-FR set) so
             # each incomplete FR is counted once.
-            incomplete = active_uncoded | active_untested
+            # Round 46 站1: same rule as 4c below. An FR whose `[FR-XX]`
+            # reference (or whose `test_frNN.py` file) contains a test that
+            # did not run is not complete — `scan_test_fr_coverage` credits
+            # per file, so one passing sibling used to cover for it.
+            incomplete = active_uncoded | active_untested | set(fr_absent)
             complete = total_active - len(incomplete)
             pct_4a = round(max(0, complete) / total_active * 100, 2)
         result["4a_fr_to_test_pct"] = pct_4a
         if total_active > 0:
             result["active_uncoded"] = sorted(active_uncoded)
             result["active_untested"] = sorted(active_untested)
+            result["fr_absent_witnesses"] = sorted(
+                f"{f} ← {w}" for f in fr_absent for w in fr_absent[f]
+            )
     except Exception as e:
         result["error"] = f"4a: {e}"
         return result
@@ -373,10 +418,12 @@ def compute_trace_dimension(project, gate: int) -> dict:
     # Each NFR-XX ID in SRS.md must be referenced in at least one test file.
     nfr_pct = 100.0
     nfr_untested: list = []
+    nfr_absent_witnesses: list = []
     if gate >= 2:
         try:
             from core.traceability.scanner import (
                 extract_nfr_ids_from_srs,
+                scan_test_nfr_absent_witnesses,
                 scan_test_nfr_coverage,
             )
             from core.utils.project_layout import ProjectLayout
@@ -391,30 +438,34 @@ def compute_trace_dimension(project, gate: int) -> dict:
                 # Defect A fix: outcome-aware coverage. run_suite is
                 # memoized per-process (Round 25 SSOT) — this reuses the
                 # same measurement check_traceability() above already took.
-                from core.quality_gate.test_suite_run import run_suite
-                suite_result = run_suite(project_path)
-                # _parse_junit_outcomes returns {} on parse failure OR when
-                # pytest's collection phase aborted before any testcase ran
-                # (its own classname is empty, so the parser skips it — see
-                # _parse_junit_outcomes L376-377). Per its docstring,
-                # callers must treat {} as "no outcome data available",
-                # never as "zero tests ran" — otherwise the outcome-aware
-                # scanner below would report 0% NFR coverage on a project
-                # whose tests cannot even be collected, masking the real
-                # failure (the test file itself) and falsely blocking the
-                # gate on traceability instead of on the collection error.
-                test_outcomes = (
-                    suite_result.test_outcomes
-                    if (suite_result.ran and suite_result.test_outcomes)
-                    else None
-                )
+                test_outcomes = _measured_outcomes(project_path)
                 test_nfr_map = scan_test_nfr_coverage(
                     ProjectLayout(project_path).active_test_dir,
                     test_outcomes=test_outcomes, project_root=project_path,
                 )
-                covered = {n for n in nfr_ids if n in test_nfr_map}
+                # Round 46 站1: a requirement with a witness that did not run
+                # is not covered. `scan_test_nfr_coverage` grants credit per
+                # FILE, so one passing sibling used to cover for every skipped
+                # guard in the same file — taskq-advance shipped NFR-05/07/09
+                # VERIFIED that way while the tests asserting the missing
+                # README, the missing SBOM and the zero-skip rule all skipped
+                # themselves. Recomputed on that project this moves 4c from
+                # 12/12 = 100.0 to 9/12 = 75.0, under Gate 4's 90.
+                absent = (
+                    scan_test_nfr_absent_witnesses(
+                        ProjectLayout(project_path).active_test_dir,
+                        test_outcomes, project_path,
+                    )
+                    if test_outcomes is not None else {}
+                )
+                covered = {
+                    n for n in nfr_ids if n in test_nfr_map and n not in absent
+                }
                 nfr_pct = round(len(covered) / len(nfr_ids) * 100, 2)
                 nfr_untested = sorted(nfr_ids - covered)
+                nfr_absent_witnesses = sorted(
+                    f"{n} ← {w}" for n in nfr_ids & set(absent) for w in absent[n]
+                )
         except Exception as e:
             # Fail-closed: NFR scan errors (malformed/unreadable SRS) must not
             # silently pass as 100% coverage. Unlike 4a/4b which also set their
@@ -427,6 +478,10 @@ def compute_trace_dimension(project, gate: int) -> dict:
             result["error"] = (result["error"] or "") + f" 4c: {e}"
     result["4c_nfr_to_test_pct"] = nfr_pct
     result["nfr_untested"] = nfr_untested
+    # Named, not just counted: "NFR-07 is 25% short" sends nobody anywhere,
+    # "NFR-07 ← …::test_sbom_license_field (skipped)" names the file, the
+    # function and what happened to it.
+    result["nfr_absent_witnesses"] = nfr_absent_witnesses
 
     # Threshold for 4c matches 4b per gate (60%/80%/90% at G2/G3/G4)
     threshold_4c = threshold_4b

@@ -132,6 +132,124 @@ def _file_has_any_passing_test(rel: str, test_outcomes: Dict[str, str]) -> bool:
     )
 
 
+def _function_outcome(
+    rel: str, qualified_name: str, test_outcomes: Dict[str, str]
+) -> str:
+    """The one outcome to report for a function that did not pass.
+
+    Same key shapes as `_function_has_any_passing_test` — plain and
+    parametrized. When a parametrized function has several non-passing cases
+    the worst one is reported ("failed" over "error" over "skipped" is not a
+    ranking anyone needs; alphabetical `min` is stable and the names are
+    self-explanatory). "missing" means the function exists in the file but
+    pytest reported no case for it at all — it was never collected.
+    """
+    key = f"{rel}::{qualified_name}"
+    if key in test_outcomes:
+        return test_outcomes[key]
+    prefix = key + "["
+    variants = sorted(
+        status for k, status in test_outcomes.items() if k.startswith(prefix)
+    )
+    return variants[0] if variants else "missing"
+
+
+def _absent_witnesses(
+    tests_dir: Path,
+    project: Path,
+    language: Optional[str],
+    test_outcomes: Dict[str, str],
+    extract_ids,
+) -> Dict[str, List[str]]:
+    """`{req_id: ["<rel>::<func> (<outcome>)", ...]}` for every test function
+    that names a requirement and did not pass.
+
+    Round 46 站1. The two coverage scanners below already walk exactly these
+    functions and already ask `_function_has_any_passing_test`; when the
+    answer is no they `continue`, and the function is gone. Credit is granted
+    per FILE, so one passing sibling makes the whole file the requirement's
+    witness and the ones that did not run are never named by anything.
+
+    taskq-advance shipped Gate 4 with NFR-07 VERIFIED because
+    `test_licenses_in_allowlist` passed, while `test_sbom_license_field` and
+    `test_license_file_exists` — in the same file, testing the parts of
+    NFR-07 that were actually violated — skipped themselves with "SBOM.json
+    not found" and "LICENSE missing".
+
+    `extract_ids(rel, filename, segment) -> set[str]` is the only difference
+    between the FR and NFR walks, so it is the only thing passed in.
+    """
+    absent: Dict[str, List[str]] = {}
+    if not tests_dir or not tests_dir.is_dir():
+        return absent
+    for test_file in iter_test_files(tests_dir, language or project_language(project)):
+        try:
+            text = test_file.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(f"[WARN] traceability scanner: could not read {test_file}, "
+                  f"skipping it: {exc}", file=sys.stderr)
+            continue
+        rel = str(test_file.relative_to(project))
+        lines = text.splitlines()
+        for func_name, start, end in _test_function_ranges(text):
+            segment = "\n".join(lines[start - 1:end])
+            found = extract_ids(rel, test_file.name, segment)
+            if not found:
+                continue
+            if _function_has_any_passing_test(rel, func_name, test_outcomes):
+                continue
+            outcome = _function_outcome(rel, func_name, test_outcomes)
+            entry = f"{rel}::{func_name} ({outcome})"
+            for req_id in found:
+                if entry not in absent.setdefault(req_id, []):
+                    absent[req_id].append(entry)
+    for lst in absent.values():
+        lst.sort()
+    return absent
+
+
+def scan_test_fr_absent_witnesses(
+    tests_dir: Path,
+    test_outcomes: Dict[str, str],
+    project_root: Path,
+    language: Optional[str] = None,
+) -> Dict[str, List[str]]:
+    """FR-side companion to `scan_test_fr_coverage` — the functions it drops.
+
+    An FR is claimed by a `[FR-XX]` reference inside the function *or* by the
+    file's own `test_frNN.py` name, matching the two credit paths in
+    `scan_test_fr_coverage`.
+    """
+    def _ids(_rel: str, filename: str, segment: str) -> Set[str]:
+        ids: Set[str] = set()
+        for m in re.finditer(r'\[\s*((?:FR-\d+(?:,\s*)?)+)\s*\]', segment, re.IGNORECASE):
+            for inner in re.finditer(r'FR-(\d+)', m.group(1), re.IGNORECASE):
+                ids.add(_norm_fr(inner.group(1)))
+        name_match = TEST_FILENAME_PATTERN.match(filename)
+        if name_match:
+            ids.add(_norm_fr(name_match.group(1)))
+        return ids
+
+    return _absent_witnesses(
+        tests_dir, project_root, language, test_outcomes, _ids)
+
+
+def scan_test_nfr_absent_witnesses(
+    tests_dir: Path,
+    test_outcomes: Dict[str, str],
+    project_root: Path,
+) -> Dict[str, List[str]]:
+    """NFR-side companion to `scan_test_nfr_coverage` — the functions it drops."""
+    def _ids(_rel: str, _filename: str, segment: str) -> Set[str]:
+        return {
+            normalize_nfr_id(f"NFR-{m.group(1)}") or ""
+            for m in NFR_PATTERN.finditer(segment)
+        } - {""}
+
+    return _absent_witnesses(
+        tests_dir, project_root, None, test_outcomes, _ids)
+
+
 def _find_sad(project: Path) -> Optional[Path]:
     """Locate SAD.md in canonical locations; returns None if absent."""
     layout = ProjectLayout(project)
@@ -487,6 +605,11 @@ def check_traceability(
     tested: Set[str] = set(fr_to_tests.keys())
     untested = [fr for fr in sad_frs if fr not in tested]
     uncoded = [fr for fr in sad_frs if fr not in coded]
+    fr_absent = (
+        scan_test_fr_absent_witnesses(
+            ProjectLayout(project).active_test_dir, test_outcomes, project)
+        if test_outcomes is not None else {}
+    )
 
     rt = RequirementTraceability(project_id=project.resolve().name)
     for fr_id in all_frs:
@@ -501,7 +624,9 @@ def check_traceability(
         # the scanner's status filter) then drops the FR from the
         # denominator entirely, masking the gap.
         has_module = fr_id in fr_to_modules
-        if has_code and has_test:
+        # Round 46 站1: kept in step with build_traceability's copy above —
+        # an FR whose claiming test did not run is IN_PROGRESS, not VERIFIED.
+        if has_code and has_test and fr_id not in fr_absent:
             status = TraceStatus.VERIFIED
         elif has_code or has_module:
             status = TraceStatus.IN_PROGRESS

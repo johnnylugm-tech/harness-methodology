@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "6486180364fd921aa3b787525f5754127efe8572",
-  "content_sha256": "5d88d4e42d1925e01c4b106e667c4b77a04bc0106f8d1e1dbd3c552293825583",
+  "git_sha": "100b16cb17ca1546d9d5a6d22db2b00235c8c8ca",
+  "content_sha256": "43a6d437faf1b7e9c421c99edbb9d3c1e3d60cba0ce22cef351b4ca4b3ab18a9",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 118,
+      "total_links": 120,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-06",
@@ -67,6 +67,7 @@
           "tests/test_overlay_merge.py",
           "tests/test_policy_engine.py",
           "tests/test_preflight_auto_fix_dispatch.py",
+          "tests/test_requirement_witness_absent.py",
           "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_mutation_coverage.py",
           "tests/test_scanner_unification.py",
@@ -91,6 +92,7 @@
           "tests/test_overlay_merge.py",
           "tests/test_policy_engine.py",
           "tests/test_preflight_auto_fix_dispatch.py",
+          "tests/test_requirement_witness_absent.py",
           "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_mutation_coverage.py",
           "tests/test_scanner_unification.py",

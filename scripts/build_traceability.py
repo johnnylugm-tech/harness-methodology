@@ -35,7 +35,9 @@ from core.traceability.scanner import (  # noqa: E402
     extract_fr_ids_from_sad,
     extract_nfr_ids_from_srs,
     scan_python_fr_annotations,
+    scan_test_fr_absent_witnesses,
     scan_test_fr_coverage,
+    scan_test_nfr_absent_witnesses,
     scan_test_nfr_coverage,
     scan_sad_fr_modules,
 )
@@ -100,6 +102,11 @@ def build_traceability(
         else None
     )
     test_fr_map = scan_test_fr_coverage(tests_dir, test_outcomes=test_outcomes, project_root=project)
+    # Round 46 站1: the FR-side witnesses the coverage scan refuses to credit.
+    fr_absent = (
+        scan_test_fr_absent_witnesses(tests_dir, test_outcomes, project)
+        if test_outcomes is not None else {}
+    )
 
     # 4. Merge all FR IDs
     all_frs: Set[str] = set(sad_frs)
@@ -115,7 +122,12 @@ def build_traceability(
         has_code = fr_id in code_fr_map
         has_test = fr_id in test_fr_map
         has_module = fr_id in sad_modules
-        if has_code and has_test:
+        # Round 46 站1: an FR with a test that claims it and did not run is
+        # IN_PROGRESS, not VERIFIED — the existing vocabulary already has the
+        # right word for "coded, not yet proven", so no new status is needed.
+        # `scan_test_fr_coverage` credits per file, so one passing sibling
+        # used to make the whole file the FR's witness.
+        if has_code and has_test and fr_id not in fr_absent:
             status = TraceStatus.VERIFIED
         elif has_code or has_module:
             status = TraceStatus.IN_PROGRESS
@@ -157,10 +169,23 @@ def build_traceability(
         )
         if nfr_ids else {}
     )
+    # Round 46 站1: the witnesses the coverage scan refuses to credit. Without
+    # them a requirement whose guard skipped itself is indistinguishable from
+    # one that was never tested at all — and reads as VERIFIED because a
+    # sibling in the same file passed.
+    nfr_absent = (
+        scan_test_nfr_absent_witnesses(
+            ProjectLayout(project).active_test_dir, test_outcomes, project,
+        )
+        if (nfr_ids and test_outcomes is not None) else {}
+    )
     # Use setattr to avoid Pyright complaints about unknown attribute.
     setattr(rt, "nfr_data", {
         "nfr_ids": sorted(nfr_ids),
         "nfr_test_coverage": {nfr: test_nfr_map.get(nfr, []) for nfr in sorted(nfr_ids)},
+        "nfr_absent_witnesses": {
+            nfr: nfr_absent.get(nfr, []) for nfr in sorted(nfr_ids)
+        },
     })
 
     return rt
@@ -192,13 +217,28 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
     nfr_ids = nfr_data.get("nfr_ids", [])
     if nfr_ids:
         nfr_cov = nfr_data.get("nfr_test_coverage", {})
+        nfr_absent = nfr_data.get("nfr_absent_witnesses", {})
         lines = ["\n## Non-Functional Requirements\n",
                  "| NFR ID | Test Coverage | Status |",
                  "|--------|--------------|--------|"]
         for nfr_id in nfr_ids:
             tests = nfr_cov.get(nfr_id, [])
-            status = "VERIFIED" if tests else "PENDING"
+            absent = nfr_absent.get(nfr_id, [])
+            # Round 46 站1: three states, not two. PARTIAL is the honest name
+            # for "some of this requirement's tests passed and some never ran";
+            # calling it VERIFIED is what let taskq-advance ship NFR-05/07/09
+            # as verified while their SBOM, README and zero-skip guards were
+            # skipping themselves. The absent witnesses are printed here rather
+            # than counted — the row has to say who did not show up.
+            if absent:
+                status = "PARTIAL"
+            elif tests:
+                status = "VERIFIED"
+            else:
+                status = "PENDING"
             test_names = ", ".join(Path(t).name for t in tests) if tests else "—"
+            if absent:
+                test_names += " — absent: " + ", ".join(absent)
             lines.append(f"| {nfr_id} | {test_names} | {status} |")
         markdown = markdown + "\n" + "\n".join(lines) + "\n"
 
