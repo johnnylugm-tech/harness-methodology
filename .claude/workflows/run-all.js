@@ -3326,7 +3326,8 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
     + '  {"deliverable":"quality_manifest","review_status":"APPROVE","reason":"<concise>","citations":["file:line"],"docs_embedded":["QUALITY_REPORT.md","RELEASE_NOTES.md","FINAL_SIGN_OFF.md","VERIFICATION_REPORT.md"],"gaps":[]}\n'
     + ']}\n'
     + 'CRITICAL: "docs_embedded" must list ALL 4 required embedded docs (QUALITY_REPORT.md, RELEASE_NOTES.md, FINAL_SIGN_OFF.md, VERIFICATION_REPORT.md) — NOT just the deliverable being reviewed. The harness _verify_agent_b_approvals_core checks every verdict includes every required doc (Bug v26 basename-match contract).\n'
-    + 'Each "reason" must be ≥100 chars of substantive justification (not "APPROVE" or one-word). Each "gaps" array is empty when review_status is APPROVE. Each "citations" must include ≥1 file:line you actually cat-ed.\n\n'
+    + 'Each "reason" must be ≥100 chars of substantive justification (not "APPROVE" or one-word). Each "gaps" array is empty when review_status is APPROVE. Each "citations" must include ≥1 file:line you actually cat-ed.\n'
+    + '"review_status" MUST be exactly "APPROVE" or "REJECT" (case-sensitive) — no other spelling or synonym (e.g. "APPROVED", "Approve", "PASS") is accepted.\n\n'
     + 'SCOPE RULES:\n- DO NOT run advance-phase / git tag / run-gate.\n- DO NOT modify harness/ (HR-17).\n- DO NOT write any files (workflow writes approval JSON; you only review content).',
     { label: 'peer-review-r' + attempt, phase: 'P6 · Peer Review', agentType: 'general-purpose' },
   )
@@ -3344,6 +3345,9 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
       }
       if (!Array.isArray(v.citations) || v.citations.length < 1) {
         throw new Error('verdict for ' + v.deliverable + ' has empty citations[] — agent_b_approvals.py hard-blocks this at advance-phase')
+      }
+      if (!['APPROVE', 'REJECT', 'CANCELLED'].includes(v.review_status)) {
+        throw new Error('verdict for ' + v.deliverable + ' has invalid review_status: ' + JSON.stringify(v.review_status) + ' (must be APPROVE/REJECT/CANCELLED per schemas/b_review.schema.json)')
       }
     }
     peerVerdict = parsed
