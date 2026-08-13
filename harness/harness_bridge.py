@@ -76,6 +76,11 @@ class DimResult:
     score: Optional[float]
     threshold: float
     issues: list[dict] = field(default_factory=list)
+    # Who produced `score` — one of the SCORE_SOURCE_* constants, or None for
+    # a record written before Round 50 站2. None keeps the old meaning
+    # (counted as measured); absence of the field is not evidence the number
+    # was unverified, and no recorded verdict is re-judged.
+    score_source: Optional[str] = None
 
 
 @dataclass
@@ -269,6 +274,25 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
 SCORE_SOURCE_FRAMEWORK = "framework"
 SCORE_SOURCE_FRAMEWORK_NA = "framework_na"
 
+# Round 50 站2. The vocabulary had two words for what the framework did and
+# none for what it could not do, so "the agent claimed this and nothing
+# checked it" had no way to be written down — and `measurement_scope`, which
+# exists to publish what a composite was averaged over, counted such a number
+# as covered quality surface because the field was not None.
+#
+# Measured on a real Gate 4: composite 95.2776 over `weight_covered: 1.0`,
+# with `performance: 100.0` an agent value the framework had tried and failed
+# to reproduce (the ledger row for that failure is in the same run's
+# degradations.jsonl). One sixteenth of the weight was not measured and the
+# denominator said otherwise.
+#
+# This marks the state; it does not create it. S4 blocks on an unverifiable
+# dimension, so a verdict carrying this marker is one that reached the writer
+# by some path that skipped the block — which is exactly the question the
+# next reader will need answered, and the answer has to survive in the
+# artifact rather than in a ledger line beside it.
+SCORE_SOURCE_AGENT_UNVERIFIED = "agent_unverified"
+
 # Dimensions the framework scores itself inside finalize_gate (crg_independent /
 # community_cohesion) rather than by re-running the `tool:` named in the gate
 # YAML. S4 skips them, so they are also outside the set whose None the verdict
@@ -334,8 +358,19 @@ def measurement_scope(
     only where the framework RAN the tool, and a flag-disabled dimension never
     reaches that loop.
     """
-    scored = sorted(d.name for d in dims if d.score is not None)
-    unscored = sorted(d.name for d in dims if d.score is None)
+    # Round 50 站2: "has a number" is not "was measured". A score the
+    # framework tried to reproduce and could not (SCORE_SOURCE_AGENT_UNVERIFIED)
+    # is the agent's claim standing alone, and counting its weight as covered
+    # is the denominator overstating itself. A score with no recorded source
+    # predates this field and keeps its old meaning.
+    scored = sorted(
+        d.name for d in dims
+        if d.score is not None and d.score_source != SCORE_SOURCE_AGENT_UNVERIFIED
+    )
+    unscored = sorted(
+        d.name for d in dims
+        if d.score is None or d.score_source == SCORE_SOURCE_AGENT_UNVERIFIED
+    )
     return {
         "weight_covered": round(sum(weights.get(n, 0.0) for n in scored), 10),
         "weight_total": round(sum(weights.values()), 10),
@@ -482,6 +517,7 @@ def _override_adversarial_review_dim_score(
         _new_dims.append(DimResult(
             name="adversarial_review", score=verdict.score,
             threshold=100.0, issues=issues,
+            score_source=SCORE_SOURCE_FRAMEWORK,
         ))
         _changed = True
         print(
@@ -1691,6 +1727,12 @@ def _run_harness_cross_validation(
             # that decides whether the round traded a false accusation for a
             # silent one — it records the gap and blocks under `infra_fail`,
             # which is the framework's problem to fix, not the project's.
+            # Round 50 站2: mark the dimension as well as the ledger. The
+            # ledger row lives beside the verdict; this lives IN it, so a
+            # reader of the gate result alone can tell an agent's unchecked
+            # number from a measured one — and `measurement_scope` stops
+            # counting its weight as covered.
+            _dim_entry["score_source"] = SCORE_SOURCE_AGENT_UNVERIFIED
             from core.degradation_ledger import record_degradation
             record_degradation(
                 ctx.project_root, f"gate:s4:{dim_name}",
@@ -2883,6 +2925,11 @@ class HarnessBridge:
                 score=score,
                 threshold=threshold,
                 issues=dim_data.get("issues", []),
+                # Written by S4 above (_mark_framework_na, the framework-score
+                # write-back, the unverifiable branch). Reading it here is what
+                # carries the provenance into the verdict and its denominator
+                # instead of leaving it in the breakdown dict nobody consults.
+                score_source=dim_data.get("score_source"),
             ))
 
         # Remove any agent-reported dims whose feature is disabled.
@@ -3071,6 +3118,7 @@ class HarnessBridge:
                         score=float(_arch_score),
                         threshold=float(_dim_thresholds.get("architecture", 0.0)),
                         issues=[],
+                        score_source=SCORE_SOURCE_FRAMEWORK,
                     ))
                     _crg_overrides_applied = True
                     print(
