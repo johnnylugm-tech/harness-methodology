@@ -862,3 +862,85 @@ Read it with:
   — runs the three checks and appends the verdict.
 - `advance-phase` re-derives the digest and refuses an exit gate with no
   matching PASS (exit 34). `verify-gate` itself exits 33 when a check fails.
+
+---
+
+## One log file, one row shape (Round 50 站5)
+
+`.methodology/sessions_spawn.log` has had two writers since Round 26 站5, and
+until Round 50 no place said what a row looks like. Measured on taskq-api's
+full P1–P8 run — 292 rows, 176 Python-side, 116 workflow-side, five fields in
+common:
+
+| Field group | Python rows | Workflow rows | Why |
+|---|---|---|---|
+| `timestamp` `role` `task` `session_id` `status` | ✅ | ✅ | written by `log_spawn` for both |
+| `substrate` | ✅ (stamped since 站5) | ✅ | see below |
+| `total_cost_usd` `num_turns` `usage` `duration_api_ms` | ✅ | ❌ | the envelope exists only on the Python side |
+| `duration_seconds` `exit_code` `dispatch_attempt` `retry_round` | ✅ | ❌ | needs a clock and a process |
+| `phase` `fr_id` `regression_flags` | ✅ | ❌ | per-FR dispatch context |
+| `phase_label` `reply_chars` | ❌ | ✅ | the workflow has a box name and a reply length |
+
+`core/spawn_log_schema.py` is that statement. `REQUIRED_FIELDS` /
+`OPTIONAL_FIELDS` is the whole vocabulary; `PYTHON_ONLY_FIELDS` is the part a
+workflow row **structurally cannot** carry.
+
+### The reader was the defect, not either writer
+
+`run-report` divided "rows carrying a cost" by "all rows":
+
+```
+before   cost_entries_with_data 152 / cost_entries_total 292   (52%)
+after    cost_entries_with_data 152 / cost_entries_total 176   (86%)
+         cost_entries_excluded_substrate 116
+```
+
+A run whose every cost-capable dispatch recorded its cost read as 48% of the
+spending lost. `rows_that_can_carry(rows, field)` is the fix: a per-field
+metric divides by the population that could have answered it, and the excluded
+population is **named** rather than counted.
+
+### `substrate` is stamped, not inferred
+
+A Python row used to carry no substrate marker, so a reader recovered it from
+the ABSENCE of envelope fields — the same shape this round is about. It is now
+written by `log_spawn`. It stays in `OPTIONAL_FIELDS` because the rows already
+on disk predate the stamp, and a validator that called an existing file
+malformed would be describing its own newness.
+
+### Adding a field
+
+Add it to `core/spawn_log_schema.py` first. Both directions are enforced:
+`tests/test_spawn_log_schema.py` reads the **shipped** `run-all.js` for the
+generated writer (Round 36: the delivered copy is the one that counts) and
+AST-scans the Python writers' call sites. `log-dispatch` also reports an
+unknown field on stderr at runtime — after the write, because a row nobody has
+a name for is still a row that happened.
+
+---
+
+## A halt carries the step it happened at (Round 50 站3)
+
+`.methodology/workflow_blocks.jsonl` held **one row** for taskq-api's whole
+P1–P8 run, during which the degradation ledger recorded 31 real stoppages.
+
+The plan's reading was that the halts were unrecorded. Measurement said
+otherwise: of the eight phase workflows' terminal `return { error: ... }`
+sites, 55 are top-level, all of them reach run-all's phase loop, and all of
+them are recorded. They are recorded under **one name** — `phase-error` —
+because the returned shape carried no coordinate.
+
+The event was never lost. The place it happened was. So the fix is not 55
+calls to a recorder (that is Round 36's shape, one fact stated N times) but a
+single producer of the shape:
+
+```js
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+```
+
+hoisted once per generated file, and the driver reads `halt_step` back when it
+records the block. `tests/test_workflow_js_conventions.py` refuses a bare
+`return { error:` in generated JS, so the next one cannot go back to being
+anonymous.

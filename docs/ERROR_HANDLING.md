@@ -811,3 +811,39 @@ across 3h11m for $6.02, and the ledger held four lines for the whole run, none
 of them about the repetition. Every counter that could have noticed —
 `_turn_budget_escalated`, `_wallclock_escalated`, `no_progress_count` — is a
 local of `cmd_run_fr_step`, and the execution model is one process per step.
+
+---
+
+## The owner is written where it is known (Round 50 站4)
+
+Round 48 站1 made fault attribution a first-class field and classified it at
+the END of the pipeline, by matching the halt message against a rule table.
+Measured on taskq-api's full P1–P8 run: **9 of 9 real messages returned
+UNKNOWN**, and the one block that did land carried
+
+```
+HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps
+owner: unknown   evidence: "no exit code, and the message matched no registered attribution rule"
+```
+
+while being a genuine harness bug — fixed by hand in `11c4eaf`. The framework's
+own repair workflow, built in Round 48 站4, did not start on the one real
+occasion it had.
+
+Round 48's Self-Review had already ruled on this case in advance:
+
+> 四起裡若分不出三起以上，代表分類器需要的是**新的證據來源**，而不是更多規則。
+
+0 of 9 is that condition. The evidence source moved rather than the rule count
+growing: **every `record_degradation` call site now states its owner**, because
+the site knows. `tests/test_degradation_owner.py` AST-scans `core/`, `cli/`,
+`harness/` and `scripts/` and refuses a call without an explicit `owner=` from
+`core.fault_owner.ALL_OWNERS`. The 42 sites break down 19 harness / 13 project
+/ 6 infra / 2 unknown.
+
+`unknown` is a legitimate answer and stays available. What is no longer
+available is silence — a site that has not decided still writes the row, and
+says that it has not decided. `classify_fault(text=...)` remains as the last
+resort for messages that arrive with no owner attached; when it now says
+UNKNOWN, that is a real absence of evidence rather than evidence dropped in
+transit.

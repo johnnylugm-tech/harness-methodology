@@ -2173,3 +2173,55 @@
 - test: tests/test_workflow_sim.py::test_sim_testbed_passes
   bug: "the dispatch wrapper was being injected twice into harness-repair.js, so `dispatch` called itself and the run died on `Maximum call stack size exceeded`. node --check passed, generate_workflows.py --check passed, and all 130 workflow tests passed on that same file — only the simulation testbed saw it"
   fixed_in: "R48-站4 (generate_composite no longer wraps; each composite generator returns finished text)"
+
+- test: tests/test_benchmark_scoring.py::test_the_number_comes_from_the_report_not_the_table
+  bug: "_score_pytest_benchmark parsed pytest-benchmark's TERMINAL TABLE, and the shape of that table depends on the numbers in it — a relative-multiplier column appears once there are two benchmarks to compare, and values over 999 get a thousands separator. Against taskq-api's real output the regex matched zero rows, which Round 46 站3's rule then correctly turned into None: the framework ran the tool, got real output, and could not produce a number. The earlier fixture that made this look fine had ONE benchmark under 1000, so the equivalence held only on framework-authored data"
+  fixed_in: "R50-站1 (--benchmark-json + ToolSpec.output_artifact; the rendering is for humans, the report is the measurement)"
+
+- test: tests/test_benchmark_scoring.py::test_the_tool_spec_asks_for_the_report_it_will_be_scored_from
+  bug: "the scorer reads an artifact the ToolSpec's command has to have written. Two statements of one path drift the first time either moves, and the failure mode is silent (no report -> None -> 'could not measure')"
+  fixed_in: "R50-站1"
+
+- test: tests/test_score_provenance.py::test_an_unverified_agent_score_is_not_covered_weight
+  bug: "measurement_scope counted a dimension as measured when `score is not None`, which is true of a number the agent wrote about itself. taskq-api's Gate 4 published composite 95.2776 over weight_covered 1.0 with performance = 100.0 — a value the framework had run the tool for and failed to reproduce (see the benchmark guard above). 'Was this measured' was answered by 'is the field populated'"
+  fixed_in: "R50-站2 (SCORE_SOURCE_AGENT_UNVERIFIED; the selection reads who produced the number)"
+
+- test: tests/test_workflow_js_conventions.py::test_every_terminal_halt_goes_through_the_halt_helper
+  bug: "the eight generated phase workflows carried 55 top-level `return { error: ... }` sites. Every one reached run-all's phase loop and was recorded — under the single name 'phase-error', because the shape carried no coordinate. `.methodology/workflow_blocks.jsonl` had one row for a P1-P8 run in which the degradation ledger recorded 31 real stoppages. The event was not lost; the place it happened was"
+  fixed_in: "R50-站3 (hoisted halt(step, shape) in the generation layer — one producer, not 55 statements)"
+
+- test: tests/test_workflow_blocks.py::test_a_halt_is_recorded_with_its_coordinate
+  bug: "the ledger row for a halt has to carry the step, or every halt in a phase collapses into one signature and 'this project blocks at P4 preflight every time' stops being a queryable fact"
+  fixed_in: "R50-站3"
+
+- test: tests/test_degradation_owner.py::test_every_degradation_site_states_an_owner
+  bug: "42 record_degradation call sites, and the owner was recovered afterwards by running a regex classifier over framework-authored prose — 0 of 9 real halt messages from a full P1-P8 run were attributable. Round 48's own Self-Review had pre-committed to the consequence: if the classifier cannot separate them, what it needs is a new evidence SOURCE, not more rules. The owner is known at the write site and was being thrown away there"
+  fixed_in: "R50-站4 (owner= is required at every site; the AST scan is the completeness check)"
+
+- test: tests/test_block_reason_registry.py::test_every_scoreable_dimension_has_its_own_remediation
+  bug: "`.methodology/lessons/` held 42 files whose Fix field was the same sentence 42 times — 'Review dimension-specific issues in SSI output'. record_gate_block renders that fallback for any dimension absent from DIMENSION_HINTS, and six scoreable dimensions were absent. A cross-round failure memory that always says the same thing is not a memory"
+  fixed_in: "R50-站4d (the six hints; the reconciliation runs against the gate configs, so a new dimension cannot arrive without one)"
+
+- test: tests/test_mutmut_scope_module_shapes.py::test_leaf_modules_resolve_to_paths_that_exist
+  bug: "resolve_mutation_scope turned every SAB module name into a directory path, so a leaf module (`taskq.repository.task_repo`, on disk as task_repo.py) resolved to something that does not exist and the caller discarded the whole scope. Measured on a real P2->P3 handoff: eight scope paths, eight ledger entries reporting paths 'the project does not have', all eight modules present as .py files. Round 30 站1 supplied the producer and nobody checked what it produced. detection.drift_detector.sab_module_to_path_variants has known the two on-disk shapes since Round 6"
+  fixed_in: "R50-站4b (third consumer of the existing variant resolver; a genuinely absent module stays visible so the caller can still report it)"
+
+- test: tests/test_delivery_scope.py::test_every_methodology_path_is_bookkeeping_or_a_deliverable
+  bug: "HARNESS_VOLATILE_PATHS was a hand-written list of twelve filenames. Round 48 站2's new .methodology/workflow_blocks.jsonl was not in it and neither was .methodology/agent_b_approvals/, so the framework's own observation and approval artifacts blocked the framework's own milestone commits — measured six times across P2 and P6. The mirror of Round 39's shape: not a removed mechanism's survivor, a new mechanism's unregistered output"
+  fixed_in: "R50-站4c (both registries are complete over what the framework writes under .methodology/; 'unknown' is not an available answer)"
+
+- test: tests/test_spawn_log_schema.py::test_the_generated_workflow_writer_emits_only_known_fields
+  bug: ".methodology/sessions_spawn.log has two writers and had no schema. The generated JS is the one whose field names are never reviewed alongside the reader, and it is read from the SHIPPED run-all.js here because that is the copy that runs (Round 36)"
+  fixed_in: "R50-站5 (core/spawn_log_schema.py)"
+
+- test: tests/test_run_report.py::TestSpawnLogReport::test_workflow_rows_are_not_in_the_cost_denominator
+  bug: "run-report divided 'rows carrying a cost' by 'all rows'. The Workflow substrate has no process envelope and no clock, so its 116 rows cannot carry one — a run whose every cost-capable dispatch recorded its cost read as 152/292, i.e. 48% of the spending apparently lost. The denominator stood for a population it was not"
+  fixed_in: "R50-站5 (rows_that_can_carry; the excluded population is named, not counted)"
+
+- test: tests/test_evidence_survives_advance.py::test_the_audit_file_survives_the_cleanup_advance_performs
+  bug: "S4 wrote the raw tool output it judged to .sessi-work/harness_verification/ and told the operator to go read it; advance-phase deletes .sessi-work/ at every phase transition. Both behaviours are correct alone. Together, the audit trail for a gate verdict is gone one advance later — measured when this round tried to establish why a Gate 4 that recorded a cross-validation gap at 06:19 published PASS at 06:29, and could not, because the directory no longer exists. The investigation into the defect was stopped by the defect"
+  fixed_in: "R50-站6 (core/evidence_retention.py: the cleared list and the audit directory are one statement; the file lives under .methodology/gate_evidence/ with Round 45 站1's size ceiling)"
+
+- test: tests/test_evidence_survives_advance.py::test_advance_clears_exactly_what_the_list_says
+  bug: "if advance-phase names its scratch directory itself, the retention rule becomes documentation of a behaviour rather than the behaviour, and the two drift the first time a second scratch directory is added"
+  fixed_in: "R50-站6"
