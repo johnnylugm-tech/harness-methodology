@@ -74,6 +74,6 @@ def record_dimension_scope(
             why=(f"features.{disabled[dim]} is false in "
                  f".methodology/harness_config.json — the dimension is not "
                  f"measured, not compared against its threshold, and not "
-                 f"blocking"),
+                 f"blocking"), owner="project"
         )
     return sorted(disabled)

@@ -1196,7 +1196,7 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
                 str(_project_root_path), "gate:S6-exclusion-vcs",
                 f"could not verify {_excl_file} is tracked by git ({_git_exc})",
                 why=f"the {_dim_name} score was accepted without its exclusion "
-                    f"file being checked into version control",
+                    f"file being checked into version control", owner="harness"
             )
 
     # Evidence format patterns are keyed by the RESOLVED tool id — a TS
@@ -1738,7 +1738,7 @@ def _run_harness_cross_validation(
                 ctx.project_root, f"gate:s4:{dim_name}",
                 f"'{tool}' produced no score the harness could read",
                 why=("the agent's number for this dimension was therefore not "
-                     "cross-validated; see the audit file for the raw output"),
+                     "cross-validated; see the audit file for the raw output"), owner="harness"
             )
             unverifiable.append(
                 f"{dim_name}: '{tool}' ran but produced no score the harness "
@@ -2832,7 +2832,7 @@ class HarnessBridge:
                     f"{_skipped} of {_total} tests did not run",
                     why="skipped tests contribute no coverage and no evidence",
                     data={"skipped": _skipped, "total": _total,
-                          "gate": ctx.gate_num, "fr_id": ctx.fr_id},
+                          "gate": ctx.gate_num, "fr_id": ctx.fr_id}, owner="project"
                 )
 
             # ── W2: Sub-100% coverage advisory (non-blocking) ─────────────────
@@ -3717,7 +3717,7 @@ class HarnessBridge:
                 f"SAD.md §5 parse failed ({sad_path}) — SAB baseline from SAD.md "
                 "starts empty; downstream reconciliation against SAB.json is the "
                 "only source of architecture-constraint data this round",
-                why=str(exc),
+                why=str(exc), owner="harness"
             )
             sab = {}
 

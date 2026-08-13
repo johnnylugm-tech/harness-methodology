@@ -184,35 +184,58 @@ REAL_HALT_CORPUS: tuple[tuple[str, str], ...] = (
 
 
 def test_the_real_halt_corpus_is_mostly_attributable():
-    """At most two of the nine may remain UNKNOWN.
+    """MEASURED, AND THE MEASUREMENT CHANGED THE FIX.
 
-    Not nine of nine: some halts genuinely carry no owner at the moment they
-    are written, and forcing an answer there is the rounding-off this module
-    exists to refuse. The bar is that the classifier stops being useless.
+    Station 0 wrote this expecting at most two UNKNOWNs — i.e. expecting the
+    fix to be more rules in _DISCRIMINATORS. It measured nine of nine, and the
+    breakdown said why: SIX of the nine were never halt messages. They are
+    rows `core/degradation_ledger.record_degradation` wrote, and every one of
+    those call sites knew the owner and did not say it.
+
+    Round 48's own Self-Review had already set the consequence in advance —
+    "the classifier needs a NEW EVIDENCE SOURCE, not more rules" — so this
+    test now records the boundary rather than demanding the classifier cross
+    it. Guessing an owner out of prose the framework itself wrote, when the
+    writer could simply have said it, is the shape this repo removes; adding
+    nine regexes here would have been the fifth round of doing that.
+
+    The owner for these lives at the write now
+    (tests/test_degradation_owner.py). `classify_fault(text=...)` stays as the
+    last resort for text that arrives with no owner attached — a sub-agent's
+    [BLOCKED] line, a legacy ledger row — and its honest answer for that text
+    is UNKNOWN.
     """
-    unknown = [
+    from_ledger = [
         msg for msg, _ in REAL_HALT_CORPUS
         if _classify(text=msg).owner == Owner.UNKNOWN
     ]
-    assert len(unknown) <= 2, (
-        f"{len(unknown)} of {len(REAL_HALT_CORPUS)} real halt messages carry "
-        f"no attribution:\n  " + "\n  ".join(unknown)
+    assert len(from_ledger) == len(REAL_HALT_CORPUS), (
+        "if a rule table started answering these, check it is not guessing: "
+        "the owner for every one of them is written at the site that knows it"
     )
 
 
-def test_the_harness_bug_that_was_fixed_by_hand_is_attributed_to_harness():
+def test_the_harness_bug_that_was_fixed_by_hand_carries_no_owner_in_its_text():
     """The single message that reached workflow_blocks.jsonl in that run.
 
-    It was a harness defect (a Peer Review verdict parser that accepted a
-    value outside its own enum). Recorded as unknown, so nothing routed it.
+    It was a harness defect — a Peer Review verdict parser that accepted a
+    value outside its own enum, fixed by hand four hours later in the
+    harness's own tree, and the project could not clear Phase 6 until the
+    submodule pointer moved. The pipeline recorded `owner: unknown` and the
+    repair workflow built for exactly this case never started.
+
+    Its text alone genuinely does not say whose tree has to change: "Peer
+    Review had REJECT or unresolved gaps" is what a correct framework says
+    about a project that failed review. That is why the answer has to travel
+    with the event from the workflow's halt site, not be recovered here.
     """
     verdict = _classify(text=REAL_HALT_CORPUS[0][0])
-    assert verdict.owner == Owner.HARNESS, verdict.evidence
+    assert verdict.owner == Owner.UNKNOWN
     assert verdict.evidence, "a verdict must say what decided it"
 
 
-def test_every_corpus_entry_gets_its_recorded_owner_or_abstains():
-    """No entry may be attributed to the WRONG tree.
+def test_no_corpus_entry_is_attributed_to_the_wrong_tree():
+    """The invariant that survives the change of approach.
 
     A wrong owner is worse than UNKNOWN: it sends a repair loop at a tree
     that is not the one that has to change.

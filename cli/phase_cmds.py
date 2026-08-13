@@ -291,7 +291,7 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
         record_degradation(
             project, "mutation:scope",
             f"SAB.json could not be read for mutation scope ({exc})",
-            why="mutation testing will cover the whole source tree",
+            why="mutation testing will cover the whole source tree", owner="project"
         )
         return False
 
@@ -304,7 +304,7 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
             project, "mutation:scope",
             f"no scope_layers on the mutation_testing NFR; "
             f"mutation testing will cover all of {src_root}",
-            why="declare scope_layers in the SAB when the spec limits the scope",
+            why="declare scope_layers in the SAB when the spec limits the scope", owner="project"
         )
         return False
 
@@ -319,7 +319,7 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
         record_degradation(
             project, "mutation:scope",
             f"SAB scope_layers resolve to non-existent director(ies) {missing}",
-            why="setup.cfg left unchanged; fix the layer→module mapping in the SAB",
+            why="setup.cfg left unchanged; fix the layer→module mapping in the SAB", owner="harness"
         )
         return False
 
@@ -328,7 +328,7 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
         record_degradation(
             project, "mutation:scope",
             f"setup.cfg [mutmut] paths_to_mutate replaced: {previous!r} -> {paths!r}",
-            why="the SAB owns this value; a hand edit does not survive P2→P3",
+            why="the SAB owns this value; a hand edit does not survive P2→P3", owner="harness"
         )
     if wrote:
         print(f"  [P2→P3] setup.cfg [mutmut] paths_to_mutate → {paths}")
@@ -390,7 +390,7 @@ def _run_doctor_after_advance(project: Path) -> None:
             project, "doctor:unavailable",
             f"doctor raised after the phase advanced: {type(exc).__name__}",
             why=("the advance itself is correct; nothing checked the state it "
-                 "left behind"),
+                 "left behind"), owner="harness"
         )
         return
 
@@ -405,7 +405,7 @@ def _run_doctor_after_advance(project: Path) -> None:
             project, f"doctor:{finding.check}", finding.message,
             why=("found by doctor immediately after the phase advanced; the "
                  "advance is not reversed, but this state is what the next "
-                 "phase starts from"),
+                 "phase starts from"), owner="harness"
         )
 
 
@@ -509,7 +509,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 why=("the milestone commit would not contain this file's "
                      "current content, and the phase's checks were measured "
                      "on it"),
-                data={"completed_phase": args.completed_phase, "file": _rel},
+                data={"completed_phase": args.completed_phase, "file": _rel}, owner="project"
             )
         return EX_ADVANCE_UNCOMMITTED_DELIVERABLES
 
@@ -778,7 +778,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                     "rule_id": _ob.rule_id,
                     "file": _ob.file,
                     "line": _ob.line,
-                },
+                }, owner="project"
             )
         return EX_ADVANCE_ENTRY_OBLIGATIONS
 
@@ -1183,13 +1183,13 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
                 record_degradation(
                     project, "advance-phase",
                     f"phase_completed[{args.completed_phase}] not recorded",
-                    f"{type(_pc_err).__name__}: {_pc_err}",
+                    f"{type(_pc_err).__name__}: {_pc_err}", owner="harness"
                 )
         else:
             record_degradation(
                 project, "advance-phase",
                 f"phase_completed[{args.completed_phase}] not recorded",
-                f"git rev-parse HEAD failed: {_head.stderr.strip()}",
+                f"git rev-parse HEAD failed: {_head.stderr.strip()}", owner="harness"
             )
 
         # ── --push (Round 23 站1) ─────────────────────────────────────────
@@ -1873,7 +1873,7 @@ def _advance_fsm(project: Path, completed_phase: int,
                     project, "phase_cmds._advance_fsm",
                     "state.json unreadable — treating FSM state as fresh (INIT) "
                     "and overwriting the file's other fields",
-                    why=str(exc),
+                    why=str(exc), owner="project"
                 )
                 state_data = {}
             else:
@@ -3559,7 +3559,7 @@ def _broken_deliverable_anchors(project: Path) -> list[str]:
                 "zero failures out of zero files is not a pass; a project whose "
                 "layout puts deliverables elsewhere is legitimate but must not "
                 "be reported as verified"
-            ),
+            ), owner="project"
         )
     return findings
 
@@ -3602,7 +3602,7 @@ def _warn_if_view_lost_its_anchor(project: Path, path: Path) -> None:
             "the Phase 1 orchestrator reloads this path with that anchor; a "
             "regenerated view that fails it will be rejected on any re-entry "
             "into Phase 1"
-        ),
+        ), owner="harness"
     )
 
 def _scope_violation_scripts(project: Path) -> list[str]:

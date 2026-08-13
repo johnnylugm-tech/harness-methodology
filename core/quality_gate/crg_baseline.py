@@ -115,7 +115,7 @@ def snapshot_baseline(project: Path, phase: int) -> bool:
     if not may_write:
         record_degradation(
             project, "crg:baseline",
-            f"no baseline written for phase {phase}", why_not,
+            f"no baseline written for phase {phase}", why_not, owner="harness"
         )
         print(f"  [CRG] Baseline NOT saved — {why_not}")
         return False

@@ -108,7 +108,7 @@ def persist_cited_evidence(project: Path, gate: int, raw: dict) -> list[str]:
                 f"copied into {EVIDENCE_DIR_RELPATH}/",
                 why=(f"the gate {gate} verdict keeps citing a path that does "
                      f"not survive a clone; raise values.gate_evidence_max_bytes "
-                     f"or make the tool write less"),
+                     f"or make the tool write less"), owner="project"
             )
             continue
 
@@ -124,7 +124,7 @@ def persist_cited_evidence(project: Path, gate: int, raw: dict) -> list[str]:
                 f"{dim_name}: could not copy '{cited}' into "
                 f"{EVIDENCE_DIR_RELPATH}/ ({exc})",
                 why=(f"the gate {gate} verdict keeps citing a path that does "
-                     f"not survive a clone"),
+                     f"not survive a clone"), owner="harness"
             )
             continue
 

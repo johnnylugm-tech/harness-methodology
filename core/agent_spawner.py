@@ -727,7 +727,7 @@ class AgentSpawner:
                         record_degradation(
                             self.project_path,
                             f"agent:{role}:{phase or '?'}",
-                            f"wall-clock timeout at {task_timeout}s",
+                            f"wall-clock timeout at {task_timeout}s", owner="infra"
                         )
                     except Exception:
                         # degradation ledger write is best-effort; must not

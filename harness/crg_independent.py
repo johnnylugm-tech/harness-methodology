@@ -216,7 +216,7 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
             root, "crg:graph-scope",
             f"incremental graph covered {len(graph_file_set(_graph_db))} of "
             f"{len(_sources)} delivered source file(s) — rebuilding in full",
-            why=f"{len(_missing)} file(s) missing from the graph",
+            why=f"{len(_missing)} file(s) missing from the graph", owner="harness"
         )
         _run([binary, "build"], cwd=root, timeout=_BUILD_TIMEOUT,
              label="code-review-graph build (forced: stale graph)")
@@ -232,7 +232,7 @@ def run_independent_crg(project_root: str, work_dir: str) -> dict:
             f"after a full build the graph covers {len(_graph_files)} file(s) "
             f"and the project delivers {len(_sources)} — the architecture "
             f"score is measured over the graph's set",
-            why=f"{len(_residual_missing)} delivered file(s) still unparsed",
+            why=f"{len(_residual_missing)} delivered file(s) still unparsed", owner="harness"
         )
 
     # 2. Dump communities via CRG's own interpreter.

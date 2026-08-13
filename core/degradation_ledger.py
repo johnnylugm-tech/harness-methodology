@@ -39,7 +39,7 @@ _warned: set[tuple[str, str]] = set()
 
 def record_degradation(
     project: "str | Path", component: str, what: str, why: str = "",
-    data: "dict | None" = None,
+    data: "dict | None" = None, *, owner: str = "unknown",
 ) -> None:
     """Record a graceful degradation: print a `[DEGRADED]` line to stderr
     (once per component+what per process) and append a JSON record to
@@ -55,6 +55,20 @@ def record_degradation(
     a checker starts agreeing with its author instead of with the data
     (Round 19 站1). Omitted from the record when None, so every existing
     caller's entry is byte-identical to what it wrote before.
+
+    `owner` — whose tree has to change (core/fault_owner.py's vocabulary).
+    Round 50 站4. Round 48 built `classify_fault` to answer this after the
+    fact, from the text of a halt. Measured 2026-08-13 against nine real
+    messages from a full P1-P8 run: nine UNKNOWNs. Six of the nine were not
+    halt messages at all — they were rows THIS function wrote, and no rule
+    table can recover from prose what the call site knew and did not say.
+
+    So the answer is written here, by the site that knows it, and Round 48's
+    reader becomes the last resort rather than the first. `unknown` is a real
+    answer and stays available (Round 48's rule: never rounded down to
+    PROJECT) — what `tests/test_degradation_owner.py` forbids is leaving it
+    to the default. A site that has not decided is a site nobody has read,
+    and those are exactly the ones that produced the nine.
     """
     key = (component, what)
     if key not in _warned:
@@ -69,6 +83,7 @@ def record_degradation(
             "component": component,
             "what": what,
             "why": why,
+            "owner": owner,
         }
         if data is not None:
             entry["data"] = data

@@ -164,7 +164,7 @@ def rollback_if_unsafe(
                 project_root, "auto_fix.guardrails.rollback_if_unsafe",
                 f"could not restore {fp} to its pre-fix content — file is left "
                 f"in its (unsafe) post-fix state",
-                why=str(exc),
+                why=str(exc), owner="harness"
             )
     return rolled_back
 

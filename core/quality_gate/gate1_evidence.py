@@ -753,7 +753,7 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
                 project, "gate1_evidence.record_gate1_score",
                 f"{GATE1_SCORES_FILE} unreadable — inter-FR variance history for "
                 "all other phases/FRs is discarded, starting fresh",
-                why=str(exc),
+                why=str(exc), owner="harness"
             )
     scores.setdefault(str(phase), {})[fr_id] = score
     try:
@@ -764,7 +764,7 @@ def record_gate1_score(project: Path, phase: int, fr_id: str, score: float) -> N
             project, "gate1_evidence.record_gate1_score",
             f"{GATE1_SCORES_FILE} write failed — this Gate 1 score for "
             f"{fr_id} (phase {phase}) will not be available to future variance checks",
-            why=str(exc),
+            why=str(exc), owner="harness"
         )
 
 

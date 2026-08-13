@@ -361,7 +361,7 @@ def _record(project: Path, requested: "list[str]", outcome: RepairOutcome) -> No
                 "still_missing": outcome.still_missing,
                 "installer_python": _installer_python(project),
                 "ci": bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
-            },
+            }, owner="infra"
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"[WARN] env-repair: could not write the degradation ledger: {exc}",

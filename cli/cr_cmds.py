@@ -281,7 +281,7 @@ def _load_crash_bundles(project: Path) -> list[tuple[Path, dict]]:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             record_degradation(project, "crash-triage",
-                               f"skipped unreadable bundle {p.name}", why=str(exc))
+                               f"skipped unreadable bundle {p.name}", why=str(exc), owner="harness")
             continue
         if isinstance(data, dict):
             out.append((p, data))

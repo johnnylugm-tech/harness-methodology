@@ -653,7 +653,7 @@ def _write_score_artifact(
         record_degradation(
             str(project), "mutation:score-artifact",
             f"could not write {MUTATION_SCORE_ARTIFACT} ({exc})",
-            why="the gate blocks a passing mutation claim without this file",
+            why="the gate blocks a passing mutation claim without this file", owner="harness"
         )
 
 
@@ -699,7 +699,7 @@ def _write_unmeasured_artifact(project: Path, reason: str) -> None:
             str(project), "mutation:score-artifact",
             f"could not write {MUTATION_SCORE_ARTIFACT} ({exc}) for a run that "
             f"could not measure ({reason[:120]})",
-            why="without this file the gate reads the absence as 'nobody ran it'",
+            why="without this file the gate reads the absence as 'nobody ran it'", owner="harness"
         )
 
 

@@ -1831,7 +1831,7 @@ def _record_undelivered_tests(
                  "spec-coverage scored "
                  f"{report['implemented']}/{report['declared']} "
                  f"= {report['pct']:.1f}%"),
-            data={"missing": missing},
+            data={"missing": missing}, owner="project"
         )
     return missing
 
@@ -2634,7 +2634,7 @@ def _generate_gate4_deliverables(project: Path, phase: int) -> int | None:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             record_degradation(
                 project, "finalize-gate",
-                f"{artifact} generation failed", f"{type(exc).__name__}: {exc}",
+                f"{artifact} generation failed", f"{type(exc).__name__}: {exc}", owner="project"
             )
             print(
                 f"\n[BLOCKED] finalize-gate: Gate 4 deliverable {artifact} could not be "

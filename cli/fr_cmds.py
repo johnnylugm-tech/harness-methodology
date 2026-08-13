@@ -406,7 +406,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             project, component=f"run-fr-step:{step}",
             what=f"max_turns escalated {_max_turns(step) // 2} -> {_max_turns(step)}",
             why=f"{fr_id} {step} was cut off at its turn ceiling; re-dispatching at "
-                f"the same ceiling cannot finish what did not fit",
+                f"the same ceiling cannot finish what did not fit", owner="infra"
         )
         print(f"[run-fr-step] {fr_id} {step}: turn budget exhausted — re-dispatching "
               f"at {_max_turns(step)} turns (escalation recorded in the degradation "
@@ -459,7 +459,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             project, component=f"run-fr-step:{step}",
             what=f"task_timeout escalated {_fr_timeout} -> {_timeout_for(step)}",
             why=f"{fr_id} {step} hit its wall-clock budget; re-dispatching at the "
-                f"same budget cannot finish what did not fit",
+                f"same budget cannot finish what did not fit", owner="infra"
         )
         print(f"[run-fr-step] {fr_id} {step}: wall-clock timeout — re-dispatching "
               f"with {_timeout_for(step)}s (escalation recorded in the degradation "
@@ -1381,7 +1381,7 @@ def _abort_repeated_failure(
         project, component=f"run-fr-step:{step}",
         what="dispatch refused — identical failure already recorded",
         why=f"{fr_id} {step}: signature {record.get('signature')} seen "
-            f"{record.get('seen')}x on an unchanged tree",
+            f"{record.get('seen')}x on an unchanged tree", owner="unknown"
     )
     return EX_STEP_REPEATED_FAILURE
 
@@ -1434,7 +1434,7 @@ def _resolve_precondition_block(
             project, component=f"run-fr-step:{step}",
             what="precondition block accepted without verification",
             why=f"{fr_id}: the suite could not be measured here, so the reported "
-                f"block is honoured on the sub-agent's word alone",
+                f"block is honoured on the sub-agent's word alone", owner="harness"
         )
     print(
         f"\n[BLOCKED] {fr_id} {step}: the step's precondition is not met, so it "
@@ -1503,7 +1503,7 @@ def _abort_no_progress_with_self_doubt(
         project, "fr-step-no-progress",
         f"{fr_id} {step}: 2 consecutive no-progress fix rounds "
         f"(failure_class={failure_class})",
-        why=f"identical tool signature across rounds: {sig[:150]}",
+        why=f"identical tool signature across rounds: {sig[:150]}", owner="project"
     )
     print(
         f"[run-fr-step] {fr_id} BLOCKED: 2 consecutive no-progress rounds"

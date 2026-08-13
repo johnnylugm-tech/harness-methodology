@@ -50,7 +50,7 @@ def _load_json_object(path: Path, *, lenient: bool, project: Path) -> dict:
     except (json.JSONDecodeError, OSError, ValueError) as exc:
         if not lenient:
             raise StateCorruptError(path, exc) from exc
-        record_degradation(project, "state-io", f"{path.name} unreadable — treated as empty", why=str(exc))
+        record_degradation(project, "state-io", f"{path.name} unreadable — treated as empty", why=str(exc), owner="project")
         return {}
     return data
 

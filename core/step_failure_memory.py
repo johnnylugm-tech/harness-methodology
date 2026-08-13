@@ -108,7 +108,7 @@ def record_step_failure(
             "signature": failure_signature(result),
             "tree": fingerprint,
             "error_class": result.get("error_class") or result.get("status") or "",
-        },
+        }, owner="unknown"
     )
 
 

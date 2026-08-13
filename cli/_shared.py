@@ -493,7 +493,7 @@ def post_push_ci_gate(project: Path, sha: str | None = None) -> int:
         return EX_CI_RED
     from core.degradation_ledger import record_degradation
     record_degradation(project, "ci:verdict",
-                       f"no CI verdict for {sha[:8]}", verdict.detail)
+                       f"no CI verdict for {sha[:8]}", verdict.detail, owner="infra")
     print(f"  [ci] INFRA_BLOCKED: {verdict.detail}")
     return EX_CI_VERDICT_UNAVAILABLE
 

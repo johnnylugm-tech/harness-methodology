@@ -67,7 +67,7 @@ def _resolve_src_targets(root: str, cov_target: str) -> list:
         f"source scanners fall back to the whole project root",
         why=("the harness then scans dependencies and any vendored harness "
              "alongside the project's own code, which is neither what the "
-             "agent scanned nor what the score is supposed to describe"),
+             "agent scanned nor what the score is supposed to describe"), owner="harness"
     )
     return [root]
 
