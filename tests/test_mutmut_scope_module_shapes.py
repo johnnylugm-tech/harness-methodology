@@ -79,11 +79,18 @@ def test_package_modules_still_resolve(tmp_path):
         assert (tmp_path / p).exists()
 
 
-def test_a_module_that_is_absent_is_still_reported_absent(tmp_path):
-    """Widening the shapes must not turn the existence check into a rubber stamp.
+def test_a_module_that_is_absent_stays_visible(tmp_path):
+    """Widening the shapes must not make a phantom module disappear.
 
-    `taskq.service.ghost` is on no disk anywhere; the resolver must not
-    invent a path for it.
+    Station 0 wrote this the other way round — "the resolver must not emit a
+    path for a module that is not on disk" — and that is the wrong rule. A SAB
+    that declares a module the project does not have is a real defect, and the
+    caller (`_regenerate_mutmut_scope`) exists to name it and refuse to write
+    setup.cfg. A resolver that silently dropped it would hand the caller a
+    scope that looks clean and is short — the shape this whole round is about.
+
+    So: the phantom is still emitted, and the module that IS on disk resolves
+    to a path that exists. The existence judgement stays with the caller.
     """
     _write_leaf(tmp_path, "taskq.service.auth")
 
@@ -92,10 +99,14 @@ def test_a_module_that_is_absent_is_still_reported_absent(tmp_path):
         project_root=tmp_path,
     )
     resolved = [x.strip() for x in (paths or "").split(",") if x.strip()]
-    assert not any((tmp_path / p).exists() is False for p in resolved), (
-        "the resolver emitted a path for a module that is not on disk"
+    assert any("ghost" in p for p in resolved), (
+        "a module the project does not have vanished from the scope instead "
+        "of reaching the check that reports it"
     )
-    assert any("auth" in p for p in resolved)
+    real = [p for p in resolved if "auth" in p]
+    assert real and (tmp_path / real[0]).exists(), (
+        "the module that IS on disk must resolve to a path that exists"
+    )
 
 
 def test_json_round_trip_of_a_real_sab_shape(tmp_path):

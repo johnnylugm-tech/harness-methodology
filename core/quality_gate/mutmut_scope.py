@@ -49,6 +49,7 @@ from typing import Optional
 def resolve_mutation_scope(
     sab: dict,
     src_root: str,
+    project_root: "str | Path | None" = None,
 ) -> Optional[str]:
     """Return a comma-separated ``paths_to_mutate`` string derived from the SAB,
     or ``None`` when the SAB declares no mutation scope.
@@ -130,11 +131,42 @@ def resolve_mutation_scope(
     #    Use the shortest unique prefix per module to avoid double-counting
     #    nested paths (e.g. taskq_plus.service AND taskq_plus.service.executor
     #    → we only want the package-level path taskq_plus/service).
+    # Round 50 站4b: a module is not always a directory. `prefix.replace(".",
+    # "/")` assumed every SAB entry names a package; a leaf module —
+    # `taskq.repository.task_repo`, on disk as `task_repo.py` — resolved to a
+    # path with no file at it, and `_regenerate_mutmut_scope`'s `.is_dir()`
+    # check then discarded the WHOLE scope. Measured on a real P2→P3 handoff:
+    # eight scope paths, eight "non-existent director(ies)" ledger rows, and
+    # all eight modules present on disk as .py files. setup.cfg was left
+    # unwritten, so mutation testing ran against the entire source tree
+    # instead of the scope the SAB declared.
+    #
+    # `sab_module_to_path_variants` already knows the two on-disk shapes one
+    # dotted name can take — Round 6 站3 wrote it after the same confusion made
+    # every package-style registration look phantom. This is its third
+    # consumer, not a new rule.
+    #
+    # `project_root` is optional so the string-only callers Round 29 wrote keep
+    # working; without it the package form is returned, which is what this
+    # function always did.
+    from detection.drift_detector import sab_module_to_path_variants
+
     _root = src_root.strip("/")
+    _base = Path(project_root) if project_root is not None else None
     unique_paths: set[str] = set()
     for prefix in module_prefixes:
         path = prefix.replace(".", "/")
-        unique_paths.add(f"{_root}/{path}" if _root else path)
+        candidate = f"{_root}/{path}" if _root else path
+        if _base is not None and not (_base / candidate).is_dir():
+            # Try the shapes a leaf module can have before giving up on it.
+            resolved = next(
+                (v for v in sab_module_to_path_variants(prefix, _root)
+                 if (_base / v).exists()),
+                None,
+            )
+            if resolved is not None:
+                candidate = resolved
+        unique_paths.add(candidate)
 
     # Remove child paths when a parent is already present.
     paths = sorted(unique_paths)

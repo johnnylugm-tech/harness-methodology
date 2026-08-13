@@ -286,7 +286,11 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
     src_root = layout.get_relative_str(layout.phase3_development_dir / "src")
     try:
         sab = json.loads(sab_path.read_text(encoding="utf-8"))
-        paths = resolve_mutation_scope(sab, src_root)
+        # project_root lets the resolver tell a leaf module from a package
+        # (Round 50 站4b). Without it every `foo.bar.baz` becomes a directory
+        # path, the existence check below rejects the whole scope, and mutation
+        # testing silently widens to the entire source tree.
+        paths = resolve_mutation_scope(sab, src_root, project_root=project)
     except (OSError, json.JSONDecodeError, AttributeError, TypeError) as exc:
         record_degradation(
             project, "mutation:scope",
@@ -313,7 +317,7 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
     # abort, and the failure would surface at Gate 2 pointing at mutmut.
     missing = [
         p for p in (x.strip() for x in paths.split(","))
-        if p and not (project / p).is_dir()
+        if p and not (project / p).exists()
     ]
     if missing:
         record_degradation(

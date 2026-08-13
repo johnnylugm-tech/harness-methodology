@@ -186,9 +186,45 @@ HARNESS_VOLATILE_PATHS: frozenset[str] = frozenset({
     ".methodology/fr_progress.json",      # per-FR progress, rewritten per step
     ".methodology/.gate1_scores.json",
     ".methodology/.txn_journal.json",
+    # Round 50 站4c. Created by Round 48 站2, six rounds after this list was
+    # written, and never added to it. Measured consequence on a full P1-P8
+    # run: "P6 exit blocked by .methodology/workflow_blocks.jsonl" — the
+    # framework's own halt ledger stopped the framework's own milestone.
+    ".methodology/workflow_blocks.jsonl",
+    # Rewritten by the framework on every mutation run; the number a verdict
+    # keeps is the copy in gate{N}_result.json's breakdown (Round 31 站2), not
+    # this file.
+    ".methodology/mutation_score.json",
+})
+
+# The other half of the same question. A path the framework writes under
+# .methodology/ is either bookkeeping (above) or a deliverable the project
+# commits (here); being in NEITHER list used to mean "nobody has classified
+# this", which Round 44 站2's milestone check reads as "the project's work
+# product". Silence and a decision were the same state.
+#
+# tests/test_delivery_scope.py holds the two lists against every
+# `.methodology/...` literal in core/ and cli/, so a new one has to be put
+# somewhere rather than defaulting.
+METHODOLOGY_DELIVERABLES: frozenset[str] = frozenset({
+    ".methodology/SAB.json",              # the architecture baseline, reviewed
+    ".methodology/quality_manifest.json",  # gate results the project keeps
+    ".methodology/trace",                  # attestation + traceability views
+    ".methodology/enforcement.json",       # hr_overrides / phase_truth
+    ".methodology/constitution_profile.json",
+    ".methodology/env_contract.json",      # the toolchain the project declares
+    ".methodology/gate_evidence",          # what a verdict cites (Round 45)
+    ".methodology/phase",                  # phaseN_plan.md, generated once
+    ".methodology/workspaces",
+    ".methodology/hooks.json",             # the project's lifecycle-hook config
 })
 
 HARNESS_VOLATILE_PREFIXES: tuple[str, ...] = (
+    # Agent B's approval records. Written by the framework at every review,
+    # rewritten on the next round, and named after the deliverable they
+    # approve — so they are bookkeeping about the review, not the review's
+    # output. Measured: five of them blocked P2 and P6 milestones.
+    ".methodology/agent_b_approvals/",
     ".methodology/decision_logs/",   # audit trail; left scoring in R21 站3
     ".methodology/lessons/",         # cross-round failure memory
     ".methodology/crash/",           # crash-triage dumps
