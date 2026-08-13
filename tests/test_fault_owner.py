@@ -135,3 +135,91 @@ def test_the_discriminated_codes_are_exactly_the_ones_the_table_calls_unknown():
     genuinely_unattributable = {1, 36}
     assert unknown - genuinely_unattributable == DISCRIMINATED_EXITS
     assert DISCRIMINATED_EXITS == {14, 18, 19, 20, 25}
+
+
+# ---------------------------------------------------------------------------
+# Round 50 站0 — the corpus.
+#
+# Round 48's Self-Review committed this round to a measurement: take the real
+# halt messages a production run produced and see how many the classifier can
+# attribute. If it cannot manage most of them, "the classifier needs more
+# rules" is the wrong diagnosis and the evidence source has to change.
+#
+# Measured 2026-08-13 against a full P1–P8 run: nine messages, nine UNKNOWNs.
+# Not a shortfall — a floor. Every one of these arrives from a layer that has
+# no exit code to carry, so a table keyed on exit codes has nothing to read,
+# and the free-text fallback is left guessing at prose the framework itself
+# wrote and could have labelled at the source.
+#
+# The first message below is the sharpest: it IS a harness bug. It was fixed
+# by hand four hours later, in the harness's own tree, and the project could
+# not clear Phase 6 until the submodule pointer moved. The pipeline recorded
+# it as `owner: unknown` and the repair workflow built for exactly this case
+# never started.
+# ---------------------------------------------------------------------------
+
+# (message, expected owner). Verbatim from .methodology/degradations.jsonl and
+# .methodology/workflow_blocks.jsonl of that run.
+from core.fault_owner import Owner  # noqa: E402  (corpus needs it at module level)
+
+REAL_HALT_CORPUS: tuple[tuple[str, str], ...] = (
+    ("HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps "
+     "— escalate to human (previously this was silently ignored; T1-B adds "
+     "the check)", Owner.HARNESS),
+    ("P5 exit blocked by 01-requirements/TRACEABILITY_MATRIX.md", Owner.PROJECT),
+    ("P4 entry blocked by FR-01: declares a property invariant but no "
+     "executing property-based test covers it", Owner.PROJECT),
+    ("P5 entry blocked by SEC-R8: threat verification test "
+     "'test_sec_t01_malformed_payload_rejected' not found", Owner.PROJECT),
+    ("FR-06 GATE1: 2 consecutive no-progress fix rounds "
+     "(failure_class=LOW_COVERAGE)", Owner.PROJECT),
+    ("'pytest-benchmark' produced no score the harness could read",
+     Owner.HARNESS),
+    ("SAB scope_layers resolve to non-existent director(ies) "
+     "['03-development/src/taskq/service/auth']", Owner.HARNESS),
+    ("FR-01 TDD-GREEN: TURN_BUDGET", Owner.INFRA),
+    ("incremental graph covered 6 of 41 delivered source file(s) — "
+     "rebuilding in full", Owner.HARNESS),
+)
+
+
+def test_the_real_halt_corpus_is_mostly_attributable():
+    """At most two of the nine may remain UNKNOWN.
+
+    Not nine of nine: some halts genuinely carry no owner at the moment they
+    are written, and forcing an answer there is the rounding-off this module
+    exists to refuse. The bar is that the classifier stops being useless.
+    """
+    unknown = [
+        msg for msg, _ in REAL_HALT_CORPUS
+        if _classify(text=msg).owner == Owner.UNKNOWN
+    ]
+    assert len(unknown) <= 2, (
+        f"{len(unknown)} of {len(REAL_HALT_CORPUS)} real halt messages carry "
+        f"no attribution:\n  " + "\n  ".join(unknown)
+    )
+
+
+def test_the_harness_bug_that_was_fixed_by_hand_is_attributed_to_harness():
+    """The single message that reached workflow_blocks.jsonl in that run.
+
+    It was a harness defect (a Peer Review verdict parser that accepted a
+    value outside its own enum). Recorded as unknown, so nothing routed it.
+    """
+    verdict = _classify(text=REAL_HALT_CORPUS[0][0])
+    assert verdict.owner == Owner.HARNESS, verdict.evidence
+    assert verdict.evidence, "a verdict must say what decided it"
+
+
+def test_every_corpus_entry_gets_its_recorded_owner_or_abstains():
+    """No entry may be attributed to the WRONG tree.
+
+    A wrong owner is worse than UNKNOWN: it sends a repair loop at a tree
+    that is not the one that has to change.
+    """
+    wrong = [
+        (msg, expected, _classify(text=msg).owner)
+        for msg, expected in REAL_HALT_CORPUS
+        if _classify(text=msg).owner not in (expected, Owner.UNKNOWN)
+    ]
+    assert not wrong, wrong

@@ -221,3 +221,63 @@ def test_reasons_are_never_empty():
     reasons = derive_block_reasons(2, _Result(score=61.0), None)
     assert reasons
     assert all(r.remediation.strip() for r in reasons)
+
+
+# ---------------------------------------------------------------------------
+# Round 50 站0 — a hint that fits every dimension fits none of them.
+#
+# `_DEFAULT_DIMENSION_HINT` reads "Review dimension-specific issues in SSI
+# output". It is the remediation a BlockReason carries when the failing
+# dimension is not in DIMENSION_HINTS, and `core/lessons.py::record_gate_block`
+# copies that remediation into the lesson file as the `Fix:` line.
+#
+# Measured 2026-08-13 on a full P1–P8 run: 42 lesson files, 42 identical Fix
+# lines, none naming anything about the failure it was written for. The
+# cross-run memory Direction C built recorded forty-two times that something
+# should be reviewed.
+#
+# The cause is a registry that stopped being extended. Gate configs declare
+# eighteen dimensions; DIMENSION_HINTS covers twelve. The six without a hint
+# are the six added by later rounds — integration_coverage,
+# test_assertion_quality, execute_verification_target (Round 46 站5),
+# traceability, architecture_constraints, adversarial_review — each added
+# with its scorer, its threshold and its weight, and none with the sentence
+# that tells a project what to do when it fails.
+# ---------------------------------------------------------------------------
+
+def test_every_scoreable_dimension_has_its_own_remediation():
+    """A dimension that can block must be able to say how to unblock it."""
+    import glob
+
+    import yaml
+
+    from core.quality_gate.block_reason import DIMENSION_HINTS
+
+    declared: set[str] = set()
+    for path in sorted(glob.glob("harness/gate_configs/*.yaml")):
+        with open(path, encoding="utf-8") as fh:
+            cfg = yaml.safe_load(fh) or {}
+        for dim in cfg.get("dimensions") or []:
+            name = dim.get("name")
+            if name:
+                declared.add(name)
+
+    assert declared, "no dimensions found — the scan lost its target"
+    missing = sorted(declared - set(DIMENSION_HINTS))
+    assert not missing, (
+        "dimension(s) a gate can block on with no remediation of their own; "
+        "every block on these falls back to the generic sentence, and the "
+        f"lesson recorded for it says nothing: {missing}"
+    )
+
+
+def test_no_hint_is_the_generic_fallback_text():
+    """A hint added by copying the fallback is the fallback wearing a name."""
+    from core.quality_gate.block_reason import (
+        _DEFAULT_DIMENSION_HINT,
+        DIMENSION_HINTS,
+    )
+
+    copied = sorted(k for k, v in DIMENSION_HINTS.items()
+                    if v.strip() == _DEFAULT_DIMENSION_HINT.strip())
+    assert not copied, copied

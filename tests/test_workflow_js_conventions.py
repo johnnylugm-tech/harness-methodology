@@ -247,3 +247,50 @@ def test_the_wrapper_records_before_it_rethrows(filename):
     assert "__dispatchLog.push(" in text[catch_start:catch_end], (
         f"{filename}: the wrapper rethrows without recording the failure"
     )
+
+
+# ---------------------------------------------------------------------------
+# Round 50 站0 — every halt goes through the halt helper
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_every_terminal_halt_goes_through_the_halt_helper(filename):
+    """No bare `return { error: ... }`.
+
+    Round 48 站2 gave run-all six recordBlock call sites, all on the phase
+    loop's boundary. Measured 2026-08-13 across the shipped workflows: the
+    eight phase files return `{ error: ... }` from 55 distinct top-level sites
+    and 38 nested ones. Every one of the 55 reaches the loop and is recorded —
+    under the single step name `phase-error`.
+
+    So the event is not lost; its coordinate is. A full P1–P8 run produced one
+    workflow_blocks.jsonl row, and that row says the phase and nothing about
+    which of Phase 6's eight halts fired. Reading the message and matching it
+    back to a source line is the manual step the ledger exists to remove.
+
+    Two smaller consequences of the same shape: a phase workflow launched on
+    its own (not through run-all) records nothing at all, and the ~30 halts
+    that the CLI raised and a workflow retried past never reach this ledger
+    either — they are in degradations.jsonl under a different vocabulary.
+
+    The helper is the one place that knows both the shape to return and the
+    coordinate to record, so the two cannot come apart.
+    """
+    code = strip_comments_and_strings(_read(filename))
+    bare = code.count("return { error:")
+    assert bare == 0, (
+        f"{filename}: {bare} bare `return {{ error: ... }}` site(s). Each is a "
+        f"halt whose step name is lost by the time it is recorded — call the "
+        f"halt() helper instead so the coordinate travels with the event"
+    )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_the_halt_helper_is_declared_exactly_once(filename):
+    """Same rule the dispatch wrapper follows: one declaration per file."""
+    text = _read(filename)
+    if "halt(" not in strip_comments_and_strings(text):
+        pytest.skip(f"{filename} has no halt sites")
+    assert strip_comments_and_strings(text).count("function halt(") == 1, (
+        f"{filename}: halt() must be declared exactly once"
+    )

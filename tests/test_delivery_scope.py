@@ -23,6 +23,7 @@ the delivered tree.
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from pathlib import Path
 
@@ -182,3 +183,103 @@ def test_the_scanner_delegates_its_scope_instead_of_stating_one() -> None:
         "core/traceability/scanner.py now walks the tree itself — add it to "
         "_PROJECT_TREE_WALKERS and give it the scope SSOT"
     )
+
+
+# ---------------------------------------------------------------------------
+# Round 50 站0 — every path the framework writes has to be classified.
+#
+# HARNESS_VOLATILE_PATHS is a hand-maintained list of twelve filenames. A file
+# absent from it is treated as a project deliverable, which means "nobody
+# classified this yet" and "this is the project's work product" are the same
+# state.
+#
+# Measured 2026-08-13 on a full P1–P8 run. `.methodology/workflow_blocks.jsonl`
+# — created by Round 48 站2, six rounds after this list was written — is not on
+# it, and neither is `.methodology/agent_b_approvals/`. Both are framework
+# bookkeeping, and both stopped a milestone:
+#
+#     P6 exit blocked by .methodology/workflow_blocks.jsonl
+#     P6 exit blocked by .methodology/agent_b_approvals/FINAL_SIGN_OFF.md.json
+#     P2 exit blocked by .methodology/agent_b_approvals/ADR.md.json
+#
+# Round 44 站2's check is right to refuse a milestone over an uncommitted
+# deliverable. It was handed the wrong set.
+#
+# The fix is not a longer list. It is that the two populations are declared,
+# and adding a path to neither is a test failure rather than a default.
+# ---------------------------------------------------------------------------
+
+_METHODOLOGY_LITERAL = re.compile(r"^\.methodology/[A-Za-z0-9_.\-/]+$")
+
+
+def _methodology_paths_written_by_the_framework() -> dict[str, set[str]]:
+    """Every `.methodology/...` string literal in core/ and cli/.
+
+    AST rather than grep so a path inside a comment or a docstring — where it
+    is documentation, not a write — does not have to be classified.
+    """
+    found: dict[str, set[str]] = {}
+    for package in ("core", "cli"):
+        for path in sorted((REPO / package).rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except SyntaxError:  # pragma: no cover - a syntax error is another test's job
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    if _METHODOLOGY_LITERAL.match(node.value):
+                        rel = node.value.rstrip("/")
+                        found.setdefault(rel, set()).add(
+                            path.relative_to(REPO).as_posix())
+    return found
+
+
+def test_every_methodology_path_is_bookkeeping_or_a_deliverable() -> None:
+    from core.utils.delivery_scope import (
+        METHODOLOGY_DELIVERABLES,
+        HARNESS_VOLATILE_PATHS,
+        HARNESS_VOLATILE_PREFIXES,
+    )
+
+    volatile = {p.rstrip("/") for p in HARNESS_VOLATILE_PATHS}
+    volatile_prefixes = tuple(p.rstrip("/") for p in HARNESS_VOLATILE_PREFIXES)
+    deliverables = {p.rstrip("/") for p in METHODOLOGY_DELIVERABLES}
+
+    def classified(rel: str) -> bool:
+        if rel in volatile or rel in deliverables:
+            return True
+        return any(rel == p or rel.startswith(p + "/")
+                   for p in volatile_prefixes + tuple(deliverables))
+
+    unclassified = {
+        rel: sorted(where)
+        for rel, where in _methodology_paths_written_by_the_framework().items()
+        if not classified(rel)
+    }
+    assert not unclassified, (
+        "path(s) the framework writes under .methodology/ that are in neither "
+        "registry. Silence here means the milestone check treats them as the "
+        "project's work product:\n  "
+        + "\n  ".join(f"{k}  <- {', '.join(v)}" for k, v in sorted(unclassified.items()))
+    )
+
+
+def test_the_two_registries_do_not_overlap() -> None:
+    """A path cannot be both bookkeeping and a deliverable."""
+    from core.utils.delivery_scope import (
+        METHODOLOGY_DELIVERABLES,
+        HARNESS_VOLATILE_PATHS,
+    )
+
+    both = {p.rstrip("/") for p in HARNESS_VOLATILE_PATHS} & {
+        p.rstrip("/") for p in METHODOLOGY_DELIVERABLES}
+    assert not both, both
+
+
+def test_the_round_48_ledger_is_bookkeeping() -> None:
+    """The specific regression: a ledger the framework created and forgot."""
+    from core.utils.delivery_scope import is_harness_volatile
+
+    assert is_harness_volatile(".methodology/workflow_blocks.jsonl")
+    assert is_harness_volatile(
+        ".methodology/agent_b_approvals/FINAL_SIGN_OFF.md.json")
