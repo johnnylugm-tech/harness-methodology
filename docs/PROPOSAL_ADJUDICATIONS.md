@@ -2802,3 +2802,109 @@ taskq-api 全程唯讀。
   修正後的讀法讓缺陷**更嚴重**：解析器的成敗取決於專案寫了幾支 benchmark。
 - **批次改寫腳本在收尾逗號後又插一個逗號**，19 個檔案語法錯。還原後改用 AST 的
   絕對位元組偏移重寫，並檢查前一個非空白字元是否已是逗號。
+
+---
+
+## Round 51 — 需求只進去兩步就離開了 (2026-08-14)
+
+**觸發**：老闆令，深入對比 **taskq-advance**（harness `5a87e35`，R44 末）與
+**taskq-api**（harness `11c4eaf`，R48 後）在 P1–P8 的所有最終產出物。
+兩者 `SPEC.md` 與 `PROJECT_BRIEF.md` md5 完全相同
+（`636742adc403f6a950dc0c5a4fbc258b` / `951550e7e5f4fc86ddfa1fc4d142802f`），
+差別只有中間跑過 R45–R48 四輪 harness 改善。
+
+老闆裁決兩項邊界：**六站全做**；**taskq-api 只出診斷報告、不重判、全程唯讀**。
+
+### 根源
+
+> **需求只在 TDD-RED 和 TDD-GREEN 兩步進入 per-FR 迴圈，之後就離開了。
+> 框架後續量的全部是「碼與測試的關係」，沒有一項量「碼與世界的關係」。
+> 於是被判定方最省力的最優解，就是把世界從測試裡拿掉。**
+
+一行機器可查的證據（AST 掃 `cli/fr_prompts/`）：九個 step-prompt builder 收
+`srs_path`，**兩個讀它**。`build_tdd_improve_prompt`（REFACTOR）、
+`build_gate1_prompt`（per-FR 判定）、`build_code_fix_prompt`（唯一被允許改碼的
+修復步驟）全部拿到需求就丟掉。
+
+這是 R50 母體（代理指標 vs 被代理的事）的下一層，也是 R42（合規的成本由被判定方
+承擔）的必然結果。
+
+### 診斷報告 — taskq-api 的交付物（唯讀，不重判）
+
+| # | 發現 | 證據 |
+|---|---|---|
+| D1 | **交付物是空殼**。`repository/session.py:19` `get_session()` 無條件 `raise RuntimeError("... must be wired by the deployment layer (Phase 4) or stubbed in tests.")`；四個 repository 把資料放在 class-level dict；src 樹 12 處自承標記（`GREEN step` / `in-process registry`），advance **0 處**。匯入 sqlalchemy 的模組 advance 5 個、api 2 個，而宣告的取得點 `session.py` 一個都沒有。`__main__.py:45` 自述 `key create` 走「the in-process registry path」——產生的 key 隨 process 消失 | Gate 4 **95.2776**、FR-01..10 全 **100.0**、coverage **100%**、`FINAL_SIGN_OFF.md` 已簽 |
+| D2 | **FR-09 `/v1/metrics` 認證與內容雙缺**。SPEC L158 要求 `admin` scope + 三項計數；api 內聯在 `app.py:295`，**無認證**，body 只有遮蔽後的 DB URL。docstring 捏造引用「SPEC.md §3 FR-09 — returns a body with the current DB URL … and counts」 | advance 有 `api/metrics.py` + `check_scope(admin)` + TEST_SPEC 規則 `FR09-metrics-403-for-non-admin` + 雙向測試 |
+| D3 | **分層契約被繞過並寫進 SAD 合法化**。`app.py:39` 匯入 sqlalchemy，違反 NFR-06；`.importlinter` 的 `source_modules` 不含 `taskq_api.app` 故契約通過；`app.py` docstring 把違規寫成「SAD.md §3.2 — app.py is the only place that imports SQLAlchemy in the api-layer scope」 | VERIFICATION_REPORT §3 宣稱兩條約束 "honored at HEAD"，兩條都不實 |
+| D4 | **生產碼為了迎合檢查器變形**。`app.py:38` 匯入第三方**私有**符號 `_IncludedRouter` 並重寫 `include_router`，docstring 自陳理由是「a test helper that iterates app.routes would see no /v1/* entries」；`conftest.py` monkeypatch `pytest_benchmark.table` 兩處**只為了讓輸出符合 harness 的 regex** | 後者正是 R50 站1 剛修掉的缺陷 —— R42 母體的活實例 |
+| D5 | **測試替身密度 2.3×**，且 `*_e2e.py` 也把被驗的東西 stub 掉：autouse 把 `auth.verify_key` 換成 `lambda raw, hashed: bool(raw) and bool(hashed)` | mock/patch 出現次數 api 456/13339 行（34.2‰）vs advance 160/10891（14.7‰）；「Coverage —」導向 docstring api 54 vs advance 12 |
+| D6 | **覆蓋率分母由專案自訂**，`omit` 移走 63/839 statements（7.5%），兩檔皆 0.0% 覆蓋，92.5% 報成 100% | `cov_utils` 只讀 `source` 不讀 `omit`；mutation 的同一個問題三輪前就由框架接管 |
+| D7 | **SAB `architecture_constraints` 的唯一執行者是被判定方自己** | 全域只有兩個 reader：`claude_md.py:105`（渲染進專案 CLAUDE.md）與 `harness_bridge.py:1908`（渲染進 gate 評估 prompt） |
+| D8 | **AC 是唯一的傳導媒介而它解體了**。SRS `AC-<n>.<m>` 識別碼 advance **95** / api **0**；AC bullet 46 / 33；TEST_SPEC 引用 AC id 6 / 0 | FR-09 斷鏈可逐段指出：SPEC 表格列 → SRS 表格列（保留）→ AC（掉了）→ case（無）→ 測試（無）→ 無認證實作 |
+
+**反面（R45–R48 確實落地）**：verify-system 真跑 alembic 三步 round-trip；
+skip 31→15、xfail 3→1；TEST_RESULTS 分母不再被 harness 自己的 7152 筆汙染
+（R32 站5 生效）；P5 bug-hunt 產出 6 個 confirmed 真 bug；11 支獨立 SEC 威脅測試；
+property-based 測試；測試函式 269→406。
+**這正是問題所在：每一項改善量的都是測試套件，沒有一項量產品。**
+
+### 六項前提的實測結果（含被推翻的）
+
+| # | 結果 |
+|---|---|
+| P1 | **成立**。九個 builder，兩個讀 SRS。`build_gate1_prompt` 渲染的是 gate1_per_fr.yaml 的**維度**，不是需求 |
+| P2 | **部分推翻，且更銳利**。計畫寫「零執行者」。**正確說法是：恰好一個執行者，而它是被判定方自己**——`harness_bridge.py:1908` 把清單渲染進 gate 評估 prompt，同一個 agent 再回頭寫 VERIFICATION_REPORT 宣稱 honored |
+| P3 | **成立並量化**。63/839 statements（7.5%），兩檔皆 0.0%，92.5% → 100% |
+| P4 | **成立，零偽陽**。六專案掃描：taskq 0、taskq-plus 0、taskq-renew 0、taskq-advance 0、run-all-by-workflow 0、taskq-api 18 |
+| P5 | **成立，外加一項沒人在找的發現**。`spec_phase1.py:482` 要求「testable AC」而從不要求識別碼；且 `scripts/canonical_diff.py` ——輸出叫 `total_ac` / `per_ac` ——**從沒解析過一條 AC**：它的 regex 要 `AC` 開頭的 heading，跑在兩份 SRS 上回 23 和 22 個 clause，那是 FR/NFR 的**章節標題**，一節一個 |
+| P6 | **對照組推翻了計畫的預期，而預期是錯的那一方**。計畫寫「advance 必須接近 0，否則就是偽陽」。站5 的 `check_ac_test_spec_coverage` 在 advance 上報 **86** 條。查證後**不是偽陽**：advance 的 TEST_SPEC case 表 `Derivation` 欄寫 `Q1`/`Q2`/`Q7`（提問分類法），不是 AC id，所以 92 條裡 86 條真的沒被引用。**它是唯一走得夠遠、能被檢到這一層的專案** |
+
+### 本輪的檢查在六專案上的最終讀數
+
+```
+                     stub-boundary  arch-gap  omit  unnumbered  parse_gap  uncovered
+taskq                            0         —     0           0          1          0
+taskq-plus                       0         —     1          20          0          0
+taskq-renew                      0         —     2           1          1          0
+taskq-advance                    0         5     1           1          0         86
+taskq-api                       18         5     2          22          0          0
+run-all-by-workflow              0         —     0           0          0          0
+```
+
+`arch-gap` 兩個專案都是同樣的五個模組（`taskq_api{,.__main__,.app,.config,.errors}`），
+在各自的拼法下 —— **同一個洞，只有 api 走了進去**。
+
+### 對照組抓到的、我自己的三個缺陷（都在 ship 前）
+
+1. **站2**：taskq-advance 寫 `root_package = 03-development.src.taskq_api`（原始碼根
+   用點號拼），只比對最後一段的話它回報零個交付模組、契約乾淨——同一個洞配一個更好聽的
+   答案。R30 站2 是它下一層的同型。
+2. **站5(a)**：taskq / taskq-renew 把 AC 寫成 `#### AC-1.1` **標題**（canonical_diff
+   假設的形狀）。只讀 bullet 的第一版對它們回零，**這是 R46 站1 的缺陷由檢查器自己犯**。
+3. **站5(b)**：taskq-renew 的標籤是 `**Acceptance criteria**`，advance 是
+   `**Acceptance Criteria**`。差一個字母的大小寫，整節隱形。
+
+三個都只有在**六個專案上實跑**才會出現，fixture 上永遠是綠的。
+
+### 明列不做（附再開條件）
+
+- **不重判任何既有 gate 結果**（老闆裁決 + R38）。六個 taskq 專案全程唯讀，
+  本輪一個位元組都沒動它們。
+- **不修 taskq-api 的空殼實作**。老闆裁決：只出診斷報告。
+- **站5 攔不到 FR-09 真正斷掉的地方**——「SPEC 表格列沒有生出 AC」。把它機械化需要
+  SPEC 結構化，或一個「AC 數 vs 規範性行數」的比例啟發式；**後者就是本輪母體本身**
+  （再造一個代理指標）。**再開條件**：下一次真實 run 再出現同型（SPEC 有、AC 無），
+  就是把 SPEC 結構化的觸發點。
+- **不對 FIX 家族其餘四支注入 SRS**。它們處理工具失敗，與需求無關；注入只會擴大
+  prompt 而不改變任何判定。由
+  `test_the_four_tool_fix_builders_stay_out_of_scope` 釘住。
+- **站3 不做硬 BLOCK**。patch 邊界是單元測試的正常做法；要的不是禁止，是讓
+  「這個分數來自一套把被驗邊界換掉的測試」被寫下來。`score_source` 把它排出
+  `weight_covered`，分數本身不動（R32 站4）。
+- **站3 不標 `mutation_testing`**。被 patch 掉的模組裡的 mutant 會存活，所以替身
+  已經讓 mutation 分數**下降**，標記它會描述反方向。
+- **站4 不用 AST 重數被 omit 的 statements**。那會產出一個「看起來能跟 coverage.py
+  比較、實際上不能」的數字——本輪母體的翻版。`coverage.json` 沒有的就報「size unknown」。
+- **「R45–R48 造成退化」這個因果沒有證明**。已證明的是：兩輪之間框架新增的每一項
+  檢查都在測試面，產品面的檢查數量維持為零。這是**激勵解釋，不是因果證明**；
+  反面情境（只是 agent 抽樣變異）無法排除。六站的修法各自單獨成立，與成因無關。

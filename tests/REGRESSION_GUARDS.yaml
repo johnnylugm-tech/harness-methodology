@@ -2225,3 +2225,63 @@
 - test: tests/test_evidence_survives_advance.py::test_advance_clears_exactly_what_the_list_says
   bug: "if advance-phase names its scratch directory itself, the retention rule becomes documentation of a behaviour rather than the behaviour, and the two drift the first time a second scratch directory is added"
   fixed_in: "R50-站6"
+
+- test: tests/test_fr_prompt_requirement_reaches.py::test_the_refactor_step_can_see_what_it_is_refactoring_towards
+  bug: "nine FR-step prompt builders take srs_path and two read it. TDD-IMPROVE — the R in RED-GREEN-REFACTOR — received the requirement and dropped it, so the step's only success criterion was 'the tests are still green'. Measured: `refactor(FR-06): IMPROVE` passed over taskq-api's repository/session.py, whose get_session() is one `raise RuntimeError(\"... must be wired by the deployment layer (Phase 4) or stubbed in tests.\")`, and left it there with tidier prose. Gate 4 scored the result 95.2776 with all ten FRs at 100.0"
+  fixed_in: "R51-站1 (_extract_srs_fr_section reaches IMPROVE / GATE1 / CODE-FIX — the three steps whose output decides what the source looks like)"
+
+- test: tests/test_fr_prompt_requirement_reaches.py::test_the_per_fr_verdict_can_see_the_requirement_it_is_judging
+  bug: "GATE1 renders the four dimensions from gate1_per_fr.yaml and never the FR, so the per-FR verdict was a statement about four tools rather than about the requirement"
+  fixed_in: "R51-站1 (the section says explicitly it is not a fifth score: a gap goes in `summary`, never into a lowered dimension — Round 32 站4)"
+
+- test: tests/test_fr_prompt_requirement_reaches.py::test_the_four_tool_fix_builders_stay_out_of_scope
+  bug: "the deliberate other half of the rule. test/coverage/infra/lint fix act on tool output, not on requirements; injecting the SRS there would grow every prompt and change no verdict. This fails if a later round widens the injection without recording why"
+  fixed_in: "R51-站1"
+
+- test: tests/test_arch_constraints_executor.py::test_a_constraint_with_no_executor_is_recorded_as_such
+  bug: "the SAB's architecture_constraints list reached exactly two readers and both were documents an agent reads — CLAUDE.md and the gate evaluation prompt, under 'validate code against these constraints'. Nothing deterministic read one. taskq-api's VERIFICATION_REPORT then certified all five 'honored at HEAD' while app.py:39 imported create_engine and /v1/metrics was mounted with no auth dependency"
+  fixed_in: "R51-站2 (classify_constraints answers with evidence or with `declared_only`, never with a guess; the unenforced ones reach the degradation ledger so a report cannot certify them)"
+
+- test: tests/test_arch_constraints_executor.py::test_the_import_contract_covers_the_package_it_claims_to_constrain
+  bug: "both taskq trees name taskq_api.api and taskq_api.service as the forbidden-import sources; taskq_api.app is in neither and is not a submodule of either, so lint-imports reports the contract kept while the composition root imports SQLAlchemy directly. Reported on the contract's shape rather than on the violation, because by the time there is a violation the contract has stopped being the thing that would have caught it — taskq-advance has the identical hole and did not walk through it"
+  fixed_in: "R51-站2 (contract_coverage_gap over core/utils/delivery_scope's delivered set)"
+
+- test: tests/test_arch_constraints_executor.py::test_a_dotted_source_root_resolves_in_the_projects_own_spelling
+  bug: "taskq-advance writes `root_package = 03-development.src.taskq_api` — the source root spelled as dots. The first version of this scanner matched only the last segment, found zero delivered modules for it, and reported a clean contract: the same hole with a nicer answer. Round 30 站2 is the same defect one layer down"
+  fixed_in: "R51-站2 (the whole sequence is matched against the path, so the answer comes back in the spelling the contracts are written in)"
+
+- test: tests/test_boundary_realism.py::test_an_autouse_fixture_that_replaces_a_declared_boundary_is_named
+  bug: "an autouse fixture applies to every test in its scope without any test asking for it, so when its target is a module the SAB lists under high_risk_modules, no test in that scope can observe the module the architecture called risky. Measured across six projects: taskq 0, taskq-plus 0, taskq-renew 0, taskq-advance 0, run-all-by-workflow 0, taskq-api 18 across ten files including both *_e2e.py — the files carrying the NFR-10 integration evidence and the T-02/T-03 threat verification"
+  fixed_in: "R51-站3 (core/quality_gate/boundary_realism.py; module aliases resolved through the fixture's own imports, so a local name is never mistaken for a module)"
+
+- test: tests/test_boundary_realism.py::test_an_opt_in_fixture_holding_a_real_dependency_is_not_a_finding
+  bug: "the control. taskq-advance's conftest hands tests a real SQLite file through a function-scoped fixture and must never be a finding — a scanner that flags it makes the signal useless"
+  fixed_in: "R51-站3"
+
+- test: tests/test_boundary_realism.py::test_the_marker_reaches_the_gate_artifact_and_the_ledger
+  bug: "Round 30's half-built mechanism: a constant nobody sets and a reader nobody feeds changes no verdict. This drives the function finalize_gate calls and checks both outputs — the score_source written into the breakdown and the ledger row naming which fixture in which file. It also pins that the score itself is unchanged (Round 32 站4) and that mutation_testing is NOT marked, because a mutant inside a patched-away module survives and the marker would describe the wrong direction"
+  fixed_in: "R51-站3 (SCORE_SOURCE_STUBBED_BOUNDARY; both selection sites read one frozenset rather than comparing against one constant each)"
+
+- test: tests/test_coverage_denominator.py::test_the_omit_list_is_read
+  bug: "cov_utils has read `.coveragerc [run] source` since it was written, for the reason its docstring gives — the denominator is not the caller's to pick — and `[run] omit`, which decides the same thing from the other side, was read by nothing. Mutation's identical question was answered three rounds ago by deriving paths_to_mutate from the SAB. Measured on taskq-api: omit removes 63 of 839 delivered statements, both files at 0.0% coverage, and 92.5% is reported as 100%"
+  fixed_in: "R51-站4 (read_coveragerc_omit reads both spellings — .coveragerc [run] and setup.cfg [coverage:run] — because reading one reads half the corpus)"
+
+- test: tests/test_coverage_denominator.py::test_an_omit_whose_size_is_unknowable_says_so
+  bug: "coverage.json is written by a run that already applied the omit, so five of six projects do not contain their omitted files and the cost is unknowable from the report. Reporting '0 statements' would read as 'the omit is free'; counting them a second way with an AST walk would produce a number that looks comparable to coverage.py's and is not"
+  fixed_in: "R51-站4 (the row says which files left; it claims a size only when the report contains one)"
+
+- test: tests/test_ac_traceability.py::test_an_unnumbered_acceptance_criterion_is_a_violation
+  bug: "the acceptance criterion is the only wire from a SPEC clause to a test, and nothing counted the strands. taskq-api's SRS carries 62 criteria and zero identifiers, so nothing downstream can cite one. FR-09 is the chain visible at once: SPEC.md L158 requires admin scope on /v1/metrics, the SRS transcribes the table row and then lists three criteria none of which is about it, TEST_SPEC has no case, the suite has no test, and app.py:295 mounts the endpoint with no auth dependency — while TRACEABILITY_MATRIX reported SRS Coverage 100% / Verification Rate 100%"
+  fixed_in: "R51-站5 (check_ac_identifiers; the P1 instruction now requires the identifier it had never asked for)"
+
+- test: tests/test_ac_traceability.py::test_an_acceptance_criterion_with_no_test_case_is_named
+  bug: "an identified criterion that produced no TEST_SPEC case is the last point at which a lost requirement could still be caught, and nothing looked. taskq-advance is the only project whose criteria are citable at all and 86 of its 92 are uncited — its TEST_SPEC's Derivation column reads Q1/Q2/Q7, a question taxonomy rather than the AC id"
+  fixed_in: "R51-站5 (check_ac_test_spec_coverage)"
+
+- test: tests/test_ac_traceability.py::test_criteria_written_as_headings_are_read_too
+  bug: "taskq and taskq-renew write `#### AC-1.1` headings — the shape canonical_diff assumes — and taskq-advance writes bullets. The first parser read only bullets and returned zero findings for the heading projects: Round 46 站1's defect committed by the checker itself, an abstention that reads as a clean bill. Caught by running the check on all six projects rather than on its fixture"
+  fixed_in: "R51-站5"
+
+- test: tests/test_ac_traceability.py::test_identifiers_outside_a_readable_shape_are_reported_as_unread
+  bug: "two acceptance-criteria shapes are read and a project may write a third; taskq-renew nests most of its 97 `AC-` identifiers under `- DERIVED:` parents outside the labelled block. `AC-` identifiers the parser cannot attribute are reported as unread at severity info — the framework's debt (Round 32 站4), not a clean result. Chasing each project's markdown dialect further would be fitting the parser to its fixtures, which is the defect this round is about"
+  fixed_in: "R51-站5 (ac_parse_gap)"
