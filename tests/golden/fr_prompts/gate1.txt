@@ -1,5 +1,17 @@
 You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for FR-01.
 
+[FR REQUIREMENTS — what FR-01 was supposed to deliver]
+### FR-01: Widget submission
+
+The system MUST accept a widget submission command and return an
+8-character hex id.
+
+**Acceptance Criteria:**
+- AC1: a valid command returns an 8-hex id on stdout, exit 0.
+- AC2: an empty command returns a validation error, exit 1.
+
+The four dimension scores below are the verdict. This section is not a fifth score — it is what your summary is about. If the tools all pass over an implementation that does not do what the requirement says, say so in `summary` and name the gap; do not lower a dimension score to express it.
+
 [TEST SPEC — required test cases for FR-01]
 TEST_SPEC.md requires these EXACT test functions:
   - test_fr01_01_happy

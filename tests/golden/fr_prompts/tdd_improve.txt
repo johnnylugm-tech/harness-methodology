@@ -24,10 +24,21 @@ def test_fr01_02_empty():
     assert True
 
 
+[FR REQUIREMENTS]
+### FR-01: Widget submission
+
+The system MUST accept a widget submission command and return an
+8-character hex id.
+
+**Acceptance Criteria:**
+- AC1: a valid command returns an 8-hex id on stdout, exit 0.
+- AC2: an empty command returns a validation error, exit 1.
+
 [TASK]
 1. Run `python3 -m pytest tests/test_fr01.py -q` first — confirm all pass before any changes.
 2. If they do NOT all pass, STOP. Refactoring on a red baseline turns a known failure into an unattributable one. Make no change, commit nothing, and report {"status": "PRECONDITION_BLOCKED", "commit": null, "summary": "<which test fails and why this blocks the refactor>"}. The framework verifies that claim against its own run of these tests and stops the pipeline with your reason — it is a correct answer, not a failure, and it is the ONLY way to report an unmet precondition.
 3. Refactor source code in `03-development/src/` for clarity, remove duplication, improve naming.
+   Check the [FR REQUIREMENTS] above against what GREEN actually built. If GREEN left a stand-in where the requirement names a real dependency — a function whose body only raises, a module-level dict standing in for storage, a comment saying the deployment layer will wire this later — connecting it IS this step's refactor. Tidying the docstring around a stand-in and leaving it in place is not.
 4. Re-run `python3 -m pytest tests/test_fr01.py -q` — must still pass.
 5. `git commit -m 'refactor(FR-01): IMPROVE'` — a commit is required to complete this step.
 

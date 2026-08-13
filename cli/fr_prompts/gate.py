@@ -24,7 +24,11 @@ from pathlib import Path
 from core.quality_gate.gate_thresholds import load_gate_dimensions
 from core.state_io import load_quality_manifest
 
-from cli.fr_prompts._shared import _compute_fr_spec_data, _extract_test_spec_names
+from cli.fr_prompts._shared import (
+    _compute_fr_spec_data,
+    _extract_srs_fr_section,
+    _extract_test_spec_names,
+)
 
 # The three things about a dimension that are prose, not config: how to run its
 # tool, what its tool_evidence is a snippet of, and how its output becomes a
@@ -95,7 +99,21 @@ def _gate1_dimensions(project: Path) -> list[dict]:
 
 
 def build_gate1_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, block_reason: str | None = None) -> str:
-    """Build prompt for GATE1 and GATE1-DELTA steps."""
+    """Build prompt for GATE1 and GATE1-DELTA steps.
+
+    Round 51 站1. Round 45 站4 removed this template's hand-copied dimension
+    list and rendered it from `gate1_per_fr.yaml` instead. What it renders is
+    the roster — four dimensions, their tools, thresholds and weights. The
+    requirement was never in it: `srs_path` arrived as a parameter and was
+    dropped, so the per-FR verdict has been a statement about four tools, not
+    about the FR.
+
+    The dimension scores stay exactly as they are. The section below is
+    context for the evaluator's summary, not a fifth score — a dimension
+    without a tool is a dimension without evidence, and Round 32 站4 settled
+    that an unmeasurable thing is the framework's debt, never a number.
+    """
+    srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
     spec = _compute_fr_spec_data(project, fr_id, test_file)
     spec_test_names = spec["spec_test_names"]
     spec_cov_pct = spec["spec_cov_pct"]
@@ -183,7 +201,14 @@ def build_gate1_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, te
     )
 
     return (
-        f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n"
+        f"You are a Gate 1 evaluator. Your task: run Gate 1 evaluation for {fr_id}.\n\n"
+        f"[FR REQUIREMENTS — what {fr_id} was supposed to deliver]\n"
+        f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+        f"The four dimension scores below are the verdict. This section is not a "
+        f"fifth score — it is what your summary is about. If the tools all pass "
+        f"over an implementation that does not do what the requirement says, say "
+        f"so in `summary` and name the gap; do not lower a dimension score to "
+        f"express it.\n"
         f"{spec_section}"
         f"{block_section}"
         f"[STOP RULE — follow when tools fail or you are unsure]\n"

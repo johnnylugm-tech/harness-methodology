@@ -9,7 +9,11 @@ from core.phase_hooks import (
 from core.state_io import load_quality_manifest
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
 
-from cli.fr_prompts._shared import _compute_fr_spec_data, _past_failures_block
+from cli.fr_prompts._shared import (
+    _compute_fr_spec_data,
+    _extract_srs_fr_section,
+    _past_failures_block,
+)
 
 
 def build_test_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, src_dir: str, tool_snapshot: str | None = None) -> str:
@@ -229,6 +233,7 @@ def build_code_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path,
             f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
         )
 
+    srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
     spec = _compute_fr_spec_data(project, fr_id, test_file)
     spec_test_names = spec["spec_test_names"]
     existing_spec_tests = spec["existing_spec_tests"]
@@ -339,6 +344,12 @@ def build_code_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path,
         f"You are a code fixer. Gate 1 FAILED for {fr_id}. Fix the failing dimensions.\n\n"
         f"[FORBIDDEN — read before anything else]\n"
         f"{forbidden}\n\n"
+        f"[FR REQUIREMENTS — the code you are about to change has to satisfy these]\n"
+        f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
+        f"A fix that raises the failing dimension while moving the implementation "
+        f"further from the requirement above is not a fix. Adding a test double so "
+        f"a test stops touching a real dependency raises test_coverage and removes "
+        f"the only thing that was checking the dependency exists.\n\n"
         f"[FAILING DIMENSIONS]\n"
         f"{dims_str}\n"
         f"{past_section}"

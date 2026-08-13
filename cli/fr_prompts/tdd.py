@@ -191,7 +191,21 @@ def build_tdd_green_prompt(fr_id: str, phase: int, project: Path, srs_path: Path
 
 
 def build_tdd_improve_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, src_dir: str) -> str:
-    """Build prompt for TDD-IMPROVE step."""
+    """Build prompt for TDD-IMPROVE step.
+
+    Round 51 站1. This builder took `srs_path` from the day it was written and
+    never read it, so the R in RED-GREEN-REFACTOR ran against one criterion —
+    the tests are still green — and the requirement was not in the room.
+
+    taskq-api priced it. `refactor(FR-06): IMPROVE` at 00:59 on 2026-08-13
+    passed over `repository/session.py`, whose `get_session()` is a bare
+    `raise RuntimeError("... must be wired by the deployment layer (Phase 4)
+    or stubbed in tests.")`, and left it there with tidier prose. Four
+    repositories keep their rows in class-level dicts. Gate 4 scored the
+    result 95.2776 with all ten FRs at 100.0, because every later check reads
+    the test suite and the test suite patches that module away.
+    """
+    srs_section = _extract_srs_fr_section(srs_path, fr_id) if srs_path else ""
     test_content = ""
     tf = project / test_file
     if tf.exists():
@@ -209,6 +223,8 @@ def build_tdd_improve_prompt(fr_id: str, phase: int, project: Path, srs_path: Pa
         f"- Injecting XX...XX placeholder markers into source files\n\n"
         f"[TEST INVARIANTS — {test_file} (first 1500 chars)]\n"
         f"{test_content or f'(read from {test_file})'}\n\n"
+        f"[FR REQUIREMENTS]\n"
+        f"{srs_section or f'See SRS.md for {fr_id} requirements'}\n\n"
         f"[TASK]\n"
         f"1. Run `python3 -m pytest {test_file} -q` first — confirm all pass before any changes.\n"
         f"2. If they do NOT all pass, STOP. Refactoring on a red baseline turns a "
@@ -219,6 +235,11 @@ def build_tdd_improve_prompt(fr_id: str, phase: int, project: Path, srs_path: Pa
         f"stops the pipeline with your reason — it is a correct answer, not a "
         f"failure, and it is the ONLY way to report an unmet precondition.\n"
         f"3. Refactor source code in `{src_dir}/` for clarity, remove duplication, improve naming.\n"
+        f"   Check the [FR REQUIREMENTS] above against what GREEN actually built. If GREEN "
+        f"left a stand-in where the requirement names a real dependency — a function whose "
+        f"body only raises, a module-level dict standing in for storage, a comment saying "
+        f"the deployment layer will wire this later — connecting it IS this step's refactor. "
+        f"Tidying the docstring around a stand-in and leaving it in place is not.\n"
         f"4. Re-run `python3 -m pytest {test_file} -q` — must still pass.\n"
         f"5. `git commit -m 'refactor({fr_id}): IMPROVE'` — a commit is required to "
         f"complete this step.\n\n"

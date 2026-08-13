@@ -5,6 +5,18 @@ You are a code fixer. Gate 1 FAILED for FR-01. Fix the failing dimensions.
 - Skipping or xfail-marking tests to make them 'pass'
 - app/infrastructure/ paths
 
+[FR REQUIREMENTS — the code you are about to change has to satisfy these]
+### FR-01: Widget submission
+
+The system MUST accept a widget submission command and return an
+8-character hex id.
+
+**Acceptance Criteria:**
+- AC1: a valid command returns an 8-hex id on stdout, exit 0.
+- AC2: an empty command returns a validation error, exit 1.
+
+A fix that raises the failing dimension while moving the implementation further from the requirement above is not a fix. Adding a test double so a test stops touching a real dependency raises test_coverage and removes the only thing that was checking the dependency exists.
+
 [FAILING DIMENSIONS]
 linting
 test_coverage
