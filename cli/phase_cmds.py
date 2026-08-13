@@ -30,6 +30,7 @@ from core.atomic_io import (
     state_lock_path,
 )
 from core.canonical_form import canonical_form
+from core.evidence_retention import ADVANCE_CLEARED_DIRS
 from core.quality_gate import agent_b_approvals, gate1_evidence
 from core.quality_gate.ghost_detector import scan_phase_ghost_trails
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
@@ -837,27 +838,33 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # advance-phase to drop Gate 1 evidence, so the precondition check
     # on the next phase always reported "sentinel missing" even after
     # a successful Gate 1 finalize.
-    sessi_work = project / ".sessi-work"
-    sentinels_dir = sessi_work / "sentinels"
-    _sentinels_backup: Optional[Path] = None
-    # Bug H1 fix: wrap backup→rm→restore in try/finally so the temp dir is
-    # cleaned up even if shutil.rmtree / copytree raises a non-OSError
-    # (KeyboardInterrupt, RuntimeError, etc.) that ignore_errors won't swallow.
-    try:
-        if sentinels_dir.is_dir():
-            _sentinels_backup = Path(tempfile.mkdtemp(prefix="harness-sentinels-"))
-            shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
-        if sessi_work.is_dir():
-            shutil.rmtree(sessi_work, ignore_errors=True)
-            print(f"  [advance-phase] Cleared stale {sessi_work}")
-        if _sentinels_backup is not None:
-            sentinels_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(_sentinels_backup / "sentinels", sentinels_dir, dirs_exist_ok=True)
-            _n = sum(1 for _ in sentinels_dir.iterdir() if _.is_file())
-            print(f"  [advance-phase] Preserved {_n} sentinel(s) under {sentinels_dir}")
-    finally:
-        if _sentinels_backup is not None:
-            shutil.rmtree(_sentinels_backup, ignore_errors=True)
+    #
+    # Round 50 站6: the directories cleared here are named in
+    # core/evidence_retention.ADVANCE_CLEARED_DIRS, which is also the list a
+    # verdict may not cite. One statement, so adding a scratch directory
+    # cannot leave the two disagreeing.
+    for _cleared_rel in ADVANCE_CLEARED_DIRS:
+        cleared_dir = project / _cleared_rel
+        sentinels_dir = cleared_dir / "sentinels"
+        _sentinels_backup: Optional[Path] = None
+        # Bug H1 fix: wrap backup→rm→restore in try/finally so the temp dir is
+        # cleaned up even if shutil.rmtree / copytree raises a non-OSError
+        # (KeyboardInterrupt, RuntimeError, etc.) that ignore_errors won't swallow.
+        try:
+            if sentinels_dir.is_dir():
+                _sentinels_backup = Path(tempfile.mkdtemp(prefix="harness-sentinels-"))
+                shutil.copytree(sentinels_dir, _sentinels_backup / "sentinels")
+            if cleared_dir.is_dir():
+                shutil.rmtree(cleared_dir, ignore_errors=True)
+                print(f"  [advance-phase] Cleared stale {cleared_dir}")
+            if _sentinels_backup is not None:
+                sentinels_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(_sentinels_backup / "sentinels", sentinels_dir, dirs_exist_ok=True)
+                _n = sum(1 for _ in sentinels_dir.iterdir() if _.is_file())
+                print(f"  [advance-phase] Preserved {_n} sentinel(s) under {sentinels_dir}")
+        finally:
+            if _sentinels_backup is not None:
+                shutil.rmtree(_sentinels_backup, ignore_errors=True)
 
     # Fix Finding #3: auto-regenerate quality_manifest.json at P2 exit.
     #

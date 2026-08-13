@@ -1432,7 +1432,9 @@ def _run_harness_cross_validation(
     Slow tools (mutmut, scancode) are skipped here; Solution A (content
     validation) still applies to their evidence files.
 
-    Raw tool output is written to .sessi-work/harness_verification/ for audit.
+    Raw tool output is written to the directory core.evidence_retention
+    names, under .methodology/gate_evidence/, for audit — a verdict may not
+    cite a place advance-phase deletes (Round 50 站6).
 
     Returns ``(fabrication, cannot_verify)``.
 
@@ -1497,8 +1499,16 @@ def _run_harness_cross_validation(
     _language = get_project_language(ctx.project_root)
     _test_runner = get_project_test_runner(ctx.project_root)
 
-    verification_dir = _Path(ctx.project_root) / ".sessi-work" / "harness_verification"
+    # Round 50 站6: under .methodology/gate_evidence/, not .sessi-work/. The
+    # block message below sends the operator to this file, and advance-phase
+    # deletes .sessi-work/ at every phase transition — so the audit trail for
+    # a verdict used to be gone one advance later.
+    from core.evidence_retention import cited_evidence_dir
+    verification_dir = cited_evidence_dir(ctx.project_root)
     verification_dir.mkdir(parents=True, exist_ok=True)
+    verification_relpath = verification_dir.relative_to(ctx.project_root).as_posix()
+    from core.harness_config import get_value as _get_config_value
+    _audit_max_bytes = int(_get_config_value(ctx.project_root, "gate_evidence_max_bytes"))
 
     violations: list[str] = []
     # Round 32 站4: "the harness could not measure this" is a separate verdict
@@ -1572,12 +1582,23 @@ def _run_harness_cross_validation(
 
         # Write audit trail regardless of outcome
         audit_file = verification_dir / f"{dim_name}_harness.txt"
+        # Round 50 站6: this file is now under .methodology/ and therefore
+        # committed, so it is bounded by the same ceiling Round 45 站1 set for
+        # cited evidence — one knob, not a second one beside it. The tail is
+        # kept: a tool's verdict is at the end of its output.
+        _audit_body = output
+        if len(_audit_body) > _audit_max_bytes:
+            _audit_body = (
+                f"[truncated to the last {_audit_max_bytes} characters — "
+                f"values.gate_evidence_max_bytes]\n"
+                + _audit_body[-_audit_max_bytes:]
+            )
         try:
             audit_file.write_text(
                 f"# Harness-executed: {tool}\n"
                 f"# returncode: {returncode}\n"
                 f"# agent_score: {_agent_label} | threshold: {threshold}\n\n"
-                f"{output}\n",
+                f"{_audit_body}\n",
                 encoding="utf-8",
             )
         except OSError:
@@ -1609,7 +1630,7 @@ def _run_harness_cross_validation(
             }.get(returncode, (
                 f"'{tool}' failed inside the harness (rc={returncode}); this is "
                 f"a framework-side fault, not an agent one — see the audit file "
-                f"in .sessi-work/harness_verification/."
+                f"in {verification_relpath}/."
             ))
             _rc_labels = {-2: "timed out", -3: "not found", -4: "error"}
             _rc_label = _rc_labels.get(returncode, f"rc={returncode}")

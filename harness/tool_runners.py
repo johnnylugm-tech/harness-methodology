@@ -2,8 +2,10 @@
 harness/tool_runners.py — Solution B: independent tool execution for cross-validation.
 
 Each tool is run by the harness (not the agent) so scores cannot be fabricated by
-writing stub files.  Results are written to .sessi-work/harness_verification/ as an
-audit trail.
+writing stub files.  Results are written to the audit directory
+core.evidence_retention.cited_evidence_dir names, under
+.methodology/gate_evidence/, so the audit trail outlives the phase that
+produced it (Round 50 站6).
 
 API
 ───

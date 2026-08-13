@@ -1483,7 +1483,7 @@ def create_steering_provider(provider: str | None = None) -> SteeringProvider:
 
 ### §3.37 — `harness/tool_runners.py` — Independent Tool Execution Engine
 
-**Responsibility**: Runs quality tools (ruff, mypy, pytest-cov, bandit, radon, etc.) as harness-owned subprocesses — not agent-owned — so scores cannot be fabricated by writing stub files. Results are written to `.sessi-work/harness_verification/` as an audit trail. This is the "Solution B" (independent subprocess) half of cross-validation; "Solution A" is content-level validation inside `core/quality_gate/`.
+**Responsibility**: Runs quality tools (ruff, mypy, pytest-cov, bandit, radon, etc.) as harness-owned subprocesses — not agent-owned — so scores cannot be fabricated by writing stub files. Results are written to `.methodology/gate_evidence/harness_verification/` as an audit trail — under `.methodology/` since Round 50 站6, because advance-phase clears `.sessi-work/` and a verdict may not cite a directory that gets deleted. This is the "Solution B" (independent subprocess) half of cross-validation; "Solution A" is content-level validation inside `core/quality_gate/`.
 
 **Public API**:
 
@@ -1525,7 +1525,7 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> float | None:
 
 **Default timeouts** (seconds): `ruff` 30; `mypy`/`pyright` 60; `pytest`/`pytest-cov` 120; `gitleaks` 30; `bandit` 60; `radon-cc`/`radon-mi` 30; `ast-docstrings` 30; `ast-error-handling` 30.
 
-**Integration**: Called by `HarnessBridge` during `run_gate()` preflight to produce harness-owned tool scores. Results are compared against agent-reported scores in `cross_artifact.py` (§3.15) and logged to `.sessi-work/harness_verification/` for audit.
+**Integration**: Called by `HarnessBridge` during `run_gate()` preflight to produce harness-owned tool scores. Results are compared against agent-reported scores in `cross_artifact.py` (§3.15) and logged to `.methodology/gate_evidence/harness_verification/` for audit.
 
 **Companion — `harness/crg_independent.py` (framework-owned `architecture`)**: The CRG Python API lives under its own interpreter (the `code-review-graph` console-script shebang), not the harness interpreter. `run_independent_crg(project_root, work_dir)` drives `code-review-graph build` + `postprocess` as subprocesses, dumps communities via `crg_dump_communities.py` (run under CRG's interpreter), reuses `crg_analysis.compute_community_cohesion_score`, and **writes** `.sessi-work/crg_metrics.json` itself. `finalize_gate` then overrides `architecture ← community_cohesion.score` — the agent never produces this value. CRG is a hard dependency: a missing binary or failed run raises `CrgIndependentError` → gate BLOCKED (no graceful degradation). `_verify_all_gate_tools` (run at each `run-phase`) surfaces a missing `code-review-graph` at project setup.
 
@@ -2885,10 +2885,10 @@ Phase 3 — finalize_gate(ctx)
   round_{k}/scores/*.json      ← per-round evaluator scores
   crg_metrics.json             ← crg_bridge + crg_analysis.py write
   crg_reconnaissance.json      ← CRG recon protocol output (Gate 3/4)
-  harness_verification/        ← tool_runners.py audit trail
 
 .methodology/
   gate{N}_result.json          ← Persistent gate passed evidence (copied on finalize-gate pass)
+  gate_evidence/               ← what a verdict cites, incl. harness_verification/ (R45 站1, R50 站6)
   quality_manifest.json        ← Comprehensive project quality manifest
   state.json                   ← FSM state persistence
 ```
