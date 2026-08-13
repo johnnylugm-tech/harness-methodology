@@ -48,6 +48,7 @@ def _read_jsonl(path: Path, *, line_cap: "int | None" = None) -> list[dict]:
 
 def _spawn_log_report(project: Path) -> dict:
     from core.sessions_spawn_logger import SessionsSpawnLogger
+    from core.spawn_log_schema import rows_that_can_carry
     entries = _read_jsonl(project / SessionsSpawnLogger.LOG_FILENAME)
     if not entries:
         return {"available": False}
@@ -83,7 +84,14 @@ def _spawn_log_report(project: Path) -> dict:
     for rec in top_fr.values():
         rec["cost_usd"] = round(rec["cost_usd"], 4)
 
-    cost_values = [e["total_cost_usd"] for e in entries if isinstance(e.get("total_cost_usd"), (int, float))]
+    # Round 50 站5: the denominator is the rows that COULD carry a cost, not
+    # every row. The workflow substrate has no envelope and no clock, so its
+    # rows are not missing a measurement — they are from a writer that cannot
+    # take one. Measured on taskq-api: 152 of 292 rows carried a cost, which
+    # read as 48% of the run's spending lost; against the 176 cost-capable
+    # rows it is 86%, and the 116 excluded are named rather than counted.
+    cost_capable = rows_that_can_carry(entries, "total_cost_usd")
+    cost_values = [e["total_cost_usd"] for e in cost_capable if isinstance(e.get("total_cost_usd"), (int, float))]
     usage_dicts = [e["usage"] for e in entries if isinstance(e.get("usage"), dict)]
     durations = [e["duration_seconds"] for e in entries if isinstance(e.get("duration_seconds"), (int, float))]
     api_durations = [e["duration_api_ms"] for e in entries if isinstance(e.get("duration_api_ms"), (int, float))]
@@ -97,7 +105,8 @@ def _spawn_log_report(project: Path) -> dict:
         "dispatches_per_fr_top10": top_fr,
         "cost_usd_total": round(sum(cost_values), 4) if cost_values else None,
         "cost_entries_with_data": len(cost_values),
-        "cost_entries_total": total,
+        "cost_entries_total": len(cost_capable),
+        "cost_entries_excluded_substrate": total - len(cost_capable),
         "tokens_input_total": sum(u.get("input_tokens", 0) for u in usage_dicts) if usage_dicts else None,
         "tokens_output_total": sum(u.get("output_tokens", 0) for u in usage_dicts) if usage_dicts else None,
         "duration_seconds_avg": round(sum(durations) / len(durations), 3) if durations else None,
@@ -593,6 +602,7 @@ def cmd_log_dispatch(args: argparse.Namespace) -> int:
         return 0
 
     from core.sessions_spawn_logger import log_spawn_event
+    from core.spawn_log_schema import validate_row
 
     written = 0
     for entry in batch:
@@ -602,10 +612,19 @@ def cmd_log_dispatch(args: argparse.Namespace) -> int:
         role = str(fields.pop("role", "workflow-agent"))
         status = str(fields.pop("status", "complete"))
         try:
-            log_spawn_event(
+            written_entry = log_spawn_event(
                 project, role=role, task="", session_id="", status=status, **fields
             )
             written += 1
+            # Round 50 站5. The generated JS is the one writer whose field names
+            # are not reviewed alongside the schema, so a new column arriving
+            # from it is reported here — after the write, because a row nobody
+            # has a name for is still a row that happened. The enforcement is
+            # tests/test_spawn_log_schema.py, which reads the shipped
+            # run-all.js; this is the runtime half that names the drift on a
+            # project that is running an older workflow copy.
+            for problem in validate_row(written_entry):
+                print(f"[log-dispatch] {role}: {problem}", file=sys.stderr)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             print(f"[log-dispatch] entry skipped ({role}): "
                   f"{type(exc).__name__}: {exc}", file=sys.stderr)

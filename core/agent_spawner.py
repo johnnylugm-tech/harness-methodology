@@ -17,6 +17,9 @@ from typing import Any, Optional
 
 from pathlib import Path
 
+from core.spawn_log_schema import ENVELOPE_TOP_KEYS as _ENVELOPE_TOP_KEYS
+from core.spawn_log_schema import ENVELOPE_USAGE_KEYS as _ENVELOPE_USAGE_KEYS
+
 
 # Env markers that tell a nested `claude -p` to fetch OAuth tokens from the
 # parent Agent-SDK stream. A headless child has no such stream, so auth fails
@@ -481,17 +484,10 @@ def _load_phase_sop(phase: int) -> str:
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
 
-# Round 14 站0: fields already present in the `claude -p --output-format
-# json` envelope (confirmed live 2026-07-17 against installed claude 2.1.206)
-# that were parsed then discarded — only `result`/`session_id`/`commit` were
-# ever read. `duration_ms` is deliberately excluded: it duplicates the
-# wallclock already measured independently via time.monotonic() (Fix H-F's
-# duration_seconds).
-_ENVELOPE_TOP_KEYS = ("total_cost_usd", "num_turns", "duration_api_ms")
-_ENVELOPE_USAGE_KEYS = (
-    "input_tokens", "output_tokens",
-    "cache_read_input_tokens", "cache_creation_input_tokens",
-)
+# Round 14 站0's envelope key lists moved to core/spawn_log_schema.py in
+# Round 50 站5, with their rationale: they are sessions_spawn.log columns
+# before they are envelope keys, and the reader that divides by them has to
+# know which substrate can produce them. Imported at the top of this file.
 
 
 def _extract_envelope_metrics(data: dict) -> dict[str, Any]:

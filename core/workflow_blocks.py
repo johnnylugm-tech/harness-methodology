@@ -1,6 +1,6 @@
 """workflow_blocks.py — where the pipeline stopped, written down (Round 48 站2).
 
-`run-report` aggregates three sources: `.sessi-work/sessions_spawn.log`,
+`run-report` aggregates three sources: `.methodology/sessions_spawn.log`,
 `.methodology/degradations.jsonl`, and the per-gate result files. Measured
 2026-08-12, a workflow halt appears in none of them. The eight generated phase
 workflows carry 125 terminal halt sites and every one of them returns a JS

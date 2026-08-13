@@ -117,6 +117,27 @@ class TestSpawnLogReport:
         assert report["tokens_output_total"] == 30
         assert report["dispatches_per_fr_top10"]["FR-01"]["cost_usd"] == 0.03
 
+    def test_workflow_rows_are_not_in_the_cost_denominator(self, tmp_path):
+        """Round 50 站5: a row that cannot carry a cost is not a missing cost.
+
+        The Workflow sandbox has no envelope and no clock, so its rows never
+        carry `total_cost_usd`. Counting them in the denominator turned
+        taskq-api's complete cost record into "152 of 292" — 48% of the run's
+        spending apparently lost, when the true figure was 152 of the 176
+        rows that could have carried one.
+        """
+        log = tmp_path / ".methodology" / "sessions_spawn.log"
+        _write_jsonl(log, [
+            {"status": "complete", "fr_id": "FR-01", "total_cost_usd": 0.01},
+            {"status": "complete", "substrate": "workflow",
+             "phase_label": "P1 · B Review", "reply_chars": 5881},
+        ])
+        report = _spawn_log_report(tmp_path)
+        assert report["total_dispatches"] == 2
+        assert report["cost_entries_with_data"] == 1
+        assert report["cost_entries_total"] == 1
+        assert report["cost_entries_excluded_substrate"] == 1
+
     def test_zero_envelope_entries_yields_none_not_zero(self, tmp_path):
         """No entry has cost/usage at all -> None (unknown), never 0
         (which would look like a real zero-cost run)."""

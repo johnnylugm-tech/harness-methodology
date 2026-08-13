@@ -4,6 +4,7 @@
 
 import json
 from pathlib import Path
+from core.spawn_log_schema import SUBSTRATE_PYTHON
 from core.utils.timefmt import utc_now_iso
 from typing import Optional, Dict, Any, List
 
@@ -92,8 +93,14 @@ class SessionsSpawnLogger:
         log_update calls cannot interleave and lose entries.
         """
         self._ensure_initialized()
+        # Round 50 站5: `substrate` is stamped here rather than inferred from
+        # the absence of envelope fields by whoever reads the file later. The
+        # workflow side has passed it since Round 26 站5 and overrides this
+        # default through kwargs; every other caller is, by construction, the
+        # Python spawner.
         entry: dict[str, Any] = {"timestamp": utc_now_iso(), "role": role,
-                                "task": task, "session_id": session_id, "status": status}
+                                "task": task, "session_id": session_id, "status": status,
+                                "substrate": SUBSTRATE_PYTHON}
         if confidence is not None:
             entry["confidence"] = confidence
         entry.update(kwargs)

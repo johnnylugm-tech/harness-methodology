@@ -21,6 +21,7 @@ shape was written down once. These tests are that place's contract.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -75,6 +76,53 @@ def test_a_row_missing_a_required_field_is_reported():
     row = {"role": "r", "task": "", "session_id": "", "status": "complete"}
     problems = validate_row(row)
     assert any("timestamp" in p for p in problems), problems
+
+
+_PYTHON_WRITERS = ("core/agent_spawner.py", "cli/project_cmds.py")
+
+
+def _fields_written_by(path: Path) -> set[str]:
+    """Field names *path* puts into a spawn-log row.
+
+    Two shapes, both literal: keyword arguments to a `log_spawn(...)` call,
+    and `_extra["name"] = ...` assignments feeding that call's `**_extra`.
+    A name reaching the row any other way is out of this scan's reach and
+    would need its own case here — deliberately narrow, so a miss is a
+    visible gap rather than a silent pass.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in ("log_spawn", "log_turn"):
+                names.update(kw.arg for kw in node.keywords if kw.arg)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == "_extra"
+                        and isinstance(target.slice, ast.Constant)
+                        and isinstance(target.slice.value, str)):
+                    names.add(target.slice.value)
+    return names
+
+
+def test_the_python_writers_emit_only_known_fields():
+    """Same rule as the JS side, on the writers that are not generated.
+
+    The JS test below reads a shipped file; this one reads source, because
+    the Python rows are written straight from these call sites.
+    """
+    known = REQUIRED_FIELDS | OPTIONAL_FIELDS
+    for rel in _PYTHON_WRITERS:
+        written = _fields_written_by(REPO / rel)
+        assert written, f"no spawn-log write found in {rel} — the scan lost its target"
+        for name in sorted(written):
+            assert name in known, (
+                f"{rel} writes {name!r} into sessions_spawn.log, and "
+                f"core/spawn_log_schema.py has never heard of it"
+            )
 
 
 def test_the_generated_workflow_writer_emits_only_known_fields():
