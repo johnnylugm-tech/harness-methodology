@@ -293,6 +293,30 @@ SCORE_SOURCE_FRAMEWORK_NA = "framework_na"
 # artifact rather than in a ledger line beside it.
 SCORE_SOURCE_AGENT_UNVERIFIED = "agent_unverified"
 
+# Round 51 站3. The framework ran the tool and reproduced the number, and the
+# number is still not about the delivered code: the suite it ran over replaces
+# a module the project's own SAB calls high-risk, before every test in the
+# file, through an `autouse` fixture no test asked for.
+#
+# Measured across six projects: five have zero such fixtures, taskq-api has
+# seventeen across ten files including both `*_e2e.py`. Its `test_coverage`
+# scored 100.0 and `integration_coverage` 80.0 over a suite in which
+# `repository.session.get_session` — a body that is one `raise RuntimeError` —
+# is monkeypatched away in seven test modules.
+#
+# Round 46 站1's witness who did not appear; this is the witness who appeared
+# as somebody else.
+SCORE_SOURCE_STUBBED_BOUNDARY = "stubbed_boundary"
+
+# The sources that are not "the framework measured the delivered code". Two
+# readers select on this and they must select on the same set — a second `!=`
+# comparison beside the first is how one of them comes to disagree with the
+# other the next time a source is added.
+_SOURCES_NOT_FRAMEWORK_MEASURED: frozenset[str] = frozenset({
+    SCORE_SOURCE_AGENT_UNVERIFIED,
+    SCORE_SOURCE_STUBBED_BOUNDARY,
+})
+
 # Dimensions the framework scores itself inside finalize_gate (crg_independent /
 # community_cohesion) rather than by re-running the `tool:` named in the gate
 # YAML. S4 skips them, so they are also outside the set whose None the verdict
@@ -365,11 +389,13 @@ def measurement_scope(
     # predates this field and keeps its old meaning.
     scored = sorted(
         d.name for d in dims
-        if d.score is not None and d.score_source != SCORE_SOURCE_AGENT_UNVERIFIED
+        if d.score is not None
+        and d.score_source not in _SOURCES_NOT_FRAMEWORK_MEASURED
     )
     unscored = sorted(
         d.name for d in dims
-        if d.score is None or d.score_source == SCORE_SOURCE_AGENT_UNVERIFIED
+        if d.score is None
+        or d.score_source in _SOURCES_NOT_FRAMEWORK_MEASURED
     )
     return {
         "weight_covered": round(sum(weights.get(n, 0.0) for n in scored), 10),
@@ -1411,6 +1437,72 @@ def _architecture_regression_reason(
         return (f"structural drift {drift:.2f} ≥ {dthr:.2f} vs P4 baseline "
                 f"({bl.get('_baseline_sha', '?')[:8]})")
     return None
+
+
+# The dimensions whose number IS the test suite running against the delivered
+# code. Deliberately two, not "everything test-shaped":
+#   * test_assertion_quality is an AST scan of the test files, not a run;
+#   * mutation_testing is self-correcting — a mutant inside a module the suite
+#     patched away survives, so a stubbed boundary lowers that score instead of
+#     raising it, and marking it would be describing the wrong direction.
+_SUITE_MEASURED_DIMENSIONS: frozenset[str] = frozenset({
+    "test_coverage", "integration_coverage",
+})
+
+
+def _mark_stubbed_boundary_dimensions(ctx: "GateContext", raw: dict) -> list[dict]:
+    """Mark the suite-measured dimensions when the suite replaced a declared
+    boundary, and leave the finding in the ledger.
+
+    Round 51 站3. The marker demotes the dimension out of `weight_covered`
+    (`measurement_scope` reads `_SOURCES_NOT_FRAMEWORK_MEASURED`); it does not
+    change the score and does not block. Round 32 站4's rule stands: an
+    unmeasurable dimension is the framework's debt, never a number the project
+    loses. What changes is that the composite stops claiming to cover weight it
+    did not measure.
+
+    Never raises — a scan that cannot parse a test file is not a reason to stop
+    a gate.
+    """
+    from core.degradation_ledger import record_degradation
+    from core.quality_gate.boundary_realism import stubbed_boundaries
+
+    try:
+        findings = stubbed_boundaries(ctx.project_root)
+    except Exception as exc:  # pragma: no cover — reporting must not stop a gate
+        record_degradation(
+            ctx.project_root, "gate:stubbed-boundary", "scan failed",
+            f"{type(exc).__name__}: {exc}", owner="harness",
+        )
+        return []
+    if not findings:
+        return []
+
+    modules = sorted({f["module"] for f in findings})
+    breakdown = raw.get("breakdown")
+    marked = []
+    if isinstance(breakdown, dict):
+        for dim_name in sorted(_SUITE_MEASURED_DIMENSIONS & set(breakdown)):
+            entry = breakdown[dim_name]
+            if isinstance(entry, dict) and entry.get("score") is not None:
+                entry["score_source"] = SCORE_SOURCE_STUBBED_BOUNDARY
+                marked.append(dim_name)
+
+    record_degradation(
+        ctx.project_root, "gate:stubbed-boundary",
+        f"{len(findings)} autouse fixture(s) replace {len(modules)} "
+        f"SAB high-risk module(s)",
+        "a dimension measured over this suite is not a measurement of the "
+        "delivered code; it is excluded from weight_covered",
+        data={"findings": findings, "modules": modules,
+              "dimensions_marked": marked},
+        owner="project",
+    )
+    if marked:
+        print(f"  [BOUNDARY] {', '.join(marked)}: measured over a suite that "
+              f"replaces {', '.join(modules)} — marked "
+              f"{SCORE_SOURCE_STUBBED_BOUNDARY}")
+    return findings
 
 
 def _run_harness_cross_validation(
@@ -2796,6 +2888,10 @@ class HarnessBridge:
         # while two of them were being violated in the delivered tree.
         from core.quality_gate.arch_constraints import record_constraint_status
         record_constraint_status(ctx.project_root, ctx.sab_data)
+
+        # ── Round 51 站3: a number measured over a suite that removed the
+        # thing it measures ──────────────────────────────────────────────────
+        _mark_stubbed_boundary_dimensions(ctx, raw)
 
         # ── S4: Harness cross-validation (Solution B) ────────────────────────
         # For each Tier 1/2 dimension where the agent claims a passing score,

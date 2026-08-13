@@ -167,3 +167,70 @@ def test_a_dimension_scored_over_a_stubbed_suite_is_not_framework_measured():
         "still counted toward weight_covered"
     )
     assert scope["weight_covered"] == pytest.approx(0.5)
+
+
+def test_the_marker_reaches_the_gate_artifact_and_the_ledger(stubbing_project):
+    """The producer, not just the vocabulary.
+
+    Round 30's lesson: a constant nobody sets and a reader nobody feeds is a
+    mechanism that is half built. This drives the function finalize_gate calls
+    and checks both of its outputs — the score_source written into the
+    breakdown, and the ledger row naming which fixture in which file.
+    """
+    import json
+
+    from harness.harness_bridge import (
+        SCORE_SOURCE_STUBBED_BOUNDARY,
+        GateContext,
+        _mark_stubbed_boundary_dimensions,
+    )
+
+    ctx = GateContext(
+        gate_num=4, config={}, project_root=str(stubbing_project), phase=6,
+        fr_id=None, ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+        work_dir=str(stubbing_project / ".sessi-work"), sab_data={},
+    )
+    raw = {"breakdown": {
+        "test_coverage": {"score": 100.0},
+        "integration_coverage": {"score": 80.0},
+        "linting": {"score": 100.0},
+        "mutation_testing": {"score": 79.0},
+    }}
+
+    findings = _mark_stubbed_boundary_dimensions(ctx, raw)
+    assert findings
+
+    assert raw["breakdown"]["test_coverage"]["score_source"] == SCORE_SOURCE_STUBBED_BOUNDARY
+    assert raw["breakdown"]["integration_coverage"]["score_source"] == SCORE_SOURCE_STUBBED_BOUNDARY
+    assert raw["breakdown"]["test_coverage"]["score"] == 100.0, (
+        "the marker records where the number came from; it does not change "
+        "the number (Round 32 站4)"
+    )
+    assert "score_source" not in raw["breakdown"]["linting"]
+    assert "score_source" not in raw["breakdown"]["mutation_testing"], (
+        "a mutant inside a patched-away module survives, so a stubbed "
+        "boundary already lowers the mutation score — marking it would "
+        "describe the wrong direction"
+    )
+
+    ledger = stubbing_project / ".methodology" / "degradations.jsonl"
+    rows = [json.loads(ln) for ln in ledger.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    row = next(r for r in rows if r["component"] == "gate:stubbed-boundary")
+    assert row["owner"] == "project"
+    assert "taskq_api.repository.session" in row["data"]["modules"]
+    assert sorted(row["data"]["dimensions_marked"]) == [
+        "integration_coverage", "test_coverage"]
+
+
+def test_a_clean_suite_produces_no_marker_and_no_ledger_row(real_project):
+    from harness.harness_bridge import GateContext, _mark_stubbed_boundary_dimensions
+
+    ctx = GateContext(
+        gate_num=4, config={}, project_root=str(real_project), phase=6,
+        fr_id=None, ssi_scripts_dir="", ssi_prompts_dir="", ssi_schemas_dir="",
+        work_dir=str(real_project / ".sessi-work"), sab_data={},
+    )
+    raw = {"breakdown": {"test_coverage": {"score": 100.0}}}
+    assert _mark_stubbed_boundary_dimensions(ctx, raw) == []
+    assert "score_source" not in raw["breakdown"]["test_coverage"]
+    assert not (real_project / ".methodology" / "degradations.jsonl").exists()
