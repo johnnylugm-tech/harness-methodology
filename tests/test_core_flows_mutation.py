@@ -401,24 +401,29 @@ def test_compute_tool_score_radon_mi_average():
 
 
 def test_compute_tool_score_benchmark_unit_scaling():
-    """Kills to_ms literal mutations (1.0→2.0) and both comparison thresholds.
+    """Kills the seconds→ms literal (1000.0) and both comparison thresholds.
 
-    600ms < 1000ms → 100.0 (no penalty)
-    1500ms > 1000ms → 75.0 (−25)
-    3500ms > 3000ms → 50.0 (−50)
+    0.6s = 600ms  < 1000ms → 100.0 (no penalty)
+    1.5s = 1500ms > 1000ms →  75.0 (−25)
+    3.5s = 3500ms > 3000ms →  50.0 (−50)
 
-    With to_ms["ms"]=2.0 mutation: 600*2=1200>1000 → 75.0 ≠ 100.0 → KILL.
+    Round 50 站1 moved the scorer onto pytest-benchmark's --benchmark-json
+    report, where `stats.mean` is always seconds — so the unit table this test
+    used to mutate (a `(time in ms)` header parsed out of the printed table)
+    no longer exists. The one remaining literal is the ×1000 conversion, and
+    a mutation of it moves 0.6s across the 1000ms line → KILL.
     """
+    import json as _json
+
     from harness.tool_runners import compute_tool_score
 
-    fast = "Name (time in ms)\n  test_fast   600.0   700.0\n"
-    assert compute_tool_score("pytest-benchmark", fast, 0) == 100.0
+    def report(mean_seconds):
+        return _json.dumps({"benchmarks": [
+            {"name": "test_x", "stats": {"mean": mean_seconds}}]})
 
-    slow = "Name (time in ms)\n  test_slow   1500.0   2000.0\n"
-    assert compute_tool_score("pytest-benchmark", slow, 0) == 75.0
-
-    heavy = "Name (time in ms)\n  test_heavy   3500.0   4000.0\n"
-    assert compute_tool_score("pytest-benchmark", heavy, 0) == 50.0
+    assert compute_tool_score("pytest-benchmark", report(0.6), 0) == 100.0
+    assert compute_tool_score("pytest-benchmark", report(1.5), 0) == 75.0
+    assert compute_tool_score("pytest-benchmark", report(3.5), 0) == 50.0
 
 
 def test_compute_tool_score_gitleaks_leak_detected():

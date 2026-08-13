@@ -179,16 +179,33 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     # --benchmark-only: run only tests using the `benchmark` fixture.
     # If none exist, pytest exits with code 5 (no tests collected) → scorer
-    # returns None. Text output so results flow through stdout capture.
+    # returns None.
+    #
+    # --benchmark-json is what the score is read from (Round 50 站1). The
+    # terminal table is for a human: pytest-benchmark renders a relative
+    # multiplier after each value and thousands-separates at four digits, so
+    # the shape of a row depends on the magnitude of the numbers in it. Six
+    # rounds of a parser aimed at that table produced zero rows against real
+    # output. The report is the same structured shape the JS toolchain's
+    # coverage artifacts already use.
+    #
+    # The path must match output_artifact exactly — run_tool clears it before
+    # the run and appends it after, and tests/test_benchmark_scoring.py holds
+    # the two together. It is under .sessi-work/ because it is an input to a
+    # score, not evidence a verdict cites: the audit copy the operator is sent
+    # to read lives in gate_evidence/ (Round 50 站6).
     "pytest-benchmark": ToolSpec(
         tool_id="pytest-benchmark",
         cmd=("pytest", "{root}", "--benchmark-only", "--benchmark-disable-gc",
-             "--benchmark-columns", "mean,max", "--tb", "no", "-q"),
+             "--benchmark-columns", "mean,max",
+             "--benchmark-json=.sessi-work/benchmark_report.json",
+             "--tb", "no", "-q"),
         timeout=180,
         check_cmd=f"pytest --version 2>&1 && {sys.executable} -c 'import pytest_benchmark' 2>&1",
         human_name="pytest-benchmark",
         install_step="requirements",
         scorer="pytest-benchmark",
+        output_artifact=".sessi-work/benchmark_report.json",
     ),
     # Integration coverage: run only the integration suite and measure real
     # line coverage of the source tree (NOT pass-rate). Missing suite →

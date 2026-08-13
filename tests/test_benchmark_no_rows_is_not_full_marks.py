@@ -59,14 +59,31 @@ def test_a_clean_exit_with_no_benchmark_rows_scores_nothing():
     )
 
 
+def _report(*means_seconds: float) -> str:
+    """pytest-benchmark's --benchmark-json shape; `stats.mean` is in seconds.
+
+    Round 50 站1 moved the scorer onto this report. `_ONE_ROW` above stays as
+    the fixture for the no-measurement cases, and as the record of why the
+    table is no longer read: it parsed only because that run had exactly one
+    benchmark under 1000. A second benchmark makes pytest-benchmark append a
+    relative-multiplier column and the same parser matches nothing — so the
+    ability to score this dimension used to depend on how few benchmarks the
+    project had written.
+    """
+    import json
+    return json.dumps({"benchmarks": [
+        {"name": f"test_b{i}", "stats": {"mean": m}}
+        for i, m in enumerate(means_seconds)
+    ]})
+
+
 def test_a_real_fast_benchmark_still_scores_100():
     """The fix must not turn a genuinely fast suite into an abstention."""
-    assert compute_tool_score("pytest-benchmark", _ONE_ROW, 0) == 100.0
+    assert compute_tool_score("pytest-benchmark", _report(0.0000623), 0) == 100.0
 
 
 def test_a_slow_benchmark_is_still_penalised():
-    slow = _ONE_ROW.replace("0.0623    0.1970", "3500.0    4000.0")
-    assert compute_tool_score("pytest-benchmark", slow, 0) == 50.0
+    assert compute_tool_score("pytest-benchmark", _report(3.5), 0) == 50.0
 
 
 def test_exit_five_is_unchanged():

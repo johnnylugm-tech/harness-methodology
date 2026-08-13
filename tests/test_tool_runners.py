@@ -238,10 +238,10 @@ class TestComputeToolScoreNonePropagation:
         assert compute_tool_score("pytest-benchmark", "", 5) is None
 
     def test_pytest_benchmark_valid_returns_score(self):
-        output = (
-            "Name (time in ms)   Mean     Max\n"
-            "test_pipeline       500.0    600.0\n"
-        )
+        # Round 50 站1: the score comes from --benchmark-json, not the table.
+        output = json.dumps({"benchmarks": [
+            {"name": "test_pipeline", "stats": {"mean": 0.5}},
+        ]})
         result = compute_tool_score("pytest-benchmark", output, 0)
         assert result == 100.0
 
@@ -252,76 +252,78 @@ class TestComputeToolScoreNonePropagation:
 
 class TestScorePytestBenchmark:
 
-    # Benchmark table header formats
+    # Round 50 站1: the scorer reads pytest-benchmark's --benchmark-json
+    # report, not the table it prints for a human. The six unit-conversion
+    # cases that used to live here are gone with the parser they tested: the
+    # table declares its unit in a header (`Name (time in us)`) and the report
+    # does not need to, because `stats.mean` is always seconds.
+    #
+    # Those six passed for six rounds against tables this file wrote. Against
+    # a table pytest-benchmark actually prints, the same parser matched zero
+    # rows — the tool appends a relative multiplier to every value
+    # (`4.7578 (1.0)`) and thousands-separates at four digits. The fixtures
+    # agreed with the parser instead of with the tool, so the tests could not
+    # see it. tests/test_benchmark_scoring.py holds the real output.
     _HEADER_MS = "Name (time in ms)   Mean     Max\n"
-    _HEADER_US = "Name (time in us)   Mean     Max\n"
-    _HEADER_NS = "Name (time in ns)   Mean     Max\n"
-    _HEADER_S  = "Name (time in s)    Mean     Max\n"
+
+    @staticmethod
+    def _report(*means_seconds: float) -> str:
+        return json.dumps({
+            "benchmarks": [
+                {"name": f"test_fn{i}", "stats": {"mean": m}}
+                for i, m in enumerate(means_seconds)
+            ],
+        })
 
     def test_exit_code_5_returns_none(self):
         """No benchmark tests collected → dimension not yet applicable."""
         assert _score_pytest_benchmark("no tests ran", 5) is None
 
     def test_all_fast_returns_100(self):
-        output = self._HEADER_MS + "test_pipeline   200.0   250.0\n"
-        assert _score_pytest_benchmark(output, 0) == 100.0
+        assert _score_pytest_benchmark(self._report(0.2), 0) == 100.0
 
     def test_slow_above_1000ms_deducts_25(self):
-        output = self._HEADER_MS + "test_pipeline   1500.0  1800.0\n"
-        assert _score_pytest_benchmark(output, 0) == 75.0
+        assert _score_pytest_benchmark(self._report(1.5), 0) == 75.0
 
     def test_very_slow_above_3000ms_deducts_50(self):
-        output = self._HEADER_MS + "test_pipeline   4000.0  5000.0\n"
-        assert _score_pytest_benchmark(output, 0) == 50.0
+        assert _score_pytest_benchmark(self._report(4.0), 0) == 50.0
 
     def test_two_slow_benchmarks_stack_penalties(self):
-        output = (
-            self._HEADER_MS
-            + "test_pipeline   1500.0  1800.0\n"
-            + "test_health     1200.0  1500.0\n"
-        )
-        assert _score_pytest_benchmark(output, 0) == 50.0  # 100 - 25 - 25
+        assert _score_pytest_benchmark(self._report(1.5, 1.2), 0) == 50.0
 
     def test_score_floor_is_zero(self):
-        lines = "".join(f"test_fn{i}   4000.0  5000.0\n" for i in range(5))
-        output = self._HEADER_MS + lines
-        assert _score_pytest_benchmark(output, 0) == 0.0
+        assert _score_pytest_benchmark(self._report(*([4.0] * 5)), 0) == 0.0
 
-    def test_microseconds_unit_converted_correctly(self):
-        """200,000 us = 200 ms → fast, score 100."""
-        output = self._HEADER_US + "test_pipeline   200000.0   250000.0\n"
-        assert _score_pytest_benchmark(output, 0) == 100.0
+    def test_mean_is_read_as_seconds(self):
+        """The one unit fact the report format guarantees.
 
-    def test_microseconds_slow_converted_correctly(self):
-        """2,000,000 us = 2000 ms → > 1000 ms → -25."""
-        output = self._HEADER_US + "test_pipeline   2000000.0  2500000.0\n"
-        assert _score_pytest_benchmark(output, 0) == 75.0
+        0.2 is 200 ms and scores 100; 2.0 is 2000 ms and loses 25. Reading
+        `mean` as milliseconds would make both of them instant and the
+        threshold unreachable.
+        """
+        assert _score_pytest_benchmark(self._report(0.2), 0) == 100.0
+        assert _score_pytest_benchmark(self._report(2.0), 0) == 75.0
 
-    def test_nanoseconds_unit_fast_converted_correctly(self):
-        """200,000,000 ns = 200 ms → fast, score 100."""
-        output = self._HEADER_NS + "test_pipeline   200000000.0   250000000.0\n"
-        assert _score_pytest_benchmark(output, 0) == 100.0
+    def test_a_malformed_report_scores_nothing(self):
+        """An entry with no readable mean must not be counted as fast.
 
-    def test_nanoseconds_unit_slow_converted_correctly(self):
-        """2,000,000,000 ns = 2000 ms → > 1000 ms → -25."""
-        output = self._HEADER_NS + "test_pipeline   2000000000.0   2500000000.0\n"
-        assert _score_pytest_benchmark(output, 0) == 75.0
-
-    def test_nanoseconds_very_slow_converted_correctly(self):
-        """4,000,000,000 ns = 4000 ms → > 3000 ms → -50."""
-        output = self._HEADER_NS + "test_pipeline   4000000000.0   5000000000.0\n"
-        assert _score_pytest_benchmark(output, 0) == 50.0
-
-    def test_seconds_unit_converted_correctly(self):
-        """0.2 s = 200 ms → fast, score 100."""
-        output = self._HEADER_S + "test_pipeline   0.2   0.25\n"
-        assert _score_pytest_benchmark(output, 0) == 100.0
+        The old loop only ever subtracted, so anything it could not read was
+        free marks — the shape Round 32 站4 and Round 46 站3 each found one
+        half of. Refusing the whole report is what closes it.
+        """
+        broken = json.dumps({"benchmarks": [{"name": "t", "stats": {}}]})
+        assert _score_pytest_benchmark(broken, 0) is None
+        assert _score_pytest_benchmark("not json at all", 0) is None
 
     def test_a_header_with_no_data_rows_measured_nothing(self):
         """Round 46 站3 inverted this. It read "nothing to penalise → 100",
         which is the free 100 `evaluate_dimension.md` forbids: a table with no
         rows is a suite that ran and measured nothing, and a project with no
-        real benchmark earns no performance score by having none."""
+        real benchmark earns no performance score by having none.
+
+        Round 50 站1 keeps the assertion and widens what it covers: table text
+        is no longer a score source at all, so this is now also the case of a
+        run whose report never arrived."""
         assert _score_pytest_benchmark(self._HEADER_MS, 0) is None
 
     def test_empty_output_measured_nothing(self):

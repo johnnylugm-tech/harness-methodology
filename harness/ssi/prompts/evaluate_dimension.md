@@ -547,10 +547,12 @@ scan independently, so a fabricated score is blocked.
 benchmark suite and scores real mean latencies:
 ```bash
 # python:
-python3 -m pytest 03-development/tests --benchmark-only --benchmark-disable-gc --benchmark-columns mean,max --tb no -q
+python3 -m pytest 03-development/tests --benchmark-only --benchmark-disable-gc --benchmark-columns mean,max --benchmark-json=.sessi-work/benchmark_report.json --tb no -q
 # javascript / typescript — normalized tinybench contract (template from init-project):
 node benchmarks/run.mjs
 ```
+**Read the score from `.sessi-work/benchmark_report.json`, not from the table.** `benchmarks[].stats.mean` is in SECONDS. The table pytest-benchmark prints is a rendering: it gains a relative-multiplier column (`4.7578 (1.0)`) as soon as there are two benchmarks, and thousands-separates at four digits, so a number read out of it changes shape with the size of the suite. Round 50 站1 removed the framework's own table parser for this reason.
+
 **Score formula:** start at 100; per benchmark, `mean > 3000 ms → −50`, `mean > 1000 ms → −25`, otherwise no penalty. **No benchmarks** (pytest exit 5 / missing `benchmarks/run.mjs`) → score is *None* (dimension not yet applicable — not a free 100). S4 cross-validation re-runs this independently, so a fabricated score is blocked.
 
 > python: add `pytest-benchmark` micro-benchmarks (functions taking the `benchmark`

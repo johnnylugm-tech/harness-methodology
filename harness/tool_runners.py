@@ -218,6 +218,17 @@ def run_tool(
             os.remove(artifact)
         except OSError:
             pass  # Best-effort; a non-removable stale file is a pre-existing problem.
+    if artifact:
+        # The tool writes this file itself, but not all of them create the
+        # directory first: pytest-benchmark's --benchmark-json opens the path
+        # during argument parsing and exits 4 with a usage error if the parent
+        # is missing (measured 2026-08-13). A tool that never ran looks exactly
+        # like a tool that measured nothing, so the directory is made here
+        # rather than left to each tool's own habits.
+        try:
+            os.makedirs(os.path.dirname(artifact), exist_ok=True)
+        except OSError:
+            pass  # Unwritable parent surfaces as the tool's own failure below.
 
     try:
         proc = subprocess.run(
@@ -420,57 +431,75 @@ def _score_readability_v2(output: str, _returncode: int) -> Optional[float]:
 
 
 def _score_pytest_benchmark(output: str, returncode: int) -> Optional[float]:
-    """Score pytest-benchmark text output.
+    """Score pytest-benchmark's --benchmark-json report.
 
-    Returns None whenever nothing was measured — no rows means no measurement,
-    whatever the exit code says. Otherwise parse the benchmark table for mean
-    latencies and penalise slow benchmarks.
+    Returns None whenever nothing was measured. Otherwise read each
+    benchmark's mean latency from the report and penalise the slow ones.
 
     Thresholds (cross-validation heuristics, not NFR targets):
       mean > 3000 ms → -50 pts per benchmark  (hard fail, clearly exceeds NFR-01 target)
       mean > 1000 ms → -25 pts per benchmark  (warning zone)
       All within 1000 ms → 100
+
+    Round 50 站1: this used to parse the table pytest-benchmark prints for a
+    human reader, and that parser only worked in the narrowest case. Measured
+    against real runs of the exact command the registry issues:
+
+        1 benchmark, values < 1000     parses
+        2 benchmarks                   zero rows  (`4.7578 (1.0)` — a
+                                       relative-multiplier column appears
+                                       once there is something to compare to)
+        any count, values >= 1000      zero rows  (`1,050.7090` — thousands
+                                       separator)
+
+    `--benchmark-columns` affects neither. So whether the framework could
+    score this dimension depended on how many benchmarks the project had
+    written: adding a second one took the ability away. Zero rows then took
+    the correct Round 46 站3 branch ("a suite that measured nothing has not
+    earned 100") for an incorrect reason, and the verdict fell back to the
+    agent's own unverified number.
+
+    The rendering is not the measurement. pytest-benchmark writes a
+    machine-readable report on request, and `_score_coverage_summary` /
+    `_score_js_bench` already read that shape for the JavaScript toolchain;
+    this is the third consumer, not a new mechanism. There is deliberately no
+    table fallback: a run whose stdout has no report attached means the
+    framework did not ask for one (registry.py's `--benchmark-json` and
+    `output_artifact` are checked against each other by
+    tests/test_benchmark_scoring.py), and inventing a number from the
+    rendering is what this round removed.
+
+    `stats.mean` is in SECONDS — measured, not assumed: a row rendered as
+    "4.7578" under a `(time in us)` header is 4.757764248017881e-06 here.
     """
+    import json as _json
+
     if returncode == 5:
         return None  # No benchmark tests exist yet — dimension not yet applicable
 
-    # Round 32 站4, found while measuring station 0's premise P3: the row regex
-    # below only ever SUBTRACTS, so output with no benchmark rows scores 100.
-    # On exit 2 (a collection error — the suite never ran) that meant a crashed
-    # benchmark suite was awarded full marks. Exit 5 was the only non-zero code
-    # this function knew about; every other one now reads as "no measurement".
+    # Round 32 站4: on exit 2 (a collection error — the suite never ran) the
+    # old loop awarded full marks to a crashed benchmark suite, because it
+    # only ever SUBTRACTED. Every non-zero code reads as "no measurement".
     if returncode != 0:
         return None
 
-    # Parse the unit multiplier from the header line:  "Name (time in ms)"
-    unit_m = re.search(r"Name\s+\(time\s+in\s+(ms|us|ns|s)\)", output, re.IGNORECASE)
-    if unit_m:
-        unit = unit_m.group(1).lower()
-        to_ms = {"ms": 1.0, "us": 0.001, "ns": 0.000001, "s": 1000.0}.get(unit, 1.0)
-    else:
-        to_ms = 1.0  # Assume ms if header not found
-
-    # Each data row: "  test_name   <mean_val>   <max_val>"
-    # --benchmark-columns mean,max produces exactly those two numeric columns.
-    row_re = re.compile(
-        r"^\s*(test_\S+)\s+([\d.]+(?:e[+-]?\d+)?)\s+([\d.]+(?:e[+-]?\d+)?)\s*$",
-        re.MULTILINE,
-    )
-    rows = list(row_re.finditer(output))
-    # Round 46 站3: the other half of Round 32 站4's finding. That round drew
-    # the right conclusion from "the loop only ever SUBTRACTS" and applied it
-    # to every non-zero exit code, leaving rc=0 with zero rows returning the
-    # initial 100 — the "free 100" evaluate_dimension.md explicitly forbids
-    # ("No benchmarks … → score is None … not a free 100"). A suite that ran
-    # cleanly and measured nothing has not earned a perfect performance score;
-    # it has not produced one. taskq-advance's gate4_result.json cites exactly
-    # this branch as its justification for performance = 100.0.
-    if not rows:
+    report = output.rsplit(_ARTIFACT_MARKER, 1)[1] if _ARTIFACT_MARKER in output else output
+    try:
+        benches = _json.loads(report).get("benchmarks", [])
+    except (_json.JSONDecodeError, ValueError, AttributeError, TypeError):
         return None
+    if not benches:
+        return None  # Ran clean and measured nothing — N/A, not a free 100.
 
     score = 100.0
-    for m in rows:
-        mean_ms = float(m.group(2)) * to_ms
+    for bench in benches:
+        try:
+            mean_ms = float(bench["stats"]["mean"]) * 1000.0
+        except (KeyError, TypeError, ValueError):
+            # A report entry with no readable mean is not a fast benchmark.
+            # Skipping it silently would let a malformed report score 100, so
+            # the whole report is refused instead.
+            return None
         if mean_ms > 3000.0:
             score -= 50.0
         elif mean_ms > 1000.0:
