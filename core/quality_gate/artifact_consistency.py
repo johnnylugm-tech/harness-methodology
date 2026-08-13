@@ -44,7 +44,9 @@ from core.quality_gate.legal_artifacts import LEGAL_ARTIFACTS
 from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["check_forward_refs", "check_nfr_adr_coverage", "check_module_fr_coverage"]
+__all__ = ["check_ac_identifiers", "check_ac_test_spec_coverage",
+           "check_forward_refs", "check_nfr_adr_coverage",
+           "check_module_fr_coverage"]
 
 # Legal deliverable filenames per stage directory (forward-reference whitelist).
 # Authoritative list lives in `core.quality_gate.legal_artifacts` (single source
@@ -331,4 +333,177 @@ def check_module_fr_coverage(project: Path) -> list[Violation]:
         spec_tracking_text = spec_tracking_path.read_text(encoding="utf-8", errors="replace")
         violations += _check_ownership_table(
             spec_tracking_text, spec_tracking_path.name, module_to_frs, check_missing=False)
+    return violations
+
+
+# ── ac_traceability: the acceptance criterion is the wire (Round 51 站5) ────
+#
+# An FR reaches an implementation along one path: SPEC section -> SRS section
+# -> acceptance criteria -> TEST_SPEC case -> test function -> code. Every
+# check that exists works on the two ends. D4 spec-coverage compares
+# TEST_SPEC's test names to the names in the test file; TRACEABILITY_MATRIX
+# links an FR id to a file. Nothing counts acceptance criteria, and nothing
+# asks whether each one produced a case.
+#
+# Measured on two trees built from a byte-identical SPEC.md:
+#
+#     SRS `AC-<n>.<m>` identifiers   taskq-advance 95     taskq-api 0
+#     AC bullets under the ten FRs   taskq-advance 46     taskq-api 33
+#     TEST_SPEC citing an AC id      taskq-advance  6     taskq-api 0
+#
+# FR-09 is the chain visible at once. SPEC.md L158 is a table row
+# (`GET /v1/metrics` | `admin` | counts, latency quantiles, rate-limit
+# rejections). taskq-api's SRS transcribes the row verbatim and then lists
+# three acceptance criteria, none about `/v1/metrics`. No TEST_SPEC case, no
+# test, and `app.py:295` mounts the endpoint with no auth dependency returning
+# only a redacted DB URL. Every downstream check agreed with every other,
+# because they were all reading the same silence.
+#
+# The framework's own AC parser has never seen an AC: `scripts/canonical_diff.py`
+# names its output `total_ac` and requires an `AC`-prefixed HEADING, and run
+# over both SRS files it returns 23 and 22 clauses — the FR and NFR section
+# headings, one each.
+#
+# Scope, stated because the gap matters: these two catch an AC that exists and
+# produced no case. They do NOT catch a SPEC table row that produced no AC —
+# that needs the SPEC structured, and the available shortcut (a ratio of AC
+# count to normative lines) would be a fresh proxy indicator, which is the
+# defect this round is about. Recorded in docs/PROPOSAL_ADJUDICATIONS.md with
+# its reopen condition.
+
+# `**AC-9.5**:` / `- AC-01-1:` / `AC-N12.2` — an identifier that starts with
+# AC and carries at least one digit. Deliberately permissive about the shape
+# after `AC-`: taskq-advance numbers FR criteria `AC-9.5` and NFR criteria
+# `AC-N12.2`, and a checker that insists on one of those spellings is checking
+# a convention rather than the property (that a later artifact can cite it).
+_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d[\w.\-]*")
+# The heading that opens a requirement's section, and the block that holds its
+# criteria. Both SRS files write the block as a bolded label, not a heading.
+_REQ_HEADING = re.compile(r"^#{1,6}\s+((?:FR|NFR)-\d+)\b[^\n]*$", re.MULTILINE)
+# Case-insensitive on the label: taskq-advance writes "**Acceptance Criteria**"
+# and taskq-renew writes "**Acceptance criteria**", and a checker that reads one
+# of them returns nothing for the other and reports zero findings.
+_AC_BLOCK = re.compile(
+    r"\*\*Acceptance criteria\*\*[^\n]*\n(.*?)(?=\n#{1,6}\s|\n\*\*[A-Z]|\Z)",
+    re.DOTALL | re.IGNORECASE,
+)
+_BULLET = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
+# `#### AC-1.1` — the criterion as its own heading. Both shapes are live in
+# the corpus and reading one reads a third of it: taskq and taskq-renew write
+# headings (the shape `scripts/canonical_diff.py` assumes), taskq-advance
+# writes `- **AC-9.1**: …` bullets, taskq-plus and taskq-api write bullets
+# with no identifier at all. A parser that sees only bullets returns nothing
+# for the heading projects and reports zero findings — an abstention that
+# reads as a clean bill, which is the defect Round 46 站1 named.
+_AC_HEADING = re.compile(r"^#{1,6}\s+(AC-[A-Za-z]?\d[\w.\-]*)\b[^\n]*$", re.MULTILINE)
+
+
+def _srs_acceptance_criteria(project: Path) -> dict[str, list[str]]:
+    """requirement id -> its acceptance-criteria lines, in document order.
+
+    Reads both spellings. A returned line is the raw text; the caller looks
+    for an `AC-` identifier in it, which is present by construction for the
+    heading shape and optional for the bullet shape.
+    """
+    srs = ProjectLayout(project).srs_path
+    if not srs.exists():
+        return {}
+    text = srs.read_text(encoding="utf-8", errors="replace")
+    heads = list(_REQ_HEADING.finditer(text))
+    out: dict[str, list[str]] = {}
+    for i, m in enumerate(heads):
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        section = text[m.end():end]
+        criteria = [h.group(1) for h in _AC_HEADING.finditer(section)]
+        block = _AC_BLOCK.search(section)
+        if block:
+            criteria += [b.strip() for b in _BULLET.findall(block.group(1))]
+        if criteria:
+            out[m.group(1)] = criteria
+    return out
+
+
+def check_ac_identifiers(project: Path) -> list[Violation]:
+    """Every acceptance criterion must carry a stable identifier.
+
+    Without one, no downstream artifact can cite the criterion and no checker
+    can count it — which is why taskq-api's TRACEABILITY_MATRIX reported
+    "SRS Coverage 100% / Verification Rate 100%" over a requirement that had
+    lost the only clause anyone would have implemented.
+    """
+    project = Path(project)
+    criteria = _srs_acceptance_criteria(project)
+    violations: list[Violation] = []
+    for req_id, bullets in sorted(criteria.items()):
+        unnumbered = [b for b in bullets if not _AC_ID.search(b)]
+        if unnumbered:
+            violations.append(Violation(
+                check_type="ac_unnumbered", rule_id=req_id, severity="error",
+                file="01-requirements/SRS.md",
+                message=(f"{req_id}: {len(unnumbered)} of {len(bullets)} acceptance "
+                         f"criteria carry no `AC-` identifier, so no TEST_SPEC case "
+                         f"can cite one and no check can count them — first: "
+                         f"{unnumbered[0][:80]!r}")))
+
+    # Round 46 applied to this checker itself. Two acceptance-criteria shapes
+    # are read (a heading, or bullets under an Acceptance-criteria label) and a
+    # project may write a third. When the SRS carries `AC-` identifiers this
+    # parser did not attribute to any requirement, the honest report is "I
+    # could not read these", not the zero findings that reads as clean.
+    # Measured: taskq-renew's SRS has 97 `AC-` occurrences and nests most of
+    # them under `- DERIVED:` parents outside the labelled block; five were
+    # attributed. Chasing each project's markdown dialect would be fitting the
+    # parser to its fixtures, which is the defect this round is about.
+    srs = ProjectLayout(project).srs_path
+    if srs.exists():
+        found = set(_AC_ID.findall(srs.read_text(encoding="utf-8", errors="replace")))
+        attributed = {ac for lines in criteria.values()
+                      for line in lines for ac in _AC_ID.findall(line)}
+        missed = found - attributed
+        if missed:
+            violations.append(Violation(
+                check_type="ac_parse_gap", rule_id="SRS", severity="info",
+                file="01-requirements/SRS.md",
+                message=(f"{len(missed)} `AC-` identifier(s) in SRS.md are not "
+                         f"inside a shape this check can read (a `#### AC-x` "
+                         f"heading, or a bullet under **Acceptance criteria**) — "
+                         f"they are unchecked, not clean; e.g. "
+                         f"{sorted(missed)[:3]}")))
+    return violations
+
+
+def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
+    """Every identified acceptance criterion must be cited by a TEST_SPEC case.
+
+    Reports nothing when the SRS declares no identified criteria — there is
+    no population to check, and Round 46's rule is that abstaining is not
+    passing; `check_ac_identifiers` above is the guard that says the
+    population is missing. With criteria present and TEST_SPEC absent, every
+    one is uncovered and each is named.
+    """
+    project = Path(project)
+    declared: dict[str, str] = {}
+    for req_id, bullets in _srs_acceptance_criteria(project).items():
+        for bullet in bullets:
+            for ac in _AC_ID.findall(bullet):
+                declared.setdefault(ac, req_id)
+    if not declared:
+        return []
+
+    test_spec = ProjectLayout(project).test_spec_path
+    cited: set[str] = set()
+    if test_spec.exists():
+        cited = set(_AC_ID.findall(
+            test_spec.read_text(encoding="utf-8", errors="replace")))
+
+    violations: list[Violation] = []
+    for ac in sorted(declared):
+        if ac in cited:
+            continue
+        violations.append(Violation(
+            check_type="ac_no_test_case", rule_id=declared[ac], severity="error",
+            file="02-architecture/TEST_SPEC.md",
+            message=(f"{ac} ({declared[ac]}) is an acceptance criterion in SRS.md "
+                     f"that no TEST_SPEC case cites — this is the last point at "
+                     f"which the requirement could still have been caught")))
     return violations

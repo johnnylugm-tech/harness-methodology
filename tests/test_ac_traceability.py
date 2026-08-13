@@ -184,3 +184,73 @@ def test_a_missing_artifact_is_not_a_pass(tmp_path, missing):
         project = _project(tmp_path, _SRS_IDENTIFIED)
         v = check_ac_test_spec_coverage(project)
         assert v, "four criteria and no TEST_SPEC at all reported nothing"
+
+
+def test_criteria_written_as_headings_are_read_too(tmp_path):
+    """taskq and taskq-renew write `#### AC-1.1`; advance writes bullets.
+
+    A parser that reads one shape returns nothing for the other and reports
+    zero findings, which is Round 46's defect committed by the checker itself.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_identifiers
+
+    srs = """\
+# SRS
+
+### FR-01: Task submission
+
+#### AC-1.1
+`submit "echo hi"` exits 0 and prints an 8-hex id.
+
+#### AC-1.2
+`submit ""` exits 2.
+"""
+    assert check_ac_identifiers(_project(tmp_path, srs)) == []
+
+
+def test_the_lowercase_label_is_read(tmp_path):
+    """taskq-renew writes `**Acceptance criteria**`; advance writes `Criteria`."""
+    from core.quality_gate.artifact_consistency import check_ac_identifiers
+
+    srs = """\
+# SRS
+
+### FR-01: Task submission
+
+**Acceptance criteria** (each machine-decidable)
+
+- a criterion with no identifier at all
+"""
+    v = check_ac_identifiers(_project(tmp_path, srs))
+    assert any(x.check_type == "ac_unnumbered" for x in v), (
+        "the label differed only in one letter's case and the whole section "
+        "was invisible"
+    )
+
+
+def test_identifiers_outside_a_readable_shape_are_reported_as_unread(tmp_path):
+    """Not clean — unchecked. The distinction Round 46 站1 exists to keep."""
+    from core.quality_gate.artifact_consistency import check_ac_identifiers
+
+    srs = """\
+# SRS
+
+### FR-01: Task submission
+
+Some prose that mentions **AC-01-9:** in a shape this parser does not read.
+
+**Acceptance Criteria**
+
+- **AC-01-1**: a criterion in a shape it does read.
+"""
+    v = check_ac_identifiers(_project(tmp_path, srs))
+    gaps = [x for x in v if x.check_type == "ac_parse_gap"]
+    assert gaps, (
+        "an `AC-` identifier the parser could not attribute to a requirement "
+        "was silently dropped, and the check reported clean"
+    )
+    assert "AC-01-9" in gaps[0].message
+    assert gaps[0].severity == "info", (
+        "the framework not being able to read a shape is the framework's "
+        "debt, not the project's failure (Round 32 站4)"
+    )

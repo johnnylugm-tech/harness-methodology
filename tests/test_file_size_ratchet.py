@@ -905,7 +905,7 @@ _LINE_CEILING: dict[str, int] = {
     # directive, moved here from the two shipped .js files 3dad941 hand-edited.
     # One prompt line in the generator replaces the same line written twice in
     # generated output; splitting a file over it would be the wrong trade.
-    "scripts/workflowgen/spec_phase1.py": 963,
+    "scripts/workflowgen/spec_phase1.py": 964,  # 2026-08-14: +1 — Round 51 站5: one line requiring every acceptance criterion to carry an `AC-<n>.<m>` identifier. The P1 instruction has required "testable AC" since it was written and never an identifier, so nothing downstream could cite a criterion and nothing could count them. Measured on two trees from a byte-identical SPEC.md: taskq-advance 92 numbered criteria, taskq-api 0 — and taskq-api lost the `/v1/metrics` admin-scope requirement between its SRS table row and its acceptance criteria, with every downstream traceability number still reading 100%. Previous: 963.
     # 2026-07-15: new god file — Round 11 station4: js_blocks.py crossed the
     # threshold for the first time (769→1314) adding the shared A/B-review-
     # machine renderers (safePrevB2/makeDocSummary/scopeRules/buildBPrompt/
