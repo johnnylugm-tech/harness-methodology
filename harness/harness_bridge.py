@@ -1505,6 +1505,61 @@ def _mark_stubbed_boundary_dimensions(ctx: "GateContext", raw: dict) -> list[dic
     return findings
 
 
+def _record_coverage_denominator(ctx: "GateContext") -> dict:
+    """Put the coverage denominator, and what left it, on the record.
+
+    Round 51 站4. `read_coveragerc_source` has read `[run] source` since it
+    was written — the denominator is not the caller's to pick — and `[run]
+    omit`, which decides the same thing from the other side, was read by
+    nothing. Measured on taskq-api: omit removes 63 of 839 delivered
+    statements, both files at 0.0 % coverage, and 92.5 % is reported as
+    100 %.
+
+    An omit stays legal; taskq-advance's names one file with a written
+    rationale. What this refuses is the silent version — the same shape as
+    Round 50 站5's `cost_entries_excluded_substrate`. Never raises.
+    """
+    from core.degradation_ledger import record_degradation
+    from core.quality_gate.cov_utils import coverage_denominator
+
+    try:
+        d = coverage_denominator(Path(ctx.project_root))
+    except Exception as exc:  # pragma: no cover — reporting must not stop a gate
+        record_degradation(
+            ctx.project_root, "gate:coverage-denominator", "read failed",
+            f"{type(exc).__name__}: {exc}", owner="harness",
+        )
+        return {}
+    if not d.get("omitted_files"):
+        return d
+
+    delivered = d["statements_delivered"]
+    share = (d["statements_omitted"] / delivered * 100) if delivered else 0.0
+    if d["statements_omitted"]:
+        size = (f"{d['statements_omitted']}/{delivered} statements, "
+                f"{share:.1f}%")
+    else:
+        # coverage.json is written by a run that already applied the omit, so
+        # for most projects the omitted files are simply not in it and their
+        # statement count is unknowable from the report. Measured across six
+        # projects: only taskq-api's report happens to contain them (63 of 839,
+        # 7.5%). Saying "0 statements" here would read as "the omit costs
+        # nothing", which is the opposite of what is known — so say what is
+        # known, which is the file list. Counting the statements a second way
+        # (an AST walk) would produce a number that looks comparable to
+        # coverage.py's and is not, which is this round's own defect.
+        size = "size unknown — this report was produced with the omit applied"
+    record_degradation(
+        ctx.project_root, "gate:coverage-denominator",
+        f"{len(d['omitted_files'])} file(s) are outside the coverage "
+        f"denominator ({size})",
+        "the reported percentage is taken over statements_measured, not over "
+        "the delivered tree; both numbers belong beside the score",
+        data=d, owner="project",
+    )
+    return d
+
+
 def _run_harness_cross_validation(
     ctx: "GateContext", raw: dict,
 ) -> "tuple[list[str], list[str]]":
@@ -2892,6 +2947,9 @@ class HarnessBridge:
         # ── Round 51 站3: a number measured over a suite that removed the
         # thing it measures ──────────────────────────────────────────────────
         _mark_stubbed_boundary_dimensions(ctx, raw)
+
+        # ── Round 51 站4: which files left the coverage denominator ─────────
+        _record_coverage_denominator(ctx)
 
         # ── S4: Harness cross-validation (Solution B) ────────────────────────
         # For each Tier 1/2 dimension where the agent claims a passing score,

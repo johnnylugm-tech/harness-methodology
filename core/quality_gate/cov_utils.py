@@ -1,5 +1,6 @@
 """Coverage source resolution utilities (shared between FrameworkEnforcer and PhaseTruthVerifier)."""
 import configparser
+import json
 import re
 import warnings
 from pathlib import Path
@@ -24,6 +25,111 @@ def read_coveragerc_source(project_root: Path) -> str:
             warnings.warn(f"read_coveragerc_source: .coveragerc unreadable, "
                           f"defaulting source to '.': {exc}")
     return "."
+
+
+# Where a project may write its coverage exclusions, and under which section.
+# Both spellings are live: taskq-api uses `.coveragerc [run]`, taskq-advance
+# uses `setup.cfg [coverage:run]`. Reading only one reads half the corpus.
+_OMIT_SOURCES: tuple[tuple[str, str], ...] = (
+    (".coveragerc", "run"),
+    ("setup.cfg", "coverage:run"),
+    ("tox.ini", "coverage:run"),
+)
+
+
+def read_coveragerc_omit(project_root: Path) -> list[str]:
+    """Return the project's coverage `omit` list, in declaration order.
+
+    Round 51 站4. `read_coveragerc_source` above has read `[run] source` since
+    it was written, for the reason its docstring gives — the denominator is
+    not the caller's to pick. `omit` decides the same thing from the other
+    side and has never been read by anything in this repository.
+
+    The sibling was fixed long ago on the mutation side:
+    `mutmut_scope.resolve_mutation_scope` derives `paths_to_mutate` from the
+    SAB and `advance-phase` writes it into `setup.cfg` at the P2->P3 handoff,
+    and finalize blocks when the file disagrees with the SAB (Round 29/30/31).
+    Coverage asked the same question and answered it by trusting a file the
+    judged party commits.
+
+    Measured on taskq-api: `omit` removes 63 of 839 delivered statements —
+    `migrations/env.py` at 0.0 % and `taskq_api/__main__.py` at 0.0 %, the
+    only two files in the tree at zero, 7.5 % of the denominator. The project
+    reported "100 % (802 stmts, 0 missing)"; without the omit the same suite
+    is at best 92.5 %. `__main__.py` is the FR-03 deliverable whose own
+    docstring records that it persists keys "through the in-process registry
+    path" because `repository.session.get_session` raises.
+
+    Returns [] both when there is no omit and when there is no config at all.
+    The caller that needs to tell those apart asks whether the file exists;
+    every caller so far only needs the list.
+    """
+    for filename, section in _OMIT_SOURCES:
+        path = project_root / filename
+        if not path.exists():
+            continue
+        try:
+            parser = configparser.ConfigParser()
+            parser.read(path)
+            raw = parser.get(section, "omit", fallback="")
+        except Exception as exc:
+            warnings.warn(f"read_coveragerc_omit: {filename} unreadable: {exc}")
+            continue
+        entries = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        if entries:
+            return entries
+    return []
+
+
+def coverage_denominator(project_root: Path) -> dict:
+    """The population a coverage percentage was taken over, and what left it.
+
+    Reads `coverage.json` — the machine-readable report the same run writes —
+    and reports three numbers rather than one:
+
+      * ``statements_delivered``  every statement coverage.py saw
+      * ``statements_omitted``    the ones the project's `omit` removed
+      * ``statements_measured``   the denominator behind the reported %
+
+    Same shape as Round 50 站5's `cost_entries_excluded_substrate`: report the
+    population and report what was taken out of it, so a percentage carries
+    its own denominator. An omit is allowed — taskq-advance's has a written
+    rationale — and this makes it a fact on the record instead of a silent
+    change to the number a verdict cites.
+
+    Returns zeros when there is no `coverage.json`; a missing report is not a
+    project with nothing omitted, and the caller decides what to do about a
+    denominator it could not read.
+    """
+    omitted = read_coveragerc_omit(project_root)
+    delivered = measured = removed = 0
+
+    report = project_root / "coverage.json"
+    if report.is_file():
+        try:
+            files = json.loads(report.read_text(encoding="utf-8")).get("files", {})
+        except (OSError, json.JSONDecodeError, AttributeError) as exc:
+            warnings.warn(f"coverage_denominator: coverage.json unreadable: {exc}")
+            files = {}
+        if isinstance(files, dict):
+            omit_set = set(omitted)
+            for name, entry in files.items():
+                try:
+                    stmts = int(entry["summary"]["num_statements"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                delivered += stmts
+                if name in omit_set:
+                    removed += stmts
+                else:
+                    measured += stmts
+
+    return {
+        "statements_delivered": delivered,
+        "statements_omitted": removed,
+        "statements_measured": measured,
+        "omitted_files": omitted,
+    }
 
 
 def _fr_source_files_from_imports(
