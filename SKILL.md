@@ -198,6 +198,7 @@ Before advancing to Phase N+1, confirm ALL:
 - **Send Agent B file paths as input (Phase 1-2 only) — Agent B is stateless, embed content in prompt**
 - **Treat evaluate_dimension.md as reference — it is the mandatory tool-execution protocol. Skipping tool steps, using wrong LLM tiers, or fabricating scores without tool output = HR violation. score.py enforces this at machine level.**
 - **NEVER modify files inside `harness/` (the methodology submodule) from the project side.** Bugs found in harness-methodology must be reported to the harness-methodology repo; hotfixes applied directly in the submodule create divergence and are invisible to the upstream. The only permitted change to the submodule is `git submodule update --remote`.
+- **NEVER write a range citation `path:N-M` where `M` exceeds the file's actual line count.** Always `wc -l <path>` before writing a range citation. Off-by-one errors in range citations block `advance-phase` with no automated remediation — the orchestrator must catch this at persist time and re-dispatch Agent B (see §0.1a). Example failure shape: `path:N-N+1` for an N-line file.
 
 ### 0.6 Quick Reference — Entry Points
 

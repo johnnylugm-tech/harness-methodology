@@ -168,7 +168,10 @@ async function persistApproval(deliverableId, b2) {
     let res
     try {
       res = await dispatch(
-        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',
+        (attempt === 1
+          ? 'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.'
+          : 'You are a SHELL WRAPPER AGENT (retry ' + attempt + '/' + MAX_OUTER_ATTEMPTS + '). Previous attempt stderr:\n' + (lastErr ?? '(none)') + '\n\nIf stderr contains `BLOCKED: citation(s) do not resolve`, the cited range end exceeds the file length; the orchestrator must re-dispatch Agent B with the cited file path and a reminder to run `wc -l <path>` before writing the citation. Report stderr verbatim via StructuredOutput reason. Then run:\n\n' + cmd + '\n\nReport via StructuredOutput: pass = true ONLY if stdout contains `[write-approval] OK`.'
+        ),
         { label: 'write-approval-' + deliverableId + '-try' + attempt, phase: 'Peer Review', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
     } catch (e) {

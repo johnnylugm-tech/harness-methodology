@@ -315,6 +315,7 @@ function buildBPrompt(role, deliverable, docs, checklist) {
     + 'SCHEMA REQUIREMENTS (advance-phase `harness_cli.py _verify_agent_b_approvals_core` REJECTS the approval if any of these fail — observed 2026-06-29 wf_3a9377cb):\n'
     + '  - `reason`: ≥ 40 characters of substantive justification. NOT "APPROVE", "OK", or other one-word response.\n'
     + '  - `citations`: array of "file:line" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\n'
+    + '  - For range citations `path:N-M`, the end line M MUST NOT exceed the file\'s actual line count (verify via `wc -l <path>` before writing). Off-by-one errors in range citations are a known failure mode that blocks advance-phase with no automated remediation.\n'
     + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) looks for PURE basenames like "SRS.md", "TEST_INVENTORY.yaml", NOT descriptive strings like "SRS.md §1-§9 full content". Use bare basenames only.\n'
     + '  - CRITICAL: for Phase 1, `docs_embedded` MUST include "SRS.md" regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[1]) rejects any P1 approval missing it.\n\n'
     + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\n'
@@ -578,7 +579,10 @@ async function persistApproval(deliverableId, b2) {
     let res
     try {
       res = await dispatch(
-        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',
+        (attempt === 1
+          ? 'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.'
+          : 'You are a SHELL WRAPPER AGENT (retry ' + attempt + '/' + MAX_OUTER_ATTEMPTS + '). Previous attempt stderr:\n' + (lastErr ?? '(none)') + '\n\nIf stderr contains `BLOCKED: citation(s) do not resolve`, the cited range end exceeds the file length; the orchestrator must re-dispatch Agent B with the cited file path and a reminder to run `wc -l <path>` before writing the citation. Report stderr verbatim via StructuredOutput reason. Then run:\n\n' + cmd + '\n\nReport via StructuredOutput: pass = true ONLY if stdout contains `[write-approval] OK`.'
+        ),
         { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'Persist Approval', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
     } catch (e) {
@@ -637,6 +641,7 @@ async function runPeerReview(approvedDocs) {
     }
 
     const bPrompt = buildBPrompt('BUSINESS_ANALYST', 'all 4 P1 deliverables (holistic)', loadedDocs, peerChecklist)
+      + (b2 && b2.persist_error ? '\n\n=== PREVIOUS ROUND CITE REJECT ===\n' + b2.persist_error + '\nRe-read each cited file with `wc -l <path>` BEFORE writing range citations. The cited end line MUST be ≤ the file line count.\n' : '');
     // v15: wrap agent() in try/catch + budget guard (Bug #2 + #3 mitigation)
     if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 100000) {
       log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k) -- exiting')
@@ -670,8 +675,25 @@ async function runPeerReview(approvedDocs) {
       // Sub-Task-stage approval was written, leaving that on-disk approval
       // describing stale content. Peer Review is the final holistic review,
       // so its verdict is what should be on record for every deliverable.
+      // If persistApproval throws (cmd_write_approval rejected an
+      // off-by-one citation range via unresolvable_citations), attach
+      // the error to b2.persist_error and re-enter the round loop so
+      // the next Agent B can self-correct; the round-5 HR-12
+      // escalation further below still fires if it never converges.
+      // Off-by-one citation range observed in production.
+      let persistError = null
       for (const d of approvedDocs) {
-        await persistApproval(d.diskPath.split('/').pop(), b2)
+        try {
+          await persistApproval(d.diskPath.split('/').pop(), b2)
+        } catch (e) {
+          persistError = e
+          break
+        }
+      }
+      if (persistError) {
+        b2.persist_error = String(persistError.message ?? persistError).slice(0, 400)
+        log('  Persist failed at round ' + round + ': ' + b2.persist_error)
+        continue
       }
       return { b2: b2 }
     }

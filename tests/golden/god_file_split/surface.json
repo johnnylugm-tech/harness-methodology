@@ -527,7 +527,7 @@
     "cli.check_cmds::cmd_verify_gate": "182bd72a429c4247",
     "cli.check_cmds::cmd_verify_spec": "d849969a2639708b",
     "cli.check_cmds::cmd_verify_trace": "a69351f714ce3397",
-    "cli.check_cmds::cmd_write_approval": "713a5a63b2fa882b",
+    "cli.check_cmds::cmd_write_approval": "ea66ab4577f3ed4a",
     "core.doctor::_check_ci_template_drift": "100905544439a543",
     "core.doctor::_check_crash_bundles": "e6626ffc816e582a",
     "core.doctor::_check_dimension_scope_drift": "7844fb1588ab3f88",

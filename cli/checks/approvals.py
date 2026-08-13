@@ -187,6 +187,38 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
         print(f"[write-approval] ERROR: invalid JSON payload: {e}", file=sys.stderr)
         return 1
 
+    # Pre-write citation sanity: block unresolvable citations before they land on
+    # disk. advance-phase's `_verify_agent_b_approvals_core` already runs this
+    # check via `unresolvable_citations`, but persisting a bad citation and
+    # blocking later is a worse UX than rejecting at write time: it gives the
+    # orchestrator a concrete error to retry on instead of an opaque halt at
+    # the phase boundary. Off-by-one range citation observed in production.
+    # `TEST_INVENTORY.yaml:791-860` for an 859-line file).
+    if isinstance(payload, dict):
+        _citations = payload.get("citations", [])
+        # Structural guard: advance-phase requires `citations` to be a list
+        # (verify_agent_b_approvals_core line 275-279). Mirror that here so
+        # we reject malformed payloads with a clear message instead of
+        # letting `unresolvable_citations` iterate chars of a string.
+        if _citations and not isinstance(_citations, list):
+            print(
+                "[write-approval] BLOCKED: `citations` must be a list of "
+                "`path:line` strings; got "
+                + type(_citations).__name__
+                + ". advance-phase would reject this exact same shape.",
+                file=sys.stderr,
+            )
+            return 1
+        if _citations:
+            _bad = agent_b_approvals.unresolvable_citations(project, _citations)
+            if _bad:
+                print(
+                    "[write-approval] BLOCKED: citation(s) do not resolve — "
+                    + "; ".join(_bad),
+                    file=sys.stderr,
+                )
+                return 1
+
     approvals_dir = project / ".methodology" / "agent_b_approvals"
     approval_path = approvals_dir / f"{fr_id}.json"
     try:

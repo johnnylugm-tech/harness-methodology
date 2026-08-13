@@ -229,6 +229,7 @@ function buildBPrompt(role, deliverable, docs, checklist) {
     + 'SCHEMA REQUIREMENTS (advance-phase `harness_cli.py _verify_agent_b_approvals_core` REJECTS the approval if any of these fail — observed 2026-06-29 wf_3a9377cb):\n'
     + '  - `reason`: ≥ 100 characters of substantive justification. NOT "APPROVE", "OK", or other one-word response.\n'
     + '  - `citations`: array of "file:line" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\n'
+    + '  - For range citations `path:N-M`, the end line M MUST NOT exceed the file\'s actual line count (verify via `wc -l <path>` before writing). Off-by-one errors in range citations are a known failure mode that blocks advance-phase with no automated remediation.\n'
     + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) looks for PURE basenames like "SAD.md", "ADR.md", "TEST_SPEC.md", NOT descriptive strings. Use bare basenames only.\n'
     + '  - CRITICAL: for Phase 2, `docs_embedded` MUST include ALL of: "SRS.md", "SAD.md" — regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[2]) rejects any P2 approval missing either.\n\n'
     + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\n'
@@ -454,7 +455,10 @@ async function persistApproval(deliverableId, b2) {
     let res
     try {
       res = await dispatch(
-        'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.',
+        (attempt === 1
+          ? 'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.'
+          : 'You are a SHELL WRAPPER AGENT (retry ' + attempt + '/' + MAX_OUTER_ATTEMPTS + '). Previous attempt stderr:\n' + (lastErr ?? '(none)') + '\n\nIf stderr contains `BLOCKED: citation(s) do not resolve`, the cited range end exceeds the file length; the orchestrator must re-dispatch Agent B with the cited file path and a reminder to run `wc -l <path>` before writing the citation. Report stderr verbatim via StructuredOutput reason. Then run:\n\n' + cmd + '\n\nReport via StructuredOutput: pass = true ONLY if stdout contains `[write-approval] OK`.'
+        ),
         { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'Persist Approval', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
     } catch (e) {
