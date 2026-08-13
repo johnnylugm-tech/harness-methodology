@@ -52,7 +52,7 @@ def _render_risk_docs() -> str:
         + "  { label: 'risk-docs', phase: 'Risk Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(docsReport && docsReport.pass === true)) {\n"
-        + "  return { error: 'Phase 7 risk docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('risk-docs', { error: 'Phase 7 risk docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 

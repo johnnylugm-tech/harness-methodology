@@ -124,7 +124,7 @@ def _render_phase1_run_sub_task() -> str:
         "      log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.name)\n"
         "      if (b2 && b2.review_status === 'APPROVE') return { content, b2, budget_exhausted: true }\n"
         "      if (b2) return { content, b2, budget_exhausted: true }\n"
-        "      return { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true }\n"
+        "      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true })\n"
         "    }\n"
         "\n"
         "    // --- A: REQUIREMENTS_ENGINEER ---\n"
@@ -136,7 +136,7 @@ def _render_phase1_run_sub_task() -> str:
         "      phase: cfg.phaseName,\n"
         "      agentType: 'general-purpose',\n"
         "    }) } catch (e) {\n"
-        "      if (round === MAX_B_ROUNDS) return { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })\n"
         "      log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
         "    }\n"
         "    let a = null\n"
@@ -148,7 +148,7 @@ def _render_phase1_run_sub_task() -> str:
         "    // validates prefix/size/SHA; eliminates LLM-as-parser failure mode).\n"
         "    content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix, cfg.phaseName)\n"
         "    if (content.startsWith('FILE_MISSING') || content.startsWith('ERROR:') || content.length < 50) {\n"
-        "      if (round === MAX_B_ROUNDS) return { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }\n"
+        "      if (round === MAX_B_ROUNDS) return halt('deliverable-missing', { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })\n"
         "      log('  A disk empty (parse-fail + no file) → retrying next round')\n"
         "      continue\n"
         "    }\n"
@@ -164,7 +164,7 @@ def _render_phase1_run_sub_task() -> str:
         "      phase: cfg.phaseName,\n"
         "      agentType: 'general-purpose',\n"
         "    }) } catch (e) {\n"
-        "      if (round === MAX_B_ROUNDS) return { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })\n"
         "      log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
         "    }\n"
         "    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---\n"
@@ -186,15 +186,15 @@ def _render_phase1_run_sub_task() -> str:
         "    }\n"
         "    if (sbrResult.escalation_action === 'escalate_human') {\n"
         "      log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)\n"
-        "      return { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }\n"
+        "      return halt('review-escalation', { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' })\n"
         "    }\n"
         "    if (round === MAX_B_ROUNDS) {\n"
         "      log('  MAX ROUNDS reached without convergence — ESCALATING')\n"
-        "      return { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }\n"
+        "      return halt('review-no-convergence', { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 })\n"
         "    }\n"
         "    log('  Continue to round ' + (round + 1) + ' (A will fix high-severity gaps or REJECT issues)')\n"
         "  }\n"
-        "  return { error: cfg.name + ': loop exited unexpectedly' }\n"
+        "  return halt('review-loop-exhausted', { error: cfg.name + ': loop exited unexpectedly' })\n"
         "}\n"
     )
 
@@ -234,7 +234,7 @@ def _render_phase1_run_peer_review() -> str:
         "      if (needsReload.has(d.diskPath)) {\n"
         "        const c = await loadFileViaPython(d.diskPath, d.diskPrefix, 'Peer Review')\n"
         "        if (c.startsWith('FILE_MISSING') || c.startsWith('ERROR:') || c.length < 50) {\n"
-        "          return { error: 'Peer Review: ' + d.diskPath + ' load failed (round ' + round + ')', loader_preview: c.slice(0, 200) }\n"
+        "          return halt('peer-review', { error: 'Peer Review: ' + d.diskPath + ' load failed (round ' + round + ')', loader_preview: c.slice(0, 200) })\n"
         "        }\n"
         "        docCache[d.diskPath] = c\n"
         "      }\n"
@@ -247,7 +247,7 @@ def _render_phase1_run_peer_review() -> str:
         "      log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k) -- exiting')\n"
         "      if (b2 && b2.review_status === 'APPROVE') return { b2, budget_exhausted: true }\n"
         "      if (b2) return { b2, budget_exhausted: true }\n"
-        "      return { error: 'Budget exhausted before Peer Review', budget_exhausted: true }\n"
+        "      return halt('budget-exhausted', { error: 'Budget exhausted before Peer Review', budget_exhausted: true })\n"
         "    }\n"
         "    let bResult\n"
         "    try { bResult = await agent(bPrompt, {\n"
@@ -255,7 +255,7 @@ def _render_phase1_run_peer_review() -> str:
         "      phase: 'Peer Review',\n"
         "      agentType: 'general-purpose',\n"
         "    }) } catch (e) {\n"
-        "      if (round === MAX_PEER_ROUNDS) return { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      if (round === MAX_PEER_ROUNDS) return halt('peer-review', { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })\n"
         "      log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
         "    }\n"
         "    // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---\n"
@@ -326,7 +326,7 @@ def _render_phase1_run_peer_review() -> str:
         "    catch (e) { fixerResult = null; log('  Fixer parse failed — will reload all docs next round') }\n"
         "    log('  Fixer round ' + round + ' complete; reload + re-review in next round')\n"
         "  }\n"
-        "  return { error: 'Peer Review: loop exited unexpectedly' }\n"
+        "  return halt('peer-review', { error: 'Peer Review: loop exited unexpectedly' })\n"
         "}\n"
     )
 
@@ -384,7 +384,7 @@ def _render_phase1_preflight() -> str:
         "  log('  attempt ' + pfAttempt + ' did not PASS — retry')\n"
         "}\n"
         "if (!(typeof preflightReport === 'string' && /PREFLIGHT:\\s*PASS/.test(preflightReport))) {\n"
-        "  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) }\n"
+        "  return halt('preflight', { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) })\n"
         "}\n"
     )
 
@@ -798,7 +798,7 @@ def _render_phase1_constitution_check() -> str:
         "  log('  attempt ' + cAttempt + ' did not PASS — retry')\n"
         "}\n"
         "if (!/CONSTITUTION:\\s*PASS/.test(constitutionResult)) {\n"
-        "  return { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) }\n"
+        "  return halt('constitution', { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) })\n"
         "}\n"
     )
 
@@ -877,7 +877,7 @@ def _render_phase1_push() -> str:
         "  log('  attempt ' + pAttempt + ' did not PASS — read error + retry')\n"
         "}\n"
         "if (!/PUSH:\\s*PASS/.test(pushResult)) {\n"
-        "  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) }\n"
+        "  return halt('push-checkpoint', { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) })\n"
         "}\n"
     )
 
@@ -899,7 +899,7 @@ def _render_phase1_advance() -> str:
         "  { label: 'advance', phase: 'Advance', agentType: 'general-purpose' },\n"
         ")\n"
         "if (!/ADVANCE:\\s*PASS/.test(String(advanceReport ?? ''))) {\n"
-        "  return { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) }\n"
+        "  return halt('advance-phase', { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) })\n"
         "}\n"
     )
 

@@ -109,7 +109,7 @@ def _render_phase2_entry_preflight() -> str:
         + "  preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\\s*PASS/.test(preflightReport)\n"
         + "  if (preflightPass) break\n"
         + "}\n"
-        + "if (!preflightPass) return { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) }\n"
+        + "if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })\n"
     )
 
 
@@ -119,7 +119,7 @@ def _render_phase2_load_upstream() -> str:
         + "log('cat SRS.md + harness templates for embedding into stateless Agent B prompts')\n"
         + "const srsContent = await loadFileViaPython('01-requirements/SRS.md', '# Software Requirements Specification', 'Load Upstream')\n"
         + "if (srsContent.startsWith('ERROR:') || srsContent.length < 50) {\n"
-        + "  return { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) }\n"
+        + "  return halt('load-srs', { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) })\n"
         + "}\n"
         + "log('  SRS.md loaded: ' + srsContent.length + ' chars')\n"
         # Round 33 站1 (F7): these two anchors were the single character '#',
@@ -231,7 +231,7 @@ def _render_phase2_constitution_check_adr() -> str:
         "  { label: 'constitution-adr', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },\n"
         ")\n"
         "if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\\s*PASS/.test(adrConstReport))) {\n"
-        "  return { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) }\n"
+        "  return halt('adr-constitution', { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) })\n"
         "}\n"
         "// Structural gate (2026-07-10 fix): don't just trust the agent's self-report — the\n"
         "// original bug was discovered because a P2-produced ADR.md silently lacked NFR-01\n"
@@ -245,7 +245,7 @@ def _render_phase2_constitution_check_adr() -> str:
         "    { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },\n"
         "  )\n"
         "  if (!(typeof aciVerify === 'string' && /ACI:\\s*PASS/.test(aciVerify))) {\n"
-        "    return { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) }\n"
+        "    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })\n"
         "  }\n"
         "}\n"
     )
@@ -329,7 +329,7 @@ def _render_phase2_sab_generation() -> str:
         + "  { label: 'sab-generation', phase: 'SAB Generation', agentType: 'general-purpose' },\n"
         + ")\n"
         + "if (!(typeof sabReport === 'string' && /SAB:\\s*PASS/.test(sabReport))) {\n"
-        + "  return { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) }\n"
+        + "  return halt('sab-generation', { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) })\n"
         + "}\n"
     )
 
@@ -352,7 +352,7 @@ def _render_phase2_constitution_check() -> str:
         + "  constPass = typeof constReport === 'string' && /CONSTITUTION:\\s*PASS/.test(constReport)\n"
         + "  if (constPass) break\n"
         + "}\n"
-        + "if (!constPass) return { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) }\n"
+        + "if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })\n"
         + "\n"
         + "// T1-B audit fix: re-run check-artifact-consistency AFTER SAB Generation.\n"
         + "// The ADR constitution check ran aci against forward-refs only (SAB didn't exist\n"
@@ -367,7 +367,7 @@ def _render_phase2_constitution_check() -> str:
         + "  { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose' },\n"
         + ")\n"
         + "if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {\n"
-        + "  return { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) }\n"
+        + "  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })\n"
         + "}\n"
     )
 
@@ -389,7 +389,7 @@ def _render_phase2_peer_review() -> str:
         + "    log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k remaining) — exiting gracefully')\n"
         + "    if (peerB2 && peerB2.review_status === 'APPROVE') { log('  exiting with prior APPROVE'); break }\n"
         + "    if (peerB2) return { ok: false, peerB2, budget_exhausted: true }\n"
-        + "    return { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true }\n"
+        + "    return halt('budget-exhausted', { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true })\n"
         + "  }\n"
         + "  // v15: wrap agent() in try/catch — API errors (429/network) must not crash workflow (Bug #2)\n"
         + "  let bResult\n"
@@ -407,7 +407,7 @@ def _render_phase2_peer_review() -> str:
         + "    { label: 'peer-b-r' + round, phase: 'Peer Review', agentType: 'general-purpose' },\n"
         + "  ) } catch (e) {\n"
         + "    if (round === MAX_PEER_ROUNDS) {\n"
-        + "      return { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null }\n"
+        + "      return halt('peer-review', { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null })\n"
         + "    }\n"
         + "    log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue\n"
         + "  }\n"
@@ -423,11 +423,11 @@ def _render_phase2_peer_review() -> str:
         + "\n"
         + "  if (sbrResult.escalation_action === 'approve') { peerReviewPassed = true; log('  APPROVED'); break }\n"
         + "  if (sbrResult.escalation_action === 'escalate_human') {\n"
-        + "    return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }\n"
+        + "    return halt('peer-review', { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' })\n"
         + "  }\n"
         + "  // HR-12: round MAX_PEER_ROUNDS without convergence → escalate to human.\n"
         + "  if (round === MAX_PEER_ROUNDS) {\n"
-        + "    return { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 }\n"
+        + "    return halt('peer-review', { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 })\n"
         + "  }\n"
         + "  // Holistic gaps span multiple files → dispatch a fixer agent\n"
         + "  log('  Peer review found gaps — dispatching fixer for round ' + (round + 1))\n"
@@ -464,7 +464,7 @@ def _render_phase2_peer_review() -> str:
         + "  // 'ERROR:' sentinel string into next round's B summary as if it were content.\n"
         + "  for (const [lbl, c] of [['SAD.md', sadContent], ['ADR.md', adrContent], ['TEST_SPEC.md', testSpecContent]]) {\n"
         + "    if (c.startsWith('ERROR:') || c.length < 50) {\n"
-        + "      return { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) }\n"
+        + "      return halt('peer-review', { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) })\n"
         + "    }\n"
         + "  }\n"
         + "  const fmtDelta = (n) => (n >= 0 ? '+' : '') + n\n"
@@ -497,7 +497,7 @@ def _render_phase2_push() -> str:
         + "  pushOk = typeof pushReport === 'string' && /PUSH:\\s*PASS/.test(pushReport)\n"
         + "  if (pushOk) break\n"
         + "}\n"
-        + "if (!pushOk) return { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) }\n"
+        + "if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })\n"
     )
 
 
@@ -520,7 +520,7 @@ def _render_phase2_advance() -> str:
         + "// F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth\n"
         + "// (<90%); do NOT report \"complete\" when P3 was never entered.\n"
         + "if (!/ADVANCE:\\s*PASS/.test(String(advanceReport ?? ''))) {\n"
-        + "  return { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) }\n"
+        + "  return halt('advance-phase', { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) })\n"
         + "}\n"
     )
 

@@ -270,13 +270,13 @@ def _render_driver(all_titles: list[str]) -> str:
         "} catch (e) {\n"
         "  const cursorErr = 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200)\n"
         "  await recordBlock(0, 'phase-cursor', cursorErr)\n"
-        "  return { error: cursorErr, "
-        "note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' }\n"
+        "  return halt('phase-cursor', { error: cursorErr, "
+        "note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' })\n"
         "}\n"
         "if (!(cursor && Number.isInteger(cursor.current_phase))) {\n"
         "  await recordBlock(0, 'phase-cursor', 'run-all: could not read current_phase from .methodology/state.json')\n"
-        "  return { error: 'run-all: could not read current_phase from .methodology/state.json', "
-        "note: 'Refusing to guess a starting phase. Check the file, then relaunch.' }\n"
+        "  return halt('phase-cursor', { error: 'run-all: could not read current_phase from .methodology/state.json', "
+        "note: 'Refusing to guess a starting phase. Check the file, then relaunch.' })\n"
         "}\n"
         "const startPhase = cursor.current_phase\n"
         "if (startPhase < 1 || startPhase > 8) {\n"
@@ -295,9 +295,9 @@ def _render_driver(all_titles: list[str]) -> str:
         "  } catch (e) {\n"
         "    const crashMsg = 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300)\n"
         "    await recordBlock(n, 'workflow-crash', crashMsg)\n"
-        "    return { error: crashMsg, "
+        "    return halt('workflow-crash', { error: crashMsg, "
         "phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. "
-        "Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' }\n"
+        "Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' })\n"
         "  }\n"
         "  if (outcome && outcome.session_limit_blocked) {\n"
         "    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'))\n"
@@ -306,9 +306,9 @@ def _render_driver(all_titles: list[str]) -> str:
         "it resumes from state.json and every completed phase short-circuits.' }\n"
         "  }\n"
         "  if (outcome && outcome.error) {\n"
-        "    await recordBlock(n, 'phase-error', String(outcome.error))\n"
-        "    return { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, "
-        "phase: n, phases_run: phasesRun, detail: outcome }\n"
+        "    await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error))\n"
+        "    return halt(String(outcome.halt_step || 'phase-error'), { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, "
+        "phase: n, phases_run: phasesRun, detail: outcome })\n"
         "  }\n"
         "  // Round 28 — fail CLOSED, like the cursor read above. The two branches\n"
         "  // above name the outcomes this driver recognises; this one covers every\n"
@@ -319,14 +319,14 @@ def _render_driver(all_titles: list[str]) -> str:
         "  // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.\n"
         f"  if (!outcome || outcome.{PHASE_COMPLETE_KEY} !== true) {{\n"
         "    await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'))\n"
-        "    return { error: 'run-all stopped in Phase ' + n + ': the phase returned without "
+        "    return halt(String((outcome && outcome.halt_step) || 'phase-incomplete'), { error: 'run-all stopped in Phase ' + n + ': the phase returned without "
         "reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || "
         "'no message'), "
         "phase: n, phases_run: phasesRun, detail: outcome, "
         f"note: 'A phase sets {PHASE_COMPLETE_KEY} only on its single success exit. Anything else "
         "— a terminal abort such as a harness crash or a broken dispatch environment, or a shape "
         "this driver does not recognise — stops the run rather than advancing on an unfinished "
-        "phase.' }\n"
+        "phase.' })\n"
         "  }\n"
         "  phasesRun.push(n)\n"
         "}\n"
@@ -383,6 +383,6 @@ def generate_runall() -> str:
     # everything" step could only do one order. run-all still injects exactly
     # once, over the assembled file — never per inlined body, which would emit
     # eight `const __dispatchLog` declarations.
-    from .generate_workflows import _inject_dispatch_wrapper
+    from .generate_workflows import _inject_dispatch_wrapper, _inject_halt_helper
 
-    return _inject_dispatch_wrapper("\n".join(parts))
+    return _inject_halt_helper(_inject_dispatch_wrapper("\n".join(parts)))

@@ -52,7 +52,7 @@ def _render_test_plan() -> str:
         + "  { label: 'test-plan', phase: 'Test Plan', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(testPlanReport && testPlanReport.pass === true)) {\n"
-        + "  return { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('test-plan', { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 
@@ -73,7 +73,7 @@ def _render_coverage() -> str:
         + "  { label: 'coverage', phase: 'Coverage', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(coverageReport && coverageReport.pass === true)) {\n"
-        + "  return { error: 'Phase 4 coverage docs did not PASS', reason: coverageReport ? String(coverageReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('coverage-docs', { error: 'Phase 4 coverage docs did not PASS', reason: coverageReport ? String(coverageReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 
@@ -104,7 +104,7 @@ def _render_bug_hunt() -> str:
         + "  { label: 'bug-hunt', phase: 'Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL, schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(huntReport && huntReport.pass === true)) {\n"
-        + "  return { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' }\n"
+        + "  return halt('bug-hunt', { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' })\n"
         + "}\n"
     )
 

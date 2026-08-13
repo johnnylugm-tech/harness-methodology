@@ -56,6 +56,33 @@ export const meta = {
 // generator output run-all inlines.
 try {
 
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -436,7 +463,7 @@ async function runSubTask(cfg) {
       log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.name)
       if (b2 && b2.review_status === 'APPROVE') return { content, b2, budget_exhausted: true }
       if (b2) return { content, b2, budget_exhausted: true }
-      return { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true }
+      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true })
     }
 
     // --- A: REQUIREMENTS_ENGINEER ---
@@ -448,7 +475,7 @@ async function runSubTask(cfg) {
       phase: cfg.phaseName,
       agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     let a = null
@@ -460,7 +487,7 @@ async function runSubTask(cfg) {
     // validates prefix/size/SHA; eliminates LLM-as-parser failure mode).
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix, cfg.phaseName)
     if (content.startsWith('FILE_MISSING') || content.startsWith('ERROR:') || content.length < 50) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('deliverable-missing', { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })
       log('  A disk empty (parse-fail + no file) → retrying next round')
       continue
     }
@@ -476,7 +503,7 @@ async function runSubTask(cfg) {
       phase: cfg.phaseName,
       agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
@@ -498,15 +525,15 @@ async function runSubTask(cfg) {
     }
     if (sbrResult.escalation_action === 'escalate_human') {
       log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
-      return { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }
+      return halt('review-escalation', { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' })
     }
     if (round === MAX_B_ROUNDS) {
       log('  MAX ROUNDS reached without convergence — ESCALATING')
-      return { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }
+      return halt('review-no-convergence', { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 })
     }
     log('  Continue to round ' + (round + 1) + ' (A will fix high-severity gaps or REJECT issues)')
   }
-  return { error: cfg.name + ': loop exited unexpectedly' }
+  return halt('review-loop-exhausted', { error: cfg.name + ': loop exited unexpectedly' })
 }
 
 // ---- Gate verdict schemas (flat, top-level consts — playbook §5.2/§5.3) ----
@@ -602,7 +629,7 @@ async function runPeerReview(approvedDocs) {
       if (needsReload.has(d.diskPath)) {
         const c = await loadFileViaPython(d.diskPath, d.diskPrefix, 'Peer Review')
         if (c.startsWith('FILE_MISSING') || c.startsWith('ERROR:') || c.length < 50) {
-          return { error: 'Peer Review: ' + d.diskPath + ' load failed (round ' + round + ')', loader_preview: c.slice(0, 200) }
+          return halt('peer-review', { error: 'Peer Review: ' + d.diskPath + ' load failed (round ' + round + ')', loader_preview: c.slice(0, 200) })
         }
         docCache[d.diskPath] = c
       }
@@ -615,7 +642,7 @@ async function runPeerReview(approvedDocs) {
       log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k) -- exiting')
       if (b2 && b2.review_status === 'APPROVE') return { b2, budget_exhausted: true }
       if (b2) return { b2, budget_exhausted: true }
-      return { error: 'Budget exhausted before Peer Review', budget_exhausted: true }
+      return halt('budget-exhausted', { error: 'Budget exhausted before Peer Review', budget_exhausted: true })
     }
     let bResult
     try { bResult = await dispatch(bPrompt, {
@@ -623,7 +650,7 @@ async function runPeerReview(approvedDocs) {
       phase: 'Peer Review',
       agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_PEER_ROUNDS) return { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_PEER_ROUNDS) return halt('peer-review', { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
@@ -694,7 +721,7 @@ async function runPeerReview(approvedDocs) {
     catch (e) { fixerResult = null; log('  Fixer parse failed — will reload all docs next round') }
     log('  Fixer round ' + round + ' complete; reload + re-review in next round')
   }
-  return { error: 'Peer Review: loop exited unexpectedly' }
+  return halt('peer-review', { error: 'Peer Review: loop exited unexpectedly' })
 }
 
 
@@ -743,7 +770,7 @@ for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
   log('  attempt ' + pfAttempt + ' did not PASS — retry')
 }
 if (!(typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport))) {
-  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) }
+  return halt('preflight', { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) })
 }
 
 
@@ -1129,7 +1156,7 @@ for (let cAttempt = 1; cAttempt <= 5; cAttempt++) {
   log('  attempt ' + cAttempt + ' did not PASS — retry')
 }
 if (!/CONSTITUTION:\s*PASS/.test(constitutionResult)) {
-  return { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) }
+  return halt('constitution', { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) })
 }
 
 
@@ -1196,7 +1223,7 @@ for (let pAttempt = 1; pAttempt <= 5; pAttempt++) {
   log('  attempt ' + pAttempt + ' did not PASS — read error + retry')
 }
 if (!/PUSH:\s*PASS/.test(pushResult)) {
-  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) }
+  return halt('push-checkpoint', { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) })
 }
 
 
@@ -1214,7 +1241,7 @@ const advanceReport = await dispatch(
   { label: 'advance', phase: 'Advance', agentType: 'general-purpose' },
 )
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
-  return { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) }
+  return halt('advance-phase', { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) })
 }
 
 // Bug A fix (2026-07-07): advance-phase intentionally commits the handover
@@ -1244,7 +1271,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
 if (!syncPass) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+  return halt('post-advance-push', { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) })
 }
 
 

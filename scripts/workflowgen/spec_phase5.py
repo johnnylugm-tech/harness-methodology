@@ -62,7 +62,7 @@ def _render_verification_docs() -> str:
         + "  { label: 'verification-docs', phase: 'Verification Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(docsReport && docsReport.pass === true)) {\n"
-        + "  return { error: 'Phase 5 verification docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('verification-docs', { error: 'Phase 5 verification docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 

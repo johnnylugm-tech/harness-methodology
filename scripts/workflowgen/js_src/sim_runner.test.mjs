@@ -961,3 +961,21 @@ for (const name of ALL_WORKFLOW_FILES) {
       + `First few: ${escaped.slice(0, 5).join(', ')}`)
   })
 }
+
+// ---- Round 50 站3: the halt carries its step to the recording -------------
+// Round 48 站2's recording point hardcoded `phase-error` for every one of the
+// 55 top-level halts across the eight phase files, so the one row a real
+// P1-P8 run produced named a phase and nothing else. `halt()` attaches the
+// step at the site that knows it and the driver reads it back.
+test('round50: the recorded step is the one the halt site named', async () => {
+  const { result, events } = await runWorkflow(
+    RUNALL, makeHappyResponder([cursorAt(8)]),
+  )
+  assert.equal(result.halt_step, 'post-advance-push',
+    'the driver returns the step the phase halted at, not a generic name')
+  const recorded = events.agents.filter((a) => a.label === 'record-block')
+  assert.equal(recorded.length, 1)
+  assert.match(recorded[0].prompt, /--step 'post-advance-push'/,
+    'the ledger row must name the step, not `phase-error` for all 55 sites')
+  assert.doesNotMatch(recorded[0].prompt, /--step 'phase-error'/)
+})

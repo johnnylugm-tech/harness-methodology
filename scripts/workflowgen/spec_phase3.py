@@ -62,7 +62,7 @@ def _render_phase3_entry_preflight() -> str:
         + "  { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(preflightReport && preflightReport.pass === true)) {\n"
-        + "  return { error: 'Phase 3 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }\n"
+        + "  return halt('preflight', { error: 'Phase 3 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })\n"
         + "}\n"
     )
 
@@ -136,9 +136,9 @@ def _render_phase3_load_frs() -> str:
         + "    log('  load-ctx returned no fr_ids (attempt ' + attempt + '): keys=' + Object.keys(ctxResult ?? {}).join(',') + ' — regenerating ctx file')\n"
         + "  } catch (e) { log('  load-ctx agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — regenerating ctx file') }\n"
         + "}\n"
-        + "if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }\n"
+        + "if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })\n"
         + "let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids : []\n"
-        + "if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }\n"
+        + "if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })\n"
         + "// J1: fr_titles is the {id:title} map emitted by ctxParseCmd above.\n"
         + "const frTitle = (ctx.fr_titles && typeof ctx.fr_titles === 'object') ? ctx.fr_titles : {}\n"
         + "log('  fr_ids = ' + JSON.stringify(frIds))\n"
@@ -301,7 +301,7 @@ def _render_per_fr_tdd() -> str:
         + "  }\n"
         + "}\n"
         + "if (gate1Fail.length) {\n"
-        + "  return { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', gate1Pass, gate1Fail }\n"
+        + "  return halt('gate1', { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', gate1Pass, gate1Fail })\n"
         + "}\n"
     )
 

@@ -49,6 +49,33 @@ export const meta = {
 // generator output run-all inlines.
 try {
 
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -329,13 +356,13 @@ async function abLoop(cfg) {
       log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.deliverable)
       if (b2 && b2.review_status === 'APPROVE') return { ok: true, content, b2, budget_exhausted: true }
       if (b2) return { ok: false, content, b2, budget_exhausted: true }
-      return { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true }
+      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true })
     }
     let aResult
     try { aResult = await dispatch(cfg.buildAPrompt(round, b2), {
       label: 'a-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     let a
@@ -343,7 +370,7 @@ async function abLoop(cfg) {
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)
     if (content.startsWith('ERROR:') || content.length < 50) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('sbr-deliverable-missing', { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })
       log('  A disk empty (parse-fail + no file) → retrying next round')
       continue
     }
@@ -353,7 +380,7 @@ async function abLoop(cfg) {
     try { bResult = await dispatch(buildBPrompt('TECH_LEAD', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist), {
       label: 'b-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
 
@@ -373,12 +400,12 @@ async function abLoop(cfg) {
     }
     if (sbrResult.escalation_action === 'escalate_human') {
       log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
-      return { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }
+      return halt('sbr-escalation', { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' })
     }
-    if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }
+    if (round === MAX_B_ROUNDS) return halt('sbr-no-convergence', { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 })
     // APPROVE+high OR REJECT → A fixes next round
   }
-  return { error: cfg.deliverable + ' loop exhausted unexpectedly' }
+  return halt('sbr-loop-exhausted', { error: cfg.deliverable + ' loop exhausted unexpectedly' })
 }
 
 // ---- Gate verdict schemas (flat, top-level consts — playbook §5.2/§5.3) ----
@@ -558,7 +585,7 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
   preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
   if (preflightPass) break
 }
-if (!preflightPass) return { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) }
+if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -569,7 +596,7 @@ phase('Load Upstream')
 log('cat SRS.md + harness templates for embedding into stateless Agent B prompts')
 const srsContent = await loadFileViaPython('01-requirements/SRS.md', '# Software Requirements Specification', 'Load Upstream')
 if (srsContent.startsWith('ERROR:') || srsContent.length < 50) {
-  return { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) }
+  return halt('load-srs', { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) })
 }
 log('  SRS.md loaded: ' + srsContent.length + ' chars')
 const sadTemplateContent = await loadFileViaPython('harness/templates/SAD.md', '# Software Architecture Document', 'Load Upstream')
@@ -674,7 +701,7 @@ const adrConstReport = await dispatch(
   { label: 'constitution-adr', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },
 )
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
-  return { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) }
+  return halt('adr-constitution', { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) })
 }
 // Structural gate (2026-07-10 fix): don't just trust the agent's self-report — the
 // original bug was discovered because a P2-produced ADR.md silently lacked NFR-01
@@ -688,7 +715,7 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
     { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },
   )
   if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
-    return { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) }
+    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })
   }
 }
 
@@ -774,7 +801,7 @@ const sabReport = await dispatch(
   { label: 'sab-generation', phase: 'SAB Generation', agentType: 'general-purpose' },
 )
 if (!(typeof sabReport === 'string' && /SAB:\s*PASS/.test(sabReport))) {
-  return { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) }
+  return halt('sab-generation', { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) })
 }
 
 
@@ -798,7 +825,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
   if (constPass) break
 }
-if (!constPass) return { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) }
+if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })
 
 // T1-B audit fix: re-run check-artifact-consistency AFTER SAB Generation.
 // The ADR constitution check ran aci against forward-refs only (SAB didn't exist
@@ -813,7 +840,7 @@ const aciPostSab = await dispatch(
   { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose' },
 )
 if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
-  return { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) }
+  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })
 }
 
 
@@ -836,7 +863,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k remaining) — exiting gracefully')
     if (peerB2 && peerB2.review_status === 'APPROVE') { log('  exiting with prior APPROVE'); break }
     if (peerB2) return { ok: false, peerB2, budget_exhausted: true }
-    return { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true }
+    return halt('budget-exhausted', { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true })
   }
   // v15: wrap agent() in try/catch — API errors (429/network) must not crash workflow (Bug #2)
   let bResult
@@ -854,7 +881,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     { label: 'peer-b-r' + round, phase: 'Peer Review', agentType: 'general-purpose' },
   ) } catch (e) {
     if (round === MAX_PEER_ROUNDS) {
-      return { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null }
+      return halt('peer-review', { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null })
     }
     log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue
   }
@@ -870,11 +897,11 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
 
   if (sbrResult.escalation_action === 'approve') { peerReviewPassed = true; log('  APPROVED'); break }
   if (sbrResult.escalation_action === 'escalate_human') {
-    return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }
+    return halt('peer-review', { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' })
   }
   // HR-12: round MAX_PEER_ROUNDS without convergence → escalate to human.
   if (round === MAX_PEER_ROUNDS) {
-    return { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 }
+    return halt('peer-review', { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 })
   }
   // Holistic gaps span multiple files → dispatch a fixer agent
   log('  Peer review found gaps — dispatching fixer for round ' + (round + 1))
@@ -911,7 +938,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
   // 'ERROR:' sentinel string into next round's B summary as if it were content.
   for (const [lbl, c] of [['SAD.md', sadContent], ['ADR.md', adrContent], ['TEST_SPEC.md', testSpecContent]]) {
     if (c.startsWith('ERROR:') || c.length < 50) {
-      return { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) }
+      return halt('peer-review', { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) })
     }
   }
   const fmtDelta = (n) => (n >= 0 ? '+' : '') + n
@@ -945,7 +972,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
   if (pushOk) break
 }
-if (!pushOk) return { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) }
+if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -969,7 +996,7 @@ const advanceReport = await dispatch(
 // F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth
 // (<90%); do NOT report "complete" when P3 was never entered.
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
-  return { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance-phase', { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 // Bug A fix (2026-07-07): advance-phase intentionally commits the handover
@@ -999,7 +1026,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
 if (!syncPass) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+  return halt('post-advance-push', { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) })
 }
 
 

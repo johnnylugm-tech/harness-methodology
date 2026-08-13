@@ -44,6 +44,33 @@ export const meta = {
 // generator output run-all inlines.
 try {
 
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -218,7 +245,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 4 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 4 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -240,7 +267,7 @@ const testPlanReport = await dispatch(
   { label: 'test-plan', phase: 'Test Plan', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(testPlanReport && testPlanReport.pass === true)) {
-  return { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('test-plan', { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -316,7 +343,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -367,10 +394,10 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     )
   } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
   : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 const frTitle = {}
 if (Array.isArray(ctx.fr_details)) for (const f of ctx.fr_details) frTitle[f.id || f.fr_id] = f.title || f.name || ''
 log('  fr_ids = ' + JSON.stringify(frIds))
@@ -512,7 +539,7 @@ for (const frId of deltaTodo) {
   }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 4: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 4: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail })
 }
 if (gate1Pass.length) {
   await dispatch(
@@ -544,7 +571,7 @@ const coverageReport = await dispatch(
   { label: 'coverage', phase: 'Coverage', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(coverageReport && coverageReport.pass === true)) {
-  return { error: 'Phase 4 coverage docs did not PASS', reason: coverageReport ? String(coverageReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('coverage-docs', { error: 'Phase 4 coverage docs did not PASS', reason: coverageReport ? String(coverageReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -576,7 +603,7 @@ const huntReport = await dispatch(
   { label: 'bug-hunt', phase: 'Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL, schema: VERDICT_SCHEMA },
 )
 if (!(huntReport && huntReport.pass === true)) {
-  return { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' }
+  return halt('bug-hunt', { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' })
 }
 
 
@@ -674,7 +701,7 @@ if (!gate3Pass) {
     + '   - A final "Next step:" line: "Resolve every item → re-run Phase 4 Gate 3 → advance-phase"',
     { label: 'deferred-fixes', phase: 'Gate 3', agentType: 'general-purpose' },
   )
-  return { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', raw: String(gate3Report ?? '').slice(-600) }
+  return halt('gate3', { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', raw: String(gate3Report ?? '').slice(-600) })
 }
 
 
@@ -749,7 +776,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 5 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance', { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 5 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 // Bug A fix (2026-07-07): advance-phase intentionally commits the handover
@@ -779,7 +806,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
 if (!syncPass) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+  return halt('post-advance-push', { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) })
 }
 
 

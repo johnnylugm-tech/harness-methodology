@@ -63,7 +63,7 @@ def _render_config_docs() -> str:
         + "  { label: 'config-docs', phase: 'Config Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(docsReport && docsReport.pass === true)) {\n"
-        + "  return { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('config-docs', { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 
@@ -84,7 +84,7 @@ def _render_archive() -> str:
         + "  { label: 'archive', phase: 'Archive', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(archiveReport && archiveReport.pass === true)) {\n"
-        + "  return { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('archive-prep', { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 
@@ -109,7 +109,7 @@ def _render_final_push() -> str:
         + "  // Re-check every round — a fix attempt in a prior round could reintroduce it.\n"
         + "  const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)\n"
         + "  if (!pushIntegrity.ok) {\n"
-        + "    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }\n"
+        + "    return halt('final-push', { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' })\n"
         + "  }\n"
         + "  pushReport = await agent(\n"
         + "    'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\\n'\n"
@@ -144,7 +144,7 @@ def _render_final_push() -> str:
         + "  if (p8Ok) { log('  Final Push PASS [git-verified: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }\n"
         + "  log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))\n"
         + "}\n"
-        + "if (!p8Ok) return { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) }\n"
+        + "if (!p8Ok) return halt('p8-push', { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) })\n"
         + "\n"
         + "log('Phase 8 push-milestone + advance-phase complete. 🎉 Pipeline complete — Phase 9 (Maintenance) begins.')\n"
     )

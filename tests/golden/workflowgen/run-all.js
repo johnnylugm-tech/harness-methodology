@@ -97,6 +97,33 @@ export const meta = {
   ],
 }
 
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -515,7 +542,7 @@ async function runSubTask(cfg) {
       log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.name)
       if (b2 && b2.review_status === 'APPROVE') return { content, b2, budget_exhausted: true }
       if (b2) return { content, b2, budget_exhausted: true }
-      return { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true }
+      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true })
     }
 
     const aPrompt = cfg.buildAPrompt(round, b2)
@@ -525,7 +552,7 @@ async function runSubTask(cfg) {
       phase: 'P1 · ' + cfg.phaseName,
       agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     let a = null
@@ -534,7 +561,7 @@ async function runSubTask(cfg) {
 
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix, cfg.phaseName)
     if (content.startsWith('FILE_MISSING') || content.startsWith('ERROR:') || content.length < 50) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('deliverable-missing', { error: cfg.name + ': not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })
       log('  A disk empty (parse-fail + no file) → retrying next round')
       continue
     }
@@ -548,7 +575,7 @@ async function runSubTask(cfg) {
       phase: 'P1 · ' + cfg.phaseName,
       agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     const sbrResult = await structuredBReview(
@@ -568,15 +595,15 @@ async function runSubTask(cfg) {
     }
     if (sbrResult.escalation_action === 'escalate_human') {
       log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
-      return { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }
+      return halt('review-escalation', { error: cfg.name + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' })
     }
     if (round === MAX_B_ROUNDS) {
       log('  MAX ROUNDS reached without convergence — ESCALATING')
-      return { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }
+      return halt('review-no-convergence', { error: cfg.name + ': B review did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 })
     }
     log('  Continue to round ' + (round + 1) + ' (A will fix high-severity gaps or REJECT issues)')
   }
-  return { error: cfg.name + ': loop exited unexpectedly' }
+  return halt('review-loop-exhausted', { error: cfg.name + ': loop exited unexpectedly' })
 }
 
 
@@ -642,7 +669,7 @@ async function runPeerReview(approvedDocs) {
       if (needsReload.has(d.diskPath)) {
         const c = await loadFileViaPython(d.diskPath, d.diskPrefix, 'Peer Review')
         if (c.startsWith('FILE_MISSING') || c.startsWith('ERROR:') || c.length < 50) {
-          return { error: 'Peer Review: ' + d.diskPath + ' load failed (round ' + round + ')', loader_preview: c.slice(0, 200) }
+          return halt('peer-review', { error: 'Peer Review: ' + d.diskPath + ' load failed (round ' + round + ')', loader_preview: c.slice(0, 200) })
         }
         docCache[d.diskPath] = c
       }
@@ -654,7 +681,7 @@ async function runPeerReview(approvedDocs) {
       log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k) -- exiting')
       if (b2 && b2.review_status === 'APPROVE') return { b2, budget_exhausted: true }
       if (b2) return { b2, budget_exhausted: true }
-      return { error: 'Budget exhausted before Peer Review', budget_exhausted: true }
+      return halt('budget-exhausted', { error: 'Budget exhausted before Peer Review', budget_exhausted: true })
     }
     let bResult
     try { bResult = await dispatch(bPrompt, {
@@ -662,7 +689,7 @@ async function runPeerReview(approvedDocs) {
       phase: 'P1 · Peer Review',
       agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_PEER_ROUNDS) return { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_PEER_ROUNDS) return halt('peer-review', { error: 'Peer B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     const sbrResult = await structuredBReview(
@@ -722,7 +749,7 @@ async function runPeerReview(approvedDocs) {
     catch (e) { fixerResult = null; log('  Fixer parse failed — will reload all docs next round') }
     log('  Fixer round ' + round + ' complete; reload + re-review in next round')
   }
-  return { error: 'Peer Review: loop exited unexpectedly' }
+  return halt('peer-review', { error: 'Peer Review: loop exited unexpectedly' })
 }
 
 
@@ -767,7 +794,7 @@ for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
   log('  attempt ' + pfAttempt + ' did not PASS — retry')
 }
 if (!(typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport))) {
-  return { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) }
+  return halt('preflight', { error: 'Phase 1 preflight did not PASS in 3 orchestrator attempts', raw: String(preflightReport ?? '').slice(-800) })
 }
 
 
@@ -1122,7 +1149,7 @@ for (let cAttempt = 1; cAttempt <= 5; cAttempt++) {
   log('  attempt ' + cAttempt + ' did not PASS — retry')
 }
 if (!/CONSTITUTION:\s*PASS/.test(constitutionResult)) {
-  return { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) }
+  return halt('constitution', { error: 'Constitution check did not PASS in 5 attempts', raw: String(constitutionResult ?? '').slice(-800) })
 }
 
 
@@ -1180,7 +1207,7 @@ for (let pAttempt = 1; pAttempt <= 5; pAttempt++) {
   log('  attempt ' + pAttempt + ' did not PASS — read error + retry')
 }
 if (!/PUSH:\s*PASS/.test(pushResult)) {
-  return { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) }
+  return halt('push-checkpoint', { error: 'push-checkpoint did not PASS in 5 attempts', raw: String(pushResult ?? '').slice(-800) })
 }
 
 
@@ -1195,7 +1222,7 @@ const advanceReport = await dispatch(
   { label: 'advance', phase: 'P1 · Advance', agentType: 'general-purpose' },
 )
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
-  return { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) }
+  return halt('advance-phase', { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) })
 }
 
 
@@ -1359,13 +1386,13 @@ async function abLoop(cfg) {
       log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.deliverable)
       if (b2 && b2.review_status === 'APPROVE') return { ok: true, content, b2, budget_exhausted: true }
       if (b2) return { ok: false, content, b2, budget_exhausted: true }
-      return { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true }
+      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true })
     }
     let aResult
     try { aResult = await dispatch(cfg.buildAPrompt(round, b2), {
       label: 'a-' + cfg.key + '-r' + round, phase: 'P2 · ' + cfg.phaseName, agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
     let a
@@ -1373,7 +1400,7 @@ async function abLoop(cfg) {
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)
     if (content.startsWith('ERROR:') || content.length < 50) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('sbr-deliverable-missing', { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })
       log('  A disk empty (parse-fail + no file) → retrying next round')
       continue
     }
@@ -1383,7 +1410,7 @@ async function abLoop(cfg) {
     try { bResult = await dispatch(buildBPrompt('TECH_LEAD', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist), {
       label: 'b-' + cfg.key + '-r' + round, phase: 'P2 · ' + cfg.phaseName, agentType: 'general-purpose',
     }) } catch (e) {
-      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }
+      if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
 
@@ -1402,11 +1429,11 @@ async function abLoop(cfg) {
     }
     if (sbrResult.escalation_action === 'escalate_human') {
       log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)
-      return { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }
+      return halt('sbr-escalation', { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' })
     }
-    if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }
+    if (round === MAX_B_ROUNDS) return halt('sbr-no-convergence', { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 })
   }
-  return { error: cfg.deliverable + ' loop exhausted unexpectedly' }
+  return halt('sbr-loop-exhausted', { error: cfg.deliverable + ' loop exhausted unexpectedly' })
 }
 
 
@@ -1548,7 +1575,7 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
   preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
   if (preflightPass) break
 }
-if (!preflightPass) return { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) }
+if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })
 
 
 
@@ -1556,7 +1583,7 @@ phase('P2 · Load Upstream')
 log('cat SRS.md + harness templates for embedding into stateless Agent B prompts')
 const srsContent = await loadFileViaPython('01-requirements/SRS.md', '# Software Requirements Specification', 'Load Upstream')
 if (srsContent.startsWith('ERROR:') || srsContent.length < 50) {
-  return { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) }
+  return halt('load-srs', { error: 'Failed to load SRS.md for upstream context', loaded_preview: srsContent.slice(0, 200) })
 }
 log('  SRS.md loaded: ' + srsContent.length + ' chars')
 const sadTemplateContent = await loadFileViaPython('harness/templates/SAD.md', '# Software Architecture Document', 'Load Upstream')
@@ -1654,7 +1681,7 @@ const adrConstReport = await dispatch(
   { label: 'constitution-adr', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
 )
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
-  return { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) }
+  return halt('adr-constitution', { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) })
 }
 {
   const aciVerify = await dispatch(
@@ -1663,7 +1690,7 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
     { label: 'aci-verify', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
   )
   if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
-    return { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) }
+    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })
   }
 }
 
@@ -1743,7 +1770,7 @@ const sabReport = await dispatch(
   { label: 'sab-generation', phase: 'P2 · SAB Generation', agentType: 'general-purpose' },
 )
 if (!(typeof sabReport === 'string' && /SAB:\s*PASS/.test(sabReport))) {
-  return { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) }
+  return halt('sab-generation', { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) })
 }
 
 
@@ -1764,7 +1791,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
   if (constPass) break
 }
-if (!constPass) return { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) }
+if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })
 
 log('check-artifact-consistency (post-SAB SEC-VALIDATE)')
 const aciPostSab = await dispatch(
@@ -1773,7 +1800,7 @@ const aciPostSab = await dispatch(
   { label: 'aci-post-sab', phase: 'P2 · Constitution Check', agentType: 'general-purpose' },
 )
 if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
-  return { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) }
+  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })
 }
 
 
@@ -1789,7 +1816,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k remaining) — exiting gracefully')
     if (peerB2 && peerB2.review_status === 'APPROVE') { log('  exiting with prior APPROVE'); break }
     if (peerB2) return { ok: false, peerB2, budget_exhausted: true }
-    return { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true }
+    return halt('budget-exhausted', { error: 'Budget exhausted before Peer Review completed', budget_exhausted: true })
   }
   let bResult
   try { bResult = await dispatch(
@@ -1806,7 +1833,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
     { label: 'peer-b-r' + round, phase: 'P2 · Peer Review', agentType: 'general-purpose' },
   ) } catch (e) {
     if (round === MAX_PEER_ROUNDS) {
-      return { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null }
+      return halt('peer-review', { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null })
     }
     log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue
   }
@@ -1820,10 +1847,10 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
 
   if (sbrResult.escalation_action === 'approve') { peerReviewPassed = true; log('  APPROVED'); break }
   if (sbrResult.escalation_action === 'escalate_human') {
-    return { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' }
+    return halt('peer-review', { error: 'HR-12: Peer Review: ' + sbrResult.escalation_reason, b2: peerB2, escalation_action: 'escalate_human' })
   }
   if (round === MAX_PEER_ROUNDS) {
-    return { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 }
+    return halt('peer-review', { error: 'HR-12: Peer Review did not converge in ' + round + '/' + MAX_PEER_ROUNDS + ' rounds (Phase 2 exit gate — escalate to human)', b2: peerB2 })
   }
   log('  Peer review found gaps — dispatching fixer for round ' + (round + 1))
   let peerFixerRaw = null
@@ -1852,7 +1879,7 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
   if (peerReload.has('02-architecture/TEST_SPEC.md')) testSpecContent = await loadFileViaPython('02-architecture/TEST_SPEC.md', '# TEST_SPEC.md', 'Peer Review')
   for (const [lbl, c] of [['SAD.md', sadContent], ['ADR.md', adrContent], ['TEST_SPEC.md', testSpecContent]]) {
     if (c.startsWith('ERROR:') || c.length < 50) {
-      return { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) }
+      return halt('peer-review', { error: 'Peer Review: ' + lbl + ' reload failed (round ' + round + ')', loader_preview: c.slice(0, 200) })
     }
   }
   const fmtDelta = (n) => (n >= 0 ? '+' : '') + n
@@ -1883,7 +1910,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
   if (pushOk) break
 }
-if (!pushOk) return { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) }
+if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })
 
 
 
@@ -1900,7 +1927,7 @@ const advanceReport = await dispatch(
   { label: 'advance', phase: 'P2 · Advance', agentType: 'general-purpose' },
 )
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
-  return { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance-phase', { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 
@@ -1952,7 +1979,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'P3 · Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 3 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 3 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -1993,7 +2020,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 3 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 3 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 3'
@@ -2043,9 +2070,9 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     log('  load-ctx returned no fr_ids (attempt ' + attempt + '): keys=' + Object.keys(ctxResult ?? {}).join(',') + ' — regenerating ctx file')
   } catch (e) { log('  load-ctx agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — regenerating ctx file') }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids : []
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 const frTitle = (ctx.fr_titles && typeof ctx.fr_titles === 'object') ? ctx.fr_titles : {}
 log('  fr_ids = ' + JSON.stringify(frIds))
 
@@ -2163,7 +2190,7 @@ for (const frId of frIds) {
   }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', gate1Pass, gate1Fail })
 }
 
 
@@ -2211,7 +2238,7 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
   log('  Gate 2 round ' + round + '/3')
   const g2Integrity = await checkManifestIntegrity('Gate 2', 'g2-integrity-r' + round)
   if (!g2Integrity.ok) {
-    return { error: 'Gate 2 round ' + round + ': quality_manifest.json corrupted mid-run', detail: g2Integrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first — a corrupted manifest may already be committed)', note: 'Corruption appeared AFTER the entry integrity check. Inspect the previous round\'s agent transcript for the writer before restoring.' }
+    return halt('manifest-corrupt', { error: 'Gate 2 round ' + round + ': quality_manifest.json corrupted mid-run', detail: g2Integrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first — a corrupted manifest may already be committed)', note: 'Corruption appeared AFTER the entry integrity check. Inspect the previous round\'s agent transcript for the writer before restoring.' })
   }
   gate2Report = await dispatch(
     'YOU ARE THE GATE-2 ORCHESTRATOR (Phase 3 exit). ROUND ' + round + '.\n'
@@ -2246,7 +2273,7 @@ if (gate2Blocked) {
   return { session_limit_blocked: true, gate: 2, message: 'Agent hit session/rate limit during Gate 2 evaluation. Resume after quota reset — GUARD checks will skip completed FRs.' }
 }
 if (!gate2Pass) {
-  return { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate2Report ?? '').slice(-600) }
+  return halt('gate2', { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate2Report ?? '').slice(-600) })
 }
 
 
@@ -2288,7 +2315,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 4 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance', { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 4 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 phase('P3 · Sync')
@@ -2391,7 +2418,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'P4 · Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 4 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 4 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -2410,7 +2437,7 @@ const testPlanReport = await dispatch(
   { label: 'test-plan', phase: 'P4 · Test Plan', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(testPlanReport && testPlanReport.pass === true)) {
-  return { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('test-plan', { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -2451,7 +2478,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 4 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -2483,10 +2510,10 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     )
   } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
   : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 const frTitle = {}
 if (Array.isArray(ctx.fr_details)) for (const f of ctx.fr_details) frTitle[f.id || f.fr_id] = f.title || f.name || ''
 log('  fr_ids = ' + JSON.stringify(frIds))
@@ -2583,7 +2610,7 @@ for (const frId of deltaTodo) {
   }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 4: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 4: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail })
 }
 if (gate1Pass.length) {
   await dispatch(
@@ -2612,7 +2639,7 @@ const coverageReport = await dispatch(
   { label: 'coverage', phase: 'P4 · Coverage', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(coverageReport && coverageReport.pass === true)) {
-  return { error: 'Phase 4 coverage docs did not PASS', reason: coverageReport ? String(coverageReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('coverage-docs', { error: 'Phase 4 coverage docs did not PASS', reason: coverageReport ? String(coverageReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -2641,7 +2668,7 @@ const huntReport = await dispatch(
   { label: 'bug-hunt', phase: 'P4 · Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL, schema: VERDICT_SCHEMA },
 )
 if (!(huntReport && huntReport.pass === true)) {
-  return { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' }
+  return halt('bug-hunt', { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' })
 }
 
 
@@ -2731,7 +2758,7 @@ if (!gate3Pass) {
     + '   - A final "Next step:" line: "Resolve every item → re-run Phase 4 Gate 3 → advance-phase"',
     { label: 'deferred-fixes', phase: 'P4 · Gate 3', agentType: 'general-purpose' },
   )
-  return { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', raw: String(gate3Report ?? '').slice(-600) }
+  return halt('gate3', { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', raw: String(gate3Report ?? '').slice(-600) })
 }
 
 
@@ -2781,7 +2808,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 5 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance', { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 5 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 
@@ -2832,7 +2859,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'P5 · Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 5 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 5 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -2873,7 +2900,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 5 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 5 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -2905,10 +2932,10 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     )
   } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
   : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 const frTitle = {}
 if (Array.isArray(ctx.fr_details)) for (const f of ctx.fr_details) frTitle[f.id || f.fr_id] = f.title || f.name || ''
 log('  fr_ids = ' + JSON.stringify(frIds))
@@ -2987,7 +3014,7 @@ for (const frId of deltaTodo) {
   } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 5: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 5: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail })
 }
 if (gate1Pass.length) {
   await dispatch(
@@ -3018,7 +3045,7 @@ const docsReport = await dispatch(
   { label: 'verification-docs', phase: 'P5 · Verification Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(docsReport && docsReport.pass === true)) {
-  return { error: 'Phase 5 verification docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('verification-docs', { error: 'Phase 5 verification docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -3048,7 +3075,7 @@ const milestoneReport = await dispatch(
   { label: 'milestone-baseline', phase: 'P5 · Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(milestoneReport && milestoneReport.pass === true)) {
-  return { error: 'Phase 5 p5-baseline milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('milestone', { error: 'Phase 5 p5-baseline milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -3091,7 +3118,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 6 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance', { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 6 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 
@@ -3213,7 +3240,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'P6 · Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 6 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 6 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -3280,7 +3307,7 @@ if (gate4Blocked) {
   return { session_limit_blocked: true, gate: 4, message: 'Agent hit session/rate limit during Gate 4 evaluation. Resume after quota reset — GUARD checks will skip completed FRs.' }
 }
 if (!gate4Pass) {
-  return { error: 'Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate4Report ?? '').slice(-600) }
+  return halt('gate4', { error: 'Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate4Report ?? '').slice(-600) })
 }
 
 
@@ -3299,7 +3326,7 @@ const releaseReport = await dispatch(
   { label: 'release-docs', phase: 'P6 · Release Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(releaseReport && releaseReport.pass === true)) {
-  return { error: 'Phase 6 release docs did not PASS', reason: releaseReport ? String(releaseReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('release-docs', { error: 'Phase 6 release docs did not PASS', reason: releaseReport ? String(releaseReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -3356,12 +3383,12 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
   } catch (e) {
     log('  Peer B parse failed: ' + String(e.message ?? e).slice(0, 120) + ' — retrying')
     if (attempt === MAX_OUTER_ATTEMPTS_PEER) {
-      return { error: 'Peer B parse failed after ' + MAX_OUTER_ATTEMPTS_PEER + ' rounds', detail: String(e.message ?? e).slice(0, 400) }
+      return halt('peer-review', { error: 'Peer B parse failed after ' + MAX_OUTER_ATTEMPTS_PEER + ' rounds', detail: String(e.message ?? e).slice(0, 400) })
     }
   }
 }
 if (!peerVerdict) {
-  return { error: 'Peer B did not produce valid verdict' }
+  return halt('peer-review', { error: 'Peer B did not produce valid verdict' })
 }
 
 const allApproved = peerVerdict.verdicts.every(function (v) {
@@ -3369,7 +3396,7 @@ const allApproved = peerVerdict.verdicts.every(function (v) {
   return !(v.gaps || []).some(function (g) { return g.severity === 'medium' || g.severity === 'high' })
 })
 if (!allApproved) {
-  return { error: 'HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps — escalate to human (previously this was silently ignored; T1-B adds the check)', peerVerdict: peerVerdict }
+  return halt('peer-review', { error: 'HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps — escalate to human (previously this was silently ignored; T1-B adds the check)', peerVerdict: peerVerdict })
 }
 
 for (const v of peerVerdict.verdicts) {
@@ -3413,7 +3440,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('tag-and-advance', { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 
@@ -3463,7 +3490,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'P7 · Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 7 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 7 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -3504,7 +3531,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 7 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 7 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -3536,10 +3563,10 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     )
   } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
   : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 const frTitle = {}
 if (Array.isArray(ctx.fr_details)) for (const f of ctx.fr_details) frTitle[f.id || f.fr_id] = f.title || f.name || ''
 log('  fr_ids = ' + JSON.stringify(frIds))
@@ -3618,7 +3645,7 @@ for (const frId of deltaTodo) {
   } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 7: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 7: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail })
 }
 if (gate1Pass.length) {
   await dispatch(
@@ -3648,7 +3675,7 @@ const docsReport = await dispatch(
   { label: 'risk-docs', phase: 'P7 · Risk Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(docsReport && docsReport.pass === true)) {
-  return { error: 'Phase 7 risk docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('risk-docs', { error: 'Phase 7 risk docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -3678,7 +3705,7 @@ const milestoneReport = await dispatch(
   { label: 'milestone-p7', phase: 'P7 · Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(milestoneReport && milestoneReport.pass === true)) {
-  return { error: 'Phase 7 p7 milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('milestone', { error: 'Phase 7 p7 milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -3720,7 +3747,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 8 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('advance', { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 8 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 
@@ -3769,7 +3796,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'P8 · Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 8 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 8 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -3810,7 +3837,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 8'
@@ -3855,10 +3882,10 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     )
   } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
   : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 log('  fr_ids = ' + JSON.stringify(frIds))
 
 
@@ -3935,7 +3962,7 @@ for (const frId of deltaTodo) {
   } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 8: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 8: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail })
 }
 if (gate1Pass.length) {
   await dispatch(
@@ -3966,7 +3993,7 @@ const docsReport = await dispatch(
   { label: 'config-docs', phase: 'P8 · Config Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(docsReport && docsReport.pass === true)) {
-  return { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('config-docs', { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -3996,7 +4023,7 @@ const archiveReport = await dispatch(
   { label: 'archive', phase: 'P8 · Archive', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(archiveReport && archiveReport.pass === true)) {
-  return { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('archive-prep', { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -4009,7 +4036,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Final Push round ' + round + '/' + ADVANCE_MAX_ROUNDS)
   const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)
   if (!pushIntegrity.ok) {
-    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }
+    return halt('final-push', { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' })
   }
   pushReport = await dispatch(
     'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
@@ -4037,7 +4064,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   if (p8Ok) { log('  Final Push PASS [git-verified: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
   log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))
 }
-if (!p8Ok) return { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) }
+if (!p8Ok) return halt('p8-push', { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) })
 
 log('Phase 8 push-milestone + advance-phase complete. 🎉 Pipeline complete — Phase 9 (Maintenance) begins.')
 
@@ -4064,7 +4091,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
 if (!syncPass) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+  return halt('post-advance-push', { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) })
 }
 
 
@@ -4107,11 +4134,11 @@ try {
 } catch (e) {
   const cursorErr = 'run-all: phase-cursor dispatch threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200)
   await recordBlock(0, 'phase-cursor', cursorErr)
-  return { error: cursorErr, note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' }
+  return halt('phase-cursor', { error: cursorErr, note: 'Transient API error reading state.json cursor — nothing changed on disk, relaunch run-all.' })
 }
 if (!(cursor && Number.isInteger(cursor.current_phase))) {
   await recordBlock(0, 'phase-cursor', 'run-all: could not read current_phase from .methodology/state.json')
-  return { error: 'run-all: could not read current_phase from .methodology/state.json', note: 'Refusing to guess a starting phase. Check the file, then relaunch.' }
+  return halt('phase-cursor', { error: 'run-all: could not read current_phase from .methodology/state.json', note: 'Refusing to guess a starting phase. Check the file, then relaunch.' })
 }
 const startPhase = cursor.current_phase
 if (startPhase < 1 || startPhase > 8) {
@@ -4128,15 +4155,15 @@ for (let n = startPhase; n <= 8; n++) {
   } catch (e) {
     const crashMsg = 'run-all crashed in Phase ' + n + ': ' + (e && e.message ? e.message : String(e)).slice(0, 300)
     await recordBlock(n, 'workflow-crash', crashMsg)
-    return { error: crashMsg, phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' }
+    return halt('workflow-crash', { error: crashMsg, phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' })
   }
   if (outcome && outcome.session_limit_blocked) {
     await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'))
     return { session_limit_blocked: true, phase: n, phases_run: phasesRun, detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — it resumes from state.json and every completed phase short-circuits.' }
   }
   if (outcome && outcome.error) {
-    await recordBlock(n, 'phase-error', String(outcome.error))
-    return { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, phase: n, phases_run: phasesRun, detail: outcome }
+    await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error))
+    return halt(String(outcome.halt_step || 'phase-error'), { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, phase: n, phases_run: phasesRun, detail: outcome })
   }
   // Round 28 — fail CLOSED, like the cursor read above. The two branches
   // above name the outcomes this driver recognises; this one covers every
@@ -4147,7 +4174,7 @@ for (let n = startPhase; n <= 8; n++) {
   // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.
   if (!outcome || outcome.phase_complete !== true) {
     await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'))
-    return { error: 'run-all stopped in Phase ' + n + ': the phase returned without reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || 'no message'), phase: n, phases_run: phasesRun, detail: outcome, note: 'A phase sets phase_complete only on its single success exit. Anything else — a terminal abort such as a harness crash or a broken dispatch environment, or a shape this driver does not recognise — stops the run rather than advancing on an unfinished phase.' }
+    return halt(String((outcome && outcome.halt_step) || 'phase-incomplete'), { error: 'run-all stopped in Phase ' + n + ': the phase returned without reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || 'no message'), phase: n, phases_run: phasesRun, detail: outcome, note: 'A phase sets phase_complete only on its single success exit. Anything else — a terminal abort such as a harness crash or a broken dispatch environment, or a shape this driver does not recognise — stops the run rather than advancing on an unfinished phase.' })
   }
   phasesRun.push(n)
 }

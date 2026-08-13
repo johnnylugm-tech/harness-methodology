@@ -45,6 +45,33 @@ export const meta = {
 // generator output run-all inlines.
 try {
 
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -202,7 +229,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 8 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 8 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -278,7 +305,7 @@ const envReport = await dispatch(
 )
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
-  return { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }
+  return halt('env-check', { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
 }
 
 // (ported from phase3, 155ec07 + 286ccca)
@@ -352,10 +379,10 @@ for (let attempt = 1; attempt <= 3; attempt++) {
     )
   } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }
 }
-if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }
+if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })
 let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids
   : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])
-if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }
+if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })
 log('  fr_ids = ' + JSON.stringify(frIds))
 
 
@@ -476,7 +503,7 @@ for (const frId of deltaTodo) {
   } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
 }
 if (gate1Fail.length) {
-  return { error: 'Phase 8: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }
+  return halt('gate1', { error: 'Phase 8: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail })
 }
 if (gate1Pass.length) {
   await dispatch(
@@ -516,7 +543,7 @@ const docsReport = await dispatch(
   { label: 'config-docs', phase: 'Config Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(docsReport && docsReport.pass === true)) {
-  return { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('config-docs', { error: 'Phase 8 config docs did not PASS', reason: docsReport ? String(docsReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -553,7 +580,7 @@ const archiveReport = await dispatch(
   { label: 'archive', phase: 'Archive', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(archiveReport && archiveReport.pass === true)) {
-  return { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('archive-prep', { error: 'Phase 8 archive prep did not PASS', reason: archiveReport ? String(archiveReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -579,7 +606,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   // Re-check every round — a fix attempt in a prior round could reintroduce it.
   const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)
   if (!pushIntegrity.ok) {
-    return { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' }
+    return halt('final-push', { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' })
   }
   pushReport = await dispatch(
     'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
@@ -614,7 +641,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   if (p8Ok) { log('  Final Push PASS [git-verified: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
   log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))
 }
-if (!p8Ok) return { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) }
+if (!p8Ok) return halt('p8-push', { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) })
 
 log('Phase 8 push-milestone + advance-phase complete. 🎉 Pipeline complete — Phase 9 (Maintenance) begins.')
 
@@ -646,7 +673,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
 if (!syncPass) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+  return halt('post-advance-push', { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) })
 }
 
 

@@ -183,6 +183,35 @@ async function recordBlock(phaseNo, step, message) {
 }
 """
 
+HALT_FN_BLOCK = """\
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+"""
+
 HUNT_MODEL_BLOCK = """\
 // Bug hunt should use a DIFFERENT model from the developer (minimise same-source bias).
 const HUNT_MODEL = (args && typeof args === 'object' && typeof args.huntModel === 'string') ? args.huntModel : 'claude-opus-4-8'
@@ -318,7 +347,7 @@ def render_entry_preflight(
         + "  { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(preflightReport && preflightReport.pass === true)) {\n"
-        + f"  return {{ error: 'Phase {phase} preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }}\n"
+        + f"  return halt('preflight', {{ error: 'Phase {phase} preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }})\n"
         + "}\n"
     )
 
@@ -394,7 +423,7 @@ def render_env_check(phase: int) -> str:
         + ")\n"
         + "if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {\n"
         + "  const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`\n"
-        + f"  return {{ error: 'Phase {phase} env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }}\n"
+        + f"  return halt('env-check', {{ error: 'Phase {phase} env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' }})\n"
         + "}\n"
     )
 
@@ -495,10 +524,10 @@ def render_load_frs(phase: int, *, include_fr_titles: bool = False) -> str:
         + "    )\n"
         + "  } catch (e) { log('  ctx-regen agent failed: ' + String(e.message ?? e).slice(0, 80)) }\n"
         + "}\n"
-        + "if (!ctx) return { error: 'Load FRs: ctx failed after 3 attempts', ctxFile }\n"
+        + "if (!ctx) return halt('load-frs', { error: 'Load FRs: ctx failed after 3 attempts', ctxFile })\n"
         + "let frIds = Array.isArray(ctx.fr_ids) ? ctx.fr_ids\n"
         + "  : (Array.isArray(ctx.fr_details) ? ctx.fr_details.map(f => f.id || f.fr_id || f.fr).filter(Boolean) : [])\n"
-        + "if (!frIds.length) return { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) }\n"
+        + "if (!frIds.length) return halt('load-frs', { error: 'Load FRs: no fr_ids found in ctx', ctxKeys: Object.keys(ctx) })\n"
         + fr_title_block
         + "log('  fr_ids = ' + JSON.stringify(frIds))\n"
     )
@@ -714,7 +743,7 @@ def render_per_fr_delta(
         + mid_milestone_step
         + "}\n"
         + "if (gate1Fail.length) {\n"
-        + f"  return {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }}\n"
+        + f"  return halt('gate1', {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }})\n"
         + "}\n"
         + _orch_post()
     )
@@ -759,7 +788,7 @@ def render_milestone(
         + f"  {{ label: '{label}', phase: 'Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA }},\n"
         + ")\n"
         + "if (!(milestoneReport && milestoneReport.pass === true)) {\n"
-        + f"  return {{ error: 'Phase {phase} {milestone_type} milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' }}\n"
+        + f"  return halt('milestone', {{ error: 'Phase {phase} {milestone_type} milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' }})\n"
         + "}\n"
     )
 
@@ -864,7 +893,7 @@ def render_advance_loop(
         + "}\n"
         + "\n"
         + "if (!advancePass) {\n"
-        + f"  return {{ error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase {next_phase} is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }}\n"
+        + f"  return halt('advance', {{ error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase {next_phase} is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }})\n"
         + "}\n"
     )
 
@@ -931,8 +960,8 @@ def render_sync_verified(
     """
     extra = "".join(f"  + '{line}\\n'\n" for line in (extra_lines or []))
     terminal = on_blocked if on_blocked is not None else (
-        "  return { error: 'post-advance push did not PASS', "
-        "raw: String(syncReport ?? '').slice(-500) }\n"
+        "  return halt('post-advance-push', { error: 'post-advance push did not PASS', "
+        "raw: String(syncReport ?? '').slice(-500) })\n"
     )
     return (
         "// Bug A fix (2026-07-07): advance-phase intentionally commits the handover\n"
@@ -1035,7 +1064,7 @@ def render_gate_loop(
     integrity_block = (
         f"  const g{gate_num}Integrity = await checkManifestIntegrity('Gate {gate_num}', 'g{gate_num}-integrity-r' + round)\n"
         f"  if (!g{gate_num}Integrity.ok) {{\n"
-        f"    return {{ error: 'Gate {gate_num} round ' + round + ': quality_manifest.json corrupted mid-run', detail: g{gate_num}Integrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first — a corrupted manifest may already be committed)', note: 'Corruption appeared AFTER the entry integrity check. Inspect the previous round\\'s agent transcript for the writer before restoring.' }}\n"
+        f"    return halt('manifest-corrupt', {{ error: 'Gate {gate_num} round ' + round + ': quality_manifest.json corrupted mid-run', detail: g{gate_num}Integrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first — a corrupted manifest may already be committed)', note: 'Corruption appeared AFTER the entry integrity check. Inspect the previous round\\'s agent transcript for the writer before restoring.' }})\n"
         f"  }}\n"
     ) if include_manifest_integrity else ""
     agent_open = (
@@ -1137,7 +1166,7 @@ def render_gate_loop(
         + "}\n"
         + f"if (!gate{gate_num}Pass) {{\n"
         + deferred_fixes_step
-        + f"  return {{ error: '{on_fail_error_msg}', raw: String(gate{gate_num}Report ?? '').slice(-600) }}\n"
+        + f"  return halt('gate{gate_num}', {{ error: '{on_fail_error_msg}', raw: String(gate{gate_num}Report ?? '').slice(-600) }})\n"
         + "}\n"
     )
 
@@ -1616,13 +1645,13 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "      log('  BUDGET LOW (' + rem + 'k) -- exiting ' + cfg.deliverable)\n"
         "      if (b2 && b2.review_status === 'APPROVE') return { ok: true, content, b2, budget_exhausted: true }\n"
         "      if (b2) return { ok: false, content, b2, budget_exhausted: true }\n"
-        "      return { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true }\n"
+        "      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true })\n"
         "    }\n"
         "    let aResult\n"
         "    try { aResult = await agent(cfg.buildAPrompt(round, b2), {\n"
         "      label: 'a-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',\n"
         "    }) } catch (e) {\n"
-        "      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })\n"
         "      log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
         "    }\n"
         "    let a\n"
@@ -1630,7 +1659,7 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "    catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }\n"
         "    content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)\n"
         "    if (content.startsWith('ERROR:') || content.length < 50) {\n"
-        "      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) }\n"
+        "      if (round === MAX_B_ROUNDS) return halt('sbr-deliverable-missing', { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })\n"
         "      log('  A disk empty (parse-fail + no file) → retrying next round')\n"
         "      continue\n"
         "    }\n"
@@ -1640,7 +1669,7 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         f"    try {{ bResult = await agent(buildBPrompt('{b_role}', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist), {{\n"
         "      label: 'b-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',\n"
         "    }) } catch (e) {\n"
-        "      if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) }\n"
+        "      if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })\n"
         "      log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue\n"
         "    }\n"
         "\n"
@@ -1660,11 +1689,11 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "    }\n"
         "    if (sbrResult.escalation_action === 'escalate_human') {\n"
         "      log('  ESCALATE TO HUMAN — ' + sbrResult.escalation_reason)\n"
-        "      return { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' }\n"
+        "      return halt('sbr-escalation', { error: cfg.deliverable + ': ' + sbrResult.escalation_reason, lastB2: b2, escalation_action: 'escalate_human' })\n"
         "    }\n"
-        "    if (round === MAX_B_ROUNDS) return { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 }\n"
+        "    if (round === MAX_B_ROUNDS) return halt('sbr-no-convergence', { error: cfg.deliverable + ': B did not converge in ' + MAX_B_ROUNDS + ' rounds (HR-12 escalation)', lastB2: b2 })\n"
         "    // APPROVE+high OR REJECT → A fixes next round\n"
         "  }\n"
-        "  return { error: cfg.deliverable + ' loop exhausted unexpectedly' }\n"
+        "  return halt('sbr-loop-exhausted', { error: cfg.deliverable + ' loop exhausted unexpectedly' })\n"
         "}\n"
     )

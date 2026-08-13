@@ -40,6 +40,33 @@ export const meta = {
 // generator output run-all inlines.
 try {
 
+// ---- Round 50 站3: a halt carries the step it happened at ----
+// Round 48 站2 gave run-all six recordBlock sites on the phase loop's
+// boundary. Measured across the shipped workflows: the eight phase files
+// return `{ error: ... }` from 55 distinct top-level sites, and all 55 arrive
+// at one of those six under the single step name `phase-error`. A full
+// P1-P8 run produced one workflow_blocks.jsonl row, and that row names the
+// phase and nothing about which of its halts fired.
+//
+// The event was never lost; its coordinate was. This helper is where the
+// coordinate is attached, at the site that knows it — the same rule Round 24
+// applied to block_reason and Round 48 站1 wrote down for fault ownership:
+// the answer is written where it is known, not reconstructed later from
+// prose.
+//
+// It costs NOTHING at runtime: no dispatch, no await. The recording still
+// happens once, at the driver's boundary, which now reads halt_step instead
+// of hardcoding a name. The shape passed through is each site's own — error,
+// reason, detail, raw, peerVerdict — so every existing caller of these
+// workflows sees what it saw before, plus one field.
+//
+// No phase argument: several halt sites live in blocks shared across phases
+// (js_blocks.LOAD_FRS_BLOCK, the post-advance push), where the phase is not
+// something the site knows. The driver's loop already has it.
+function halt(step, shape) {
+  return Object.assign({ halt_step: step }, shape)
+}
+
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
 // Buffered because this sandbox has no filesystem, no shell and no clock; the
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
@@ -265,7 +292,7 @@ const preflightReport = await dispatch(
   { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(preflightReport && preflightReport.pass === true)) {
-  return { error: 'Phase 6 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }
+  return halt('preflight', { error: 'Phase 6 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })
 }
 
 
@@ -338,7 +365,7 @@ if (gate4Blocked) {
   return { session_limit_blocked: true, gate: 4, message: 'Agent hit session/rate limit during Gate 4 evaluation. Resume after quota reset — GUARD checks will skip completed FRs.' }
 }
 if (!gate4Pass) {
-  return { error: 'Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate4Report ?? '').slice(-600) }
+  return halt('gate4', { error: 'Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate4Report ?? '').slice(-600) })
 }
 
 
@@ -360,7 +387,7 @@ const releaseReport = await dispatch(
   { label: 'release-docs', phase: 'Release Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(releaseReport && releaseReport.pass === true)) {
-  return { error: 'Phase 6 release docs did not PASS', reason: releaseReport ? String(releaseReport.reason ?? '').slice(-500) : 'agent returned null' }
+  return halt('release-docs', { error: 'Phase 6 release docs did not PASS', reason: releaseReport ? String(releaseReport.reason ?? '').slice(-500) : 'agent returned null' })
 }
 
 
@@ -428,12 +455,12 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
   } catch (e) {
     log('  Peer B parse failed: ' + String(e.message ?? e).slice(0, 120) + ' — retrying')
     if (attempt === MAX_OUTER_ATTEMPTS_PEER) {
-      return { error: 'Peer B parse failed after ' + MAX_OUTER_ATTEMPTS_PEER + ' rounds', detail: String(e.message ?? e).slice(0, 400) }
+      return halt('peer-review', { error: 'Peer B parse failed after ' + MAX_OUTER_ATTEMPTS_PEER + ' rounds', detail: String(e.message ?? e).slice(0, 400) })
     }
   }
 }
 if (!peerVerdict) {
-  return { error: 'Peer B did not produce valid verdict' }
+  return halt('peer-review', { error: 'Peer B did not produce valid verdict' })
 }
 
 // T1-B: check whether ALL verdicts are APPROVE (no REJECT, no medium/high gaps).
@@ -444,7 +471,7 @@ const allApproved = peerVerdict.verdicts.every(function (v) {
   return !(v.gaps || []).some(function (g) { return g.severity === 'medium' || g.severity === 'high' })
 })
 if (!allApproved) {
-  return { error: 'HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps — escalate to human (previously this was silently ignored; T1-B adds the check)', peerVerdict: peerVerdict }
+  return halt('peer-review', { error: 'HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps — escalate to human (previously this was silently ignored; T1-B adds the check)', peerVerdict: peerVerdict })
 }
 
 // Workflow writes 4 approval JSON files via persistApproval (Class C).
@@ -512,7 +539,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
 }
 
 if (!advancePass) {
-  return { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }
+  return halt('tag-and-advance', { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
 }
 
 // Bug A fix (2026-07-07): advance-phase intentionally commits the handover
@@ -542,7 +569,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   log('  Sync attempt ' + sAttempt + '/' + SYNC_MAX_ATTEMPTS + ' did not PASS — read the pre-push blocker list, fix what it names, retry')
 }
 if (!syncPass) {
-  return { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) }
+  return halt('post-advance-push', { error: 'post-advance push did not PASS', raw: String(syncReport ?? '').slice(-500) })
 }
 
 

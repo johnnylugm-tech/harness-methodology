@@ -92,7 +92,7 @@ def _render_phase6_entry_preflight() -> str:
         + "  { label: 'preflight', phase: 'Entry & Preflight', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(preflightReport && preflightReport.pass === true)) {\n"
-        + "  return { error: 'Phase 6 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' }\n"
+        + "  return halt('preflight', { error: 'Phase 6 preflight did not PASS', reason: preflightReport ? String(preflightReport.reason ?? '').slice(-600) : 'agent returned null (skipped or terminal API error)' })\n"
         + "}\n"
     )
 
@@ -113,7 +113,7 @@ def _render_phase6_release_docs() -> str:
         + "  { label: 'release-docs', phase: 'Release Docs', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + ")\n"
         + "if (!(releaseReport && releaseReport.pass === true)) {\n"
-        + "  return { error: 'Phase 6 release docs did not PASS', reason: releaseReport ? String(releaseReport.reason ?? '').slice(-500) : 'agent returned null' }\n"
+        + "  return halt('release-docs', { error: 'Phase 6 release docs did not PASS', reason: releaseReport ? String(releaseReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
         + "}\n"
     )
 
@@ -180,12 +180,12 @@ def _render_phase6_peer_review() -> str:
         + "  } catch (e) {\n"
         + "    log('  Peer B parse failed: ' + String(e.message ?? e).slice(0, 120) + ' — retrying')\n"
         + "    if (attempt === MAX_OUTER_ATTEMPTS_PEER) {\n"
-        + "      return { error: 'Peer B parse failed after ' + MAX_OUTER_ATTEMPTS_PEER + ' rounds', detail: String(e.message ?? e).slice(0, 400) }\n"
+        + "      return halt('peer-review', { error: 'Peer B parse failed after ' + MAX_OUTER_ATTEMPTS_PEER + ' rounds', detail: String(e.message ?? e).slice(0, 400) })\n"
         + "    }\n"
         + "  }\n"
         + "}\n"
         + "if (!peerVerdict) {\n"
-        + "  return { error: 'Peer B did not produce valid verdict' }\n"
+        + "  return halt('peer-review', { error: 'Peer B did not produce valid verdict' })\n"
         + "}\n"
         + "\n"
         + "// T1-B: check whether ALL verdicts are APPROVE (no REJECT, no medium/high gaps).\n"
@@ -196,7 +196,7 @@ def _render_phase6_peer_review() -> str:
         + "  return !(v.gaps || []).some(function (g) { return g.severity === 'medium' || g.severity === 'high' })\n"
         + "})\n"
         + "if (!allApproved) {\n"
-        + "  return { error: 'HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps — escalate to human (previously this was silently ignored; T1-B adds the check)', peerVerdict: peerVerdict }\n"
+        + "  return halt('peer-review', { error: 'HR-08: Phase 6 Peer Review had REJECT or unresolved medium/high gaps — escalate to human (previously this was silently ignored; T1-B adds the check)', peerVerdict: peerVerdict })\n"
         + "}\n"
         + "\n"
         + "// Workflow writes 4 approval JSON files via persistApproval (Class C).\n"
@@ -263,7 +263,7 @@ def _render_phase6_tag_advance() -> str:
         + "}\n"
         + "\n"
         + "if (!advancePass) {\n"
-        + "  return { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) }\n"
+        + "  return halt('tag-and-advance', { error: 'Tag & Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 7 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })\n"
         + "}\n"
     )
 

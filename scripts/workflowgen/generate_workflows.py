@@ -103,6 +103,29 @@ def _inject_dispatch_wrapper(text: str) -> str:
     )
 
 
+def _inject_halt_helper(text: str) -> str:
+    """Declare `halt()` once per generated file (Round 50 站3).
+
+    Same shape and same reason as `_inject_dispatch_wrapper` above: one place
+    decides, and a spec module cannot forget it. Placed after the meta object
+    for the same constraint (`meta` must remain the first statement), and
+    skipped entirely for a file with no halt sites — bug-hunt-crg.js has none.
+
+    run-all inlines eight phase bodies, so it must NOT be injected per phase:
+    eight `function halt` declarations in one file is a duplicate-declaration
+    SyntaxError. spec_runall consumes generate_raw() and injects once over the
+    assembled file, exactly as it does for the dispatch wrapper.
+    """
+    if "halt(" not in text:
+        return text
+    from scripts.workflowgen import js_blocks as _B
+
+    marker = "\n}\n"  # the meta object's closing brace
+    meta_end = text.index("export const meta = {") + 1
+    close = text.index(marker, meta_end) + len(marker)
+    return text[:close] + "\n" + _B.HALT_FN_BLOCK + text[close:]
+
+
 def generate_raw(phase: int) -> str:
     """A phase's generated JS BEFORE the dispatch wrapper is injected.
 
@@ -179,7 +202,9 @@ def _wrap_top_level_boundary(text: str) -> str:
 
 
 def generate(phase: int) -> str:
-    return _wrap_top_level_boundary(_inject_dispatch_wrapper(generate_raw(phase)))
+    return _wrap_top_level_boundary(
+        _inject_halt_helper(_inject_dispatch_wrapper(generate_raw(phase)))
+    )
 
 
 def _target_path(phase: int) -> Path:
