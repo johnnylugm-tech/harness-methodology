@@ -76,6 +76,53 @@ DIMENSION_HINTS: dict[str, str] = {
     ),
     "documentation":      "All public APIs need [FR-XX] docstrings with Citations: + line numbers",
     "performance":        "Profile with cProfile; fix N+1 queries; add caching where needed",
+    # Round 50 站4d. The six below were added by later rounds with a scorer, a
+    # threshold and a weight each, and no remediation — so every block on them
+    # fell through to _DEFAULT_DIMENSION_HINT, and `core/lessons.py` copied
+    # that sentence into the lesson file as its `Fix:` line. Measured on a
+    # full P1-P8 run: 42 lesson files, 42 identical Fix lines, none naming
+    # anything about the failure it was written for. The cross-run memory
+    # Direction C built recorded forty-two times that something should be
+    # reviewed. tests/test_block_reason_registry.py now holds this table
+    # against every dimension the gate configs declare.
+    "integration_coverage": (
+        "Line coverage of the source tree measured by the INTEGRATION suite alone "
+        "(03-development/tests/integration), not the unit suite. A low score means "
+        "the integration tests exercise a narrow slice: add tests that drive real "
+        "collaborations end to end — API in, storage out — rather than more unit "
+        "tests, which do not count toward this dimension."
+    ),
+    "test_assertion_quality": (
+        "Percent of test functions containing a substantive assertion. Find them "
+        "with the `zero_assert` list in the ast-assertions output: a test whose "
+        "only assertion is `assert True` (or which has none) verifies nothing and "
+        "is counted as hollow. Give each one a real assertion or delete it."
+    ),
+    "execute_verification_target": (
+        "The project's own verification entry point (`make verify-system` or the "
+        "equivalent declared in the SRS) must exit 0. This is pass/fail, not a "
+        "percentage: read its output, fix what it reports. A missing target is "
+        "the same failure as a failing one — the project declared it."
+    ),
+    "traceability": (
+        "Framework-computed from the trace attestation: every FR reaches code and "
+        "a test that RAN. A shortfall names specific FRs — a requirement whose "
+        "witness was skipped is not verified (Round 46 站1). Regenerate the "
+        "matrix with `harness_cli.py sync-trace` after adding the missing link, "
+        "and check the FR id appears in a test title (`test_frNN_*`)."
+    ),
+    "architecture_constraints": (
+        "The SAB's declared layer boundaries versus the imports actually present. "
+        "Run import-linter to see which contract broke; fix the import, or amend "
+        "the SAB if the new dependency is intended — a constraint the code "
+        "outgrew is amended in SAD.md first, never silently."
+    ),
+    "adversarial_review": (
+        "Framework-owned (Gate 3): the bug-hunt findings the project has not "
+        "resolved. Each finding names a file and a line; close them by fixing the "
+        "defect and recording the fix_commit in bug_hunt_report.json. Re-running "
+        "the gate without changing code re-rolls the same judgement."
+    ),
 }
 
 _DEFAULT_DIMENSION_HINT = "Review dimension-specific issues in SSI output"
