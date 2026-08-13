@@ -173,3 +173,90 @@ def test_the_import_contract_covers_the_package_it_claims_to_constrain(project):
         "the repository layer is legitimately allowed to import sqlalchemy — "
         "a gap report that names it is reporting noise, not a hole"
     )
+
+
+# taskq-advance spells the same field as a path: `root_package =
+# 03-development.src.taskq_api`. Both trees are in scope, so both spellings
+# have to resolve — the first version of this scanner matched only the last
+# segment and reported advance as having zero delivered modules and therefore
+# a clean contract, which is the same hole with a nicer answer.
+_IMPORTLINTER_PATH_ROOT = """\
+[importlinter]
+root_package = 03-development.src.taskq_api
+include_external_packages = True
+
+[importlinter:contract:layering]
+name = Layering
+type = layers
+layers =
+    03-development.src.taskq_api.api
+    03-development.src.taskq_api.service
+    03-development.src.taskq_api.repository
+    03-development.src.taskq_api.models
+
+[importlinter:contract:sqlalchemy_repository_only]
+name = SQLAlchemy in repository only
+type = forbidden
+source_modules =
+    03-development.src.taskq_api.api
+    03-development.src.taskq_api.service
+forbidden_modules =
+    sqlalchemy
+allow_indirect_imports = True
+"""
+
+
+def test_a_dotted_source_root_resolves_in_the_projects_own_spelling(tmp_path):
+    from core.quality_gate.arch_constraints import contract_coverage_gap
+
+    (tmp_path / ".importlinter").write_text(
+        _IMPORTLINTER_PATH_ROOT, encoding="utf-8")
+    src = tmp_path / "03-development" / "src"
+    for rel in _MODULES:
+        p = src / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+
+    gap = contract_coverage_gap(tmp_path)
+    assert "03-development.src.taskq_api.app" in gap, (
+        "with a path-shaped root_package the scanner must answer in that same "
+        "shape — the contracts are written in it, so anything else compares "
+        "two vocabularies and finds no overlap"
+    )
+    assert "03-development.src.taskq_api.repository.session" not in gap
+
+
+def test_no_import_contract_at_all_is_reported_as_absent_not_clean(tmp_path):
+    """Round 46: a project with no contract is not a project with a kept one."""
+    from core.quality_gate.arch_constraints import contract_coverage_gap
+
+    (tmp_path / "03-development" / "src" / "taskq_api").mkdir(parents=True)
+    assert contract_coverage_gap(tmp_path) == []
+
+
+def test_what_has_no_executor_reaches_the_ledger(tmp_path):
+    """The record is the enforcement: a report cannot certify what this names."""
+    import json
+
+    from core.quality_gate.arch_constraints import record_constraint_status
+
+    (tmp_path / ".importlinter").write_text(_IMPORTLINTER, encoding="utf-8")
+    src = tmp_path / "03-development" / "src"
+    for rel in _MODULES:
+        p = src / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("", encoding="utf-8")
+
+    record_constraint_status(
+        tmp_path, {"architecture_constraints": _API_CONSTRAINTS})
+
+    ledger = tmp_path / ".methodology" / "degradations.jsonl"
+    rows = [json.loads(ln) for ln in ledger.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    by_what = {r["what"]: r for r in rows}
+
+    unenforced = next(r for k, r in by_what.items() if "no executor" in k)
+    assert "single_auth_dependency_at_api_layer" in unenforced["data"]["declared_only"]
+    assert "no_circular_dependencies" not in unenforced["data"]["declared_only"]
+
+    uncovered = next(r for k, r in by_what.items() if "outside every" in k)
+    assert "taskq_api.app" in uncovered["data"]["uncovered_modules"]

@@ -2787,6 +2787,16 @@ class HarnessBridge:
                 details={"tool_evidence_missing": _tool_violations},
             )
 
+        # ── Round 51 站2: which declared constraints nobody checks ───────────
+        # The SAB's `architecture_constraints` list reaches CLAUDE.md and the
+        # evaluation prompt above and nothing else, so "the agent was told" has
+        # been the whole enforcement. Classify it here, at the moment the gate
+        # is decided, and leave the ones with no executor in the ledger —
+        # taskq-api's VERIFICATION_REPORT certified five constraints honoured
+        # while two of them were being violated in the delivered tree.
+        from core.quality_gate.arch_constraints import record_constraint_status
+        record_constraint_status(ctx.project_root, ctx.sab_data)
+
         # ── S4: Harness cross-validation (Solution B) ────────────────────────
         # For each Tier 1/2 dimension where the agent claims a passing score,
         # the harness independently runs the tool and computes its own score.
