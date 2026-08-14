@@ -228,7 +228,7 @@ function buildBPrompt(role, deliverable, docs, checklist) {
   p += 'Review checklist:\n' + checklist + '\n\n'
     + 'SCHEMA REQUIREMENTS (advance-phase `harness_cli.py _verify_agent_b_approvals_core` REJECTS the approval if any of these fail — observed 2026-06-29 wf_3a9377cb):\n'
     + '  - `reason`: ≥ 100 characters of substantive justification. NOT "APPROVE", "OK", or other one-word response.\n'
-    + '  - `citations`: array of "file:line" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\n'
+    + '  - `citations`: array of "file:line" strings. CITATION FORMAT — each entry MUST be exactly `<rel_path>:<digits>` (a line number you verified by `Read` or `cat <path> | head -N | tail -1`), with an optional trailing `(parenthesised annotation)`. Positive examples: `"SRS.md:42"` or `"02-architecture/SAD.md:118"`. Negative example — DO NOT WRITE: `"taskq_api.app:app aligns with §X.Y"` (or any string where the part after `:` is prose): the validator regex (harness `core/quality_gate/agent_b_approvals.py` `_CITATION`) requires DIGITS after `:`; prose is rejected with `(unparseable citation format)`. Always run `wc -l <path>` first so the line number is in range.\n'
     + '  - For range citations `path:N-M`, the end line M MUST NOT exceed the file\'s actual line count (verify via `wc -l <path>` before writing). Off-by-one errors in range citations are a known failure mode that blocks advance-phase with no automated remediation.\n'
     + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) looks for PURE basenames like "SAD.md", "ADR.md", "TEST_SPEC.md", NOT descriptive strings. Use bare basenames only.\n'
     + '  - CRITICAL: for Phase 2, `docs_embedded` MUST include ALL of: "SRS.md", "SAD.md" — regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[2]) rejects any P2 approval missing either.\n\n'
@@ -378,7 +378,13 @@ async function abLoop(cfg) {
     log('  A status=' + (a && a.status ? a.status : 'assumed-OK') + ' | disk loaded: ' + content.length + ' chars, confidence=' + (a && a.confidence ? a.confidence : '?'))
 
     let bResult
-    try { bResult = await dispatch(buildBPrompt('TECH_LEAD', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist), {
+    // v33b (parity with spec_phase1.py:245): when the previous round's
+      // persistApproval threw (validator rejected citations), carry the
+      // error message into the next round's B prompt so Agent B can
+      // self-correct instead of looping on identical input.
+    const _baseBPrompt = buildBPrompt('TECH_LEAD', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist)
+      + (b2 && b2.persist_error ? '\n\n=== PREVIOUS ROUND CITE REJECT ===\n' + b2.persist_error + '\nRe-read each cited file with `wc -l <path>` BEFORE writing citations. Each citation MUST be exactly `<rel_path>:<digits>` (or `path:N-M` where M ≤ `wc -l <path>`). DO NOT cite prose like `taskq_api.app:app aligns with §X.Y` — the validator requires digits after `:`.\n' : '')
+    try { bResult = await dispatch(_baseBPrompt, {
       label: 'b-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',
     }) } catch (e) {
       if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
@@ -396,7 +402,28 @@ async function abLoop(cfg) {
 
     if (sbrResult.escalation_action === 'approve') {
       log('  APPROVED')
-      await persistApproval(cfg.deliverable, b2)
+      // v33b (parity with spec_phase1.py:285-298): if persistApproval throws
+      // (cmd_write_approval rejected an unresolvable_citations / off-by-one
+      // range via 3 outer retries), attach the error to b2.persist_error
+      // and re-enter the round loop so the next Agent B can self-correct.
+      // The round-MAX_B_ROUNDS HR-12 escalation below still fires if it
+      // never converges. Without this, Phase 2 abLoop crashes the whole
+      // workflow on the first off-shape citation Agent B writes
+      // (observed 2026-08-14 P2 ADR.md: 'taskq_api.app:app aligns with
+      // SAD §1.2' — validator rejected, persistApproval 3× retry, throw,
+      // halt).
+      let persistErr = null
+      try {
+        await persistApproval(cfg.deliverable, b2)
+      } catch (e) {
+        persistErr = e
+      }
+      if (persistErr) {
+        b2.persist_error = String(persistErr.message ?? persistErr).slice(0, 400)
+        log('  Persist failed at round ' + round + ': ' + b2.persist_error)
+        if (round === MAX_B_ROUNDS) return halt('sbr-persist-rejected', { error: cfg.deliverable + ': persistApproval rejected after ' + MAX_B_ROUNDS + ' rounds (last: ' + b2.persist_error + ')', lastB2: b2 })
+        continue
+      }
       return { ok: true, content, b2 }
     }
     if (sbrResult.escalation_action === 'escalate_human') {

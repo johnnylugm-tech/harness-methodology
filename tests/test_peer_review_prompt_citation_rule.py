@@ -157,3 +157,87 @@ class TestPersistApprovalAttemptAware:
             "render_persist_approval retry prompt must include the wc -l "
             "reminder so the orchestrator can rebuild the citation list"
         )
+
+
+# ---------------------------------------------------------------------------
+# v33b: prose-shape citation defense (added 2026-08-14, after taskq-super P2
+# ADR.md crash). Agent B saw `taskq_api.app:app aligns with SAD §1.2` in
+# ADR.md:50 and wrote it back as a citation — the validator correctly
+# rejected it, the 3× retry loop on Phase 2 abLoop threw, run-all halted.
+#
+# The fix is a positive example + a negative example in the prompt, plus
+# Phase 2's missing persist_error re-dispatch (pinned in
+# tests/test_phase2_persist_error_redispatch.py).
+# ---------------------------------------------------------------------------
+
+class TestBuildBPromptPositiveAndNegativeExamples:
+    """Layer 1 (prose-shape): pin that buildBPrompt teaches Agent B what a
+    citation IS (positive example) and what prose shapes to AVOID (negative
+    example + "digits after `:`" rule)."""
+
+    @pytest.fixture
+    def rendered(self) -> str:
+        return render_build_b_prompt(
+            min_reason_chars=40,
+            docs_embedded_note="looks for PURE basenames",
+            critical_docs_note="for Phase 1, docs_embedded MUST include SRS.md",
+            evidence_type_note="real_invention vs over_interpretation vs methodology_artifact",
+        )
+
+    def test_prompt_has_positive_citation_example(self, rendered: str):
+        # Mirror the fix: a concrete `<rel_path>:<digits>` shape Agent B can
+        # pattern-match against. Pinning the exact substring prevents future
+        # edits from accidentally dropping the example.
+        assert "SRS.md:42" in rendered, (
+            "buildBPrompt must include a positive citation example "
+            "(SRS.md:42) so Agent B has a concrete shape to copy"
+        )
+
+    def test_prompt_has_negative_prose_example(self, rendered: str):
+        # Mirror the bug shape: `taskq_api.app:app aligns with ...` is
+        # prose, not a citation. The prompt must name this exact pattern
+        # so Agent B does not reproduce it.
+        assert "taskq_api.app:app" in rendered, (
+            "buildBPrompt must include the negative example "
+            "(taskq_api.app:app aligns with §X.Y) so Agent B knows "
+            "prose-after-colon is rejected"
+        )
+
+    def test_prompt_requires_digits_after_colon(self, rendered: str):
+        # The validator requires DIGITS after `:`; the rule must say so
+        # explicitly so Agent B self-corrects when its LLM tries to write
+        # prose.
+        assert "DIGITS" in rendered and "`:`" in rendered, (
+            "buildBPrompt must state that the part after `:` must be DIGITS"
+        )
+
+
+class TestPhase6InlineCitationRule:
+    """Phase 6's peer-review verdict template is inlined (not via
+    render_build_b_prompt). It must still carry the same citation rule
+    via the shared `render_citation_contract_line()` helper — no per-phase
+    divergence."""
+
+    @pytest.fixture
+    def rendered(self) -> str:
+        from scripts.workflowgen.spec_phase6 import _render_phase6_peer_review
+        return _render_phase6_peer_review()
+
+    def test_phase6_inline_template_has_positive_example(self, rendered: str):
+        assert "SRS.md:42" in rendered, (
+            "Phase 6 inline verdicts template must include the positive "
+            "citation example (SRS.md:42) via the shared helper"
+        )
+
+    def test_phase6_inline_template_forbids_prose(self, rendered: str):
+        assert "taskq_api.app:app" in rendered, (
+            "Phase 6 inline verdicts template must include the negative "
+            "example (taskq_api.app:app aligns with §X.Y) via the shared "
+            "helper"
+        )
+
+    def test_phase6_inline_template_mentions_digits_rule(self, rendered: str):
+        assert "DIGITS" in rendered, (
+            "Phase 6 inline verdicts template must state the part after `:` "
+            "must be DIGITS (shared helper)"
+        )

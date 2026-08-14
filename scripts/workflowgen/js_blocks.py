@@ -1265,6 +1265,28 @@ def render_scope_rules() -> str:
     )
 
 
+def render_citation_contract_line() -> str:
+    """Citation format rule shared by render_build_b_prompt (P1/P2) and
+    Phase 6's inline peer-review verdicts. Single source of truth so a
+    future format change touches one place.
+
+    The rule has three parts:
+      1. Positive example (so Agent B has a concrete shape to copy).
+      2. Negative example + "must be DIGITS after `:`" rule (so Agent B
+         does not write prose-shaped citations like
+         `taskq_api.app:app aligns with §X.Y` — observed 2026-08-14
+         P2 ADR.md crash; the harness validator correctly rejected it).
+      3. wc -l reminder so the cited line is in range.
+
+    Returns a single JS source-code line shaped like the surrounding
+    `    + '...\\n'\\n` entries — drop-in replacement for the inline
+    citation rule string in render_build_b_prompt.
+    """
+    return (
+        "    + '  - `citations`: array of \"file:line\" strings. CITATION FORMAT — each entry MUST be exactly `<rel_path>:<digits>` (a line number you verified by `Read` or `cat <path> | head -N | tail -1`), with an optional trailing `(parenthesised annotation)`. Positive examples: `\"SRS.md:42\"` or `\"02-architecture/SAD.md:118\"`. Negative example — DO NOT WRITE: `\"taskq_api.app:app aligns with §X.Y\"` (or any string where the part after `:` is prose): the validator regex (harness `core/quality_gate/agent_b_approvals.py` `_CITATION`) requires DIGITS after `:`; prose is rejected with `(unparseable citation format)`. Always run `wc -l <path>` first so the line number is in range.\\n'\n"
+    )
+
+
 def render_build_b_prompt(
     *,
     min_reason_chars: int,
@@ -1304,8 +1326,8 @@ def render_build_b_prompt(
         "  p += 'Review checklist:\\n' + checklist + '\\n\\n'\n"
         "    + 'SCHEMA REQUIREMENTS (advance-phase `harness_cli.py _verify_agent_b_approvals_core` REJECTS the approval if any of these fail — observed 2026-06-29 wf_3a9377cb):\\n'\n"
         f"    + '  - `reason`: ≥ {min_reason_chars} characters of substantive justification. NOT \"APPROVE\", \"OK\", or other one-word response.\\n'\n"
-        "    + '  - `citations`: array of \"file:line\" strings. Must contain ≥ 1 entry that cites a SPECIFIC line you verified via Read/Bash.\\n'\n"
-        "    + '  - For range citations `path:N-M`, the end line M MUST NOT exceed the file\\'s actual line count (verify via `wc -l <path>` before writing). Off-by-one errors in range citations are a known failure mode that blocks advance-phase with no automated remediation.\\n'\n"
+        + render_citation_contract_line()
+        + "    + '  - For range citations `path:N-M`, the end line M MUST NOT exceed the file\\'s actual line count (verify via `wc -l <path>` before writing). Off-by-one errors in range citations are a known failure mode that blocks advance-phase with no automated remediation.\\n'\n"
         f"    + '  - `docs_embedded`: array of file paths/identifiers you actually read during this review. CRITICAL — the harness basename-matcher (advance-phase `_norm()`) {docs_embedded_note}\\n'\n"
         f"    + '  - CRITICAL: {critical_docs_note}\\n\\n'\n"
         "    + 'Return JSON only (no markdown fences, no commentary). Schema (harness b_review.schema.json):\\n'\n"
@@ -1675,7 +1697,13 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "    log('  A status=' + (a && a.status ? a.status : 'assumed-OK') + ' | disk loaded: ' + content.length + ' chars, confidence=' + (a && a.confidence ? a.confidence : '?'))\n"
         "\n"
         "    let bResult\n"
-        f"    try {{ bResult = await agent(buildBPrompt('{b_role}', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist), {{\n"
+        "    // v33b (parity with spec_phase1.py:245): when the previous round's\n"
+        "      // persistApproval threw (validator rejected citations), carry the\n"
+        "      // error message into the next round's B prompt so Agent B can\n"
+        "      // self-correct instead of looping on identical input.\n"
+        f"    const _baseBPrompt = buildBPrompt('{b_role}', cfg.deliverable, cfg.buildBDocs(content), cfg.checklist)\n"
+        "      + (b2 && b2.persist_error ? '\\n\\n=== PREVIOUS ROUND CITE REJECT ===\\n' + b2.persist_error + '\\nRe-read each cited file with `wc -l <path>` BEFORE writing citations. Each citation MUST be exactly `<rel_path>:<digits>` (or `path:N-M` where M ≤ `wc -l <path>`). DO NOT cite prose like `taskq_api.app:app aligns with §X.Y` — the validator requires digits after `:`.\\n' : '')\n"
+        "    try { bResult = await agent(_baseBPrompt, {\n"
         "      label: 'b-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',\n"
         "    }) } catch (e) {\n"
         "      if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })\n"
@@ -1693,7 +1721,28 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "\n"
         "    if (sbrResult.escalation_action === 'approve') {\n"
         "      log('  APPROVED')\n"
-        "      await persistApproval(cfg.deliverable, b2)\n"
+        "      // v33b (parity with spec_phase1.py:285-298): if persistApproval throws\n"
+        "      // (cmd_write_approval rejected an unresolvable_citations / off-by-one\n"
+        "      // range via 3 outer retries), attach the error to b2.persist_error\n"
+        "      // and re-enter the round loop so the next Agent B can self-correct.\n"
+        "      // The round-MAX_B_ROUNDS HR-12 escalation below still fires if it\n"
+        "      // never converges. Without this, Phase 2 abLoop crashes the whole\n"
+        "      // workflow on the first off-shape citation Agent B writes\n"
+        "      // (observed 2026-08-14 P2 ADR.md: 'taskq_api.app:app aligns with\n"
+        "      // SAD §1.2' — validator rejected, persistApproval 3× retry, throw,\n"
+        "      // halt).\n"
+        "      let persistErr = null\n"
+        "      try {\n"
+        "        await persistApproval(cfg.deliverable, b2)\n"
+        "      } catch (e) {\n"
+        "        persistErr = e\n"
+        "      }\n"
+        "      if (persistErr) {\n"
+        "        b2.persist_error = String(persistErr.message ?? persistErr).slice(0, 400)\n"
+        "        log('  Persist failed at round ' + round + ': ' + b2.persist_error)\n"
+        "        if (round === MAX_B_ROUNDS) return halt('sbr-persist-rejected', { error: cfg.deliverable + ': persistApproval rejected after ' + MAX_B_ROUNDS + ' rounds (last: ' + b2.persist_error + ')', lastB2: b2 })\n"
+        "        continue\n"
+        "      }\n"
         "      return { ok: true, content, b2 }\n"
         "    }\n"
         "    if (sbrResult.escalation_action === 'escalate_human') {\n"

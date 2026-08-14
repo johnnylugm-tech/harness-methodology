@@ -136,6 +136,7 @@ def _render_phase6_peer_review() -> str:
         + "    + '2. Cross-check .methodology/quality_manifest.json Gate 4 scoring logic. Reference 05-verification/VERIFICATION_REPORT.md and 05-verification/BASELINE.md for historical traceability.\\n'\n"
         + "    + '3. If any deliverable warrants REJECT or has medium/high gaps: fix the deliverable (or escalate), then re-review.\\n\\n'\n"
         + "    + 'Output ONLY a single JSON object (no other text, no markdown fences) in your final message:\\n'\n"
+        + B.render_citation_contract_line()
         + "    + '{\"verdicts\": [\\n'\n"
         + "    + '  {\"deliverable\":\"QUALITY_REPORT.md\",\"review_status\":\"APPROVE\",\"reason\":\"<concise>\",\"citations\":[\"file:line\"],\"docs_embedded\":[\"QUALITY_REPORT.md\",\"RELEASE_NOTES.md\",\"FINAL_SIGN_OFF.md\",\"VERIFICATION_REPORT.md\"],\"gaps\":[]},\\n'\n"
         + "    + '  {\"deliverable\":\"RELEASE_NOTES.md\",\"review_status\":\"APPROVE\",\"reason\":\"<concise>\",\"citations\":[\"file:line\"],\"docs_embedded\":[\"QUALITY_REPORT.md\",\"RELEASE_NOTES.md\",\"FINAL_SIGN_OFF.md\",\"VERIFICATION_REPORT.md\"],\"gaps\":[]},\\n'\n"

@@ -1039,7 +1039,7 @@ _LINE_CEILING: dict[str, int] = {
     # alternative (a recordBlock call at each of the 125 halt sites in the eight
     # phase generators) was measured at roughly 8 KB of run-all's remaining
     # 12,241-byte headroom, against 2,328 for this one.
-    "scripts/workflowgen/js_blocks.py": 1708,  # 2026-08-14: +4 — `render_load_file_via_python` now tracks `lastFailReason` across retry attempts and appends it to the `LOADER_FAILED_AFTER_N_ATTEMPTS` return string, so a loader halt (e.g. peer-review) is self-diagnosing instead of requiring manual journal/transcript forensics to learn why each attempt failed. Pure diagnostics — no retry/pass-fail logic changed. Previous: 1704.
+    "scripts/workflowgen/js_blocks.py": 1780,  # 2026-08-14: +72 — v33b P2 citation-validator fix (run-all.js halt on taskq-super). Added `render_citation_contract_line()` helper (single source of truth for the citation rule used by buildBPrompt and Phase 6's inline verdicts) and wired Phase 2's `render_generic_ab_loop` with try/catch + `b2.persist_error` capture + `=== PREVIOUS ROUND CITE REJECT ===` prepend (mirrors spec_phase1.py:244-298). 19 lines of helper + ~33 lines of abLoop + comments. Pure bug-fix growth; no new functionality beyond what Phase 1's existing pattern already does. Previous: 1708.
 }
 
 

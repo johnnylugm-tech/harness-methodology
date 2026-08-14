@@ -52,7 +52,7 @@ GENERATED_FILES = [*PHASE_FILES, RUNALL_FILE]
 # at 512 KB is the runtime refusing to parse — not a warning. Raising this
 # number is a deliberate act: the right first response to hitting it is to
 # shorten prompts in scripts/workflowgen/, not to move the ceiling.
-RUNALL_MAX_BYTES = 340000  # 2026-07-28: sized to the initial 316547 bytes + 7%
+RUNALL_MAX_BYTES = 345000  # 2026-08-14: v33b P2 citation-validator fix (run-all.js halt on taskq-super). Inlines the prompt rule additions (positive + negative citation example + DIGITS-after-colon rule) into every phase's buildBPrompt, plus the abLoop try/catch + reject-block prepend into Phase 2's sub-task A/B loop. Phase 1/2/6 all gain ~50 lines; run-all.js is their sum + the inlined copy. Pure bug-fix growth (mirrors Phase 1's existing pattern); no new agents or dispatches. Previous: 340000.
 
 
 def _read(filename: str) -> str:
