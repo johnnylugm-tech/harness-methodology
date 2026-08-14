@@ -131,9 +131,9 @@ def _parse_spec_section0_intent(spec_path: Path) -> tuple[list[str], list[str]]:
         return [], warnings
 
     # Find rows in §0 intent table that mention dep keywords
-    intent_keywords = r"依賴樹|整合測試|HTTP\s*層|ORM|migration|async|資料驗證|分層"
+    intent_keywords = r"(?:依賴樹|整合測試|HTTP\s*層|ORM|migration|async|資料驗證|分層)"
     row_pattern = re.compile(
-        rf"\|[^|]*{intent_keywords}[^|]*\|\s*([^|]+?)\s*\|\s*[A-Z]+-[0-9]+",
+        rf"\|[^|\n]*{intent_keywords}[^|\n]*\|\s*([^|\n]+?)\s*\|\s*[A-Z]+-[0-9]+",
     )
     for cell in row_pattern.findall(text):
         # Split by " / " separator

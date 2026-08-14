@@ -146,3 +146,147 @@ def test_an_external_binary_is_never_pip_installed(tmp_path):
     assert outcome.ok is False
     assert "gitleaks" in outcome.unfixable
     assert "brew install gitleaks" in outcome.advice_for("gitleaks")
+
+
+def test_ssot_scaffold_writes_a_requirements_skeleton(tmp_path):
+    """When a project lacks a manifest, transcribe declared deps from SSOT."""
+    from harness.env_repair import install_project_dependencies
+
+    project = tmp_path / "ssot-project"
+    project.mkdir()
+    (project / "SPEC.md").write_text(
+        "## 0. Intent\n"
+        "| 依賴樹淺 | fastapi / sqlalchemy / alembic / uvicorn + transitive deps | NFR-07 |\n",
+        encoding="utf-8",
+    )
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    outcome = install_project_dependencies(project, run=fake_run)
+
+    assert outcome.ok and outcome.installed
+    assert outcome.manifest is not None
+    assert outcome.manifest.is_file()
+    content = outcome.manifest.read_text(encoding="utf-8")
+    assert "fastapi" in content
+    assert "sqlalchemy" in content
+    assert "alembic" in content
+    assert "uvicorn" in content
+    assert len(calls) == 1
+    assert calls[0][-2:] == ["-r", str(outcome.manifest)]
+
+
+def test_ssot_scaffold_does_not_overwrite_user_manifest(tmp_path):
+    """If requirements.txt already exists, SSOT scaffold must NOT overwrite it."""
+    from harness.ssot_manifest import scaffold_project_manifest_from_ssot
+
+    project = tmp_path / "existing-manifest-project"
+    project.mkdir()
+    manifest = project / "requirements.txt"
+    manifest.write_text("custom-pkg==1.2.3\n", encoding="utf-8")
+
+    (project / "SPEC.md").write_text(
+        "## 0. Intent\n"
+        "| 依賴樹淺 | fastapi / uvicorn | NFR-07 |\n",
+        encoding="utf-8",
+    )
+
+    outcome = scaffold_project_manifest_from_ssot(project)
+
+    assert outcome.manifest_path is None
+    assert any("already exists; not overwriting" in w for w in outcome.warnings)
+    assert manifest.read_text(encoding="utf-8") == "custom-pkg==1.2.3\n"
+
+
+def test_ssot_scaffold_does_not_infer_versions(tmp_path):
+    """Scaffolded manifest must NOT pin versions — version pinning is author's responsibility."""
+    from harness.ssot_manifest import scaffold_project_manifest_from_ssot
+
+    project = tmp_path / "unpinned-project"
+    project.mkdir()
+    (project / "SPEC.md").write_text(
+        "## 0. Intent\n"
+        "| 依賴樹淺 | fastapi / sqlalchemy / alembic | NFR-07 |\n",
+        encoding="utf-8",
+    )
+
+    outcome = scaffold_project_manifest_from_ssot(project)
+
+    assert outcome.manifest_path is not None
+    content = outcome.manifest_path.read_text(encoding="utf-8")
+    lines = [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    assert "fastapi" in lines
+    assert "sqlalchemy" in lines
+    assert "alembic" in lines
+    for line in lines:
+        assert "==" not in line
+        assert ">=" not in line
+        assert "<=" not in line
+        assert "~=" not in line
+    assert "pip-compile" in content
+
+
+def test_ssot_scaffold_records_to_degradation_ledger(tmp_path):
+    """Auto-installing from scaffolded manifest writes an entry with owner='ssot_scaffold'."""
+    import json
+    from harness.env_repair import install_project_dependencies
+
+    project = tmp_path / "ledger-project"
+    project.mkdir()
+    (project / "SPEC.md").write_text(
+        "## 0. Intent\n"
+        "| 依賴樹淺 | fastapi / uvicorn | NFR-07 |\n",
+        encoding="utf-8",
+    )
+
+    def fake_run(argv, **kwargs):
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    outcome = install_project_dependencies(project, run=fake_run)
+    assert outcome.ok and outcome.installed
+
+    ledger = project / ".methodology" / "degradations.jsonl"
+    assert ledger.is_file(), "degradation ledger not created"
+    entries = [
+        json.loads(line)
+        for line in ledger.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(
+        e.get("component") == "gate:env-repair" and e.get("owner") == "ssot_scaffold"
+        for e in entries
+    )
+
+
+def test_ssot_scaffold_falls_back_to_block_when_ssot_missing(tmp_path):
+    """When both manifest AND SSOT are absent, BLOCK and name itself."""
+    from harness.env_repair import install_project_dependencies
+
+    project = tmp_path / "no-ssot-project"
+    project.mkdir()
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    outcome = install_project_dependencies(project, run=fake_run)
+
+    assert calls == []
+    assert outcome.ok is False
+    assert outcome.installed is False
+    assert (
+        "no dependency manifest AND no SSOT to scaffold from"
+        in outcome.blocked_reason
+    )
+    assert "pip freeze" in outcome.blocked_reason
+
