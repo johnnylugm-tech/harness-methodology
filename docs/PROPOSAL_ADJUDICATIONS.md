@@ -2980,6 +2980,26 @@ run-all-by-workflow   || true            -m taskq submit/…     pass（吞的�
 - **站3** `core/quality_gate/delivery_fingerprint.py`：render-from-SSOT，零新量測，
   零判定。
 
+### 明列的架構決定：量測期間框架寫入專案的 `.venv/`
+
+站2 的通道是 coverage 自己文件化的 `.pth`，放進**專案 venv 的 site-packages**，
+量測結束在 `finally` 移除。**不走 PYTHONPATH**——F8 實測 taskq-api 的 recipe 每一步
+都內聯覆寫它，注進去的 sitecustomize 會被丟掉。
+
+這是本輪唯一一個「框架為了量測而寫入被判定方環境」的動作，因此明寫：
+
+- **寫什麼**：一支名為 `_harness_verify_system_reach.pth` 的檔案，內容一行
+  `import coverage; coverage.process_startup()`。
+- **寫哪裡**：`<project>/.venv/lib/.../site-packages/`。**不碰原始碼樹**，不碰
+  `.methodology/`，不碰 git 追蹤的任何檔案。
+- **可逆性**：`finally` 中 `unlink(missing_ok=True)`。崩潰後殘留的那一支，名字就
+  說明它是框架的，可以直接刪。
+- **先例與界線**：框架已經擁有 venv 生命週期（R47 站2 `bootstrap-env` 建 venv、
+  裝套件），但那是**為了讓工具跑起來**；這是**為了量測**，是新的一類。老闆 R47 的
+  邊界是「只執行 pip 且只裝進專案 `.venv`」，本輪沿用同一個容器、不擴大它。
+- **裝不上就不擋**：沒有 venv、找不到 site-packages、combine 失敗 → reach 產物寫
+  `unmeasured` 並進 ledger，gate 不擋（R35 站2）。
+
 ### 六專案最終讀數
 
 ```

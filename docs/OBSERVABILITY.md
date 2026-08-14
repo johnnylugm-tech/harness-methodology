@@ -174,6 +174,37 @@ a platform toolchain, npm tools belong to the project's package.json). A row
 whose `unfixable` is non-empty means the call blocked with an install command
 for a human, not that repair failed.
 
+**Round 51** added `gate:arch-constraints` (declared architecture constraints
+with no executor, and delivered modules outside every import contract) and
+`gate:coverage-denominator` (files the project's `omit` removed from the
+coverage denominator). Both were live from that round and neither was written
+down here — recorded now with Round 52's, because Round 52's rows are only
+readable next to them.
+
+**Round 52** added three, all from `finalize_gate`:
+
+* `gate:verify-target` — what the project's `make verify-system` recipe does.
+  One row per finalize where a step cannot fail (`|| true`, a leading `-`,
+  `--exit-zero`) but does not run the product; the two shapes that DO block are
+  not here, they are the block. Also the row for a Makefile the framework
+  declined to reason about (`$(shell …)`, `include`, a variable-built
+  prerequisite), with `owner=harness` — that is the framework's limit, not the
+  project's fault.
+* `gate:verify-system-reach` — whether the framework could tell which
+  boundaries that target executed. Written when the reach could not be measured
+  at all (no reach artifact, or a SAB declaring no high-risk modules), and once
+  per obligation whose target is not a function the scan can locate. Both are
+  `owner=harness`: an obligation the framework cannot evaluate is its own gap
+  (Round 32 站4), never a finding against the project.
+* `gate:delivery-fingerprint` — only when the fingerprint could not be written.
+  The fingerprint itself is a deliverable at
+  `.methodology/delivery_fingerprint.json`, not a ledger row.
+
+The asymmetry across the three is deliberate and worth reading once: the
+verify-target row records what a project chose, the reach rows record what the
+framework could not see, and the fingerprint row records a failure to keep a
+record. Round 48's owner field is what keeps them apart in the aggregate.
+
 ### `.methodology/workflow_blocks.jsonl`
 
 Where a run stopped, and whose tree has to change (Round 48 站2).
