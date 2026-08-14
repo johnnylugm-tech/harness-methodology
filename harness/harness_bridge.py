@@ -3078,6 +3078,23 @@ class HarnessBridge:
                 details={"stubbed_boundary_never_run": _reach},
             )
 
+        # ── Round 52 站3: the product-side facts, on the record ──────────────
+        # Rendered from the producers above, judged by nothing here. The
+        # framework's guards are unary predicates and cannot express
+        # "regressed"; this is the half of that which can be built today —
+        # a cross-project corpus has nowhere to live (the harness is a
+        # submodule of each project). Never raises.
+        try:
+            from core.quality_gate.delivery_fingerprint import write_fingerprint
+            write_fingerprint(ctx.project_root)
+        except Exception as _fp_exc:  # pragma: no cover — a record, not a gate
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                ctx.project_root, "gate:delivery-fingerprint",
+                "delivery fingerprint not written",
+                f"{type(_fp_exc).__name__}: {_fp_exc}", owner="harness",
+            )
+
         # ── S4-B: Failed-tests assertion (Gate 1 only) ───────────────────────
         # S4 validates coverage % but not whether tests are red.  Parse
         # tool_evidence for "N failed" and block immediately — a passing

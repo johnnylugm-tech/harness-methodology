@@ -217,6 +217,12 @@ METHODOLOGY_DELIVERABLES: frozenset[str] = frozenset({
     ".methodology/phase",                  # phaseN_plan.md, generated once
     ".methodology/workspaces",
     ".methodology/hooks.json",             # the project's lifecycle-hook config
+    # Round 52 站3. A deliverable rather than bookkeeping, and the distinction
+    # is the whole point of the file: it exists so a later reading can compare
+    # this delivery's product-side facts against an earlier one, which it can
+    # only do if the earlier one was committed. Rewritten at every exit gate
+    # like quality_manifest.json, and kept for the same reason.
+    ".methodology/delivery_fingerprint.json",
 })
 
 HARNESS_VOLATILE_PREFIXES: tuple[str, ...] = (

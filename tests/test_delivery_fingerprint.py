@@ -80,6 +80,9 @@ def test_the_fingerprint_is_rendered_from_the_producers_not_recomputed(tmp_path)
     # Station 1 and station 2's verdicts travel with the rest of the facts.
     assert "verify_system" in fp
     assert set(fp["verify_system"]) >= {"tautological", "swallowed", "reach_status"}
+    # Two different facts, kept apart: a criterion with no id, and the parser
+    # reporting it could not attribute one it saw.
+    assert set(fp["acceptance_criteria"]) >= {"unnumbered", "parse_gap"}
 
 
 def test_the_fingerprint_lands_beside_the_other_gate_records(tmp_path):
