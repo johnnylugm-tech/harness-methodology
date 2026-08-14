@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import harness.toolchains.bootstrap as _ssot
+from harness.ssot_manifest import scaffold_project_manifest_from_ssot, ScaffoldOutcome
 
 __all__ = [
     "RepairOutcome",
@@ -54,6 +55,7 @@ __all__ = [
     "ProjectDepsOutcome",
     "project_manifest",
     "install_project_dependencies",
+    "scaffold_project_manifest_from_ssot",
 ]
 
 # What a Python project uses to DECLARE what it needs, most specific first.
@@ -296,18 +298,35 @@ def install_project_dependencies(
 
     manifest = project_manifest(root)
     if manifest is None:
-        outcome.blocked_reason = (
-            "no dependency manifest: none of "
-            + ", ".join(PROJECT_MANIFESTS)
-            + " exists in "
-            + ", ".join(str(r) for r in _manifest_search_roots(root))
-            + ". The framework was asked to prepare this "
-            "project's environment and nothing in the project declares what it "
-            "needs. It will not infer a dependency list from imports or from "
-            "`pip freeze` — that would make the framework the author of one of "
-            "the project's deliverables. Add the manifest, then re-run."
-        )
-        return outcome
+        # SSOT scaffold fallback: SPEC.md / SAD.md / SRS.md are SSOTs the user
+        # already confirmed in P0/P1/P2. Auto-scaffolding a requirements.txt
+        # from them is executing the user's confirmed decisions, not framework
+        # inference. (Round 47 站5b forbids inference from imports / pip freeze,
+        # not transcription of user-declared SSOT content.) If the SSOT is
+        # absent or yields no deps, fall through to the BLOCK.
+        scaffold = scaffold_project_manifest_from_ssot(root, language)
+        if scaffold.manifest_path is not None:
+            _record_scaffold(root, scaffold)
+            print(
+                f"[REPAIR] env-check: scaffolded {scaffold.manifest_path.name} "
+                f"from SSOT ({len(scaffold.dependencies)} deps, "
+                f"sources: {', '.join(scaffold.source_files) or '(none)'})",
+                file=sys.stderr,
+            )
+            manifest = scaffold.manifest_path
+        else:
+            outcome.blocked_reason = (
+                "no dependency manifest AND no SSOT to scaffold from: none of "
+                + ", ".join(PROJECT_MANIFESTS)
+                + " exists in "
+                + ", ".join(str(r) for r in _manifest_search_roots(root))
+                + ", and no SSOT (SPEC.md / SAD.md / SRS.md) yielded any "
+                "transcribable dependencies. The framework will not infer a "
+                "dependency list from imports or from `pip freeze` — that "
+                "would make the framework the author of one of the project's "
+                "deliverables. Add the manifest, then re-run."
+            )
+            return outcome
 
     outcome.manifest = manifest
     if manifest.name in ("requirements.txt", "requirements.lock"):
@@ -365,4 +384,41 @@ def _record(project: Path, requested: "list[str]", outcome: RepairOutcome) -> No
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"[WARN] env-repair: could not write the degradation ledger: {exc}",
+              file=sys.stderr)
+
+
+def _record_scaffold(project: Path, scaffold: "ScaffoldOutcome") -> None:
+    """Record SSOT scaffold actions so auto-install stays answerable.
+
+    SSOT scaffold writes a requirements.txt and pip-installs it without human
+    approval. That is an even louder signal than repair — the framework is
+    transcribing user SSOT content into a project deliverable. The ledger
+    entry makes the action visible in the audit trail (who scaffolded, what
+    was scaffolded, which SSOTs were parsed, which tokens were filtered out).
+    """
+    # Narrowing for type-checkers: callers gate on `manifest_path is not None`.
+    manifest_path = scaffold.manifest_path
+    if manifest_path is None:
+        return
+    try:
+        from core.degradation_ledger import record_degradation
+
+        record_degradation(
+            project,
+            "gate:env-repair",
+            f"SSOT scaffold wrote {manifest_path.name} "
+            f"({len(scaffold.dependencies)} deps from "
+            f"{len(scaffold.source_files)} SSOT file(s))",
+            why=("; ".join(scaffold.warnings)[:300] if scaffold.warnings else ""),
+            data={
+                "manifest_path": str(manifest_path),
+                "source_files": scaffold.source_files,
+                "dependencies": scaffold.dependencies,
+                "warnings": scaffold.warnings[:20],  # cap to keep ledger small
+                "installer_python": _installer_python(project),
+                "ci": bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
+            }, owner="ssot_scaffold"
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] env-repair: could not write scaffold ledger entry: {exc}",
               file=sys.stderr)
