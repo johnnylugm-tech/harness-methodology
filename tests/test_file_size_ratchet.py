@@ -1039,7 +1039,7 @@ _LINE_CEILING: dict[str, int] = {
     # alternative (a recordBlock call at each of the 125 halt sites in the eight
     # phase generators) was measured at roughly 8 KB of run-all's remaining
     # 12,241-byte headroom, against 2,328 for this one.
-    "scripts/workflowgen/js_blocks.py": 1704,  # 2026-08-14: +5 — Range citation rule in `render_build_b_prompt` SCHEMA REQUIREMENTS (Agent B must `wc -l <path>` before writing range citations) plus attempt-aware wrapper prompt in `render_persist_approval` (retry carries lastErr verbatim so the orchestrator can attribute the failure to the reviewer). Both are part of the off-by-one citation block layered defense (prompt → pre-write validation → Agent B retry). Previous: 1699.
+    "scripts/workflowgen/js_blocks.py": 1708,  # 2026-08-14: +4 — `render_load_file_via_python` now tracks `lastFailReason` across retry attempts and appends it to the `LOADER_FAILED_AFTER_N_ATTEMPTS` return string, so a loader halt (e.g. peer-review) is self-diagnosing instead of requiring manual journal/transcript forensics to learn why each attempt failed. Pure diagnostics — no retry/pass-fail logic changed. Previous: 1704.
 }
 
 

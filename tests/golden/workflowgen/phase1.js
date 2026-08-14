@@ -256,6 +256,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
     + '- Your final message = the verbatim cat output only.\n'
     + '- If the command fails, return EXACTLY: ERROR_LOAD_FAILED: ' + filePath
 
+  let lastFailReason = 'unknown'
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let res
     try {
@@ -265,6 +266,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
         agentType: 'general-purpose',
       })
     } catch (e) {
+      lastFailReason = 'agent_threw: ' + (e && e.message ? e.message : String(e)).slice(0, 80)
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' agent() threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200))
       continue
     }
@@ -277,20 +279,23 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
     // unfaithful relay, which is what firstLineHasAnchor is here to catch.
     const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
     if (text.startsWith('ERROR_LOAD_FAILED')) {
+      lastFailReason = 'ERROR_LOAD_FAILED'
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')
       continue
     }
     if (text.length < 50) {
+      lastFailReason = 'too_short(len=' + text.length + '): ' + text.slice(0, 60)
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')
       continue
     }
     if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {
+      lastFailReason = 'prefix_mismatch: got=' + text.slice(0, 40)
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
       continue
     }
     return text
   }
-  return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath
+  return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
 }
 
 // ---- B prompt builder (3-layer B-review defense, T1-B) ----
