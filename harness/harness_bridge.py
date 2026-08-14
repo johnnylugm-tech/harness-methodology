@@ -1560,6 +1560,64 @@ def _record_coverage_denominator(ctx: "GateContext") -> dict:
     return d
 
 
+def _verify_system_reach_block(ctx: "GateContext") -> list[str]:
+    """Which replaced boundaries `make verify-system` did not execute for real.
+
+    Round 52 站2. Round 51 站3 recorded that a dimension was scored over a
+    suite which replaced a SAB high-risk module before every test in the file,
+    and let the number stand with a marker. The obligation this raises is the
+    one thing the framework can still ask: the project's own verification
+    target — the only command it runs that the test suite did not configure —
+    has to execute what the suite replaced.
+
+    Returns [] when there is nothing outstanding AND when the reach could not
+    be measured; the ledger row carries the difference. A gate must not be
+    blocked by a measurement that did not happen (Round 35 站2), and it must
+    not read a measurement that did not happen as a pass either — which is why
+    `unmet_obligations` omits the key rather than returning [], and why this
+    function branches on the status instead of on the list.
+
+    Never raises: a report about coverage instrumentation is a worse reason to
+    stop a gate than the thing it was going to report.
+    """
+    from core.degradation_ledger import record_degradation
+    from core.quality_gate.verify_system_reach import (
+        STATUS_MEASURED,
+        unmet_obligations,
+    )
+
+    try:
+        verdict = unmet_obligations(ctx.project_root)
+    except Exception as exc:  # pragma: no cover — reporting must not stop a gate
+        record_degradation(
+            ctx.project_root, "gate:verify-system-reach",
+            "reach obligation check failed", f"{type(exc).__name__}: {exc}",
+            owner="harness",
+        )
+        return []
+
+    if verdict["status"] != STATUS_MEASURED:
+        record_degradation(
+            ctx.project_root, "gate:verify-system-reach",
+            "which boundaries `make verify-system` executed is unknown",
+            verdict["reason"], owner="harness",
+        )
+        return []
+
+    for row in verdict.get("unmeasurable") or []:
+        record_degradation(
+            ctx.project_root, "gate:verify-system-reach",
+            f"obligation {row['module']}.{row['attr']} cannot be evaluated",
+            row["why"], owner="harness",
+        )
+
+    return [
+        f"{row['module']}.{row['attr']} is replaced by an autouse fixture in "
+        f"the test suite and is never executed by `make verify-system`"
+        for row in verdict.get("unmet") or []
+    ]
+
+
 def _run_harness_cross_validation(
     ctx: "GateContext", raw: dict,
 ) -> "tuple[list[str], list[str]]":
@@ -2998,6 +3056,26 @@ class HarnessBridge:
                     rounds_used=0,
                 ),
                 details=_s4_details,
+            )
+
+        # ── Round 52 站2: the replaced boundary had to run somewhere ─────────
+        # Placed after S4 because S4 is what runs `system-verification`, and
+        # the reach artifact is written by that run (harness/tool_runners.py's
+        # reach_instrumentation) rather than by a second execution of the
+        # target. Round 51 站3 recorded which modules the suite replaced with
+        # an autouse stand-in and let the number stand; the obligation is that
+        # each one is executed for real by the project's own verification
+        # target. Five of the six projects here owe nothing.
+        _reach = _verify_system_reach_block(ctx)
+        if _reach:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=len(_reach), open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"stubbed_boundary_never_run": _reach},
             )
 
         # ── S4-B: Failed-tests assertion (Gate 1 only) ───────────────────────

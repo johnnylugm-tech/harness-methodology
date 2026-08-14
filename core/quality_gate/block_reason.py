@@ -211,6 +211,18 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "the gate before editing the recipe — the recipe, not the run, is "
         "what failed.",
     ),
+    "stubbed_boundary_never_run": (
+        "A boundary the test suite replaces is never executed for real",
+        "Each entry names a function an `autouse` fixture monkeypatches away "
+        "before every test in its file, so no test can observe it — and "
+        "`make verify-system`, the only command run outside the suite's own "
+        "configuration, does not execute it either. Two ways to clear it, "
+        "either is accepted: stop replacing it (make the fixture opt-in, or "
+        "give the tests a real dependency), or extend the verify-system recipe "
+        "so it exercises that function against a real dependency. Adding "
+        "another mock does not clear it — verify-system does not load "
+        "conftest.py.",
+    ),
     # Round 38 removed the `da_waiver` entry along with the raise site that
     # produced it. A waiver is now refused at collection time
     # (cli/gate_cmds.py::_collect_da_waivers) and never reaches finalize_gate,

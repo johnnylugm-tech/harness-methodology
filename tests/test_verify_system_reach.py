@@ -34,6 +34,9 @@ either.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 _SAB = {"version": "1.0", "high_risk_modules": ["demo.session"]}
 
@@ -76,22 +79,38 @@ def _project(tmp_path, *, with_conftest: bool = True):
     return tmp_path
 
 
-def _coverage_json(project, executed: list[int]):
-    """A coverage JSON report naming demo/session.py with *executed* lines."""
+def _coverage_json(project, executed: list[int], *, relative: bool = True):
+    """A coverage JSON report naming demo/session.py with *executed* lines.
+
+    Relative by default, because that is what coverage.py writes: its paths are
+    relative to the run's cwd — the project root — not to wherever the harness
+    process is. An absolute-only fixture is what let the first implementation
+    of `_dotted` resolve every path against `Path.cwd()` and map a real
+    28-file report to an empty reach map without a test noticing.
+    """
     path = project / ".sessi-work" / "verify_system_cov.json"
-    src = project / "03-development" / "src" / "demo" / "session.py"
+    src = Path("03-development") / "src" / "demo" / "session.py"
+    key = str(project / src) if not relative else str(src)
     path.write_text(json.dumps({
-        "files": {str(src): {"executed_lines": executed, "missing_lines": []}}
+        "files": {key: {"executed_lines": executed, "missing_lines": []}}
     }))
     return path
 
 
-def test_the_reach_artifact_records_executed_lines_per_delivered_module(tmp_path):
-    """The artifact is keyed by dotted module, because the obligation is."""
+@pytest.mark.parametrize("relative", [True, False])
+def test_the_reach_artifact_records_executed_lines_per_delivered_module(
+    tmp_path, relative
+):
+    """The artifact is keyed by dotted module, because the obligation is.
+
+    Both path shapes, because coverage.py writes the relative one and the
+    absolute one is what a hand-written fixture reaches for.
+    """
     from core.quality_gate.verify_system_reach import write_reach
 
     project = _project(tmp_path)
-    out = write_reach(project, _coverage_json(project, [1, 4, 5, 6]))
+    out = write_reach(
+        project, _coverage_json(project, [1, 4, 5, 6], relative=relative))
 
     assert out == project / ".sessi-work" / "verify_system_reach.json"
     data = json.loads(out.read_text())

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from harness.lang_scanners import RUNNERS as _SCANNER_RUNNERS
 from harness.toolchains import get_tool_spec
@@ -232,15 +232,29 @@ def run_tool(
         except OSError:
             pass  # Unwritable parent surfaces as the tool's own failure below.
 
+    # Round 52 站2: the one tool that executes the delivered system is measured
+    # while it does so — same execution, not a second one (Round 25's rule that
+    # "run the suite" must have a single implementation). The context manager
+    # adds the coverage env vars to `env`, installs its channel, and writes
+    # .sessi-work/verify_system_reach.json on the way out, including when the
+    # instrumentation could not be installed. Every other tool gets a no-op.
+    from contextlib import nullcontext
+    if tool == "system-verification":
+        from core.quality_gate.verify_system_reach import reach_instrumentation
+        _measured: Any = reach_instrumentation(root, env)
+    else:
+        _measured = nullcontext()
+
     try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=root,
-            env=env,
-        )
+        with _measured:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=root,
+                env=env,
+            )
         combined = (proc.stdout + proc.stderr).strip()
         if artifact and os.path.isfile(artifact):
             try:

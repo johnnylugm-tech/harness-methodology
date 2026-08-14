@@ -41,7 +41,7 @@ import ast
 import json
 from pathlib import Path
 
-__all__ = ["stubbed_boundaries"]
+__all__ = ["stubbed_attributes", "stubbed_boundaries"]
 
 # The three ways a fixture takes a module out of the test's reach.
 _PATCH_ATTRS = frozenset({"setattr", "delattr", "setitem", "delitem"})
@@ -89,12 +89,30 @@ def _module_aliases(nodes) -> dict[str, str]:
     return aliases
 
 
-def _patched_modules(fn, aliases: dict[str, str]) -> set[str]:
-    """Dotted modules this fixture body patches, as far as the source says."""
+def _second_arg_name(node: ast.Call) -> "str | None":
+    """`setattr(mod, "name", …)` / `patch.object(mod, "name")` — the "name"."""
+    if len(node.args) >= 2:
+        second = node.args[1]
+        if isinstance(second, ast.Constant) and isinstance(second.value, str):
+            return second.value
+    return None
+
+
+def _patched_targets(fn, aliases: dict[str, str]) -> "set[tuple[str, str | None]]":
+    """(dotted module, attribute) pairs this fixture body patches.
+
+    The attribute is None when the source does not name one — a `setitem` on a
+    module-level dict, or a `setattr` whose second argument is computed. Round
+    52 站2 needs the attribute because module granularity is not enough: a
+    `-m pkg --help` that only imports a module puts it in the coverage report
+    at a non-zero percentage while the function the fixture replaced never
+    ran. A None therefore stays a None all the way to the obligation, which
+    reports it as unmeasurable rather than met.
+    """
     local = dict(aliases)
     local.update(_module_aliases(ast.walk(fn)))
 
-    hit: set[str] = set()
+    hit: set[tuple[str, "str | None"]] = set()
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
             continue
@@ -104,10 +122,11 @@ def _patched_modules(fn, aliases: dict[str, str]) -> set[str]:
             if node.args:
                 first = node.args[0]
                 if isinstance(first, ast.Name) and first.id in local:
-                    hit.add(local[first.id])
+                    hit.add((local[first.id], _second_arg_name(node)))
                 elif isinstance(first, ast.Constant) and isinstance(first.value, str):
                     # setattr("pkg.mod.attr", ...) — the module is the head.
-                    hit.add(first.value.rsplit(".", 1)[0])
+                    module, _, attr = first.value.rpartition(".")
+                    hit.add((module, attr or None))
             continue
         # patch("pkg.mod.attr") / patch.object(module, "name")
         name = (func.attr if isinstance(func, ast.Attribute)
@@ -118,18 +137,20 @@ def _patched_modules(fn, aliases: dict[str, str]) -> set[str]:
             continue
         first = node.args[0]
         if isinstance(first, ast.Constant) and isinstance(first.value, str):
-            hit.add(first.value.rsplit(".", 1)[0])
+            module, _, attr = first.value.rpartition(".")
+            hit.add((module, attr or None))
         elif isinstance(first, ast.Name) and first.id in local:
-            hit.add(local[first.id])
+            hit.add((local[first.id], _second_arg_name(node)))
     return hit
 
 
-def stubbed_boundaries(project: "str | Path") -> list[dict]:
-    """Autouse fixtures that replace a SAB-declared high-risk module.
+def stubbed_attributes(project: "str | Path") -> list[dict]:
+    """Autouse fixtures that replace a SAB-declared high-risk module, per attribute.
 
-    Each row is ``{"module", "fixture", "file"}`` — a finding that cannot be
-    acted on is a finding nobody acts on (Round 48). Sorted so two runs over
-    the same tree produce the same list.
+    Each row is ``{"module", "attr", "fixture", "file"}`` with `attr` None when
+    the source does not name one. `stubbed_boundaries` is this projected onto
+    the module and deduplicated, which is what Round 51 站3's consumers read;
+    this is the finer view Round 52 站2's obligation needs.
 
     Returns [] when the project declares no high-risk modules: with an empty
     input set every scan is vacuously clean, and Round 46's rule is that a
@@ -160,10 +181,35 @@ def stubbed_boundaries(project: "str | Path") -> list[dict]:
                 continue
             if not _is_autouse_fixture(fn):
                 continue
-            for module in sorted(_patched_modules(fn, module_aliases) & target_set):
+            hits = [(m, a) for m, a in _patched_targets(fn, module_aliases)
+                    if m in target_set]
+            for module, attr in sorted(hits, key=lambda t: (t[0], t[1] or "")):
                 rows.append({
                     "module": module,
+                    "attr": attr,
                     "fixture": fn.name,
                     "file": path.relative_to(project).as_posix(),
                 })
-    return sorted(rows, key=lambda r: (r["file"], r["fixture"], r["module"]))
+    return sorted(rows, key=lambda r: (r["file"], r["fixture"], r["module"],
+                                       r["attr"] or ""))
+
+
+def stubbed_boundaries(project: "str | Path") -> list[dict]:
+    """Autouse fixtures that replace a SAB-declared high-risk module.
+
+    Each row is ``{"module", "fixture", "file"}`` — a finding that cannot be
+    acted on is a finding nobody acts on (Round 48). One row per
+    (file, fixture, module) however many of that module's attributes the
+    fixture replaces, so the count is comparable across rounds. Sorted so two
+    runs over the same tree produce the same list.
+    """
+    seen: set[tuple[str, str, str]] = set()
+    rows: list[dict] = []
+    for row in stubbed_attributes(project):
+        key = (row["file"], row["fixture"], row["module"])
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"module": row["module"], "fixture": row["fixture"],
+                     "file": row["file"]})
+    return rows
