@@ -2036,7 +2036,7 @@
 
 - test: tests/test_env_repair.py::test_ssot_scaffold_records_to_degradation_ledger
   bug: "auto-installing from a scaffolded manifest is a louder signal than repair — the framework is transcribing user SSOT into a project deliverable. The ledger entry makes it auditable (who scaffolded, which SSOTs, which tokens were filtered)"
-  fixed_in: "R51-站1 (env_repair._record_scaffold with owner='ssot_scaffold')"
+  fixed_in: "R51-站1 (env_repair._record_scaffold with owner='harness')"
 
 - test: tests/test_env_repair.py::test_ssot_scaffold_falls_back_to_block_when_ssot_missing
   bug: "the BLOCK behavior of Round 47 站5b remains the ultimate guard: if no manifest AND no SSOT exists (or SSOT yields no deps), the framework still BLOCKs and names itself. The scaffold is a fallback, not a replacement"

@@ -235,7 +235,7 @@ def test_ssot_scaffold_does_not_infer_versions(tmp_path):
 
 
 def test_ssot_scaffold_records_to_degradation_ledger(tmp_path):
-    """Auto-installing from scaffolded manifest writes an entry with owner='ssot_scaffold'."""
+    """Auto-installing from scaffolded manifest writes an entry with owner='harness'."""
     import json
     from harness.env_repair import install_project_dependencies
 
@@ -261,7 +261,7 @@ def test_ssot_scaffold_records_to_degradation_ledger(tmp_path):
         if line.strip()
     ]
     assert any(
-        e.get("component") == "gate:env-repair" and e.get("owner") == "ssot_scaffold"
+        e.get("component") == "gate:env-repair" and e.get("owner") == "harness"
         for e in entries
     )
 

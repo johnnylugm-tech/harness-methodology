@@ -417,7 +417,7 @@ def _record_scaffold(project: Path, scaffold: "ScaffoldOutcome") -> None:
                 "warnings": scaffold.warnings[:20],  # cap to keep ledger small
                 "installer_python": _installer_python(project),
                 "ci": bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
-            }, owner="ssot_scaffold"
+            }, owner="harness"
         )
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"[WARN] env-repair: could not write scaffold ledger entry: {exc}",
