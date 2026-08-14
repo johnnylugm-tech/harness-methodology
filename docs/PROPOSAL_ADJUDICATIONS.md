@@ -2908,3 +2908,123 @@ run-all-by-workflow              0         —     0           0          0     
 - **「R45–R48 造成退化」這個因果沒有證明**。已證明的是：兩輪之間框架新增的每一項
   檢查都在測試面，產品面的檢查數量維持為零。這是**激勵解釋，不是因果證明**；
   反面情境（只是 agent 抽樣變異）無法排除。六站的修法各自單獨成立，與成因無關。
+
+---
+
+## Round 52 — 沒有任何一個判準執行過那個產品
+
+Round 51 交付後老闆問「為什麼會有這麼嚴重的退化？真正的根因？能不能防止或至少
+警訊？」。當成獨立命題重查，結果比 R51 的「需求只進去兩步就離開」更深一層。
+老闆裁決兩項邊界：**站2 量到不合格就 BLOCK**；**L2 只落盤指紋、離群警訊延後**。
+
+### 根因
+
+> **框架每一項判準，求值的對象要嘛是「碼的文字」，要嘛是「碼在被判定方自己配置的
+> 環境裡的行為」。沒有一項是「產品在被判定方沒有配置的環境裡的行為」。**
+
+讀文字的判準能靠改文字滿足，跑測試的判準能靠改測試滿足；兩者成本都遠低於做出真
+東西。唯一逃不掉的形狀是「在被判定方沒配置的 process 裡執行交付物」，而框架把這件
+事的**定義權**交給了被判定方。
+
+**上位限制（本輪不宣稱關閉）**：這是 Goodhart，不是實作缺陷。每加一項檢查，最省力
+最優解就移到未被檢查的軸上；R42 → R50 → R51 是同一條曲線的三個點。本輪把逃逸成本
+從 0 提到「必須真的做出來」，沒有把它變成不可能。**站1+站2 之後，下一個最省力解是
+「寫一個剛好觸及那幾個模組一行的 verify-system」。現在就寫下來，不要等第 17 次母體
+再宣稱意外。**
+
+### 八條實測事實
+
+| # | 事實 | 證據 |
+|---|---|---|
+| F1 | Gate 4 十六維度：10 讀原始碼/AST、4 跑專案測試套件、1 讀產物文件、**1 執行交付物且 weight 0.00** | `harness/gate_configs/gate4_p6_full.yaml:7-27` |
+| F2 | 那一個維度執行什麼，由被判定方自己寫 | `registry.py:288` `cmd=("make","verify-system")` |
+| F3 | 六專案 `make -n verify-system` 展開（見下表） | 實跑，六份 Makefile 皆無 `$(shell …)`，展開無副作用 |
+| F4 | **模板自己教出這個結果**：`templates/SAD.md` §1.1 寫「e.g. runs your integration tests」 | 這正是 renew/advance 走的路 |
+| F5 | 框架早就知道，只修了「何時跑」 | `tests/test_verify_target_regated.py` docstring 逐字寫著 advance 只 chain `test lint coverage`；R46 站5 把它從 gate 2 擴到 2/3/4，內容零檢查 |
+| F6 | 框架幾乎說不出「退化」：守衛絕大多數是一元謂詞，全庫只有一個二元關係 | `_architecture_regression_reason`（僅 Gate 4／僅同專案 P4／僅 CRG 結構） |
+| F7 | advance 與 api 的 high_risk_modules 完全相同，替身 18 vs 0 | 兩份 `SAB.json` + R51 站3 |
+| F8 | 六專案皆有 venv + coverage ≥ 7.15；taskq-api 的 recipe **內聯覆寫 PYTHONPATH** | 決定注入通道不能靠 PYTHONPATH |
+
+```
+                      吞掉判定           呼叫交付進入點        站1 判定
+taskq                 —                  -m taskq --help       pass
+taskq-plus            —                  submit/run/status/…   pass
+taskq-renew           ruff --exit-zero   無                    BLOCK（套套邏輯）
+taskq-advance         ruff --exit-zero   無                    BLOCK（套套邏輯）
+taskq-api             || true            -m taskq_api --help   BLOCK（產品那行被吞）
+run-all-by-workflow   || true            -m taskq submit/…     pass（吞的是 coverage combine）
+```
+
+### 六項前提的實測結果（含兩項推翻）
+
+| # | 結果 |
+|---|---|
+| P1 | **成立**。`make -n` 在六專案上完整展開遞移相依，零副作用 |
+| P2 | **成立**。venv site-packages 的 `.pth` + `COVERAGE_PROCESS_START` 在 recipe 內聯覆寫 PYTHONPATH 時仍取得 reach；合成 fixture 上「未被呼叫的函式其 body 行不在 executed_lines、被呼叫的在」 |
+| P3 | **推翻計畫的判準**。`-m taskq_api --help` 讓 `repository/session.py` 出現在覆蓋率報告裡（8 行 executed，**0 行在任何函式體內**）；`service/auth.py` 的 2 行 body 是 `install_log_redaction` 在 import 期被模組級呼叫，不是 `verify_key`。**模組粒度會誤放，判準改為 (module, attr)** |
+| P4 | **成立**。`migrations/` 到 `service.auth` / `verify_key` / `get_session` 零路徑，三步 alembic 不可能履行義務 |
+| P5 | **推翻計畫的「每行都是已計分工具」子句**。registry 的 `ToolSpec.cmd` 頭命令是 `pytest`/`ruff`/`pyright`，真實 recipe 一律寫 `.venv/bin/python -m pytest`，且 `coverage`/`alembic` 根本不在 registry。判準**收斂為單一非模糊條件**：沒有任何一行呼叫交付進入點。同樣的爆炸半徑，不需要會猜的分類器 |
+| P6 | **對照組成立**，見上表與下表。站2 額外做了**正控制**：給 taskq-plus 複本加一支 autouse 替身覆蓋 `storage.task_store.load_tasks`，義務出現且**判定為已履行**——它的 verify-system 真的跑那個函式。一個只會說「未履行」的檢查不是檢查 |
+
+### 三站修法
+
+- **站1** `core/quality_gate/verify_target.py`：吞掉判定（`\|\| true` / `--exit-zero` /
+  行首 `-`）與套套邏輯（零交付進入點呼叫）。BLOCK 只給兩種形狀——沒有產品步驟、
+  或產品步驟不會失敗；run-all-by-workflow 的 `coverage combine … || true` 是真發現
+  但假警報，進 ledger。**同 commit 修 `templates/SAD.md` §1.1 的病因**。doctor 補
+  WARN，讓操作者在 P1 而不是 P6 出口才遇到。
+- **站2** `core/quality_gate/verify_system_reach.py`：量測與維度執行是**同一次執行**
+  （instrumentation 加在 `run_tool` 的 `system-verification` 分支）。義務＝被 autouse
+  替身取代的 `(module, attr)` 必須被 verify-system 真的執行到函式體。量不出來 →
+  `unmet` 鍵**不存在**（不是 `[]`），不擋。
+- **站3** `core/quality_gate/delivery_fingerprint.py`：render-from-SSOT，零新量測，
+  零判定。
+
+### 六專案最終讀數
+
+```
+                     stub  decl_only  outside  omit  unnum  pgap  uncited  verify_system
+taskq                   0          1        0     0      0     1        0  ok
+taskq-plus              0          6        0     1     20     0        0  ok
+taskq-renew             0          3       14     2      1     1        0  tautological
+taskq-advance           0          4        5     1      1     0       86  tautological
+taskq-api              18          4        5     2     22     0        0  reach unmeasured
+run-all-by-workflow     0          1        0     0      0     0        0  ok
+```
+
+taskq-api 的 `reach unmeasured` 是正確結果，不是缺陷：真樹上沒有 reach 產物（本輪只
+在 `/tmp` 複本上實跑過），而它有三條義務，所以答案是「不知道」而非「乾淨」。其餘
+五個專案義務集合為空，不需要產物就能回答。
+
+### 對照組抓到我自己的缺陷 —— **連續第二輪**
+
+`coverage.py` 寫的是相對於 run cwd（專案根）的路徑，第一版 `_dotted` 對它們呼叫
+`Path.resolve()`，那會相對於 **harness process 的 cwd** 解析。實測：taskq-api 複本
+一份 91 KB、28 檔的覆蓋率報告產出**空的 reach map**，三條義務全部以錯誤的理由回報
+未履行。單元 fixture 用絕對路徑，從頭到尾是綠的。
+
+**R51 是三個，R52 是一個，兩輪都是「fixture 上綠、六專案上紅」。這不是巧合，是
+fixture 由寫檢查的人挑形狀。** 修法：fixture 現在對兩種路徑形狀 parametrize，相對
+路徑為預設。
+
+### 對 Round 51 賬本的兩處更正
+
+1. **R51 的六專案表把 taskq-renew 的 `arch-gap` 記成 `—`。** 用 R51 自己在 `cfc9d65`
+   的 `contract_coverage_gap` 重跑，今天對 taskq-renew 回 **14**。**錯的是那格記錄，
+   不是程式**（renew 有 `.importlinter`、4 條契約、14 個交付模組在契約外）。
+2. **`unnumbered` 與 `parse_gap` 是兩件事**——沒有識別碼的準則，vs 解析器說它看到
+   `AC-` 卻無法歸屬（R46 站1：棄權不是通過）。本輪指紋第一版把兩者相加，於是 taskq
+   讀成 1 而不是 0+1。已拆成兩個鍵。
+
+### 明列不做（附再開條件）
+
+- **不做跨專案離群警訊**。harness 是各專案的 submodule，看不到彼此的 run；做一份需
+  人工維護的 checked-in 參考語料，就是又一個「宣告了沒有執行者」（R43 母體）。
+  **再開條件：出現共用的 run 儲存處。**
+- **不讓框架自己知道怎麼啟動一個 FastAPI app**。那會綁死技術棧，與 language-agnostic
+  直接衝突。**代價誠實寫下：啟動方式仍有一部分定義權在被判定方手上**，本輪只是把
+  那份定義權的濫用變得可檢測，沒有收回它。
+- **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義，不加 waiver。**
+- **不把「缺少 verify-system target」做成第二個 block**：`make verify-system` 會非零
+  退出，`execute_verification_target` 對 100 的門檻已經擋了；一個事實兩個執法者是
+  R38 的缺陷。

@@ -2285,3 +2285,39 @@
 - test: tests/test_ac_traceability.py::test_identifiers_outside_a_readable_shape_are_reported_as_unread
   bug: "two acceptance-criteria shapes are read and a project may write a third; taskq-renew nests most of its 97 `AC-` identifiers under `- DERIVED:` parents outside the labelled block. `AC-` identifiers the parser cannot attribute are reported as unread at severity info — the framework's debt (Round 32 站4), not a clean result. Chasing each project's markdown dialect further would be fitting the parser to its fixtures, which is the defect this round is about"
   fixed_in: "R51-站5 (ac_parse_gap)"
+
+- test: tests/test_verify_target_integrity.py::test_a_recipe_that_cannot_fail_is_named_line_by_line
+  bug: "`execute_verification_target` is the only Gate 4 dimension that executes the delivered system, weight 0.00, and it runs a Makefile recipe the judged project writes. Round 46 站5 fixed WHEN it runs and nothing has ever read WHAT it runs. Measured with `make -n verify-system` on six projects: taskq-api invokes the product behind `--help >/dev/null 2>&1 || true`, taskq-renew and taskq-advance behind `ruff --exit-zero`. Round 37 站4 removed `|| true` from the framework's own CI template five rounds earlier and no check has ever opened a project's Makefile"
+  fixed_in: "R52-站1 (swallowed_verdicts; three idioms including the leading `-`, which make consumes before printing and is therefore read from the Makefile text over the verify-system closure)"
+
+- test: tests/test_verify_target_integrity.py::test_a_verify_target_that_never_invokes_the_product_is_tautological
+  bug: "taskq-renew and taskq-advance's verify-system chain `test lint coverage` — every step a tool the gate has already scored, the delivered package never named — and both scored the dimension 100. tests/test_verify_target_regated.py's own docstring recorded that in prose one round earlier and produced no check (Round 24's mother pattern). The condition is a single non-fuzzy one: premise P5 measured that the registry's ToolSpec.cmd heads (`pytest`/`ruff`/`pyright`) match no real recipe, which spells them `.venv/bin/python -m pytest`, so a scored-tool classifier would be guessing"
+  fixed_in: "R52-站1 (verify_target_findings; blocking_reason blocks on this and on a swallowed verdict that sits on the product line, and leaves the rest to the ledger)"
+
+- test: tests/test_verify_target_integrity.py::test_a_recipe_make_cannot_expand_is_unmeasured_not_clean
+  bug: "`$(shell …)` runs while make parses, so `make -n` on such a Makefile is a partial execution and not a dry run; `include` and a variable-built prerequisite each put recipe lines outside the text closure. None of the six projects here has any of the three, which is an observation about this corpus and not a guarantee — reporting such a Makefile as clean would be Round 46 站1's defect, a scan that could not read its input passing it"
+  fixed_in: "R52-站1 (expand_recipe returns STATUS_UNMEASURED and the findings' three verdict fields are None, so a caller reading `tautological` as a boolean gets a TypeError rather than a wrong answer)"
+
+- test: tests/test_verify_system_reach.py::test_the_reach_artifact_records_executed_lines_per_delivered_module
+  bug: "coverage.py writes paths relative to the run's cwd — the project root — and the first `_dotted` called Path.resolve() on them, which resolves a relative path against the harness process's cwd. Measured on a taskq-api copy: a 91 KB report with 28 files produced an empty reach map and every obligation came back unmet for the wrong reason. The unit fixture used absolute paths and was green throughout; the six-project control group is what found it"
+  fixed_in: "R52-站2 (the fixture is parametrized over both path shapes with the relative one as the default)"
+
+- test: tests/test_verify_system_reach.py::test_a_stubbed_function_that_never_ran_for_real_is_named
+  bug: "Round 51 站3 named the modules an autouse fixture replaces and stopped there; nothing asked whether anything, anywhere, runs the real one. Attribute granularity is load-bearing: `-m taskq_api --help` puts repository/session.py in the coverage report at 27% (imports and `def` headers, zero lines inside any function), so a module-level check calls it reached. The two body lines it does execute in service/auth.py are install_log_redaction's, run by a module-level call at import — not verify_key's, which is what the fixtures replace"
+  fixed_in: "R52-站2 (unmet_obligations over (module, attr); discharged only by a statement inside that function's body)"
+
+- test: tests/test_verify_system_reach.py::test_a_project_that_stubs_nothing_owes_nothing
+  bug: "the obligation has no threshold to pick — whatever the suite replaced, verify-system must execute — and its input set is empty for five of the six projects here. A check whose empty-input case is not pinned is one edit away from demanding something of every project"
+  fixed_in: "R52-站2"
+
+- test: tests/test_verify_system_reach.py::test_reach_that_could_not_be_measured_is_not_reported_as_clean
+  bug: "this check blocks a gate, so Round 35 站2's rule applies with more force than usual: a measurement that did not happen must produce neither a pass nor a fail. `unmet` is absent rather than `[]`, so no caller can read 'nothing outstanding' out of 'nothing measured', and _verify_system_reach_block branches on the status rather than on the list"
+  fixed_in: "R52-站2"
+
+- test: tests/test_delivery_fingerprint.py::test_the_fingerprint_is_rendered_from_the_producers_not_recomputed
+  bug: "every guard the framework applies to a judged project is a unary predicate `f(tree) ≥ threshold`; 'regression' is a binary relation and a system of unary predicates cannot express it. The harness ratchets itself and has never applied the shape to what it judges. The fingerprint records the product-side facts — and must keep reading them from their producers, because a table that restates a value is a table that will one day disagree with it (Round 39 站3)"
+  fixed_in: "R52-站3 (build_fingerprint; the test asserts equality against each producer, not the shape)"
+
+- test: tests/test_delivery_fingerprint.py::test_the_fingerprint_lands_beside_the_other_gate_records
+  bug: "`.sessi-work/` is cleared by advance-phase at every transition. A fact recorded so a later delivery can be compared against it has to outlive the run that recorded it (Round 45 站1), which is also why it is registered as a METHODOLOGY_DELIVERABLE rather than as bookkeeping — Round 44 站2's registry guard forced that choice to be made rather than defaulted"
+  fixed_in: "R52-站3"
