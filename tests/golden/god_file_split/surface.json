@@ -544,6 +544,6 @@
     "core.doctor::_check_testpaths_drift": "020b9d1e53eda76e",
     "core.doctor::_enforcer_shas_in": "91c22f1b7bc95364",
     "core.doctor::_phase_from_sentinel_name": "822801208daa956b",
-    "core.doctor::run_doctor": "2b45fb752c2e429f"
+    "core.doctor::run_doctor": "743c142f09a83296"
   }
 }

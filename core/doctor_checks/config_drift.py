@@ -1,12 +1,13 @@
 """doctor checks: settings that drifted from what reads them.
 
-Split out of core/doctor.py in R49-B. Three checks that ask the same question
-of three different files — whether a value the framework still reads matches
+Split out of core/doctor.py in R49-B. Four checks that ask the same question
+of four different files — whether a value the framework still reads matches
 the value something else has since changed:
 
   dimension scope   the SSI dimension roster vs what the gate config scores
   enforcement keys  enforcement.json keys vs the ones any code still reads
   testpaths         pyproject's testpaths vs the suite the gate measures
+  verify target     the Makefile recipe the one product-executing gate runs
 
 They share no code with each other and none with the rest of doctor; grouping
 them is about what the next reader needs open at once, which is the only
@@ -118,3 +119,48 @@ def _check_testpaths_drift(project: Path) -> list[Finding]:
         f"them: {shown}. A bare `pytest` measures the declared set; the "
         f"framework measures the whole test directory. Both numbers are "
         f"real — they are just not the same number.")]
+
+
+def _check_verify_target_recipe(project: Path) -> list[Finding]:
+    """WARN about what the one product-executing gate dimension will run.
+
+    Round 52 站1. `execute_verification_target` runs `make verify-system`, and
+    the recipe behind it is written by the project. The gate blocks on two of
+    its shapes; this says so before the gate does, which is the difference
+    between finding out at P3 and finding out at P6.
+
+    Reports, never decides — core/doctor.py's contract. The severity is WARN
+    even for the two blocking shapes: doctor does not get to be a second
+    enforcer of a rule finalize_gate already enforces (Round 38), it gets to
+    tell the operator early.
+    """
+    from core.quality_gate.verify_target import (
+        STATUS_EXPANDED,
+        blocking_reason,
+        verify_target_findings,
+        verify_target_name,
+    )
+
+    findings = verify_target_findings(project)
+    if findings["status"] != STATUS_EXPANDED:
+        # A missing target is the `execute_verification_target` dimension's
+        # own failure and an unreadable Makefile is a could-not-measure; the
+        # ledger carries both (record_verify_target_status). Neither is a
+        # doctor finding about drift.
+        return []
+
+    rows: list[Finding] = []
+    reason = blocking_reason(project)
+    if reason:
+        rows.append(Finding("verify-target", "WARN",
+                            f"{reason}. The exit gate blocks on this."))
+    benign = [r for r in findings["swallowed"]
+              if r not in findings["swallowed_product"]]
+    if benign:
+        shown = "; ".join(f"{r['idiom']} in `{r['line']}`" for r in benign[:3])
+        rows.append(Finding(
+            "verify-target", "WARN",
+            f"{len(benign)} step(s) of `make {verify_target_name()}` cannot "
+            f"fail, so their verdict is not in its exit code: {shown}. Not "
+            f"blocking — none of them runs the product."))
+    return rows

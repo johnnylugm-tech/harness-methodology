@@ -10,12 +10,29 @@
 {High-level architecture description}
 
 ### 1.1 System Verification Target
-> **Phase 3 Gate 2 Requirement**: The harness executes `make verify-system` at Gate 2.
-> If it exits with a non-zero status Gate 2 fails. Add a `verify-system` target to your
-> project `Makefile` that assembles and exercises the system end-to-end (e.g. runs your
-> integration tests or smoke-test suite). The target name is fixed — the harness always
-> calls `make verify-system`.
+> **Every exit gate (2, 3 and 4)**: the harness executes `make verify-system`. A
+> non-zero exit fails the gate. The target name is fixed — the harness always calls
+> `make verify-system`.
+>
+> This is the only check in the whole framework that runs the delivered system.
+> Everything else reads your source text or runs your test suite, both of which
+> your test doubles configure. Two rules follow, and the gate enforces both:
+>
+> 1. **At least one step must invoke the delivered entry point** — the program a
+>    user would run (`python -m <your_package> …`, your console script, your
+>    service). A target that chains `test lint coverage` re-runs dimensions the
+>    gate has already scored and verifies nothing further.
+> 2. **The step that does so must be able to fail.** `|| true`, a leading `-`,
+>    and tool flags like `ruff --exit-zero` all keep a failure out of make's exit
+>    code, which is the only thing the gate reads.
+>
+> Aim for a step that exercises a real acceptance criterion against real
+> dependencies — a temporary database, a real file, the actual process — because
+> the gate also measures which of your high-risk modules this target executed.
+> Any module your test suite replaces with an `autouse` stand-in has to run for
+> real here.
 **Makefile target**: `verify-system`
+**Exercises**: {which high-risk modules / acceptance criteria this target executes}
 
 ## 2. Module Design
 

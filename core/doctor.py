@@ -22,6 +22,7 @@ from core.doctor_checks.config_drift import (
     _check_dimension_scope_drift,
     _check_enforcement_zombie_keys,
     _check_testpaths_drift,
+    _check_verify_target_recipe,
 )
 from core.doctor_checks.git_state import (
     _check_ci_template_drift,
@@ -231,7 +232,15 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # files at once.
     findings.extend(_check_ci_template_drift(project))
 
-    # 15. the tree a milestone certifies vs the tree its commit records
+    # 15. what `make verify-system` will actually run (Round 52 站1). The one
+    # gate dimension that executes the delivered system runs a recipe the
+    # project writes, and finalize_gate now blocks on two of its shapes. Here
+    # so the operator meets that at P1 rather than at the P6 exit; WARN only,
+    # because the enforcement is the gate's and doctor does not get to be a
+    # second enforcer of it.
+    findings.extend(_check_verify_target_recipe(project))
+
+    # 16. the tree a milestone certifies vs the tree its commit records
     # (Round 44 站4). Station 2 makes the two agree from now on; this is the
     # reader for records written before that, and the only one that can name
     # a phase already turned over on work that was never committed. WARN, and

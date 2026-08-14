@@ -2951,6 +2951,31 @@ class HarnessBridge:
         # ── Round 51 站4: which files left the coverage denominator ─────────
         _record_coverage_denominator(ctx)
 
+        # ── Round 52 站1: whether the verification target verifies anything ──
+        # `execute_verification_target` is the only dimension that executes the
+        # delivered system, and what it executes is a recipe the judged project
+        # writes. Round 46 站5 made it run at every exit; nothing ever read it.
+        # Measured on the six projects here: two re-run tools the gate already
+        # scored and never name the delivered package, and one invokes it
+        # behind `|| true`. The ledger row goes in either way; the block is
+        # only for those two shapes (see verify_target.blocking_reason).
+        from core.quality_gate.verify_target import (
+            blocking_reason as _verify_target_block,
+            record_verify_target_status,
+        )
+        record_verify_target_status(ctx.project_root)
+        _vt_reason = _verify_target_block(ctx.project_root)
+        if _vt_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"verify_target": [_vt_reason]},
+            )
+
         # ── S4: Harness cross-validation (Solution B) ────────────────────────
         # For each Tier 1/2 dimension where the agent claims a passing score,
         # the harness independently runs the tool and computes its own score.

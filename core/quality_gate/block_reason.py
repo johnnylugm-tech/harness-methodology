@@ -199,6 +199,18 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "`.methodology/crg_baseline_p*.json`, undo the coupling that caused the drop, "
         "then re-run finalize-gate. Raising a waiver does not clear a regression.",
     ),
+    "verify_target": (
+        "`make verify-system` does not verify the delivered system",
+        "Edit the `verify-system` recipe in the project Makefile. It must "
+        "invoke the delivered entry point — the program a user would run "
+        "(`python -m <your_package> …`, your console script, your service) — "
+        "and that step must be able to fail: no `|| true`, no leading `-`, no "
+        "`--exit-zero`. A target that chains `test lint coverage` re-runs "
+        "dimensions this gate already scored and executes none of the system. "
+        "Do NOT lower any dimension score to express this, and do not re-run "
+        "the gate before editing the recipe — the recipe, not the run, is "
+        "what failed.",
+    ),
     # Round 38 removed the `da_waiver` entry along with the raise site that
     # produced it. A waiver is now refused at collection time
     # (cli/gate_cmds.py::_collect_da_waivers) and never reaches finalize_gate,
