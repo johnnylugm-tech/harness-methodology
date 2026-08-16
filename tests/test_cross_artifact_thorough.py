@@ -206,7 +206,8 @@ def test_run_cross_artifact_checks_phase_4(mock_cov, mock_fr, mock_title, tmp_pa
     
     result = run_cross_artifact_checks(tmp_path, 4)
     assert result["passed"] is False
-    # 4 since Round 55 站2 added check_unfilled_placeholders.
-    assert result["checks_ran"] == 4
+    # 5 since Round 55 added check_unfilled_placeholders (站2) and
+    # check_test_count_reconciliation (站4).
+    assert result["checks_ran"] == 5
     assert result["critical_count"] == 1
     assert result["high_count"] == 1

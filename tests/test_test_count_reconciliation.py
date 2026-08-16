@@ -65,11 +65,20 @@ _RESULTS_NO_SUMMARY = """\
 
 
 class _Suite:
-    """The shape `run_suite` returns, reduced to what this check reads."""
+    """The shape `run_suite` returns, reduced to what this check reads.
 
-    def __init__(self, outcomes: int, skipped: int) -> None:
+    `test_outcomes` carries every collected test — `SuiteResult`'s own
+    docstring maps each to one of passed/skipped/failed/error — so its length
+    is the total, skips included. Building it any other way would make this
+    fixture disagree with the thing it stands in for.
+    """
+
+    def __init__(self, total: int, skipped: int = 0) -> None:
         self.ran = True
-        self.test_outcomes = {f"t.py::t{i}": "passed" for i in range(outcomes)}
+        self.test_outcomes = {
+            f"t.py::t{i}": ("skipped" if i < skipped else "passed")
+            for i in range(total)
+        }
         self.skipped = skipped
         self.test_target = "03-development/tests"
 
@@ -88,12 +97,12 @@ def measured(monkeypatch):
     private name is a test coupled to an implementation detail, and the patch
     ratchet (Round 49 C2) is there to say so.
     """
-    def _pin(outcomes: int, skipped: int = 0):
+    def _pin(total: int, skipped: int = 0):
         from core.quality_gate import cross_artifact
 
         monkeypatch.setattr(
             cross_artifact, "measured_suite",
-            lambda _root: _Suite(outcomes, skipped), raising=False)
+            lambda _root: _Suite(total, skipped), raising=False)
     return _pin
 
 
@@ -111,8 +120,13 @@ def test_a_wider_run_recorded_as_the_project_result_is_critical(tmp_path, measur
         "cannot tell which tree was measured"
     )
     assert "03-development/tests" in issue, (
-        "the real cause is almost always two different trees, so the message "
-        "has to name the target the framework used"
+        "the message has to name the target the framework used, because the "
+        "usual cause is two different trees"
+    )
+    fix = " ".join(x["suggestion"] for x in v)
+    assert "repository root" in fix and "earlier run" in fix, (
+        "one number cannot distinguish 'wrong tree' from 'stale document', "
+        "so the remedy names both instead of asserting the likelier one"
     )
 
 
@@ -120,7 +134,7 @@ def test_a_matching_summary_is_silent(tmp_path, measured):
     """taskq-api's shape: one run, scoped to the project, and it agrees."""
     from core.quality_gate.cross_artifact import check_test_count_reconciliation
 
-    measured(321, skipped=5)
+    measured(326, skipped=5)
     assert check_test_count_reconciliation(_project(tmp_path, _RESULTS_HONEST), 4) == []
 
 

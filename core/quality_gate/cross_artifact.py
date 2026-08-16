@@ -58,6 +58,136 @@ def _template_placeholders(basename: str) -> set:
         return set()
 
 
+# pytest's own terminal summary line. Identified by the `in <T>s` suffix it
+# always prints, not by counts alone: a markdown row reading
+# `| **Total** | 441 |` is the agent's transcription, and the summary line is
+# the runner's output. Round 55 站0 measured both shapes in the corpus.
+_PYTEST_SUMMARY_RE = re.compile(
+    r"^(?=.*\bin \d+(?:\.\d+)?s\b)(?=.*\b\d+ (?:passed|failed|error|errors)\b).*$",
+    re.MULTILINE,
+)
+_PYTEST_COUNT_RE = re.compile(
+    r"\b(\d+) (passed|failed|skipped|error|errors|xfailed|xpassed)\b")
+
+
+def measured_suite(project_root: Path):
+    """The framework's own measurement of this project's test suite.
+
+    Public because it is the seam a test replaces — `run_suite` executes
+    pytest, and a unit test of the reconciliation must be able to say what the
+    framework measured without running one (Round 49 C2's patch ratchet is the
+    rule that keeps that seam public rather than private).
+
+    Costs nothing on the path that matters: `run_suite` memoises per
+    (project, fingerprint) within a process, and `phase_truth_verifier`'s
+    `check_pytest` calls it before `check_cross_artifact` at P4.
+    """
+    from core.quality_gate.test_suite_run import run_suite
+
+    return run_suite(project_root)
+
+
+def check_test_count_reconciliation(
+    project_root: Path, phase: int
+) -> List[Dict[str, str]]:
+    """TEST_RESULTS.md's own execution summary against the framework's.
+
+    Round 55 站4. The counts in `04-testing/TEST_RESULTS.md` are prose the
+    agent writes; `run_suite` is a measurement the framework takes, scoped by
+    `resolve_targets` to the project's own test directory. The two had never
+    met, and the Phase 4 prompt said why in as many words: "Real execution is
+    enforced by advance-phase pytest --cov-fail-under=100, **not by
+    string-matching this doc**."
+
+    taskq-super's document records `4 failed, 7563 passed, 3 skipped, 2
+    warnings in 281.16s` as its source of truth, and explains it two sections
+    later — "4 failed (all `harness/tests/`)", "plus the bulk of the harness
+    guard suite". The agent ran `pytest` from the repository root, where the
+    vendored copy of this framework lives. The framework's measurement of that
+    tree is 349 tests. The 7,563 then travelled unchallenged into
+    `05-verification/BASELINE.md` and `VERIFICATION_REPORT.md`.
+
+    Four of the seven projects here carry a summary measured over a wider tree
+    than the one they deliver (taskq-super 7570; taskq-plus 6866 beside its own
+    441; run-all-by-workflow 6256 beside 59), and three have no
+    machine-readable summary at all. taskq-api's single 326 is the one honest
+    case.
+
+    A document with no summary line is a finding too. That is the one place
+    this check deliberately does not copy `check_coverage_report` next door,
+    which returns nothing when it finds no numeric claim: a test-results
+    document with nothing to reconcile has not been reconciled (Round 46 站1).
+    """
+    if phase < 4:
+        return []
+    layout = ProjectLayout(project_root)
+    results = layout.phase4_testing_dir / "TEST_RESULTS.md"
+    if not results.is_file():
+        return []
+    try:
+        text = results.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(f"[WARN] cross_artifact: could not read {results}: {exc}",
+              file=sys.stderr)
+        return []
+
+    suite = measured_suite(project_root)
+    measured = len(getattr(suite, "test_outcomes", None) or {})
+    if not getattr(suite, "ran", False) or not measured:
+        # The framework did not measure, so it has no number to compare
+        # against. `test_outcomes` comes from the same run's `--junitxml`; an
+        # empty one means the per-test detail was not parsed, and reading that
+        # as zero tests would turn a reporting failure into an accusation
+        # (Round 32 站4 / Round 35 站2 — could-not-measure is not zero).
+        return []
+    target = getattr(suite, "test_target", "the project's test directory")
+    rel = layout.get_relative_str(results)
+
+    lines = [ln.strip() for ln in _PYTEST_SUMMARY_RE.findall(text)]
+    if not lines:
+        return [{
+            "file": rel,
+            "issue": (
+                f"no pytest summary line to reconcile; the framework measured "
+                f"{measured} test(s) under {target}"
+            ),
+            "severity": "CRITICAL",
+            "suggestion": (
+                f"Paste the verbatim summary line of the run this document "
+                f"describes (the `N passed … in T s` line pytest prints). "
+                f"The run must be scoped to {target}, not to the repository "
+                f"root — the root also holds the vendored harness suite."
+            ),
+        }]
+
+    totals = []
+    for line in lines:
+        counts = {k: int(v) for v, k in _PYTEST_COUNT_RE.findall(line)}
+        totals.append((sum(counts.values()), line))
+    if any(total == measured for total, _ in totals):
+        return []
+
+    return [{
+        "file": rel,
+        "issue": (
+            f"summary line reports {total} test(s); the framework measured "
+            f"{measured} under {target} ({line})"
+        ),
+        "severity": "CRITICAL",
+        # Two causes, and this check cannot tell them apart from one number,
+        # so it names both rather than asserting the one it has seen most.
+        "suggestion": (
+            f"Re-run the suite scoped to {target} and record that summary "
+            f"line verbatim. A count far above {measured} means the run was "
+            f"not scoped to the project — `pytest` from the repository root "
+            f"also collects the vendored harness suite. A count near "
+            f"{measured} means the document describes an earlier run and "
+            f"tests have been added since; re-record it as the last thing "
+            f"Phase 4 does."
+        ),
+    } for total, line in totals]
+
+
 def check_unfilled_placeholders(project_root: Path, phase: int) -> List[Dict[str, str]]:
     """A delivered artifact may not still carry its template's placeholders.
 
@@ -430,6 +560,10 @@ def run_cross_artifact_checks(
     # question is worth asking of each of the others.
     violations.extend(check_unfilled_placeholders(project_root, phase))
 
+    # 5. TEST_RESULTS.md's own counts against the framework's (Round 55 站4).
+    if phase >= 4:
+        violations.extend(check_test_count_reconciliation(project_root, phase))
+
     criticals = [v for v in violations if v.get("severity") == "CRITICAL"]
     highs = [v for v in violations if v.get("severity") == "HIGH"]
 
@@ -444,7 +578,7 @@ def run_cross_artifact_checks(
     return {
         "passed": passed,
         "violations": violations,
-        "checks_ran": 4 if phase >= 4 else 2,
+        "checks_ran": 5 if phase >= 4 else 2,
         "critical_count": len(criticals),
         "high_count": len(highs),
     }
