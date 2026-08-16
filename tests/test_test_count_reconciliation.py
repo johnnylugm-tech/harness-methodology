@@ -163,3 +163,36 @@ def test_the_check_runs_inside_the_phase_gate(tmp_path, measured):
     result = run_cross_artifact_checks(_project(tmp_path, _RESULTS_INFLATED), 4)
     assert result["critical_count"] >= 1
     assert result["passed"] is False
+
+
+@pytest.mark.parametrize("phase", [5, 6, 7, 8])
+def test_the_phase_four_checks_do_not_re_run_at_later_phases(tmp_path, phase):
+    """Round 55 站6, and the counter-proof that caught its absence.
+
+    Reverting `phase == 4` to `phase >= 4` left the whole suite green — nothing
+    pinned this. It matters twice over. TEST_RESULTS.md and COVERAGE_REPORT.md
+    are Phase 4's documents, so re-judging them at Phase 8 reports a fault
+    against a phase that did not write them; and Phase 5-8 has no `check_pytest`
+    ahead of it, so `run_suite`'s memo is cold and each call would execute the
+    project's entire test suite again.
+
+    Deliberately not monkeypatching `measured_suite`: if this check ever runs
+    at these phases, the real one executes pytest, and the assertion below is
+    what says so.
+    """
+    from core.quality_gate.cross_artifact import check_test_count_reconciliation
+
+    called = []
+
+    from core.quality_gate import cross_artifact
+
+    original = cross_artifact.measured_suite
+    cross_artifact.measured_suite = lambda root: called.append(root) or original(root)
+    try:
+        assert check_test_count_reconciliation(
+            _project(tmp_path, _RESULTS_INFLATED), phase) == []
+    finally:
+        cross_artifact.measured_suite = original
+    assert not called, (
+        f"phase {phase} measured the test suite to re-judge a Phase 4 document"
+    )

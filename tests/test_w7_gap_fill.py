@@ -303,13 +303,21 @@ class TestPhaseTruthVerifier:
         assert result["passed"] is True
 
     def test_verify_phase6_two_checks(self, tmp_path):
-        """Phase 5-8 uses 3 checks: framework block + previous phase artifacts
-        + SRS-mandatory reconciliation (no SRS.md in this fixture → InfraSkip)."""
+        """Phase 5-8 uses 4 checks: framework block + previous phase artifacts
+        + SRS-mandatory reconciliation (no SRS.md in this fixture → InfraSkip)
+        + cross-artifact consistency.
+
+        Cross-artifact joined the list at Round 55 站6. It had lived only in
+        the Phase 3-4 list while being the sole consumer of
+        run_cross_artifact_checks, so every per-phase artifact check that
+        function performs — including check_phase_title's P5..P9 entries and
+        the CONFIG_RECORDS.md placeholder check — had no caller at those
+        phases."""
         v = self._make_verifier(tmp_path, phase=6)
         with patch.object(v, "check_framework_block", return_value=(False, 0.0, "fail")), \
              patch.object(v, "check_previous_phase_artifacts", return_value=(False, 0.0, "fail")):
             result = v.verify()
-        assert len(result["checks"]) == 3
+        assert len(result["checks"]) == 4
         assert result["passed"] is False
 
     def test_verify_total_score_threshold(self, tmp_path):

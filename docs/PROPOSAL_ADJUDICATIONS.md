@@ -3397,9 +3397,46 @@ CONFIG_RECORDS.md 的「未填模板拿 100/100/100/100」看起來是根因，*
   再開條件：下一輪處理 P4 產物數字時一併裁。
 - **不改 `constitution/runner.py` 的 stub→100**。再開條件：constitution 重新進入
   自動管線的那一天。
-- **`check_cross_artifact` 只在 P3–P4 執行**，所以站2/站4 的兩個 CRITICAL 只在 P4 攔。
-  taskq-super 的 7,563 是在 P5 被複製過去的。再開條件：把 cross-artifact 納入
-  P5–P8 的 phase-truth 檢查表。
+- ~~**`check_cross_artifact` 只在 P3–P4 執行**~~ —— **站6 撤銷這一條並修掉它**，見下。
 - **不做 `forbidden` 契約的內容對賬**。再開條件：SAB 帶結構化禁令欄位。
 - **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。**
 - **不 push。**
+
+### 站6 —— 站2 自己就是「偵測到了卻沒有執行者」
+
+收口之後老闆問「是否仍有遺留」，實測查出**本輪自己造的半座機制**。
+
+`phase_truth_verifier.check_cross_artifact` 是 `run_cross_artifact_checks` 的
+**唯一**消費者（全庫 grep），而它只出現在 P3–P4 的檢查表裡。P5–P8 的表是
+framework_block / previous_phase_artifacts / srs_mandatory 三項。於是：
+
+- 站2 寫來讀 **P8 的 CONFIG_RECORDS.md** 的 placeholder 檢查，**P8 從不叫它**；
+- `check_phase_title` 的 P5/P6/P7/P8/P9 五個條目，**自寫下起從未執行過**（既有死碼，
+  站2 把新檢查掛在一條早就斷掉的線上）。
+
+站2 自己的測試斷言 `run_cross_artifact_checks` 會回 CRITICAL 就停了 —— 那正是讓機制
+半座出貨的斷言形狀（R30）。**本輪站1 花一整個 commit 修的病，本輪順手又犯一次。**
+
+修法三處：
+
+1. `check_cross_artifact` 進 P5–P8 檢查表，權重 0.08。
+2. 其餘三項 0.42/0.28/0.30 × 0.92 → **0.39/0.26/0.27**。我向老闆報告時說「不必動現有
+   三項，因為 `total_score` 除以 `active_weight`」——**這是錯的**，
+   `test_weights_still_sum_to_one`（R21 站3）當場證偽：renormalize 正是會把「總和不是
+   1.0」藏起來的機制，而「沒人說得出尺度的分數」就是那條不變式存在的理由。比例保持不變。
+3. `run_cross_artifact_checks` 的 phase 語意收正：`check_fr_coverage` /
+   `check_coverage_report` / `check_test_count_reconciliation` 驗的都是 P4 產物，
+   改成 `phase == 4`。**對既有行為零影響**（P5–P8 本來就不跑這個函式），但接線之後
+   它決定兩件事：不在 P8 重判 P4 寫的文件，且不在沒有 `check_pytest` 的 phase 冷跑
+   一次完整測試套件。
+
+**第三條反證失敗過一次。** CP12 revert 掉呼叫端的 `phase == 4` 之後全套仍綠 ——
+沒有任何測試釘住它。補了 `test_the_phase_four_checks_do_not_re_run_at_later_phases`
+（P5/P6/P7/P8 四參數，且**不** monkeypatch `measured_suite`，真的跑到就會被抓），
+並發現守衛放錯層：移進 `check_test_count_reconciliation` 自己
+（`if phase != 4`），因為付出執行代價的是它，不是呼叫者。
+
+端到端實證：taskq-super 交付的 CONFIG_RECORDS.md 複本，P8 的 D3 回
+`passed=False, score=70.0`。
+
+guards 600 → **603**。

@@ -2465,3 +2465,15 @@
 - test: tests/test_test_count_reconciliation.py::test_a_matching_summary_is_silent
   bug: "the control. taskq-api's single scoped run is the one honest case in the corpus and must stay silent, and the fixture builds test_outcomes the way SuiteResult documents it — every collected test, skips included — so it cannot pass by disagreeing with the thing it stands in for"
   fixed_in: "R55-站4"
+
+- test: tests/test_delivered_artifact_placeholders.py::test_phase_eight_actually_runs_the_check
+  bug: "Round 55 站2 shipped a check with no caller. `phase_truth_verifier.check_cross_artifact` is the sole consumer of run_cross_artifact_checks and appeared only in the Phase 3-4 list, so the placeholder check written to read Phase 8's CONFIG_RECORDS.md was never called at Phase 8 — and check_phase_title's P5/P6/P7/P8/P9 entries had never executed since the day they were written. Station 2's own test asserted the function returns a CRITICAL and stopped there, which is the assertion shape that lets a mechanism ship half-built (Round 30). Verified end-to-end afterwards on a copy of taskq-super's delivered file: D3 returns passed=False, score 70.0"
+  fixed_in: "R55-站6 (cross-artifact added to the Phase 5-8 list at weight 0.08; the other three rescaled to keep Round 21 站3's sum-to-1.0 invariant)"
+
+- test: tests/test_spawn_log_not_evidence.py::TestSpawnLogIsNotScored::test_weights_still_sum_to_one
+  bug: "already registered for Round 21 站3; re-listed because Round 55 站6 was reported to the operator as 'the existing three weights are untouched — total_score divides by active_weight so the list need not sum to 1.0'. That was wrong, and this test is what said so: renormalisation would hide a list that does not sum to 1.0, and a score whose scale nobody stated is exactly what the invariant exists to prevent. 0.42/0.28/0.30 were rescaled by 0.92 to 0.39/0.26/0.27, proportions preserved"
+  fixed_in: "R21-站3 (invariant); R55-站6 (the round it caught)"
+
+- test: tests/test_test_count_reconciliation.py::test_the_phase_four_checks_do_not_re_run_at_later_phases
+  bug: "Round 55 站6's own counter-proof caught this: reverting the Phase-4 guard left the whole suite green, so nothing pinned it. TEST_RESULTS.md is Phase 4's document — re-judging it at Phase 8 reports a fault against a phase that did not write it — and Phase 5-8 has no check_pytest ahead of it, so run_suite's memo is cold and each later phase would execute the project's entire test suite again. The guard was first written at the call site only; the test showed it belongs in the function, which is the thing that pays the cost"
+  fixed_in: "R55-站6 (`if phase != 4` inside check_test_count_reconciliation, not only in run_cross_artifact_checks)"

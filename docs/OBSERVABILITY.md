@@ -1097,3 +1097,26 @@ framework cannot read is the framework's debt, not the project's failure.
 reports a measured number for projects that spell `root_packages` in the
 plural. It read zero for two of the seven projects here, and one of those two
 was the project whose only contract covers two of its twenty-two modules.
+
+## Cross-artifact now runs at Phase 5–8 too (Round 55 站6)
+
+`check_cross_artifact` was in the Phase 3–4 check list only, and it is the sole
+consumer of `run_cross_artifact_checks` — so `check_phase_title`'s P5..P9
+entries and the placeholder check had no caller at those phases. It now appears
+in the Phase 5–8 list at weight 0.08, with the other three rescaled
+(0.42/0.28/0.30 → 0.39/0.26/0.27) to keep each phase's weights summing to 1.0.
+
+What this changes in a Phase Truth report:
+
+* Phase 5–8 now print a fourth line, `Cross-artifact consistency`, and a
+  CRITICAL there fails the phase — this is where the CONFIG_RECORDS.md
+  placeholder finding surfaces.
+* Every phase's `total_score` shifts slightly, because the weighted average now
+  has a fourth term. The scale is unchanged (still 0–100 over weights summing
+  to 1.0).
+* `checks_ran` in the cross-artifact result is now the count that actually ran:
+  2 outside Phase 4, 5 at Phase 4. The three Phase-4-only sub-checks
+  (`check_fr_coverage`, `check_coverage_report`,
+  `check_test_count_reconciliation`) do not re-run later — they read Phase 4's
+  documents, and the last of them would execute the project's whole test suite
+  on a cold `run_suite` memo at every later phase.

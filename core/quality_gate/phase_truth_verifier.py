@@ -650,11 +650,32 @@ class PhaseTruthVerifier:
                 ("SRS-mandatory reconciliation", self.check_srs_mandatory_reconciliation, 0.15),
             ]
         # Phase 5-8: framework block + previous phase (non-code phases)
+        #
+        # Round 55 站6 added cross-artifact here. It had lived only in the
+        # Phase 3-4 list, and it is the sole consumer of
+        # `cross_artifact.run_cross_artifact_checks` — so `check_phase_title`'s
+        # P5/P6/P7/P8/P9 entries had never once executed, and the placeholder
+        # check this round wrote to read Phase 8's CONFIG_RECORDS.md was never
+        # called at Phase 8. Measured on taskq-super's delivered file: one
+        # CRITICAL, `passed=False`, and nothing asked.
+        #
+        # The three Phase-4 sub-checks stay behind `phase == 4` inside that
+        # function, so this addition re-judges no Phase 4 document and runs no
+        # second test suite.
+        #
+        # The other three weights shrink to make room: 0.42/0.28/0.30 scaled by
+        # 0.92, rounded to 0.39/0.26/0.27, plus 0.08. Round 21 站3's invariant
+        # is that each phase's weights sum to 1.0 —
+        # `test_weights_still_sum_to_one` — because `active_weight`
+        # renormalisation would otherwise hide a list that does not, and a
+        # score whose scale nobody stated is the defect that invariant exists
+        # to prevent. Their proportions to each other are preserved.
         else:
             checks = [
-                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.42),
-                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.28),
-                ("SRS-mandatory reconciliation", self.check_srs_mandatory_reconciliation, 0.30),
+                ("FrameworkEnforcer BLOCK", self.check_framework_block, 0.39),
+                ("Previous phase artifacts", self.check_previous_phase_artifacts, 0.26),
+                ("SRS-mandatory reconciliation", self.check_srs_mandatory_reconciliation, 0.27),
+                ("Cross-artifact consistency", self.check_cross_artifact, 0.08),
             ]
 
         total_weighted = 0.0

@@ -118,7 +118,12 @@ def check_test_count_reconciliation(
     which returns nothing when it finds no numeric claim: a test-results
     document with nothing to reconcile has not been reconciled (Round 46 站1).
     """
-    if phase < 4:
+    # Phase 4 only, and the guard lives here rather than only at the call site:
+    # this function executes the project's test suite, and `run_suite`'s memo is
+    # warm only where `check_pytest` ran first (Phase 3-4). A caller that
+    # forgets the condition would run the whole suite again at every later
+    # phase, to re-judge a document Phase 4 wrote.
+    if phase != 4:
         return []
     layout = ProjectLayout(project_root)
     results = layout.phase4_testing_dir / "TEST_RESULTS.md"
@@ -543,26 +548,28 @@ def run_cross_artifact_checks(
         {"passed": bool, "violations": [...], "checks_ran": int}
     """
     violations: List[Dict[str, str]] = []
+    ran = 0
 
-    # 1. Phase title check (all phases with artifacts)
+    # Every phase that has deliverables: these two read the artifacts *this*
+    # phase produced, through phase_artifact_relpaths.
     violations.extend(check_phase_title(project_root, phase))
-
-    # 2. FR coverage check (Phase 4 specifically)
-    if phase >= 4:
-        violations.extend(check_fr_coverage(project_root, phase))
-
-    # 3. Coverage report check (Phase 4 specifically)
-    if phase >= 4:
-        violations.extend(check_coverage_report(project_root, phase))
-
-    # 4. Unfilled template placeholders (Round 55 站2) — every phase that has
-    # deliverables, because the file that trips it is Phase 8's and the same
-    # question is worth asking of each of the others.
     violations.extend(check_unfilled_placeholders(project_root, phase))
+    ran += 2
 
-    # 5. TEST_RESULTS.md's own counts against the framework's (Round 55 站4).
-    if phase >= 4:
+    # Phase 4 only. All three read Phase 4's artifacts — TEST_RESULTS.md and
+    # COVERAGE_REPORT.md — so re-running them at Phase 5-8 would re-judge a
+    # document this phase did not write. Round 55 站6 narrowed these from
+    # `phase >= 4` when Phase 5-8 gained a cross-artifact check for the first
+    # time; before that the difference was unobservable, because Phase 5-8
+    # never called this function at all. The narrowing also keeps
+    # check_test_count_reconciliation off a path where `run_suite`'s memo is
+    # cold — Phase 5-8 has no check_pytest ahead of it, so each call there
+    # would execute the project's whole suite again.
+    if phase == 4:
+        violations.extend(check_fr_coverage(project_root, phase))
+        violations.extend(check_coverage_report(project_root, phase))
         violations.extend(check_test_count_reconciliation(project_root, phase))
+        ran += 3
 
     criticals = [v for v in violations if v.get("severity") == "CRITICAL"]
     highs = [v for v in violations if v.get("severity") == "HIGH"]
@@ -578,7 +585,7 @@ def run_cross_artifact_checks(
     return {
         "passed": passed,
         "violations": violations,
-        "checks_ran": 5 if phase >= 4 else 2,
+        "checks_ran": ran,
         "critical_count": len(criticals),
         "high_count": len(highs),
     }

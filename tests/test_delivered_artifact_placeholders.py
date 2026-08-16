@@ -124,6 +124,54 @@ def test_the_check_runs_inside_the_phase_gate(tmp_path):
     assert result["passed"] is False
 
 
+def test_phase_eight_actually_runs_the_check(tmp_path):
+    """The executor, found missing after station 2 shipped.
+
+    `run_cross_artifact_checks` has exactly one consumer,
+    `phase_truth_verifier.check_cross_artifact`, and that check appeared only
+    in the Phase 3–4 list. Phase 5–8 ran framework_block /
+    previous_phase_artifacts / srs_mandatory and nothing else — so the check
+    written to read Phase 8's key artifact was never called at Phase 8. The
+    same gap had been keeping `check_phase_title`'s P5/P6/P7/P8/P9 entries
+    dead since they were written.
+
+    This is the defect station 1 spent its commit on (Round 43's "detected,
+    no executor"), committed by this round on the way past. Station 2's own
+    test asserted `run_cross_artifact_checks` returns a CRITICAL and stopped
+    there, which is exactly the shape of assertion that lets a mechanism ship
+    half-built (Round 30).
+    """
+    from core.quality_gate.phase_truth_verifier import PhaseTruthVerifier
+
+    project = _phase8(tmp_path, _CONFIG_RECORDS_UNFILLED)
+    verifier = PhaseTruthVerifier(str(project), 8)
+    passed, score, details = verifier.check_cross_artifact()
+    assert passed is False, "the unfilled Phase 8 artifact did not fail D3"
+
+    names = [name for name, _fn, _w in _phase_checks(verifier, 8)]
+    assert "Cross-artifact consistency" in names, (
+        "Phase 8's check list does not contain the only consumer of "
+        "run_cross_artifact_checks, so nothing reads CONFIG_RECORDS.md"
+    )
+
+
+def _phase_checks(verifier, phase):
+    """The (name, fn, weight) list `verify()` builds for *phase*.
+
+    Read back from a real `verify()` run rather than restated here — a copy of
+    the table in a test is a copy that agrees with itself.
+    """
+    from unittest.mock import patch
+
+    verifier.phase = phase
+    with patch.object(verifier, "check_framework_block", return_value=(True, 100.0, "ok")), \
+         patch.object(verifier, "check_previous_phase_artifacts", return_value=(True, 100.0, "ok")), \
+         patch.object(verifier, "check_srs_mandatory_reconciliation", return_value=(True, 100.0, "ok")), \
+         patch.object(verifier, "check_cross_artifact", return_value=(True, 100.0, "ok")):
+        result = verifier.verify()
+    return [(c["name"], None, c["weight"]) for c in result["checks"]]
+
+
 def test_the_placeholder_pattern_has_one_owner():
     """Constitution's regex is imported, not re-spelled.
 
