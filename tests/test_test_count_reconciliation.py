@@ -82,12 +82,17 @@ def _project(tmp_path: Path, body: str) -> Path:
 
 @pytest.fixture
 def measured(monkeypatch):
-    """Pin the framework's own measurement; the real one executes pytest."""
+    """Pin the framework's own measurement; the real one executes pytest.
+
+    `measured_suite` is public for this reason — a test that reaches for a
+    private name is a test coupled to an implementation detail, and the patch
+    ratchet (Round 49 C2) is there to say so.
+    """
     def _pin(outcomes: int, skipped: int = 0):
         from core.quality_gate import cross_artifact
 
         monkeypatch.setattr(
-            cross_artifact, "_measured_suite",
+            cross_artifact, "measured_suite",
             lambda _root: _Suite(outcomes, skipped), raising=False)
     return _pin
 

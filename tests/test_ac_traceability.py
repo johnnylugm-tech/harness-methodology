@@ -287,31 +287,74 @@ def test_a_range_expression_is_two_identifiers_not_one():
     assert _AC_ID.findall("- **AC-9.5**: metrics") == ["AC-9.5"]
 
 
-def test_an_unreadable_criterion_blocks_rather_than_informs(tmp_path):
-    """Round 46's rule, applied to the checker Round 46 built.
+def test_a_population_this_check_could_not_build_is_not_coverage(tmp_path):
+    """Round 46's rule, applied to the checker Round 51 built to enforce it.
 
-    An `AC-` identifier the parser saw but could not attribute to any
-    requirement is unchecked, not clean. It was reported at severity `info`,
-    which no caller acts on, while the coverage check next to it returned `[]`.
+    `check_ac_test_spec_coverage` returned `[]` whenever it attributed no
+    criteria, and `[]` is what full coverage also looks like. taskq-super
+    carried 133 identifiers, 0 attributed, 0 findings, through Gate 4 PASS.
+
+    This is deliberately NOT a severity change on `ac_parse_gap`. That row
+    says "some identifiers sit in a shape I cannot read", which is the
+    framework's debt and stays `info` (Round 32 站4, and the test above that
+    fixes it). This row says something else: "I built no population at all,
+    so my silence is not a verdict."
     """
-    from core.quality_gate.artifact_consistency import check_ac_identifiers
+    from core.quality_gate.artifact_consistency import check_ac_test_spec_coverage
 
     srs = """\
 # SRS
 
 ### FR-03: Circuit breaker
 
-> DERIVED: decomposed into 5 ACs (AC-3-1 retry policy, AC-3-2 OPEN threshold).
+Criteria, in a dialect this parser does not read:
 
-#### AC-3.1
-Retry policy is honoured.
+| id | criterion |
+|----|-----------|
+| AC-3.1 | Retry policy is honoured. |
+| AC-3.2 | OPEN threshold is five failures. |
 """
-    v = check_ac_identifiers(_project(tmp_path, srs))
-    gaps = [x for x in v if x.check_type == "ac_parse_gap"]
-    assert gaps, "the two prose ids belong to no criterion and were not reported"
-    assert all(x.severity == "error" for x in gaps), (
-        "an identifier nothing can check is not an `info` — it is the "
-        "population the next check silently reported as covered"
+    v = check_ac_test_spec_coverage(_project(tmp_path, srs, _TEST_SPEC_COVERING))
+    assert v, "two identifiers, none attributed, and the check reported clean"
+    assert all(x.severity == "error" for x in v)
+    assert v[0].check_type == "ac_population_unread"
+    assert "AC-3.1" in v[0].message
+
+
+def test_the_prompt_describes_a_label_the_parser_accepts(tmp_path):
+    """Prompt-gate parity (Round 17 站1) on the sentence that caused this round.
+
+    Every example the Phase 1 prompt gives for the criteria-block label must be
+    one `_AC_BLOCK` actually matches. The prompt and the parser used to state
+    the shape independently, and they disagreed about a qualifier for as long
+    as anyone had written an SRS.
+    """
+    import re
+
+    from core.quality_gate.artifact_consistency import (
+        _srs_acceptance_criteria,
+        ac_label_shape,
+    )
+
+    shape = ac_label_shape()
+    examples = re.findall(r"`(\*\*Acceptance [Cc]riteria[^`]*\*\*)`", shape)
+    assert examples, "the sentence gives no example of the label it describes"
+
+    for i, label in enumerate(examples):
+        srs = f"# SRS\n\n### FR-01: Task submission\n\n{label}\n\n- **AC-1.1**: ok.\n"
+        criteria = _srs_acceptance_criteria(_project(tmp_path / str(i), srs))
+        assert "FR-01" in criteria, (
+            f"the prompt tells the agent {label!r} is legal and the parser "
+            f"reads that section as having no acceptance criteria"
+        )
+
+    # And the generated Phase 1 workflow must carry this exact sentence, not a
+    # paraphrase that drifts from it.
+    js = (Path(__file__).parent.parent
+          / ".claude" / "workflows" / "phase1-requirements.js").read_text(encoding="utf-8")
+    assert shape in js, (
+        "phase1-requirements.js was regenerated from a different description "
+        "of the label than the parser enforces"
     )
 
 

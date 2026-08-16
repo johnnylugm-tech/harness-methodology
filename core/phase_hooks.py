@@ -1139,6 +1139,8 @@ class PhaseHooks:
         disagree about when a rule activates.
         """
         from core.quality_gate.artifact_consistency import (
+            check_ac_identifiers,
+            check_ac_test_spec_coverage,
             check_forward_refs,
             check_module_fr_coverage,
             check_nfr_adr_coverage,
@@ -1148,8 +1150,21 @@ class PhaseHooks:
         print("\n[PRE-FLIGHT] Artifact Consistency")
         try:
             violations = check_forward_refs(self._layout.root) + check_module_fr_coverage(self._layout.root)
+            # Round 55 — the executor. Both AC checks have existed since Round
+            # 51; their only consumer was `delivery_fingerprint.build_fingerprint`,
+            # which counts them into a JSON field nothing blocks on. taskq-advance
+            # carried 86 acceptance criteria no TEST_SPEC case cites through
+            # eight phases, and taskq-super's `AC-N7.2` ("`08-config/SBOM.json`
+            # exists") reached Gate 4 PASS with no case, no test and no file.
+            #
+            # Same phase rule as check_nfr_adr_coverage above, for the same
+            # reason: the citation lives in TEST_SPEC.md, which Phase 2
+            # produces, so demanding it earlier would be demanding it of an
+            # artifact that does not exist yet.
             if self.phase is not None and self.phase >= 3:
                 violations = violations + check_nfr_adr_coverage(self._layout.root)
+                violations = violations + check_ac_identifiers(self._layout.root)
+                violations = violations + check_ac_test_spec_coverage(self._layout.root)
             violations = violations + check_security_design(self._layout.root, phase=self.phase)
             # Round 42 站3: the SRS's machine-readable FR Block. It joins this
             # set rather than growing its own hook because the phase rule it

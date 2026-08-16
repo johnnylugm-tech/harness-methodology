@@ -10,6 +10,7 @@ decision to accept a dated _LINE_CEILING entry here instead.
 """
 from __future__ import annotations
 
+from core.quality_gate.artifact_consistency import ac_label_shape
 from core.quality_gate.legal_artifacts import anchor_for
 from core.quality_gate.sab_parser import nfr_type_vocabulary_inline
 
@@ -29,6 +30,19 @@ from .spec_shared import _render_meta
 # already reuses (spec_phase2.py), not hand-copied — see that file's own
 # Round 27 站2 comment for why a hand-copy of this vocabulary drifts.
 _NFR_TYPES = nfr_type_vocabulary_inline()
+
+# Round 55 — the criteria-block label, interpolated from the parser that reads
+# it. The prompt used to spell the shape itself ("under a `**Acceptance
+# criteria**` label") while `artifact_consistency._AC_BLOCK` matched that
+# string literally, and the two disagreed about a qualifier: five of the seven
+# projects on this machine wrote `**Acceptance criteria (FR-01)**`, a fair
+# reading of the sentence, and the parser attributed none of their criteria.
+# taskq-super's 133 identifiers all landed on the wrong side of that gap, so
+# `check_ac_test_spec_coverage` had no population and reported a clean bill
+# over an SRS whose AC-N7.2 ("`08-config/SBOM.json` exists") never produced a
+# test case, a test, or the file. Same treatment as _NFR_TYPES above: one
+# source, two readers.
+_AC_LABEL = ac_label_shape()
 
 # Round 33 站1 — the H1 anchor each deliverable is reloaded against. Every one
 # of these used to be a hand-written literal appearing three times in this file
@@ -498,7 +512,7 @@ def _render_phase1_subtask1_srs() -> str:
         "    + '   - Elicitation Mode: elicit from brief and write FRs/NFRs in SRS.md.\\n'\n"
         "    + '   - FORBIDDEN: vague/non-testable acceptance criteria.\\n'\n"
         "    + '   - Structure: 1) Introduction, 2) Constraints, 3) Functional Requirements (one § per FR with testable AC + canonical spec citation), 4) Non-Functional Requirements (one § per NFR with measurable AC + citation), 5) Acceptance Criteria Summary, 6) Out-of-Scope, 7) Open Issues (deferred items with NFR-99 / FR-XX-deferred tags), 8) Risks, 9) Glossary.\\n'\n"
-        "    + '   - EVERY acceptance criterion MUST carry a stable identifier of the form `AC-<n>.<m>` (FR criteria) or `AC-N<n>.<m>` (NFR criteria), written either as its own `#### AC-x.y` heading or as a bolded prefix on a bullet under a `**Acceptance criteria**` label. The identifier is what TEST_SPEC.md cites in Phase 2 and what `check_ac_test_spec_coverage` counts: an unnumbered criterion cannot be cited by any later artifact and cannot be checked, and a requirement whose criteria are unnumbered can lose one silently — measured on a real run, a SPEC table row requiring `admin` scope on an endpoint produced no criterion, no test case, no test, and an unauthenticated endpoint, with every downstream traceability number still reading 100%.\\n'\n"
+        "    + '   - EVERY acceptance criterion MUST carry a stable identifier of the form `AC-<n>.<m>` (FR criteria) or `AC-N<n>.<m>` (NFR criteria), written either as its own `#### AC-x.y` heading or as a bolded prefix on a bullet under " + _AC_LABEL + ". The identifier is what TEST_SPEC.md cites in Phase 2 and what `check_ac_test_spec_coverage` counts: an unnumbered criterion cannot be cited by any later artifact and cannot be checked, and a requirement whose criteria are unnumbered can lose one silently — measured on a real run, a SPEC table row requiring `admin` scope on an endpoint produced no criterion, no test case, no test, and an unauthenticated endpoint, with every downstream traceability number still reading 100%.\\n'\n"
         "    + '   - Each FR section MUST start with the heading `### FR-XX: <title>` (e.g. `### FR-01: Task submission`) — do not use TOC-numbered subsections like `### 3.1 FR-01`; each NFR section likewise `### NFR-XX: <title>`.\\n'\n"
         "    + '   - " + B.render_rule_prose("R-SRS-FR-BLOCK-001") + " // @rule R-SRS-FR-BLOCK-001\\n'\n"
         "    + '   - Create directory ' + REPO + '/01-requirements if missing. Use Write tool to create the file.\\n'\n"

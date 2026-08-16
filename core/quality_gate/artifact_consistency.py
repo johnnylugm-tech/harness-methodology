@@ -44,7 +44,7 @@ from core.quality_gate.legal_artifacts import LEGAL_ARTIFACTS
 from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["check_ac_identifiers", "check_ac_test_spec_coverage",
+__all__ = ["ac_label_shape", "check_ac_identifiers", "check_ac_test_spec_coverage",
            "check_forward_refs", "check_nfr_adr_coverage",
            "check_module_fr_coverage"]
 
@@ -376,15 +376,37 @@ def check_module_fr_coverage(project: Path) -> list[Violation]:
 # after `AC-`: taskq-advance numbers FR criteria `AC-9.5` and NFR criteria
 # `AC-N12.2`, and a checker that insists on one of those spellings is checking
 # a convention rather than the property (that a later artifact can cite it).
-_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d[\w.\-]*")
+#
+# Round 55: a dot must be followed by a word character, so a range expression
+# stops being one identifier. `AC-1.1..AC-1.10` in a DERIVED note is two ids
+# and a range operator; the old character class spanned both dots and returned
+# the whole span as a single token no criterion will ever carry. Measured: 22
+# of taskq-super's 133 "identifiers" and 1 of taskq-renew's 41 were ranges,
+# and every one of them was permanently unattributable — which matters now
+# that an unattributable id is a finding rather than an `info`.
+_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d[\w\-]*(?:\.[\w\-]+)*")
 # The heading that opens a requirement's section, and the block that holds its
 # criteria. Both SRS files write the block as a bolded label, not a heading.
 _REQ_HEADING = re.compile(r"^#{1,6}\s+((?:FR|NFR)-\d+)\b[^\n]*$", re.MULTILINE)
-# Case-insensitive on the label: taskq-advance writes "**Acceptance Criteria**"
-# and taskq-renew writes "**Acceptance criteria**", and a checker that reads one
-# of them returns nothing for the other and reports zero findings.
+# The bolded label that opens the criteria block, in the shape the Phase 1
+# prompt permits. `_AC_LABEL_RE` is that shape on its own; `AC_LABEL_SHAPE`
+# below is the sentence the prompt renders from it, so the two cannot drift.
+#
+# Case-insensitive: taskq-advance writes "**Acceptance Criteria**" and
+# taskq-renew writes "**Acceptance criteria**", and a checker that reads one of
+# them returns nothing for the other and reports zero findings.
+#
+# Round 55: the label may carry a qualifier before the closing `**`. The prompt
+# says "under a `**Acceptance criteria**` label"; five of the seven projects
+# read that as permitting `**Acceptance criteria (FR-01)**`, which is a fair
+# reading, and the literal-only regex attributed 0 of taskq-super's 133
+# identifiers and 5 of taskq-renew's 41. With no criteria attributed,
+# `check_ac_test_spec_coverage` had no population and returned a clean bill —
+# which is how `AC-N7.2` ("`08-config/SBOM.json` exists") reached delivery
+# without a TEST_SPEC case, a test, or the file.
+_AC_LABEL_RE = r"\*\*Acceptance criteria\b[^*\n]*\*\*"
 _AC_BLOCK = re.compile(
-    r"\*\*Acceptance criteria\*\*[^\n]*\n(.*?)(?=\n#{1,6}\s|\n\*\*[A-Z]|\Z)",
+    _AC_LABEL_RE + r"[^\n]*\n(.*?)(?=\n#{1,6}\s|\n\*\*[A-Z]|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
 _BULLET = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
@@ -396,6 +418,24 @@ _BULLET = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
 # for the heading projects and reports zero findings — an abstention that
 # reads as a clean bill, which is the defect Round 46 站1 named.
 _AC_HEADING = re.compile(r"^#{1,6}\s+(AC-[A-Za-z]?\d[\w.\-]*)\b[^\n]*$", re.MULTILINE)
+
+
+def ac_label_shape() -> str:
+    """The criteria-block label, as one sentence the Phase 1 prompt renders.
+
+    Round 55. The prompt used to state the shape in prose and this module
+    matched it with a regex, and the two disagreed on whether a qualifier was
+    allowed — five of seven projects wrote the qualified form the prompt reads
+    as legal and the parser read as absent. Interpolating the prompt from here
+    is the only arrangement in which widening one widens the other (Round 17
+    站1's prompt-gate parity); `tests/test_ac_traceability.py` asserts that
+    every example in this sentence is one `_AC_BLOCK` actually accepts.
+    """
+    return (
+        "a `**Acceptance criteria**` label (case-insensitive, and it may carry "
+        "a qualifier before the closing asterisks — `**Acceptance Criteria "
+        "(FR-01)**` is read the same way)"
+    )
 
 
 def _srs_acceptance_criteria(project: Path) -> dict[str, list[str]]:
@@ -454,6 +494,18 @@ def check_ac_identifiers(project: Path) -> list[Violation]:
     # them under `- DERIVED:` parents outside the labelled block; five were
     # attributed. Chasing each project's markdown dialect would be fitting the
     # parser to its fixtures, which is the defect this round is about.
+    #
+    # Round 55 keeps this row at `info`, and the station's own red test that
+    # said otherwise was wrong: `test_identifiers_outside_a_readable_shape_are
+    # _reported_as_unread` already fixes the severity here, on the ground that
+    # a shape the framework cannot read is the framework's debt (Round 32 站4).
+    # That is right. The abstention that must block is a different sentence —
+    # "this checker built no population at all" — and it belongs in
+    # `check_ac_test_spec_coverage`, which is the check whose silence read as
+    # a pass. Only the message widens here: the label shape now comes from
+    # `ac_label_shape()` (the same string the Phase 1 prompt renders), and the
+    # unread identifiers are listed in full rather than three at a time,
+    # because three of 133 is not an actionable report.
     srs = ProjectLayout(project).srs_path
     if srs.exists():
         found = set(_AC_ID.findall(srs.read_text(encoding="utf-8", errors="replace")))
@@ -466,9 +518,10 @@ def check_ac_identifiers(project: Path) -> list[Violation]:
                 file="01-requirements/SRS.md",
                 message=(f"{len(missed)} `AC-` identifier(s) in SRS.md are not "
                          f"inside a shape this check can read (a `#### AC-x` "
-                         f"heading, or a bullet under **Acceptance criteria**) — "
-                         f"they are unchecked, not clean; e.g. "
-                         f"{sorted(missed)[:3]}")))
+                         f"heading, or a bullet under "
+                         f"{ac_label_shape()}) — "
+                         f"they are unchecked, not clean; "
+                         f"{sorted(missed)}")))
     return violations
 
 
@@ -480,6 +533,15 @@ def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
     passing; `check_ac_identifiers` above is the guard that says the
     population is missing. With criteria present and TEST_SPEC absent, every
     one is uncovered and each is named.
+
+    Round 55 splits the empty case in two, because it was carrying two facts.
+    An SRS with no `AC-` identifier anywhere really has no population, and
+    `check_ac_identifiers`'s `ac_unnumbered` is the row for it. An SRS with
+    identifiers this parser attributed to no requirement is a different
+    animal: the population exists, this check did not build it, and returning
+    `[]` published that as coverage. taskq-super carried 133 identifiers, 0
+    attributed and 0 findings through Gate 4 — which is the shape Round 46 站1
+    named, arriving in the check Round 51 wrote to close it.
     """
     project = Path(project)
     declared: dict[str, str] = {}
@@ -488,7 +550,21 @@ def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
             for ac in _AC_ID.findall(bullet):
                 declared.setdefault(ac, req_id)
     if not declared:
-        return []
+        srs = ProjectLayout(project).srs_path
+        present = set(_AC_ID.findall(
+            srs.read_text(encoding="utf-8", errors="replace"))) if srs.exists() else set()
+        if not present:
+            return []
+        return [Violation(
+            check_type="ac_population_unread", rule_id="SRS", severity="error",
+            file="01-requirements/SRS.md",
+            message=(
+                f"SRS.md carries {len(present)} `AC-` identifier(s) and this "
+                f"check attributed none of them to a requirement, so it "
+                f"compared nothing against TEST_SPEC.md and would otherwise "
+                f"report full coverage. Put each criterion under its "
+                f"requirement's heading as a `#### AC-x.y` heading or as a "
+                f"bullet under {ac_label_shape()}; e.g. {sorted(present)[:3]}"))]
 
     test_spec = ProjectLayout(project).test_spec_path
     cited: set[str] = set()
