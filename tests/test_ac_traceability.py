@@ -228,6 +228,117 @@ def test_the_lowercase_label_is_read(tmp_path):
     )
 
 
+# ---------------------------------------------------------------------------
+# Round 55 — the label the prompt permits, the abstention that read as clean,
+# and the two checks nobody ran.
+# ---------------------------------------------------------------------------
+
+# The shape five of the seven projects on this machine actually wrote. The P1
+# prompt says "a bolded prefix on a bullet under a `**Acceptance criteria**`
+# label"; qualifying the label with the requirement id is a reading of that
+# sentence, and it is the reading the agent took every time.
+_SRS_QUALIFIED_LABEL = """\
+# SRS
+
+### NFR-07: 依賴與授權合規
+
+**Acceptance criteria (NFR-07)**
+
+- **AC-N7.1** — `pip-licenses --format=json --with-system` reports every package.
+- **AC-N7.2** — `08-config/SBOM.json` exists; every entry has `name`, `version`,
+  `license`, and `direct|transitive`.
+"""
+
+
+def test_a_qualified_acceptance_criteria_label_is_read(tmp_path):
+    """`**Acceptance criteria (NFR-07)**` is the live shape, and it was invisible.
+
+    Measured over the seven projects: the literal-label regex attributed 0 of
+    taskq-super's 133 `AC-` identifiers and 5 of taskq-renew's 41. With zero
+    attributed, `check_ac_test_spec_coverage` has no population and returns a
+    clean bill — which is how AC-N7.2 (`08-config/SBOM.json` must exist) went
+    from the SRS to delivery without ever being cited by a TEST_SPEC case.
+    """
+    from core.quality_gate.artifact_consistency import _srs_acceptance_criteria
+
+    criteria = _srs_acceptance_criteria(_project(tmp_path, _SRS_QUALIFIED_LABEL))
+    assert "NFR-07" in criteria, (
+        "the bolded label carried the requirement id and the parser read the "
+        "section as having no acceptance criteria at all"
+    )
+    assert any("AC-N7.2" in line for line in criteria["NFR-07"])
+
+
+def test_a_range_expression_is_two_identifiers_not_one():
+    """`AC-1.1..AC-1.10` in a DERIVED note is a range, not an identifier.
+
+    The id regex's character class spans `.` and `-`, so it swallowed the whole
+    range as one token. Measured: 22 of taskq-super's 133 "identifiers" and 1
+    of taskq-renew's 41 were range expressions — tokens no criterion will ever
+    carry, and therefore permanently unattributable. Any check that treats
+    unattributed ids as findings would report them forever.
+    """
+    from core.quality_gate.artifact_consistency import _AC_ID
+
+    assert _AC_ID.findall("AC-1.1..AC-1.10") == ["AC-1.1", "AC-1.10"]
+    # The spellings the corpus does use must survive unchanged.
+    assert _AC_ID.findall("AC-N7.2") == ["AC-N7.2"]
+    assert _AC_ID.findall("AC-01-1") == ["AC-01-1"]
+    assert _AC_ID.findall("- **AC-9.5**: metrics") == ["AC-9.5"]
+
+
+def test_an_unreadable_criterion_blocks_rather_than_informs(tmp_path):
+    """Round 46's rule, applied to the checker Round 46 built.
+
+    An `AC-` identifier the parser saw but could not attribute to any
+    requirement is unchecked, not clean. It was reported at severity `info`,
+    which no caller acts on, while the coverage check next to it returned `[]`.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_identifiers
+
+    srs = """\
+# SRS
+
+### FR-03: Circuit breaker
+
+> DERIVED: decomposed into 5 ACs (AC-3-1 retry policy, AC-3-2 OPEN threshold).
+
+#### AC-3.1
+Retry policy is honoured.
+"""
+    v = check_ac_identifiers(_project(tmp_path, srs))
+    gaps = [x for x in v if x.check_type == "ac_parse_gap"]
+    assert gaps, "the two prose ids belong to no criterion and were not reported"
+    assert all(x.severity == "error" for x in gaps), (
+        "an identifier nothing can check is not an `info` — it is the "
+        "population the next check silently reported as covered"
+    )
+
+
+def test_preflight_artifact_consistency_runs_the_two_ac_checks(tmp_path):
+    """The executor. Both checks existed; `build_fingerprint` only recorded them.
+
+    taskq-advance carried 86 acceptance criteria that no TEST_SPEC case cites
+    and blocked nothing, because the only consumer of the finding was a JSON
+    field. Blocking starts at P3, matching `check_nfr_adr_coverage` — the
+    citation cannot be demanded before the artifact that would carry it exists.
+    """
+    from core.phase_hooks import PhaseHooks
+
+    project = _project(tmp_path, _SRS_IDENTIFIED, _TEST_SPEC_MISSING_ONE)
+    (project / ".methodology").mkdir(exist_ok=True)
+    hooks = PhaseHooks(project_path=str(project), phase=3)
+    res = hooks.preflight_artifact_consistency()
+
+    assert res.get("passed") is False, (
+        "AC-9.5 is cited by no TEST_SPEC case and the preflight passed"
+    )
+    detail = " ".join(
+        str(d.get("message", "")) for d in (res.get("error_details") or [])
+    ) + str(res.get("error", ""))
+    assert "AC-9.5" in detail, "the block must name the criterion, not the count"
+
+
 def test_identifiers_outside_a_readable_shape_are_reported_as_unread(tmp_path):
     """Not clean — unchecked. The distinction Round 46 站1 exists to keep."""
     from core.quality_gate.artifact_consistency import check_ac_identifiers
