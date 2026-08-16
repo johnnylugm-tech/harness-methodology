@@ -216,6 +216,22 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "the gate before editing the recipe — the recipe, not the run, is "
         "what failed.",
     ),
+    "arch_constraint_unconfigured": (
+        "A declared architecture constraint has an executor nobody switched on",
+        "Each entry names a constraint from the SAB's `architecture_constraints`, "
+        "the tool this framework ALREADY RUNS that can decide it, and the "
+        "configuration that would let it. These are not constraints the "
+        "framework cannot check — they are constraints it is running the "
+        "checker for while the checker has been told to ignore them. Two "
+        "shapes: an import-linter contract of the named type is missing from "
+        ".importlinter / setup.cfg, or bandit test ids are listed under "
+        "`skips`. Write the contract, or remove the ids from `skips`, then "
+        "re-run the gate. Do NOT delete the constraint from the SAB to clear "
+        "this — a constraint nothing can decide is recorded and never blocked, "
+        "so deleting a declaration only makes the record less true. Do not "
+        "lower any dimension score to express it either: the configuration, "
+        "not the code, is what failed.",
+    ),
     "stubbed_boundary_never_run": (
         "A boundary the test suite replaces is never executed for real",
         "Each entry names a function an `autouse` fixture monkeypatches away "

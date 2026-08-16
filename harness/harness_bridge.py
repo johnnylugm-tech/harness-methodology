@@ -3036,8 +3036,38 @@ class HarnessBridge:
         # is decided, and leave the ones with no executor in the ledger —
         # taskq-api's VERIFICATION_REPORT certified five constraints honoured
         # while two of them were being violated in the delivered tree.
-        from core.quality_gate.arch_constraints import record_constraint_status
-        record_constraint_status(ctx.project_root, ctx.sab_data)
+        from core.quality_gate.arch_constraints import (
+            record_constraint_status,
+            unconfigured_blocking_reason,
+        )
+        _constraint_rows = record_constraint_status(ctx.project_root, ctx.sab_data)
+
+        # ── Round 54: the state the project can actually fix ────────────────
+        # Round 51 站2 recorded all of these and blocked on none, which was
+        # right while the two available states were "checked" and "nothing can
+        # check it". Station 1 split off the third: a tool the framework
+        # already runs decides this constraint, and this project has not
+        # configured it. Measured across the seven projects here, 8 of the 23
+        # constraints are in that state — taskq-super declares
+        # `no_circular_dependencies` and `sqlalchemy_only_in_repository` and
+        # ships an import-linter config carrying neither a `layers` nor a
+        # `forbidden` contract.
+        #
+        # `declared_only` is still never blocked, and the reason is in
+        # `unconfigured_blocking_reason`: the only way to satisfy a block on a
+        # constraint nothing can decide is to delete the declaration, which
+        # makes the SAB less true rather than the code better.
+        _constraint_reason = unconfigured_blocking_reason(_constraint_rows)
+        if _constraint_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"arch_constraint_unconfigured": [_constraint_reason]},
+            )
 
         # ── Round 51 站3: a number measured over a suite that removed the
         # thing it measures ──────────────────────────────────────────────────
