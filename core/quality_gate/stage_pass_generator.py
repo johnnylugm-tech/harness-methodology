@@ -540,7 +540,15 @@ class IntegratedStagePassGenerator:
         try:
             subprocess.run(["git", "add", str(output_path)], check=True, capture_output=True)  # nosec B603 B607
             msg = f"chore: Phase {self.phase} STAGE_PASS — {SKILL_REF}"
-            subprocess.run(["git", "commit", "-m", msg], check=True, capture_output=True)  # nosec B603 B607
+            # Round 53 站2: `-- <path>`. This function writes one file and adds
+            # one file, but a bare `git commit` commits the INDEX, so anything
+            # another command left staged rides along — including a framework
+            # transient that did not close (a killed mutmut leaves the mutated
+            # source and its `.bak`). Station 0's premise P3 counted seven
+            # commit sites in this repository; the other five already name
+            # their paths, which is what makes them unable to ship someone
+            # else's dirt. This one now does too, so it needs no custody check.
+            subprocess.run(["git", "commit", "-m", msg, "--", str(output_path)], check=True, capture_output=True)  # nosec B603 B607
             subprocess.run(["git", "push"], check=True, capture_output=True)  # nosec B603 B607
             
             result = subprocess.run(  # nosec B603 B607

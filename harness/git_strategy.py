@@ -1119,6 +1119,24 @@ class GitStrategy:
         if not self._has_changes():
             print("  [git] nothing to commit — skip")
             return True
+        # Round 53 站2: this stages the whole worktree, so what it commits is
+        # "whatever is dirty" rather than "what this phase produced. When the
+        # framework's own transient write into the judged tree did not close —
+        # a killed mutmut leaves the mutated source and its `.bak` — the dirt
+        # is the framework's. taskq-super's `5535033 release(P6): Gate4 PASS
+        # score=93.9` is that commit: `"sqlite:///:memory:"` shipped as
+        # `"XXsqlite:///:memory:XX"` alongside rate_repo.py.bak.
+        #
+        # Narrow on purpose. `add -A` keeps its meaning; this is one
+        # precondition in front of it. Station 0's premise P3 refuted the
+        # plan's assumption that this was the only commit site — there are
+        # seven, and the five that pass an explicit pathspec cannot pick up a
+        # stray mutant, so they do not ask.
+        from core.tree_custody import assert_no_open_custody
+        _custody_reason = assert_no_open_custody(self.project)
+        if _custody_reason:
+            print(f"  [git BLOCKED] {_custody_reason}")
+            return False
         r1 = self._run_git("add", "-A")
         if r1.returncode != 0:
             print(f"  [git WARN] git add failed: {r1.stderr[:200]}")
