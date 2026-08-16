@@ -112,8 +112,13 @@ def test_root_packages_plural_is_read(tmp_path):
     )
 
 
-def test_a_contract_that_leaves_modules_out_is_not_enforced(tmp_path):
-    """One layer named, three delivered — the checker is on and looking at nothing."""
+def test_a_one_layer_contract_states_no_order(tmp_path):
+    """The escape from Round 54's `unconfigured`, closed by a definition.
+
+    `type = layers` with one entry answers "is there a contract of this kind"
+    with yes and constrains nothing. Two is not a threshold — a `layers`
+    contract IS a statement about ordering, and one element has no order.
+    """
     from core.quality_gate.arch_constraints import (
         STATUS_UNCONFIGURED,
         classify_constraints,
@@ -122,22 +127,32 @@ def test_a_contract_that_leaves_modules_out_is_not_enforced(tmp_path):
     rows = classify_constraints(
         ["no_circular_dependencies"], _project(tmp_path, _CONTRACT_ONE_LAYER))
     assert rows and rows[0]["status"] == STATUS_UNCONFIGURED, (
-        "a `layers` contract naming one of three delivered modules read as "
-        "`enforced`, which is the state Round 54 introduced to mean "
-        "'this constraint is actually being decided'"
+        "a `layers` contract naming one layer read as `enforced`, which is "
+        "the state Round 54 introduced to mean 'this constraint is actually "
+        "being decided'"
     )
-    assert "pkg.service" in rows[0]["evidence"], (
-        "the evidence must name the modules the contract does not reach"
-    )
+    assert "order" in rows[0]["evidence"]
 
 
-def test_a_contract_covering_the_delivery_is_enforced(tmp_path):
-    """The control: a real contract must not be punished into looking broken."""
+def test_a_real_contract_is_enforced_and_carries_its_gap(tmp_path):
+    """The control, and the boundary written into the evidence.
+
+    A contract that names an order is enforced. What it does NOT reach is
+    reported in the same string and never decided on: measured over the seven
+    projects, every correctly-layered one still leaves the composition root,
+    `__main__`, config and errors outside every contract, so a rule that turned
+    that count into a verdict would fail the projects it was written to pass
+    (Round 32 站4 — a diagnostic is not a verdict).
+    """
     from core.quality_gate.arch_constraints import (
         STATUS_ENFORCED,
         classify_constraints,
     )
 
-    rows = classify_constraints(
-        ["no_circular_dependencies"], _project(tmp_path, _CONTRACT_FULL))
+    project = _project(tmp_path, _CONTRACT_FULL)
+    # `pkg/__init__.py` is delivered and no layer names it — the same shape
+    # every real project has, at its smallest.
+    rows = classify_constraints(["no_circular_dependencies"], project)
     assert rows and rows[0]["status"] == STATUS_ENFORCED
+    assert "outside every contract" in rows[0]["evidence"]
+    assert "pkg" in rows[0]["evidence"]

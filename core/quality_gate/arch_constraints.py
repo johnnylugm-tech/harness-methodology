@@ -180,6 +180,18 @@ def read_import_contracts(project: "str | Path") -> dict:
     contract file is a project with no layering enforcement, which is a
     different fact from a project whose contracts leave a module out, and both
     callers below need to tell them apart.
+
+    Round 55: import-linter accepts ``root_package`` (one) and ``root_packages``
+    (a newline list); this read only the singular. taskq-plus and taskq-super
+    both write the plural, so both came back with an empty root package — and
+    ``contract_coverage_gap``'s first guard is `if not root_package … return []`,
+    so the check that asks which delivered modules no contract constrains
+    returned "none" for the two projects with the emptiest contracts. With the
+    plural read, taskq-super goes from 0 to 20 uncovered modules (every module
+    it delivers) and taskq-plus from 0 to 5; the three projects that spell it in
+    the singular are unchanged. ``root_package`` stays singular in the return —
+    the first entry is the one every caller here means, and a multi-package
+    project is not in this corpus.
     """
     project = Path(project)
     root_package = ""
@@ -195,7 +207,12 @@ def read_import_contracts(project: "str | Path") -> dict:
             continue
         if not parser.has_section("importlinter"):
             continue
-        root_package = parser.get("importlinter", "root_package", fallback="").strip()
+        _roots = "\n".join(
+            parser.get("importlinter", key, fallback="")
+            for key in ("root_package", "root_packages")
+        )
+        root_package = next(
+            (ln.strip() for ln in _roots.splitlines() if ln.strip()), "")
         for section in parser.sections():
             if not section.startswith("importlinter:contract:"):
                 continue
@@ -294,9 +311,37 @@ def _evaluate(candidate: dict, project: "str | Path | None") -> "tuple[str, str]
                 f"{candidate['executor']} decides this, and this project has "
                 f"no contract of type {want!r}"
             )
+        # Round 55: a contract of the right kind is not automatically a
+        # contract that decides anything. `type = layers` with a single layer
+        # named satisfies the question above and expresses no order at all, so
+        # `unconfigured` — the state Round 54 introduced to stop a project
+        # switching its checker off — could be cleared by switching it back on
+        # over an empty domain. Two layers is not a threshold: a `layers`
+        # contract IS a statement about ordering, and one element has none.
+        sources: list = next(
+            (c["sources"] for c in contracts if c["type"] == want and c["name"] == name),
+            [])
+        if want == "layers" and len(sources) < 2:
+            return STATUS_UNCONFIGURED, (
+                f"{candidate['executor']} contract {name!r} names "
+                f"{len(sources)} layer(s); a `layers` contract states an "
+                f"order, and an order needs at least two"
+            )
+        # Which delivered modules no contract reaches is reported, never
+        # decided on. `contract_coverage_gap`'s own docstring calls it "the
+        # contract's shape and not the violation", and measured over the
+        # corpus every correctly-layered project still leaves four modules
+        # out (the composition root, `__main__`, config, errors) — a diagnostic
+        # with that distribution is not a verdict (Round 32 站4).
+        gap = contract_coverage_gap(project) if project else []
+        note = ""
+        if gap:
+            shown = ", ".join(gap[:5]) + ("…" if len(gap) > 5 else "")
+            note = (f" — {len(gap)} delivered module(s) sit outside every "
+                    f"contract and are not decided by it: {shown}")
         return STATUS_ENFORCED, (
             f"{candidate['executor']} contract {name!r} (type {want}) — "
-            f"{limits}"
+            f"{limits}{note}"
         )
 
     cfg = read_bandit_config(project) if project else {
