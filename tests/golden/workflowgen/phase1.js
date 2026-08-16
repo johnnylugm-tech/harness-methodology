@@ -586,7 +586,10 @@ async function persistApproval(deliverableId, b2) {
       res = await dispatch(
         (attempt === 1
           ? 'You are a SHELL WRAPPER AGENT. Run EXACTLY this Bash command:\n\n' + cmd + '\n\nThen report via the StructuredOutput tool: pass = true ONLY if stdout contains `[write-approval] OK`; reason = the verbatim stdout tail. No other tool calls.'
-          : 'You are a SHELL WRAPPER AGENT (retry ' + attempt + '/' + MAX_OUTER_ATTEMPTS + '). Previous attempt stderr:\n' + (lastErr ?? '(none)') + '\n\nIf stderr contains `BLOCKED: citation(s) do not resolve`, the cited range end exceeds the file length; the orchestrator must re-dispatch Agent B with the cited file path and a reminder to run `wc -l <path>` before writing the citation. Report stderr verbatim via StructuredOutput reason. Then run:\n\n' + cmd + '\n\nReport via StructuredOutput: pass = true ONLY if stdout contains `[write-approval] OK`.'
+          : 'You are a SHELL WRAPPER AGENT (retry ' + attempt + '/' + MAX_OUTER_ATTEMPTS + '). Previous attempt stderr:\n' + (lastErr ?? '(none)') + '\n\nIf stderr contains `BLOCKED: citation(s) do not resolve`, the cited path is invalid for one of two reasons:\n'
+          + '  (a) the cited file does not exist — every `path:line` Agent B writes must pass `test -f <path>` from the project root BEFORE re-dispatching; pick a real file from the deliverable, the spec, or `harness/`. Citing an out-of-tree path (e.g. `spec_parser.py` when the project has no such file) is the most common failure mode.\n'
+          + '  (b) the cited line number is out of range — the cited file exists but the line does not; run `wc -l <path>` and clamp the cited line to the file length.\n'
+          + 'Report stderr verbatim via StructuredOutput reason. Then run:\n\n' + cmd + '\n\nReport via StructuredOutput: pass = true ONLY if stdout contains `[write-approval] OK`.'
         ),
         { label: 'persist-' + deliverableId + '-try' + attempt, phase: 'Persist Approval', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
       )
