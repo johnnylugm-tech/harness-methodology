@@ -41,21 +41,37 @@ actually checked.
 from __future__ import annotations
 
 import configparser
+import logging
 from pathlib import Path
 
 __all__ = [
     "CONSTRAINT_EXECUTOR_CANDIDATES",
     "STATUS_DECLARED_ONLY",
     "STATUS_ENFORCED",
+    "STATUS_UNCONFIGURED",
     "classify_constraints",
     "contract_coverage_gap",
+    "read_bandit_config",
     "read_import_contracts",
     "record_constraint_status",
+    "unconfigured_blocking_reason",
 ]
 
 STATUS_ENFORCED = "enforced"
+STATUS_UNCONFIGURED = "unconfigured"
 STATUS_DECLARED_ONLY = "declared_only"
 
+# Round 54. Three states, because two were saying three different things:
+#
+#   enforced       a tool the framework runs decides this, and the evidence
+#                  names the tool and what in its config makes the claim true
+#   unconfigured   such a tool exists and runs, and THIS project has not
+#                  enabled it — the only state that can be blocked, because it
+#                  is the only one where the framework can say what to do
+#   declared_only  nothing in this framework can decide it; recorded forever,
+#                  never blocked. Blocking it would make projects delete true
+#                  statements about themselves rather than write checks.
+#
 # What a constraint is about -> which tool could decide it, and what has to be
 # present in that tool's config before the claim is made. Keyed on substrings
 # because the strings are the project's own words: taskq-api wrote
@@ -63,23 +79,92 @@ STATUS_DECLARED_ONLY = "declared_only"
 # `sqlalchemy_imports_only_in_repository_layer`, and the framework must read
 # both without either project having been told a vocabulary.
 #
-# Adding an entry is a claim that the named tool decides that constraint. It is
-# not enough for the tool to run — `contract_kind` names the shape its config
-# must have, and `classify_constraints` looks for it before saying `enforced`.
+# Adding an entry is a claim that the named tool decides that constraint, and
+# `requires` says what has to be true of the project's config before the claim
+# is made. The two executors ask that question with opposite polarity, which is
+# why it is a per-executor predicate rather than one lookup:
+#
+#   import-linter  checks only what the project declared, so an absent
+#                  contract of the right kind means nothing is checked
+#   bandit         runs every test unless the project opts out, so an absent
+#                  config means everything is checked
+#
+# `limits` is not decoration. Station 0 measured bandit on a fixture holding
+# both the direct and the indirect form of each violation: it flags
+# `subprocess(cmd, shell=True)` as B602 but reads `subprocess(cmd, **opts)` as
+# B603, and it flags `eval(x)` but not `fn = eval; fn(x)`. `enforced` inherits
+# the executor's reach and the evidence string has to say so — the same way
+# `contract_coverage_gap` already reports separately that an import-linter
+# contract can be kept while leaving modules unconstrained.
 CONSTRAINT_EXECUTOR_CANDIDATES: tuple[dict, ...] = (
     {
         "about": "no import cycles between layers",
         "keywords": ("circular", "cycle", "layering", "layered"),
         "executor": "import-linter",
-        "contract_kind": "layers",
+        "requires": ("contract", "layers"),
+        "limits": "only the modules the contract names",
+        "remedy": "add an [importlinter:contract:…] section with `type = layers` "
+                  "listing this project's layers, top to bottom",
     },
     {
         "about": "a package may only be imported from one layer",
         "keywords": ("only_in", "imports_only", "isolation", "restricted_to"),
         "executor": "import-linter",
-        "contract_kind": "forbidden",
+        "requires": ("contract", "forbidden"),
+        "limits": "only the modules the contract names",
+        "remedy": "add an [importlinter:contract:…] section with "
+                  "`type = forbidden`, `source_modules` the layers that may "
+                  "not import it and `forbidden_modules` the package itself",
+    },
+    {
+        "about": "two modules may not import each other",
+        "keywords": ("independence", "independent"),
+        "executor": "import-linter",
+        "requires": ("contract", "independence"),
+        "limits": "only the modules the contract names",
+        "remedy": "add an [importlinter:contract:…] section with "
+                  "`type = independence` listing the modules under `modules`",
+    },
+    {
+        "about": "no shell invocation",
+        "keywords": ("shell_true", "shell=true", "no_shell"),
+        "executor": "bandit",
+        "requires": ("bandit_tests", ("B602", "B604", "B605", "B609")),
+        "limits": "syntactic — a shell=True passed through **kwargs reads as "
+                  "B603 and is not flagged",
+        "remedy": "remove these ids from `skips` (or from `tests`) in .bandit "
+                  "or setup.cfg [bandit]",
+    },
+    {
+        "about": "no eval or exec",
+        "keywords": ("eval", "exec"),
+        "executor": "bandit",
+        "requires": ("bandit_tests", ("B307", "B102")),
+        "limits": "syntactic — an aliased `fn = eval; fn(x)` is not flagged",
+        "remedy": "remove these ids from `skips` (or from `tests`) in .bandit "
+                  "or setup.cfg [bandit]",
+    },
+    {
+        "about": "no string-built SQL",
+        "keywords": ("sql_concat", "string_sql", "sql_string", "concatenat"),
+        "executor": "bandit",
+        "requires": ("bandit_tests", ("B608",)),
+        "limits": "syntactic — catches f-string and `+` construction, "
+                  "including inside a helper, but not SQL assembled across "
+                  "several statements",
+        "remedy": "remove B608 from `skips` (or from `tests`) in .bandit or "
+                  "setup.cfg [bandit]",
     },
 )
+
+# Which gate dimension routes to each executor. Read through the registry's own
+# per-language map rather than assuming: `security` is bandit for Python and
+# semgrep-js for JS/TS, whose rule ids are a different vocabulary entirely, so
+# a bandit candidate must not speak for a JS project.
+_EXECUTOR_DIMENSION: dict[str, str] = {
+    "import-linter": "architecture_constraints",
+    "bandit": "security",
+}
 
 
 def _config_sources(project: Path) -> list[Path]:
@@ -134,23 +219,124 @@ def read_import_contracts(project: "str | Path") -> dict:
     return {"root_package": root_package, "contracts": contracts}
 
 
+def read_bandit_config(project: "str | Path") -> dict:
+    """The project's bandit `skips` / `tests` lists.
+
+    Returns ``{"skips": frozenset, "tests": frozenset, "configured": bool}``.
+    `configured` is False when the project has no `[bandit]` section anywhere,
+    which for bandit means **every test is enabled** — the opposite of
+    import-linter, where no config means nothing is checked. Station 0 measured
+    six of the seven projects here in that state.
+
+    Values are written as an ini list (`skips = B101,B307`) and sometimes with
+    the brackets of a TOML list left in (`skips = []`), so both are stripped.
+    """
+    project = Path(project)
+    for path, section in ((project / ".bandit", "bandit"),
+                          (project / "setup.cfg", "bandit")):
+        if not path.is_file():
+            continue
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(path, encoding="utf-8")
+        except (configparser.Error, OSError, UnicodeDecodeError):
+            continue
+        if not parser.has_section(section):
+            continue
+
+        def _ids(key: str) -> frozenset:
+            raw = parser.get(section, key, fallback="")  # noqa: B023
+            return frozenset(
+                tok for tok in
+                (t.strip().strip("[]'\" ") for t in raw.replace("\n", ",").split(","))
+                if tok
+            )
+
+        return {"skips": _ids("skips"), "tests": _ids("tests"),
+                "configured": True}
+    return {"skips": frozenset(), "tests": frozenset(), "configured": False}
+
+
+def _project_executor_tool(project: "str | Path | None", dimension: str) -> str:
+    """Which tool this project's language routes *dimension* to."""
+    from harness.toolchains.registry import DIMENSION_TOOLS
+
+    language = "python"
+    if project is not None:
+        try:
+            from core.state_io import load_state
+            language = str(load_state(project, lenient=True).get("language")
+                           or "python")
+        except Exception:  # pylint: disable=broad-exception-caught
+            logging.getLogger(__name__).debug(
+                "arch-constraints: state.json unreadable for %s", project,
+                exc_info=True,
+            )
+    tool = DIMENSION_TOOLS.get(language, {}).get(dimension, "")
+    return tool if isinstance(tool, str) else ""
+
+
+def _evaluate(candidate: dict, project: "str | Path | None") -> "tuple[str, str]":
+    """`(status, evidence)` for a constraint that matched *candidate*.
+
+    Never `declared_only`: reaching here means a tool that decides this kind of
+    constraint exists. The only question left is whether this project has it
+    switched on.
+    """
+    kind, want = candidate["requires"]
+    limits = candidate["limits"]
+
+    if kind == "contract":
+        contracts = read_import_contracts(project)["contracts"] if project else []
+        name = next((c["name"] for c in contracts if c["type"] == want), "")
+        if not name:
+            return STATUS_UNCONFIGURED, (
+                f"{candidate['executor']} decides this, and this project has "
+                f"no contract of type {want!r}"
+            )
+        return STATUS_ENFORCED, (
+            f"{candidate['executor']} contract {name!r} (type {want}) — "
+            f"{limits}"
+        )
+
+    cfg = read_bandit_config(project) if project else {
+        "skips": frozenset(), "tests": frozenset(), "configured": False}
+    disabled = [t for t in want if t in cfg["skips"]]
+    if cfg["tests"]:
+        disabled += [t for t in want if t not in cfg["tests"] and t not in disabled]
+    if disabled:
+        # Partial disablement counts. A constraint reading "no shell, no eval,
+        # no exec" is not enforced by a bandit told to ignore eval.
+        return STATUS_UNCONFIGURED, (
+            f"{candidate['executor']} decides this via {','.join(want)}, and "
+            f"this project has disabled {','.join(sorted(disabled))}"
+        )
+    return STATUS_ENFORCED, (
+        f"{candidate['executor']} tests {','.join(want)}"
+        + ("" if cfg["configured"] else " (enabled by default; no [bandit] config)")
+        + f" — {limits}"
+    )
+
+
 def classify_constraints(
     constraints: "list[str] | tuple[str, ...]",
     project: "str | Path | None" = None,
 ) -> list[dict]:
     """One row per declared constraint, in declaration order.
 
-    Each row is ``{"constraint", "status", "executor", "evidence"}``.
-    ``executor`` and ``evidence`` are empty for a `declared_only` row — there
-    is nothing to name.
+    Each row is ``{"constraint", "status", "executor", "evidence", "remedy"}``.
+    `executor`, `evidence` and `remedy` are empty for a `declared_only` row —
+    there is nothing to name and nothing to do.
 
-    With no *project* nothing can be `enforced`: the claim depends on the
-    project's own contract file, and a classification made without reading it
-    would be the same guess this module exists to remove.
+    With no *project* nothing can be `enforced`: every claim depends on the
+    project's own config, and a classification made without reading it would be
+    the same guess this module exists to remove.
+
+    A candidate whose executor is not the tool this project's language routes
+    to falls through to `declared_only`. A JS project declaring `no_shell_true`
+    is a real constraint that this framework cannot decide — semgrep-js has a
+    different rule vocabulary — and saying so is the honest answer.
     """
-    contracts = read_import_contracts(project)["contracts"] if project else []
-    kinds_present = {c["type"]: c["name"] for c in contracts if c["type"]}
-
     rows: list[dict] = []
     for constraint in constraints:
         lowered = str(constraint).lower()
@@ -159,21 +345,66 @@ def classify_constraints(
             "status": STATUS_DECLARED_ONLY,
             "executor": "",
             "evidence": "",
+            "remedy": "",
         }
-        for candidate in CONSTRAINT_EXECUTOR_CANDIDATES:
-            if not any(k in lowered for k in candidate["keywords"]):
-                continue
-            contract_name = kinds_present.get(candidate["contract_kind"])
-            if contract_name:
-                row["status"] = STATUS_ENFORCED
-                row["executor"] = candidate["executor"]
-                row["evidence"] = (
-                    f"{candidate['executor']} contract {contract_name!r} "
-                    f"(type {candidate['contract_kind']})"
-                )
-            break
+        # ALL matching candidates, not the first. A constraint is one string
+        # and may name several things: `no_shell_true_no_eval_no_exec` names
+        # three, and matching only the first would give it the shell test ids
+        # and silently drop eval and exec — so a project that skipped B307
+        # would still read `enforced`. A compound constraint is enforced only
+        # when every part of it is.
+        #
+        # With no *project* there is nothing to evaluate against, and the
+        # honest answer is the one this function gave before Round 54: every
+        # row is `declared_only`. Both of the other two states are claims about
+        # a specific project's config — `enforced` that it enabled the tool,
+        # `unconfigured` that it did not — and bandit's "absent config means
+        # everything is on" would otherwise turn a project nobody looked at
+        # into a project certified as covered.
+        matched = [] if project is None else [
+            c for c in CONSTRAINT_EXECUTOR_CANDIDATES
+            if any(k in lowered for k in c["keywords"])
+            and _project_executor_tool(
+                project, _EXECUTOR_DIMENSION[c["executor"]]) == c["executor"]
+        ]
+        verdicts = [(c, *_evaluate(c, project)) for c in matched]
+        if verdicts:
+            unconfigured = [v for v in verdicts if v[1] == STATUS_UNCONFIGURED]
+            decided = unconfigured or verdicts
+            row["status"] = (STATUS_UNCONFIGURED if unconfigured
+                             else STATUS_ENFORCED)
+            row["executor"] = ", ".join(
+                sorted({c["executor"] for c, _, _ in verdicts}))
+            row["evidence"] = "; ".join(ev for _, _, ev in verdicts)
+            if unconfigured:
+                row["remedy"] = "; ".join(
+                    sorted({c["remedy"] for c, _, _ in decided}))
         rows.append(row)
     return rows
+
+
+def unconfigured_blocking_reason(rows: "list[dict]") -> "str | None":
+    """Why the gate stops, or None.
+
+    Only `unconfigured` rows appear. `declared_only` is deliberately absent:
+    the only way a project could satisfy a block on a constraint nothing can
+    decide is to delete the declaration, which would make the SAB less true
+    rather than the code better (Round 51 站2's finding, kept).
+    """
+    stuck = [r for r in rows if r.get("status") == STATUS_UNCONFIGURED]
+    if not stuck:
+        return None
+    lines = [
+        f"  {r['constraint']}\n"
+        f"    {r['evidence']}\n"
+        f"    fix: {r['remedy']}"
+        for r in stuck
+    ]
+    return (
+        f"{len(stuck)} declared architecture constraint(s) name something this "
+        f"framework already runs a tool for, and this project has not "
+        f"configured that tool to decide them:\n" + "\n".join(lines)
+    )
 
 
 def _delivered_modules(project: Path, root_package: str) -> list[str]:
@@ -277,16 +508,34 @@ def record_constraint_status(
     try:
         constraints = list((sab_data or {}).get("architecture_constraints") or [])
         rows = classify_constraints(constraints, project)
+        # Round 54: two rows, because they are two different facts and only one
+        # of them is the project's to fix. Before this the pair was one row
+        # reading "no executor", which was true of seven of the 23 constraints
+        # measured across the projects here and false of the other sixteen.
+        unconfigured = [r["constraint"] for r in rows
+                        if r["status"] == STATUS_UNCONFIGURED]
+        if unconfigured:
+            record_degradation(
+                project, "gate:arch-constraints",
+                f"{len(unconfigured)} of {len(rows)} declared architecture "
+                f"constraints name a tool the framework runs, which this "
+                f"project has not configured to decide them",
+                "the executor exists and is not switched on for these; the "
+                "gate blocks on this and the block names the config to write",
+                data={"unconfigured": unconfigured},
+                owner="project",
+            )
         unenforced = [r["constraint"] for r in rows
                       if r["status"] == STATUS_DECLARED_ONLY]
         if unenforced:
             record_degradation(
                 project, "gate:arch-constraints",
                 f"{len(unenforced)} of {len(rows)} declared architecture "
-                f"constraints have no executor",
-                "the SAB list reaches CLAUDE.md and the gate prompt; no "
-                "deterministic check reads it, so a report may not certify "
-                "these as honoured",
+                f"constraints have no executor in this framework",
+                "the SAB list reaches CLAUDE.md and the gate prompt; nothing "
+                "deterministic can decide these, so a report may not certify "
+                "them as honoured. Recorded, never blocked — the only way to "
+                "satisfy a block here would be to delete a true statement",
                 data={"declared_only": unenforced},
                 owner="project",
             )
