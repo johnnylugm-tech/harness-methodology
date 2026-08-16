@@ -166,3 +166,137 @@ def test_reach_that_could_not_be_measured_is_not_reported_as_clean(tmp_path):
     assert verdict["status"] == "unmeasured"
     assert verdict.get("unmet") is None
     assert verdict["reason"]
+
+
+# ── Round 53 站4/站5a ────────────────────────────────────────────────────────
+#
+# Two defects in the station above, both found by running it against a real
+# project instead of this file's fixtures.
+#
+# taskq-super is the first project to complete P1-P8 under Round 52. Its
+# `make verify-system` is the whole pytest suite plus `-m taskq_api --help`,
+# and its conftest replaces `taskq_api.repository.session.transactional` with
+# an in-memory stand-in in an `autouse` fixture whose own comment still says
+# "GREEN TODO: replace this fixture with a real session fixture ... once
+# `taskq_api.repository.session` is implemented".
+#
+# At Gates 2, 3 and 4 this station reported `reach_status: measured` and
+# `obligations_unmet: []` (git show 7c9bda8/e07a6ee/5535033 of
+# .methodology/delivery_fingerprint.json). The function body *was* executed —
+# inside the very pytest run that stubs it. The obligation was written to mean
+# "something the test suite did not configure has to run this"; when
+# verify-system contains the test suite, the discharging process and the
+# stubbing process are the same process. The check is circular, and it is my
+# defect, not the project's.
+#
+# Station 0's premise P2 measured the fix and refuted half of it. coverage's
+# parallel data files do encode the writing pid
+# (`cov.data.<host>.pid13390.<rand>`), and a `.pth` can record a pid->process
+# map without disturbing `process_startup()`. But `sys.argv` at `.pth` time for
+# `python -m pytest x` is `["-m", "x"]` — the module name is gone — so argv at
+# startup cannot identify the runner. An `atexit` hook sees the completed argv
+# and `sys.modules`, which names it outright.
+#
+# The second defect is arithmetic. `gate:verify-system-reach` fired 116 times
+# on that run, every one "no reach artifact", and correlating each row's `ts`
+# against `gate_timestamps.jsonl` puts all 116 at Gate 1 and none at Gate 2, 3
+# or 4. Gate 1's config has no `execute_verification_target` dimension, so no
+# reach artifact can exist there and the question is not this gate's to ask.
+# 18.5% of that project's whole degradation ledger is this station asking a
+# structurally unanswerable question, filed under owner `harness`.
+
+
+def test_the_stubbing_suite_may_not_discharge_its_own_obligation(tmp_path):
+    """A process that ran the test suite cannot be the witness that it works."""
+    from core.quality_gate.verify_system_reach import (
+        harvest_selection,
+        suite_pids,
+        write_sidecar_row,
+    )
+
+    project = _project(tmp_path)
+    work = project / ".sessi-work"
+    for pid, mods, argv in (
+        (111, ["pytest"], ["/venv/lib/pytest/__main__.py", "03-development/tests"]),
+        (222, [], ["/venv/bin/python", "-m", "demo", "--help"]),
+    ):
+        write_sidecar_row(project, {"pid": pid, "argv": argv, "mods": mods})
+    for pid in (111, 222):
+        (work / f"verify_system.coverage.host.pid{pid}.abc").write_text("x")
+
+    assert suite_pids(project) == {111}
+
+    kept, reason = harvest_selection(project, work / "verify_system.coverage")
+    assert [p.name for p in kept] == ["verify_system.coverage.host.pid222.abc"]
+    assert reason is None
+
+
+def test_a_target_that_is_only_the_test_suite_is_unmeasured_not_discharged(tmp_path):
+    """taskq-super's shape: nothing outside the suite ran, so nothing is proven.
+
+    Round 35 站2 again, and it has to be `unmeasured` rather than `unmet` —
+    the project may well be fine; the framework simply has no witness. A
+    verdict of "unmet" here would be the framework charging a project for its
+    own blind spot (Round 32 站4).
+    """
+    from core.quality_gate.verify_system_reach import (
+        harvest_selection,
+        unmet_obligations,
+        write_reach_unmeasured,
+        write_sidecar_row,
+    )
+
+    project = _project(tmp_path)
+    work = project / ".sessi-work"
+    write_sidecar_row(project, {
+        "pid": 111, "argv": ["/venv/lib/pytest/__main__.py", "03-development/tests"],
+        "mods": ["pytest"],
+    })
+    (work / "verify_system.coverage.host.pid111.abc").write_text("x")
+
+    kept, reason = harvest_selection(project, work / "verify_system.coverage")
+    assert kept == []
+    assert reason and "test suite" in reason
+
+    write_reach_unmeasured(project, reason)
+    verdict = unmet_obligations(project)
+    assert verdict["status"] == "unmeasured"
+    assert verdict.get("unmet") is None
+    assert "test suite" in verdict["reason"]
+
+
+def test_a_gate_without_the_dimension_is_not_asked_the_question(tmp_path):
+    """Gate 1 cannot run verify-system, so it records nothing about it.
+
+    Not "quieten the log" — the gate config is the single source of which
+    dimensions a gate has, and a question outside that set has no answer to
+    record. Round 46 站1's rule cuts the other way here: abstaining is not
+    passing, but a question that was never in scope was never abstained from.
+    """
+    from harness.harness_bridge import _verify_system_reach_block
+
+    project = _project(tmp_path)
+    ledger = project / ".methodology" / "degradations.jsonl"
+
+    class _Ctx:
+        project_root = str(project)
+        gate_num = 1
+        config = {"dimensions": [{"name": "linting"}, {"name": "test_coverage"}]}
+
+    assert _verify_system_reach_block(_Ctx()) == []
+    rows = ledger.read_text(encoding="utf-8") if ledger.exists() else ""
+    assert "verify-system-reach" not in rows, (
+        "116 of taskq-super's 626 ledger rows were this question asked at "
+        "Gate 1, where the dimension does not exist"
+    )
+
+    class _Gate4Ctx(_Ctx):
+        gate_num = 4
+        config = {"dimensions": [{"name": "execute_verification_target"}]}
+
+    assert _verify_system_reach_block(_Gate4Ctx()) == []
+    rows = ledger.read_text(encoding="utf-8") if ledger.exists() else ""
+    assert "verify-system-reach" in rows, (
+        "at a gate that does have the dimension, an unmeasured reach is still "
+        "recorded — the positive control for the scoping above"
+    )
