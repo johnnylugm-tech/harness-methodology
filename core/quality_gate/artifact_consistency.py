@@ -384,7 +384,7 @@ def check_module_fr_coverage(project: Path) -> list[Violation]:
 # of taskq-super's 133 "identifiers" and 1 of taskq-renew's 41 were ranges,
 # and every one of them was permanently unattributable — which matters now
 # that an unattributable id is a finding rather than an `info`.
-_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d[\w\-]*(?:\.[\w\-]+)*")
+_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d[\w\-]*(?:\.\d+)*\b")
 # The heading that opens a requirement's section, and the block that holds its
 # criteria. Both SRS files write the block as a bolded label, not a heading.
 _REQ_HEADING = re.compile(r"^#{1,6}\s+((?:FR|NFR)-\d+)\b[^\n]*$", re.MULTILINE)

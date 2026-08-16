@@ -408,3 +408,39 @@ Some prose that mentions **AC-01-9:** in a shape this parser does not read.
         "the framework not being able to read a shape is the framework's "
         "debt, not the project's failure (Round 32 站4)"
     )
+
+
+# ── Round 55: AC-id regex must stop at the canonical AC-X.Y boundary ──
+# Regression for the bug where `_AC_ID`'s `[\w\-]+` accepted a dash, so an
+# AC-id emitted as `AC-1.1-status` was extracted as `AC-1.1-status` rather
+# than `AC-1.1`. taskq-api's TEST_SPEC.md uses branch labels in that
+# pattern (`AC-1.2-empty-cmd-422`, `AC-7.3-sample-rows`, ...); the bug
+# inflated the SRS↔TEST_SPEC diff to 85 missing references when the real
+# gap was 4. Spec_coverage check stayed accurate on coverage shape, but
+# the wrong id set made it BLOCK on every phase advance.
+def test_ac_id_regex_stops_at_canonical_boundary():
+    """AC-1.1-status must extract as AC-1.1, not AC-1.1-status."""
+    from core.quality_gate.artifact_consistency import _AC_ID
+
+    # Branch-label suffixes (the case taskq-advance hit 85 false-positives on)
+    assert _AC_ID.findall("AC-1.1-status") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-7.3-sample-rows") == ["AC-7.3"]
+    assert _AC_ID.findall("AC-1.2-empty-cmd-422") == ["AC-1.2"]
+    # Existing corpus must still parse correctly.
+    assert _AC_ID.findall("AC-1.1") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-1.1..AC-1.10") == ["AC-1.1", "AC-1.10"]
+    assert _AC_ID.findall("AC-N7.2") == ["AC-N7.2"]
+    assert _AC_ID.findall("AC-01-1") == ["AC-01-1"]
+    assert _AC_ID.findall("- **AC-9.5**: metrics") == ["AC-9.5"]
+    # Word/dash boundary semantics: AC-1.1 followed by a non-word character
+    # (space, punctuation, dash) IS a valid match (the canonical case).
+    # Word-boundary semantics: AC-1.1 followed by another word char (e.g.
+    # `AC-1.1z`) is left for the next match attempt — `AC-1z` is not a
+    # canonical id so the engine falls back to capturing `AC-1` (the longest
+    # backtracking-legal match before the boundary).
+    assert _AC_ID.findall("AC-1.1 (FR-01)") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-1.1,") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-1.1\n") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-1.1-end") == ["AC-1.1"]
+    # AC-1.1 followed by a digit (e.g. AC-1.11) extends the dot-sequence.
+    assert _AC_ID.findall("AC-1.11") == ["AC-1.11"]
