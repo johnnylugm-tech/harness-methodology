@@ -54,31 +54,89 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
 __all__ = [
     "REACH_RELPATH",
+    "SIDECAR_KEYS",
+    "SIDECAR_RELPATH",
     "STATUS_MEASURED",
     "STATUS_UNMEASURED",
+    "harvest_selection",
     "read_reach",
     "reach_instrumentation",
     "stubbed_obligations",
+    "suite_pids",
     "unmet_obligations",
     "write_reach",
+    "write_reach_unmeasured",
+    "write_sidecar_row",
 ]
 
 REACH_RELPATH = ".sessi-work/verify_system_reach.json"
+SIDECAR_RELPATH = ".sessi-work/verify_system_processes.jsonl"
 
 STATUS_MEASURED = "measured"
 STATUS_UNMEASURED = "unmeasured"
 
-# The framework's own file in the project's venv, installed for the duration of
-# one verify-system run and removed in a finally. Named so a leftover copy is
-# unambiguously ours.
+# One row per process that ran under the instrumentation. `pid` is the join key
+# to coverage's parallel data files, which are named
+# `<COVERAGE_FILE>.<host>.pid<PID>.<random>`; `argv` and `mods` are what say
+# whether that process was the project's own test suite.
+SIDECAR_KEYS: tuple[str, ...] = ("pid", "argv", "mods")
+
+# Round 53 站4. Station 0's premise P2 measured two things about this channel.
+# The pid does reach the data-file name, so processes can be told apart. But
+# `sys.argv` at `.pth` execution time for `python -m pytest x` is `["-m", "x"]`
+# — the interpreter has not yet expanded the module — so the runner cannot be
+# identified at startup. An `atexit` hook sees the completed argv
+# (`/…/pytest/__main__.py x`) and `sys.modules`, which names it outright.
+#
+# Two files rather than one line. The single-line `exec('try: …')` form was
+# measured and fails: names bound inside the exec are not in the lambda's
+# closure at exit (`NameError: name '_p' is not defined`), and the workarounds
+# are write-only. A module the `.pth` imports is readable, and both files are
+# removed in the same finally.
 _PTH_NAME = "_harness_verify_system_reach.pth"
-_PTH_BODY = "import coverage; coverage.process_startup()\n"
+_HOOK_NAME = "_harness_verify_system_reach_hook.py"
+_PTH_BODY = (
+    f"import coverage,{_HOOK_NAME[:-3]};"
+    f"coverage.process_startup();{_HOOK_NAME[:-3]}.install()\n"
+)
+_HOOK_BODY = f'''"""Written by harness-methodology for one `make verify-system` run.
+
+Removed in a finally by core/quality_gate/verify_system_reach.py. A leftover
+copy is the framework's and is safe to delete.
+"""
+import atexit, json, os, sys
+
+
+def _record():
+    path = os.environ.get("HARNESS_REACH_SIDECAR")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(dict(zip(
+                {SIDECAR_KEYS!r},
+                (os.getpid(), list(sys.argv),
+                 sorted(m for m in sys.modules if m in _RUNNERS)),
+            ))) + "\\n")
+    except OSError:
+        pass
+
+
+_RUNNERS = frozenset(
+    (os.environ.get("HARNESS_REACH_RUNNERS") or "").split(",")
+) - {{""}}
+
+
+def install():
+    atexit.register(_record)
+'''
 
 _COMBINE_TIMEOUT = 120
 
@@ -147,6 +205,128 @@ def write_reach(project: "str | Path", coverage_json: "str | Path") -> Path:
         {"status": status, "reason": reason, "modules": modules},
         indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return out
+
+
+# Which module, if a process imported it, means that process was running the
+# project's test suite. `state.json.test_runner` is the project's own answer
+# where it has one (it is written for JS/TS by `cli/project_cmds.py`); Python
+# projects do not carry the key, and the registry's pytest ToolSpec is the only
+# thing in the framework that names their runner.
+_RUNNER_BY_LANGUAGE: dict[str, str] = {
+    "python": "pytest",
+    "javascript": "vitest",
+    "typescript": "vitest",
+}
+
+
+def _runner_modules(project: Path) -> frozenset[str]:
+    """The test-runner module names for this project."""
+    from core.state_io import load_state
+
+    try:
+        state = load_state(project, lenient=True)
+    except Exception:  # pragma: no cover — a project mid-init has no state yet
+        state = {}
+    declared = state.get("test_runner")
+    if declared:
+        return frozenset({str(declared)})
+    language = str(state.get("language") or "python")
+    return frozenset({_RUNNER_BY_LANGUAGE.get(language, "pytest")})
+
+
+def write_sidecar_row(project: "str | Path", row: dict) -> None:
+    """Append one process row. The hook module writes the same three keys."""
+    project = Path(project)
+    path = project / SIDECAR_RELPATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({k: row.get(k) for k in SIDECAR_KEYS}) + "\n")
+
+
+def suite_pids(project: "str | Path") -> set[int]:
+    """Pids of processes that ran the project's own test suite.
+
+    Round 53 站4. Round 52 站2 asked whether a replaced boundary was executed
+    during `make verify-system` and took any execution as an answer. On
+    taskq-super — whose verify-system is the whole pytest suite plus
+    `-m taskq_api --help` — the execution it found was **inside the pytest run
+    that installs the stand-in**, so Gates 2, 3 and 4 all recorded
+    `obligations_unmet: []` for a boundary no test has ever exercised for real.
+    The obligation was written to mean "something the suite did not configure
+    has to run this"; when verify-system contains the suite, the discharging
+    process and the stubbing process are the same process. That is my defect,
+    not the project's, and this is where it is separated.
+
+    Two independent signals, either one enough: the runner module is in the
+    process's `sys.modules` at exit, or the project's test target appears in
+    its completed argv.
+    """
+    from core.quality_gate.test_suite_run import resolve_targets
+
+    project = Path(project)
+    path = project / SIDECAR_RELPATH
+    if not path.is_file():
+        return set()
+    runners = _runner_modules(project)
+    try:
+        test_target = resolve_targets(project)[0]
+    except Exception:  # pragma: no cover — targets unresolvable, argv signal off
+        test_target = ""
+
+    pids: set[int] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        pid = row.get("pid")
+        if not isinstance(pid, int):
+            continue
+        argv = " ".join(str(a) for a in (row.get("argv") or []))
+        mods = {str(m) for m in (row.get("mods") or [])}
+        if mods & runners or (test_target and test_target in argv):
+            pids.add(pid)
+    return pids
+
+
+_PID_RE = re.compile(r"\.pid(\d+)\.")
+
+
+def harvest_selection(
+    project: "str | Path", data_file: Path,
+) -> "tuple[list[Path], str | None]":
+    """Coverage data files written by something other than the test suite.
+
+    Returns `(kept, reason)`. `reason` is non-None exactly when nothing is left
+    to combine, and it is a reason rather than a verdict: an obligation the
+    framework has no witness for is `unmeasured`, never `unmet`. Charging a
+    project for the framework's blind spot is what Round 32 站4 forbids, and
+    Round 35 站2 forbids scoring it zero.
+    """
+    project = Path(project)
+    suite = suite_pids(project)
+    parent = data_file.parent
+    files = sorted(parent.glob(data_file.name + ".*"))
+    if not files:
+        return [], None  # nothing ran under instrumentation at all
+    kept = [p for p in files
+            if not (_PID_RE.search(p.name)
+                    and int(_PID_RE.search(p.name).group(1)) in suite)]
+    if kept:
+        return kept, None
+    return [], (
+        "every process that ran under `make verify-system` was the project's "
+        "own test suite, which is the suite that installs the stand-in — so "
+        "nothing outside it witnessed the real boundary"
+    )
+
+
+def write_reach_unmeasured(project: "str | Path", reason: str) -> Path:
+    """Record that reach could not be established, and why."""
+    return _write_unmeasured(Path(project), reason)
 
 
 def _venv_python(project: Path) -> "Path | None":
@@ -227,13 +407,22 @@ def reach_instrumentation(project: "str | Path", env: dict):
         stale.unlink(missing_ok=True)
 
     pth = site / _PTH_NAME
+    hook = site / _HOOK_NAME
+    sidecar = project / SIDECAR_RELPATH
+    sidecar.unlink(missing_ok=True)
     env["COVERAGE_PROCESS_START"] = str(rcfile)
     env["COVERAGE_FILE"] = str(data_file)
+    # Round 53 站4: the hook needs both of these, and neither can be inferred
+    # inside a project venv that knows nothing about the harness.
+    env["HARNESS_REACH_SIDECAR"] = str(sidecar)
+    env["HARNESS_REACH_RUNNERS"] = ",".join(sorted(_runner_modules(project)))
     try:
+        hook.write_text(_HOOK_BODY, encoding="utf-8")
         pth.write_text(_PTH_BODY, encoding="utf-8")
         yield
     finally:
         pth.unlink(missing_ok=True)
+        hook.unlink(missing_ok=True)
         _harvest(project, python, rcfile, data_file)
 
 
@@ -242,6 +431,20 @@ def _harvest(project: Path, python: Path, rcfile: Path, data_file: Path) -> None
     env = os.environ.copy()
     env["COVERAGE_FILE"] = str(data_file)
     json_out = data_file.with_suffix(".json")
+
+    # Round 53 站4: drop the data files written by the project's own test
+    # suite before combining. The obligation says a replaced boundary must be
+    # executed by something the suite did not configure; counting the suite's
+    # own execution is how taskq-super's `session.transactional` was reported
+    # discharged at Gates 2, 3 and 4 while no test has ever run the real one.
+    kept, only_suite = harvest_selection(project, data_file)
+    if only_suite:
+        _write_unmeasured(project, only_suite)
+        return
+    for stale in sorted(data_file.parent.glob(data_file.name + ".*")):
+        if stale not in kept:
+            stale.unlink(missing_ok=True)
+
     try:
         subprocess.run([str(python), "-m", "coverage", "combine",
                         "--rcfile", str(rcfile)],
