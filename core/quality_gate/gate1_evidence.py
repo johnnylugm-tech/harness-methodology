@@ -904,18 +904,33 @@ def fr_code_changed_since_last_gate1(fr_id: str, project: Path, phase: int | Non
 
     return False
 
-def validate_fr_coverage_immediate(project: Path) -> Optional[float]:
-    """Whole-project line coverage %, measured right now.
+def validate_fr_coverage_immediate(
+    project: Path, fr_id: "str | None" = None
+) -> Optional[float]:
+    """Line coverage %, measured right now.
 
     Returns:
         ``None``      — not measurable (no src/tests, pytest missing, timeout).
         ``float``     — coverage percentage (0.0 - 100.0), or 0.0 if tests
                         failed and coverage could not be read.
 
-    Whole-project rather than per-FR: each FR's test only covers its own source
-    files, so a per-FR scope would always report ~1/N of project coverage.
-    Whole-project coverage is the only signal that proves "all source is
-    exercised by tests" (the actual TDD goal).
+    Scope:
+      * ``fr_id`` provided + the project is in P3 (per-FR TDD window):
+        coverage is restricted to the FR's ``fr_module_traceability`` modules
+        from SAB.json. Bringing an empty-stub module that other FRs will
+        activate would otherwise score 0% on FR-01's gate — the per-FR
+        scope reflects what this FR actually owns.
+      * Otherwise: whole-project coverage. The remaining-after-other-FRs
+        fraction is the entire system under test, so the whole-project
+        number is the only honest signal that one piece isn't black.
+
+    Why the original whole-project docstring was wrong under P3 TDD:
+    taskq-cc's P3 run (Round 56) showed FR-01 hitting 95% on its own
+    modules but being reported as a low-coverage FAIL because the SAB
+    declared 10 phantom modules that other FRs will activate later. The
+    gate treated their absence as an FR-01 defect — the per-FR scope
+    is the correct answer for the per-FR rule (HR-08-style: a phase
+    doesn't carry scope beyond its own deliverables).
 
     Round 25: the pytest invocation moved to
     ``core.quality_gate.test_suite_run.run_suite`` — this function used to
@@ -932,8 +947,115 @@ def validate_fr_coverage_immediate(project: Path) -> Optional[float]:
     result = run_suite(project)
     if not result.ran:
         return None
-    if result.coverage is not None:
-        return result.coverage
-    # No coverage number: preserve the pre-Round-25 contract — a green suite
-    # with an unreadable report is 0.0, a red one is "not measured".
-    return 0.0 if result.passed else None
+    if result.coverage is None:
+        # No coverage number: preserve the pre-Round-25 contract — a green suite
+        # with an unreadable report is 0.0, a red one is "not measured".
+        return 0.0 if result.passed else None
+
+    # Per-FR scope when both conditions hold: the caller is in a per-FR
+    # gate (always passing fr_id) and the project is in P3 (per-FR TDD).
+    # P4+ doesn't take fr_id here — it uses whole-project coverage.
+    if fr_id is not None and _is_phase3_per_fr(project):
+        _scope = _fr_module_paths(project, fr_id)
+        if _scope is None:
+            # SAB miss or no modules for this FR — fall through to
+            # whole-project so the caller still gets a number.
+            return result.coverage
+        return _coverage_for_paths(project, _scope, fallback=result.coverage)
+    return result.coverage
+
+
+def _is_phase3_per_fr(project: Path) -> bool:
+    """True iff state.json::current_phase is 3 (per-FR TDD window)."""
+    state_path = project / ".methodology" / "state.json"
+    if not state_path.is_file():
+        return False
+    try:
+        return int(json.loads(state_path.read_text(encoding="utf-8")).get("current_phase", 0)) == 3
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _fr_module_paths(project: Path, fr_id: str) -> "list[str] | None":
+    """The list of `path/to/file.py` strings this FR owns, per SAB.
+
+    Returns ``None`` when the SAB is missing or the FR has no declared
+    modules — both cases mean the per-FR scope cannot be computed and the
+    caller should fall through to whole-project.
+    """
+    sab_path = project / ".methodology" / "SAB.json"
+    if not sab_path.is_file():
+        return None
+    try:
+        sab = json.loads(sab_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    sab_root = sab.get("sab", sab) if isinstance(sab, dict) else {}
+    fr_table = sab_root.get("fr_module_traceability") or {}
+    fr_modules = fr_table.get(fr_id)
+    if not fr_modules:
+        return None
+    # fr_module_traceability entries are strings OR lists of strings.
+    if isinstance(fr_modules, str):
+        fr_modules = [fr_modules]
+    if not isinstance(fr_modules, list):
+        return None
+    # Each module name maps to a real path under src/. Convert dotted
+    # name (`taskq_api.api.tasks`) to a path glob (`taskq_api/api/tasks.py`).
+    return [m.replace(".", "/") + ".py" if not m.endswith(".py") else m for m in fr_modules]
+
+
+def _coverage_for_paths(
+    project: Path, paths: "list[str]", fallback: float
+) -> float:
+    """Recompute coverage from .coverage restricted to `paths`.
+
+    Reads the on-disk `.coverage` data file using the coverage package
+    directly. Modules in `paths` contribute to both numerator and
+    denominator; modules outside `paths` do not contribute at all. If
+    the data file is missing or the coverage package fails to read it,
+    return `fallback` (the whole-project number the caller already got).
+    """
+    try:
+        import coverage  # noqa: WPS433 — runtime import keeps the hot path cheap
+    except ImportError:
+        return fallback
+    cov = coverage.Coverage(data_file=str(project / ".coverage"), data_suffix=None)
+    try:
+        cov.load()
+    except Exception:
+        return fallback
+    try:
+        data = cov.get_data()
+        measured = sorted(data.measured_files())
+    except Exception:
+        return fallback
+    # Resolve each FR module path to a full filesystem path. Coverage
+    # reports absolute paths; the SAB names are dotted/project-relative.
+    proj = project.resolve()
+    _scope_files = set()
+    for rel in paths:
+        # `taskq_api.api.tasks` -> `03-development/src/taskq_api/api/tasks.py`
+        _scope_files.add(str((proj / "03-development" / "src" / rel).resolve()))
+        # Also accept source-rooted paths (no `03-development/src/` prefix)
+        _scope_files.add(str((proj / rel).resolve()))
+    _total_executed = 0
+    _total_coverable = 0
+    for f in measured:
+        fp = Path(f).resolve()
+        if str(fp) not in _scope_files:
+            continue
+        try:
+            analysis = cov._analyze(f)
+        except Exception:
+            continue
+        executed = len(analysis.executed)
+        missing = len(analysis.missing)
+        _total_executed += executed
+        _total_coverable += executed + missing
+    if _total_coverable == 0:
+        # No measured lines in scope — fall back to whole-project so the
+        # caller still gets a sensible number (and so the test suite is
+        # not silently 100% because nothing was in scope).
+        return fallback
+    return round(100.0 * _total_executed / _total_coverable, 2)

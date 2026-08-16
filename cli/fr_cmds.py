@@ -910,7 +910,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                         _cov_min = min_coverage_floor(_mfst)
                         try:
                             _live_cov = gate1_evidence.validate_fr_coverage_immediate(
-                                Path(str(project)))
+                                Path(str(project)), fr_id=fr_id)
                         except Exception as _exc:
                             _live_cov = None
                             print("  [run-fr-step] COVERAGE-FIX inline "
