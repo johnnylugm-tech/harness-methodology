@@ -150,6 +150,62 @@ def _call_has_assertion(call_node, source: bytes) -> bool:
     return False
 
 
+def _catch_swallows(try_node) -> bool:
+    """True when a failing expect() inside this try would not fail the test.
+
+    Round 53 站3, the JS half. Tree-sitter's `try_statement` has a
+    `catch_clause`; JS has no exception types, so any catch that does not
+    re-`throw` swallows the assertion error. `finally` alone does not.
+    """
+    clause = try_node.child_by_field_name("handler")
+    if clause is None:
+        return False
+    return not any(sub.type == "throw_statement" for sub in _walk(clause))
+
+
+def _assertion_calls(call_node, source: bytes) -> list:
+    """Every expect()/assert node in the callback, not just the first."""
+    found = []
+    for sub in _walk(call_node):
+        if sub.type != "call_expression":
+            continue
+        fn = sub.child_by_field_name("function")
+        if fn is None:
+            continue
+        text = _node_text(fn, source)
+        root = text.split(".")[0].split("(")[0]
+        if root in ("expect", "assert") or text.endswith(".should"):
+            found.append(sub)
+    return found
+
+
+def _call_is_neutralised(call_node, source: bytes) -> bool:
+    """Every assertion in the callback sits inside a swallowing try block.
+
+    Same predicate as `python_ast._is_neutralised`, same reason for "every"
+    rather than "any": one guarded check among three leaves two that can fail.
+    The two scanners share the output schema because `harness_bridge`'s
+    content-validation registry gives `ast-assertions` and `js-assertions` one
+    pattern list — a rule present on only one side is a rule with a documented
+    bypass.
+    """
+    nodes = _assertion_calls(call_node, source)
+    if not nodes:
+        return False
+    spans = []
+    for sub in _walk(call_node):
+        if sub.type == "try_statement" and _catch_swallows(sub):
+            body = sub.child_by_field_name("body")
+            if body is not None:
+                spans.append((body.start_byte, body.end_byte))
+    if not spans:
+        return False
+    return all(
+        any(lo <= n.start_byte and n.end_byte <= hi for lo, hi in spans)
+        for n in nodes
+    )
+
+
 def _test_title(call_node, source: bytes) -> str:
     """First string/template argument of it()/test() — the test title."""
     args = call_node.child_by_field_name("arguments")
@@ -170,6 +226,7 @@ def run_assertions(project_root: str) -> tuple[str, int]:
     total = 0
     asserted = 0
     zero_assert: list[str] = []
+    neutralised: list[str] = []
 
     for path, rel in _iter_files(
         project_root, _TEST_DIRS, lambda p: bool(_TEST_FILE_RE.search(p.name))
@@ -190,12 +247,16 @@ def run_assertions(project_root: str) -> tuple[str, int]:
                     and parent.child_by_field_name("function") == node):
                 continue
             total += 1
-            if _call_has_assertion(node, source):
-                asserted += 1
+            title = f"{rel}::{_test_title(node, source)}"
+            if not _call_has_assertion(node, source):
+                zero_assert.append(title)
+            elif _call_is_neutralised(node, source):
+                neutralised.append(title)
             else:
-                zero_assert.append(f"{rel}::{_test_title(node, source)}")
+                asserted += 1
 
-    summary = {"total": total, "asserted": asserted, "zero_assert": zero_assert[:50]}
+    summary = {"total": total, "asserted": asserted,
+               "zero_assert": zero_assert[:50], "neutralised": neutralised[:50]}
     return json.dumps(summary), 0
 
 

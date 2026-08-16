@@ -93,10 +93,15 @@ DIMENSION_HINTS: dict[str, str] = {
         "tests, which do not count toward this dimension."
     ),
     "test_assertion_quality": (
-        "Percent of test functions containing a substantive assertion. Find them "
-        "with the `zero_assert` list in the ast-assertions output: a test whose "
-        "only assertion is `assert True` (or which has none) verifies nothing and "
-        "is counted as hollow. Give each one a real assertion or delete it."
+        "Percent of test functions whose assertions can actually fail. Two lists "
+        "in the ast-assertions output name the rest, and they are different "
+        "defects. `zero_assert`: the test has no substantive assertion (or only "
+        "`assert True`) — give it a real one or delete it. `neutralised`: the "
+        "test asserts, and every assertion sits inside a `try` whose handler "
+        "catches AssertionError/Exception and does not re-raise (or turns it "
+        "into `pytest.skip`), so the verdict is discarded — remove the handler, "
+        "or narrow it to the exception the test is genuinely tolerant of and "
+        "re-raise the rest."
     ),
     "execute_verification_target": (
         "The project's own verification entry point (`make verify-system` or the "

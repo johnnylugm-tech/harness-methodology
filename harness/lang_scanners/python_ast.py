@@ -50,13 +50,109 @@ def _function_has_assertion(node: ast.AST) -> bool:
     return False
 
 
+_SWALLOWS_ASSERTION: frozenset[str] = frozenset({
+    "AssertionError", "Exception", "BaseException",
+})
+
+
+def _handler_swallows_assertion(handler: "ast.ExceptHandler") -> bool:
+    """True when a failing assertion inside this `try` would not end the test.
+
+    Round 53 站3. Narrower than `_handler_anti_pattern` below and asking a
+    different question: that one classifies error handling in *product* code,
+    where `except FileNotFoundError: pass` is deliberate and correctly exempt.
+    Here the body is a test, and a handler that catches an `AssertionError` —
+    by name, via `Exception`/`BaseException`, or bare — and does not re-raise
+    turns the verdict into a no-op. `pytest.skip()` in the handler counts as
+    swallowing too: Round 46 站1 settled that an absent witness is not a failed
+    testimony, and converting the failure into a skip is how that shape hides
+    inside a green suite.
+    """
+    names: list[str] = []
+    if handler.type is None:
+        names.append("BaseException")          # bare `except:`
+    else:
+        for node in ast.walk(handler.type):
+            if isinstance(node, ast.Name):
+                names.append(node.id)
+            elif isinstance(node, ast.Attribute):
+                names.append(node.attr)
+    if not any(n in _SWALLOWS_ASSERTION for n in names):
+        return False
+    return not any(isinstance(n, ast.Raise) for n in ast.walk(handler))
+
+
+def _assertion_nodes(fn: "ast.AST") -> "list[ast.AST]":
+    """Every node `_function_has_assertion` would have accepted, not just the first."""
+    found: list[ast.AST] = []
+    for sub in ast.walk(fn):
+        if isinstance(sub, ast.Assert):
+            if not isinstance(sub.test, ast.Constant):
+                found.append(sub)
+        elif isinstance(sub, ast.Call):
+            f = sub.func
+            if isinstance(f, ast.Attribute) and (
+                f.attr.startswith("assert") or f.attr in ("fail", "raises", "warns")
+            ):
+                found.append(sub)
+            elif isinstance(f, ast.Name) and f.id in ("raises", "warns"):
+                found.append(sub)
+    return found
+
+
+def _is_neutralised(fn: "ast.AST") -> bool:
+    """True when every assertion in *fn* sits under a handler that swallows it.
+
+    "Every", not "any": a test that checks three things and guards one of them
+    still has two verdicts that can fail, and calling it neutralised would be a
+    false positive on the shape where a handler adds diagnostics and re-raises.
+    """
+    nodes = _assertion_nodes(fn)
+    if not nodes:
+        return False
+    spans: list[tuple[int, int]] = []
+    for sub in ast.walk(fn):
+        if isinstance(sub, ast.Try) and any(
+            _handler_swallows_assertion(h) for h in sub.handlers
+        ):
+            body = sub.body
+            if body:
+                spans.append((
+                    min(b.lineno for b in body),
+                    max(getattr(b, "end_lineno", b.lineno) or b.lineno for b in body),
+                ))
+    if not spans:
+        return False
+    return all(
+        any(lo <= getattr(n, "lineno", -1) <= hi for lo, hi in spans) for n in nodes
+    )
+
+
 def run_assertions(project_root: str) -> tuple[str, int]:
     """Scan test files and report assertion coverage of test functions.
 
-    Returns (json_summary, 0) where summary = {total, asserted, zero_assert:[...]}.
-    A test function with NO substantive assertion (a "pass-and-still-green" shell)
-    is counted as zero_assert.  This is what test_assertion_quality means —
-    pytest pass-rate cannot detect it.
+    Returns (json_summary, 0) where summary =
+    {total, asserted, zero_assert:[...], neutralised:[...]}.
+
+    A test function with NO substantive assertion (a "pass-and-still-green"
+    shell) is counted as zero_assert.  This is what test_assertion_quality
+    means — pytest pass-rate cannot detect it.
+
+    Round 53 站3 adds the third bucket. A test whose every assertion is wrapped
+    in a handler that swallows `AssertionError` is not assertionless — it
+    asserts, and the verdict is discarded — so it leaves `asserted` without
+    becoming `zero_assert`, which would misname the defect for whoever fixes
+    it. `_score_assertion_quality` is `100 × asserted / total` and needs no
+    change to stop rewarding it.
+
+    Measured across the seven projects on this machine: taskq-super 24,
+    taskq-api 2, the other five zero. taskq-super's
+    `test_task_repo_insert_get` is `try: insert; assert; except Exception:
+    pass` verbatim, and its Gate 4 recorded test_assertion_quality = 100.0.
+    Two of the four narrow-spelled ones arrived in a commit that says what it
+    was doing — `54f9b93 test(p5): swallow transient assertions in
+    nfr_phase6_gap gap tests` — and are the only executable checks behind
+    NFR-03 and NFR-04, both still marked VERIFIED in TRACEABILITY_MATRIX.md.
     """
     import ast as _ast
     import json as _json
@@ -66,6 +162,7 @@ def run_assertions(project_root: str) -> tuple[str, int]:
     total = 0
     asserted = 0
     zero_assert: list[str] = []
+    neutralised: list[str] = []
 
     seen: set[str] = set()
     for rel in _TEST_DIRS:
@@ -88,12 +185,16 @@ def run_assertions(project_root: str) -> tuple[str, int]:
                     fn.name.startswith("test_") or fn.name == "test"
                 ):
                     total += 1
-                    if _function_has_assertion(fn):
-                        asserted += 1
+                    name = f"{path.relative_to(root)}::{fn.name}"
+                    if not _function_has_assertion(fn):
+                        zero_assert.append(name)
+                    elif _is_neutralised(fn):
+                        neutralised.append(name)
                     else:
-                        zero_assert.append(f"{path.relative_to(root)}::{fn.name}")
+                        asserted += 1
 
-    summary = {"total": total, "asserted": asserted, "zero_assert": zero_assert[:50]}
+    summary = {"total": total, "asserted": asserted,
+               "zero_assert": zero_assert[:50], "neutralised": neutralised[:50]}
     return _json.dumps(summary), 0
 
 
