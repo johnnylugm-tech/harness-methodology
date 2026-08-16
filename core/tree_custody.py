@@ -236,10 +236,14 @@ def custody(
     try:
         yield
     finally:
-        restore_error: "Exception | None" = None
+        restore_error: "OSError | None" = None
         try:
             snapshot.restore()
-        except Exception as exc:  # pylint: disable=broad-exception-caught
+        except OSError as exc:
+            # Every write FileSnapshot.restore performs — mkdir, write_bytes,
+            # os.replace, unlink — fails as OSError. It is not swallowed: it is
+            # carried to the raise below so the message can name both the files
+            # that did not come back and why the attempt failed.
             restore_error = exc
 
         residue = [str(p) for p in watched if _digest(p) != before[p]]

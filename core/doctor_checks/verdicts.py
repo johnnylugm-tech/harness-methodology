@@ -344,3 +344,51 @@ def _phase_from_sentinel_name(name: str) -> "int | None":
     only — there is no phase to look the registry rows up under)."""
     m = re.match(r"^g\d+_p(\d+)_", name)
     return int(m.group(1)) if m else None
+
+
+def _check_phase_record_gaps(project: Path) -> list[Finding]:
+    """Phases the project has passed that left no `phase_completed` entry.
+
+    Round 53 站5c, the retrospective half. `cli/phase_cmds._verify_entry_gate`
+    now refuses to enter phase N+1 without `phase_completed[N]`, which stops
+    the next project at the moment of loss. This one names it in the projects
+    already past that point — taskq-super is at Phase 9 with entries for 1, 2,
+    3, 4, 6 and 7, and until now nothing said so.
+
+    Separate from `_check_milestone_tree_matches_verdict` because it is a
+    different question. That one asks whether the tree a milestone recorded is
+    the tree its commit contains; this asks whether there is a record at all.
+    Folding them together would make every fixture that omits an early phase
+    carry a finding about tree digests.
+
+    WARN, not ERROR: the phase did happen — its handover commit is in git —
+    and what is missing is the record of which tree it was judged on, which
+    cannot be reconstructed after the fact.
+    """
+    try:
+        state = load_state(project, lenient=True)
+    except (StateCorruptError, OSError, ValueError):
+        logging.getLogger(__name__).debug(
+            "phase-record check: state.json unreadable for %s", project,
+            exc_info=True,
+        )
+        return []
+    completed = state.get("phase_completed") or {}
+    if not isinstance(completed, dict):
+        return []
+    try:
+        current = int(state.get("current_phase") or 0)
+    except (TypeError, ValueError):
+        return []
+    missing = [n for n in range(1, current) if not completed.get(str(n))]
+    if not missing:
+        return []
+    return [Finding(
+        "provenance", "WARN",
+        f"phase_completed has no entry for phase(s) "
+        f"{', '.join(str(n) for n in missing)} while the project is at phase "
+        f"{current}. Each entry records the SHA, the enforcer and the "
+        f"delivered-tree digest that phase was judged on; without one, that "
+        f"phase's verdict cannot be re-derived and _fr_step_lineage_boundary "
+        f"falls back to an unscoped search.",
+    )]

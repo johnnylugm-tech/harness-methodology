@@ -733,6 +733,26 @@ class TestVerifyEntryGate:
         from cli.phase_cmds import _verify_entry_gate
         return _verify_entry_gate
 
+    @staticmethod
+    def _seed_phase_records(tmp_path, phase: int) -> None:
+        """Record that every phase before *phase* completed.
+
+        Round 53 站5c gave the P4+ entry gate a second condition: the previous
+        phase must have left a `phase_completed` entry. These tests are about
+        the FIRST condition — what the quality manifest says — so each seeds
+        the record it is not trying to exercise. taskq-super is why the second
+        condition exists: it reached Phase 9 with no entry for phase 5.
+        """
+        import json as _json
+        meth = tmp_path / ".methodology"
+        meth.mkdir(exist_ok=True)
+        (meth / "state.json").write_text(_json.dumps({
+            "current_phase": phase,
+            "phase_completed": {
+                str(n): {"sha": "0" * 40} for n in range(1, phase)
+            },
+        }))
+
     def test_p1_no_entry_gate(self, tmp_path):
         """P1 has no entry gate — always passes."""
         _verify_entry_gate = self._import()
@@ -794,6 +814,7 @@ class TestVerifyEntryGate:
 
     def test_p4_manifest_not_found(self, tmp_path):
         """P4 entry gate fails when quality_manifest.json is absent."""
+        self._seed_phase_records(tmp_path, 4)
         _verify_entry_gate = self._import()
         result = _verify_entry_gate(tmp_path, phase=4)
         assert result["passed"] is False
@@ -807,6 +828,7 @@ class TestVerifyEntryGate:
         manifest = {"gate_results": {"gate2": {"quality_complete": True, "score": 80.0}}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
+        self._seed_phase_records(tmp_path, 4)
         _verify_entry_gate = self._import()
         result = _verify_entry_gate(tmp_path, phase=4)
         assert result["passed"] is True
@@ -820,6 +842,7 @@ class TestVerifyEntryGate:
         manifest = {"gate_results": {"gate3": {"quality_complete": False, "score": 65.0}}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
+        self._seed_phase_records(tmp_path, 5)
         _verify_entry_gate = self._import()
         result = _verify_entry_gate(tmp_path, phase=5)
         assert result["passed"] is False
@@ -833,6 +856,7 @@ class TestVerifyEntryGate:
         manifest = {"gate_results": {"gate3": {"quality_complete": True, "score": 85.0}}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
+        self._seed_phase_records(tmp_path, 6)
         _verify_entry_gate = self._import()
         result = _verify_entry_gate(tmp_path, phase=6)
         assert result["passed"] is True
@@ -844,6 +868,7 @@ class TestVerifyEntryGate:
         manifest_dir.mkdir()
         (manifest_dir / "quality_manifest.json").write_text("{not valid json")
 
+        self._seed_phase_records(tmp_path, 8)
         _verify_entry_gate = self._import()
         result = _verify_entry_gate(tmp_path, phase=8)
         assert result["passed"] is False
@@ -859,6 +884,7 @@ class TestVerifyEntryGate:
         manifest = {"gate_results": {"gate1": {}, "gate2": None, "gate3": None, "gate4": None}}
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
 
+        self._seed_phase_records(tmp_path, 8)
         _verify_entry_gate = self._import()
         result = _verify_entry_gate(tmp_path, phase=8)
         assert result["passed"] is False

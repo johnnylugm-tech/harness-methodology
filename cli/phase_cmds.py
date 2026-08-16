@@ -2297,6 +2297,51 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
             return {"passed": False, "gate": f"Human1 (P{prev})",
                     "reason": f"Git log check failed: {e}"}
 
+    # Round 53 站5c: the previous phase has to have left a record of itself.
+    #
+    # From phase 4 on, this function asked quality_manifest.json whether the
+    # previous GATE passed and nothing else, so a missing
+    # `state.json.phase_completed[N]` could not stop anything. taskq-super
+    # reached Phase 9 with entries for 1, 2, 3, 4, 6, 7 — no 5 — and no check
+    # ever objected. That record is where Round 24 站4a, Round 26 and Round 44
+    # 站2 each put a fact nobody else holds: the SHA the phase completed at,
+    # the enforcer that judged it, and `delivered_tree_sha256` — WHICH TREE the
+    # checks read. `doctor`'s verdict re-derivation and
+    # `_fr_step_lineage_boundary` both read it.
+    #
+    # How it went missing is visible in that file's git history: the record for
+    # phase N is never inside the commit that completes phase N, because
+    # cmd_advance_phase makes the handover commit first and only then writes an
+    # entry whose `sha` is HEAD *after* it. The value rides along in whatever
+    # commits state.json next, and phase 5's ride never arrived — a later
+    # whole-document writer that had loaded state before it dropped the key,
+    # silently, because the write itself had reported success.
+    #
+    # The ordering is left alone: writing before the commit would mean the
+    # entry could not carry that commit's own SHA, which is what every consumer
+    # of it uses (`git merge-base --is-ancestor <sha> HEAD`). This catches the
+    # loss one phase later instead of preventing it — later than ideal, and
+    # still the difference between a project that stops and a project that
+    # reaches Phase 9 missing a record.
+    prev_phase = phase - 1
+    try:
+        _entry_state = load_state(project, lenient=True)
+    except StateCorruptError as exc:
+        return {"passed": False, "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",
+                "reason": f"state.json unreadable: {exc}"}
+    if not (_entry_state.get("phase_completed") or {}).get(str(prev_phase)):
+        return {
+            "passed": False,
+            "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",
+            "reason": (
+                f"state.json.phase_completed[{prev_phase}] is absent — phase "
+                f"{prev_phase} left no record of which tree it was judged on, "
+                f"so nothing downstream can re-derive its verdict. Run "
+                f"`harness_cli.py doctor` to see whether the handover commit "
+                f"for phase {prev_phase} exists and can be reconciled."
+            ),
+        }
+
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if not manifest_path.exists():
         return {"passed": False, "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",

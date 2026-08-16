@@ -1560,6 +1560,28 @@ def _record_coverage_denominator(ctx: "GateContext") -> dict:
     return d
 
 
+def _gate_dimension_names(ctx: "GateContext") -> frozenset[str]:
+    """The dimension names this gate's config declares.
+
+    Round 53 站5a. `ctx.config` is a GateConfig or a plain dict depending on
+    the caller, and two places in `finalize_gate` already branch on that to
+    get the full entries. This returns names only, and stays separate from
+    those two on purpose: they are inline inside long functions and need the
+    entries, so folding them together would trade one duplicated branch for a
+    parameter that means "which shape do you want".
+    """
+    if isinstance(ctx.config, dict):
+        entries = ctx.config.get("dimensions") or []
+    else:
+        entries = getattr(ctx.config, "dimensions", None) or []
+    names: set[str] = set()
+    for entry in entries:
+        name = entry.get("name") if isinstance(entry, dict) else getattr(entry, "name", None)
+        if name:
+            names.add(str(name))
+    return frozenset(names)
+
+
 def _verify_system_reach_block(ctx: "GateContext") -> list[str]:
     """Which replaced boundaries `make verify-system` did not execute for real.
 
@@ -1585,6 +1607,21 @@ def _verify_system_reach_block(ctx: "GateContext") -> list[str]:
         STATUS_MEASURED,
         unmet_obligations,
     )
+
+    # Round 53 站5a: only a gate that runs `execute_verification_target` can
+    # have a reach artifact, so only such a gate has this question. Measured on
+    # taskq-super's full P1-P8 run: 116 `gate:verify-system-reach` rows, every
+    # one "no reach artifact", and correlating each row's `ts` against
+    # gate_timestamps.jsonl puts ALL 116 at Gate 1 and none at Gate 2, 3 or 4 —
+    # 18.5% of that project's degradation ledger, filed under owner `harness`,
+    # asking a gate a question its own config says it cannot answer.
+    #
+    # Not "quieten the log". Round 46 站1's rule is that abstaining is not
+    # passing; a question that was never in this gate's scope was never
+    # abstained from, and the gate config is the single source of what a gate's
+    # scope is.
+    if "execute_verification_target" not in _gate_dimension_names(ctx):
+        return []
 
     try:
         verdict = unmet_obligations(ctx.project_root)
@@ -3086,7 +3123,8 @@ class HarnessBridge:
         # submodule of each project). Never raises.
         try:
             from core.quality_gate.delivery_fingerprint import write_fingerprint
-            write_fingerprint(ctx.project_root)
+            write_fingerprint(ctx.project_root, phase=ctx.phase,
+                              gate=ctx.gate_num)
         except Exception as _fp_exc:  # pragma: no cover — a record, not a gate
             from core.degradation_ledger import record_degradation
             record_degradation(

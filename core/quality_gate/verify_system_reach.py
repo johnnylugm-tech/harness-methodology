@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import re
 import subprocess
@@ -221,11 +222,17 @@ _RUNNER_BY_LANGUAGE: dict[str, str] = {
 
 def _runner_modules(project: Path) -> frozenset[str]:
     """The test-runner module names for this project."""
-    from core.state_io import load_state
+    from core.state_io import StateCorruptError, load_state
 
     try:
         state = load_state(project, lenient=True)
-    except Exception:  # pragma: no cover — a project mid-init has no state yet
+    except (OSError, ValueError, StateCorruptError):
+        # A project mid-init has no readable state; the language default below
+        # is the same answer `load_state` would have given for a missing key.
+        logging.getLogger(__name__).debug(
+            "verify-system reach: state.json unreadable for %s", project,
+            exc_info=True,
+        )
         state = {}
     declared = state.get("test_runner")
     if declared:
@@ -270,7 +277,13 @@ def suite_pids(project: "str | Path") -> set[int]:
     runners = _runner_modules(project)
     try:
         test_target = resolve_targets(project)[0]
-    except Exception:  # pragma: no cover — targets unresolvable, argv signal off
+    except Exception:  # pylint: disable=broad-exception-caught
+        # The argv signal goes dark; the sys.modules signal below still works,
+        # so this narrows what can be detected rather than breaking detection.
+        logging.getLogger(__name__).debug(
+            "verify-system reach: test target unresolvable for %s", project,
+            exc_info=True,
+        )
         test_target = ""
 
     pids: set[int] = set()
@@ -295,6 +308,12 @@ def suite_pids(project: "str | Path") -> set[int]:
 _PID_RE = re.compile(r"\.pid(\d+)\.")
 
 
+def _data_file_pid(path: Path) -> "int | None":
+    """The pid coverage encoded in a parallel data file's name, or None."""
+    match = _PID_RE.search(path.name)
+    return int(match.group(1)) if match else None
+
+
 def harvest_selection(
     project: "str | Path", data_file: Path,
 ) -> "tuple[list[Path], str | None]":
@@ -312,9 +331,7 @@ def harvest_selection(
     files = sorted(parent.glob(data_file.name + ".*"))
     if not files:
         return [], None  # nothing ran under instrumentation at all
-    kept = [p for p in files
-            if not (_PID_RE.search(p.name)
-                    and int(_PID_RE.search(p.name).group(1)) in suite)]
+    kept = [p for p in files if _data_file_pid(p) not in suite]
     if kept:
         return kept, None
     return [], (

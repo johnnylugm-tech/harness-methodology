@@ -90,7 +90,14 @@ def test_the_fingerprint_lands_beside_the_other_gate_records(tmp_path):
     from core.quality_gate.delivery_fingerprint import write_fingerprint
 
     project = _project(tmp_path)
-    out = write_fingerprint(project)
+    out = write_fingerprint(project, phase=6, gate=4)
 
-    assert out == project / ".methodology" / "delivery_fingerprint.json"
+    assert out == (project / ".methodology" / "delivery_fingerprint"
+                   / "p6_g4.json"), (
+        "Round 53 站5b: one file per (phase, gate). A single path made every "
+        "finalize overwrite the last, so the copy that survived on taskq-super "
+        "was a Phase 8 Gate 1 snapshot with reach_status unmeasured, while the "
+        "Gate 4 reading a later round would compare against lived only in "
+        "whatever milestone commit happened to capture it."
+    )
     assert json.loads(out.read_text())["stubbed_boundaries"]["count"] == 1

@@ -1404,6 +1404,16 @@ class TestCmdAdvancePhase:
             },
         }
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        # Round 53 站5c: advance-phase checks the NEXT phase's entry gate, which
+        # since this round also requires the previous phase to have left a
+        # `phase_completed` record. Seeded rather than exercised — these two
+        # tests are about handover enrichment and about the obligation refusal.
+        (manifest_dir / "state.json").write_text(json.dumps({
+            "current_phase": 3,
+            "last_gate": 2,
+            "phase_truth_passed": True,
+            "phase_completed": {str(n): {"sha": "0" * 40} for n in range(1, 4)},
+        }))
 
         write_kwargs = {}
 
@@ -1527,6 +1537,16 @@ class TestCmdAdvancePhase:
             },
         }
         (manifest_dir / "quality_manifest.json").write_text(json.dumps(manifest))
+        # Round 53 站5c: advance-phase checks the NEXT phase's entry gate, which
+        # since this round also requires the previous phase to have left a
+        # `phase_completed` record. Seeded rather than exercised — these two
+        # tests are about handover enrichment and about the obligation refusal.
+        (manifest_dir / "state.json").write_text(json.dumps({
+            "current_phase": 3,
+            "last_gate": 2,
+            "phase_truth_passed": True,
+            "phase_completed": {str(n): {"sha": "0" * 40} for n in range(1, 4)},
+        }))
 
         write_kwargs = {}
         fsm_kwargs = {}

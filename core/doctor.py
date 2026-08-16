@@ -44,6 +44,7 @@ from core.doctor_checks.verdicts import (  # noqa: F401  (_enforcer_shas_in,
     _check_enforcer_provenance,
     _check_gate1_evidence,
     _check_milestone_tree_matches_verdict,
+    _check_phase_record_gaps,
     _check_phase_verdict_staleness,
     _enforcer_shas_in,
     _phase_from_sentinel_name,
@@ -246,6 +247,7 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # a phase already turned over on work that was never committed. WARN, and
     # it re-judges nothing — the same standing as _check_phase_verdict_staleness.
     findings.extend(_check_milestone_tree_matches_verdict(project))
+    findings.extend(_check_phase_record_gaps(project))
 
     # NOT here: the CI verdict for HEAD (Round 37). It was wired in and taken
     # back out — doctor is at-rest, offline, cross-FILE reconciliation, and a

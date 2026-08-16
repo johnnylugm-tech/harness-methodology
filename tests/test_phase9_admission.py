@@ -49,6 +49,13 @@ class TestEntryGate:
             "fr_ids": ["FR-01"],
             "gate_results": {"gate4": {"score": 90.0, "quality_complete": True}},
         }), encoding="utf-8")
+        # Round 53 站5c: entering phase N+1 also requires phase N to have left
+        # a record of the tree it was judged on. This test is about the gate-4
+        # condition, so the other one is seeded rather than exercised.
+        (mdir / "state.json").write_text(json.dumps({
+            "current_phase": 9,
+            "phase_completed": {str(n): {"sha": "0" * 40} for n in range(1, 9)},
+        }), encoding="utf-8")
         result = _verify_entry_gate(tmp_path, 9)
         assert result["passed"] is True
 

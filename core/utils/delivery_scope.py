@@ -230,7 +230,7 @@ METHODOLOGY_DELIVERABLES: frozenset[str] = frozenset({
     # this delivery's product-side facts against an earlier one, which it can
     # only do if the earlier one was committed. Rewritten at every exit gate
     # like quality_manifest.json, and kept for the same reason.
-    ".methodology/delivery_fingerprint.json",
+    ".methodology/delivery_fingerprint",   # one file per (phase, gate) since R53 站5b
 })
 
 HARNESS_VOLATILE_PREFIXES: tuple[str, ...] = (

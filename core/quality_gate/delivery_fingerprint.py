@@ -42,9 +42,27 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-__all__ = ["FINGERPRINT_RELPATH", "build_fingerprint", "write_fingerprint"]
+__all__ = ["FINGERPRINT_DIR_RELPATH", "build_fingerprint", "fingerprint_relpath",
+           "write_fingerprint"]
 
-FINGERPRINT_RELPATH = ".methodology/delivery_fingerprint.json"
+FINGERPRINT_DIR_RELPATH = ".methodology/delivery_fingerprint"
+
+
+def fingerprint_relpath(phase: int, gate: int) -> str:
+    """Where the fingerprint for one (phase, gate) lives.
+
+    Round 53 站5b. Round 52 站3 wrote a single path and every finalize
+    overwrote it, so the copy on disk is the LAST one written rather than the
+    most informative one. On taskq-super that is a Phase 8 Gate 1 snapshot
+    carrying `reach_status: unmeasured`; the Gate 4 fingerprint — the one a
+    later round would want to compare against — survives only because a
+    milestone commit happened to capture it before the next Gate 1 ran.
+
+    A record kept so a future delivery can be compared against it has to be
+    addressable, or the comparison is with whatever wrote last. 77 of that
+    project's 88 finalizes were Gate 1.
+    """
+    return f"{FINGERPRINT_DIR_RELPATH}/p{int(phase)}_g{int(gate)}.json"
 
 
 def _sab(project: Path) -> dict:
@@ -58,7 +76,8 @@ def _sab(project: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def build_fingerprint(project: "str | Path") -> dict:
+def build_fingerprint(project: "str | Path", *, phase: int = 0,
+                      gate: int = 0) -> dict:
     """The product-side facts, each read from the producer that owns it."""
     from core.quality_gate.arch_constraints import (
         STATUS_DECLARED_ONLY,
@@ -87,6 +106,11 @@ def build_fingerprint(project: "str | Path") -> dict:
 
     swallowed = target["swallowed"]
     return {
+        # Which run this describes. Without it a fingerprint found on disk (or
+        # in a diff) cannot say whether it is the Gate 4 reading or one of the
+        # dozens of Gate 1 readings taken after it.
+        "phase": int(phase),
+        "gate": int(gate),
         "stubbed_boundaries": {
             "count": len(stubbed),
             "modules": sorted({r["module"] for r in stubbed}),
@@ -125,17 +149,22 @@ def build_fingerprint(project: "str | Path") -> dict:
     }
 
 
-def write_fingerprint(project: "str | Path") -> Path:
+def write_fingerprint(project: "str | Path", *, phase: int = 0,
+                      gate: int = 0) -> Path:
     """Write the fingerprint beside the SAB and the CRG baselines.
 
     `.methodology/`, not `.sessi-work/`: advance-phase clears the work
     directory at every transition, and a fact recorded for a future round to
     compare against has to outlive the run that recorded it (Round 45 站1).
+
+    One file per (phase, gate) — see `fingerprint_relpath` for why a single
+    path made the surviving copy the least informative one.
     """
     project = Path(project)
-    out = project / FINGERPRINT_RELPATH
+    out = project / fingerprint_relpath(phase, gate)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        json.dumps(build_fingerprint(project), indent=2, sort_keys=True) + "\n",
+        json.dumps(build_fingerprint(project, phase=phase, gate=gate),
+                   indent=2, sort_keys=True) + "\n",
         encoding="utf-8")
     return out
