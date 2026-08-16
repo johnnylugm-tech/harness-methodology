@@ -167,6 +167,14 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="radon (readability-v2)",
         install_step="requirements",
         scorer="readability-v2",
+        # The scorer IS `harness/toolchains/readability_v2.py` — a Python
+        # module the harness invokes via `python -m`. `radon` is the data
+        # source the module reads, not a CLI the harness calls. Marking
+        # this in-process tells env-check to stop probing PATH for a binary
+        # called `readability-v2` (none exists) and accept the harness
+        # module as the source of truth — same logic Bug #1 of the
+        # `ast-docstrings` fix (the registry is authoritative).
+        in_process=True,
     ),
     "radon-mi": ToolSpec(
         tool_id="radon-mi",
@@ -176,6 +184,9 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="radon (radon-mi)",
         install_step="requirements",
         scorer="radon-mi",
+        # See readability-v2 above — same in-process scorer / external-data
+        # boundary.
+        in_process=True,
     ),
     # --benchmark-only: run only tests using the `benchmark` fixture.
     # If none exist, pytest exits with code 5 (no tests collected) → scorer

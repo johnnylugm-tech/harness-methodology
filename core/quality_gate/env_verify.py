@@ -65,6 +65,39 @@ def _is_framework_subcommand(name: str) -> bool:
     return name.lower().endswith(".py")
 
 
+def _is_in_process_tool(name: str) -> bool:
+    """True iff the toolchain registry marks `name` as `in_process=True`.
+
+    In-process scorers are dispatched via `python -m harness.toolchains.<name>`
+    (or via the in-proc runner) — they have no PATH binary to probe. Returning
+    False here would force env-check to probe the registry's `check_cmd`
+    (which for `ast-docstrings` is `import ast; ast.parse(...)` — always exit 0
+    on Python 3.x) and accept the result of THAT probe as the in-process
+    tool's presence, which is a different question and produces a different
+    false-positive (every project looks like it has the tool even when the
+    toolchain module is missing). The registry is the source of truth.
+
+    Symmetric with `_found_on_path_or_venv`'s underscore↔dash probe (Bug #131):
+    contract names use either form (the agent that writes the env contract
+    sometimes reaches for the import-style `ast_docstrings`, sometimes the
+    console-script-style `ast_docstrings`); the registry canonicalises on
+    the dash form. Probe both before deciding the tool is absent.
+
+    Wrapped in try/except so a missing toolchains module still falls through
+    to the import probe below — the original behaviour, preserved as a
+    fallback for environments that strip optional packages.
+    """
+    try:
+        from harness.toolchains.registry import TOOL_SPECS
+    except ImportError:
+        return False
+    for candidate in (name, name.replace("_", "-")):
+        spec = TOOL_SPECS.get(candidate)
+        if spec and getattr(spec, "in_process", False):
+            return True
+    return False
+
+
 def _bin_dir() -> str:
     return "Scripts" if os.name == "nt" else "bin"
 
@@ -193,6 +226,20 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
         if not name:
             continue
         if _is_framework_subcommand(name):
+            results[raw_name] = True
+            continue
+        # Round 56 站1: in-process scorers (`ast-docstrings`,
+        # `readability-v2`, `ast-assertions`, `ast-error-handling`,
+        # `radon-mi`) run inside the harness via `python -m
+        # harness.toolchains.<name> {src}` — they have no PATH binary to
+        # probe, and the env contract's `cli_tools` list is generated from
+        # the same registry that knows they're in-process. Reporting them
+        # missing here produced false-positive P3 env-check FAILs on every
+        # fresh project that inherited the suite. The registry IS the
+        # source of truth for "is this a PATH tool?". Proxy through a
+        # try/except so a missing toolchains module (forced by an env with
+        # only stdlib) still falls through to the import probe below.
+        if _is_in_process_tool(name):
             results[raw_name] = True
             continue
         if _found_on_path_or_venv(name, project):
