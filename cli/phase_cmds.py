@@ -167,6 +167,53 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
     return 0
 
 
+# Phase → gates that phase will run. Drives run-phase's tool check (only
+# current-phase gates block; future-phase gates warn).
+#   P1  Requirements   no gate runs
+#   P2  Architecture   no gate runs
+#   P3  Implementation Gate 1 (per-FR, during P3) + Gate 2 (P3 exit)
+#   P4  Testing        Gate 3 (P4 exit); G1+G2 still callable in re-runs
+#   P5  Verification   no new gate; G1+G2+G3 still callable in re-runs
+#   P6  Quality        Gate 4 (P6 full); G1+G2+G3+G4 all reachable
+PHASE_GATES: dict[int, list[int]] = {
+    1: [],
+    2: [],
+    3: [1, 2],
+    4: [1, 2, 3],
+    5: [1, 2, 3],
+    6: [1, 2, 3, 4],
+}
+
+
+def _phase_gate_tools(phase: int, project: str) -> tuple[bool, list[str], list[str]]:
+    """Split gate-tool gaps into (critical, anticipated) for the target phase.
+
+    Phase 1 entering and the call layer demanding `scancode --version` to be
+    green is the same class of bug as a CI script asking for a compile-time
+    tool that the build doesn't link to yet: the tool IS required — but at a
+    different lifecycle stage. The verification path needs to surface that
+    delta instead of collapsing both kinds into one BLOCKED verdict.
+
+    Returns ``(ok, critical_missing, anticipated_missing)``:
+      * critical_missing   — tools a gate that the current phase WILL run
+        needs. Missing these blocks phase entry (consistent with the old
+        `verify_all_gate_tools` behaviour at phases that actually run a
+        gate).
+      * anticipated_missing — tools a gate a FUTURE phase will run needs.
+        Missing these only warns (the matching phase entry will block then,
+        so the user can't slip through indefinitely).
+    """
+    phase_gates = set(PHASE_GATES.get(phase, []))
+    critical: list[str] = []
+    anticipated: list[str] = []
+    for gate_num in (1, 2, 3, 4):
+        _, missing = tool_checks.verify_gate_tools(gate_num, project)
+        bucket = critical if gate_num in phase_gates else anticipated
+        for diag in missing:
+            bucket.append(f"gate{gate_num}: {diag}")
+    return (not critical), critical, anticipated
+
+
 def cmd_run_phase(args: argparse.Namespace) -> int:
     """OTEL span wrapper for run-phase. Business logic in _cmd_run_phase_impl."""
     try:
@@ -2097,8 +2144,23 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
 
     # Required-component check (hard dependencies — incl. code-review-graph, which
     # scores the architecture dimension). Verified at every phase entry so a missing
-    # component surfaces at setup, not deep inside Gate 3/4. No graceful degradation.
-    _tools_ok, _missing_components = tool_checks.verify_all_gate_tools(str(project))
+    # component surfaces at setup, not deep inside Gate 3/4. Two-tier verdict:
+    # tools needed by a gate the current phase actually runs BLOCK; tools needed
+    # only by FUTURE-phase gates WARN (the matching phase entry will block then).
+    _tools_ok, _critical_components, _anticipated_components = _phase_gate_tools(
+        args.phase, str(project)
+    )
+    if _anticipated_components:
+        print(
+            "\n[WARN] run-phase: future-phase gate tools not yet installed"
+            " (degraded, not blocking this phase):"
+        )
+        for m in _anticipated_components:
+            print(f"  - {m}")
+        print(
+            "  These will be required when the matching phase begins."
+            " Install to silence the warning."
+        )
     if not _tools_ok:
         # Round 47 站3: repair before blocking. run-phase is a caller that
         # intends to prepare the tree, so it owns the fix — the same division
@@ -2111,12 +2173,14 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
         )
         if _outcome.attempted_steps:
             print(f"\n[REPAIR] run-phase: installed {', '.join(_outcome.attempted_steps)}")
-        _tools_ok, _missing_components = tool_checks.verify_all_gate_tools(str(project))
+        _tools_ok, _critical_components, _anticipated_components = _phase_gate_tools(
+            args.phase, str(project)
+        )
     if not _tools_ok:
         print(
-            "\n[BLOCKED] run-phase: required components not installed:\n"
-            + "\n".join(f"  - {m}" for m in _missing_components)
-            + "\n  These are hard dependencies (no degradation). Repair was attempted\n"
+            "\n[BLOCKED] run-phase: required components not installed for this phase:\n"
+            + "\n".join(f"  - {m}" for m in _critical_components)
+            + "\n  These are hard dependencies for the current phase. Repair was attempted\n"
             "  and did not resolve them — the framework installs pip packages into\n"
             "  the project venv and nothing else (external binaries and npm-owned\n"
             "  tools are yours). Install commands: harness/toolchains/bootstrap.py."

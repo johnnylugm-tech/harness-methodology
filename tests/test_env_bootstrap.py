@@ -133,3 +133,71 @@ def test_requirements_alone_is_not_the_whole_gate_toolchain():
     # And the ordinary ones still come from requirements.txt.
     assert bootstrap.step_for_tool("ruff") == "requirements"
     assert bootstrap.step_for_tool("pytest-cov") == "requirements"
+
+
+# ── bootstrap_env.unsatisfied_tools: skip-inline exclusion ──
+# Regression for the bug where bootstrap-env BLOCKED at every phase entry on
+# scancode/mutmut/etc. — despite those tools being intentionally marked
+# skip_inline=True in the toolchain registry (their gate evidence is a
+# committed tool_output file, not an inline probe). The probe was correct
+# for active tools and wrong for skip-list tools.
+def test_unsatisfied_tools_skips_skip_inline_tools(monkeypatch):
+    """Tools marked skip_inline=True must not be probed at bootstrap time.
+
+    Round 55 surgical fix: the bootstrap-env probe is the same question the
+    gate-time inline cross-validation would ask, and the design explicitly
+    excludes skip_list tools from inline cross-validation. The bootstrap-env
+    probe was therefore probing a class of tools the design already said
+    "do not inline" — the false BLOCKED it produced at phase entry was the
+    surface symptom, the design mismatch was the cause.
+    """
+    from scripts import bootstrap_env
+    from harness import tool_checks
+    from harness.toolchains.registry import TOOL_SPECS
+
+    # Spy: if probe fires on skip_inline tools, fail the test.
+    probed: list[str] = []
+
+    def _spy_run_tool_check(cmd, **kwargs):
+        # Map the cmd back to the tool_id by string match.
+        for tool_id, spec in TOOL_SPECS.items():
+            if spec.check_cmd and spec.check_cmd.split(" ", 1)[0] in cmd:
+                probed.append(tool_id)
+        return True  # pretend every probe passed
+
+    monkeypatch.setattr(tool_checks, "run_tool_check", _spy_run_tool_check)
+
+    result = bootstrap_env.unsatisfied_tools("/tmp/does-not-matter")
+
+    # scancode is skip_inline=True; it must not have been probed.
+    assert "scancode" not in probed, (
+        "scancode is skip_inline=True; bootstrap-env must not probe it inline"
+    )
+    # Sanity: the result list itself is empty because every probe returned True.
+    assert result == [], f"expected no unsatisfied tools, got {result}"
+
+
+def test_unsatisfied_tools_still_probes_active_tools(monkeypatch):
+    """The skip-list exclusion must not drop active tools from the probe.
+
+    ruff is not skip_inline; an inline probe must still run so a missing
+    install gets reported at phase entry, not at gate time.
+    """
+    from scripts import bootstrap_env
+    from harness import tool_checks
+    from harness.toolchains.registry import TOOL_SPECS
+
+    probed: list[str] = []
+
+    def _spy_run_tool_check(cmd, **kwargs):
+        for tool_id, spec in TOOL_SPECS.items():
+            if spec.check_cmd and spec.check_cmd.split(" ", 1)[0] in cmd:
+                probed.append(tool_id)
+        return True
+
+    monkeypatch.setattr(tool_checks, "run_tool_check", _spy_run_tool_check)
+    bootstrap_env.unsatisfied_tools("/tmp/does-not-matter")
+
+    assert "ruff" in probed, (
+        "ruff is skip_inline=False; bootstrap-env must still probe it"
+    )

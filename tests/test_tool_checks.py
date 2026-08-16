@@ -202,3 +202,64 @@ def test_check_tool_for_dim_without_project_root_uses_no_env_override(
     tool_checks.check_tool_for_dim("linting", "ruff", "python", project_root=None)
     assert seen["env"] is None
 
+
+
+# ── Phase-aware gate tool check (cli/phase_cmds._phase_gate_tools) ──
+# Regression for the bug where run-phase at P1/P2 treated `scancode
+# --version` as a hard dependency even though license_compliance (the only
+# tool-scored dimension that uses scancode) only runs at Gate 4 / P6. The
+# fix splits verify_all_gate_tools' one BLOCKED verdict into (critical,
+# anticipated) so tools needed by a future-phase gate degrade to a warning.
+def test_phase_gate_tools_phase1_treats_all_gates_as_anticipated(monkeypatch):
+    """Phase 1 does not run any gate — every missing tool is 'anticipated'."""
+    from cli.phase_cmds import PHASE_GATES, _phase_gate_tools
+
+    assert PHASE_GATES[1] == [], "Phase 1 must not require any gate tool"
+    assert PHASE_GATES[2] == [], "Phase 2 must not require any gate tool"
+
+    monkeypatch.setattr(
+        "harness.tool_checks.verify_gate_tools",
+        lambda _gate_num, _project: (False, ["license_compliance: scancode-toolkit (scancode) not found"]),
+    )
+    ok, critical, anticipated = _phase_gate_tools(1, "/tmp/none")
+    assert ok is True, "Phase 1 must not block on missing future-phase gate tools"
+    assert critical == [], "Phase 1 must produce no critical entries"
+    assert len(anticipated) == 4, "All 4 gates' missing tools are anticipated at P1"
+    assert all(e.startswith("gate") for e in anticipated)
+
+
+def test_phase_gate_tools_phase3_is_critical_for_gates_1_and_2(monkeypatch):
+    """Phase 3 runs Gate 1 + Gate 2 — missing tools there must block."""
+    from cli.phase_cmds import PHASE_GATES, _phase_gate_tools
+
+    assert PHASE_GATES[3] == [1, 2], "Phase 3 must require Gate 1 + Gate 2"
+
+    # stub: gate 1+2 missing critical, gate 3+4 missing but future-phase
+    def _fake_verify(gate_num, _project):
+        if gate_num in (1, 2):
+            return (False, ["linting: ruff not found"])
+        return (False, ["license_compliance: scancode-toolkit (scancode) not found"])
+
+    monkeypatch.setattr("harness.tool_checks.verify_gate_tools", _fake_verify)
+    ok, critical, anticipated = _phase_gate_tools(3, "/tmp/none")
+    assert ok is False, "Phase 3 must block when gate 1/2 tools are missing"
+    assert any("gate1" in e for e in critical)
+    assert any("gate2" in e for e in critical)
+    assert any("gate3" in e for e in anticipated)
+    assert any("gate4" in e for e in anticipated)
+
+
+def test_phase_gate_tools_phase6_all_gates_critical(monkeypatch):
+    """Phase 6 runs Gate 4 — every missing tool is critical."""
+    from cli.phase_cmds import PHASE_GATES, _phase_gate_tools
+
+    assert PHASE_GATES[6] == [1, 2, 3, 4], "Phase 6 must require every gate"
+
+    monkeypatch.setattr(
+        "harness.tool_checks.verify_gate_tools",
+        lambda _gate_num, _project: (False, ["x: missing"]),
+    )
+    ok, critical, anticipated = _phase_gate_tools(6, "/tmp/none")
+    assert ok is False
+    assert len(anticipated) == 0
+    assert len(critical) == 4

@@ -246,6 +246,16 @@ def unsatisfied_tools(project: "Path | str") -> list[str]:
     for step in _ssot.PIP_STEPS:
         for tool_id in _ssot.tools_for_step(step.name):
             spec = TOOL_SPECS[tool_id]
+            if spec.skip_inline:
+                # Skip-list tools (mutmut, scancode, import-linter, stryker):
+                # the framework's design intentionally drops their inline check
+                # (too slow / complex / env-coupled). Their gate evidence is a
+                # committed tool_output file validated at finalize-gate, NOT a
+                # probe here. Probing them anyway surfaces as a false BLOCKED
+                # at every phase entry, even though the dimension that uses them
+                # only runs at the matching gate. See harness/toolchains/registry.py
+                # ToolSpec.skip_inline for the canonical list.
+                continue
             try:
                 if not run_tool_check(spec.check_cmd, cwd=str(root), env=env):
                     unsatisfied.append(tool_id)
