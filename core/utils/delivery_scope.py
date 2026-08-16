@@ -195,6 +195,14 @@ HARNESS_VOLATILE_PATHS: frozenset[str] = frozenset({
     # keeps is the copy in gate{N}_result.json's breakdown (Round 31 站2), not
     # this file.
     ".methodology/mutation_score.json",
+    # Round 53 站1. Which framework write into this tree is open right now —
+    # empty in every state except "a transient window did not close". Nothing
+    # scores it; its one consumer is the commit refusal in
+    # core/tree_custody.assert_no_open_custody. Bookkeeping rather than a
+    # deliverable because a project has no reason to keep a record of the
+    # framework's own scratch, and it lives under .methodology/ rather than
+    # .sessi-work/ only so it survives the advance-phase that follows a crash.
+    ".methodology/tree_custody.json",
 })
 
 # The other half of the same question. A path the framework writes under

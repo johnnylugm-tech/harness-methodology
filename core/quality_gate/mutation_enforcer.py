@@ -34,7 +34,29 @@ from core.harness_config import get_timeout
 from core.quality_gate.mutmut_report import format_score_message
 from core.quality_gate.mutmut_scope import mutate_dirs
 from core.quality_gate.source_tree_lock import source_tree_lock
+from core.tree_custody import custody
 from core.utils.project_layout import ProjectLayout
+
+
+def _custody_paths(src_dirs: "list[Path]") -> "list[Path]":
+    """Every file mutmut may rewrite, plus the backup it may leave beside it.
+
+    Round 53 站1. Station 0's premise P1 measured the touched set on a
+    throwaway fixture: mutmut rewrites the `.py` files under
+    `[mutmut] paths_to_mutate` and writes `<file>.bak` next to the one it is
+    working on. Nothing outside that set moved.
+
+    The `.bak` siblings are included even though they do not exist yet —
+    `FileSnapshot` records an absent file as absent and deletes it on restore,
+    which is exactly the disposal `rate_repo.py.bak` never got before it was
+    committed alongside its mutant.
+    """
+    out: list[Path] = []
+    for src in src_dirs:
+        for path in sorted(Path(src).rglob("*.py")):
+            out.append(path)
+            out.append(path.with_suffix(".py.bak"))
+    return out
 
 # Basenames that are almost certainly data-only (no logic to mutate).
 _DATA_ONLY_NAMES: frozenset[str] = frozenset({
@@ -953,7 +975,19 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         # subprocess so any concurrent test-suite run (PhaseTruthVerifier,
         # FrameworkEnforcer, advance-phase TDD-PRECHECK — all funnel through
         # test_suite_run._measure) waits instead of observing a mutant.
-        with source_tree_lock(project):
+        #
+        # Round 53 站1: and hold custody of the same files, because the lock
+        # answers "may anyone else look right now" and never answered "did the
+        # window close". Station 0 killed mutmut mid-run on a fixture and the
+        # tree kept `return a * 2` -> `return a / 2` plus a `.bak` holding the
+        # original; taskq-super's `5535033 release(P6): Gate4 PASS score=93.9`
+        # shipped that exact pair. On a timeout or a crashed subprocess the
+        # restore repairs the tree here; when this process itself dies the
+        # window stays recorded and core.tree_custody.assert_no_open_custody
+        # stops the next framework commit from staging the leftovers.
+        with source_tree_lock(project), custody(
+            project, "mutation:src", paths=_custody_paths(src_dirs),
+        ):
             r = subprocess.run(
                 cmd, cwd=workdir, capture_output=True, text=True,
                 env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload

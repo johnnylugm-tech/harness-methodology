@@ -783,7 +783,7 @@ _LINE_CEILING: dict[str, int] = {
     # GATE1 so the Architecture Amendment Protocol sees the module the FR just
     # wrote — that one is not a repeat, it is the point.
     "scripts/plangen/phase_tasks.py": 1150,
-    "core/quality_gate/mutation_enforcer.py": 1328,
+    "core/quality_gate/mutation_enforcer.py": 1362,  # 2026-08-16: +34 — Round 53 站1: `_custody_paths` and the `custody(...)` clause on the existing `source_tree_lock` line. The restore and its verification live in core/tree_custody.py; what is here is the file set mutmut may touch and the comment saying why the lock was not enough. Station 0 measured that set on a fixture — the `.py` files under `[mutmut] paths_to_mutate` plus a `<file>.bak` sibling, nothing outside — and killing mutmut mid-run left `return a * 2` -> `return a / 2` alongside `calc.py.bak`, which is byte-for-byte what taskq-super's `5535033 release(P6): Gate4 PASS score=93.9` shipped. The `.bak` paths are in the set although they do not exist yet: FileSnapshot records an absent file as absent and deletes it on restore, which is the disposal `rate_repo.py.bak` never got. Previous: 1328.
     # 2026-08-05: +12 lines — both `mutmut run` subprocess calls
     # (run_mutation_precheck, _compute_mutation_score) now hold
     # source_tree_lock.py's exclusive lock for the subprocess's duration.
