@@ -23,6 +23,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 from core.phase_topology import VALID_PHASES
+# What an unfilled template placeholder looks like — imported, not re-spelled.
+# `constitution/runner.py` has owned this pattern since it was written (it
+# excludes `${VAR}` shell expansions, dotted `{Platform.TELEGRAM}` code and
+# `{key: value}` literals), and a second spelling of the same idea is the
+# defect Round 36 named: the copy the gate reads is the copy that goes stale.
+from core.quality_gate.constitution.runner import _STUB_PLACEHOLDER_RE
 from core.utils.project_layout import ProjectLayout, phase_artifacts as _phase_artifacts
 
 
@@ -30,17 +36,96 @@ from core.utils.project_layout import ProjectLayout, phase_artifacts as _phase_a
 # Defined dynamically via ProjectLayout within functions now, so we remove the static map.
 
 
-def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
-    """Check that report H1 titles reference the correct phase number.
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 
-    Detects copy-paste from previous phase reports (e.g. Phase 3 title
-    in a Phase 4 report).
 
-    Returns list of violations (empty if clean).
+def _template_placeholders(basename: str) -> set:
+    """The placeholders the framework's own template for *basename* ships.
+
+    This, not "the file contains braces", is what makes the check decidable.
+    Measured over the seven projects here, a presence rule fires on
+    `/v1/tasks/{id}` in six SRS files, nine TEST_SPECs and every TEST_PLAN —
+    a URL path template is content, not an unfilled field. Intersecting with
+    the template's own set leaves exactly the fault being described: a
+    placeholder this framework put there and nobody replaced.
+    """
+    path = _TEMPLATES_DIR / basename
+    if not path.is_file():
+        return set()
+    try:
+        return set(_STUB_PLACEHOLDER_RE.findall(path.read_text(encoding="utf-8")))
+    except OSError:
+        return set()
+
+
+def check_unfilled_placeholders(project_root: Path, phase: int) -> List[Dict[str, str]]:
+    """A delivered artifact may not still carry its template's placeholders.
+
+    Round 55. `08-config/CONFIG_RECORDS.md` is Phase 8's key artifact.
+    `templates/CONFIG_RECORDS.md` ships it with `{{config}}` / `{{VAR}}` /
+    `{{rollback commands}}` for a human to fill, `scripts/phase8_doc_gen.py`
+    copies it, and until now no automatic check read the result — the file's
+    existence was verified (`legal_artifacts`, `phase_artifact_enforcer`) and
+    its content never was.
+
+    Measured 2026-08-17, and the number is the point: **all seven** projects on
+    this machine shipped the same nine unreplaced placeholders in
+    CONFIG_RECORDS.md, including the whole Rollback SOP. Seven for seven is
+    not seven project failures; it is a deliverable the framework generates,
+    tells nobody to fill, and never reads. Every other deliverable in the
+    corpus is clean under this rule.
+
+    One thing this is NOT: `constitution/runner._is_stub_template` returns a
+    vacuous 100/100/100/100 for a file with eight or more placeholders, and
+    taskq-super's trips it. That is not the live path — constitution left the
+    automatic pipeline at 減法 T3 (2026-07-07) and says so in
+    `phase_hooks.NON_PIPELINE_PREFLIGHTS`. The defect was the absent reader,
+    not the generous score, so the fix is a reader on the live path.
     """
     violations: List[Dict[str, str]] = []
+    for rel_path in phase_artifact_relpaths(project_root, phase):
+        fpath = project_root / rel_path
+        if not fpath.is_file():
+            continue
+        expected = _template_placeholders(fpath.name)
+        if not expected:
+            continue
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(f"[WARN] cross_artifact: could not read {fpath}: {exc}",
+                  file=sys.stderr)
+            continue
+        left = sorted(expected & set(_STUB_PLACEHOLDER_RE.findall(content)))
+        if not left:
+            continue
+        violations.append({
+            "file": rel_path,
+            "issue": (
+                f"{len(left)} placeholder(s) from templates/{fpath.name} are "
+                f"still unreplaced: {', '.join(left)}"
+            ),
+            "severity": "CRITICAL",
+            "suggestion": (
+                f"Replace each of {', '.join(left)} in {rel_path} with the "
+                f"real value for this release. If a section genuinely does "
+                f"not apply, say so in words and delete the placeholder — a "
+                f"template field left as-is reads as an answer nobody gave."
+            ),
+        })
+    return violations
+
+
+def phase_artifact_relpaths(project_root: Path, phase: int) -> List[str]:
+    """The deliverables *phase* writes, project-relative.
+
+    One registry, two readers: `check_phase_title` asks whether each one's H1
+    names the right phase, and `check_unfilled_placeholders` asks whether it is
+    still the template it was copied from. Round 55 extracted it from the first
+    of those rather than letting the second grow a second copy.
+    """
     layout = ProjectLayout(project_root)
-    phase_artifacts = {
+    return {
         4: [
             layout.get_relative_str(layout.test_plan_path),
             layout.get_relative_str(layout.phase4_testing_dir / "TEST_RESULTS.md"),
@@ -57,8 +142,19 @@ def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
             layout.get_relative_str(layout.phase8_config_dir / "RELEASE_CHECKLIST.md"),
         ],
         9: [layout.get_relative_str(layout.maintenance_log_path)],
-    }
-    artifacts = phase_artifacts.get(phase, [])
+    }.get(phase, [])
+
+
+def check_phase_title(project_root: Path, phase: int) -> List[Dict[str, str]]:
+    """Check that report H1 titles reference the correct phase number.
+
+    Detects copy-paste from previous phase reports (e.g. Phase 3 title
+    in a Phase 4 report).
+
+    Returns list of violations (empty if clean).
+    """
+    violations: List[Dict[str, str]] = []
+    artifacts = phase_artifact_relpaths(project_root, phase)
 
     for rel_path in artifacts:
         fpath = project_root / rel_path
@@ -329,6 +425,11 @@ def run_cross_artifact_checks(
     if phase >= 4:
         violations.extend(check_coverage_report(project_root, phase))
 
+    # 4. Unfilled template placeholders (Round 55 站2) — every phase that has
+    # deliverables, because the file that trips it is Phase 8's and the same
+    # question is worth asking of each of the others.
+    violations.extend(check_unfilled_placeholders(project_root, phase))
+
     criticals = [v for v in violations if v.get("severity") == "CRITICAL"]
     highs = [v for v in violations if v.get("severity") == "HIGH"]
 
@@ -343,7 +444,7 @@ def run_cross_artifact_checks(
     return {
         "passed": passed,
         "violations": violations,
-        "checks_ran": 3 if phase >= 4 else 1,
+        "checks_ran": 4 if phase >= 4 else 2,
         "critical_count": len(criticals),
         "high_count": len(highs),
     }

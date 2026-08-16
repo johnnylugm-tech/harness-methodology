@@ -189,11 +189,12 @@ def test_check_coverage_report_extracts_line_coverage_not_first_percentage(mock_
 
 
 def test_run_cross_artifact_checks_phase_3(tmp_path):
-    # Phase 3 does not check coverage or FR
+    # Phase 3 does not check coverage or FR. Two checks run at every phase:
+    # phase-title, and (Round 55 站2) unfilled template placeholders.
     (tmp_path / "03-architecture").mkdir(parents=True)
     result = run_cross_artifact_checks(tmp_path, 3)
     assert result["passed"] is True
-    assert result["checks_ran"] == 1
+    assert result["checks_ran"] == 2
 
 @patch("core.quality_gate.cross_artifact.check_phase_title")
 @patch("core.quality_gate.cross_artifact.check_fr_coverage")
@@ -205,6 +206,7 @@ def test_run_cross_artifact_checks_phase_4(mock_cov, mock_fr, mock_title, tmp_pa
     
     result = run_cross_artifact_checks(tmp_path, 4)
     assert result["passed"] is False
-    assert result["checks_ran"] == 3
+    # 4 since Round 55 站2 added check_unfilled_placeholders.
+    assert result["checks_ran"] == 4
     assert result["critical_count"] == 1
     assert result["high_count"] == 1
