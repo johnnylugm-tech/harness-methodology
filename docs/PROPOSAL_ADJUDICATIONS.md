@@ -3302,3 +3302,104 @@ taskq-super 的四條：`no_string_sql_concatenation` 與
 - **不動 `phase_completed` 寫入順序**、**不做跨專案語料**（理由同上表 D/E）。
 - **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。**
 - **不 push。**
+
+---
+
+## Round 55 — 驗收準則讀不到，於是整條鏈都報乾淨
+
+老闆針對 taskq-super 的 5 條缺失與 3 段扣分要求查證真實性與根源性，明確每條是
+harness bug 還是 workflow JS bug，套用正解不是 workaround，且不破壞共通性。
+基線 HEAD `2062e2b`（Round 54 收口）。
+
+**五條缺失全部屬實，全部是 harness bug，零條是 workflow JS bug。** 本輪唯一改到的
+JS 內容是 P1/P4/P8 的 prompt 文字，一律經 `generate_workflows.py --write`；
+`.claude/workflows/*.js` 一字未手改。
+
+### 逐條裁決
+
+| # | 審計主張 | 裁決 | 落點 |
+|---|---|---|---|
+| 1 | `08-config/SBOM.json` 不存在 | **屬實**，根在 D1 | 站1 |
+| 2 | CONFIG_RECORDS.md 滿是 `{{…}}` | **屬實**，且**七專案全中** | 站2 |
+| 3 | `verify-system` 缺 alembic 往返與 HTTP 冒煙 | **屬實**，根同 D1（NFR-12 的四步也是驗收準則） | 站1 |
+| 4 | `.importlinter` 被降級 | **屬實但 R54 站2 已擋**；殘留的是 R54 自己的洞 | 站3 |
+| 5 | 7,563 vs 349 | **屬實**，且四個專案都有 | 站4 |
+| -3 | `coroutine 'healthz' was never awaited` | **屬實但 R53 站3 已修**；taskq-super 的 gate 跑在 `f99a8b0`（早於 R53），重跑就現形 | 不做 |
+
+### D1 —— 三層疊在一起，三層都是活的
+
+**標籤。** `_AC_BLOCK` 要求字面 `**Acceptance criteria**`；P1 prompt 說「under a
+`**Acceptance criteria**` label」，五個專案寫成 `**Acceptance criteria (FR-01)**`。
+歸屬數（放寬 + id regex 收窄後）：
+
+| 專案 | SRS 裡的 AC-id | 舊歸屬 | 新歸屬 | TEST_SPEC 引用 | 未引用 |
+|---|---|---|---|---|---|
+| **taskq-super** | 133 | **0** | **111** | **0** | **111** |
+| taskq-renew | 41 | 5 | 40 | 29 | 11 |
+| taskq-advance | 92 | 92 | 92 | 6 | **86** |
+| taskq | 33 | 28 | 28 | 28 | 0 |
+| taskq-plus / taskq-api | 0 | 0 | 0 | 0 | 0（`ac_unnumbered` 20 / 22） |
+
+**識別碼。** `\bAC-[A-Za-z]?\d[\w.\-]*` 會把 `AC-1.1..AC-1.10` 整段吃成一個 token。
+taskq-super 133 個裡有 22 個是這種區間式，taskq-renew 41 裡有 1 個 —— 永遠歸不了屬。
+收窄後未歸屬只剩 taskq 的 5 個，全部是 DERIVED 散文裡把 `AC-3.1` 寫成 `AC-3-1`。
+
+**棄權。** `check_ac_test_spec_coverage` 歸不到任何準則時 `return []`，而 `[]` 也是
+全覆蓋的樣子。新增 `ac_population_unread`（error）。
+
+**執行者。** 兩個檢查唯一的消費者是 `build_fingerprint`，只記不擋。
+
+### 三項「不做」，理由寫在這裡
+
+- **不硬編「SBOM.json 必須存在」**、**不硬編 verify-system 的四步**：那是專案特定的
+  宣告，寫進框架就破壞共通性。正解是讓 AC-N7.2 / AC-N12.x 自己走完
+  SRS→TEST_SPEC→test 的鏈。R52 誠實聲明的 verify-system Goodhart 上限維持。
+- **`ac_parse_gap` 不升為 error。** 本站自己的紅測試主張要升，**那條紅測試是錯的**：
+  既有的 `test_identifiers_outside_a_readable_shape_are_reported_as_unread` 早就把它
+  釘在 `info`，理由是「框架讀不到某個形狀是框架的債」（R32 站4），這是對的。要擋的
+  棄權是另一句話，落在 `check_ac_test_spec_coverage`。**改的是紅測試，不是既有規則。**
+
+### 站3 —— 兩個判準，一個被量測否決
+
+`root_packages`（複數）沒被讀，導致 `contract_coverage_gap` 對 taskq-plus 與
+taskq-super 回「無缺口」——正是契約最空的兩個。修好後 0→5 與 0→20。
+
+**計畫原訂的「契約內容對賬 SAB 層名」被自己的量測否決。** 兩種寫法都會誤傷：
+「任何未涵蓋模組即 unconfigured」會擋掉 taskq-api / taskq-advance（語料裡僅有的兩份
+正確契約，各仍有 4 個模組在契約外：composition root、`__main__`、config、errors）；
+「對賬 SAB 的 `allowed_dependencies` 鏈」同理（taskq-advance 的鏈是
+`app > api > service > repository > models`，而它的契約正確地只列四層）。
+最後落地的是一條定義而非門檻：**`layers` 契約少於兩層即 unconfigured**——
+一份談順序的契約，一個元素沒有順序。缺口寫進 evidence，不當判定（R32 站4）。
+
+### 站4 —— 兩個數字第一次見面
+
+P4 prompt 自己寫著「Real execution is enforced by advance-phase
+pytest --cov-fail-under=100, **not by string-matching this doc**」。那句話現在是假的，
+同一個 commit 裡經 workflowgen 換掉。錨點是 pytest 自印的 summary line（靠 `in <T>s`
+後綴辨識），不是散文表格。**訊息同時說出兩種成因且不斷言哪一種**——一個數字分不出
+「從 repo root 跑」與「文件描述的是較早的一次執行」。
+
+留了兩個棄權（`ran=False`、`test_outcomes` 為空），因為量不出來不是判定
+（R32 站4 / R35 站2）。
+
+### 一項自我更正
+
+CONFIG_RECORDS.md 的「未填模板拿 100/100/100/100」看起來是根因，**不是**：
+`constitution` 自 減法 T3（2026-07-07）起就不在自動管線
+（`NON_PIPELINE_PREFLIGHTS` / `NON_PIPELINE_POSTFLIGHTS` 兩份宣告）。
+活傷口是**根本沒人讀那份檔的內容**，所以修法是在活路徑上放一個讀者，
+而不是去改一個不在管線上的分數。`runner._is_stub_template` 本輪不動。
+
+### 明列不做（附再開條件）
+
+- **不改 `check_coverage_report` 的靜默放行**（同檔、同形狀、不同一條）。
+  再開條件：下一輪處理 P4 產物數字時一併裁。
+- **不改 `constitution/runner.py` 的 stub→100**。再開條件：constitution 重新進入
+  自動管線的那一天。
+- **`check_cross_artifact` 只在 P3–P4 執行**，所以站2/站4 的兩個 CRITICAL 只在 P4 攔。
+  taskq-super 的 7,563 是在 P5 被複製過去的。再開條件：把 cross-artifact 納入
+  P5–P8 的 phase-truth 檢查表。
+- **不做 `forbidden` 契約的內容對賬**。再開條件：SAB 帶結構化禁令欄位。
+- **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。**
+- **不 push。**

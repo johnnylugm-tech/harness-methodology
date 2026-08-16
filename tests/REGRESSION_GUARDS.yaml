@@ -2409,3 +2409,59 @@
 - test: tests/test_s4_uses_its_own_number.py::TestS4ScoreVerdict::test_a_stubbed_boundary_marker_survives
   bug: "Round 51 站3 marks test_coverage and integration_coverage `stubbed_boundary` before S4 runs, and measurement_scope reads that marker to drop them from weight_covered; station 0's premise P4 measured that both are requires_tool_execution, so S4 sees them. Writing score_source unconditionally would have revoked Round 51 站3 without a word. 'Who produced this number' and 'is this number about the delivered code' are two questions and only the first is S4's"
   fixed_in: "R54-站3 (current_source is returned unchanged when it is already in _SOURCES_NOT_FRAMEWORK_MEASURED; the number is still replaced)"
+
+- test: tests/test_ac_traceability.py::test_a_qualified_acceptance_criteria_label_is_read
+  bug: "`_AC_BLOCK` required the literal `**Acceptance criteria**` while the Phase 1 prompt said 'a bolded prefix on a bullet under a `**Acceptance criteria**` label'. Five of seven projects read that as permitting `**Acceptance criteria (FR-01)**`, which it does. taskq-super had 133 `AC-` identifiers and the parser attributed 0; taskq-renew 41 and 5. With no criteria attributed, check_ac_test_spec_coverage had no population and reported clean — which is how AC-N7.2 ('`08-config/SBOM.json` exists') reached Gate 4 PASS with no TEST_SPEC case, no test and no file"
+  fixed_in: "R55-站1 (_AC_LABEL_RE widened; the Phase 1 prompt now renders from ac_label_shape() so widening one widens the other)"
+
+- test: tests/test_ac_traceability.py::test_a_range_expression_is_two_identifiers_not_one
+  bug: "the id regex's character class spanned `.`, so a DERIVED note's `AC-1.1..AC-1.10` matched as one token — an identifier no criterion will ever carry and nothing can ever attribute. 22 of taskq-super's 133 and 1 of taskq-renew's 41 were ranges, and they would have been reported as unread forever"
+  fixed_in: "R55-站1 (a dot must be followed by a word character; AC-N7.2 / AC-01-1 / **AC-9.5**: all unchanged)"
+
+- test: tests/test_ac_traceability.py::test_a_population_this_check_could_not_build_is_not_coverage
+  bug: "check_ac_test_spec_coverage returned [] whenever it attributed no criteria, and [] is also what full coverage looks like. Round 46 站1's rule applied to the check Round 51 wrote to enforce it. Deliberately NOT a severity change on ac_parse_gap — 'some ids sit in a shape I cannot read' is the framework's debt (Round 32 站4) and stays info; 'I built no population at all' is a different sentence"
+  fixed_in: "R55-站1 (ac_population_unread, error)"
+
+- test: tests/test_ac_traceability.py::test_the_prompt_describes_a_label_the_parser_accepts
+  bug: "prompt-gate parity on the sentence that caused this round. Every example the Phase 1 prompt gives for the criteria-block label must be one _AC_BLOCK matches, and the generated phase1-requirements.js must carry that exact sentence. The prompt and the parser stated the shape independently and disagreed for as long as anyone had written an SRS"
+  fixed_in: "R55-站1 (ac_label_shape() interpolated into spec_phase1.py, Round 17 站1's registry shape)"
+
+- test: tests/test_ac_traceability.py::test_preflight_artifact_consistency_runs_the_two_ac_checks
+  bug: "both AC checks existed since Round 51 and their only consumer was delivery_fingerprint.build_fingerprint, which counts them into a JSON field nothing blocks on. taskq-advance carried 86 acceptance criteria that no TEST_SPEC case cites through eight phases and blocked nothing"
+  fixed_in: "R55-站1 (wired into preflight_artifact_consistency at phase>=3, the same rule as check_nfr_adr_coverage beside it)"
+
+- test: tests/test_delivered_artifact_placeholders.py::test_an_unfilled_delivered_artifact_is_critical
+  bug: "08-config/CONFIG_RECORDS.md is Phase 8's key artifact, copied from templates/ by phase8_doc_gen.py, and no automatic check read a byte of its content. All seven projects this framework has built shipped the same nine unreplaced placeholders, the whole Rollback SOP among them; taskq-super's Gate 4 read 93.91 over that file"
+  fixed_in: "R55-站2 (check_unfilled_placeholders, CRITICAL via run_cross_artifact_checks)"
+
+- test: tests/test_delivered_artifact_placeholders.py::test_a_filled_artifact_is_silent
+  bug: "the negative control, and the reason the rule is 'a placeholder this framework's own template put there' rather than 'the file contains braces'. A presence rule fires on `/v1/tasks/{id}` in six SRS files, nine TEST_SPECs and every TEST_PLAN — a URL path template is content, not an unfilled field"
+  fixed_in: "R55-站2 (intersection with _template_placeholders(basename))"
+
+- test: tests/test_delivered_artifact_placeholders.py::test_the_placeholder_pattern_has_one_owner
+  bug: "a second spelling of 'what an unfilled placeholder looks like' is the copy that goes stale (Round 36). constitution/runner.py's regex already excludes ${VAR}, {Platform.TELEGRAM} and {key: value}; cross_artifact imports it rather than restating it"
+  fixed_in: "R55-站2"
+
+- test: tests/test_arch_contract_covers_delivery.py::test_root_packages_plural_is_read
+  bug: "import-linter accepts root_package and root_packages; read_import_contracts read only the singular. taskq-plus and taskq-super both write the plural, so both returned an empty root package — and contract_coverage_gap's first guard is `if not root_package: return []`, which means the check that asks which delivered modules no contract constrains had been answering 'none' for the two projects with the emptiest contracts. taskq-super 0 -> 20, taskq-plus 0 -> 5"
+  fixed_in: "R55-站3"
+
+- test: tests/test_arch_contract_covers_delivery.py::test_a_one_layer_contract_states_no_order
+  bug: "Round 54's `unconfigured` asked only whether a contract of the right type exists, so it could be cleared by adding a single-layer `layers` section that constrains nothing. Two entries is not a threshold — a layers contract IS a statement about ordering and one element has no order"
+  fixed_in: "R55-站3"
+
+- test: tests/test_arch_contract_covers_delivery.py::test_a_real_contract_is_enforced_and_carries_its_gap
+  bug: "the boundary this station refused to cross. Every correctly layered project still leaves four modules outside every contract (composition root, __main__, config, errors), so making the coverage gap decide the status would fail taskq-api and taskq-advance, whose contracts are the two in the corpus that are right. The gap goes in the evidence string; the verdict stays with what is decidable (Round 32 站4)"
+  fixed_in: "R55-站3"
+
+- test: tests/test_test_count_reconciliation.py::test_a_wider_run_recorded_as_the_project_result_is_critical
+  bug: "TEST_RESULTS.md's counts are prose and run_suite is a measurement, and the two had never met. taskq-super recorded `4 failed, 7563 passed, 3 skipped` for a 349-test tree — the agent ran pytest from the repository root, where the vendored harness lives — and that number travelled into BASELINE.md and VERIFICATION_REPORT.md. The Phase 4 prompt said why: 'Real execution is enforced by advance-phase pytest --cov-fail-under=100, not by string-matching this doc'"
+  fixed_in: "R55-站4 (check_test_count_reconciliation; the prompt sentence replaced in the same commit through workflowgen)"
+
+- test: tests/test_test_count_reconciliation.py::test_no_machine_readable_summary_is_also_a_violation
+  bug: "the one place this check deliberately does not copy check_coverage_report next door, which returns nothing when it finds no numeric claim. A test-results document with nothing to reconcile has not been reconciled (Round 46 站1). Three of seven projects have no machine-readable summary line at all"
+  fixed_in: "R55-站4"
+
+- test: tests/test_test_count_reconciliation.py::test_a_matching_summary_is_silent
+  bug: "the control. taskq-api's single scoped run is the one honest case in the corpus and must stay silent, and the fixture builds test_outcomes the way SuiteResult documents it — every collected test, skips included — so it cannot pass by disagreeing with the thing it stands in for"
+  fixed_in: "R55-站4"

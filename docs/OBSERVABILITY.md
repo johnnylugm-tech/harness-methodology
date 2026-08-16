@@ -1061,3 +1061,39 @@ S4 line now reads `harness=… | agent=… | threshold=… -> score=… (source)
 The score a dimension carries is the framework's own number whenever the
 framework has one; previously that was true only when the agent had declared
 N/A.
+
+## Three cross-artifact findings and one preflight, all new (Round 55)
+
+`run_cross_artifact_checks` returns two more kinds of violation, and its
+`checks_ran` went 1→2 (any phase) and 3→5 (P4+). Both are `CRITICAL`, which is
+what `phase_truth_verifier.check_cross_artifact` turns into a failed phase
+verdict, so both are visible in the D3 line of a Phase Truth report:
+
+* **unfilled placeholders** — `NN-stage/FILE.md: N placeholder(s) from
+  templates/FILE.md are still unreplaced: {config}, {VAR}, …`. Only placeholders
+  the framework's own template ships are counted, so `/v1/tasks/{id}` in an SRS
+  is not one. Fires at every phase that has deliverables.
+* **test-count reconciliation** — `04-testing/TEST_RESULTS.md: summary line
+  reports N test(s); the framework measured M under <target> (<the line>)`, or
+  `no pytest summary line to reconcile; the framework measured M under
+  <target>`. P4 only, because that is where `check_cross_artifact` runs.
+
+Reading them: the first number is the document's, the second is `run_suite`'s,
+and the target is what `resolve_targets` scoped the measurement to. A first
+number far above the second usually means the run was not scoped to the
+project; a first number near it usually means the document predates tests
+added later in the phase. The remedy text says both, because one number cannot
+tell them apart.
+
+`preflight_artifact_consistency` gained two checks at phase ≥ 3 and its
+`error_details` rows can now carry `ac_no_test_case` (an acceptance criterion
+in SRS.md that no TEST_SPEC case cites, one row per criterion, named by id) and
+`ac_population_unread` (SRS.md carries `AC-` identifiers and the parser
+attributed none of them, so the coverage check compared nothing). The existing
+`ac_parse_gap` row stays `info` and stays out of the block: a shape the
+framework cannot read is the framework's debt, not the project's failure.
+
+`delivery_fingerprint`'s `architecture.modules_outside_every_contract` now
+reports a measured number for projects that spell `root_packages` in the
+plural. It read zero for two of the seven projects here, and one of those two
+was the project whose only contract covers two of its twenty-two modules.
