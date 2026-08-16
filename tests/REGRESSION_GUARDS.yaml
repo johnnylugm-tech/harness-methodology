@@ -2377,3 +2377,35 @@
 - test: tests/test_state_phase_records.py::test_entering_a_phase_requires_the_previous_phase_to_have_left_a_record
   bug: "from phase 4 on the entry gate asked quality_manifest.json whether the previous gate passed and nothing else, so a missing phase_completed[N] stopped nothing. taskq-super reached Phase 9 with entries for 1, 2, 3, 4, 6, 7. The record holds the SHA, the enforcer and delivered_tree_sha256 — which tree the checks read — and its git history shows the cause: the entry for phase N is never inside the commit that completes phase N, because its `sha` is HEAD after that commit, so it rides along in whatever commits state.json next. Phase 5's ride never arrived and left no ledger row, because the write reported success and a later whole-document writer dropped it"
   fixed_in: "R53-站5c (_verify_entry_gate requires it; core/doctor_checks/verdicts._check_phase_record_gaps names it retrospectively. The ordering is deliberately unchanged — see the test's docstring)"
+
+- test: tests/test_arch_constraint_executors.py::test_a_constraint_bandit_decides_is_enforced_and_names_the_tool
+  bug: "CONSTRAINT_EXECUTOR_CANDIDATES held two entries, both import-linter, while the gate runs a dozen tools — so Round 51 站2's `no executor` was measured against a two-tool world. `security` resolves to bandit for Python, the gate runs and scores it, and bandit enables every test unless the project opts out: B602 catches shell=True, B307 eval, B102 exec, B608 both f-string and +-concatenated SQL. taskq-super's Gate 4 scored security 100.0 with `skips = []` and reported no_shell_true_no_eval_no_exec and no_string_sql_concatenation as having no executor"
+  fixed_in: "R54-站1 (bandit candidates; `requires` is a per-executor predicate because import-linter checks only what you declare and bandit checks everything unless you opt out — opposite polarity)"
+
+- test: tests/test_arch_constraint_executors.py::test_a_check_the_project_switched_off_is_unconfigured_not_enforced
+  bug: "a constraint naming three things (`no_shell_true_no_eval_no_exec`) matched only the FIRST candidate, so it got the shell test ids and silently dropped eval and exec — a project that skipped B307 would still have read `enforced`. Partial disablement has to count: a bandit told to ignore eval does not enforce a no-eval constraint"
+  fixed_in: "R54-站1 (all matching candidates, not the first; a compound constraint is enforced only when every part of it is)"
+
+- test: tests/test_arch_constraint_executors.py::test_an_independence_constraint_with_an_independence_contract_is_enforced
+  bug: "the registry knew `layers` and `forbidden` and not `independence`, which is the third contract kind import-linter supports. Three constraints across the seven projects are that shape and two of those projects already ship an independence contract"
+  fixed_in: "R54-站1"
+
+- test: tests/test_arch_constraint_executors.py::test_only_the_unconfigured_state_blocks
+  bug: "two states said three different things — a tool decides this / a tool could decide this and is switched off / nothing in this framework can decide it. Only the middle one is blockable, because it is the only one where the framework can name the fix. Blocking `declared_only` would make projects delete true statements about themselves rather than write checks, which is why the block_reason remediation says so out loud"
+  fixed_in: "R54-站1+站2 (unconfigured_blocking_reason; the raise sits at Round 51 站2's existing call site rather than a second reader of the same list)"
+
+- test: tests/test_arch_constraints_executor.py::test_every_declared_constraint_is_classified
+  bug: "with no project argument the first draft of the three-state classifier returned `enforced` for bandit constraints, inferring from bandit's default-on behaviour about a project it had never looked at — and contradicting its own docstring's promise that nothing can be enforced without reading the project. Round 51's test is what caught it; the fix makes that test pass unmodified"
+  fixed_in: "R54-站1 (project is None -> every row declared_only, the pre-Round-54 answer)"
+
+- test: tests/test_s4_uses_its_own_number.py::TestS4ScoreVerdict::test_the_framework_number_wins_when_both_are_above_threshold
+  bug: "S4 handled agent-said-N/A, framework-got-nothing and framework-below-threshold, and dropped the fourth case: both numbers above threshold appended nothing, so the dimension kept whatever the agent typed. Measured on the exact tree taskq's Gate 4 judged (git archive c1af37e): recorded 100.0, the framework's own scanner 80.0, the agent's own evidence line 66.7 — and the verdict carried the only one nobody computed, at a threshold of 80"
+  fixed_in: "R54-站3 (s4_score_verdict; Round 35 站3's principle, whose `agent_score is None` half was the only one built)"
+
+- test: tests/test_s4_uses_its_own_number.py::TestS4ScoreVerdict::test_a_claimed_pass_the_tool_contradicts_is_still_fabrication
+  bug: "the positive control. 'The agent claimed a pass the tool contradicts' is a different and worse fact than 'the agent's number was imprecise', and Round 13's routing rule forbids the two arriving under one heading — so replacing the score must not quietly absorb the fabrication block"
+  fixed_in: "R54-站3"
+
+- test: tests/test_s4_uses_its_own_number.py::TestS4ScoreVerdict::test_a_stubbed_boundary_marker_survives
+  bug: "Round 51 站3 marks test_coverage and integration_coverage `stubbed_boundary` before S4 runs, and measurement_scope reads that marker to drop them from weight_covered; station 0's premise P4 measured that both are requires_tool_execution, so S4 sees them. Writing score_source unconditionally would have revoked Round 51 站3 without a word. 'Who produced this number' and 'is this number about the delivered code' are two questions and only the first is S4's"
+  fixed_in: "R54-站3 (current_source is returned unchanged when it is already in _SOURCES_NOT_FRAMEWORK_MEASURED; the number is still replaced)"

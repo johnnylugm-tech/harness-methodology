@@ -3175,3 +3175,130 @@ commit 裡」這個系統性順序問題；phase 5 是真的遺失，phase 8 只
   說及格」時擋，門檻是 70，所以兩邊都過關、agent 的數字留下。這是 R50 站2
   （score_source）的地界，不是本輪的。記在這裡以免第三次被重新發現。
 - **不 push。**
+
+---
+
+## Round 54 — 框架跑著能判的工具，卻說沒人在判
+
+**觸發**：老闆要求把所有遺留問題（含 taskq-super 的 4 條 SAB
+`architecture_constraints`）展開成可執行的修復方案。把 R51–R53 三輪的明列不做
+逐條重新查證，**其中兩條的根因與賬本記載不符**，而且都不是「做不到」，
+是「已經做到了但沒接上」。老闆裁決兩項：**`unconfigured` 要擋**；
+**S4 有自己的數字就用它**。基線 HEAD `f971c8f`。
+
+### 遺留清單的逐條處置
+
+| # | 項目 | 處置 |
+|---|---|---|
+| A | arch-constraints | **根因與 R53 賬本不符，本輪修**（站1+站2） |
+| B | S4 分數與證據不一致 | **屬實且比記載嚴重，本輪修**（站3） |
+| C | Stryker `inPlace` | **查證後非缺口**：Stryker 預設 sandbox，`templates/js_toolchain/stryker.conf.json` 未設 `inPlace`，七專案皆 Python。R53 站1 的 Python-only custody 正確。再開條件：專案自行設 `inPlace: true` |
+| D | `phase_completed` 寫入順序 | 不動。R53 站5c 的理由不變（entry 的 `sha` 是 handover commit 之後的 HEAD）。再開條件：找到既能指向該 commit、又能與它同批寫入的表示法 |
+| E | 跨專案離群語料 | 再開條件（共用 run 儲存處）仍未出現，維持不做 |
+| F | verify-system 的 Goodhart 上限 | R52 誠實聲明的上限，非缺陷 |
+| G | taskq-super 自己的債 | **專案唯讀**。A/B 修完後它下一次 gate 會被逐條指名 |
+
+### A —— arch-constraints 的真正根因
+
+R53 賬本記成「框架沒有能力替任意宣告產生執法者」。實測七專案 23 條
+`declared_only`：**這個記載對其中 7 條成立，對另外 16 條是錯的。**
+
+`CONSTRAINT_EXECUTOR_CANDIDATES` 只有兩筆、兩筆都是 import-linter，
+而 gate 跑的工具不只一個。
+
+**A1 — bandit 已經在判五條。** `security` 維度的工具是 bandit
+（`registry.py:524`），gate 跑它也計它的分，且 bandit **預設啟用全部測試**。
+fixture 實跑確認 B602 抓 `shell=True`、B307 抓 `eval`、B102 抓 `exec`、
+B608 抓 f-string **與** `+` 拼接（含 helper 內）。taskq-super 的 `.bandit` 是
+`skips = []`，Gate 4 的 security 是 100.0，同一個 gate 卻報
+`no_shell_true_no_eval_no_exec` 與 `no_string_sql_concatenation` 沒有執法者。
+七專案中六個根本沒有 bandit 設定——對 bandit 而言那代表**全開**，
+與 import-linter「沒宣告就沒檢查」極性相反。
+
+**A2 — `independence` 契約種類不在 registry 裡**（三條是這個形狀，兩個專案有）。
+
+**A3 — 其餘 ~11 條是專案沒寫設定，不是沒有工具**，可行動。
+
+**A4 — 真正沒有執法者的只有 ~7 條**（行為型與尺寸型）。
+
+**三態**：`enforced` / `unconfigured` / `declared_only`。只有中間那態可擋——
+只有它，框架說得出要做什麼。擋 `declared_only` 只會逼專案刪掉關於自己的真話。
+
+**`enforced` 的邊界寫進 evidence，不是裝飾。** fixture 同時放了直接與間接兩種
+寫法：bandit 把 `subprocess(cmd, shell=True)` 判成 B602，卻把
+`subprocess(cmd, **opts)` 讀成 B603；抓得到 `eval(x)`，抓不到
+`fn = eval; fn(x)`。`enforced` 繼承執行器的射程，而本輪存在的目的就是消滅
+過度宣稱——這個詞自己不能過度宣稱。
+
+### B —— S4 把框架自己算出來的數字丟掉
+
+`_run_harness_cross_validation` 處理了三種結果，漏掉第四種：兩邊都在門檻之上時
+什麼都不做，`_dim_entry["score"]` 仍是 agent 寫的。
+
+**在 gate 判定的那棵樹上量的**（不是今天的樹，否則漂移可以解釋一切）：
+`git archive c1af37e`（taskq 的 `release(P6): Gate4 PASS score=97.2`）：
+
+    記錄的分數                                  100.0
+    框架自己的掃描器在同一棵樹上                 80.0
+    agent 自己的 evidence 行
+      （`total=6 source files; with_handler=4`）  66.7
+
+一個維度三個數字，判定帶著的是**唯一沒有人算過的那一個**。門檻 80，
+框架的數字是零餘裕通過，被記成滿分。
+
+這是 R35 站3 的原則只做了 `agent_score is None` 那一半。
+
+### 七項前提的實測結果（含被推翻的兩項，兩項都是我自己的）
+
+| # | 結果 |
+|---|---|
+| P1 | **成立**。只有 taskq-super 有 `[bandit]` 區（`.bandit`，`skips = []`）；另外兩個專案的 `exclude` 是 `[tool.mypy]` 不是 bandit。其餘六個無設定＝全開 |
+| P2 | **成立且加限**。四類都判得到；同時量到 `**kwargs` 與 aliased eval 判不到，所以 `limits` 進 evidence |
+| P3 | **被推翻（我的探針錯）**。第一版從已提交的 `tool_evidence` 重算，報出三處不一致；其中兩處是探針的錯——**`tool_evidence` 是 agent 對工具輸出的轉述，不是輸出**（它寫 `documented`，掃描器發的是 `with_doc`），餵給真 scorer 只會產生垃圾。改成實跑掃描器重量 |
+| P4 | **成立**。`test_coverage` 與 `integration_coverage` 都是 `requires_tool_execution`，S4 會處理它們，所以站3 的保留規則是必要不是防禦 |
+| P5 | **成立**。`security` → bandit(py) / semgrep-js(js) |
+| P6 | **被推翻（我的預估錯，且找到一個關鍵字上限）**。23 條變成 10/8/9。`layers_cli_…` 與 `five_layer_hierarchy` 維持 `declared_only`，因為能抓到它們的裸字串 `layer` 也會抓到 `single_auth_dependency_at_api_layer`——那不是分層約束。**記成量到的上限，不把關鍵字套到語料上** |
+| P7 | **成立**。Stryker 預設 sandbox，模板未設 `inPlace` |
+
+**另外，R51 自己的測試抓到我的第三個缺陷**：三態分類器的第一版在
+`project=None` 時把 bandit 約束判成 `enforced`——從 bandit 的預設行為推論一個
+它從沒看過的專案，且與自己 docstring 的承諾直接矛盾。
+`test_every_declared_constraint_is_classified` 是抓到它的那條，
+**修法讓那條測試不必改動就通過**。
+
+### 七專案新舊分類對照
+
+| 專案 | 舊 | 新（enforced / unconfigured / declared_only） |
+|---|---|---|
+| taskq | 1 declared_only | 0 / 1 / 0 |
+| taskq-plus | 6 declared_only | 2 / 2 / 2 |
+| taskq-renew | 3 declared_only | 1 / 1 / 1 |
+| taskq-api | 4 declared_only（2 enforced） | 2 / 1 / 3 |
+| taskq-advance | 4 declared_only（2 enforced） | 3 / 0 / 3 |
+| **taskq-super** | **4 declared_only** | **2 / 2 / 0** |
+| run-all-by-workflow | 1 declared_only | 0 / 1 / 0 |
+| **合計** | **23 declared_only** | **10 / 8 / 9** |
+
+taskq-super 的四條：`no_string_sql_concatenation` 與
+`no_shell_true_no_eval_no_exec` 由 bandit 執法（本來就在跑）；
+`no_circular_dependencies` 缺 `layers` contract、`sqlalchemy_only_in_repository`
+缺 `forbidden` contract，兩條 unconfigured 會擋，修法各是一段設定。
+
+### 對 R53 賬本的兩處更正
+
+1. R53 記「arch-constraints 維持只記錄」的理由是「框架沒有能力替任意宣告產生
+   執法者」。**對 7 條成立，對 16 條不成立**——框架跑著能判其中 5 條的工具。
+2. R53 站6 把 S4 的分數落差記成「R50 站2（score_source）的地界」。
+   **地界判斷正確，嚴重性低估了**：那不是一個維度的 8 分，是全部 14 個
+   tool-scored 維度共有的形狀，且在 taskq 上是 20 分。
+
+### 明列不做（附再開條件）
+
+- **`declared_only` 不擋。** 再開條件：P2 產出契約改成「宣告約束時必須指名
+  執法者」，那時第三態才會消失。
+- **不把關鍵字放寬到裸 `layer`**（見 P6）。再開條件：同上。
+- **不替 JS 專案做 bandit 對等**（semgrep-js 規則 ID 是另一套詞彙，此機器上零個
+  JS 專案）。再開條件：出現宣告 shell/eval 類約束的 JS 專案。
+- **不動 `phase_completed` 寫入順序**、**不做跨專案語料**（理由同上表 D/E）。
+- **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。**
+- **不 push。**

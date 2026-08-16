@@ -1031,3 +1031,33 @@ boundary works.
   `.methodology/delivery_fingerprint/p<phase>_g<gate>.json`. The single path
   was overwritten by every finalize, and 77 of that project's 88 finalizes were
   Gate 1, so the surviving copy was the least informative one.
+
+## Two ledger rows where there was one (Round 54)
+
+`gate:arch-constraints` used to carry a single row reading "N of M declared
+architecture constraints have no executor". That sentence was true of 7 of the
+23 constraints measured across the seven projects here and false of the other
+16 — the framework runs bandit, which already decides five of them, and had
+never learned import-linter's third contract kind.
+
+The row splits, because the two are different facts and only one is the
+project's to fix:
+
+* **unconfigured** — a tool the framework runs decides this constraint and this
+  project has not enabled it (an import-linter contract of the named type is
+  missing, or bandit ids sit in `skips`). `owner=project`. This one also
+  **blocks** the gate, and the block names the tool and the configuration.
+* **declared_only** — nothing in this framework can decide it. `owner=project`,
+  recorded forever, never blocked: the only way to satisfy a block here would
+  be to delete a true statement from the SAB.
+
+The `evidence` field on an `enforced` row now carries the executor's reach
+rather than implying completeness — bandit reads
+`subprocess(cmd, shell=True)` as B602 and `subprocess(cmd, **opts)` as B603,
+and that limit belongs next to the claim.
+
+Also this round, and visible in every gate result rather than the ledger: an
+S4 line now reads `harness=… | agent=… | threshold=… -> score=… (source)`.
+The score a dimension carries is the framework's own number whenever the
+framework has one; previously that was true only when the agent had declared
+N/A.
