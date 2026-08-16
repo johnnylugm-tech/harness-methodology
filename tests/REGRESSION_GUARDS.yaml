@@ -2341,3 +2341,39 @@
 - test: tests/test_delivery_fingerprint.py::test_the_fingerprint_lands_beside_the_other_gate_records
   bug: "`.sessi-work/` is cleared by advance-phase at every transition. A fact recorded so a later delivery can be compared against it has to outlive the run that recorded it (Round 45 站1), which is also why it is registered as a METHODOLOGY_DELIVERABLE rather than as bookkeeping — Round 44 站2's registry guard forced that choice to be made rather than defaulted"
   fixed_in: "R52-站3"
+
+- test: tests/test_tree_custody.py::test_a_framework_write_into_the_delivered_tree_is_byte_restored
+  bug: "mutation testing edits the delivered source in place at its real project path — source_tree_lock.py's own docstring says so — and the only mitigation was a concurrency lock, which stops another reader from observing a mutant and says nothing about a window that never closes. Station 0 killed mutmut mid-run on a fixture and the tree kept `return a * 2` -> `return a / 2` plus a calc.py.bak; taskq-super's `5535033 release(P6): Gate4 PASS score=93.9 — pipeline complete` committed exactly that pair into 03-development/src"
+  fixed_in: "R53-站1 (core/tree_custody.custody snapshots, restores in a finally, and then re-reads the bytes — the verification does not reuse FileSnapshot because a restorer reporting its own success is the failure mode)"
+
+- test: tests/test_tree_custody.py::test_a_residue_the_framework_cannot_restore_halts_and_names_the_files
+  bug: "a tree the framework broke and could not repair is not the project's problem to score around. Round 13 站0 already routes any exception reaching the crash boundary to EX_HARNESS_BUG (70) with a banner and a bundle; what was missing was anything that raises. The message names the files because a finding nobody can act on is not a finding (Round 48)"
+  fixed_in: "R53-站1 (TreeCustodyResidue, raised from the finally with the residual paths and the restore's own error)"
+
+- test: tests/test_tree_custody.py::test_the_framework_may_not_commit_its_own_scratch
+  bug: "`GitStrategy._commit` stages the whole worktree, so what it commits is whatever is dirty — and when the dirt is an unfinished framework transient, the framework ships it. Station 0's premise P3 refuted the plan's assumption that this was the only commit site: there are seven, five of which pass an explicit pathspec and structurally cannot pick one up"
+  fixed_in: "R53-站2 (assert_no_open_custody in front of the add; stage_pass_generator, the other whole-index site, got `-- <path>` instead and needs no check)"
+
+- test: tests/test_assertion_neutralisation.py::test_a_swallowed_assertion_does_not_count_as_an_assertion
+  bug: "`_function_has_assertion` walks for an ast.Assert and never asks whether the assertion is allowed to fail. taskq-super's committed suite has `try: insert; assert; except Exception: pass` and its Gate 4 recorded test_assertion_quality = 100.0. The narrow spelling arrived in `54f9b93 test(p5): swallow transient assertions`, covering the only executable checks behind NFR-03 and NFR-04 (log redaction — `assert secret not in line`), both still VERIFIED in TRACEABILITY_MATRIX.md. `_handler_anti_pattern` in the same file exempts narrow except-pass by design and correctly so: it classifies PRODUCT code"
+  fixed_in: "R53-站3 (a third `neutralised` bucket — separate from zero_assert because these tests do assert; they leave `asserted`, which is all the existing asserted/total scorer needs)"
+
+- test: tests/test_assertion_neutralisation.py::test_the_js_scanner_answers_the_same_question
+  bug: "harness_bridge's content-validation registry gives ast-assertions and js-assertions one pattern list because the two emit the same object. A rule that exists on only one side is a rule with a documented bypass"
+  fixed_in: "R53-站3 (treesitter_js `_call_is_neutralised`; a catch clause with no throw, same 'every assertion' predicate)"
+
+- test: tests/test_verify_system_reach.py::test_the_stubbing_suite_may_not_discharge_its_own_obligation
+  bug: "Round 52 站2's obligation means 'something the test suite did not configure has to execute this', and its implementation asked the weaker 'was the body executed during verify-system'. taskq-super's verify-system IS the pytest suite plus one --help, so the execution it found was inside the run that installs the stand-in: Gates 2, 3 and 4 each recorded obligations_unmet [] for a boundary no test has exercised. My defect, found by the control group"
+  fixed_in: "R53-站4 (a pid->process sidecar written by an atexit hook; coverage data files whose pid ran the runner are dropped before combining)"
+
+- test: tests/test_verify_system_reach.py::test_a_target_that_is_only_the_test_suite_is_unmeasured_not_discharged
+  bug: "when every process was the suite there is no witness, and the answer has to be `unmeasured` with a reason rather than `unmet`. The project may be fine; charging it for the framework's blind spot is what Round 32 站4 forbids and Round 35 站2 forbids scoring zero. Station 0's premise P2 also refuted the channel design: sys.argv at .pth time for `python -m pytest x` is ['-m', 'x'], so startup cannot identify the runner, and the one-line exec form loses its names before the atexit lambda runs"
+  fixed_in: "R53-站4 (harvest_selection returns (kept, reason); write_reach_unmeasured records the reason)"
+
+- test: tests/test_verify_system_reach.py::test_a_gate_without_the_dimension_is_not_asked_the_question
+  bug: "116 of taskq-super's 626 degradation rows were `gate:verify-system-reach` at Gate 1, which has no execute_verification_target dimension and so can never produce a reach artifact. Correlating every row's ts against gate_timestamps.jsonl put all 116 at Gate 1 and none at Gate 2/3/4. Owner `harness`, so they route to repair-harness"
+  fixed_in: "R53-站5a (_gate_dimension_names; the question is out of this gate's scope, which the gate config is the single source of — the positive control asserts a gate that HAS the dimension still records)"
+
+- test: tests/test_state_phase_records.py::test_entering_a_phase_requires_the_previous_phase_to_have_left_a_record
+  bug: "from phase 4 on the entry gate asked quality_manifest.json whether the previous gate passed and nothing else, so a missing phase_completed[N] stopped nothing. taskq-super reached Phase 9 with entries for 1, 2, 3, 4, 6, 7. The record holds the SHA, the enforcer and delivered_tree_sha256 — which tree the checks read — and its git history shows the cause: the entry for phase N is never inside the commit that completes phase N, because its `sha` is HEAD after that commit, so it rides along in whatever commits state.json next. Phase 5's ride never arrived and left no ledger row, because the write reported success and a later whole-document writer dropped it"
+  fixed_in: "R53-站5c (_verify_entry_gate requires it; core/doctor_checks/verdicts._check_phase_record_gaps names it retrospectively. The ordering is deliberately unchanged — see the test's docstring)"

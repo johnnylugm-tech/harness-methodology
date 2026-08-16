@@ -975,3 +975,59 @@ hoisted once per generated file, and the driver reads `halt_step` back when it
 records the block. `tests/test_workflow_js_conventions.py` refuses a bare
 `return { error:` in generated JS, so the next one cannot go back to being
 anonymous.
+
+## What the framework wrote into the tree it judged (Round 53)
+
+Every artifact above records something the framework **read**. This one records
+something it **wrote**, which until Round 53 nothing did.
+
+### `.methodology/tree_custody.json`
+
+Written by `core/tree_custody.py`. Normally absent or `{}`; non-empty means a
+declared framework write into the judged project's tree opened a window and
+that window did not close — the process died inside it. One key per write id,
+each carrying the paths that were at risk.
+
+`FRAMEWORK_WRITES` in that module is the registry of those writes and what each
+one is:
+
+| id | kind | what |
+|---|---|---|
+| `mutation:src` | transient | mutmut rewrites each file under `[mutmut] paths_to_mutate` in place and leaves a `<file>.bak` beside it |
+| `reach:pth` | transient | Round 52 站2's `.pth` and its hook module, in the project venv for one `make verify-system` |
+| `ssot:manifest` | deliverable | `harness/ssot_manifest.py` scaffolds `requirements.txt` from the SSOT documents |
+
+A **transient** must come back byte-identical; a **deliverable** is meant to
+survive and is not put under custody, which would delete the thing the write
+exists to create.
+
+The one consumer is `assert_no_open_custody`, read by the two commit sites that
+stage the whole index. There is no ledger key here on purpose: an unrestorable
+tree raises `TreeCustodyResidue`, and Round 13 站0's crash boundary already
+turns that into exit 70, a `[HARNESS-BUG]` banner and a crash bundle under
+`.methodology/crash/`. Adding a degradation row beside it would be a second
+statement of one fact.
+
+It is registered `HARNESS_VOLATILE` — nothing scores it — and it lives outside
+`.sessi-work/` only so it survives the advance-phase that tends to follow the
+crash it records.
+
+### `.sessi-work/verify_system_processes.jsonl`
+
+One row per process that ran under Round 52 站2's coverage instrumentation:
+`{pid, argv, mods}`, written by an `atexit` hook so `argv` is the completed one
+(at `.pth` time, `python -m pytest x` still reads `["-m", "x"]`). The join key
+to coverage's parallel data files is the pid those files carry in their names.
+Read only by `suite_pids`, to drop the project's own test-suite processes before
+combining — a suite that installs a stand-in cannot be the witness that the real
+boundary works.
+
+### Two Round-52 rows that changed meaning
+
+* `gate:verify-system-reach` no longer appears at gates without an
+  `execute_verification_target` dimension. It was 116 of taskq-super's 626
+  ledger rows, every one at Gate 1, where no reach artifact can exist.
+* `.methodology/delivery_fingerprint.json` is now
+  `.methodology/delivery_fingerprint/p<phase>_g<gate>.json`. The single path
+  was overwritten by every finalize, and 77 of that project's 88 finalizes were
+  Gate 1, so the surviving copy was the least informative one.

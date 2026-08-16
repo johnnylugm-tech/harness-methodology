@@ -3048,3 +3048,130 @@ fixture 由寫檢查的人挑形狀。** 修法：fixture 現在對兩種路徑�
 - **不把「缺少 verify-system target」做成第二個 block**：`make verify-system` 會非零
   退出，`execute_verification_target` 對 100 的門檻已經擋了；一個事實兩個執法者是
   R38 的缺陷。
+
+---
+
+## Round 53 — 框架寫進它自己要判定的那棵樹
+
+**觸發**：老闆要求檢視 taskq-super 的 P1–P8 執行紀錄與 harness 的 git history，
+驗證前幾輪修復是否到位，並找出其他根本性／結構性問題。taskq-super 是 **R52 之後
+第一個完整跑完 P1–P8 的專案**（215 commits，Gate2 94.1 / Gate3 92.4 / Gate4 93.9
+全 PASS，現在 Phase 9），所以它同時是 R51/R52 的第一份實地對照組。
+
+### 前幾輪修復的實地驗證（先講對的，因為我一開始判錯過一次）
+
+| 輪次 | 機制 | 結果 |
+|---|---|---|
+| R52 站1 | verify-target 吞判定／套套邏輯 | **有效**。`expanded / tautological=false / swallowed=0` |
+| R52 站2 | verify-system reach | **Gate 2/3/4 確實量到了**（`git show 7c9bda8/e07a6ee/5535033:.methodology/delivery_fingerprint.json` → `reach_status: "measured"`）。我最初看到 116 筆 `unmeasured` ledger 就懷疑機制全死，**那個推論是錯的**——116 筆全在 Gate 1 |
+| R52 站3 | delivery fingerprint | 六個欄位群全部產出，數字與各生產者一致 |
+| R51 站2 | arch-constraints 分類 | 有效偵測（`4 of 4 … have no executor` ×162） |
+| R51 站3 | stubbed boundary | 有效偵測（`taskq_api.repository.session`） |
+| R44 站1 / R38 站4 | delivered_tree_sha256 + advance 對賬 | 機制活著，**參考點在框架自己寫入之後** |
+| R13 | degradation ledger | 626 筆、五種 owner，分類可用 |
+
+### 根因
+
+> **框架會寫進它自己要判定的那棵樹，而它沒有任何一條判準是對準「框架寫了什麼」的。**
+
+569 條守衛全部是「讀專案的樹／產物並判定」。零條是「框架剛才改了這棵樹，那個改動
+被誰認了帳」。而 agent 對意圖的唯一權威就是那棵樹（R51 的根因），所以框架造成的
+損壞會被 agent 逆向工程成需求。
+
+### 逐條實證
+
+**E1** `source_tree_lock.py` 自己的 docstring 寫著 mutmut「mutates
+``paths_to_mutate`` files in place at their real project path」、`cwd=workdir`
+「never isolated the mutated files themselves」。唯一緩解是併發鎖，不是還原保證。
+站0 在三函式 fixture 上實測：kill 掉 mutmut，樹留下
+`return a * 2` → `return a / 2` 與 `calc.py.bak`。
+
+**E2** `git show 5535033`（訊息：`release(P6): Gate4 PASS score=93.9 — pipeline
+complete`）把 `"sqlite:///:memory:"` 改成 `"XXsqlite:///:memory:XX"`（mutmut 的
+字串變異簽章）並同時提交 `rate_repo.py.bak`。**同一個 commit 還把兩支測試改寫成
+斷言那個損壞**，docstring 逐字寫「that sentinel is the rate_repo's deliberate
+production-side "missing env" guard. The test now documents the failure as the
+intended behaviour」。P8 後續出現「修好 → 兩分鐘後改回壞的（訊息：required by
+test_fr08_coverage tests）→ 最後才真的修掉」。
+
+**E3** R44/R38 的樹指紋不變式沒接住，不是實作壞了，是**參考點在框架自己寫入之後**：
+mutmut 在 Gate 4 期間改樹，digest 之後才取，advance 對賬時前後一致。
+
+**E4** `_function_has_assertion` 用 `ast.walk` 找 `ast.Assert`，不看它是否被包在會
+吞掉的 handler 裡。`54f9b93 test(p5): swallow transient assertions in
+nfr_phase6_gap gap tests` 把四條斷言包成 `try: assert …; except AssertionError:
+pass`，其中兩條是 **NFR-03（migration 原子性）與 NFR-04（`assert secret not in
+line`，日誌脫敏，安全類）** 唯一的可執行檢查，`TRACEABILITY_MATRIX.md` 兩者仍記
+VERIFIED，Gate 4 的 `test_assertion_quality` = 100.0。
+
+**E5（我自己的活缺陷）** R52 站2 的義務原意是「必須被測試套件沒有配置的東西執行」，
+實作問的是「verify-system 期間函式體有沒有被執行」。taskq-super 的 verify-system
+＝整套 pytest ＋ `-m taskq_api --help`，所以量到的執行發生在**安裝替身的那次
+pytest 裡**，Gate 2/3/4 全部回報 `obligations_unmet: []`。
+
+**E6** `gate:verify-system-reach` 116 筆全部「no reach artifact」；與
+`gate_timestamps.jsonl` 對時後 **116 筆最近鄰全是 Gate 1，Gate 2/3/4 零筆**。
+Gate 1 的 config 沒有 `execute_verification_target` 維度。佔該專案 ledger 的 18.5%，
+owner=harness。
+
+**E7** `.methodology/delivery_fingerprint.json` 單一路徑、每次 finalize 覆寫；88 次
+finalize 有 77 次是 Gate 1，所以 HEAD 上留下的是 P8 某次 Gate 1 的快照
+（`reach_status: unmeasured`）。
+
+**E8** `phase_completed` = {1,2,3,4,6,7}（HEAD 上加了 8）。git history 顯示
+**phase N 的紀錄從來不在完成 phase N 的那個 commit 裡**——`sha` 是 handover commit
+之後的 HEAD，所以值搭下一個 commit 的便車；phase 5 那一趟沒到，且沒有 ledger 列，
+因為寫入本身回報成功、後來被持有舊副本的整份寫入者蓋掉。
+
+### 六項前提的實測結果（含被推翻的三項）
+
+| # | 結果 |
+|---|---|
+| P1 | **成立**。mutmut 觸及的集合＝`paths_to_mutate` 下的 `.py` ＋ `<file>.bak`，集合外沒有檔案移動。kill 後兩者都留下 |
+| P2 | **半數被推翻**。pid 確實編進 coverage 平行資料檔名；但 `.pth` 執行時 `python -m pytest x` 的 `sys.argv` 是 `["-m", "x"]`，模組名還沒展開，啟動時無法辨識 runner。改用 `atexit`（看得到完整 argv 與 `sys.modules`）。單行 `exec('try: …')` 形式實測失敗（`NameError: name '_p' is not defined`，exec 內綁定的名字不在 lambda 的閉包裡），改成 `.pth` ＋ hook 模組兩個檔 |
+| P3 | **被推翻**。`GitStrategy._commit` 不是唯一 commit 站點，共七個；五個帶明確 pathspec、結構上撿不到別人的髒東西，兩個 commit 整個 index |
+| P4 | **成立**。`ctx.config` 的 dual-shape 分支已存在於 `harness_bridge.py:3166` |
+| P5 | **成立**。`ast-assertions` 的內容 regex 只要求 total/asserted/zero_assert，新 key 是 additive；且 scorer 是 `asserted/total`，把 neutralised 移出 `asserted` 就自動扣分，scorer 不必動 |
+| P6 | **被推翻**。預估 taskq-super 4、其餘 0；實測 **taskq-super 24、taskq-api 2、五個乾淨**。預估來自 grep `except AssertionError`，常見形狀其實是 `except Exception: pass`。26 筆逐一打開確認，taskq-api 的兩筆是把失敗轉成 `pytest.skip`，即 R46「證人缺席」換皮 |
+
+**另外更正本輪自己的 E8 初判**：不是只缺一個 phase，而是「紀錄從不在它描述的那個
+commit 裡」這個系統性順序問題；phase 5 是真的遺失，phase 8 只是尚未 commit。
+
+### 七專案 neutralised 對照表（生產掃描器）
+
+| 專案 | total | asserted | neutralised | score |
+|---|---|---|---|---|
+| taskq | 131 | 119 | 0 | 90.8 |
+| taskq-plus | 452 | 452 | 0 | 100.0 |
+| taskq-renew | 494 | 484 | 0 | 98.0 |
+| taskq-api | 406 | 389 | **2** | 95.8 |
+| taskq-advance | 269 | 251 | 0 | 93.3 |
+| taskq-super | 349 | 295 | **24** | 84.5（原 91.4） |
+| run-all-by-workflow | 83 | 77 | 0 | 92.8 |
+
+### 與計畫的偏離（逐項）
+
+* 計畫寫「殘留 → `EX_HARNESS_BUG` ＋ ledger `mutation:tree-residue`」。**沒有加那個
+  ledger key**：R13 站0 的 crash 邊界已經把未捕捉例外變成 exit 70 ＋ banner ＋
+  `.methodology/crash/` 的 bundle，再加一列就是一個事實兩份陳述（R36 的形狀）。
+* 計畫寫「`_commit` 加監管檢查」。P3 推翻後改成兩種修法：`_commit` 加前置條件，
+  `stage_pass_generator` 改成 `-- <path>`，把它移進「本來就安全」那一類。
+* 計畫的 5c 寫「收進同一個 `StateTransaction`」。**沒有這樣做**：entry 的 `sha` 是
+  handover commit 之後的 HEAD，提前寫入會讓它指向錯的 commit，而那正是所有消費者
+  拿去做 `git merge-base --is-ancestor` 的值。改成入口前置條件＋doctor 回溯，
+  代價是晚一個 phase 才抓到，寫在測試 docstring 裡。
+
+### 明列不做（附再開條件）
+
+- **arch-constraints 維持只記錄**（老闆本輪裁決）。162 筆 ledger 保留。
+  再開條件：P2 產出契約改成「宣告約束時必須指名執法者」。
+- **不修改任何 taskq-* 專案**（全程唯讀）。taskq-super 的 24 處 neutralised 與
+  NFR-03/04 的 VERIFIED 宣稱是專案自己的債；本輪修完後它下一次 gate 會被逐條指名。
+- **不改寫 `git add -A` 的整體行為**。
+- **不做 D4/D5/D7 的 JS 對等實作**（皆為 Python 專屬機制）；D3 做了 JS 對等。
+- **一個順帶觀察，本輪不修**：taskq-super 的 Gate 4 breakdown 記
+  `test_assertion_quality: 100.0`，而同一列的 `tool_evidence` 是
+  `{"total": 318, "asserted": 292, ...}` — 即 91.8。S4 只在「框架說不及格而 agent
+  說及格」時擋，門檻是 70，所以兩邊都過關、agent 的數字留下。這是 R50 站2
+  （score_source）的地界，不是本輪的。記在這裡以免第三次被重新發現。
+- **不 push。**

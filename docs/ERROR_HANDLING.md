@@ -51,6 +51,18 @@ line was added*, not a universal rule enforced retroactively.
    top level of every command. Only call `core.errors.format_harness_bug_banner`
    / `write_crash_bundle` directly if you're building another top-level
    entry point outside `harness_cli.py`.
+
+   One exception is raised on purpose and belongs at this level anyway:
+   `core.tree_custody.TreeCustodyResidue` (Round 53 站1), when the framework
+   changed the judged project's tree and could not put it back. The project
+   cannot fix a tree the framework broke, and the alternative — letting the run
+   continue — is how taskq-super's `5535033 release(P6): Gate4 PASS score=93.9`
+   committed a mutmut mutant and its `.bak` into its own delivered source. It
+   raises rather than degrades so it reaches this boundary and gets the bundle;
+   the message names every file that did not come back. A window that did not
+   even get to run its restore (the process was killed) leaves
+   `.methodology/tree_custody.json` behind instead, and the next framework
+   commit refuses while it is there.
 2. **Is what failed the *environment* — a tool won't run, a spawned agent
    can't execute a command, a dependency is structurally unreachable —
    rather than the project's code?** → **FATAL**. Abort before dispatching
