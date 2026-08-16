@@ -2035,12 +2035,28 @@ def _run_harness_cross_validation(
                   f"and scored {harness_score:.1f}; using the framework's score")
             continue
 
-        print(
-            f"  [S4] {dim_name}: harness={harness_score:.1f} | "
-            f"agent={_agent_label} | threshold={threshold}"
+        # Round 54: the framework ran the tool, so the framework's number is
+        # the score. Until now this branch only ever appended a violation, and
+        # when it did not the agent's number survived unexamined — see
+        # `s4_score_verdict` for the tree-level measurement of what that cost.
+        _verdict = s4_score_verdict(
+            agent_score=agent_score, harness_score=harness_score,
+            threshold=threshold,
+            current_source=_dim_entry.get("score_source"),
+        )
+        _dim_entry["score"] = _verdict["score"]
+        _dim_entry["score_source"] = _verdict["score_source"]
+        _dim_entry.setdefault(
+            "tool_output", str(audit_file.relative_to(_Path(ctx.project_root))),
         )
 
-        if harness_score < threshold:
+        print(
+            f"  [S4] {dim_name}: harness={harness_score:.1f} | "
+            f"agent={_agent_label} | threshold={threshold} -> "
+            f"score={_verdict['score']:.1f} ({_verdict['score_source']})"
+        )
+
+        if _verdict["fabrication"]:
             violations.append(
                 f"{dim_name}: fabrication detected — "
                 f"harness ran '{tool}' and scored {harness_score:.1f} "
@@ -2050,6 +2066,58 @@ def _run_harness_cross_validation(
             )
 
     return violations, unverifiable
+
+
+def s4_score_verdict(
+    *, agent_score: float, harness_score: float, threshold: float,
+    current_source: "str | None",
+) -> dict:
+    """What S4 records for one dimension once it has both numbers.
+
+    Round 54. S4 handled three of the four cases and dropped the fourth on the
+    floor: when both numbers cleared the threshold it appended nothing, so the
+    dimension kept whatever the agent typed. Measured on the exact tree taskq's
+    Gate 4 judged (`git archive c1af37e`, the commit whose message is
+    `release(P6): Gate4 PASS score=97.2 — pipeline complete`):
+
+        recorded score                                  100.0
+        the framework's own scanner on that tree         80.0
+        the agent's own evidence line
+          (`total=6 source files; with_handler=4`)       66.7
+
+    Three numbers for one dimension, and the one the verdict carried is the
+    only one nobody computed. The threshold is 80, so the framework's number
+    was a pass by exactly zero margin, recorded as perfect.
+
+    The rule is Round 35 站3's, which built only its `agent_score is None`
+    half: **when the framework has its own number, that number is the score.**
+    Not "block when they disagree" — a threshold on the disagreement would be
+    one more knob, and would leave the cause untouched.
+
+    `fabrication` keeps its existing meaning and its existing block. "The agent
+    claimed a pass the tool contradicts" is a different and worse fact than
+    "the agent's number was imprecise", and Round 13's routing rule is that two
+    different failures must not arrive under one heading.
+
+    `current_source` is passed in and returned unchanged when it already says
+    something this function is not entitled to overwrite. Round 51 站3 marks
+    test_coverage and integration_coverage `stubbed_boundary` before S4 runs,
+    and `measurement_scope` reads that marker to drop them from
+    `weight_covered`; both are `requires_tool_execution`, so S4 sees them.
+    "Who produced this number" and "is this number about the delivered code"
+    are two questions and only the first is S4's. The number is still replaced:
+    both describe the same stubbed suite, and only one of them was measured.
+
+    Pure and public so it can be checked without patching five private seams
+    around `finalize_gate` — `tests/test_patch_discipline.py` refuses that, and
+    `s4_block_details` above answered the same question the same way.
+    """
+    keep_source = current_source in _SOURCES_NOT_FRAMEWORK_MEASURED
+    return {
+        "score": harness_score,
+        "score_source": current_source if keep_source else SCORE_SOURCE_FRAMEWORK,
+        "fabrication": harness_score < threshold <= agent_score,
+    }
 
 
 def s4_block_details(fabrication: list, unverifiable: list) -> dict:
