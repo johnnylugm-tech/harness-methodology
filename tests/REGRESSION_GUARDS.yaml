@@ -2477,3 +2477,71 @@
 - test: tests/test_test_count_reconciliation.py::test_the_phase_four_checks_do_not_re_run_at_later_phases
   bug: "Round 55 站6's own counter-proof caught this: reverting the Phase-4 guard left the whole suite green, so nothing pinned it. TEST_RESULTS.md is Phase 4's document — re-judging it at Phase 8 reports a fault against a phase that did not write it — and Phase 5-8 has no check_pytest ahead of it, so run_suite's memo is cold and each later phase would execute the project's entire test suite again. The guard was first written at the call site only; the test showed it belongs in the function, which is the thing that pays the cost"
   fixed_in: "R55-站6 (`if phase != 4` inside check_test_count_reconciliation, not only in run_cross_artifact_checks)"
+
+- test: tests/test_tool_checks.py::test_gate_set_per_phase_is_derived_from_the_topology
+  bug: "cli/phase_cmds.PHASE_GATES was a hand-written phase→gate dict beside core/phase_topology.py, which opens by declaring itself the SSOT for exactly that mapping and carries all nine phases. The copy stopped at 6, so `_phase_gate_tools` read `.get(phase, [])` at P7/P8/P9 and blocked on nothing. The expectation is written out here rather than compared against the code's own table — a table checked against itself agrees with itself (Round 19 站1)"
+  fixed_in: "R56-站1 (PHASE_GATES deleted; core.phase_topology.gates_for_phase derives it cumulatively, reproducing P1–P6 cell for cell)"
+
+- test: tests/test_tool_checks.py::test_phase_seven_blocks_on_a_missing_gate_one_tool
+  bug: "P7 and P8 are two of the four phases that run Gate 1 per-FR, and they were exactly the phases where the tool check had no entry and therefore never blocked"
+  fixed_in: "R56-站1"
+
+- test: tests/test_tool_checks.py::test_a_corrupt_gate_config_is_critical_at_every_phase
+  bug: "_walk_gate_tools fails CLOSED on a gate config that is absent or unparseable and says so ('Expected framework-owned asset — is the harness checkout intact?'). _phase_gate_tools bucketed that diagnostic by phase alongside 'the tool is not installed yet', so at any phase not running that gate it printed a WARN and continued. A broken framework checkout is a harness/infra fault and does not become readable when the phase arrives"
+  fixed_in: "R56-站1 (tool_checks.gate_tool_gaps returns the two failure kinds separately; config errors go to critical at every phase)"
+
+- test: tests/test_env_ready_implies_gate_tools.py::test_a_scorer_whose_data_source_is_missing_is_not_present
+  bug: "probe_cli_tools classified names into 'PATH tool' and 'in-process tool' and reported the second kind present without measuring anything. radon-mi and readability-v2 are dispatched as `python -m harness.toolchains.*` and both modules shell out to the radon binary; their registry check_cmd is literally `radon --version`, and it was never run. The classifier survived the registry flag being deleted — a cmd-shape heuristic was added in its place, producing the same wrong answer from a different statement (Round 20's mother pattern)"
+  fixed_in: "R56-站2 (_is_in_process_tool deleted; _registry_check_cmd runs the probe the registry declares, after PATH misses)"
+
+- test: tests/test_env_ready_implies_gate_tools.py::test_a_tree_sitter_scanner_without_tree_sitter_is_not_present
+  bug: "the four js-* scanners declare `import tree_sitter, tree_sitter_javascript, tree_sitter_typescript` as their check_cmd — a real probe, skipped whole by the classifier, so env-check went green with tree_sitter absent"
+  fixed_in: "R56-站2"
+
+- test: tests/test_env_ready_implies_gate_tools.py::test_readability_v2_and_radon_mi_resolve_through_radon
+  bug: "rewritten, not deleted. This test used to assert `_is_in_process_tool(...) is True`, i.e. that env-check decides from the tool's NAME and reports it present. The intent it was written for is real — no binary called readability-v2 exists, under either spelling — and it is now asserted against the registry's own check_cmd instead of against a classification"
+  fixed_in: "R56-站2"
+
+- test: tests/test_env_bootstrap.py::test_an_uninstalled_skip_inline_tool_keeps_the_pip_round_alive
+  bug: "unsatisfied_tools began skipping every skip_inline tool. Its one production consumer is bootstrap()'s `measure`, where an empty result means report.ok and report.ok returns before any pip step runs — so a host missing mutmut, scancode or code-review-graph looked complete and installed nothing. Measured on this repository: unsatisfied_tools('.') returned [] while importlib.metadata could find neither code-review-graph nor scancode-toolkit, the first of which verify_all_gate_tools calls a hard dependency with no degradation"
+  fixed_in: "R56-站3 (skip_inline tools are asked whether their distribution is installed in the TARGET interpreter — the question bootstrap actually has — instead of whether the executable runs today)"
+
+- test: tests/test_env_bootstrap.py::test_unsatisfied_tools_does_not_run_the_executable_probe_for_skip_inline
+  bug: "rewritten from the test that encoded the skip. The intent survives: `scancode --version` must never be what decides this, because it fails forever on a host whose pyicu conflicts with the system ICU while the distribution is present"
+  fixed_in: "R56-站3"
+
+- test: tests/test_env_bootstrap.py::test_every_skip_inline_pip_tool_resolves_to_a_distribution
+  bug: "the probe can only answer if it knows the distribution name. scancode → scancode-toolkit and code-review-graph → code-review-graph come from package_for_tool; mutmut is named in requirements.txt as itself. A tool that resolves to nothing is reported unsatisfied WITH the reason rather than guessed at"
+  fixed_in: "R56-站3"
+
+- test: tests/test_tool_runners.py::test_the_docstring_scanner_has_exactly_one_implementation
+  bug: "harness/toolchains/ast_docstrings.py was added on the premise that the ToolSpec had no module behind it. In-process scanners are dispatched by harness/lang_scanners/__init__.py's RUNNERS table, which has mapped ast-docstrings to python_ast.run_docstrings throughout; the new file had no importer anywhere in the tree"
+  fixed_in: "R56-站4 (file deleted)"
+
+- test: tests/test_tool_runners.py::test_the_live_scanner_emits_the_key_the_scorer_reads
+  bug: "the orphan emitted `documented` while the registered scorer harness/tool_runners.py:583 reads `with_doc`, so wiring it in would have scored every project 0.0. Two implementations of one scanner disagreeing about a key name is the defect, not the fix"
+  fixed_in: "R56-站4"
+
+- test: tests/test_ac_traceability.py::test_a_token_that_fails_the_canonical_shape_is_not_silently_renamed
+  bug: "_AC_ID's trailing \\b was satisfiable by a PREFIX of the token: for AC-1.2a the dotted-suffix group matched .2, the boundary before `a` failed, the engine backtracked the group to zero and returned AC-1 — a different identifier, not a truncation. AC-1.1a and AC-1.1b collapse to one id that a single TEST_SPEC citation then covers. Latent: measured zero real instances across eight project trees, the only hit being this file's own comment vendored inside taskq-cc"
+  fixed_in: "R56-站5 (trailing assertion refuses a following word char and a following .<digit>, which is what stops the backtrack; canonical extraction verified byte-identical on all eight corpora)"
+
+- test: tests/test_ac_traceability.py::test_a_non_canonical_identifier_is_reported_rather_than_dropped
+  bug: "refusing the token silently would be worse than the substitution was. _AC_ID_LOOSE recognises what wanted to be an identifier and feeds ac_parse_gap at info — the framework's debt, not the project's failure (Round 32 站4). It immediately named 50 criteria in taskq (AC-NFR01.1, which neither regex ever parsed) and all 63 of taskq-plus's (AC-FR-01.a), in a project the framework had been reading as having none"
+  fixed_in: "R56-站5"
+
+- test: tests/test_ac_traceability.py::test_a_range_expression_is_not_reported_as_malformed
+  bug: "the loose recogniser must not undo Round 55's range fix. AC-1.1..AC-1.10 is two identifiers and an operator; the loose scan sees one span, and reporting it would tell the author to fix something correct. The rule — report a loose token only when the canonical scan finds nothing inside it — exists for this case"
+  fixed_in: "R56-站5"
+
+- test: tests/test_gate1_live_coverage.py::test_phase_three_judges_each_fr_on_its_own_modules
+  bug: "_check_gate1_live_coverage is what returns 14 and stops advance-phase, and at Phase 3 — the per-FR TDD window — it called validate_fr_coverage_immediate(project) with no fr_id and printed 'whole-project coverage'. Measured on taskq-cc: FR-01 at 97.06% on its own modules read as 8.5% because the SAB declares ten modules later FRs will activate, and the run spent three rounds dispatching CODE-FIX against a number that was never about FR-01. The commit that diagnosed this threaded fr_id only into run-fr-step's inline fallback"
+  fixed_in: "R56-站6 (_gate1_per_fr_coverage_verdict; P4+ keeps the whole-project comparison, which is what a delta check is about)"
+
+- test: tests/test_gate1_live_coverage.py::test_phase_three_names_the_fr_that_actually_fails
+  bug: "one whole-project percentage does not tell the operator which FR to fix, which is why the taskq-cc run dispatched three rounds of fixes at nothing"
+  fixed_in: "R56-站6"
+
+- test: tests/test_gate1_live_coverage.py::test_the_per_fr_recompute_runs_no_extra_pytest
+  bug: "asking every FR in turn must not execute the suite once per FR. validate_fr_coverage_immediate(fr_id=…) goes through run_suite, which is right for its own caller and wrong for a gate looping over FRs; fr_coverage_from_last_run reads the .coverage already on disk and executes nothing, keeping Round 25 站1's one-execution invariant"
+  fixed_in: "R56-站6"

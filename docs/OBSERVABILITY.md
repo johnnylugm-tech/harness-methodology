@@ -1093,6 +1093,27 @@ attributed none of them, so the coverage check compared nothing). The existing
 `ac_parse_gap` row stays `info` and stays out of the block: a shape the
 framework cannot read is the framework's debt, not the project's failure.
 
+Round 56 gave `ac_parse_gap` a second row, same check_type and same `info`
+severity, for a different sentence: **tokens that start with `AC-` but do not
+match the canonical `AC-<n>[.<n>]` shape**, listed in full. They used to be
+truncated into a *different* identifier — `AC-1.2a` came back as `AC-1` —
+which a single TEST_SPEC citation then covered for the whole family. The
+canonical pattern now refuses them, and this row is why refusing them is not
+the same as losing them. Measured on first run across eight project trees: 50
+in taskq (`AC-NFR01.1`, which no version of the pattern ever parsed) and all
+63 of taskq-plus's (`AC-FR-01.a`) — a project the framework had been reading
+as having no acceptance criteria at all. Three of the eight also report one or
+two tokens that are prose describing the format; an `info` row that names its
+tokens is how you tell those apart.
+
+Phase 3's Gate 1 coverage line changed shape. It used to read
+`whole-project coverage {n}%`; it now prints one row per FR with that FR's own
+percentage and the scope it was measured over (`own modules`, or
+`whole-project (no per-FR module scope in SAB.json)`), and a BLOCK names the
+FRs that fell short rather than one number. P4 and later still report the
+whole-project figure, which is what a delta check over the assembled system
+is about.
+
 `delivery_fingerprint`'s `architecture.modules_outside_every_contract` now
 reports a measured number for projects that spell `root_packages` in the
 plural. It read zero for two of the seven projects here, and one of those two

@@ -3440,3 +3440,137 @@ framework_block / previous_phase_artifacts / srs_mandatory 三項。於是：
 `passed=False, score=70.0`。
 
 guards 600 → **603**。
+
+---
+
+## Round 56 — 修在陳述面的第九次，與一次被自己的量測推翻的指控
+
+老闆要求把 `008c819..HEAD` 九個 commit 的 code review 發現展開成可執行修復方案，
+明確每條的根源（harness bug 還是 workflow JS bug）、套正解不用 workaround、
+不破壞共通性。基線 HEAD `bc2e308`，pytest 7322 passed / 4 skipped，guards 603。
+
+被審的九個 commit 有七個是本 session 之外做的。**八條發現：七條屬實，一條被我自己的
+量測推翻。零條是 workflow JS bug**——本輪一行 JS 都沒改，`generate_workflows.py
+--check` 全程 10/10。
+
+### 逐條裁決
+
+| # | 審計主張 | 裁決 | 落點 |
+|---|---|---|---|
+| R56-1 | `PHASE_GATES` 無 7/8/9 → P7/P8 不擋工具 | **屬實。第四份陳述** | 站1 |
+| R56-1b | corrupt-YAML 的 fail-closed 被降級成 WARN | **屬實。兩種故障歸屬混一桶** | 站1 |
+| R56-2 | `radon-mi`/`readability-v2` 繞過 `radon` 探測 | **屬實。問錯問題** | 站2 |
+| R56-3 | `js-*` 的 tree_sitter 探測被吞 | **屬實。同 R56-2 同一病灶** | 站2 |
+| R56-4 | `skip_inline` 讓 pip round 整輪不跑 | **屬實，且比報告更重** | 站3 |
+| R56-5 | `ast_docstrings.py` 無呼叫者、鍵名不符 | **屬實。前提不成立** | 站4 |
+| R56-6 | 覆蓋率 `executed/(executed+missing)` 灌水 | **推翻**（見下） | 不改碼 |
+| R56-7 | `AC-1.2a` 被換成 `AC-1` | **屬實但潛伏**（語料零實例） | 站5 |
+| R56-8 | 測試 monkeypatch 已不被呼叫的函式 | **屬實**（同 R56-1 的 commit 殘留） | 站1 |
+| R56-note | commit subject 誇大 per-FR 範圍 | **屬實**（3477 仍 whole-project） | 站6 |
+
+**老闆三項裁決**：R56-note 改碼對齊（P3 逐 FR）、R56-7 現在修（嚴格/寬鬆兩分）、
+R56-5 刪掉。三項全部照辦。
+
+### R56-6 被推翻 —— 兩支證據
+
+指控是 `executed/(executed+missing)` 會在 excluded / `pragma: no cover` 行執行時
+高於 coverage.py 的比值。
+
+1. `coverage/results.py:32`：`executed = file_reporter.translate_lines(...) & statements`
+   ——`executed ⊆ statements`；`:95`：`missing = statements - executed`。
+   故 `len(executed) + len(missing)` **恆等於** `len(statements)`，不是近似而是同一個數。
+2. 全語料無人開 branch coverage（`taskq-renew/setup.cfg: branch = False`、
+   `run-all-by-workflow/.coveragerc: branch = false`，其餘六專案未設定），
+   `has_arcs=False`，coverage.py 自己的百分比就是同一個比值。
+
+**不改這段程式**。改成 `analysis.numbers` 是零行為差異的美學改動。
+**Re-open 條件**：任何專案開啟 branch coverage 的那天——屆時 coverage.py 的
+`pc_covered` 含分支而這段只算敘述，兩者才真的分家。
+
+### 站1 —— phase→gate 的第四份陳述
+
+`core/phase_topology.py` 開頭就寫著自己是「entry/exit gate mapping, per-FR Gate 1」的
+SSOT 且九個 phase 全在裡面；`PHASE_GATES` 是寫在它旁邊的第二份，鍵只到 6。
+累積推導 `gates(p) = ∪_{q≤p}({entry_q} ∪ {exit_q} ∪ {1 if per_fr_q})` 實測：
+
+| phase | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|
+| 推導 | {} | {} | {1,2} | {1,2,3} | {1,2,3} | {1,2,3,4} | {1,2,3,4} | {1,2,3,4} | {1,2,3,4} |
+| 手寫 | {} | {} | {1,2} | {1,2,3} | {1,2,3} | {1,2,3,4} | — | — | — |
+
+P1–P6 逐格相同（零行為變更），P7/P8/P9 的洞自動關上。**「累積」是判斷不是推導**：
+一個跑過的 gate 在後續 phase 以 DELTA 重跑，工具消失就該擋——寫進程式碼註解，
+且站0 的對照表讓它不能被悄悄改掉。
+
+`_walk_gate_tools` 的 `config_errors` 現在無條件進 `critical`：gate config 讀不到是
+harness/infra 故障（`docs/ERROR_HANDLING.md` owner 分類），不會因為 phase 到了就變好。
+
+### 站2 —— 分類器不需要存在
+
+`_is_in_process_tool` 回 True 就 `results[raw_name] = True`，**沒有量任何東西**。
+`bc2e308` 拿掉 registry 的 `in_process` 旗標之後用 `cmd[1] == "-m"` 啟發式產生完全
+相同的錯誤答案（R20 母體）。而**本賬本 :2555 早已裁決過**：那些 tool_id
+「各自帶 `check_cmd` 正是為此」。
+
+實測：九個被短路的工具在完整主機上經 check_cmd 仍全 True（0.07s 批次），
+八個專案 env-check 全數 `missing=[]`（0.26–0.71s）——**零判定變更**，
+只在真的缺 radon / tree_sitter 時才咬人。
+
+**誠實限制**：`ast-*` 的 check_cmd 是 `import ast`，恆真。那是它宣告的依賴且成立
+（stdlib 是全部，掃描器住在 harness checkout 裡）。**不改 `ast-*` 的 check_cmd**。
+Re-open 條件：AST 掃描器取得 harness 以外的依賴。
+
+### 站3 —— 略過一個工具連帶略過整輪 pip
+
+`unsatisfied_tools` 唯一生產消費者是 `bootstrap()` 的 `measure`，`[]` 即 `report.ok`
+即 pip 一次都不跑。實測本 repo：`unsatisfied_tools(".")` 回 `[]`，而
+`importlib.metadata` 找不到 `code-review-graph` 也找不到 `scancode-toolkit`——
+其中 code-review-graph 是 `verify_all_gate_tools` 自己稱為「hard dependency
+(no degradation)」的架構維度評分工具。
+
+commit message 說的 `import-linter` 實測 `skip_inline=False`；真名單（可經 pip step
+觸及的）是 scancode / mutmut / code-review-graph。修法：問「發行版裝了沒」
+（目標直譯器，非執行中的那個），不問「現在跑得起來嗎」——後者正是 pyicu ABI
+壞掉的主機上永遠失敗、每次白跑一輪 pip 的那個問題。修完 `[]` → `['code-review-graph',
+'scancode']`。
+
+### 站5 —— 一個意外的實測發現
+
+canonical 抽取在八個專案**逐專案位元組相同**（33/0/0/92/40/111/96/0，零 lost 零 gained），
+但寬鬆通道立刻點名了兩批**兩種 regex 都從未讀到**的準則：
+
+- **taskq 50 條** `AC-NFR01.1` / `AC-NFR01-1`——`[A-Za-z]?` 取一個字母後要數字，
+  `AC-NFR…` 從來沒解析過
+- **taskq-plus 63 條** `AC-FR-01.a`——這個專案的**全部**驗收準則，框架一直讀成零
+- taskq-super 2 / taskq-cc 1 是描述格式的散文（噪音）
+
+八分之三的報告帶噪音，是 info 級具名報告的代價，遠比 113 條沒人看得見便宜。
+**不做**：放寬 `_AC_ID` 去接受這兩種寫法——那是把 parser 貼合語料，正是 R55 的病。
+
+### 站6 —— 病因寫對了，修在旁邊
+
+`7e85f24` 的診斷正確（幻影模組把 FR-01 的 97.06% 壓成 8.5%），但 `fr_id` 只接到
+`cli/fr_cmds.py:912` 的 inline fallback；真正 return 14 的
+`_check_gate1_live_coverage` 仍是整專案，訊息還自陳 `whole-project coverage`。
+
+**刻意的語意變更，寫下來以免日後被當成 bug 發現**：所有 FR 各自及格而整專案不及格的樹，
+P3 從此放行。那就是修復本身；P4 的整專案檢查仍會攔住組裝後的系統。
+
+**與計畫的偏離（記錄在案）**：計畫寫「量不出來記 unmeasured 並指名，不落回整專案數字」。
+落地改成**落回並指名**。理由：整專案數字帶著其他 FR 的未覆蓋模組，是**更嚴**的真實量測；
+往嚴的方向落回不是棄權，往寬的方向才是。`fr_coverage_from_last_run` 仍回 None 而不是
+數字，讓「量不出來」與「量到不及格」在 API 層維持可分。
+
+### 明列不做（附 re-open 條件）
+
+- **不改 `_coverage_for_paths` 的算式**（R56-6 被推翻）。Re-open：任何專案開 branch coverage。
+- **不改 `ast-*` 的 `check_cmd`**。Re-open：AST 掃描器取得 harness 以外的依賴。
+- **不改 `harness_bridge._TOOL_OUTPUT_PATTERNS` 的 `documented`**——它對
+  `ast-docstrings` 與 `js-doc-coverage` 都寫 `"documented"`，而兩個掃描器都發 `with_doc`。
+  是 OR 清單，`"total"` / `"missing"` 仍命中，無活傷口。Re-open：該清單改成 AND，
+  或有掃描器只發它自己那一個鍵。
+- **不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族**（範圍遠超本次 review）。
+- **不放寬 `_AC_ID` 去吃 `AC-NFR01.1` / `AC-FR-01.a`**（貼合語料）。
+  Re-open：那兩個專案把編號改成 canonical 之後仍讀不到。
+
+guards 603 → **620**。
