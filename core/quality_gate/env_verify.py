@@ -93,7 +93,11 @@ def _is_in_process_tool(name: str) -> bool:
         return False
     for candidate in (name, name.replace("_", "-")):
         spec = TOOL_SPECS.get(candidate)
-        if spec and getattr(spec, "in_process", False):
+        if not spec:
+            continue
+        if getattr(spec, "in_process", False):
+            return True
+        if spec.cmd and len(spec.cmd) >= 3 and spec.cmd[1] == "-m" and "harness.toolchains" in str(spec.cmd[2]):
             return True
     return False
 

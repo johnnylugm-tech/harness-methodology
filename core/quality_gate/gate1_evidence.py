@@ -9,6 +9,7 @@ the inter-FR variance check.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import re
@@ -967,11 +968,9 @@ def validate_fr_coverage_immediate(
 
 def _is_phase3_per_fr(project: Path) -> bool:
     """True iff state.json::current_phase is 3 (per-FR TDD window)."""
-    state_path = project / ".methodology" / "state.json"
-    if not state_path.is_file():
-        return False
     try:
-        return int(json.loads(state_path.read_text(encoding="utf-8")).get("current_phase", 0)) == 3
+        from core.state_io import load_state
+        return int(load_state(project, lenient=True).get("current_phase", 0)) == 3
     except (OSError, ValueError, TypeError):
         return False
 
@@ -1032,13 +1031,13 @@ def _coverage_for_paths(
         return fallback
     # Resolve each FR module path to a full filesystem path. Coverage
     # reports absolute paths; the SAB names are dotted/project-relative.
-    proj = project.resolve()
+    from core.utils.project_layout import ProjectLayout
+    layout = ProjectLayout(project)
     _scope_files = set()
     for rel in paths:
-        # `taskq_api.api.tasks` -> `03-development/src/taskq_api/api/tasks.py`
-        _scope_files.add(str((proj / "03-development" / "src" / rel).resolve()))
-        # Also accept source-rooted paths (no `03-development/src/` prefix)
-        _scope_files.add(str((proj / rel).resolve()))
+        _scope_files.add(str((layout.active_src_dir / rel).resolve()))
+        # Also accept source-rooted paths (no `active_src_dir` prefix)
+        _scope_files.add(str((layout.root / rel).resolve()))
     _total_executed = 0
     _total_coverable = 0
     for f in measured:
@@ -1048,6 +1047,7 @@ def _coverage_for_paths(
         try:
             analysis = cov._analyze(f)
         except Exception:
+            logging.getLogger(__name__).debug("coverage analyze failed for %s", f)
             continue
         executed = len(analysis.executed)
         missing = len(analysis.missing)
