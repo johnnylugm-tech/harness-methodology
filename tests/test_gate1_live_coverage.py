@@ -326,23 +326,35 @@ def test_the_per_fr_recompute_runs_no_extra_pytest(project_with_fr):
 # (the dataclass declaration is the source of truth), and the helper
 # signature said `Path` — the mismatch surfaced only at run-time. The
 # helper now coerces at the entry and the signature says `str | Path`.
-def test_fr_coverage_from_last_run_accepts_str_path():
+def test_fr_coverage_from_last_run_accepts_str_path(project_with_fr):
     """str OR Path both land at the same per-FR number.
 
     `GateContext.project_root: str` — the contract is the bare string.
     The helper must not raise TypeError when handed one.
     """
     from core.quality_gate import gate1_evidence
-    from pathlib import Path
-    # Pair these: the same FR, both styles, must agree.
-    as_str = gate1_evidence.fr_coverage_from_last_run(
-        "/Users/johnny/projects/taskq-cc", "FR-08"
+
+    (project_with_fr / ".methodology" / "SAB.json").write_text(
+        json.dumps({
+            "sab": {
+                "fr_module_traceability": {
+                    "FR-07": ["infrastructure.audio_converter"],
+                },
+            },
+        }),
+        encoding="utf-8",
     )
-    as_path = gate1_evidence.fr_coverage_from_last_run(
-        Path("/Users/johnny/projects/taskq-cc"), "FR-08"
-    )
-    assert as_str == as_path, (
-        f"str vs Path disagree: {as_str} vs {as_path}"
-    )
-    assert as_str is not None, "fixture broken: FR-08 should have a measurement"
-    assert as_str >= 95.0, f"FR-08 modules should be near-100% ({as_str})"
+
+    with mock.patch(
+        "core.quality_gate.gate1_evidence._coverage_for_paths",
+        return_value=96.5,
+    ):
+        as_str = gate1_evidence.fr_coverage_from_last_run(
+            str(project_with_fr), "FR-07"
+        )
+        as_path = gate1_evidence.fr_coverage_from_last_run(
+            project_with_fr, "FR-07"
+        )
+        assert as_str == as_path == 96.5, (
+            f"str vs Path disagree: {as_str} vs {as_path}"
+        )
