@@ -967,7 +967,7 @@ def validate_fr_coverage_immediate(
     return result.coverage
 
 
-def fr_coverage_from_last_run(project: Path, fr_id: str) -> Optional[float]:
+def fr_coverage_from_last_run(project: "Path | str", fr_id: str) -> Optional[float]:
     """One FR's coverage, recomputed from the `.coverage` already on disk.
 
     Returns ``None`` when the per-FR scope cannot be computed at all — the SAB
@@ -981,7 +981,16 @@ def fr_coverage_from_last_run(project: Path, fr_id: str) -> Optional[float]:
     gate that has to ask about every FR in turn. This entry point executes
     nothing: the suite has already run, `.coverage` is on disk, and the
     per-FR answer is arithmetic over it.
+
+    `project` is `Path`-typed, but callers (GateContext.project_root is
+    documented `str`) sometimes pass the bare string. Coerce here so the
+    helper does not raise `TypeError: unsupported operand type(s) for /:`
+    in the middle of a finalise run (the production crash on FR-07 GATE1
+    was exactly this — the per-FR fix landed but the gate had no path-coerce
+    guard, so the first cross-validation of the new visitor raised the bug
+    and the orchestrator tore the run down).
     """
+    project = Path(project)
     scope = _fr_module_paths(project, fr_id)
     if scope is None:
         return None
@@ -999,13 +1008,21 @@ def _is_phase3_per_fr(project: Path) -> bool:
         return False
 
 
-def _fr_module_paths(project: Path, fr_id: str) -> "list[str] | None":
+def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
     """The list of `path/to/file.py` strings this FR owns, per SAB.
 
     Returns ``None`` when the SAB is missing or the FR has no declared
     modules — both cases mean the per-FR scope cannot be computed and the
     caller should fall through to whole-project.
+
+    `project` is `Path`-typed but callers may pass bare strings (notably
+    `GateContext.project_root`). Coerce here so the helper is safe to call
+    from either site; the previous version raised
+    `TypeError: unsupported operand type(s) for /: 'str' and 'str'` when
+    the S4 cross-validation ran against a `str` ctx, which is the
+    production crash on FR-07 GATE1 once per-FR coverage was wired.
     """
+    project = Path(project)
     sab_path = project / ".methodology" / "SAB.json"
     if not sab_path.is_file():
         return None

@@ -316,3 +316,33 @@ def test_the_per_fr_recompute_runs_no_extra_pytest(project_with_fr):
     with mock.patch("core.quality_gate.test_suite_run.run_suite") as ran:
         gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07")
     ran.assert_not_called()
+
+
+# ── Bug Round 56 站6+#1: helper must accept str OR Path ──
+# Regression for the production crash on FR-07 GATE1: the per-FR coverage
+# fix landed, the S4 cross-validation visitor was wired up, and the
+# orchestrator tore the run down on `TypeError: unsupported operand
+# type(s) for /: 'str' and 'str'`. GateContext.project_root is `str`
+# (the dataclass declaration is the source of truth), and the helper
+# signature said `Path` — the mismatch surfaced only at run-time. The
+# helper now coerces at the entry and the signature says `str | Path`.
+def test_fr_coverage_from_last_run_accepts_str_path():
+    """str OR Path both land at the same per-FR number.
+
+    `GateContext.project_root: str` — the contract is the bare string.
+    The helper must not raise TypeError when handed one.
+    """
+    from core.quality_gate import gate1_evidence
+    from pathlib import Path
+    # Pair these: the same FR, both styles, must agree.
+    as_str = gate1_evidence.fr_coverage_from_last_run(
+        "/Users/johnny/projects/taskq-cc", "FR-08"
+    )
+    as_path = gate1_evidence.fr_coverage_from_last_run(
+        Path("/Users/johnny/projects/taskq-cc"), "FR-08"
+    )
+    assert as_str == as_path, (
+        f"str vs Path disagree: {as_str} vs {as_path}"
+    )
+    assert as_str is not None, "fixture broken: FR-08 should have a measurement"
+    assert as_str >= 95.0, f"FR-08 modules should be near-100% ({as_str})"
