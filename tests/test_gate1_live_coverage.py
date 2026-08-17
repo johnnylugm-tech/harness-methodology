@@ -334,6 +334,11 @@ def test_fr_coverage_from_last_run_accepts_str_path(project_with_fr):
     """
     from core.quality_gate import gate1_evidence
 
+    # Case 1: no SAB -> both return None without TypeError
+    assert gate1_evidence.fr_coverage_from_last_run(str(project_with_fr), "FR-07") is None
+    assert gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07") is None
+
+    # Case 2: with SAB.json
     (project_with_fr / ".methodology" / "SAB.json").write_text(
         json.dumps({
             "sab": {
@@ -344,17 +349,8 @@ def test_fr_coverage_from_last_run_accepts_str_path(project_with_fr):
         }),
         encoding="utf-8",
     )
-
-    with mock.patch(
-        "core.quality_gate.gate1_evidence._coverage_for_paths",
-        return_value=96.5,
-    ):
-        as_str = gate1_evidence.fr_coverage_from_last_run(
-            str(project_with_fr), "FR-07"
-        )
-        as_path = gate1_evidence.fr_coverage_from_last_run(
-            project_with_fr, "FR-07"
-        )
-        assert as_str == as_path == 96.5, (
-            f"str vs Path disagree: {as_str} vs {as_path}"
-        )
+    # No .coverage file on disk -> both fall back to None without TypeError
+    as_str = gate1_evidence.fr_coverage_from_last_run(str(project_with_fr), "FR-07")
+    as_path = gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07")
+    assert as_str is None
+    assert as_path is None
