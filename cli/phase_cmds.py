@@ -3477,6 +3477,12 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
             f" --phase {completed_phase} --fr-id <FR-ID> --project {project}"
         )
         return 14
+
+    if completed_phase == 3:
+        return _gate1_per_fr_coverage_verdict(
+            project, fr_ids_manifest, _min_cov, whole_project=cov
+        )
+
     if cov < _min_cov:
         print(
             f"\n[BLOCKED] Phase {completed_phase} Gate 1 live coverage check failed:\n"
@@ -3488,6 +3494,68 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
         f"  [Gate 1 coverage] Phase {completed_phase}: live pytest --cov"
         f" = {cov:.1f}% ≥ {_min_cov:.1f}% ✓ ({len(fr_ids_manifest)} FRs covered)"
     )
+    return 0
+
+
+def _gate1_per_fr_coverage_verdict(
+    project: Path, fr_ids: "list[str]", min_cov: float, *, whole_project: float
+) -> int:
+    """Phase 3's verdict: every FR judged on the modules it owns.
+
+    Round 56 站6. P3 is the per-FR TDD window and Gate 1 is a per-FR gate, but
+    this check asked one whole-project question and printed "whole-project
+    coverage {cov}%". Measured on taskq-cc: FR-01 covered 97.06% of its own
+    modules while the whole-project number read 8.5%, because the SAB declares
+    ten modules other FRs will activate later. The run spent three rounds
+    dispatching CODE-FIX / COVERAGE-FIX against a number that was never about
+    FR-01, then halted. The earlier fix threaded `fr_id` into run-fr-step's
+    inline fallback and left this — the check that actually returns 14 —
+    reading the wide number.
+
+    The suite has already run (the caller's `validate_fr_coverage_immediate`),
+    so each FR is arithmetic over the `.coverage` on disk: no second pytest,
+    Round 25 站1's one-execution invariant intact.
+
+    An FR whose per-FR scope cannot be computed (no SAB, no declared modules,
+    none of its modules measured) is judged on the whole-project number and
+    SAID SO. That is not abstention passing (Round 46): the whole-project
+    figure is a real measurement and, carrying every other FR's uncovered
+    modules, a strictly harsher one. Falling back to a looser number would be
+    the abstention.
+    """
+    failures: list[str] = []
+    lines: list[str] = []
+    for fr_id in fr_ids:
+        measured = gate1_evidence.fr_coverage_from_last_run(project, fr_id)
+        if measured is None:
+            scope = "whole-project (no per-FR module scope in SAB.json)"
+            measured = whole_project
+        else:
+            scope = "own modules"
+        mark = "✓" if measured >= min_cov else "✗"
+        lines.append(f"    {mark} {fr_id}: {measured:.1f}% [{scope}]")
+        if measured < min_cov:
+            failures.append(f"{fr_id} {measured:.1f}% [{scope}]")
+
+    if failures:
+        print(
+            f"\n[BLOCKED] Phase 3 Gate 1 live coverage check failed for "
+            f"{len(failures)} of {len(fr_ids)} FR(s), each on the modules it "
+            f"owns (min {min_cov:.1f}%):\n"
+            + "".join(f"  ✗ {f}\n" for f in failures)
+            + f"  Whole-project coverage is {whole_project:.1f}%, which at "
+            f"Phase 3 includes modules later FRs will activate — the per-FR "
+            f"numbers above are what Gate 1 judges.\n"
+            "  Add tests for the named FRs, or use '# pragma: no cover' for "
+            "unreachable paths, then re-run."
+        )
+        return 14
+    print(
+        f"  [Gate 1 coverage] Phase 3: every FR ≥ {min_cov:.1f}% on its own "
+        f"modules ({len(fr_ids)} FR(s); whole-project {whole_project:.1f}%)"
+    )
+    for line in lines:
+        print(line)
     return 0
 
 def _check_gate_score_variance(project: Path, phase: int) -> int:

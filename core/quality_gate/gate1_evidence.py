@@ -24,6 +24,7 @@ __all__ = [
     "fr_gate1_commit_sha",
     "fr_code_changed_since_last_gate1",
     "validate_fr_coverage_immediate",
+    "fr_coverage_from_last_run",
     "GATE_TIMESTAMPS_FILE",
     "GATE1_SCORES_FILE",
     "per_fr_result_path",
@@ -964,6 +965,29 @@ def validate_fr_coverage_immediate(
             return result.coverage
         return _coverage_for_paths(project, _scope, fallback=result.coverage)
     return result.coverage
+
+
+def fr_coverage_from_last_run(project: Path, fr_id: str) -> Optional[float]:
+    """One FR's coverage, recomputed from the `.coverage` already on disk.
+
+    Returns ``None`` when the per-FR scope cannot be computed at all — the SAB
+    is missing, the FR declares no modules, or none of its modules were
+    measured. That is "could not measure", which the caller must keep apart
+    from "measured and failed" (Round 32 站4); this function does not invent a
+    number and does not silently answer with the whole-project one.
+
+    Round 56 站6. `validate_fr_coverage_immediate(fr_id=…)` also scopes per FR,
+    but it goes through `run_suite` first — fine for its caller, wrong for a
+    gate that has to ask about every FR in turn. This entry point executes
+    nothing: the suite has already run, `.coverage` is on disk, and the
+    per-FR answer is arithmetic over it.
+    """
+    scope = _fr_module_paths(project, fr_id)
+    if scope is None:
+        return None
+    sentinel = -1.0
+    value = _coverage_for_paths(project, scope, fallback=sentinel)
+    return None if value == sentinel else value
 
 
 def _is_phase3_per_fr(project: Path) -> bool:
