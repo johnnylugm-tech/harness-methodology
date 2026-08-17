@@ -227,14 +227,54 @@ def bootstrap(
     return report
 
 
-def unsatisfied_tools(project: "Path | str") -> list[str]:
-    """Tool_ids the pip steps promised that their own check_cmd still refuses.
+def _distribution_name(tool_id: str) -> "str | None":
+    """The pip distribution that provides *tool_id*, from the install SSOT.
 
-    Probes with each ToolSpec's own check_cmd against the project's venv-scoped
-    PATH — the same question, asked the same way, that verify_gate_tools will
-    ask later. Deliberately scoped to what the pip steps claim to deliver: this
-    reports on the bootstrap's promise, not on the whole gate toolchain (which
-    needs the gate YAMLs, and therefore pyyaml, which may not exist yet).
+    `package_for_tool` answers for anything the framework installs by name
+    (`scancode-toolkit==32.4.1` → `scancode-toolkit`). Everything else comes
+    from requirements.txt, where the distribution is named as the tool is
+    (`mutmut`). Returns None when neither knows — a name this file must not
+    guess at.
+    """
+    pinned = _ssot.package_for_tool(tool_id)
+    if pinned:
+        return pinned.split("==")[0].strip()
+    if tool_id in set(_ssot.requirements_packages()):
+        return tool_id
+    return None
+
+
+def unsatisfied_tools(project: "Path | str") -> list[str]:
+    """Tool_ids the pip steps promised and the target interpreter does not have.
+
+    Deliberately scoped to what the pip steps claim to deliver: this reports on
+    the bootstrap's promise, not on the whole gate toolchain (which needs the
+    gate YAMLs, and therefore pyyaml, which may not exist yet).
+
+    Two probes, because the question is not the same for both kinds of tool.
+
+    Ordinary tools are asked their own `check_cmd` against the project's
+    venv-scoped PATH — the same question, asked the same way, that
+    `verify_gate_tools` will ask later.
+
+    `skip_inline` tools (code-review-graph, mutmut, scancode, stryker) are
+    asked whether their DISTRIBUTION is installed in the target interpreter.
+    Round 56 站3: they used to be skipped entirely, on the reasoning that the
+    design excludes them from inline cross-validation. That reasoning is about
+    gate evidence and does not transfer here, because this function's one
+    production consumer is `bootstrap()`, where an empty result means
+    `report.ok` and `report.ok` means the pip round never runs. Measured
+    2026-08-17 on this repository: `unsatisfied_tools(".")` returned `[]` while
+    `importlib.metadata` could find neither `code-review-graph` nor
+    `scancode-toolkit` — so the tool that scores the architecture dimension was
+    neither installed nor reported.
+
+    Asking about the distribution rather than the executable is also what
+    bootstrap actually needs to know ("does pip still have work to do"), and it
+    sidesteps the failure that motivated the skip: on a host whose pyicu
+    conflicts with the system ICU, `scancode --version` fails forever while the
+    distribution is present, so the pip round was re-run on every call and
+    never helped.
     """
     from core.utils.venv_env import venv_scoped_env
     from harness.tool_checks import run_tool_check
@@ -242,22 +282,36 @@ def unsatisfied_tools(project: "Path | str") -> list[str]:
 
     root = Path(project)
     env = venv_scoped_env(root)
+    python = venv_python(root)
     unsatisfied: list[str] = []
     for step in _ssot.PIP_STEPS:
         for tool_id in _ssot.tools_for_step(step.name):
             spec = TOOL_SPECS[tool_id]
-            if spec.skip_inline:
-                # Skip-list tools (mutmut, scancode, import-linter, stryker):
-                # the framework's design intentionally drops their inline check
-                # (too slow / complex / env-coupled). Their gate evidence is a
-                # committed tool_output file validated at finalize-gate, NOT a
-                # probe here. Probing them anyway surfaces as a false BLOCKED
-                # at every phase entry, even though the dimension that uses them
-                # only runs at the matching gate. See harness/toolchains/registry.py
-                # ToolSpec.skip_inline for the canonical list.
-                continue
             try:
-                if not run_tool_check(spec.check_cmd, cwd=str(root), env=env):
+                if spec.skip_inline:
+                    dist = _distribution_name(tool_id)
+                    if dist is None:
+                        unsatisfied.append(
+                            f"{tool_id} (no distribution name in the install SSOT — "
+                            f"cannot tell whether pip has delivered it)"
+                        )
+                        continue
+                    if python is None:
+                        unsatisfied.append(
+                            f"{tool_id} (no target interpreter to ask about "
+                            f"{dist})"
+                        )
+                        continue
+                    # The interpreter asked is the one being prepared, never
+                    # the one asking (Round 47 F2).
+                    proc = subprocess.run(
+                        [str(python), "-c",
+                         f"import importlib.metadata as m; m.distribution({dist!r})"],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    if getattr(proc, "returncode", 1) != 0:
+                        unsatisfied.append(tool_id)
+                elif not run_tool_check(spec.check_cmd, cwd=str(root), env=env):
                     unsatisfied.append(tool_id)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 # Fail CLOSED and say so: a probe that raised did not measure,

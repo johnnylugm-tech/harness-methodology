@@ -136,27 +136,24 @@ def test_requirements_alone_is_not_the_whole_gate_toolchain():
     assert bootstrap.step_for_tool("pytest-cov") == "requirements"
 
 
-# ── bootstrap_env.unsatisfied_tools: skip-inline exclusion ──
-# Regression for the bug where bootstrap-env BLOCKED at every phase entry on
-# scancode/mutmut/etc. — despite those tools being intentionally marked
-# skip_inline=True in the toolchain registry (their gate evidence is a
-# committed tool_output file, not an inline probe). The probe was correct
-# for active tools and wrong for skip-list tools.
-def test_unsatisfied_tools_skips_skip_inline_tools(monkeypatch):
-    """Tools marked skip_inline=True must not be probed at bootstrap time.
-
-    Round 55 surgical fix: the bootstrap-env probe is the same question the
-    gate-time inline cross-validation would ask, and the design explicitly
-    excludes skip_list tools from inline cross-validation. The bootstrap-env
-    probe was therefore probing a class of tools the design already said
-    "do not inline" — the false BLOCKED it produced at phase entry was the
-    surface symptom, the design mismatch was the cause.
-    """
+# ── bootstrap_env.unsatisfied_tools: skip-inline tools are asked differently ──
+# Regression for the bug where bootstrap-env reported scancode unresolvable on
+# a host where `scancode --version` cannot run (macOS pyicu vs the system ICU)
+# even after the distribution installed fine. Those tools are marked
+# skip_inline=True precisely because their executable probe is not usable
+# inline.
+#
+# Round 56 站3 keeps that exclusion and replaces the remedy. Skipping them
+# outright made `unsatisfied_tools` return [] on a tree missing them, and its
+# one production consumer reads [] as "nothing left to install" — so the pip
+# round never ran. They are now asked the question bootstrap actually has:
+# is the DISTRIBUTION present in the target interpreter.
+def test_unsatisfied_tools_does_not_run_the_executable_probe_for_skip_inline(monkeypatch):
+    """`scancode --version` must never be what decides this."""
     from scripts import bootstrap_env
     from harness import tool_checks
     from harness.toolchains.registry import TOOL_SPECS
 
-    # Spy: if probe fires on skip_inline tools, fail the test.
     probed: list[str] = []
 
     def _spy_run_tool_check(cmd, **kwargs):
@@ -167,15 +164,36 @@ def test_unsatisfied_tools_skips_skip_inline_tools(monkeypatch):
         return True  # pretend every probe passed
 
     monkeypatch.setattr(tool_checks, "run_tool_check", _spy_run_tool_check)
+    bootstrap_env.unsatisfied_tools("/tmp/does-not-matter")
 
-    result = bootstrap_env.unsatisfied_tools("/tmp/does-not-matter")
+    for tool_id in ("scancode", "mutmut", "code-review-graph"):
+        assert tool_id not in probed, (
+            f"{tool_id} is skip_inline=True; its executable probe must not run"
+        )
 
-    # scancode is skip_inline=True; it must not have been probed.
-    assert "scancode" not in probed, (
-        "scancode is skip_inline=True; bootstrap-env must not probe it inline"
-    )
-    # Sanity: the result list itself is empty because every probe returned True.
-    assert result == [], f"expected no unsatisfied tools, got {result}"
+
+def test_every_skip_inline_pip_tool_resolves_to_a_distribution():
+    """Otherwise the probe cannot answer, and says so rather than assuming.
+
+    Measured 2026-08-17: scancode → scancode-toolkit and code-review-graph →
+    code-review-graph come from `package_for_tool`; mutmut is named in
+    requirements.txt as itself. stryker has no pip step, so this function
+    never reaches it.
+    """
+    from scripts.bootstrap_env import _distribution_name
+    import harness.toolchains.bootstrap as ssot
+    from harness.toolchains.registry import TOOL_SPECS
+
+    reached = {
+        tool_id
+        for step in ssot.PIP_STEPS
+        for tool_id in ssot.tools_for_step(step.name)
+        if TOOL_SPECS[tool_id].skip_inline
+    }
+    assert reached == {"scancode", "mutmut", "code-review-graph"}
+    assert _distribution_name("scancode") == "scancode-toolkit"
+    assert _distribution_name("code-review-graph") == "code-review-graph"
+    assert _distribution_name("mutmut") == "mutmut"
 
 
 def test_unsatisfied_tools_still_probes_active_tools(monkeypatch):
