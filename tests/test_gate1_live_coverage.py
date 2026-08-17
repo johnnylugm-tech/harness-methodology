@@ -214,7 +214,6 @@ def test_validate_fr_coverage_immediate_p3_per_fr_scope_returns_fr_only(project_
     modules belong to other FRs and are empty stubs. Per-FR scope must
     skip those and report the modules FR-01 actually owns.
     """
-    from pathlib import Path
     # Mark the project as being in P3 so the per-FR scope activates.
     (project_with_fr / ".methodology" / "state.json").write_text(
         '{"current_phase": 3}', encoding="utf-8"
