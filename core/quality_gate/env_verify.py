@@ -65,41 +65,52 @@ def _is_framework_subcommand(name: str) -> bool:
     return name.lower().endswith(".py")
 
 
-def _is_in_process_tool(name: str) -> bool:
-    """True iff the toolchain registry marks `name` as `in_process=True`.
+def _registry_check_cmd(name: str) -> "str | None":
+    """The shell probe the toolchain registry declares for `name`, if any.
 
-    In-process scorers are dispatched via `python -m harness.toolchains.<name>`
-    (or via the in-proc runner) — they have no PATH binary to probe. Returning
-    False here would force env-check to probe the registry's `check_cmd`
-    (which for `ast-docstrings` is `import ast; ast.parse(...)` — always exit 0
-    on Python 3.x) and accept the result of THAT probe as the in-process
-    tool's presence, which is a different question and produces a different
-    false-positive (every project looks like it has the tool even when the
-    toolchain module is missing). The registry is the source of truth.
+    Round 56 站2. This replaces `_is_in_process_tool`, a classifier that
+    sorted names into "PATH tool" and "in-process tool" and reported the
+    second kind present WITHOUT MEASURING ANYTHING. Two families went green
+    on hosts that cannot run them:
 
-    Symmetric with `_found_on_path_or_venv`'s underscore↔dash probe (Bug #131):
-    contract names use either form (the agent that writes the env contract
-    sometimes reaches for the import-style `ast_docstrings`, sometimes the
-    console-script-style `ast_docstrings`); the registry canonicalises on
-    the dash form. Probe both before deciding the tool is absent.
+      radon-mi / readability-v2 — dispatched as `python -m
+        harness.toolchains.*`, and both modules shell out to the `radon`
+        binary (radon_mi_ast_stripped.py:17, readability_v2.py:14). Their
+        registry check_cmd is literally `radon --version`.
+      js-assertions / js-error-handling / js-doc-coverage / js-mi — check_cmd
+        is `import tree_sitter, tree_sitter_javascript, tree_sitter_typescript`,
+        a real probe that was skipped whole.
 
-    Wrapped in try/except so a missing toolchains module still falls through
-    to the import probe below — the original behaviour, preserved as a
-    fallback for environments that strip optional packages.
+    `ToolSpec.check_cmd` is the registry's own answer to "can this tool run",
+    written per tool for exactly this reason —
+    docs/PROPOSAL_ADJUDICATIONS.md:2555 adjudicated it in those words. Asking
+    it is both more honest and less code than classifying names.
+
+    `skip_inline` tools are excluded: the registry marks them precisely
+    because their probe cannot be run inline (too slow, or env-coupled — see
+    `ToolSpec.skip_inline`), and their gate evidence is a committed
+    tool_output validated at finalize-gate. They keep the PATH probe.
+
+    Honest limitation, recorded rather than papered over: the `ast-*` scanners
+    declare `import ast`, which is always true. That is not a gap in this
+    routing — the stdlib IS their whole dependency, and the scanner module
+    lives in the harness checkout that must exist for env-check to be running
+    at all.
+
+    Underscore↔dash symmetric with `_found_on_path_or_venv` (Bug #131): the
+    agent writing the env contract reaches for either form; the registry
+    canonicalises on the dash. Wrapped in try/except so an environment
+    without the toolchains package falls through to the import probe.
     """
     try:
         from harness.toolchains.registry import TOOL_SPECS
     except ImportError:
-        return False
+        return None
     for candidate in (name, name.replace("_", "-")):
         spec = TOOL_SPECS.get(candidate)
-        if not spec:
-            continue
-        if getattr(spec, "in_process", False):
-            return True
-        if spec.cmd and len(spec.cmd) >= 3 and spec.cmd[1] == "-m" and "harness.toolchains" in str(spec.cmd[2]):
-            return True
-    return False
+        if spec and spec.check_cmd and not getattr(spec, "skip_inline", False):
+            return spec.check_cmd
+    return None
 
 
 def _bin_dir() -> str:
@@ -219,31 +230,25 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
 
     Batched on purpose: several unresolved tools each sequentially spawning up
     to len(interps) `import <pkg>` probes (5s timeout each) serialize to tens of
-    seconds on a blocking CLI path, so all deferred import probes run
-    concurrently at the end. Framework subcommands (`*.py`) are reported found —
-    they are not PATH tools and probing them is meaningless (Bug #123).
+    seconds on a blocking CLI path, so all deferred probes run concurrently at
+    the end. Framework subcommands (`*.py`) are reported found — they are not
+    PATH tools and probing them is meaningless (Bug #123).
+
+    Order matters and is cheapest-first. PATH is a `shutil.which` lookup and
+    costs nothing, so a tool that is simply installed never pays for a
+    subprocess. Only when PATH misses does the registry's own `check_cmd` get
+    a turn (Round 56 站2), and only after that the generic import probe.
+    Measured 2026-08-17: nine registry tools reach the check_cmd branch, each
+    0.02–0.04s, and they run in the same thread pool as the import probes.
     """
     results: dict[str, bool] = {}
     pending: list[tuple[str, str, dict, list[str]]] = []
+    checks: list[tuple[str, str]] = []
     for raw_name in raw_names:
         name = normalize_tool_name(raw_name)
         if not name:
             continue
         if _is_framework_subcommand(name):
-            results[raw_name] = True
-            continue
-        # Round 56 站1: in-process scorers (`ast-docstrings`,
-        # `readability-v2`, `ast-assertions`, `ast-error-handling`,
-        # `radon-mi`) run inside the harness via `python -m
-        # harness.toolchains.<name> {src}` — they have no PATH binary to
-        # probe, and the env contract's `cli_tools` list is generated from
-        # the same registry that knows they're in-process. Reporting them
-        # missing here produced false-positive P3 env-check FAILs on every
-        # fresh project that inherited the suite. The registry IS the
-        # source of truth for "is this a PATH tool?". Proxy through a
-        # try/except so a missing toolchains module (forced by an env with
-        # only stdlib) still falls through to the import probe below.
-        if _is_in_process_tool(name):
             results[raw_name] = True
             continue
         if _found_on_path_or_venv(name, project):
@@ -252,10 +257,14 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
         if _is_venv_python_semantic_name(name, project):
             results[raw_name] = True
             continue
+        check_cmd = _registry_check_cmd(name)
+        if check_cmd:
+            checks.append((raw_name, check_cmd))
+            continue
         pkg, import_env, interps = _import_probe_spec(name, project)
         pending.append((raw_name, pkg, import_env, interps))
 
-    if pending:
+    if pending or checks:
         def _probe_import(item: "tuple[str, str, dict, list[str]]") -> "tuple[str, bool]":
             _raw_name, _pkg, _import_env, _interps = item
             for _interp in _interps:
@@ -271,9 +280,28 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
                           f"{_interp} failed: {exc}", file=sys.stderr)
             return _raw_name, False
 
+        def _probe_check_cmd(item: "tuple[str, str]") -> "tuple[str, bool]":
+            _raw_name, _cmd = item
+            from core.utils.venv_env import venv_scoped_env
+            from harness.tool_checks import run_tool_check
+            try:
+                return _raw_name, run_tool_check(
+                    _cmd, cwd=str(project), env=venv_scoped_env(project))
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                # Fail CLOSED and say so: a probe that raised did not measure,
+                # and "did not measure" is not "present" (same rule
+                # scripts/bootstrap_env.py::unsatisfied_tools applies).
+                print(f"[WARN] tool-check: registry probe for '{_raw_name}' "
+                      f"({_cmd}) raised ({exc}) — counting it as absent",
+                      file=sys.stderr)
+                return _raw_name, False
+
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(8, len(pending))
+            max_workers=min(8, len(pending) + len(checks))
         ) as ex:
-            for _raw_name, _found in ex.map(_probe_import, pending):
+            futures = [ex.submit(_probe_import, item) for item in pending]
+            futures += [ex.submit(_probe_check_cmd, item) for item in checks]
+            for fut in futures:
+                _raw_name, _found = fut.result()
                 results[_raw_name] = _found
     return results

@@ -164,39 +164,46 @@ def test_underscore_name_does_not_match_unrelated_binary(tmp_path) -> None:
     )
 
 
-# ── Bug #131/sym: in-process scorer must be detected by env-check ──
-# Regression for the P3 env-check failure mode where
-# `probe_cli_tools` looks for a `ast_docstrings` (underscore) binary on PATH
-# but the registry canonicalises on `ast-docstrings` (dash). The check
-# collapsed into a false BLOCKED on every fresh project where the toolchain
-# module was present but the contract name and the registry key were
-# written in different conventions. The helper explicitly probes both
-# forms, the same symmetry Bug #131's PATH probe already has.
-def test_in_process_tool_detected_under_underscore_name():
-    """ast_docstrings (contract) -> ast-docstrings (registry) -> in_process=True."""
-    from core.quality_gate.env_verify import _is_in_process_tool
-    assert _is_in_process_tool("ast-docstrings") is True
-    assert _is_in_process_tool("ast_docstrings") is True
-    # Sanity: a tool that truly is not in-process stays that way.
-    assert _is_in_process_tool("radon") is False
-    assert _is_in_process_tool("pytest") is False
+# ── Bug #131/sym: a scorer with no binary of its own name ──
+# Regression for the P3 env-check failure mode where `probe_cli_tools` looked
+# for an `ast_docstrings` (underscore) binary on PATH while the registry
+# canonicalises on `ast-docstrings` (dash), and reported a false BLOCKED on
+# every fresh project whose contract and the registry used different
+# conventions.
+#
+# Round 56 站2 kept the symptom fixed and changed the remedy. These two tests
+# used to assert `_is_in_process_tool(...) is True`, i.e. that env-check
+# classifies the name and reports the tool present without measuring — which
+# is how `radon-mi` went green on a host with no `radon`. The intent survives;
+# the criterion is now the registry's own `check_cmd`, both spellings.
+def test_a_scorer_with_no_binary_of_its_own_name_resolves_by_check_cmd():
+    """ast_docstrings (contract) -> ast-docstrings (registry) -> its check_cmd."""
+    from core.quality_gate.env_verify import _registry_check_cmd
+
+    assert _registry_check_cmd("ast-docstrings")
+    assert _registry_check_cmd("ast_docstrings") == _registry_check_cmd("ast-docstrings")
+    # A name the registry does not carry has no declared probe; it falls
+    # through to the generic import probe as before.
+    assert _registry_check_cmd("definitely-not-a-registry-tool") is None
 
 
-def test_readability_v2_and_radon_mi_are_in_process_scorers():
+def test_readability_v2_and_radon_mi_resolve_through_radon(monkeypatch):
     """The scorer is `harness/toolchains/readability_v2.py`; `radon` is data.
 
-    Reading `check_cmd="radon --version"` as 'env-check should probe PATH
-    for `readability-v2` (the contract name)' produces a false-positive
-    BLOCKED whenever the env probe runs the contract name as a literal
-    binary. The scorer is in-process; `radon` is the data source the
-    module reads. The correctness check is whether the toolchain module
-    can be imported, not whether a binary of the same name is on PATH.
+    No binary called `readability-v2` or `radon-mi` exists, so a bare PATH
+    probe must not decide. The registry says what to ask — `radon --version`
+    — and both spellings of the contract name reach it.
     """
-    from core.quality_gate.env_verify import _is_in_process_tool
-    assert _is_in_process_tool("readability-v2") is True
-    assert _is_in_process_tool("readability_v2") is True
-    assert _is_in_process_tool("radon-mi") is True
-    assert _is_in_process_tool("radon_mi") is True
+    from core.quality_gate import env_verify
+    from harness import tool_checks
+
+    for name in ("readability-v2", "readability_v2", "radon-mi", "radon_mi"):
+        assert env_verify._registry_check_cmd(name) == "radon --version 2>&1", name
+
+    monkeypatch.setattr(tool_checks, "run_tool_check", lambda *_a, **_kw: True)
+    found = env_verify.probe_cli_tools(["readability-v2", "radon_mi"],
+                                       Path("/tmp/does-not-matter"))
+    assert found == {"readability-v2": True, "radon_mi": True}
 
 
 # ── Round 56 站2: env-check answered a different question ──
