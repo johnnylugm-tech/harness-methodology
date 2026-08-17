@@ -444,3 +444,64 @@ def test_ac_id_regex_stops_at_canonical_boundary():
     assert _AC_ID.findall("AC-1.1-end") == ["AC-1.1"]
     # AC-1.1 followed by a digit (e.g. AC-1.11) extends the dot-sequence.
     assert _AC_ID.findall("AC-1.11") == ["AC-1.11"]
+
+
+# ── Round 56 站5: a token that fails the shape becomes a different id ──
+# `_AC_ID`'s trailing `\b` is satisfiable by a PREFIX of the token. For
+# `AC-1.2a` the dotted-suffix group matches `.2`, the boundary before `a`
+# fails, the engine backtracks the group to zero repetitions, and `AC-1` —
+# followed by `.`, a legal boundary — is returned. That is not a refusal; it
+# is a substitution. `AC-1.1a` and `AC-1.1b` both collapse to `AC-1`, so one
+# TEST_SPEC citation covers a whole family.
+#
+# Measured 2026-08-17 across the eight project trees: zero real instances. The
+# only hit is the vendored copy of this file's own comment inside taskq-cc.
+# Latent, so the fix is cheap now and would be a forensic exercise later.
+#
+# The canonical regex decides what IS an id; a separate loose recogniser
+# decides what WANTED to be one. Two questions, two expressions — not two
+# spellings of one (Round 36).
+def test_a_token_that_fails_the_canonical_shape_is_not_silently_renamed():
+    from core.quality_gate.artifact_consistency import _AC_ID
+
+    assert _AC_ID.findall("AC-1.2a") == [], (
+        "a lettered suffix is not a canonical AC id, and truncating it to "
+        "`AC-1` invents an identifier the SRS never wrote"
+    )
+    assert _AC_ID.findall("AC-1.1a and AC-1.1b") == []
+    # Everything the corpus does write must still parse exactly as before.
+    assert _AC_ID.findall("AC-1.1") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-N7.2") == ["AC-N7.2"]
+    assert _AC_ID.findall("AC-01-1") == ["AC-01-1"]
+    assert _AC_ID.findall("AC-1.1..AC-1.10") == ["AC-1.1", "AC-1.10"]
+    assert _AC_ID.findall("AC-1.1-status") == ["AC-1.1"]
+    assert _AC_ID.findall("AC-7.3-sample-rows") == ["AC-7.3"]
+    assert _AC_ID.findall("AC-1.2-empty-cmd-422") == ["AC-1.2"]
+    assert _AC_ID.findall("- **AC-9.5**: metrics") == ["AC-9.5"]
+    assert _AC_ID.findall("AC-1.11") == ["AC-1.11"]
+
+
+def test_a_non_canonical_identifier_is_reported_rather_than_dropped(tmp_path):
+    """Refusing to parse it must not make it invisible (Round 46).
+
+    `ac_parse_gap` already exists for "the framework could not read this" and
+    stays `info` — the framework's own debt, not the project's failure
+    (Round 32 站4). A token shaped like an AC id but outside the canonical
+    shape belongs in that same channel, named.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_identifiers
+
+    srs = (
+        "# SRS\n\n"
+        "### FR-01: Something\n\n"
+        "**Acceptance criteria**\n"
+        "- **AC-1.1**: the readable one.\n"
+        "- **AC-1.2a**: the lettered one.\n"
+    )
+    v = check_ac_identifiers(_project(tmp_path, srs))
+    gaps = [x for x in v if x.check_type == "ac_parse_gap"]
+    assert gaps, "a token outside the canonical shape produced no report at all"
+    assert gaps[0].severity == "info"
+    assert "AC-1.2a" in gaps[0].message, (
+        "the report must name the token, otherwise the author cannot find it"
+    )

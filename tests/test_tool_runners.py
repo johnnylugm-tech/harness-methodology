@@ -701,3 +701,40 @@ class TestRunToolCovTargetScoping:
         run_tool("pytest-cov", str(tmp_path))
         cov_args = [a for a in captured["cmd"] if a.startswith("--cov=")]
         assert cov_args == ["--cov=."]
+
+
+# ── Round 56 站4: one scorer, one implementation ──
+# `harness/toolchains/ast_docstrings.py` was added as a 96-line AST scanner on
+# the premise that "ast_docstrings.py was referenced in the ToolSpec but had no
+# module behind it". The premise does not hold: in-process scanners are
+# dispatched by `harness/lang_scanners/__init__.py`, whose table maps
+# "ast-docstrings" to `python_ast.run_docstrings`. The new module had no
+# caller — and could not have been wired in as written, because it emits
+# `documented` while the registered scorer `_score_docstring_coverage` reads
+# `with_doc`, so connecting it would have scored every project 0.0.
+def test_the_docstring_scanner_has_exactly_one_implementation():
+    """A second spelling of the same scanner is the defect, not the fix."""
+    import importlib
+
+    from harness.lang_scanners import RUNNERS
+
+    assert RUNNERS["ast-docstrings"].__module__ == "harness.lang_scanners.python_ast", (
+        "the dispatch table is the only statement of which module scores this "
+        "dimension"
+    )
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("harness.toolchains.ast_docstrings")
+
+
+def test_the_live_scanner_emits_the_key_the_scorer_reads(tmp_path):
+    """`with_doc`, not `documented` — measured, not assumed."""
+    import json
+
+    from harness.lang_scanners import python_ast
+
+    src = tmp_path / "03-development" / "src"
+    src.mkdir(parents=True)
+    (src / "m.py").write_text('def f():\n    """doc"""\n    return 1\n', encoding="utf-8")
+    out, rc = python_ast.run_docstrings(str(tmp_path))
+    assert rc == 0
+    assert "with_doc" in json.loads(out)

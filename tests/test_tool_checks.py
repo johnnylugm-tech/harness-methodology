@@ -263,3 +263,84 @@ def test_phase_gate_tools_phase6_all_gates_critical(monkeypatch):
     assert ok is False
     assert len(anticipated) == 0
     assert len(critical) == 4
+
+
+# ── Round 56 站1: the phase→gate map is a fourth statement ──
+# `PHASE_GATES` (cli/phase_cmds.py) was hand-written with keys 1..6 only, so
+# `_phase_gate_tools` at P7/P8/P9 read `.get(phase, [])` → every gate landed in
+# `anticipated`, `critical` stayed empty and `_tools_ok` was unconditionally
+# True. P7 and P8 are two of the four phases that run Gate 1 per-FR
+# (core/phase_topology: per_fr_gate1=True), so the check stopped blocking at
+# exactly the phases it exists for.
+#
+# The defect is not three missing keys. `core/phase_topology.py` opens with
+# "Single source of truth for the phase/gate topology … entry/exit gate
+# mapping, per-FR Gate 1" and carries all nine phases. A second table was
+# written next to it.
+def test_gate_set_per_phase_is_derived_from_the_topology():
+    """The contract, stated here independently of how the code derives it.
+
+    Measured 2026-08-17 against the hand-written table: P1–P6 agree cell for
+    cell, and P7/P8/P9 had no entry at all. The expectation below is written
+    out rather than compared against `PHASE_GATES` on purpose — a table
+    checked against itself agrees with itself (Round 19 站1).
+
+    Cumulative, because a gate that ran at an earlier phase is re-run as a
+    DELTA check later (P4/P5/P7/P8 all re-run Gate 1): if its tool vanished
+    since, that must block, not warn.
+    """
+    from core.phase_topology import gates_for_phase
+
+    expected = {
+        1: set(),            # Requirements — no gate runs
+        2: set(),            # Architecture — no gate runs
+        3: {1, 2},           # Gate 1 per-FR during P3, Gate 2 closes it
+        4: {1, 2, 3},        # entry Gate 2, exit Gate 3, Gate 1 per-FR
+        5: {1, 2, 3},        # entry Gate 3, Gate 1 per-FR
+        6: {1, 2, 3, 4},     # exit Gate 4
+        7: {1, 2, 3, 4},     # entry Gate 4, Gate 1 per-FR
+        8: {1, 2, 3, 4},     # entry Gate 4, Gate 1 per-FR
+        9: {1, 2, 3, 4},     # entry Gate 4, Gate 1 per-FR (maintenance)
+    }
+    for phase, gates in expected.items():
+        assert gates_for_phase(phase) == gates, f"phase {phase}"
+
+
+def test_phase_seven_blocks_on_a_missing_gate_one_tool(monkeypatch):
+    """P7 runs Gate 1 per-FR. A missing Gate 1 tool there is not 'anticipated'."""
+    from cli.phase_cmds import _phase_gate_tools
+
+    monkeypatch.setattr(
+        "harness.tool_checks.verify_gate_tools",
+        lambda _gate_num, _project: (False, ["linting: ruff not found"]),
+    )
+    ok, critical, anticipated = _phase_gate_tools(7, "/tmp/none")
+    assert ok is False, "P7 runs Gate 1 per-FR — a missing tool must block"
+    assert any("gate1" in e for e in critical)
+    assert anticipated == [], "no gate is in P7's future"
+
+
+# ── Round 56 站1: an unreadable gate config is not a future-phase need ──
+# `_walk_gate_tools` fails CLOSED on a gate config that is missing or does not
+# parse, and says so: "Expected framework-owned asset — is the harness checkout
+# intact?". `_phase_gate_tools` dropped that diagnostic into the same bucket as
+# "the tool is not installed yet", so at any phase that does not run the gate
+# it printed a WARN and continued. A corrupt framework asset is a harness/infra
+# fault (docs/ERROR_HANDLING.md owner taxonomy), not something a later phase
+# will get around to.
+def test_a_corrupt_gate_config_is_critical_at_every_phase(tmp_path, monkeypatch):
+    """Even at P1, which runs no gate at all."""
+    import core.quality_gate.gate_thresholds as _gt
+    from cli.phase_cmds import _phase_gate_tools
+
+    cfg = tmp_path / "gate4_final.yaml"
+    cfg.write_text("dimensions: [{name: linting\n", encoding="utf-8")  # unclosed
+    monkeypatch.setattr(_gt, "gate_config_path", lambda _g: cfg)
+
+    ok, critical, anticipated = _phase_gate_tools(1, str(tmp_path))
+    assert ok is False, (
+        "a gate config the framework cannot read is a broken checkout — "
+        "it does not become readable when the phase that needs it arrives"
+    )
+    assert any("gate4_final.yaml" in e for e in critical)
+    assert anticipated == [], "a config error is never merely anticipated"

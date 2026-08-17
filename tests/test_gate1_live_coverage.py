@@ -257,3 +257,62 @@ def test_validate_fr_coverage_immediate_falls_back_when_no_data_file(project_wit
                     return_value=_suite(coverage=42.0)):
         cov = validate_fr_coverage_immediate(project_with_fr, fr_id="FR-07")
     assert cov == 42.0
+
+
+# ── Round 56 站6: the per-FR window judged by a whole-project number ──
+# Round 56's earlier commit diagnosed this correctly — at P3 the gate asks a
+# per-FR question ("is THIS FR done?") and read the answer across the whole
+# project, so ten phantom modules other FRs will activate later dragged
+# FR-01's real 95% down to 8.5% and BLOCKED. But `fr_id` was only threaded
+# into run-fr-step's COVERAGE-FIX inline fallback. `_check_gate1_live_coverage`
+# — the check that actually returns 14 and stops advance-phase — still calls
+# `validate_fr_coverage_immediate(project)` with no fr_id, and says so:
+# "whole-project coverage {cov:.1f}%".
+#
+# One suite execution, then one recompute per FR off the same `.coverage`
+# (Round 25 站1's invariant: the suite runs once per process).
+def test_phase_three_judges_each_fr_on_its_own_modules(project_with_fr, capsys):
+    """Whole-project 8.5% with every FR at 95% on its own modules → PASS."""
+    from cli.phase_cmds import _check_gate1_live_coverage
+
+    with mock.patch(
+        "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate",
+        return_value=8.5,
+    ), mock.patch(
+        "core.quality_gate.gate1_evidence.fr_coverage_from_last_run",
+        return_value=95.0,
+    ):
+        rc = _check_gate1_live_coverage(project_with_fr, completed_phase=3)
+    assert rc == 0, (
+        "FR-07 covers 95% of what it owns; the empty modules other FRs will "
+        "fill are not FR-07's defect"
+    )
+    assert "FR-07" in capsys.readouterr().out
+
+
+def test_phase_three_names_the_fr_that_actually_fails(project_with_fr, capsys):
+    """A real per-FR shortfall must block, and say which FR."""
+    from cli.phase_cmds import _check_gate1_live_coverage
+
+    with mock.patch(
+        "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate",
+        return_value=99.0,
+    ), mock.patch(
+        "core.quality_gate.gate1_evidence.fr_coverage_from_last_run",
+        return_value=50.0,
+    ):
+        rc = _check_gate1_live_coverage(project_with_fr, completed_phase=3)
+    assert rc == 14
+    out = capsys.readouterr().out
+    assert "FR-07" in out and "50" in out, (
+        "a whole-project percentage does not tell the operator which FR to fix"
+    )
+
+
+def test_the_per_fr_recompute_runs_no_extra_pytest(project_with_fr):
+    """`fr_coverage_from_last_run` reads `.coverage`; it never runs the suite."""
+    from core.quality_gate import gate1_evidence
+
+    with mock.patch("core.quality_gate.test_suite_run.run_suite") as ran:
+        gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07")
+    ran.assert_not_called()

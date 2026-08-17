@@ -197,3 +197,62 @@ def test_readability_v2_and_radon_mi_are_in_process_scorers():
     assert _is_in_process_tool("readability_v2") is True
     assert _is_in_process_tool("radon-mi") is True
     assert _is_in_process_tool("radon_mi") is True
+
+
+# ── Round 56 站2: env-check answered a different question ──
+# `probe_cli_tools` classified names into "PATH tool" vs "in-process tool" and
+# reported the second kind present without measuring anything. Two families
+# went green on a host that cannot run them:
+#
+#   radon-mi / readability-v2  — dispatched as `python -m harness.toolchains.*`,
+#     but both modules shell out (`radon_mi_ast_stripped.py:17`,
+#     `readability_v2.py:14` → subprocess(["radon", ...])). Their registry
+#     check_cmd is literally `radon --version`.
+#   js-assertions / js-error-handling / js-doc-coverage / js-mi — check_cmd is
+#     `import tree_sitter, tree_sitter_javascript, tree_sitter_typescript`,
+#     a real probe that was skipped whole.
+#
+# `ToolSpec.check_cmd` is the registry's own answer to "can this tool run".
+# docs/PROPOSAL_ADJUDICATIONS.md:2555 already adjudicated this: those tool_ids
+# "各自帶 `check_cmd` 正是為此". The classifier does not need to exist.
+def test_a_scorer_whose_data_source_is_missing_is_not_present(monkeypatch):
+    """radon-mi with no `radon` on the host must probe False, not True."""
+    from core.quality_gate import env_verify
+    from harness import tool_checks
+
+    asked: list[str] = []
+
+    def _probe(check_cmd, cwd=None, env=None):
+        asked.append(check_cmd)
+        return "radon" not in check_cmd  # this host has everything but radon
+
+    monkeypatch.setattr(tool_checks, "run_tool_check", _probe)
+    result = env_verify.probe_cli_tools(["radon-mi", "readability-v2"],
+                                        Path("/tmp/does-not-matter"))
+    assert any("radon" in c for c in asked), (
+        "the registry's own check_cmd was never consulted — the probe decided "
+        "from the tool's name instead of from what the tool needs"
+    )
+    assert result["radon-mi"] is False
+    assert result["readability-v2"] is False
+
+
+def test_a_tree_sitter_scanner_without_tree_sitter_is_not_present(monkeypatch):
+    """The js-* check_cmd is a real import probe; it must actually run."""
+    from core.quality_gate import env_verify
+    from harness import tool_checks
+
+    asked: list[str] = []
+
+    def _probe(check_cmd, cwd=None, env=None):
+        asked.append(check_cmd)
+        return "tree_sitter" not in check_cmd
+
+    monkeypatch.setattr(tool_checks, "run_tool_check", _probe)
+    result = env_verify.probe_cli_tools(["js-assertions", "js-mi"],
+                                        Path("/tmp/does-not-matter"))
+    assert any("tree_sitter" in c for c in asked), (
+        "the tree-sitter import probe the registry declares was skipped"
+    )
+    assert result["js-assertions"] is False
+    assert result["js-mi"] is False

@@ -30,6 +30,7 @@ rest of the sequence, and only CI can execute it.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 
@@ -200,4 +201,65 @@ def test_unsatisfied_tools_still_probes_active_tools(monkeypatch):
 
     assert "ruff" in probed, (
         "ruff is skip_inline=False; bootstrap-env must still probe it"
+    )
+
+
+# ── Round 56 站3: bootstrap asked "can it run", needed "is it installed" ──
+# `unsatisfied_tools` has exactly one production consumer: `bootstrap()`'s
+# `measure`, and its answer decides whether the pip round runs at all
+# (`if report.ok: return report`). Skipping skip_inline tools therefore did not
+# merely quieten a diagnostic — it made a host that is missing mutmut,
+# scancode or code-review-graph look complete, so pip never ran and the tools
+# were never installed and never reported.
+#
+# Measured 2026-08-17 on this repository: `unsatisfied_tools(".")` returned
+# `[]` while `importlib.metadata.distribution` could find neither
+# `code-review-graph` nor `scancode-toolkit`. code-review-graph is the tool
+# `verify_all_gate_tools` calls a "hard dependency (no degradation)" — it
+# scores the architecture dimension.
+#
+# The symptom the skip was reaching for is real: `scancode --version` fails
+# forever on a host whose pyicu conflicts with the system ICU, so the pip round
+# was re-run every time and never helped. But that is the wrong question.
+# bootstrap needs to know whether pip still has work to do, which is answered
+# by the distribution being present in the TARGET interpreter — not by the tool
+# being executable today.
+def _fake_venv(tmp_path, log):
+    """A project whose .venv interpreter is a script we can reason about.
+
+    It exits 1 for any command mentioning mutmut and 0 otherwise, and appends
+    every invocation to *log*. Asking the target interpreter rather than the
+    running one is Round 47 F2's whole point, so the test pins it.
+    """
+    bindir = tmp_path / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+    bindir.mkdir(parents=True)
+    py = bindir / ("python.exe" if os.name == "nt" else "python")
+    py.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{log}"\n'
+        'case "$*" in *mutmut*) exit 1 ;; esac\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    py.chmod(0o755)
+    return py
+
+
+def test_an_uninstalled_skip_inline_tool_keeps_the_pip_round_alive(tmp_path, monkeypatch):
+    """mutmut absent from the target venv must surface as unsatisfied."""
+    from scripts import bootstrap_env
+    from harness import tool_checks
+
+    log = tmp_path / "probe.log"
+    _fake_venv(tmp_path, log)
+    monkeypatch.setattr(tool_checks, "run_tool_check", lambda *_a, **_kw: True)
+
+    result = bootstrap_env.unsatisfied_tools(tmp_path)
+
+    assert any("mutmut" in r for r in result), (
+        "mutmut is skip_inline, is not installed in the target venv, and was "
+        f"reported satisfied — pip would never run. got: {result}"
+    )
+    assert log.exists() and "mutmut" in log.read_text(encoding="utf-8"), (
+        "the probe never asked the target interpreter about the distribution"
     )
