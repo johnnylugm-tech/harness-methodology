@@ -1960,6 +1960,29 @@ def _run_harness_cross_validation(
             continue
 
         harness_score = compute_tool_score(tool, output, returncode)
+        # Round 56 站6 / follow-up: test_coverage and integration_coverage
+        # score the whole-project pytest run by default, which collapses
+        # SAB-declared phantom modules from other FRs into a single
+        # denominator. On Phase 3 per-FR TDD, the FR's own modules often
+        # reach 100% while the whole-project number reads lower because of
+        # `__main__.py` (FR-03) and friends. Re-score from the on-disk
+        # `.coverage` restricted to the FR's own modules — the same
+        # computation `_gate1_per_fr_coverage_verdict` runs, and the same
+        # measurement whose gap triggered the HARNESS-BUG block before
+        # this fix landed. Falling back to the whole-project number when
+        # `_fr_module_paths` cannot be computed (no SAB, no declared
+        # modules) preserves the older shape for those edge cases.
+        if harness_score is not None and ctx.fr_id and dim_name in (
+            "test_coverage", "integration_coverage",
+        ):
+            from core.quality_gate import gate1_evidence as _g1e
+            _per_fr = _g1e.fr_coverage_from_last_run(ctx.project_root, ctx.fr_id)
+            if _per_fr is not None:
+                print(
+                    f"  [S4] {dim_name}: harness={harness_score:.1f} (whole-project) | "
+                    f"per-fr={_per_fr:.1f} (using per-fr scope)"
+                )
+                harness_score = _per_fr
         if harness_score is None:
             if agent_score is None:
                 # Same reasoning as the exit-5 branch: the framework ran the tool
