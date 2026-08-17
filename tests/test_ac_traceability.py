@@ -434,10 +434,14 @@ def test_ac_id_regex_stops_at_canonical_boundary():
     assert _AC_ID.findall("- **AC-9.5**: metrics") == ["AC-9.5"]
     # Word/dash boundary semantics: AC-1.1 followed by a non-word character
     # (space, punctuation, dash) IS a valid match (the canonical case).
-    # Word-boundary semantics: AC-1.1 followed by another word char (e.g.
-    # `AC-1.1z`) is left for the next match attempt — `AC-1z` is not a
-    # canonical id so the engine falls back to capturing `AC-1` (the longest
-    # backtracking-legal match before the boundary).
+    #
+    # Round 56 corrects what this comment used to say. It described `AC-1.1z`
+    # falling back to `AC-1` as "the longest backtracking-legal match", which
+    # was an accurate account of the engine and a wrong account of the result:
+    # `AC-1` is a different identifier, not a truncation of this one. Nothing
+    # asserted it either. The canonical pattern now refuses the token outright
+    # and `check_ac_identifiers` reports it — see
+    # test_a_token_that_fails_the_canonical_shape_is_not_silently_renamed.
     assert _AC_ID.findall("AC-1.1 (FR-01)") == ["AC-1.1"]
     assert _AC_ID.findall("AC-1.1,") == ["AC-1.1"]
     assert _AC_ID.findall("AC-1.1\n") == ["AC-1.1"]
@@ -501,7 +505,31 @@ def test_a_non_canonical_identifier_is_reported_rather_than_dropped(tmp_path):
     v = check_ac_identifiers(_project(tmp_path, srs))
     gaps = [x for x in v if x.check_type == "ac_parse_gap"]
     assert gaps, "a token outside the canonical shape produced no report at all"
-    assert gaps[0].severity == "info"
-    assert "AC-1.2a" in gaps[0].message, (
+    assert all(x.severity == "info" for x in gaps)
+    assert any("AC-1.2a" in x.message for x in gaps), (
         "the report must name the token, otherwise the author cannot find it"
+    )
+
+
+def test_a_range_expression_is_not_reported_as_malformed(tmp_path):
+    """The loose recogniser must not undo Round 55's range fix.
+
+    `AC-1.1..AC-1.10` is two identifiers and an operator. The loose scan sees
+    one span; reporting it would tell the author to fix something correct. The
+    rule is "report a loose token only when the canonical scan finds nothing
+    inside it", and this is the case that rule exists for.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_identifiers
+
+    srs = (
+        "# SRS\n\n"
+        "### FR-01: Something\n\n"
+        "**Acceptance criteria**\n"
+        "- **AC-1.1**: first.\n"
+        "- **AC-1.10**: tenth.\n"
+        "\n- DERIVED: see AC-1.1..AC-1.10 above.\n"
+    )
+    v = check_ac_identifiers(_project(tmp_path, srs))
+    assert not [x for x in v if "canonical" in x.message], (
+        "a range expression was reported as a malformed identifier"
     )

@@ -384,7 +384,25 @@ def check_module_fr_coverage(project: Path) -> list[Violation]:
 # of taskq-super's 133 "identifiers" and 1 of taskq-renew's 41 were ranges,
 # and every one of them was permanently unattributable — which matters now
 # that an unattributable id is a finding rather than an `info`.
-_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d[\w\-]*(?:\.\d+)*\b")
+#
+# Round 56: the trailing `\b` was satisfiable by a PREFIX of the token. For
+# `AC-1.2a` the dotted-suffix group matched `.2`, the boundary before `a`
+# failed, the engine backtracked the group to zero repetitions, and `AC-1` —
+# followed by `.`, a legal boundary — came back. That is not a refusal; it is
+# a substitution, and it collapses `AC-1.1a` and `AC-1.1b` into one id that
+# a single TEST_SPEC citation then covers. The trailing assertion now refuses
+# a following word character outright, and refuses a following `.<digit>`
+# too — which is what stops the backtrack, since giving the dotted group up
+# always leaves a `.<digit>` ahead. `..` (the range operator) and `-label`
+# (a branch suffix, deliberately truncated — see the test corpus) both still
+# terminate a match.
+_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d+(?:\.\d+)*(?:-\d+)*(?![\w]|\.\d)")
+# What WANTED to be an identifier, for the parse-gap channel only. A different
+# question from `_AC_ID` (which decides what IS one), not a second spelling of
+# it: `check_ac_identifiers` reports a loose token only when `_AC_ID` finds no
+# canonical id anywhere inside it, so a range expression — which yields two
+# real ids — never appears here.
+_AC_ID_LOOSE = re.compile(r"\bAC-(?:[\w\-]|\.(?!\.))*\w")
 # The heading that opens a requirement's section, and the block that holds its
 # criteria. Both SRS files write the block as a bolded label, not a heading.
 _REQ_HEADING = re.compile(r"^#{1,6}\s+((?:FR|NFR)-\d+)\b[^\n]*$", re.MULTILINE)
@@ -508,7 +526,8 @@ def check_ac_identifiers(project: Path) -> list[Violation]:
     # because three of 133 is not an actionable report.
     srs = ProjectLayout(project).srs_path
     if srs.exists():
-        found = set(_AC_ID.findall(srs.read_text(encoding="utf-8", errors="replace")))
+        text = srs.read_text(encoding="utf-8", errors="replace")
+        found = set(_AC_ID.findall(text))
         attributed = {ac for lines in criteria.values()
                       for line in lines for ac in _AC_ID.findall(line)}
         missed = found - attributed
@@ -522,6 +541,23 @@ def check_ac_identifiers(project: Path) -> list[Violation]:
                          f"{ac_label_shape()}) — "
                          f"they are unchecked, not clean; "
                          f"{sorted(missed)}")))
+        # Round 56: the other half of the same sentence. A token that looks
+        # like an identifier but does not match the canonical shape used to be
+        # truncated into a DIFFERENT id; it is now refused, and refusing it
+        # silently would be worse than the substitution was. Reported here, at
+        # `info`, because a shape the framework cannot read is the framework's
+        # debt (Round 32 站4) — the same grounds the row above stands on.
+        malformed = sorted(
+            {t for t in _AC_ID_LOOSE.findall(text) if not _AC_ID.search(t)}
+        )
+        if malformed:
+            violations.append(Violation(
+                check_type="ac_parse_gap", rule_id="SRS", severity="info",
+                file="01-requirements/SRS.md",
+                message=(f"{len(malformed)} token(s) in SRS.md start with `AC-` "
+                         f"but do not match the canonical `AC-<n>[.<n>]` shape, "
+                         f"so no identifier was read from them and no TEST_SPEC "
+                         f"case can cite one; {malformed}")))
     return violations
 
 
