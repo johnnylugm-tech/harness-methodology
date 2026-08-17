@@ -193,6 +193,28 @@ def verify_gate_tools(
     return len(missing) == 0, missing
 
 
+def gate_tool_gaps(
+    gate_num: int, project: str, state_root: str | None = None
+) -> "tuple[list[str], list[str]]":
+    """The same walk as `verify_gate_tools`, with its two failure kinds apart.
+
+    Returns ``(config_errors, missing_tools)``.
+
+    Round 56 站1. `verify_gate_tools` collapses both into one list because its
+    callers only need one verdict. `_phase_gate_tools` needs them separate: a
+    tool that is not installed yet may legitimately wait for the phase that
+    runs its gate, but a gate config that is absent or unparseable is a broken
+    framework checkout (`_walk_gate_tools` says so in the diagnostic), and a
+    broken checkout does not repair itself when the phase arrives. Bucketing
+    both by phase turned that fail-closed error into a WARN at every phase
+    that does not run the gate.
+    """
+    rows, config_errors = _walk_gate_tools(gate_num, project, state_root)
+    if config_errors:
+        return config_errors, []
+    return [], [diag for _dim, _tool, ok, diag in rows if not ok and diag]
+
+
 def missing_gate_tool_ids(
     gate_num: int, project: str, state_root: str | None = None
 ) -> list[str]:

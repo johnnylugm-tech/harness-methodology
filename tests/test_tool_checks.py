@@ -212,14 +212,11 @@ def test_check_tool_for_dim_without_project_root_uses_no_env_override(
 # anticipated) so tools needed by a future-phase gate degrade to a warning.
 def test_phase_gate_tools_phase1_treats_all_gates_as_anticipated(monkeypatch):
     """Phase 1 does not run any gate — every missing tool is 'anticipated'."""
-    from cli.phase_cmds import PHASE_GATES, _phase_gate_tools
-
-    assert PHASE_GATES[1] == [], "Phase 1 must not require any gate tool"
-    assert PHASE_GATES[2] == [], "Phase 2 must not require any gate tool"
+    from cli.phase_cmds import _phase_gate_tools
 
     monkeypatch.setattr(
-        "harness.tool_checks.verify_gate_tools",
-        lambda _gate_num, _project: (False, ["license_compliance: scancode-toolkit (scancode) not found"]),
+        "harness.tool_checks.gate_tool_gaps",
+        lambda _gate_num, _project: ([], ["license_compliance: scancode-toolkit (scancode) not found"]),
     )
     ok, critical, anticipated = _phase_gate_tools(1, "/tmp/none")
     assert ok is True, "Phase 1 must not block on missing future-phase gate tools"
@@ -230,17 +227,15 @@ def test_phase_gate_tools_phase1_treats_all_gates_as_anticipated(monkeypatch):
 
 def test_phase_gate_tools_phase3_is_critical_for_gates_1_and_2(monkeypatch):
     """Phase 3 runs Gate 1 + Gate 2 — missing tools there must block."""
-    from cli.phase_cmds import PHASE_GATES, _phase_gate_tools
-
-    assert PHASE_GATES[3] == [1, 2], "Phase 3 must require Gate 1 + Gate 2"
+    from cli.phase_cmds import _phase_gate_tools
 
     # stub: gate 1+2 missing critical, gate 3+4 missing but future-phase
-    def _fake_verify(gate_num, _project):
+    def _fake_gaps(gate_num, _project):
         if gate_num in (1, 2):
-            return (False, ["linting: ruff not found"])
-        return (False, ["license_compliance: scancode-toolkit (scancode) not found"])
+            return ([], ["linting: ruff not found"])
+        return ([], ["license_compliance: scancode-toolkit (scancode) not found"])
 
-    monkeypatch.setattr("harness.tool_checks.verify_gate_tools", _fake_verify)
+    monkeypatch.setattr("harness.tool_checks.gate_tool_gaps", _fake_gaps)
     ok, critical, anticipated = _phase_gate_tools(3, "/tmp/none")
     assert ok is False, "Phase 3 must block when gate 1/2 tools are missing"
     assert any("gate1" in e for e in critical)
@@ -251,13 +246,11 @@ def test_phase_gate_tools_phase3_is_critical_for_gates_1_and_2(monkeypatch):
 
 def test_phase_gate_tools_phase6_all_gates_critical(monkeypatch):
     """Phase 6 runs Gate 4 — every missing tool is critical."""
-    from cli.phase_cmds import PHASE_GATES, _phase_gate_tools
-
-    assert PHASE_GATES[6] == [1, 2, 3, 4], "Phase 6 must require every gate"
+    from cli.phase_cmds import _phase_gate_tools
 
     monkeypatch.setattr(
-        "harness.tool_checks.verify_gate_tools",
-        lambda _gate_num, _project: (False, ["x: missing"]),
+        "harness.tool_checks.gate_tool_gaps",
+        lambda _gate_num, _project: ([], ["x: missing"]),
     )
     ok, critical, anticipated = _phase_gate_tools(6, "/tmp/none")
     assert ok is False
@@ -311,8 +304,8 @@ def test_phase_seven_blocks_on_a_missing_gate_one_tool(monkeypatch):
     from cli.phase_cmds import _phase_gate_tools
 
     monkeypatch.setattr(
-        "harness.tool_checks.verify_gate_tools",
-        lambda _gate_num, _project: (False, ["linting: ruff not found"]),
+        "harness.tool_checks.gate_tool_gaps",
+        lambda _gate_num, _project: ([], ["linting: ruff not found"]),
     )
     ok, critical, anticipated = _phase_gate_tools(7, "/tmp/none")
     assert ok is False, "P7 runs Gate 1 per-FR — a missing tool must block"

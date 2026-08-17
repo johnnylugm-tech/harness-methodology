@@ -259,8 +259,15 @@ class TestRunPhaseCISubstrateProbeSkip:
                             lambda _: {"all_passed": True, "details": {}})
         monkeypatch.delenv("CI", raising=False)
         monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
-        monkeypatch.setattr("harness.tool_checks.verify_all_gate_tools",
-                            lambda _: (True, []))
+        # Round 56 站1: this used to stub `verify_all_gate_tools`, which
+        # run-phase stopped calling when the check became phase-aware. With
+        # nothing stubbed the test ran the real tool probes and, on a host
+        # missing any of them, `env_repair` — so its verdict depended on the
+        # machine. `gate_tool_gaps` is the public seam the phase-aware check
+        # reads; "no config errors, nothing missing" is the state this test
+        # needs and says so without reaching for a private name.
+        monkeypatch.setattr("harness.tool_checks.gate_tool_gaps",
+                            lambda _gate_num, _project: ([], []))
 
         called = []
         monkeypatch.setattr(

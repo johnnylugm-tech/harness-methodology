@@ -48,6 +48,7 @@ from core.phase_topology import (
     EXIT_GATE_MAP,
     PER_FR_GATE1_PHASES,
     VALID_PHASES,
+    gates_for_phase,
     phase_name,
 )
 from core.degradation_ledger import record_degradation
@@ -167,24 +168,6 @@ def cmd_plan_all(args: argparse.Namespace) -> int:
     return 0
 
 
-# Phase → gates that phase will run. Drives run-phase's tool check (only
-# current-phase gates block; future-phase gates warn).
-#   P1  Requirements   no gate runs
-#   P2  Architecture   no gate runs
-#   P3  Implementation Gate 1 (per-FR, during P3) + Gate 2 (P3 exit)
-#   P4  Testing        Gate 3 (P4 exit); G1+G2 still callable in re-runs
-#   P5  Verification   no new gate; G1+G2+G3 still callable in re-runs
-#   P6  Quality        Gate 4 (P6 full); G1+G2+G3+G4 all reachable
-PHASE_GATES: dict[int, list[int]] = {
-    1: [],
-    2: [],
-    3: [1, 2],
-    4: [1, 2, 3],
-    5: [1, 2, 3],
-    6: [1, 2, 3, 4],
-}
-
-
 def _phase_gate_tools(phase: int, project: str) -> tuple[bool, list[str], list[str]]:
     """Split gate-tool gaps into (critical, anticipated) for the target phase.
 
@@ -194,20 +177,31 @@ def _phase_gate_tools(phase: int, project: str) -> tuple[bool, list[str], list[s
     different lifecycle stage. The verification path needs to surface that
     delta instead of collapsing both kinds into one BLOCKED verdict.
 
+    Which gates a phase can reach comes from `core.phase_topology`, which
+    declares itself the SSOT for exactly that mapping. Round 56 站1 deleted
+    the hand-written `PHASE_GATES` table that used to live here: it agreed
+    with the topology at P1–P6 and had no entry at all for P7/P8/P9, so
+    `.get(phase, [])` returned nothing and `critical` was empty at two of the
+    four phases that run Gate 1 per-FR.
+
     Returns ``(ok, critical_missing, anticipated_missing)``:
       * critical_missing   — tools a gate that the current phase WILL run
-        needs. Missing these blocks phase entry (consistent with the old
-        `verify_all_gate_tools` behaviour at phases that actually run a
-        gate).
+        needs, plus any unreadable gate config regardless of phase. Missing
+        these blocks phase entry.
       * anticipated_missing — tools a gate a FUTURE phase will run needs.
         Missing these only warns (the matching phase entry will block then,
         so the user can't slip through indefinitely).
     """
-    phase_gates = set(PHASE_GATES.get(phase, []))
+    phase_gates = gates_for_phase(phase)
     critical: list[str] = []
     anticipated: list[str] = []
     for gate_num in (1, 2, 3, 4):
-        _, missing = tool_checks.verify_gate_tools(gate_num, project)
+        config_errors, missing = tool_checks.gate_tool_gaps(gate_num, project)
+        # A gate config the framework cannot read is a broken checkout, not a
+        # dependency a later phase will supply (docs/ERROR_HANDLING.md owner
+        # taxonomy: harness/infra fault). It blocks at every phase.
+        for diag in config_errors:
+            critical.append(f"gate{gate_num}: {diag}")
         bucket = critical if gate_num in phase_gates else anticipated
         for diag in missing:
             bucket.append(f"gate{gate_num}: {diag}")

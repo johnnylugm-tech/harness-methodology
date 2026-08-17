@@ -78,6 +78,36 @@ PHASE_PREREQUISITES: dict[int, int] = {
 PHASE_DIRS: dict[int, str] = {p: spec.dir for p, spec in PHASES.items()}
 
 
+def gates_for_phase(num: int) -> set[int]:
+    """Gate numbers a run at phase *num* can reach, derived from the table above.
+
+    Round 56 站1. `cli/phase_cmds.PHASE_GATES` used to state this as a
+    hand-written dict with keys 1..6, so `_phase_gate_tools` read
+    `.get(phase, [])` at P7/P8/P9 and treated every gate as a future-phase
+    concern — `critical` stayed empty and run-phase stopped blocking on
+    missing tools at two of the four phases that run Gate 1 per-FR. The fix
+    is not three more keys: the mapping already lives here, for all nine
+    phases, and a second copy of it is the defect.
+
+    Cumulative on purpose. A gate that closed an earlier phase is re-run as a
+    DELTA check later (P4/P5/P7/P8 all re-run Gate 1, and advance-phase
+    re-verifies earlier gates), so a tool that has since vanished must block
+    rather than warn. Measured 2026-08-17: the cumulative derivation
+    reproduces the hand-written table cell for cell at P1–P6.
+    """
+    gates: set[int] = set()
+    for phase, spec in PHASES.items():
+        if phase > num:
+            continue
+        if spec.entry_gate is not None:
+            gates.add(spec.entry_gate)
+        if spec.exit_gate is not None:
+            gates.add(spec.exit_gate)
+        if spec.per_fr_gate1:
+            gates.add(1)
+    return gates
+
+
 def phase_name(num: int, default: Optional[str] = None) -> str:
     """Canonical long name for a phase; *default* (if given) for unknown nums."""
     spec = PHASES.get(num)
