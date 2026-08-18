@@ -11,7 +11,10 @@ import sys
 import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover — annotation-only
+    from core.quality_gate.gate1_evidence import FrCoverage
 
 from harness.crg_bridge import CRGBridge
 from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionContext
@@ -1977,13 +1980,42 @@ def _run_harness_cross_validation(
             gate_num=ctx.gate_num, fr_id=_fr_id, dim_name=dim_name,
         ):
             from core.quality_gate import gate1_evidence as _g1e
-            _per_fr = _g1e.fr_coverage_from_last_run(ctx.project_root, _fr_id)
-            if _per_fr is not None:
+            _record = _g1e.fr_coverage_record(ctx.project_root, _fr_id)
+            if _record is not None and _record.percent is not None:
                 print(
                     f"  [S4] {dim_name}: harness={harness_score:.1f} (whole-project) | "
-                    f"per-fr={_per_fr:.1f} (using per-fr scope)"
+                    f"per-fr={_record.percent:.1f} (using per-fr scope)"
                 )
-                harness_score = _per_fr
+                # Round 57 站3: the number now travels with the evidence for it.
+                # Before this, `score` became the per-FR figure while
+                # `tool_output` still cited the whole-project audit whose last
+                # line reads TOTAL 62% — and the scope switch existed only on
+                # stdout. The write is assignment, not setdefault: this number
+                # is the framework's, so its citation is the framework's too.
+                _pf_file = verification_dir / f"{dim_name}_harness_per_fr_{_fr_id}.txt"
+                _pf_rel = str(_pf_file.relative_to(_Path(ctx.project_root)))
+                try:
+                    _pf_file.write_text(
+                        per_fr_coverage_evidence(
+                            fr_id=_fr_id, dim_name=dim_name, tool=tool,
+                            record=_record, whole_project_score=harness_score,
+                            whole_project_audit=str(
+                                audit_file.relative_to(_Path(ctx.project_root))
+                            ),
+                        )[:_audit_max_bytes],
+                        encoding="utf-8",
+                    )
+                    _dim_entry["tool_output"] = _pf_rel
+                except OSError as exc:
+                    # Evidence the verdict cannot cite must not be claimed.
+                    # Leave tool_output alone and say why (Round 32 站4: the
+                    # framework failing to record is the framework's debt).
+                    print(f"  [S4-WARN] {dim_name}: per-FR evidence not written "
+                          f"({exc}); tool_output keeps the whole-project audit",
+                          file=sys.stderr)
+                _dim_entry["coverage_scope"] = "per_fr"
+                _dim_entry["coverage_scope_fr"] = _fr_id
+                harness_score = _record.percent
         if harness_score is None:
             if agent_score is None:
                 # Same reasoning as the exit-5 branch: the framework ran the tool
@@ -2124,6 +2156,41 @@ def s4_rescopes_to_fr(
     from core.quality_gate.gate_thresholds import is_per_fr_gate
 
     return is_per_fr_gate(gate_num)
+
+
+def per_fr_coverage_evidence(
+    *, fr_id: str, dim_name: str, tool: str,
+    record: "FrCoverage", whole_project_score: float,
+    whole_project_audit: str,
+) -> str:
+    """The audit body for a score S4 recomputed on one FR's modules.
+
+    Round 57 站3. The per-FR re-score used to change `score` and leave
+    `tool_output` pointing at the whole-project pytest-cov audit, whose last
+    line reads `TOTAL … 62%` — a verdict citing a file that contradicts it,
+    with the scope switch recorded only on stdout. Round 45's rule is that a
+    verdict must outlive its proof; it must also agree with it.
+
+    Both sides of the ratio and every file behind it are written out, because
+    a percentage alone cannot be checked (Round 42 站4). The whole-project
+    number and the path to its own audit stay in the body: they are what this
+    measurement replaced, and the next reader's first question is what
+    changed.
+    """
+    _files = "\n".join(f"#   {f}" for f in record.files) or "#   (none)"
+    return (
+        f"# Harness-executed: {tool} (re-scored per FR)\n"
+        f"# dimension: {dim_name}\n"
+        f"# fr_id: {fr_id}\n"
+        f"# scope: this FR's own modules, per fr_module_traceability\n"
+        f"# executed/coverable: {record.executed}/{record.coverable}\n"
+        f"# per-fr coverage: {record.percent:.1f}%\n"
+        f"# whole-project coverage: {whole_project_score:.1f}% "
+        f"(see {whole_project_audit})\n"
+        f"#\n"
+        f"# files in scope:\n"
+        f"{_files}\n"
+    )
 
 
 def s4_score_verdict(

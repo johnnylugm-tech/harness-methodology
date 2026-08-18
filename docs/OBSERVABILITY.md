@@ -141,6 +141,26 @@ citations survive the gitignored `.sessi-work/`; a file over
 original citation and lands a record here saying which and why. Measured
 across five projects before this shipped: 162 cited files, 13 still present.
 
+**Round 57 站3** gives a per-FR coverage score its own citation. When S4
+re-scores `test_coverage` on one FR's modules (Gate 1 only — see
+`s4_rescopes_to_fr`), it writes
+`.methodology/gate_evidence/gate{N}/test_coverage_harness_per_fr_{FR}.txt`
+and points the dimension's `tool_output` at it, and the dimension entry gains
+two fields:
+
+| field | value |
+|---|---|
+| `coverage_scope` | `per_fr` — absent when the number is whole-project |
+| `coverage_scope_fr` | the FR id the modules belong to |
+
+The file carries `executed/coverable`, the per-FR percentage, the
+whole-project percentage it replaced, the relpath of the whole-project audit,
+and every file in scope. Before this the score changed and the citation did
+not: a recorded `test_coverage: 100.0` pointed at an audit whose last line
+reads `TOTAL … 62%`, and the only trace of the scope switch was a line on
+stdout. A write failure leaves `tool_output` on the whole-project audit and
+prints why — evidence the verdict cannot cite must not be claimed.
+
 **Round 46 站2** added `gate:test-skips`, one record per finalize where the
 `test_coverage` evidence reports any skipped test, carrying `skipped`,
 `total`, `gate` and `fr_id`. `_check_test_skip_ratio`'s printed WARN has been

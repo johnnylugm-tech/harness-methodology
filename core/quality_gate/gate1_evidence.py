@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import re
@@ -25,6 +26,8 @@ __all__ = [
     "fr_code_changed_since_last_gate1",
     "validate_fr_coverage_immediate",
     "fr_coverage_from_last_run",
+    "fr_coverage_record",
+    "FrCoverage",
     "GATE_TIMESTAMPS_FILE",
     "GATE1_SCORES_FILE",
     "per_fr_result_path",
@@ -993,13 +996,47 @@ def fr_coverage_from_last_run(project: "Path | str", fr_id: str) -> Optional[flo
     guard, so the first cross-validation of the new visitor raised the bug
     and the orchestrator tore the run down).
     """
+    record = fr_coverage_record(project, fr_id)
+    return None if record is None else record.percent
+
+
+@dataclass(frozen=True)
+class FrCoverage:
+    """One FR's coverage with both sides of the ratio and the files behind it.
+
+    Round 57 站3. `_coverage_for_paths` computed `executed / coverable` and
+    returned only the quotient, so S4 could put a per-FR percentage into
+    `score` while `tool_output` still pointed at the whole-project pytest-cov
+    audit — a verdict citing a file that contradicts it. Round 42 站4's rule:
+    the denominator travels with the number.
+
+    `percent` is None when nothing in scope was measured. That is "could not
+    measure" and is not the same value as 0.0, which is a measurement over a
+    non-empty denominator (Round 32 站4) — `measured` is the predicate both
+    readers use so they cannot drift apart.
+    """
+    percent: Optional[float]
+    executed: int
+    coverable: int
+    files: "list[str]"
+
+    @property
+    def measured(self) -> bool:
+        return self.coverable > 0
+
+
+def fr_coverage_record(project: "Path | str", fr_id: str) -> "Optional[FrCoverage]":
+    """`fr_coverage_from_last_run` with its denominator and its file list.
+
+    ``None`` when the FR's scope cannot be computed at all (no manifest, no
+    declared modules, nothing resolvable) — the caller has nothing to report
+    and nothing to cite.
+    """
     project = Path(project)
     scope = _fr_module_paths(project, fr_id)
     if scope is None:
         return None
-    sentinel = -1.0
-    value = _coverage_for_paths(project, scope, fallback=sentinel)
-    return None if value == sentinel else value
+    return _coverage_record_for_paths(project, scope)
 
 
 def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
@@ -1061,13 +1098,25 @@ def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
 def _coverage_for_paths(
     project: Path, paths: "list[str]", fallback: float
 ) -> float:
+    """`_coverage_record_for_paths`'s percentage, or `fallback` if unmeasured.
+
+    Kept for the caller that already holds a whole-project number to fall back
+    to (`validate_fr_coverage_immediate`). Everything else should take the
+    record, so the number and its denominator stay together.
+    """
+    record = _coverage_record_for_paths(project, paths)
+    return fallback if record.percent is None else record.percent
+
+
+def _coverage_record_for_paths(project: Path, paths: "list[str]") -> FrCoverage:
     """Recompute coverage from .coverage restricted to `paths`.
 
     Reads the on-disk `.coverage` data file using the coverage package
     directly. Modules in `paths` contribute to both numerator and
-    denominator; modules outside `paths` do not contribute at all. If
-    the data file is missing or the coverage package fails to read it,
-    return `fallback` (the whole-project number the caller already got).
+    denominator; modules outside `paths` do not contribute at all.
+    `percent` is None when the data file is missing, the coverage package
+    cannot read it, or nothing in scope was measured — all three are "could
+    not measure", and the caller decides what to do about that.
 
     `paths` are project-relative and may be coverage-style globs
     (`pkg/executor/**/*.py`), which `resolve_fr_scoped_src_files` emits when
@@ -1077,20 +1126,21 @@ def _coverage_for_paths(
     would do with it (fnmatch would require at least one intervening
     directory and so miss `executor/runner.py`).
     """
+    _unmeasured = FrCoverage(percent=None, executed=0, coverable=0, files=[])
     try:
         import coverage  # noqa: WPS433 — runtime import keeps the hot path cheap
     except ImportError:
-        return fallback
+        return _unmeasured
     cov = coverage.Coverage(data_file=str(project / ".coverage"), data_suffix=None)
     try:
         cov.load()
     except Exception:
-        return fallback
+        return _unmeasured
     try:
         data = cov.get_data()
         measured = sorted(data.measured_files())
     except Exception:
-        return fallback
+        return _unmeasured
     # Resolve each entry to full filesystem paths. Coverage reports absolute
     # paths; `resolve_fr_scoped_src_files` returns project-relative ones, some
     # of them globs.
@@ -1107,6 +1157,7 @@ def _coverage_for_paths(
         _scope_files.add(str((layout.active_src_dir / rel).resolve()))
     _total_executed = 0
     _total_coverable = 0
+    _in_scope: list[str] = []
     for f in measured:
         fp = Path(f).resolve()
         if str(fp) not in _scope_files:
@@ -1120,9 +1171,16 @@ def _coverage_for_paths(
         missing = len(analysis.missing)
         _total_executed += executed
         _total_coverable += executed + missing
+        try:
+            _in_scope.append(str(fp.relative_to(layout.root)))
+        except ValueError:
+            _in_scope.append(str(fp))
     if _total_coverable == 0:
-        # No measured lines in scope — fall back to whole-project so the
-        # caller still gets a sensible number (and so the test suite is
-        # not silently 100% because nothing was in scope).
-        return fallback
-    return round(100.0 * _total_executed / _total_coverable, 2)
+        # Nothing in scope was measured. Not 0% — nobody looked.
+        return _unmeasured
+    return FrCoverage(
+        percent=round(100.0 * _total_executed / _total_coverable, 2),
+        executed=_total_executed,
+        coverable=_total_coverable,
+        files=sorted(_in_scope),
+    )
