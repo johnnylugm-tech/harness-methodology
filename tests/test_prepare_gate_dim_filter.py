@@ -12,11 +12,11 @@ Two facts are pinned here, and they pull in opposite directions:
 * a disabled dimension must be **gone** from the config the prompt renders;
 * every other field of the surviving dimensions must be **intact**.
 
-The second is not decoration. `prepare_gate` rebuilds `GateConfig` from a
-hand-written four-key dict (`name/tier/threshold/weight`), and
+The second is not decoration. `prepare_gate` used to rebuild `GateConfig`
+from a hand-written four-key dict (`name/tier/threshold/weight`) while
 `finalize_gate`'s `_s4_verifiable` selects on `tool` and
 `requires_tool_execution` — fields the YAML declares and nothing between the
-YAML and that selection carries. Measured at station 0::
+YAML and that selection carried. Measured at station 0::
 
     _load_config(1).dimensions[0] keys -> ['name','threshold','tier','weight']
     _s4_verifiable                     -> set()          (for every gate)
@@ -117,3 +117,44 @@ def test_the_config_carries_the_fields_the_verdict_selects_on(tmp_path, gate_num
         for d in ctx.config.dimensions
     }
     assert got == expected
+
+
+@pytest.mark.parametrize("gate_num", [1, 2, 3, 4])
+def test_the_set_finalize_selects_on_is_not_empty(tmp_path, gate_num):
+    """`_s4_verifiable`'s derivation, reproduced from the config the gate holds.
+
+    This is the assertion the missing fields defeated. `_dim_passes` reads
+    `d.name not in _s4_verifiable -> True`, so an empty set means every
+    unscored dimension passes its own floor vacuously — measured `set()` for
+    all four gates before this round.
+
+    Blocking consequence, measured across the corpus at 站6: of seven
+    null-score dimensions in committed gate results, three would newly block
+    (`performance`, in taskq-api's gate 3 and taskq-plus's gates 3 and 4, all
+    with no `score_source`). The other four already could not: `architecture`
+    is in `_CRG_OWNED_DIMENSIONS`, and taskq-plus's three `mutation_testing`
+    nulls sit behind `features.mutation_testing: false`, which removes the
+    dimension before the verdict sees it. An honest N/A on a fresh run still
+    passes — S4 runs the tool, gets no number, and writes `framework_na`.
+    """
+    import dataclasses
+
+    from harness.harness_bridge import _CRG_OWNED_DIMENSIONS
+    from core.quality_gate.gate_thresholds import load_gate_dimensions
+
+    (tmp_path / ".methodology").mkdir()
+    ctx = _prepare(tmp_path, gate_num)
+
+    derived = {
+        d.get("name")
+        for d in (dataclasses.asdict(x) for x in ctx.config.dimensions)
+        if d.get("requires_tool_execution", False) and d.get("tool")
+        and d.get("name") not in _CRG_OWNED_DIMENSIONS
+    }
+    expected = {
+        d["name"] for d in load_gate_dimensions(gate_num)
+        if d.get("requires_tool_execution") and d.get("tool")
+        and d["name"] not in _CRG_OWNED_DIMENSIONS
+    }
+    assert derived == expected
+    assert derived, "an empty set makes every unscored dimension pass"

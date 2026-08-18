@@ -2882,15 +2882,11 @@ class HarnessBridge:
         # filter site (_check_tool_evidence, finalize-gate) is unaffected
         # — `dimensions_disabled` already lands in gate_verify.jsonl from
         # there — but by then the orchestrator has wasted an hour.
-        _raw_dims_yaml = [
-            {
-                "name": d.name,
-                "tier": d.tier,
-                "threshold": d.threshold,
-                "weight": d.weight,
-            }
-            for d in config.dimensions
-        ]
+        # Round 57 站6: `dataclasses.asdict`, not a hand-written key list. The
+        # hand-written one is how `tool` and `requires_tool_execution` went
+        # missing from every GateConfig — and `_s4_verifiable`, which selects
+        # on exactly those two, was the empty set for every gate as a result.
+        _raw_dims_yaml = [dataclasses.asdict(d) for d in config.dimensions]
         _enabled = filter_enabled_dimensions(_raw_dims_yaml, project_root)
         _enabled_names = {d["name"] for d in _enabled}
         config = GateConfig(

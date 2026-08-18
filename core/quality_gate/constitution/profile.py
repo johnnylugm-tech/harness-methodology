@@ -323,11 +323,24 @@ class PhaseConfig:
 
 @dataclass
 class DimensionConfig:
-    """Typed configuration for a single quality dimension."""
+    """Typed configuration for a single quality dimension.
+
+    `tool` and `requires_tool_execution` are read from the same YAML row as
+    the other four and were dropped here until Round 57 站6. `finalize_gate`
+    builds `_s4_verifiable` with
+    ``dataclasses.asdict(x) for x in ctx.config.dimensions``, selects on those
+    two keys, and `prepare_gate` always hands it a `GateConfig` — so the set
+    was empty for every gate, and `_dim_passes` returned True for **any**
+    dimension whose score was None. Round 27 站1's "an N/A is not free" and
+    Round 35 站2 were both unenforced at that layer for as long as the field
+    was missing.
+    """
     name: str
     threshold: float
     tier: int = 1
     weight: float = 1.0
+    tool: str = ""
+    requires_tool_execution: bool = False
 
 
 @dataclass
@@ -349,7 +362,9 @@ class GateConfig:
             "gate_num": self.gate_num,
             "score_gate": self.score_gate,
             "dimensions": [
-                {"name": d.name, "threshold": d.threshold, "tier": d.tier, "weight": d.weight}
+                {"name": d.name, "threshold": d.threshold, "tier": d.tier,
+                 "weight": d.weight, "tool": d.tool,
+                 "requires_tool_execution": d.requires_tool_execution}
                 for d in self.dimensions
             ],
             "per_dim_min": self.per_dim_min,
@@ -370,6 +385,8 @@ class GateConfig:
                 threshold=float(d.get("threshold", 75)),
                 tier=int(d.get("tier", 1)),
                 weight=float(d.get("weight", 1.0)),
+                tool=str(d.get("tool") or ""),
+                requires_tool_execution=bool(d.get("requires_tool_execution", False)),
             ))
         return cls(
             gate_num=gate_num,
