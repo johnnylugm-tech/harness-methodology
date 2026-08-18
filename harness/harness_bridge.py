@@ -2769,6 +2769,37 @@ class HarnessBridge:
         """
         self._last_gate_num = gate_num
         config = self._load_config(gate_num)
+        # Round 58 站1: filter dims BEFORE downstream code reads them, not
+        # only inside finalize-gate's tool_evidence pass. Without this,
+        # `run-gate`'s evaluation_prompt() advertised every dim from the
+        # yaml (including ones the orchestrator already disabled via
+        # `features.<flag>: false` in harness_config.json); the Gate 2
+        # orchestrator then attempted mutation_testing despite the
+        # project's feature flag being false and burned its wall budget
+        # on a run the composite was going to skip anyway. The other
+        # filter site (_check_tool_evidence, finalize-gate) is unaffected
+        # — `dimensions_disabled` already lands in gate_verify.jsonl from
+        # there — but by then the orchestrator has wasted an hour.
+        _raw_dims_yaml = [
+            {
+                "name": d.name,
+                "tier": d.tier,
+                "threshold": d.threshold,
+                "weight": d.weight,
+            }
+            for d in config.dimensions
+        ]
+        _enabled = filter_enabled_dimensions(_raw_dims_yaml, project_root)
+        _enabled_names = {d["name"] for d in _enabled}
+        config = GateConfig(
+            gate_num=config.gate_num, score_gate=config.score_gate,
+            dimensions=[
+                d for d in config.dimensions if d.name in _enabled_names
+            ],
+            per_dim_min=config.per_dim_min, max_rounds=config.max_rounds,
+            blocking=config.blocking, trigger=config.trigger,
+            scope=config.scope, crg=config.crg,
+        )
         if auto_fix_rounds:
             config = GateConfig(
                 gate_num=config.gate_num, score_gate=config.score_gate,
