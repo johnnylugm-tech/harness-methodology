@@ -3574,3 +3574,103 @@ P3 從此放行。那就是修復本身；P4 的整專案檢查仍會攔住組�
   Re-open：那兩個專案把編號改成 canonical 之後仍讀不到。
 
 guards 603 → **620**。
+
+---
+
+## Round 57 — 判定的範圍由誰宣告
+
+老闆要求把 `45c8114..HEAD` 七個 commit 的 code review 五項發現展開成可執行修復方案，
+明確每條的根源（harness bug 還是 workflow JS bug）、套正解不用 workaround、
+不破壞共通性。基線 HEAD `35fbdf5`，pytest 7338 passed / 4 skipped，guards 620，
+ruff clean，`generate_workflows.py --check` 10/10，sim 103/103。
+
+被審七個 commit 全部是本 session 之外做的（`732c9ce` `57bce59` `689f84d` `466819f`
+`f2688f1` `22e2471` `35fbdf5`），主體是 R56 站6 落地後的 follow-up。
+**五條發現全部屬實。零條是 workflow JS bug**——本輪一行 JS 沒改。
+
+### 逐條裁決
+
+| # | 審計主張 | 裁決 | 落點 |
+|---|---|---|---|
+| R57-1 | S4 per-FR 重算沒有 P3 守衛 | **屬實。判定範圍被三份 phase 條件回答** | 站1 |
+| R57-2 | 兩套 per-FR scope 解析器互相對打 | **屬實但潛伏**（七專案 61 值零分歧，實測） | 站2 |
+| R57-3 | 判定與證據脫鉤（score per-FR / tool_output 全專案） | **屬實** | 站3 |
+| R57-4 | 兩個會改 gate 判定的變更零測試 | **屬實** | 站4 |
+| R57-5 | 兩條 `crg_excludes` glob 永遠命中不了 | **屬實，且實際是三條** | 站5 |
+| R57-note | `_s4_verifiable` 恆空（審計列為範圍外） | **屬實**（實跑 `set()`） | 站6 |
+
+**老闆三項裁決**：R57-1 P4+ 也改判 per-FR 且 `cli/phase_cmds.py` 的 P4+ 判準一起改；
+整專案下限**保留為額外條件**（嚴格度只增不減）；R57-note **本輪一起修**。
+三項全部照辦。
+
+### 六項前提實測（站0，逐字）
+
+| # | 前提 | 結果 |
+|---|---|---|
+| P1 | 四份 gate yaml 的 `scope` | `single_fr` / `full_phase` / `full_phase` / `full_project` |
+| P2 | workflow JS 對 gate 2/3/4 傳 `--fr-id` | **零命中**（十支生成檔全掃） |
+| P3 | 兩支 scope 解析器在語料上的分歧 | **零**（七專案 61 個 FR 值，逐專案相同） |
+| P4 | 語料 null 分數 | 7 筆，`score_source` 全為 None |
+| P5 | 本 repo 四條 `crg_excludes` 命中檔數 | 13 / 9 / **0** / **0**（對 `git ls-files`） |
+| P6 | per-FR 重算是否多跑 pytest | 否（`test_the_per_fr_recompute_runs_no_extra_pytest` 綠） |
+
+### 我自己量出、報告沒說的三件事
+
+1. **`integration_coverage` 那半個條件是死的，而且是顆地雷。** 它不是 Gate 1 維度
+   （`gate1_per_fr.yaml` 只有四個），只存在於 gate2/3/4，而 P2 量到沒有任何 workflow JS
+   對那三個 gate 傳 `--fr-id`。所以分支永遠不觸發；**一旦有人手動觸發，
+   它會用單元測試的 `.coverage` 去回答整合覆蓋率的問題**。站1 移除而非加守衛。
+
+2. **`crg_excludes` 死的是三條不是兩條。** CRG 的 community member 是 `path::symbol`，
+   `_dominant_file` 從 R42 起就會切掉 `::`，`_matches_exclude` 從來不切。所以任何
+   錨在路徑尾端的 glob 都匹配不到——`*.mjs` 對得上本 repo 九個追蹤檔，
+   對 community member 命中 **0**。P5 用檔案清單量，看不到這一條。
+   站5 修了切分，本 repo 自己的 architecture cohort 因此改變。
+
+3. **`_s4_verifiable` 恆空是三處欄位遺失的結果**，不是一處。`DimensionConfig` 沒有
+   欄位、`from_dict` 不讀、`to_dict` 不吐、`prepare_gate` 手刻四鍵重建。站6 四處一起改，
+   且把手刻清單換成 `dataclasses.asdict`——手刻清單正是欄位消失的方式。
+
+### 站1 的語意變更（刻意，寫死以免下輪被當 bug「發現」）
+
+* **P4/P5/P7/P8/P9 從此逐 FR 判定。** 量到的形狀：整專案 90%、FR-07 對自己的模組
+  只有 40% 的樹，過去放行，現在擋並指名 FR-07。
+* **P4+ 的整專案下限保留為第二條、分開回報的條件**（老闆裁決）。P5/P7/P8 出口沒有
+  full-phase gate，這是它們唯一的整專案覆蓋率判準。**嚴格度只增不減。**
+* **P3 不套整專案下限**：P3 的整專案數字必然帶著後續 FR 還沒寫的模組，這正是
+  R56 站6 賴以成立的量測。
+* 兩條條件分開印，因為補救方式不同。只被整專案下限擋住的 run 現在會印出每個 FR 的
+  per-FR 數字並說「下面這個缺陷不屬於任何單一 FR」——過去它只印一個整專案百分比，
+  操作者去找一個不存在的 per-FR 缺陷。
+
+### 站6 的嚴格度提高（逐筆查證，不只看數量）
+
+語料七筆 null 分數，**三筆會新增阻擋**，全是 `performance`
+（taskq-api gate3、taskq-plus gate3/gate4），三筆的 `score_source` 都是 None。
+另外四筆本來就擋不到：taskq 的 `architecture` 在 `_CRG_OWNED_DIMENSIONS` 內；
+taskq-plus 三筆 `mutation_testing` 在 `features.mutation_testing: false` 後面，
+維度在判定看到之前就被移除。
+
+新跑一輪的誠實 N/A 不受影響：S4 跑工具、拿不到數字、`_mark_framework_na` 寫下
+`_dim_passes` 接受的標記。現在被擋的是**沒有任何人驗證過的 null**。
+
+### 明列不做（附再開條件）
+
+* **不改 `integration_coverage` 的量測方式**——本輪只把它移出 per-FR 分支。
+  再開：有專案把 `integration_coverage` 放進 Gate 1 的維度表。
+* **不把兩條 `03-development/` glob 改對而是刪掉**——`compute_community_cohesion_score`
+  已有 name-based 與 path-based 兩層排除涵蓋 `tests/`，補一條同義的是第二份陳述。
+  再開：本 repo 出現需要排除而兩層規則都涵蓋不到的 community。
+* **不動 `_effective_threshold` 的三來源取捨**（R27-DEFER-1，仍未裁決）。
+* **不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族**（範圍遠超本次 review）。
+* **`_dim_passes` 不承擔「框架自己量不出來」的路由**——那是
+  `SCORE_SOURCE_AGENT_UNVERIFIED` 與 S4 `unverifiable` 清單的職責，兩者都已用正確的
+  owner 阻擋。再開：出現一個繞過那兩條、只在 `_dim_passes` 現身的案例。
+
+### 本輪最可能錯的地方
+
+我把 gate yaml 的 `scope:` 當成真值。它其實是第四份陳述——只是這一份是宣告式的、
+單點的、四行讀得完，而被它取代的三份是散在三個檔案裡的 phase 數字。
+把判準從**抄三份**搬到**讀一份**，是減少陳述的數量，不是保證那一份為真。
+`scope:` 在本輪之前沒有任何消費者，所以它從沒被檢驗過。下一輪的題目會是
+「`scope:` 自己對不對」，本輪誠實記下，不假裝解決了它。

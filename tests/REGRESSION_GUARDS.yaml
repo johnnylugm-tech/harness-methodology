@@ -2536,7 +2536,7 @@
 
 - test: tests/test_gate1_live_coverage.py::test_phase_three_judges_each_fr_on_its_own_modules
   bug: "_check_gate1_live_coverage is what returns 14 and stops advance-phase, and at Phase 3 — the per-FR TDD window — it called validate_fr_coverage_immediate(project) with no fr_id and printed 'whole-project coverage'. Measured on taskq-cc: FR-01 at 97.06% on its own modules read as 8.5% because the SAB declares ten modules later FRs will activate, and the run spent three rounds dispatching CODE-FIX against a number that was never about FR-01. The commit that diagnosed this threaded fr_id only into run-fr-step's inline fallback"
-  fixed_in: "R56-站6 (_gate1_per_fr_coverage_verdict; P4+ keeps the whole-project comparison, which is what a delta check is about)"
+  fixed_in: "R56-站6 (_gate1_per_fr_coverage_verdict). R57-站1 removed the `completed_phase == 3` condition in front of it — Gate 1 declares `scope: single_fr` and re-runs at P4/P5/P7/P8/P9, so the per-FR verdict is reached at every phase; the whole-project floor survives at P4+ as a separately-reported second condition"
 
 - test: tests/test_gate1_live_coverage.py::test_phase_three_names_the_fr_that_actually_fails
   bug: "one whole-project percentage does not tell the operator which FR to fix, which is why the taskq-cc run dispatched three rounds of fixes at nothing"
@@ -2545,3 +2545,95 @@
 - test: tests/test_gate1_live_coverage.py::test_the_per_fr_recompute_runs_no_extra_pytest
   bug: "asking every FR in turn must not execute the suite once per FR. validate_fr_coverage_immediate(fr_id=…) goes through run_suite, which is right for its own caller and wrong for a gate looping over FRs; fr_coverage_from_last_run reads the .coverage already on disk and executes nothing, keeping Round 25 站1's one-execution invariant"
   fixed_in: "R56-站6"
+
+- test: tests/test_gate1_live_coverage.py::test_phase_seven_judges_each_fr_on_its_own_modules
+  bug: "Gate 1 re-runs as a DELTA check at P4/P5/P7/P8/P9, and at those phases _check_gate1_live_coverage asked one whole-project question. A tree whose whole-project coverage is 90% while FR-07 covers 40% of the modules fr_module_traceability gives it used to advance"
+  fixed_in: "R57-站1 (the per-FR verdict runs at every phase Gate 1 runs, because Gate 1's own config declares scope: single_fr)"
+
+- test: tests/test_gate1_live_coverage.py::test_phase_seven_still_blocks_on_the_whole_project_floor
+  bug: "P5/P7/P8 have no full-phase gate at their exit, so this check is their only whole-project coverage judgement. Moving to per-FR without keeping it would have opened a window; and the message that blocked on the floor never mentioned an FR, so the operator went looking for a per-FR defect that was not there"
+  fixed_in: "R57-站1 (two conditions, reported apart, because they have different remedies)"
+
+- test: tests/test_gate1_live_coverage.py::test_fr_coverage_from_last_run_accepts_str_path
+  bug: "the shipped version asserted None in both of its cases, so it proved the helper does not raise TypeError on a str and nothing about whether str and Path reach the same answer. A coercion that changed the number rather than the type would have passed it"
+  fixed_in: "R57-站4 (third case with a real .coverage on disk: both inputs must reach 50.0)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestGateScopeIsReadable::test_each_gate_reports_the_scope_its_yaml_declares
+  bug: "the gate configs have declared `scope:` since Gate 1 existed and nothing read it, so 'per FR or whole project' was answered three separate times by three phase conditions that disagreed"
+  fixed_in: "R57-站1 (gate_thresholds.gate_scope — the module that already refuses to keep a second copy of anything the YAML states)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestGateScopeIsReadable::test_an_unknown_gate_is_a_caller_bug_not_a_silent_false
+  bug: "a gate whose config does not say what it judges cannot be judged. Defaulting to False would make an unreadable config look like a whole-project gate"
+  fixed_in: "R57-站1 (raises, same contract as gate_config_path — Round 30 站3)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestS4RescopesOnTheGatesDeclaration::test_the_phase_is_not_part_of_the_question
+  bug: "S4 was the only one of the three enforcers with NO phase condition, and the two that had one tested for phase 3. On a Phase 7 tree S4 passed the dimension on the per-FR number while advance-phase blocked on the whole-project one"
+  fixed_in: "R57-站1 (s4_rescopes_to_fr reads the gate's declared scope; no site has a phase condition now)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestS4RescopesOnTheGatesDeclaration::test_a_full_phase_gate_never_rescopes_even_when_handed_an_fr
+  bug: "`finalize-gate --gate 2 --fr-id FR-01` is reachable by hand, and the old condition was `ctx.fr_id is truthy` — so a full-phase gate would have had its coverage dimension silently narrowed to one FR"
+  fixed_in: "R57-站1"
+
+- test: tests/test_s4_per_fr_rescore.py::TestS4RescopesOnTheGatesDeclaration::test_integration_coverage_is_never_rescoped_from_the_unit_coverage_file
+  bug: "integration_coverage was in the re-score condition. It is scored by pytest-cov-integration over a different run and appears only in gates 2/3/4, while fr_coverage_from_last_run reads the unit suite's .coverage — so the branch could not fire through any sanctioned path (no workflow JS passes --fr-id to those gates: measured, zero) and would have answered an integration question with unit data if hand-invoked"
+  fixed_in: "R57-站1 (removed rather than guarded)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestThePerFrNumberCarriesItsEvidence::test_the_evidence_names_the_fr_its_modules_and_both_sides_of_the_ratio
+  bug: "_coverage_for_paths computed executed/coverable and returned only the quotient, so a per-FR score could be recorded with no way to check it (Round 42 站4 — the denominator travels with the number)"
+  fixed_in: "R57-站3 (per_fr_coverage_evidence, public and pure)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestThePerFrNumberCarriesItsEvidence::test_a_record_with_no_measured_lines_is_not_a_percentage
+  bug: "0.0 over a non-empty denominator is the worst measurement; None is the absent one. One `percent is None` comparison per reader is how two readers come to disagree about which is which"
+  fixed_in: "R57-站3 (FrCoverage.measured is the single predicate — Round 32 站4)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestTheWiring::test_the_recorded_score_and_its_citation_are_the_same_measurement
+  bug: "the per-FR re-score changed `score` and left `tool_output` on the whole-project pytest-cov audit, so a recorded test_coverage 100.0 cited a file whose last line reads TOTAL 62%, and the scope switch existed only on stdout"
+  fixed_in: "R57-站3 (evidence file written and cited by assignment; coverage_scope + coverage_scope_fr land in the dimension entry)"
+
+- test: tests/test_s4_per_fr_rescore.py::TestTheWiring::test_a_full_phase_gate_keeps_the_whole_project_number_and_audit
+  bug: "the negative control for the same branch — a gate 2 run handed an fr_id must keep the whole-project number AND the whole-project audit"
+  fixed_in: "R57-站1/站3"
+
+- test: tests/test_fr_scope_single_resolver.py::test_a_package_style_fr_module_is_measured_not_lost
+  bug: "gate1_evidence carried a second resolver for 'which modules does this FR own' beside cov_utils.resolve_fr_scoped_src_files, which two production sites already read. For an SAB entry naming a package (pkg.executor implemented as pkg/executor/runner.py) the copy produced a path with no file behind it and the FR came back unmeasurable — the framework manufacturing a 'could not measure'. Latent: measured identical resolved file sets across all seven corpus projects and every FR"
+  fixed_in: "R57-站2 (the copy is deleted; _coverage_for_paths expands the coverage-style globs the SSOT resolver emits, with Path.glob rather than fnmatch)"
+
+- test: tests/test_fr_scope_single_resolver.py::test_the_two_resolvers_agree_on_the_corpus_shape
+  bug: "the positive control for the replacement: the ordinary pkg.mod shape, which is what all seven corpus projects use, must keep resolving to exactly the file it resolves to today"
+  fixed_in: "R57-站2 (61 per-FR values recomputed before and after: zero differences)"
+
+- test: tests/test_prepare_gate_dim_filter.py::test_a_disabled_dimension_never_reaches_the_evaluation_prompt
+  bug: "22e2471 moved the feature-flag filter into prepare_gate — a real fix (a Gate 2 orchestrator burned its wall budget attempting mutation_testing for a project whose flag was false) that shipped with no test at all"
+  fixed_in: "R57-站4"
+
+- test: tests/test_prepare_gate_dim_filter.py::test_the_disabled_dimension_stays_visible_to_the_ledger
+  bug: "Round 39 站2 must survive the filter. _disabled_dims is derived from _DIM_TO_FEATURE plus harness_config rather than from ctx.config, so removing the dimension from the config does not hide the abstention — pinned because the obvious next refactor would"
+  fixed_in: "R57-站4"
+
+- test: tests/test_prepare_gate_dim_filter.py::test_the_config_carries_the_fields_the_verdict_selects_on
+  bug: "GateConfig.from_dict dropped the YAML's `tool` and `requires_tool_execution`, to_dict never restored them, and prepare_gate rebuilt the config from a hand-written four-key dict"
+  fixed_in: "R57-站6 (all three sites; the rebuild is dataclasses.asdict, since the hand-written list is how they were lost)"
+
+- test: tests/test_prepare_gate_dim_filter.py::test_the_set_finalize_selects_on_is_not_empty
+  bug: "_s4_verifiable was measured as set() for every gate, and _dim_passes reads `name not in _s4_verifiable -> True`, so every dimension with a null score passed its own floor vacuously. Round 27 站1's 'an N/A is not free' and Round 35 站2 were unenforced at that layer"
+  fixed_in: "R57-站6 (three of the corpus's seven null-score dimensions now block; the other four are CRG-owned or flag-disabled)"
+
+- test: tests/test_crg_excludes_are_live.py::test_this_repos_own_crg_excludes_all_match_something
+  bug: "two of this repo's four crg_excludes globs were written against another tree's layout (03-development/, which does not exist here) and committed into the tree being judged"
+  fixed_in: "R57-站5 (both deleted; the guard matches against path::symbol, because testing the bare path is what let *.mjs read as live)"
+
+- test: tests/test_crg_excludes_are_live.py::test_a_glob_anchored_at_the_end_matches_a_member_entry
+  bug: "CRG emits members as path::symbol and _matches_exclude never stripped the suffix, while _dominant_file always has. So *.mjs — nine tracked files in this repo — matched zero community members. A file-list check could not see it"
+  fixed_in: "R57-站5 (suffix stripped before glob matching; this repo's own architecture cohort changes as a result)"
+
+- test: tests/test_crg_excludes_are_live.py::test_the_cohesion_score_reports_what_each_exclude_matched
+  bug: "crg_metrics.json recorded _extra_excludes — the input — and nothing recorded the effect, so a glob that matched nothing was indistinguishable from one that removed a whole community. That, not the two wrong globs, is the finding"
+  fixed_in: "R57-站5 (excludes_matched, per glob, counted over every community independently of the name/path rules)"
+
+- test: tests/test_crg_excludes_are_live.py::test_a_glob_that_matches_files_but_never_a_majority_is_distinguishable
+  bug: "zero communities is not zero files: a glob calibrated too narrowly matches files and excludes nothing, one pointed at a missing directory matches nothing at all, and the two need different fixes"
+  fixed_in: "R57-站5 (excludes_files_matched beside excludes_matched; only the second earns the WARN)"
+
+- test: tests/test_crg_excludes_are_live.py::test_a_glob_that_matches_nothing_is_reported_to_the_operator
+  bug: "a no-op calibration entry was silent. Nobody could learn from the artifact that an exclude had never fired"
+  fixed_in: "R57-站5"
