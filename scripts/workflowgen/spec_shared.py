@@ -156,15 +156,15 @@ def render_excluded_dims_rule() -> str:
     """
     return (
         "   EXCLUDED DIMS: a feature-flagged dim disabled in "
-        ".methodology/harness_config.json (or otherwise absent from run-gate "
-        "--gate N's printed dim list) is OUT OF SCOPE for this round. Do NOT "
-        "evaluate it, run its scoring tools, or fix code issues you discover "
-        "while evaluating OTHER dims — even if you find a bug that *would* be "
-        "caught by the disabled dim. The flag was flipped on purpose (e.g. to "
-        "sidestep a wall-time budget), the gate scoring excludes it, and your "
-        "responsibility this round is the dims ON the list. Re-enabling a dim "
-        "is harness_config.json + restart-from-run-gate, not inline scope "
-        "expansion.\\n"
+        ".methodology/harness_config.json (or otherwise absent from the run-"
+        "gate --gate N printed dim list) is OUT OF SCOPE for this round. "
+        "Do NOT evaluate it, run its scoring tools, or fix code issues you "
+        "discover while evaluating OTHER dims — even if you find a bug that "
+        "would be caught by the disabled dim. The flag was flipped on "
+        "purpose (e.g. to sidestep a wall-time budget), the gate scoring "
+        "excludes it, and your responsibility this round is the dims ON the "
+        "list. Re-enabling a dim is harness_config.json + restart-from-run-"
+        "gate, not inline scope expansion.\\n"
     )
 
 
