@@ -8,9 +8,6 @@ docs/CONFIGURATION.md tabulates them)::
     {
       "version": 1,
       "features": {
-        "mutation_testing": false,
-        "phase4_llm_review": true,
-        "crg_architecture": true,
         "cross_artifact_live_cov": false,
         "security_design": true
       },

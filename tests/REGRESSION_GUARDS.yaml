@@ -2601,3 +2601,55 @@
 - test: tests/test_crg_excludes_are_live.py::test_a_glob_that_matches_nothing_is_reported_to_the_operator
   bug: "a no-op calibration entry was silent. Nobody could learn from the artifact that an exclude had never fired"
   fixed_in: "R57-站5"
+
+- test: tests/test_workflowgen_self_validation.py::test_write_refuses_output_the_runtime_cannot_parse
+  bug: "f4be095 wrote a run-all.js whose JS string literal an apostrophe had closed early; --write printed the byte count and checked nothing. The wrapper that catches it lived only in a test file the author did not run"
+  fixed_in: "R60-站1 (generate_workflows.validate_generated; scripts/workflow_audit/js_parse.parse_problem)"
+
+- test: tests/test_workflowgen_self_validation.py::test_write_refuses_output_over_the_runall_ceiling
+  bug: "the same batch shipped run-all.js 1,747 bytes past its ratchet and CI was the first thing to notice; validation was also per-file, so a partial write could leave the phase files and run-all from different generations"
+  fixed_in: "R60-站1 (artifact_limits.size_problems; every target validated before any is written)"
+
+- test: tests/test_workflowgen_self_validation.py::test_the_shipped_tree_passes_its_own_validation
+  bug: "a producer-side guard nobody can satisfy is a guard that gets disabled"
+  fixed_in: "R60-站1"
+
+- test: tests/test_dimension_cannot_be_disabled.py::test_no_dimension_maps_to_a_feature_flag
+  bug: "three feature flags removed a dimension from the judgement entirely; removing one RAISES the composite and the file that removes it is committed by the project being judged"
+  fixed_in: "R60-站2 (RETIRED_FEATURES; _DIM_TO_FEATURE and is_dim_disabled deleted)"
+
+- test: tests/test_dimension_cannot_be_disabled.py::test_a_retired_flag_set_to_false_is_named
+  bug: "silently ignoring a retired key would leave a project believing a dimension was excluded while the gate scored it"
+  fixed_in: "R60-站2 (retired_disabling_keys)"
+
+- test: tests/test_dimension_cannot_be_disabled.py::test_run_gate_blocks_a_project_that_still_disables_a_dimension
+  bug: "the retirement needs one enforcement point at the entrance, ahead of the tool check — the config is wrong before anything is missing"
+  fixed_in: "R60-站2 (EX_RETIRED_FEATURE_FLAG in _cmd_run_gate_impl)"
+
+- test: tests/test_dimension_cannot_be_disabled.py::test_absent_declared_dimensions_names_what_was_not_reported
+  bug: "_all_dims_pass iterated the dimensions the agent reported; nothing compared them against the set the gate config declares"
+  fixed_in: "R60-站4 (absent_declared_dimensions)"
+
+- test: tests/test_dimension_cannot_be_disabled.py::test_finalize_blocks_when_a_declared_dimension_is_missing
+  bug: "taskq (2026-07-27) and taskq-plus (2026-08-01) each published a Gate 1 result with no architecture_constraints entry — declared since 2026-06-22 — and both passed"
+  fixed_in: "R60-站4"
+
+- test: tests/test_dimension_cannot_be_disabled.py::test_dimension_absent_has_a_registered_remediation
+  bug: "a details key with no registry entry prints a block and no way out (R24-站1)"
+  fixed_in: "R60-站4 (block_reason._DETAIL_REGISTRY['dimension_absent'])"
+
+- test: tests/test_workflowgen.py::TestNoPromptDescribesADisabledDimension::test_no_generated_workflow_mentions_a_disabled_dimension
+  bug: "f4be095's EXCLUDED-DIMS rule prohibited 'fix code issues you discover while evaluating OTHER dims' one line above 'For any failing dim: fix the ROOT CAUSE in code', and attributed a motive ('to sidestep a wall-time budget') the framework never recorded"
+  fixed_in: "R60-站3 (render_excluded_dims_rule and render_mutation_flag_note deleted with the mechanism they describe)"
+
+- test: tests/test_workflowgen.py::TestNoPromptDescribesADisabledDimension::test_the_renderers_are_gone_from_the_shared_module
+  bug: "removing a mechanism means removing its statements (R39); a renderer that outlives its subject is the next round's drift"
+  fixed_in: "R60-站3"
+
+- test: tests/test_harness_config.py::TestGetFeature::test_a_retired_flag_reads_as_nothing
+  bug: "a retired key that still read back as True would let a code path act on a flag the round removed"
+  fixed_in: "R60-站2"
+
+- test: tests/test_prepare_gate_dim_filter.py::test_every_declared_dimension_reaches_the_evaluation_prompt
+  bug: "22e2471 filtered the dimension list between the YAML and the prompt; with the flags retired nothing may shrink it, not even a config still asking to"
+  fixed_in: "R60-站2"

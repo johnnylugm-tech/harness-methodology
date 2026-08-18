@@ -3674,3 +3674,104 @@ taskq-plus 三筆 `mutation_testing` 在 `features.mutation_testing: false` 後�
 把判準從**抄三份**搬到**讀一份**，是減少陳述的數量，不是保證那一份為真。
 `scope:` 在本輪之前沒有任何消費者，所以它從沒被檢驗過。下一輪的題目會是
 「`scope:` 自己對不對」，本輪誠實記下，不假裝解決了它。
+
+## Round 60 — 沒有任何維度可以缺席
+
+老闆令：`d0a9bec..e37151e`（`f4be095` EXCLUDED-DIMS 規則、`c939bbf` 撇號修復、
+`e37151e` ratchet 提高）的 code review 七項發現逐條展開成可執行修復，確認根源、
+套正解不 workaround；隨後令**重新驗證是否都是正解、有沒有其他副作用**。
+裁決兩項：**不允許停用任何維度，有缺席的維度就擋下來並進入自動修復處理**；
+假出處**套用正解，不要再衍生其他副作用**。
+
+基線 `ae3edd1`：pytest 7373 passed / 4 skipped、guards 643、ruff clean、
+`--check` 10/10、run-all.js 347147。
+
+**輪次編號**：被審批次自稱 Round 58，另一個並行 session 自稱 Round 59，
+本輪取 60 以免賬本出現兩個同號。
+
+### 七項發現 → 四條根源
+
+| # | 發現 | 查證 | 根源 |
+|---|---|---|---|
+| 1 | ratchet 沒調，CI 紅 | 屬實（`e37151e` 事後補） | D1 |
+| 2 | EXCLUDED-DIMS 措辭與下一行矛盾 | 屬實（渲染後逐字讀） | D2 |
+| 3 | 規則替「翻旗」背書 | 屬實 | D2 |
+| 4 | 四支新測試未登記 | 屬實 | D4 |
+| 5 | 註解引用不存在的 `1b4c3d8` | 屬實（是 taskq-cc 的 commit） | D4 |
+| 6 | 撇號關閉 JS 字串 | 屬實 | D1 |
+| 7 | 守衛存在卻沒跑 | 屬實（本輪自己量出） | D1 |
+
+**D1 生成器不驗證自己寫出的位元組**。實測：撇號版 phase3 對裸 `node --check`
+exit 0（R23 記過的死守衛形狀），對 repo 現行 wrapper exit 1。守衛與 ratchet 同住
+`tests/test_workflow_js_conventions.py`，而 `f4be095` 列出跑過的五個測試檔沒有它。
+→ 站1：`artifact_limits.py` + `js_parse.py` + `validate_generated`，全部 target
+先驗後寫。
+
+**D2「維度可以被停用」機制本身**。三個 flag 的存在是規則的前提；規則的三個問題
+都是這個前提的症狀。commit 自己記載 agent「在自己的 thinking 裡確認了排除」——
+「agent 不知道」這個前提是假的。→ 站2+3：廢止機制，連同它的兩支 renderer。
+
+**D3 宣告了的維度缺席沒有人比對**。`_all_dims_pass` 迭代 agent 交回的 dims，
+`_cfg_dims` 只用來算 `_s4_verifiable`。八專案 32 份 gate result 掃出十筆缺席：
+5 筆歷史性、3 筆 flag 解釋、**2 筆真實漏洞**（taskq 2026-07-27、taskq-plus
+2026-08-01 的 gate1 `architecture_constraints`，該維度 2026-06-22 就在 yaml）。
+→ 站4。
+
+**D4 假出處與未登記守衛**。`1b4c3d8` 在 taskq-cc 存在，本 repo 的 R50 站3 是別的事
+——SHA 是別棵樹的，輪次編號是掰的。→ 兩者**隨 renderer 一起刪除**：假出處不是被
+修正而是被刪掉，未登記守衛不是被登記而是它守的東西不存在了。**不加 SHA lint**
+（老闆令不衍生副作用）——站0 量出框架原始碼裡 29 個解不到的 SHA-like token，
+其中多數是明確標示屬於別棵樹的引用（如 `c1af37e` 標明是 taskq 的樹），
+一條通用 lint 會以噪音為主。數字記此，不動手。
+
+### 副作用（全部刻意，逐條具名）
+
+1. 三個 skip 分支變成無條件：CI 的 architecture 樓地板、Gate 4 B3 的 CRG recon
+   存在性、adversarial 覆寫。**Gate 4 B3 影響最大**——每個專案都必須有 CRG recon
+   產物。今天零影響（無專案關 CRG），CRG 解析不了的語言專案會卡住。
+2. taskq / taskq-plus / taskq-cc 下次 run-gate 會被 exit 39 擋，直到移除該鍵。
+   三者唯讀，本輪未動一個位元組。
+3. `dimensions_disabled` 從 `measurement_scope` 輸出、`gate_verify.jsonl`、
+   `quality_manifest` 三處移除（恆空的鍵是新的殭屍）。
+4. 測試面 9 檔 + guard registry + 兩份 golden。
+5. `--write` 在沒有 node 的機器上 fail closed。
+
+### 複核撤回與更正
+
+- **撤回**：taskq-advance gate2 的中途翻旗**不是本輪新發現**。本檔 R44 節
+  「明確記為非缺陷」已判過同一事件（最終 `dimensions_disabled` 為空、mutation=77.8）。
+  本輪唯一新增是「doctor 的自動檢查看不到它」，而裁決之下該路徑整個消失。
+  原方案的「doctor 比對歷史」一項**刪除**。
+- **更正**：`304b90d` 的 commit message 寫 run-all.js 降到 342509。那次讀數取自
+  `render_framework_owned_note` 意外缺席的瞬間；renderer 在該 commit 前已還原，
+  **真實值是 344567**（-2580，不是 -4638）。ratchet 註解記下這條更正。
+
+### 本輪自己量出、報告沒說的兩件
+
+1. **`spec_phase3._GATE2_STEPS` 是模組層 list，f-string 在 import 時求值**。
+   patch 一個 renderer 之後再生成沒有效果；若 patch 發生在第一次 import 之前，
+   壞字串會凍進模組並汙染同 process 的後續測試。寫站0 測試時被這個效應咬過一次
+   （一個後來的測試在它從沒碰過的檔案上紅）。站1 的測試因此改用替身 generator。
+2. **站2 與站3 無法分開 commit**：移除 flag 會讓描述 flag 的 renderer 在 import
+   時 KeyError。兩站合成一個 commit，理由寫在 commit message。
+
+### 明列不做
+
+- 不加 SHA lint（見 D4）。
+- 不修 doctor 的 dimension-scope drift（隨機制消失，撤回）。
+- 不改 taskq-\* 任何檔案、不重判既有 gate 結果。
+- 不新增自動修復引擎，只接既有 R47/R48 路由。
+- 不動 `security_design` / `cross_artifact_live_cov`（不對應維度）。
+- 不改 mutmut 預算機制。**再開條件**：受影響專案移除鍵後實測跑不完。
+
+### 驗證
+
+六條反證（CP-1…CP-6）逐一 revert → 轉紅 → 反向編輯還原 → 六個生產檔 sha256 逐檔
+相同。CP-4 第一次還原時反向編輯命中錯誤的 `return []`（把兩行對調），
+量測抓到 sha256 不同並修正——**這正是反證要求比對 sha256 而不是「看起來復原了」
+的理由**。
+
+pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10、
+`node --check` 八支全過、sim 127/127、九個語料專案未提交檔案 mtime 全部早於本輪
+第一個 commit。
+
