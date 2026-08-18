@@ -327,6 +327,11 @@ def test_the_per_fr_recompute_runs_no_extra_pytest(project_with_fr):
 # (the dataclass declaration is the source of truth), and the helper
 # signature said `Path` — the mismatch surfaced only at run-time. The
 # helper now coerces at the entry and the signature says `str | Path`.
+#
+# Round 57 站4: the two original cases both asserted `None`, so the test
+# proved the helper does not crash and nothing about whether str and Path
+# reach the same answer. The third case below is the one that would have
+# caught a coercion that silently changed the number.
 def test_fr_coverage_from_last_run_accepts_str_path(project_with_fr):
     """str OR Path both land at the same per-FR number.
 
@@ -335,26 +340,33 @@ def test_fr_coverage_from_last_run_accepts_str_path(project_with_fr):
     """
     from core.quality_gate import gate1_evidence
 
-    # Case 1: no SAB -> both return None without TypeError
+    # Case 1: no declared modules -> both return None without TypeError
     assert gate1_evidence.fr_coverage_from_last_run(str(project_with_fr), "FR-07") is None
     assert gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07") is None
 
-    # Case 2: with SAB.json
-    (project_with_fr / ".methodology" / "SAB.json").write_text(
-        json.dumps({
-            "sab": {
-                "fr_module_traceability": {
-                    "FR-07": ["infrastructure.audio_converter"],
-                },
-            },
-        }),
-        encoding="utf-8",
-    )
-    # No .coverage file on disk -> both fall back to None without TypeError
+    # Case 2: FR-07 declares a module, but nothing on disk was measured.
+    manifest_path = project_with_fr / ".methodology" / "quality_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["fr_module_traceability"] = {"FR-07": ["infrastructure.audio_converter"]}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert gate1_evidence.fr_coverage_from_last_run(str(project_with_fr), "FR-07") is None
+    assert gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07") is None
+
+    # Case 3: a real `.coverage` on disk — both inputs reach the same number.
+    import coverage
+
+    src = project_with_fr / "03-development" / "src" / "infrastructure"
+    data = coverage.CoverageData(basename=str(project_with_fr / ".coverage"))
+    data.add_lines({str(src / "audio_converter.py"): [1]})
+    data.write()
+
     as_str = gate1_evidence.fr_coverage_from_last_run(str(project_with_fr), "FR-07")
     as_path = gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07")
-    assert as_str is None
-    assert as_path is None
+    assert as_str == as_path == 50.0, (
+        "one of two statements executed; a coercion that changed the answer "
+        "rather than the type would pass a pair of `is None` assertions"
+    )
 
 
 # ── Round 57 站0: Gate 1 is `single_fr` at every phase it runs ──

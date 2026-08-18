@@ -174,3 +174,111 @@ class TestThePerFrNumberCarriesItsEvidence:
             "0% over twelve measurable statements is a measurement; it is the "
             "worst one, not the absent one"
         )
+
+
+class TestTheWiring:
+    """The renderer above is pure; this drives the branch that calls it.
+
+    Two of the review's five findings were "a change that alters a gate
+    verdict shipped with no test". A pure-function test proves the decision
+    and proves nothing about whether the decision is reached.
+    """
+
+    @pytest.fixture
+    def gate1_project(self, tmp_path):
+        import json
+
+        import coverage
+
+        src = tmp_path / "03-development" / "src" / "pkg"
+        src.mkdir(parents=True)
+        (tmp_path / "03-development" / "tests").mkdir(parents=True)
+        (src / "__init__.py").write_text("", encoding="utf-8")
+        (src / "api.py").write_text(
+            "def handle(x):\n"
+            "    y = x + 1\n"
+            "    return y\n",
+            encoding="utf-8",
+        )
+        # A second module no FR claims, uncovered — this is what drags the
+        # whole-project number down and what the per-FR scope must exclude.
+        (src / "unclaimed.py").write_text(
+            "def never_called():\n"
+            "    return 1\n",
+            encoding="utf-8",
+        )
+        meth = tmp_path / ".methodology"
+        meth.mkdir()
+        (meth / "quality_manifest.json").write_text(
+            json.dumps({
+                "fr_ids": ["FR-01"],
+                "quality_targets": {"min_coverage": 80.0},
+                "fr_module_traceability": {"FR-01": "pkg.api"},
+            }),
+            encoding="utf-8",
+        )
+        data = coverage.CoverageData(basename=str(tmp_path / ".coverage"))
+        data.add_lines({
+            str(src / "api.py"): [1, 2, 3],
+            str(src / "unclaimed.py"): [1],
+        })
+        data.write()
+        return tmp_path
+
+    def _run(self, project, *, gate_num, fr_id, agent_score, harness_pct):
+        from unittest import mock
+
+        from harness.harness_bridge import GateContext, _run_harness_cross_validation
+
+        ctx = GateContext(
+            gate_num=gate_num, config={}, project_root=str(project),
+            phase=7, fr_id=fr_id, ssi_scripts_dir="", ssi_prompts_dir="",
+            ssi_schemas_dir="", work_dir=str(project / ".sessi-work"),
+            sab_data={},
+        )
+        raw = {"breakdown": {"test_coverage": {"score": agent_score}}}
+        with mock.patch("harness.tool_runners.run_tool",
+                        return_value=("TOTAL   4   2   50%", 0)), \
+                mock.patch("harness.tool_runners.compute_tool_score",
+                           return_value=harness_pct):
+            _run_harness_cross_validation(ctx, raw)
+        return raw["breakdown"]["test_coverage"]
+
+    def test_the_recorded_score_and_its_citation_are_the_same_measurement(
+        self, gate1_project,
+    ):
+        """Gate 1 at Phase 7: the FR's own module is 100%, the tree is 50%."""
+        entry = self._run(
+            gate1_project, gate_num=1, fr_id="FR-01",
+            agent_score=100.0, harness_pct=50.0,
+        )
+
+        assert entry["score"] == 100.0
+        assert entry["coverage_scope"] == "per_fr"
+        assert entry["coverage_scope_fr"] == "FR-01"
+
+        cited = gate1_project / entry["tool_output"]
+        assert cited.is_file(), "the verdict must cite a file that exists"
+        body = cited.read_text(encoding="utf-8")
+        assert "FR-01" in body
+        assert "pkg/api.py" in body.replace("\\", "/")
+        assert "3/3" in body, "executed/coverable, not just the quotient"
+        assert "100.0%" in body and "50.0%" in body, (
+            "the number recorded and the number it replaced both stay readable"
+        )
+        assert "unclaimed" not in body, (
+            "a module no FR claims is not this FR's denominator"
+        )
+
+    def test_a_full_phase_gate_keeps_the_whole_project_number_and_audit(
+        self, gate1_project,
+    ):
+        """The negative control: gate 2 handed an fr_id changes nothing."""
+        entry = self._run(
+            gate1_project, gate_num=2, fr_id="FR-01",
+            agent_score=100.0, harness_pct=50.0,
+        )
+
+        assert entry["score"] == 50.0, "the framework's whole-project number"
+        assert "coverage_scope" not in entry
+        assert entry["tool_output"].endswith("test_coverage_harness.txt")
