@@ -5,5 +5,11 @@
   },
   "features": {
     "mutation_testing": true
-  }
+  },
+  "crg_excludes": [
+    ".claude/*",
+    "*.mjs",
+    "03-development/tests/integration/*",
+    "03-development/tests/test_nfr.py"
+  ]
 }
