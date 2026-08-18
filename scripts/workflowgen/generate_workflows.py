@@ -15,7 +15,8 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.workflowgen import phase_specs  # noqa: E402
+from scripts.workflow_audit import js_parse  # noqa: E402
+from scripts.workflowgen import artifact_limits, phase_specs  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIR = REPO_ROOT / ".claude" / "workflows"
@@ -212,6 +213,36 @@ def _target_path(phase: int) -> Path:
     return WORKFLOWS_DIR / filename
 
 
+def validate_generated(filename: str, text: str) -> "list[str]":
+    """Every reason *text* must not be written to *filename*, or an empty list.
+
+    Round 60 站1. The two properties checked here — it parses the way the
+    runtime parses it, and it fits under the ceilings — were enforced only by
+    ``tests/test_workflow_js_conventions.py``. `f4be095` shipped a file that
+    broke both because the author ran a self-selected subset of the suite that
+    did not include that file. They are properties of the artifact, so the
+    producer holds them; the conventions test still guards the *shipped*
+    files, which a hand edit can reach without passing through here.
+
+    A missing `node` is a problem, not a pass: writing a file nobody could
+    parse is precisely the defect this closes (Round 30 — abstaining is not
+    passing). `--check` reads nothing from disk and is subject to the same
+    rule, so there is one behaviour to remember; a machine without node runs
+    neither this nor the test that skips itself for the same reason.
+    """
+    problems = list(artifact_limits.size_problems(filename, text))
+    if not js_parse.node_available():
+        problems.append(
+            f"{filename}: cannot verify the runtime can parse it — `node` is "
+            f"not on PATH. Install Node.js (dev-only dependency) and re-run."
+        )
+        return problems
+    diagnostic = js_parse.parse_problem(text)
+    if diagnostic:
+        problems.append(f"{filename}: the Workflow runtime cannot parse this:\n{diagnostic}")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", type=int, choices=sorted(GENERATORS), help="single phase (default: all migrated phases)")
@@ -229,6 +260,21 @@ def main() -> int:
             (generate_composite(name), WORKFLOWS_DIR / filename)
             for name, (_, filename) in sorted(_composites().items())
         )
+    # Validate every target before writing any of them. A partial write leaves
+    # the phase files and run-all disagreeing about which generation they came
+    # from, and the operator with no way to tell which half is current.
+    problems: list[str] = []
+    for text, target in targets:
+        problems += validate_generated(target.name, text)
+    if problems:
+        for problem in problems:
+            print(f"[workflowgen] INVALID: {problem}")
+        print(
+            f"[workflowgen] {len(problems)} problem(s) — nothing was "
+            f"{'written' if args.write else 'compared'}."
+        )
+        return 1
+
     any_diff = False
     for text, target in targets:
         if args.write:

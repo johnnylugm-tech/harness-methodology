@@ -12,9 +12,6 @@ workflowgen-generated (Round 11 plan's 明確不做 list).
 """
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -24,10 +21,15 @@ from scripts.workflow_audit.js_lint import (
     find_banned_constructs,
     strip_comments_and_strings,
 )
+from scripts.workflow_audit.js_parse import node_available, parse_problem
+from scripts.workflowgen.artifact_limits import (
+    MAX_BYTES,
+    RUNALL_FILE,
+    RUNALL_MAX_BYTES,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS_DIR = REPO_ROOT / ".claude" / "workflows"
-MAX_BYTES = 524288  # 512 KiB — playbook §4 hard error (validator + runtime)
 
 PHASE_FILES = [
     "phase1-requirements.js",
@@ -44,15 +46,12 @@ PHASE_FILES = [
 # workflowgen-generated like the others, so every convention below applies to
 # it too — and the 512 KB cap applies with far less headroom, which is why it
 # additionally carries its own ratchet.
-RUNALL_FILE = "run-all.js"
+#
+# Round 60 站1: both ceilings and the parse wrapper now live in
+# scripts/workflowgen/artifact_limits.py and scripts/workflow_audit/js_parse.py,
+# because `generate_workflows.py --write` has to apply them too. This file
+# keeps guarding the SHIPPED files — a hand edit never passes the generator.
 GENERATED_FILES = [*PHASE_FILES, RUNALL_FILE]
-
-# Headroom ratchet, separate from the runtime's hard cap. run-all grows at
-# roughly eight times the rate of any single phase file, and the failure mode
-# at 512 KB is the runtime refusing to parse — not a warning. Raising this
-# number is a deliberate act: the right first response to hitting it is to
-# shorten prompts in scripts/workflowgen/, not to move the ceiling.
-RUNALL_MAX_BYTES = 347300  # 2026-08-18: +1900 — Round 58 (f4be095/c939bbf): EXCLUDED DIMS rule in spec_shared.render_excluded_dims_rule inlined into phase3/phase4/phase6 gate prompts, and summed 3 times in run-all.js. Measured 347147; ceiling set at 347300 (153 bytes headroom). Previous: 345400. 2026-08-17: +400 — 59579b3's retry hint now names both failure modes of an unresolvable citation instead of only the out-of-range one: (a) the cited file does not exist (the common case — an out-of-tree path like `spec_parser.py` in a project that has none), (b) the line number is past the end. Three prompt lines in js_blocks.render_shell_wrapper_retry, inlined into phase1/phase2/phase6 and summed again in run-all. Measured 345314; the ceiling is set 86 bytes above it rather than exactly at it so the next reader is not forced to re-ratchet for a typo fix. Previous: 345000. 2026-08-14: v33b P2 citation-validator fix (run-all.js halt on taskq-super). Inlines the prompt rule additions (positive + negative citation example + DIGITS-after-colon rule) into every phase's buildBPrompt, plus the abLoop try/catch + reject-block prepend into Phase 2's sub-task A/B loop. Phase 1/2/6 all gain ~50 lines; run-all.js is their sum + the inlined copy. Pure bug-fix growth (mirrors Phase 1's existing pattern); no new agents or dispatches. Previous: 340000.
 
 
 def _read(filename: str) -> str:
@@ -81,12 +80,12 @@ def test_meta_is_first_statement(filename):
 
 
 @pytest.mark.skipif(
-    shutil.which("node") is None,
+    not node_available(),
     reason="node not found on PATH — syntax gate needs Node.js (dev-only dependency)",
 )
 @pytest.mark.parametrize("filename", GENERATED_FILES)
-def test_node_check_syntax(filename, tmp_path):
-    """Parse each file the way the RUNTIME parses it.
+def test_node_check_syntax(filename):
+    """Parse each SHIPPED file the way the RUNTIME parses it.
 
     Round 23 站2 — this test used to run `node --check <file>` directly and
     was a dead guard: a `.js` path with no package.json "type" is parsed as
@@ -96,26 +95,13 @@ def test_node_check_syntax(filename, tmp_path):
     workflow file starts with `export const meta`, so the check could never
     fail for any of them.
 
-    The runtime evaluates the file body with top-level await and top-level
-    return, i.e. as a function body — which is exactly what
-    scripts/workflowgen/js_src/sim_runner.mjs reproduces. Wrapping the same
-    way before `node --check` makes this a real parse of real script text.
-    (The bug this now catches is not hypothetical: run-all's first draft put
-    an apostrophe inside meta.description and broke the whole file.)
+    Round 60 站1 moved the wrapper into scripts/workflow_audit/js_parse.py so
+    `generate_workflows.py --write` applies the same parse before it writes.
+    What stays here is the shipped-file half: the generator cannot see an
+    edit made directly to `.claude/workflows/`.
     """
-    src = _read(filename)
-    body = re.sub(r"^export const meta", "const meta", src, count=1, flags=re.MULTILINE)
-    assert body != src, f"{filename}: no `export const meta` to unwrap"
-    wrapped = tmp_path / "wrapped.cjs"
-    wrapped.write_text(
-        "(async function (agent, phase, log, args, budget) {\n" + body + "\n})\n",
-        encoding="utf-8",
-    )
-    result = subprocess.run(
-        ["node", "--check", str(wrapped)],
-        capture_output=True, text=True, timeout=30,
-    )
-    assert result.returncode == 0, f"{filename}: node --check failed:\n{result.stderr}"
+    problem = parse_problem(_read(filename))
+    assert problem is None, f"{filename}: {problem}"
 
 
 def test_runall_stays_within_its_headroom_ratchet():
@@ -173,15 +159,18 @@ class TestScannerHandlesRegexLiterals:
         assert comment_line_numbers(js) == set()
 
 
-def test_node_check_wrapper_actually_rejects_broken_syntax(tmp_path):
-    """Negative control for the wrapper above — without it, this passes."""
-    broken = tmp_path / "broken.cjs"
-    broken.write_text(
-        "(async function () {\nconst meta = { d: 'it's broken' }\n})\n", encoding="utf-8",
-    )
-    assert subprocess.run(
-        ["node", "--check", str(broken)], capture_output=True, text=True, timeout=30,
-    ).returncode != 0
+@pytest.mark.skipif(
+    not node_available(),
+    reason="node not found on PATH — syntax gate needs Node.js (dev-only dependency)",
+)
+def test_node_check_wrapper_actually_rejects_broken_syntax():
+    """Negative control for the wrapper above — without it, this passes.
+
+    The apostrophe is `f4be095`'s exact defect: it closes the single-quoted
+    string early and everything after it is parsed as code.
+    """
+    broken = "export const meta = { d: 'it's broken' }\n"
+    assert parse_problem(broken) is not None
 
 
 # ---------------------------------------------------------------------------

@@ -82,20 +82,24 @@ def _run(argv: list[str], workflows_dir: Path, monkeypatch) -> int:
     reason="node not found on PATH — the parse half needs Node.js (dev-only)",
 )
 def test_write_refuses_output_the_runtime_cannot_parse(tmp_path, monkeypatch):
-    """`f4be095`'s apostrophe, injected at the renderer, must stop the write.
+    """`f4be095`'s apostrophe, injected as a generator, must stop the write.
 
-    `render_framework_owned_note` is inlined into the same single-quoted JS
-    string literal the EXCLUDED-DIMS text was, so an unescaped apostrophe here
-    reproduces the shipped defect exactly.
+    The injection is a stand-in generator rather than a patched renderer on
+    purpose: `spec_phase3._GATE2_STEPS` is a module-level list whose f-strings
+    evaluate at IMPORT time, so a renderer patched after import either does
+    nothing or — if the patch happens to precede the first import — freezes
+    the broken text into the module for the rest of the process. Measured
+    while writing this file: the second effect made a later test in the same
+    session fail on files this one had never touched.
     """
-    from scripts.workflowgen import spec_shared
-
-    monkeypatch.setattr(
-        spec_shared, "render_framework_owned_note",
-        lambda gate: f"   FRAMEWORK-OWNED: gate {gate}'s own dims.\\n",
-    )
     workflows = tmp_path / "workflows"
     digests = _seed(workflows)
+    monkeypatch.setattr(
+        "scripts.workflowgen.generate_workflows.GENERATORS",
+        {3: (lambda: "export const meta = {\n  name: 'p3',\n}\n"
+                     "const REPO = 'it's broken'\n",
+             "phase3-implementation.js")},
+    )
 
     rc = _run(["--write", "--phase", "3"], workflows, monkeypatch)
 
