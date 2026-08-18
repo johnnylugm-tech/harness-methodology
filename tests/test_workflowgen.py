@@ -452,3 +452,43 @@ class TestExcludedDimsRule:
             "render_framework_owned_note() so the three shared prose "
             "renderers sit together"
         )
+
+
+class TestNoPromptDescribesADisabledDimension:
+    """Round 60 站0/站3 — the state these two renderers describe is gone.
+
+    `render_mutation_flag_note` tells the orchestrator how to switch a
+    dimension off; `render_excluded_dims_rule` tells it how to behave once one
+    is. Round 60 removes the switch, so both are statements about a mechanism
+    that no longer exists (Round 39's rule: removing a mechanism means
+    removing its statements).
+
+    The EXCLUDED-DIMS text carried two defects of its own that go with it: the
+    prohibition "or fix code issues you discover while evaluating OTHER dims"
+    is unqualified and sits one line above "For any failing dim: fix the ROOT
+    CAUSE in code", and "The flag was flipped on purpose (e.g. to sidestep a
+    wall-time budget)" attributes a motive the framework never recorded.
+    """
+
+    _DEAD_PHRASES = ("EXCLUDED DIMS", "mutation_testing is enabled by default")
+
+    def test_no_generated_workflow_mentions_a_disabled_dimension(self):
+        from scripts.workflowgen.generate_workflows import GENERATORS, generate
+
+        for phase in sorted(GENERATORS):
+            text = generate(phase)
+            for phrase in self._DEAD_PHRASES:
+                assert phrase not in text, (
+                    f"phase{phase} still tells the orchestrator about a "
+                    f"dimension it may switch off: {phrase!r}"
+                )
+
+    def test_the_renderers_are_gone_from_the_shared_module(self):
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "scripts" / "workflowgen"
+               / "spec_shared.py").read_text(encoding="utf-8")
+        for name in ("render_excluded_dims_rule", "render_mutation_flag_note"):
+            assert f"def {name}(" not in src, (
+                f"{name} describes a mechanism Round 60 removed"
+            )
