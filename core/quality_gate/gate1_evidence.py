@@ -1003,40 +1003,59 @@ def fr_coverage_from_last_run(project: "Path | str", fr_id: str) -> Optional[flo
 
 
 def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
-    """The list of `path/to/file.py` strings this FR owns, per SAB.
+    """The project-relative source paths this FR owns, or None.
 
-    Returns ``None`` when the SAB is missing or the FR has no declared
-    modules — both cases mean the per-FR scope cannot be computed and the
-    caller should fall through to whole-project.
+    Round 57 站2: one call to `core.quality_gate.cov_utils`. That module has
+    answered "which files does this FR own" since before Round 18 — two
+    production consumers (`cli/gate_cmds.py`'s Gate 1 tool overrides and
+    `cli/fr_prompts/fix.py`'s COVERAGE-FIX prompt) already read it — and
+    Round 56 站6 wrote a second answer here that did the dotted-name→path
+    conversion and nothing else. Measured across all seven corpus projects
+    and every FR, the two resolved to identical file sets, so this is a
+    latent divergence rather than a live one; the shape it would have taken
+    is an SAB entry like `pkg.executor` whose real code lives in
+    `pkg/executor/runner.py`, where the SSOT resolver returns the package and
+    the copy returned a path with no file behind it.
+
+    Entries may be coverage-style globs (`pkg/executor/**/*.py`) — the
+    package fallback emits those, and `_coverage_for_paths` expands them.
+
+    ``None`` when the scope cannot be computed at all (no manifest, no
+    declared modules, nothing resolvable): "could not measure", which the
+    caller keeps apart from "measured and failed" (Round 32 站4).
+
+    `test_file` is deliberately empty. `resolve_fr_scoped_src_files`'s
+    Priority 2 infers scope from a test file's imports, which is right for a
+    caller that is about to run that one test file and wrong here — this
+    function answers about the FR's declared ownership, and inferring a
+    wider scope from imports would quietly answer a different question.
 
     `project` is `Path`-typed but callers may pass bare strings (notably
-    `GateContext.project_root`). Coerce here so the helper is safe to call
-    from either site; the previous version raised
-    `TypeError: unsupported operand type(s) for /: 'str' and 'str'` when
-    the S4 cross-validation ran against a `str` ctx, which is the
-    production crash on FR-07 GATE1 once per-FR coverage was wired.
+    `GateContext.project_root`), so it is coerced: the pre-coercion version
+    raised `TypeError: unsupported operand type(s) for /: 'str' and 'str'`
+    out of a live FR-07 GATE1 and the orchestrator tore the run down.
     """
     project = Path(project)
-    sab_path = project / ".methodology" / "SAB.json"
-    if not sab_path.is_file():
-        return None
+    from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
+    from core.state_io import load_quality_manifest
+    from core.utils.project_layout import ProjectLayout
+
     try:
-        sab = json.loads(sab_path.read_text(encoding="utf-8"))
+        manifest = load_quality_manifest(project, lenient=True)
     except (OSError, ValueError):
         return None
-    sab_root = sab.get("sab", sab) if isinstance(sab, dict) else {}
-    fr_table = sab_root.get("fr_module_traceability") or {}
-    fr_modules = fr_table.get(fr_id)
-    if not fr_modules:
+    if not isinstance(manifest, dict):
         return None
-    # fr_module_traceability entries are strings OR lists of strings.
-    if isinstance(fr_modules, str):
-        fr_modules = [fr_modules]
-    if not isinstance(fr_modules, list):
+    layout = ProjectLayout(project)
+    try:
+        src_dir = str(layout.active_src_dir.relative_to(layout.root))
+    except ValueError:
+        # active_src_dir outside the project root — the resolver joins
+        # `project / src_dir`, so anything but a relative segment would
+        # silently point elsewhere. Refuse rather than guess.
         return None
-    # Each module name maps to a real path under src/. Convert dotted
-    # name (`taskq_api.api.tasks`) to a path glob (`taskq_api/api/tasks.py`).
-    return [m.replace(".", "/") + ".py" if not m.endswith(".py") else m for m in fr_modules]
+    paths = resolve_fr_scoped_src_files(str(project), fr_id, "", src_dir, manifest)
+    return paths or None
 
 
 def _coverage_for_paths(
@@ -1049,6 +1068,14 @@ def _coverage_for_paths(
     denominator; modules outside `paths` do not contribute at all. If
     the data file is missing or the coverage package fails to read it,
     return `fallback` (the whole-project number the caller already got).
+
+    `paths` are project-relative and may be coverage-style globs
+    (`pkg/executor/**/*.py`), which `resolve_fr_scoped_src_files` emits when
+    an SAB entry names a package rather than a module. They are expanded with
+    `Path.glob`, whose `**` means "zero or more directories" — the same thing
+    it means to coverage's `--include`, and NOT the same thing `fnmatch`
+    would do with it (fnmatch would require at least one intervening
+    directory and so miss `executor/runner.py`).
     """
     try:
         import coverage  # noqa: WPS433 — runtime import keeps the hot path cheap
@@ -1064,15 +1091,20 @@ def _coverage_for_paths(
         measured = sorted(data.measured_files())
     except Exception:
         return fallback
-    # Resolve each FR module path to a full filesystem path. Coverage
-    # reports absolute paths; the SAB names are dotted/project-relative.
+    # Resolve each entry to full filesystem paths. Coverage reports absolute
+    # paths; `resolve_fr_scoped_src_files` returns project-relative ones, some
+    # of them globs.
     from core.utils.project_layout import ProjectLayout
     layout = ProjectLayout(project)
-    _scope_files = set()
+    _scope_files: set[str] = set()
     for rel in paths:
-        _scope_files.add(str((layout.active_src_dir / rel).resolve()))
-        # Also accept source-rooted paths (no `active_src_dir` prefix)
+        if any(ch in rel for ch in "*?["):
+            _scope_files.update(str(p.resolve()) for p in layout.root.glob(rel))
+            continue
         _scope_files.add(str((layout.root / rel).resolve()))
+        # Also accept src-rooted paths (no `active_src_dir` prefix), which is
+        # the shape a caller holding raw SAB module paths would produce.
+        _scope_files.add(str((layout.active_src_dir / rel).resolve()))
     _total_executed = 0
     _total_coverable = 0
     for f in measured:

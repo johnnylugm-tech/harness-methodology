@@ -147,7 +147,13 @@ def _fr_source_files_from_imports(
     import ast as _ast
 
     test_path = project / test_file
-    if not test_path.exists():
+    # `is_file`, not `exists`: an empty `test_file` makes this the project
+    # directory, which exists, and `read_text` on a directory raises
+    # IsADirectoryError past the SyntaxError guard below. Round 57 站2 gave
+    # this function its first caller that legitimately has no test file
+    # (`gate1_evidence._fr_module_paths`, which asks about declared
+    # ownership rather than about one test run).
+    if not test_path.is_file():
         return []
     try:
         tree = _ast.parse(test_path.read_text(encoding="utf-8"))
