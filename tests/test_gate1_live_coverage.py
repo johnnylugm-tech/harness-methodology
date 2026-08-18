@@ -354,3 +354,73 @@ def test_fr_coverage_from_last_run_accepts_str_path(project_with_fr):
     as_path = gate1_evidence.fr_coverage_from_last_run(project_with_fr, "FR-07")
     assert as_str is None
     assert as_path is None
+
+
+# ── Round 57 站0: Gate 1 is `single_fr` at every phase it runs ──
+# Round 56 站6 made Phase 3 judge each FR on its own modules and left P4+
+# reading the whole-project number, so the same Gate 1 was judged by two
+# different rules depending on which phase re-ran it — and S4, which has no
+# phase condition at all, used the per-FR number at every phase. Three
+# statements of one question (harness_bridge S4 / validate_fr_coverage_immediate
+# / here), and on a Phase 7 tree they disagreed.
+#
+# 老闆's adjudication: P4+ judges per FR as well, AND the whole-project floor
+# stays as a separately-named condition, so nothing gets looser. The two
+# conditions are reported apart because they have different remedies.
+def test_phase_seven_judges_each_fr_on_its_own_modules(project_with_fr, capsys):
+    """A whole-project pass hiding a per-FR shortfall must block at P4+.
+
+    This is what "P4+ also judges per-FR" buys: today the run advances,
+    because 90% ≥ 80% is the only question asked, while FR-07 covers 40% of
+    the code it owns.
+    """
+    from cli.phase_cmds import _check_gate1_live_coverage
+
+    with mock.patch(
+        "core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1",
+        return_value=True,
+    ), mock.patch(
+        "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate",
+        return_value=90.0,
+    ), mock.patch(
+        "core.quality_gate.gate1_evidence.fr_coverage_from_last_run",
+        return_value=40.0,
+    ):
+        rc = _check_gate1_live_coverage(project_with_fr, completed_phase=7)
+
+    assert rc == 14
+    out = capsys.readouterr().out
+    assert "FR-07" in out and "40" in out, (
+        "a whole-project 90% says nothing about the FR that owns 40% of "
+        "what it was given"
+    )
+
+
+def test_phase_seven_still_blocks_on_the_whole_project_floor(project_with_fr, capsys):
+    """The floor 老闆 kept: every FR green does not excuse the tree.
+
+    P5/P7/P8 have no full-phase gate at their exit, so this check is the only
+    whole-project coverage judgement those transitions get. It survives the
+    move to per-FR, and it says which of the two conditions failed.
+    """
+    from cli.phase_cmds import _check_gate1_live_coverage
+
+    with mock.patch(
+        "core.quality_gate.gate1_evidence.fr_code_changed_since_last_gate1",
+        return_value=True,
+    ), mock.patch(
+        "core.quality_gate.gate1_evidence.validate_fr_coverage_immediate",
+        return_value=62.0,
+    ), mock.patch(
+        "core.quality_gate.gate1_evidence.fr_coverage_from_last_run",
+        return_value=100.0,
+    ):
+        rc = _check_gate1_live_coverage(project_with_fr, completed_phase=7)
+
+    assert rc == 14
+    out = capsys.readouterr().out
+    assert "FR-07" in out, (
+        "the per-FR verdict was reached and passed; a message that omits it "
+        "sends the operator to look for a per-FR defect that is not there"
+    )
+    assert "whole-project" in out and "62" in out
