@@ -367,3 +367,88 @@ class TestFeatureFlagProse:
             "the renderer no longer reads core.harness_config._DEFAULTS — it "
             "is a second hand-written copy again"
         )
+
+
+class TestExcludedDimsRule:
+    """Round 58 — the G2/G3/G4 orchestrator prompt tells the agent that
+    off-list dimensions are out of scope this round, so a feature-flagged
+    dim the gate excluded cannot be re-introduced by an LLM agent deciding
+    to investigate an upstream bug.
+
+    Measured on taskq-cc Gate 2 round 1: an agent confirmed in its own
+    thinking that mutation_testing was excluded, then spent the rest of the
+    round chasing a test_fr06 baseline failure because mutmut happens to
+    hit it. The gate scoring excludes mutation_testing; the agent's
+    responsibility is the dims on the list, not the ones the flag flipped
+    out. The rule closes the loop — if a new disabled dim turns up (round
+    59: a different feature flag, perhaps), the same rule covers it.
+    """
+
+    _RULE_PHASES = (3, 4, 6)  # gate 2 / gate 3 / gate 4 exit prompts
+
+    def test_renderer_exists_and_returns_rule_text(self):
+        from scripts.workflowgen.spec_shared import render_excluded_dims_rule
+
+        text = render_excluded_dims_rule()
+        assert "EXCLUDED DIMS" in text, "rule must lead with its name"
+        assert "OUT OF SCOPE" in text, (
+            "the rule must state the consequence (off-list = out of scope), "
+            "so an LLM agent sees the consequence at the same offset as the "
+            "render_mutation_flag_note line above it"
+        )
+        assert "Do NOT" in text or "do NOT" in text, (
+            "the rule must name prohibited actions (do NOT evaluate / score / "
+            "fix) so the instruction is a constraint, not a hint"
+        )
+        assert "harness_config.json" in text, (
+            "the rule must name the knob so the agent knows where to flip if "
+            "it disagrees with the exclusion"
+        )
+        # Convention check: helper returns escaped-newline-terminated text so
+        # inlining it into a JS string literal via f-string concatenation
+        # preserves formatting. If this trips, fix the renderer, not the test.
+        assert text.endswith("\\n")
+
+    def test_every_gate_prompt_carries_the_rule(self):
+        from scripts.workflowgen.generate_workflows import generate
+
+        for phase in self._RULE_PHASES:
+            text = generate(phase)
+            assert "EXCLUDED DIMS" in text, (
+                f"phase{phase} gate prompt lost the EXCLUDED DIMS rule — "
+                f"an LLM agent will once again be free to investigate dims "
+                f"the feature flag removed, repeating the taskq-cc G2 r1 "
+                f"waste pattern that this rule was added to fix"
+            )
+
+    # The one module allowed to spell the rule: it is the renderer. Everything
+    # else must call the renderer via f-string concat (see spec_phase3/4/6 —
+    # an inline hand-written copy is the drift class reopening).
+    _RENDERER_MODULE = "spec_shared.py"
+
+    def _spec_dir(self):
+        from pathlib import Path
+
+        return Path(__file__).resolve().parents[1] / "scripts" / "workflowgen"
+
+    def test_no_spec_phase_module_hand_writes_the_rule(self):
+        offenders = [
+            p.name for p in sorted(self._spec_dir().glob("spec_phase*.py"))
+            if "EXCLUDED DIMS" in p.read_text(encoding="utf-8")
+        ]
+        assert not offenders, (
+            f"{offenders} hand-write the EXCLUDED DIMS rule. Render it from "
+            f"spec_shared.render_excluded_dims_rule() instead — a literal "
+            f"in a phase spec is what 47ec3fd left stale across the three "
+            f"gate prompts, and the same pattern applies here"
+        )
+
+    def test_the_renderer_module_is_the_one_that_exports_it(self):
+        src = (self._spec_dir() / self._RENDERER_MODULE).read_text(encoding="utf-8")
+        assert "def render_excluded_dims_rule()" in src, (
+            "the renderer was deleted from spec_shared.py — if the gate "
+            "prompts still reference it, regeneration will break; the rule "
+            "must live alongside render_mutation_flag_note() and "
+            "render_framework_owned_note() so the three shared prose "
+            "renderers sit together"
+        )

@@ -51,6 +51,7 @@ _GATE4_STEPS = [
         "3. G4b: Evaluate ALL Gate 4 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md → .sessi-work/gate4_result.json.\\n"
         f"{S.render_dimension_table(4)}"
         f"{S.render_mutation_flag_note()}"
+        f"{S.render_excluded_dims_rule()}"
         "   Fix failing dims at ROOT CAUSE in code.\\n"
         "   CITATION REQUIRED: any tool_evidence sentence that names a specific NFR/FR as the CAUSE of a skip or failure (e.g. \"N skipped for feature-flagged NFR-08\") must be verified per-skip against the actual docstring/name tag of that test before being written — do NOT attribute a whole skip count to one NFR without checking each skipped test individually; a wrong blanket attribution is a fabrication, not a summary."
     ),

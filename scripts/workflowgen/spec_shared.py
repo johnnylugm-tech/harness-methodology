@@ -125,6 +125,49 @@ def render_framework_owned_note(gate: int) -> str:
     )
 
 
+# Round 58 — the dim list is authoritative; off-list dims are off-limits this round.
+#
+# run-gate --gate N prints the dim list at evaluation prompt. Each generator
+# already teaches the agent to read the list verbatim ("Dims: use the exact
+# `dimensions:` list … — do NOT hand-copy a dim list here"). That phrasing is
+# about *what to evaluate*, not *what NOT to*. Measured on taskq-cc Gate 2
+# round-1: an LLM agent saw the list excluded mutation_testing (features flag
+# false), confirmed the exclusion in its own thinking, then spent the rest of
+# the round (~50min / 333 entries) chasing a test isolation bug in test_fr06
+# because the dim's `mutation_enforcer` baseline happens to fail on it. The
+# dim was disabled on purpose (Round 50 站3 commit 1b4c3d8); the gate scoring
+# excludes it; G2's responsibility is to score what the list contains.
+#
+# Anything off the list — feature-flag-disabled, framework-blocked at compile
+# time, or simply not in gate_N_exit.yaml — stays out for this round. The
+# only ways to bring a dim into the round are: flip the feature flag in
+# .methodology/harness_config.json and re-run run-gate, or wait for the next
+# round. Within a round, off-list dim work is wasted dispatch.
+#
+# The rule does not name any specific dim — a flag flip from mutation_testing
+# to a different one moves with the rule instead of leaving a stale name in
+# the prompt, same principle as `render_mutation_flag_note` (Round 36).
+def render_excluded_dims_rule() -> str:
+    """The EXCLUDED DIMS line — anything not on the G2/G3/G4-printed list.
+
+    Returns a multi-line note (each line ends in an escaped newline) for
+    inlining into a generated JS string literal — same convention as
+    `render_framework_owned_note` and `render_mutation_flag_note`.
+    """
+    return (
+        "   EXCLUDED DIMS: a feature-flagged dim disabled in "
+        ".methodology/harness_config.json (or otherwise absent from run-gate "
+        "--gate N's printed dim list) is OUT OF SCOPE for this round. Do NOT "
+        "evaluate it, run its scoring tools, or fix code issues you discover "
+        "while evaluating OTHER dims — even if you find a bug that *would* be "
+        "caught by the disabled dim. The flag was flipped on purpose (e.g. to "
+        "sidestep a wall-time budget), the gate scoring excludes it, and your "
+        "responsibility this round is the dims ON the list. Re-enabling a dim "
+        "is harness_config.json + restart-from-run-gate, not inline scope "
+        "expansion.\\n"
+    )
+
+
 def render_dimension_table(gate: int) -> str:
     """The `N dims: …` enumeration + the FRAMEWORK-OWNED line, for gate *gate*.
 
