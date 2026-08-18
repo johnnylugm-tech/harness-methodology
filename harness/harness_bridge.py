@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover — annotation-only
+    from collections.abc import Iterable
+
     from core.quality_gate.gate1_evidence import FrCoverage
 
 from harness.crg_bridge import CRGBridge
@@ -342,6 +344,32 @@ def _mark_framework_na(dim_entry: dict, tool: str, returncode: int) -> None:
     dim_entry["score"] = None
     dim_entry["score_source"] = SCORE_SOURCE_FRAMEWORK_NA
     dim_entry["na_verified_by"] = f"{tool} (rc={returncode})"
+
+
+def absent_declared_dimensions(
+    declared: "Iterable[str]", reported: "Iterable[str]",
+) -> list[str]:
+    """Dimensions the gate config declares and the result never mentions.
+
+    Round 60 站4. `_all_dims_pass` iterates the dimensions the AGENT REPORTED;
+    `_cfg_dims` was read only to build `_s4_verifiable`. Nothing compared the
+    two sets, so a declared dimension absent from the breakdown entirely was
+    not a failing dimension — it was no dimension at all. A repository-wide
+    search for the comparison found none.
+
+    Measured over the eight corpus projects' 32 committed gate results: ten
+    omissions. Five are historical (the dimension entered the YAML after that
+    result was written) and three were the mutation flag, which Round 60 站2
+    retired — but two are neither. taskq (2026-07-27) and taskq-plus
+    (2026-08-01) each published a Gate 1 result with no
+    `architecture_constraints` entry, a dimension `gate1_per_fr.yaml` has
+    declared since 2026-06-22. Both predate the 2026-08-11 GATE1 prompt fix
+    (Round 17's Resolution note); the six later results all carry it.
+
+    An extra dimension the agent volunteered is not this function's business:
+    it is scored on its own merits and cannot hide anything.
+    """
+    return sorted(set(declared) - set(reported))
 
 
 def measurement_scope(
@@ -3834,6 +3862,31 @@ class HarnessBridge:
             if _d.get("requires_tool_execution", False) and _d.get("tool")
             and _d.get("name") not in _CRG_OWNED_DIMENSIONS
         }
+
+        # Round 60 站4: a dimension the gate declares and the result never
+        # mentions. This runs HERE, after every framework override has had its
+        # say — `_override_traceability_dim_score` and
+        # `_override_adversarial_review_dim_score` APPEND their dimension when
+        # the agent omitted it, precisely so a framework-owned dimension does
+        # not depend on agent cooperation to exist. Comparing before them would
+        # report the framework's own dimensions as missing.
+        _absent = absent_declared_dimensions(
+            [_d.get("name", "") for _d in _cfg_dims if _d.get("name")],
+            [d.name for d in dims],
+        )
+        if _absent:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
+                    open_critical=0, open_high=0, quality_complete=False,
+                ),
+                details={"dimension_absent": [
+                    f"{_name}: declared in the gate config, absent from the "
+                    f"result — no score, no N/A, no entry"
+                    for _name in _absent
+                ]},
+            )
 
         def _dim_passes(d: DimResult) -> bool:
             if d.score is not None:

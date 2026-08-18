@@ -2340,10 +2340,16 @@ class TestFinalizeGate1:
                 # read by the dims builder, so these tests never reached the
                 # identical-scores fabrication circuit breaker. Real per-dimension
                 # tool runs produce natural variance, and that check exists to say so.
+                # Round 60 站4: `architecture_constraints` is the fourth
+                # dimension gate1_per_fr.yaml declares, and a declared
+                # dimension with no entry now blocks. Its absence here was the
+                # same shape taskq (2026-07-27) and taskq-plus (2026-08-01)
+                # published in real Gate 1 results.
                 "breakdown": {
                     "linting": {"score": 100.0, "threshold": 90},
                     "type_safety": {"score": 98.5, "threshold": 85},
                     "test_coverage": {"score": 92.0, "threshold": 80},
+                    "architecture_constraints": {"score": 96.0, "threshold": 80},
                 },
             }
         import json as _json

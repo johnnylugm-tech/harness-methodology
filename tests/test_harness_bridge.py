@@ -265,7 +265,11 @@ class TestFinalizeGate:
         self._write_result(ctx, {
             "overall_score": 85.0, "meets_target": True, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0}},
+            # Round 60 站4: the context declares `coverage` too, and a
+            # declared dimension with no entry now blocks. A happy-path
+            # fixture has to report what its own config declares.
+            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0},
+                          "coverage": {"score": 90.0, "threshold": 75.0}},
         })
         with patch.object(bridge, "_update_quality_manifest"):
             with patch.object(bridge, "_log"):
@@ -640,7 +644,11 @@ class TestFinalizeGate:
         self._write_result(ctx, {
             "overall_score": 85.0, "meets_target": True, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0}},
+            # Round 60 站4: the context declares `coverage` too, and a
+            # declared dimension with no entry now blocks. A happy-path
+            # fixture has to report what its own config declares.
+            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0},
+                          "coverage": {"score": 90.0, "threshold": 75.0}},
         })
         manifest_path = tmp_path / ".methodology" / "quality_manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)

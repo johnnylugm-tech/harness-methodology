@@ -170,6 +170,15 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "captured run) to each dimension listed in the gate result file, then re-run "
         "finalize-gate. A score with no evidence is not a measurement.",
     ),
+    "dimension_absent": (
+        "A dimension the gate config declares is missing from the result entirely",
+        "The gate scores what its config declares — a dimension with no entry at "
+        "all is not an N/A and not a zero, it is a gap in the evaluation. Add the "
+        "named dimension to the gate result file with a real score and its tool "
+        "evidence, then re-run finalize-gate. If its tool cannot run in this "
+        "environment, record that outcome (the framework files it as infra_fail) "
+        "rather than omitting the dimension.",
+    ),
     "infra_fail": (
         "Dimension scored zero because its tool could not run (infrastructure, not quality)",
         "This is an environment failure, not a code defect — do NOT send it into a "

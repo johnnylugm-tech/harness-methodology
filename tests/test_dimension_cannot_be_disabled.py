@@ -160,7 +160,7 @@ def test_finalize_blocks_when_a_declared_dimension_is_missing(tmp_path, monkeypa
     with pytest.raises(GateBlockedError) as excinfo:
         HarnessBridge().finalize_gate(ctx)
 
-    absent = excinfo.value.details.get("dimension_absent") or []
+    absent = " ".join(excinfo.value.details.get("dimension_absent") or [])
     assert "type_safety" in absent, (
         f"a declared dimension the result never mentions must be named; "
         f"details={excinfo.value.details}"

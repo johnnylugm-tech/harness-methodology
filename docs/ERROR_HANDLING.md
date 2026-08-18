@@ -208,6 +208,7 @@ run the gate again.
 |---|---|---|
 | `tool_score_fabrication` | A claimed dimension score the harness could not reproduce by running the tool itself | Correct — re-running re-rolls the same judgement. Make the claim true or withdraw it |
 | `tool_evidence_missing` | Passing score with no `tool_evidence` / `evidence_file` | Attach the evidence, then re-run finalize-gate |
+| `dimension_absent` | A dimension the gate config declares has no entry in the result at all | Not an N/A and not a zero — a gap in the evaluation. Score the named dimension, or record the outcome its tool produced (which the framework files as `infra_fail`) |
 | `infra_fail` | Dimension scored zero because its tool could not run | Environment failure, not a code defect — never route to CODE-FIX |
 | `malformed_gate_result` | Gate result file truncated / off-schema | Re-run run-gate to regenerate; do not hand-repair |
 | `crg_independent_failed` | The harness's own CRG measurement failed | Persistent failure is a harness defect (`crash-triage --open-cr`) |
