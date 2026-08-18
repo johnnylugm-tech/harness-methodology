@@ -12,17 +12,19 @@ against `git ls-files` (912 tracked files)::
 
 This repo has no `03-development/` at all — its tests live in `tests/`, there
 is no `tests/integration/` (only `tests/e2e/`), and the NFR file here is
-`tests/test_nfr_floor_units.py`. The two dead globs were written against
-another tree's layout and committed into the tree being judged.
+`tests/test_nfr_floor_units.py`. Those two globs were written against another
+tree's layout and committed into the tree being judged; they are **deleted
+rather than corrected**, because `compute_community_cohesion_score` already
+excludes test communities twice over (by name, and by >50% of members under a
+`tests/` directory), so a corrected glob would restate a rule that holds.
 
-The two dead entries are **deleted rather than corrected**:
-`compute_community_cohesion_score` already excludes test communities twice
-over (by name, and by >50% of members living under a `tests/` directory), so
-a corrected glob would be a second statement of a rule that already holds.
-
-The root cause is not two wrong globs. It is that `crg_metrics.json` recorded
-`_extra_excludes` — the *input* — and nothing recorded the *effect*, so a glob
-that matched nothing looked exactly like one that matched everything.
+Then 站5 measured them against the shape the matcher actually sees, and the
+count was three dead, not two: CRG emits members as `path::symbol` and the
+matcher never stripped the suffix, so `*.mjs` matched nothing either. A file
+list could not show that. **This is the finding** — not four globs, two of
+them wrong, but that `crg_metrics.json` recorded `_extra_excludes` (the
+input) and nothing recorded the effect, so a glob that matched nothing looked
+exactly like one that removed a community.
 """
 
 from __future__ import annotations
@@ -44,14 +46,19 @@ def _tracked_files() -> list[str]:
 
 
 def test_this_repos_own_crg_excludes_all_match_something():
-    """Dogfood: the framework's own calibration must not be aspirational."""
+    """Dogfood: the framework's own calibration must not be aspirational.
+
+    Matched against `f + "::symbol"`, not against the bare path. That is the
+    string the matcher is handed, and testing the bare path is what let
+    `*.mjs` read as live for a round.
+    """
     cfg = json.loads(
         (_REPO / ".methodology" / "harness_config.json").read_text(encoding="utf-8")
     )
-    files = _tracked_files()
+    members = [f"{f}::symbol" for f in _tracked_files()]
     dead = [
         g for g in cfg.get("crg_excludes", [])
-        if not any(fnmatch(f, g) for f in files)
+        if not any(fnmatch(m.split("::", 1)[0], g) for m in members)
     ]
     assert dead == [], (
         f"{len(dead)} crg_excludes glob(s) match no tracked file: {dead}. "
@@ -75,9 +82,9 @@ def test_the_cohesion_score_reports_what_each_exclude_matched():
     root = "/proj"
     communities = [
         {"name": "core", "cohesion": 0.9,
-         "members": [f"{root}/src/a.py::f", f"{root}/src/b.py::g"]},
+         "files": [f"{root}/src/a.py::f", f"{root}/src/b.py::g"]},
         {"name": "generated", "cohesion": 0.0,
-         "members": [f"{root}/.claude/workflows/x.js::h"]},
+         "files": [f"{root}/.claude/workflows/x.js::h"]},
     ]
 
     result = compute_community_cohesion_score(
@@ -106,3 +113,60 @@ def test_a_glob_that_matches_nothing_is_reported_to_the_operator(capsys):
     )
     captured = capsys.readouterr()
     assert "03-development/tests/integration/*" in (captured.out + captured.err)
+
+
+def test_a_glob_anchored_at_the_end_matches_a_member_entry():
+    """The live bug behind the finding, and the reason the file list missed it.
+
+    CRG emits community members as `path::symbol`. `_dominant_file` has always
+    split that suffix off; the exclude matcher did not. So `*.mjs` — a glob
+    that matches nine tracked files in this repo — matched zero community
+    members, because every one of them ends in `::something`.
+
+    Station 0 measured the four globs against `git ls-files` and read two as
+    live. Against the shape the matcher actually sees, three of the four were
+    dead, and the third was dead for a reason no file-list check could show.
+    That is the finding: not the globs, but that nothing reported what they
+    did.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "harness" / "ssi" / "scripts"))
+    from crg_analysis import compute_community_cohesion_score
+
+    root = "/proj"
+    result = compute_community_cohesion_score(
+        [{"name": "tooling", "cohesion": 0.0, "size": 6,
+          "files": [f"{root}/scripts/workflowgen/js_src/sim_runner.mjs::run"]}],
+        extra_excludes=["*.mjs"], project_root=root,
+    )
+
+    assert result["excludes_files_matched"]["*.mjs"] == 1
+    assert result["excludes_matched"]["*.mjs"] == 1
+    assert result["excluded_test_communities"] == 1
+
+
+def test_a_glob_that_matches_files_but_never_a_majority_is_distinguishable():
+    """Zero communities is not zero files, and the two need different fixes.
+
+    A glob calibrated too narrowly matches files and excludes nothing; one
+    pointed at a directory that does not exist matches nothing at all. Both
+    read as `excludes_matched == 0`, so the file count is what tells them
+    apart — and only the second earns the WARN.
+    """
+    import sys
+
+    sys.path.insert(0, str(_REPO / "harness" / "ssi" / "scripts"))
+    from crg_analysis import compute_community_cohesion_score
+
+    root = "/proj"
+    result = compute_community_cohesion_score(
+        [{"name": "mixed", "cohesion": 0.9, "size": 6, "files": [
+            f"{root}/src/a.py::f", f"{root}/src/b.py::g", f"{root}/gen/c.py::h",
+        ]}],
+        extra_excludes=["gen/*"], project_root=root,
+    )
+
+    assert result["excludes_files_matched"]["gen/*"] == 1
+    assert result["excludes_matched"]["gen/*"] == 0
+    assert result["excluded_test_communities"] == 0

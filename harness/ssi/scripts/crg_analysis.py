@@ -167,10 +167,19 @@ def compute_community_cohesion_score(
             return f[len(_root) + 1:]
         return f.lstrip("/")
 
-    def _matches_exclude(f: str) -> bool:
+    # Round 57 站5: the `::symbol` suffix is stripped before glob matching.
+    # `_dominant_file` has always split it off and this did not, so a glob
+    # anchored at the end of the path could never match: `*.mjs` against
+    # `scripts/js_src/a.mjs::run` is False. Measured on this repo's own
+    # config, that made a live-looking calibration entry a no-op — and
+    # nothing reported it, which is the finding rather than the glob.
+    def _matching_globs(f: str) -> list:
         import fnmatch
-        rel = _rel(f)
-        return any(fnmatch.fnmatch(rel, g) for g in _excl_globs)
+        rel = _rel(f).split("::", 1)[0]
+        return [g for g in _excl_globs if fnmatch.fnmatch(rel, g)]
+
+    def _matches_exclude(f: str) -> bool:
+        return bool(_matching_globs(f))
 
     # Exclude non-product communities from architecture scoring.
     # Three detection strategies (any is sufficient):
@@ -236,6 +245,36 @@ def compute_community_cohesion_score(
         path, n = max(counts.items(), key=lambda kv: kv[1])
         return path if n > len(files) / 2 else None
 
+    # Round 57 站5: what each exclude DID, not only what it was asked to do.
+    # `_extra_excludes` below has always recorded the input; a glob that
+    # matched nothing looked identical to one that removed a whole community,
+    # so two entries written against another repo's directory layout sat in
+    # this project's own config for a round with nothing to say so. Counted
+    # over every community, independently of the name/path rules, so the
+    # answer does not depend on which rule fired first.
+    _files_matched: dict = {g: 0 for g in _excl_globs}
+    _communities_matched: dict = {g: 0 for g in _excl_globs}
+    for c in communities:
+        _files = c.get("files", []) or []
+        if not _files:
+            continue
+        _per_glob: dict = {g: 0 for g in _excl_globs}
+        for f in _files:
+            for g in _matching_globs(f):
+                _per_glob[g] += 1
+        for g, n in _per_glob.items():
+            _files_matched[g] += n
+            if n > len(_files) / 2:
+                _communities_matched[g] += 1
+    for g in _excl_globs:
+        if _files_matched[g] == 0:
+            print(
+                f"[crg] crg_excludes: {g!r} matched no community file — this "
+                f"calibration entry is a no-op. Fix the path it was written "
+                f"against, or delete it.",
+                file=sys.stderr,
+            )
+
     _scored_communities = [c for c in communities if not _is_non_product(c)]
     _excluded = len(communities) - len(_scored_communities)
 
@@ -276,6 +315,14 @@ def compute_community_cohesion_score(
         "_community_oversized": COMMUNITY_OVERSIZED,
         "_community_min_size": COMMUNITY_MIN_SIZE,
         "_extra_excludes": list(_excl_globs),
+        # The effect beside the input (Round 57 站5). `excludes_matched` is
+        # per-glob: how many communities this glob ALONE would have excluded.
+        # `excludes_files_matched` is the finer signal a zero in the first
+        # cannot distinguish — a glob that matched files but never a majority
+        # is calibrated too narrowly; one that matched no file at all is
+        # pointed at a directory that does not exist.
+        "excludes_matched": dict(_communities_matched),
+        "excludes_files_matched": dict(_files_matched),
     }
 
 
