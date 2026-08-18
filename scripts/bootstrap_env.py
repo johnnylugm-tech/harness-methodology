@@ -59,6 +59,93 @@ __all__ = [
 _MIN_PYTHON = (3, 10)
 
 
+def _pip_env_with_icu() -> dict:
+    """A subprocess env overlay that helps pip's wheel builds find host ICU.
+
+    `scancode-toolkit==32.4.1` (`PIP_STEPS` `gate-extras`) pulls `pyicu`, whose
+    setup.py shells out to `pkg-config --modversion icu-i18n`. The host ICU is
+    present on most distros (Debian: libicu-dev; Homebrew: icu4c@<v>) but the
+    .pc files sit under a non-default location that pip's inherited env does
+    not advertise. Without help, pyicu's build fails with
+    `Please install pkg-config ... or set ICU_VERSION`, the scancode
+    distribution never installs, and bootstrap reports
+    `[BLOCKED] still not resolvable after install: scancode`.
+
+    Probing `pkg-config` and forwarding its view of the world is the correct
+    fix: the ICU headers ARE on the host; pip just cannot see them. The probe
+    starts with pkg-config's own pc_path, then layers Homebrew keg-only
+    paths on top — Homebrew deliberately does not advertise `icu4c@*` to
+    pkg-config because the formula is versioned (`icu4c@78` /
+    `icu4c@76` / ...), so pkg-config's view is not exhaustive. The overlay
+    only takes effect when a real ICU version comes back; a host without ICU
+    keeps its current error and remediation, so the fix is additive and
+    cross-platform.
+
+    Returns a dict of additional env vars; empty when no usable ICU is
+    detected. Callers must apply/restore this around the pip subprocess —
+    a global env mutation is the smallest change that does not require
+    threading a new optional kwarg through every `run=` test mock.
+    """
+    # Layer 1: pkg-config's own advertised search path.
+    try:
+        path_proc = subprocess.run(
+            ["pkg-config", "--variable=pc_path", "pkg-config"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        path_proc = None
+    pc_paths: list[str] = []
+    if path_proc is not None and getattr(path_proc, "returncode", 1) == 0:
+        declared = (path_proc.stdout or "").strip()
+        if declared:
+            pc_paths.extend(p for p in declared.split(":") if p)
+
+    # Layer 2: Homebrew keg-only icu4c formulas. `brew --prefix` is
+    # macOS-specific; its absence (Linux) is silently ignored. Note that
+    # `brew --prefix <name>` exits 0 with a default path even when the
+    # formula is NOT installed, so we must verify the directory exists
+    # before trusting the answer.
+    for prefix_cmd in (
+        ["brew", "--prefix", "icu4c"],
+        ["brew", "--prefix", "icu4c@78"],
+        ["brew", "--prefix", "icu4c@76"],
+        ["brew", "--prefix", "icu4c@74"],
+    ):
+        try:
+            prefix_proc = subprocess.run(
+                prefix_cmd, capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if getattr(prefix_proc, "returncode", 1) != 0:
+            continue
+        prefix = (prefix_proc.stdout or "").strip()
+        if not prefix or not Path(prefix + "/lib/pkgconfig").is_dir():
+            continue
+        candidate = prefix + "/lib/pkgconfig"
+        if candidate not in pc_paths:
+            pc_paths.append(candidate)
+
+    if not pc_paths:
+        return {}
+
+    probe_env = os.environ.copy()
+    probe_env["PKG_CONFIG_PATH"] = ":".join(pc_paths)
+    try:
+        proc = subprocess.run(
+            ["pkg-config", "--modversion", "icu-i18n"],
+            capture_output=True, text=True, timeout=10, env=probe_env,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if getattr(proc, "returncode", 1) != 0:
+        return {}
+    version = (proc.stdout or "").strip()
+    if not version:
+        return {}
+    return {"PKG_CONFIG_PATH": ":".join(pc_paths), "ICU_VERSION": version}
+
+
 @dataclass
 class BootstrapReport:
     """What was done and what is still not true afterwards."""
@@ -212,15 +299,32 @@ def bootstrap(
     if report.ok:
         return report
 
-    for step in _ssot.PIP_STEPS:
-        argv = [str(python), "-m", "pip", "install", *_ssot.pip_args(step)]
-        proc = run(argv, capture_output=True, text=True)
-        report.steps_run.append(step.name)
-        if getattr(proc, "returncode", 1) != 0:
-            report.failures.append(
-                f"pip step {step.name!r} failed ({step.why}):\n"
-                f"{(getattr(proc, 'stderr', '') or '')[-600:]}"
-            )
+    # `scancode-toolkit` (in `gate-extras`) pulls `pyicu`, whose wheel build
+    # shells out to `pkg-config` for the host ICU. On hosts where ICU is
+    # installed but pkg-config's search path is not in pip's inherited env
+    # (Homebrew macOS being the measured case), the build fails and
+    # bootstrap reports the distribution as unresolvable. Detect host ICU
+    # once and apply it to every pip subprocess in this loop; restore the
+    # caller's env on exit so this script has no observable side effect.
+    icu_overlay = _pip_env_with_icu()
+    _saved_env: dict = {}
+    if icu_overlay:
+        _saved_env = os.environ.copy()
+        os.environ.update(icu_overlay)
+    try:
+        for step in _ssot.PIP_STEPS:
+            argv = [str(python), "-m", "pip", "install", *_ssot.pip_args(step)]
+            proc = run(argv, capture_output=True, text=True)
+            report.steps_run.append(step.name)
+            if getattr(proc, "returncode", 1) != 0:
+                report.failures.append(
+                    f"pip step {step.name!r} failed ({step.why}):\n"
+                    f"{(getattr(proc, 'stderr', '') or '')[-600:]}"
+                )
+    finally:
+        if icu_overlay and _saved_env:
+            os.environ.clear()
+            os.environ.update(_saved_env)
 
     report.still_missing_imports = missing_imports(python, run=run)
     report.still_missing_tools = measure(project)
