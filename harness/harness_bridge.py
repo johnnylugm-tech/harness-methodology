@@ -1960,23 +1960,24 @@ def _run_harness_cross_validation(
             continue
 
         harness_score = compute_tool_score(tool, output, returncode)
-        # Round 56 站6 / follow-up: test_coverage and integration_coverage
-        # score the whole-project pytest run by default, which collapses
-        # SAB-declared phantom modules from other FRs into a single
-        # denominator. On Phase 3 per-FR TDD, the FR's own modules often
-        # reach 100% while the whole-project number reads lower because of
-        # `__main__.py` (FR-03) and friends. Re-score from the on-disk
-        # `.coverage` restricted to the FR's own modules — the same
-        # computation `_gate1_per_fr_coverage_verdict` runs, and the same
-        # measurement whose gap triggered the HARNESS-BUG block before
-        # this fix landed. Falling back to the whole-project number when
-        # `_fr_module_paths` cannot be computed (no SAB, no declared
-        # modules) preserves the older shape for those edge cases.
-        if harness_score is not None and ctx.fr_id and dim_name in (
-            "test_coverage", "integration_coverage",
+        # Round 56 站6 / follow-up: `pytest-cov` scores the whole-project run,
+        # which collapses the modules other FRs will fill into one denominator
+        # — on taskq-cc's FR-01 that read 8.5% against 97.06% of what FR-01
+        # actually owns. Re-score from the on-disk `.coverage` restricted to
+        # the FR's own modules; the suite has already run, so this executes
+        # nothing (Round 25 站1).
+        #
+        # Round 57 站1: whether to re-scope is `s4_rescopes_to_fr`'s answer,
+        # read from the gate's own declared `scope:`. It used to be
+        # "ctx.fr_id is truthy", which made this the only one of three
+        # enforcers with no phase condition at all — and the two that had one
+        # tested for phase 3, so a Phase 7 run got two verdicts.
+        _fr_id = ctx.fr_id or ""  # "" is falsy to the predicate, and is a str
+        if harness_score is not None and s4_rescopes_to_fr(
+            gate_num=ctx.gate_num, fr_id=_fr_id, dim_name=dim_name,
         ):
             from core.quality_gate import gate1_evidence as _g1e
-            _per_fr = _g1e.fr_coverage_from_last_run(ctx.project_root, ctx.fr_id)
+            _per_fr = _g1e.fr_coverage_from_last_run(ctx.project_root, _fr_id)
             if _per_fr is not None:
                 print(
                     f"  [S4] {dim_name}: harness={harness_score:.1f} (whole-project) | "
@@ -2089,6 +2090,40 @@ def _run_harness_cross_validation(
             )
 
     return violations, unverifiable
+
+
+def s4_rescopes_to_fr(
+    *, gate_num: int, fr_id: "str | None", dim_name: str,
+) -> bool:
+    """True when this dimension's number must be recomputed on one FR's modules.
+
+    Round 57 站1. Three places used to answer "per FR or whole project", and
+    they answered differently: S4 asked only whether `ctx.fr_id` was set (so
+    every phase re-scoped), while `validate_fr_coverage_immediate` and
+    `_check_gate1_live_coverage` each tested `phase == 3`. A Phase 7 run with
+    whole-project coverage at 62% and FR-01 at 100% of its own modules got a
+    pass from one enforcer and a block from the other.
+
+    The gate declares the answer itself — `scope: single_fr` in
+    gate1_per_fr.yaml — and Gate 1 carries that scope at every phase it runs,
+    so consulting the declaration deletes the three phase conditions instead
+    of adding a fourth.
+
+    `test_coverage` is the only dimension re-scoped, and the reason is the
+    data file rather than the dimension list. `fr_coverage_from_last_run`
+    reads `.coverage`, written by the unit suite. `integration_coverage` is
+    scored by `pytest-cov-integration` over a different run and appears only
+    in gates 2/3/4; it was in the original condition, where it could not fire
+    through any sanctioned path (no workflow JS passes `--fr-id` to those
+    gates — measured, zero) and would have produced a wrong number if
+    hand-invoked. One member, so the rule is stated here rather than in a
+    registry of one — same reasoning as the `tool == "mutmut"` branch above.
+    """
+    if not fr_id or dim_name != "test_coverage":
+        return False
+    from core.quality_gate.gate_thresholds import is_per_fr_gate
+
+    return is_per_fr_gate(gate_num)
 
 
 def s4_score_verdict(

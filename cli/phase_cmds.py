@@ -3478,29 +3478,30 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
         )
         return 14
 
-    if completed_phase == 3:
-        return _gate1_per_fr_coverage_verdict(
-            project, fr_ids_manifest, _min_cov, whole_project=cov
-        )
-
-    if cov < _min_cov:
-        print(
-            f"\n[BLOCKED] Phase {completed_phase} Gate 1 live coverage check failed:\n"
-            f"  whole-project coverage {cov:.1f}% < {_min_cov:.1f}% (from manifest)\n"
-            f"  Add tests or use '# pragma: no cover' for unreachable paths, then re-run."
-        )
-        return 14
-    print(
-        f"  [Gate 1 coverage] Phase {completed_phase}: live pytest --cov"
-        f" = {cov:.1f}% ≥ {_min_cov:.1f}% ✓ ({len(fr_ids_manifest)} FRs covered)"
+    # Round 57 站1: every phase judges each FR on the modules it owns, because
+    # this is Gate 1's check and Gate 1 declares `scope: single_fr` at every
+    # phase it runs. Round 56 站6 built that for P3 only, so the same gate was
+    # judged by two rules depending on which phase re-ran it — and S4, which
+    # had no phase condition at all, used the per-FR number everywhere.
+    #
+    # From P4 the whole-project floor is kept as a SECOND, separately-reported
+    # condition rather than replaced: P5/P7/P8 have no full-phase gate at their
+    # exit, so this is the only whole-project coverage judgement those
+    # transitions get. P3 is excluded from it deliberately — at P3 the
+    # whole-project number necessarily carries modules later FRs have not
+    # written yet, which is the measurement Round 56 站6 rests on.
+    return _gate1_per_fr_coverage_verdict(
+        project, fr_ids_manifest, _min_cov,
+        whole_project=cov, phase=completed_phase,
+        whole_project_floor_applies=completed_phase >= 4,
     )
-    return 0
 
 
 def _gate1_per_fr_coverage_verdict(
-    project: Path, fr_ids: "list[str]", min_cov: float, *, whole_project: float
+    project: Path, fr_ids: "list[str]", min_cov: float, *, whole_project: float,
+    phase: int, whole_project_floor_applies: bool,
 ) -> int:
-    """Phase 3's verdict: every FR judged on the modules it owns.
+    """Gate 1's verdict: every FR judged on the modules it owns.
 
     Round 56 站6. P3 is the per-FR TDD window and Gate 1 is a per-FR gate, but
     this check asked one whole-project question and printed "whole-project
@@ -3511,6 +3512,20 @@ def _gate1_per_fr_coverage_verdict(
     FR-01, then halted. The earlier fix threaded `fr_id` into run-fr-step's
     inline fallback and left this — the check that actually returns 14 —
     reading the wide number.
+
+    Round 57 站1 removed the `phase == 3` condition in front of this function.
+    Gate 1 declares `scope: single_fr` and re-runs as a DELTA check at
+    P4/P5/P7/P8/P9; judging the same gate by the whole-project number at those
+    phases let a tree advance with a whole-project 90% hiding an FR covering
+    40% of what it owns.
+
+    `whole_project_floor_applies` is the second, separately-reported
+    condition, and it is a phase question rather than a gate one — which is
+    why it arrives as an argument instead of being re-derived here. From P4 the
+    tree is assembled and P5/P7/P8 have no full-phase gate at their exit, so
+    this is their only whole-project coverage judgement. At P3 it does not
+    apply: the whole-project number there necessarily carries modules later FRs
+    have not written yet.
 
     The suite has already run (the caller's `validate_fr_coverage_immediate`),
     so each FR is arithmetic over the `.coverage` on disk: no second pytest,
@@ -3537,22 +3552,52 @@ def _gate1_per_fr_coverage_verdict(
         if measured < min_cov:
             failures.append(f"{fr_id} {measured:.1f}% [{scope}]")
 
-    if failures:
-        print(
-            f"\n[BLOCKED] Phase 3 Gate 1 live coverage check failed for "
-            f"{len(failures)} of {len(fr_ids)} FR(s), each on the modules it "
-            f"owns (min {min_cov:.1f}%):\n"
-            + "".join(f"  ✗ {f}\n" for f in failures)
-            + f"  Whole-project coverage is {whole_project:.1f}%, which at "
-            f"Phase 3 includes modules later FRs will activate — the per-FR "
-            f"numbers above are what Gate 1 judges.\n"
-            "  Add tests for the named FRs, or use '# pragma: no cover' for "
-            "unreachable paths, then re-run."
+    _floor_failed = whole_project_floor_applies and whole_project < min_cov
+
+    if failures or _floor_failed:
+        # Two conditions with two different remedies, reported apart. A run
+        # blocked only by the floor must not read as a per-FR defect: the
+        # operator would go looking for an FR to fix and find every one of
+        # them green.
+        _head = (
+            f"\n[BLOCKED] Phase {phase} Gate 1 live coverage check failed "
+            f"(min {min_cov:.1f}%):\n"
         )
+        _body = ""
+        if failures:
+            _body += (
+                f"  per-FR: {len(failures)} of {len(fr_ids)} FR(s) below the "
+                f"floor on the modules they own:\n"
+                + "".join(f"    ✗ {f}\n" for f in failures)
+                + "    Add tests for the named FRs, or use '# pragma: no cover' "
+                "for unreachable paths.\n"
+            )
+        else:
+            _body += (
+                f"  per-FR: all {len(fr_ids)} FR(s) pass on the modules they "
+                f"own — the defect below is not any one FR's:\n"
+                + "".join(f"  {line}\n" for line in lines)
+            )
+        if _floor_failed:
+            _body += (
+                f"  whole-project: {whole_project:.1f}% < {min_cov:.1f}%. Code "
+                f"no FR claims in fr_module_traceability is still delivered "
+                f"code; Phase {phase} has no full-phase gate to catch it.\n"
+            )
+        elif failures:
+            _body += (
+                f"  whole-project coverage is {whole_project:.1f}%"
+                + ("" if whole_project_floor_applies else
+                   f", which at Phase {phase} includes modules later FRs will "
+                   "activate")
+                + " — the per-FR numbers above are what Gate 1 judges.\n"
+            )
+        print(_head + _body + "  Then re-run.")
         return 14
     print(
-        f"  [Gate 1 coverage] Phase 3: every FR ≥ {min_cov:.1f}% on its own "
-        f"modules ({len(fr_ids)} FR(s); whole-project {whole_project:.1f}%)"
+        f"  [Gate 1 coverage] Phase {phase}: every FR ≥ {min_cov:.1f}% on its own "
+        f"modules ({len(fr_ids)} FR(s); whole-project {whole_project:.1f}%"
+        + (f" ≥ {min_cov:.1f}%)" if whole_project_floor_applies else ", not a floor here)")
     )
     for line in lines:
         print(line)

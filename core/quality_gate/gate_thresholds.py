@@ -28,6 +28,8 @@ __all__ = [
     "load_score_gate",
     "framework_owned_dimensions",
     "gate_config_path",
+    "gate_scope",
+    "is_per_fr_gate",
     "GATE_CONFIG_NAMES",
 ]
 
@@ -93,6 +95,46 @@ def load_score_gate(gate_num: int) -> float | None:
     """
     value = _read_gate_config(gate_num).get("score_gate")
     return None if value is None else float(value)
+
+
+def gate_scope(gate_num: int) -> str:
+    """Return what this gate judges over: ``single_fr`` / ``full_phase`` / ``full_project``.
+
+    Round 57 站1. The YAML has carried `scope:` since Gate 1 existed and
+    nothing read it, so "is this coverage number about one FR or about the
+    whole tree" was answered three separate times by three phase conditions
+    that disagreed — S4 had none (any phase re-scoped per FR),
+    `validate_fr_coverage_immediate` and `_check_gate1_live_coverage` each
+    tested for phase 3. On a Phase 7 tree the two enforcers reached opposite
+    verdicts about the same run.
+
+    The declaration is not a fourth copy: it is the one the gate makes about
+    itself, at the point the gate is defined, and Gate 1 is `single_fr` at
+    every phase it runs (P3/P4/P5/P7/P8/P9). Reading it removes three
+    conditions rather than adding one.
+
+    An unreadable or absent `scope:` raises rather than defaulting. A gate
+    whose config does not say what it judges cannot be judged — same contract
+    as `gate_config_path` on an unknown gate number (Round 30 站3).
+    """
+    value = _read_gate_config(gate_num).get("scope")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(
+            f"gate {gate_num} config declares no `scope:` "
+            f"({gate_config_path(gate_num)}). Expected framework-owned asset — "
+            f"is the harness checkout intact?"
+        )
+    return value.strip()
+
+
+def is_per_fr_gate(gate_num: int) -> bool:
+    """True when *gate_num* judges one FR at a time.
+
+    The single predicate behind every "should this be scoped to the FR"
+    branch, for the same reason `na_is_framework_verified` is single: two
+    copies of the question is two chances to drift apart.
+    """
+    return gate_scope(gate_num) == "single_fr"
 
 
 def framework_owned_dimensions(gate_num: int) -> dict[str, str]:

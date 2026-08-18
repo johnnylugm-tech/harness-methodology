@@ -917,14 +917,19 @@ def validate_fr_coverage_immediate(
                         failed and coverage could not be read.
 
     Scope:
-      * ``fr_id`` provided + the project is in P3 (per-FR TDD window):
-        coverage is restricted to the FR's ``fr_module_traceability`` modules
-        from SAB.json. Bringing an empty-stub module that other FRs will
-        activate would otherwise score 0% on FR-01's gate — the per-FR
-        scope reflects what this FR actually owns.
-      * Otherwise: whole-project coverage. The remaining-after-other-FRs
+      * ``fr_id`` provided: coverage is restricted to the FR's
+        ``fr_module_traceability`` modules. Bringing an empty-stub module that
+        other FRs will activate would otherwise score 0% on FR-01's gate — the
+        per-FR scope reflects what this FR actually owns.
+      * ``fr_id`` absent: whole-project coverage. The remaining-after-other-FRs
         fraction is the entire system under test, so the whole-project
         number is the only honest signal that one piece isn't black.
+
+    Round 57 站1 removed a `phase == 3` condition from that first branch. Only
+    a per-FR gate passes `fr_id`, Gate 1 is that gate, and Gate 1's own config
+    declares `scope: single_fr` at every phase it runs — so the phase was
+    never the question. Keeping it here made this the second of three
+    disagreeing answers (`gate_thresholds.is_per_fr_gate` is now the one).
 
     Why the original whole-project docstring was wrong under P3 TDD:
     taskq-cc's P3 run (Round 56) showed FR-01 hitting 95% on its own
@@ -954,10 +959,8 @@ def validate_fr_coverage_immediate(
         # with an unreadable report is 0.0, a red one is "not measured".
         return 0.0 if result.passed else None
 
-    # Per-FR scope when both conditions hold: the caller is in a per-FR
-    # gate (always passing fr_id) and the project is in P3 (per-FR TDD).
-    # P4+ doesn't take fr_id here — it uses whole-project coverage.
-    if fr_id is not None and _is_phase3_per_fr(project):
+    # Per-FR scope whenever the caller named an FR: only a per-FR gate does.
+    if fr_id is not None:
         _scope = _fr_module_paths(project, fr_id)
         if _scope is None:
             # SAB miss or no modules for this FR — fall through to
@@ -997,15 +1000,6 @@ def fr_coverage_from_last_run(project: "Path | str", fr_id: str) -> Optional[flo
     sentinel = -1.0
     value = _coverage_for_paths(project, scope, fallback=sentinel)
     return None if value == sentinel else value
-
-
-def _is_phase3_per_fr(project: Path) -> bool:
-    """True iff state.json::current_phase is 3 (per-FR TDD window)."""
-    try:
-        from core.state_io import load_state
-        return int(load_state(project, lenient=True).get("current_phase", 0)) == 3
-    except (OSError, ValueError, TypeError):
-        return False
 
 
 def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":

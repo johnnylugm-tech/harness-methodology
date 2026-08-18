@@ -204,20 +204,21 @@ def test_check_gate1_live_coverage_reads_min_coverage_from_manifest(tmp_path):
 # FR-01 GATE1. Whole-project coverage was 8.5% (95% on FR-01's own
 # modules, 0% on the 10 phantom modules SAB declared for other FRs),
 # the cycle shipped 3 fix rounds with no progress, and the run went
-# out to [HARNESS-BUG]. The fix: in P3, restrict coverage to the FR's
-# fr_module_traceability modules so the gate sees what this FR actually
-# owns.
-def test_validate_fr_coverage_immediate_p3_per_fr_scope_returns_fr_only(project_with_fr):
-    """In P3, FR-01's coverage reads 95%+ — not 8.5% whole-project.
+# out to [HARNESS-BUG]. The fix: when the caller names an FR, restrict
+# coverage to that FR's fr_module_traceability modules so the gate sees
+# what this FR actually owns.
+#
+# Round 57 站1 removed the `phase == 3` half of the condition (and with it
+# the state.json this test used to write). Only a per-FR gate passes fr_id,
+# Gate 1 is that gate, and Gate 1 declares `scope: single_fr` at every phase
+# it runs — the phase was never the question.
+def test_validate_fr_coverage_immediate_per_fr_scope_returns_fr_only(project_with_fr):
+    """Named an FR, FR-01's coverage reads 95%+ — not 8.5% whole-project.
 
     Whole-project score is 8.5% on the evidence project because 10 SAB
     modules belong to other FRs and are empty stubs. Per-FR scope must
     skip those and report the modules FR-01 actually owns.
     """
-    # Mark the project as being in P3 so the per-FR scope activates.
-    (project_with_fr / ".methodology" / "state.json").write_text(
-        '{"current_phase": 3}', encoding="utf-8"
-    )
     # Build a SAB.json with FR-01 owning the only measured module.
     (project_with_fr / ".methodology" / "SAB.json").write_text(
         json.dumps({
