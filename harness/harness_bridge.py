@@ -347,20 +347,18 @@ def _mark_framework_na(dim_entry: dict, tool: str, returncode: int) -> None:
 def measurement_scope(
     dims: "list[DimResult]",
     weights: "dict[str, float]",
-    *,
-    disabled: "tuple[str, ...] | frozenset[str]" = (),
 ) -> dict:
     """What the composite was averaged over — the denominator, beside the number.
 
     Round 42 站4. `harness/ssi/scripts/score.py:431` computes
     ``overall_score = weighted_sum / weight_sum`` where ``weight_sum``
-    accumulates only the dimensions that were scored, and
-    `filter_enabled_dimensions` removes flag-disabled ones before that loop
-    ever sees them. Removing a dimension therefore RAISES the mean, and the
-    file that removes it — `.methodology/harness_config.json` — is committed
-    by the project being judged. The three that can be removed
-    (`mutation_testing`, `architecture`, `adversarial_review`) are the three
-    the framework scores itself.
+    accumulates only the dimensions that were scored, so a dimension that
+    produced no number RAISES the mean.
+
+    Round 60 站2 removed the other way a dimension could leave the
+    denominator — three feature flags that dropped it from the gate's list
+    before scoring ever saw it — so what remains here is the honest kind:
+    a dimension that was scored, and one that was not.
 
     Measured on the two projects that ran the same 494-line SPEC.md:
     taskq-plus published composite 98.707 over weight 0.86 (13 dimensions,
@@ -405,7 +403,6 @@ def measurement_scope(
         "weight_total": round(sum(weights.values()), 10),
         "dimensions_scored": scored,
         "dimensions_unscored": unscored,
-        "dimensions_disabled": sorted(disabled),
     }
 
 # Minimum byte size for a tool_output file to be considered non-stub.
@@ -557,28 +554,6 @@ def _override_adversarial_review_dim_score(
 
 
 # ---------------------------------------------------------------------------
-# Feature-flag dimension filtering
-# ---------------------------------------------------------------------------
-# Canonical definitions live in core.harness_config — import from there.
-from core.harness_config import _DIM_TO_FEATURE, is_dim_disabled  # noqa: F401, E402
-
-
-def filter_enabled_dimensions(
-    dim_list: "list[dict]", project_root: str
-) -> "list[dict]":
-    """Return *dim_list* with feature-flag-disabled dimensions removed.
-
-    Call this immediately after ``yaml.safe_load()`` on a gate config so
-    all downstream code sees a consistent, pre-filtered dimension list.
-    Uses :func:`core.harness_config.is_dim_disabled` — the single source
-    of truth for dim→feature→flag is always in ``harness_config.py``.
-    """
-    return [
-        d for d in dim_list
-        if not is_dim_disabled(d.get("name", ""), project_root)
-    ]
-
-
 def _mutation_artifact_violations(
     ctx: "GateContext", dim_name: str, agent_score: "float | None",
     threshold: float,
@@ -1163,9 +1138,6 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
         ]
 
 
-    cfg["dimensions"] = filter_enabled_dimensions(
-        cfg.get("dimensions", []), ctx.project_root
-    )
 
     violations: list[str] = []
     breakdown = raw.get("breakdown", {})
@@ -1723,9 +1695,6 @@ def _run_harness_cross_validation(
             f"S4 gate config unreadable: {cfg_path} ({exc})"
         ]
 
-    cfg["dimensions"] = filter_enabled_dimensions(
-        cfg.get("dimensions", []), ctx.project_root
-    )
 
     try:
         from harness.tool_runners import run_tool, compute_tool_score
@@ -2871,33 +2840,12 @@ class HarnessBridge:
         """
         self._last_gate_num = gate_num
         config = self._load_config(gate_num)
-        # Round 58 站1: filter dims BEFORE downstream code reads them, not
-        # only inside finalize-gate's tool_evidence pass. Without this,
-        # `run-gate`'s evaluation_prompt() advertised every dim from the
-        # yaml (including ones the orchestrator already disabled via
-        # `features.<flag>: false` in harness_config.json); the Gate 2
-        # orchestrator then attempted mutation_testing despite the
-        # project's feature flag being false and burned its wall budget
-        # on a run the composite was going to skip anyway. The other
-        # filter site (_check_tool_evidence, finalize-gate) is unaffected
-        # — `dimensions_disabled` already lands in gate_verify.jsonl from
-        # there — but by then the orchestrator has wasted an hour.
-        # Round 57 站6: `dataclasses.asdict`, not a hand-written key list. The
-        # hand-written one is how `tool` and `requires_tool_execution` went
-        # missing from every GateConfig — and `_s4_verifiable`, which selects
-        # on exactly those two, was the empty set for every gate as a result.
-        _raw_dims_yaml = [dataclasses.asdict(d) for d in config.dimensions]
-        _enabled = filter_enabled_dimensions(_raw_dims_yaml, project_root)
-        _enabled_names = {d["name"] for d in _enabled}
-        config = GateConfig(
-            gate_num=config.gate_num, score_gate=config.score_gate,
-            dimensions=[
-                d for d in config.dimensions if d.name in _enabled_names
-            ],
-            per_dim_min=config.per_dim_min, max_rounds=config.max_rounds,
-            blocking=config.blocking, trigger=config.trigger,
-            scope=config.scope, crg=config.crg,
-        )
+        # Round 60 站2: the dimension list the YAML declares is the list the
+        # gate judges. `22e2471` inserted a feature-flag filter here so
+        # `evaluation_prompt()` would stop advertising a dimension the
+        # orchestrator was not going to score; the flags themselves are now
+        # retired (core.harness_config.RETIRED_FEATURES), so there is nothing
+        # left to filter and nothing between the declaration and the prompt.
         if auto_fix_rounds:
             config = GateConfig(
                 gate_num=config.gate_num, score_gate=config.score_gate,
@@ -3457,29 +3405,6 @@ class HarnessBridge:
         else:
             _config_dim_list = getattr(ctx.config, 'dimensions', [])
 
-        # Compute which dimensions are disabled via harness_config.json (once per gate).
-        # load_harness_config always returns all known keys so [ft] is safe (no KeyError).
-        from core.harness_config import load_harness_config as _load_hcfg
-        _hfeatures = _load_hcfg(ctx.project_root)
-        _disabled_dims: frozenset[str] = frozenset(
-            dn for dn, ft in _DIM_TO_FEATURE.items()
-            if not _hfeatures[ft]
-        )
-        if _disabled_dims:
-            # Round 39 站2: the print stays for the operator watching the run;
-            # the ledger entry is what survives it. A dimension that was never
-            # measured has to be re-derivable from the artifacts, not only
-            # from whoever happened to be reading stdout.
-            from core.quality_gate.dimension_scope import record_dimension_scope
-            record_dimension_scope(ctx.project_root, gate=ctx.gate_num)
-            for _dn in sorted(_disabled_dims):
-                print(f"[harness] {_dn}: disabled via harness_config.json — excluded from evaluation")
-            _config_dim_list = [
-                _d for _d in _config_dim_list
-                if (_d.get('name') if isinstance(_d, dict) else getattr(_d, 'name', ''))
-                not in _disabled_dims
-            ]
-
         for _d in _config_dim_list:
             _dname = _d.get('name') if isinstance(_d, dict) else getattr(_d, 'name', '')
             _dweight = _d.get('weight') if isinstance(_d, dict) else getattr(_d, 'weight', 0.0)
@@ -3524,10 +3449,6 @@ class HarnessBridge:
                 # instead of leaving it in the breakdown dict nobody consults.
                 score_source=dim_data.get("score_source"),
             ))
-
-        # Remove any agent-reported dims whose feature is disabled.
-        if _disabled_dims:
-            dims = [d for d in dims if d.name not in _disabled_dims]
 
         # Apply gate_score_overrides from quality_manifest as threshold floor.
         # Never lower a threshold below what the gate YAML / Claude set — only raise it.
@@ -3934,12 +3855,12 @@ class HarnessBridge:
             print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
 
         # Round 42 站4b: what the composite was averaged over, computed where
-        # the weights and the disabled set both already are. Stashed on the
-        # context rather than recomputed at the write site, for the reason
-        # `spec_coverage_report` takes its rows as an argument: a second
-        # derivation of the denominator is a second denominator.
+        # the weights already are. Stashed on the context rather than
+        # recomputed at the write site, for the reason `spec_coverage_report`
+        # takes its rows as an argument: a second derivation of the
+        # denominator is a second denominator.
         ctx.measurement_scope = measurement_scope(  # type: ignore[attr-defined]
-            dims, _dim_weights, disabled=_disabled_dims,
+            dims, _dim_weights,
         )
 
         result = GateResult(
@@ -4560,15 +4481,6 @@ class HarnessBridge:
         # zeroed; no threshold can be zeroed now, so a field that could only
         # ever be absent is one more thing for a reader to misinterpret.
         #
-        # Round 39 站2: `dimensions_disabled` takes the opposite approach and
-        # is always present, empty included. It is the manifest's answer to
-        # "what did this gate not measure?", and a reader must be able to tell
-        # "nothing" from "this record predates the field". It goes here rather
-        # than into gate{N}_result.json because that file is agent-written and
-        # validated against a schema (core/quality_gate/gate_result_schema.py);
-        # this is framework knowledge about the run.
-        from core.quality_gate.dimension_scope import disabled_dimensions
-        payload["dimensions_disabled"] = sorted(disabled_dimensions(project_root))
         if fr_id:
             if not isinstance(manifest["gate_results"][key], dict):
                 manifest["gate_results"][key] = {}

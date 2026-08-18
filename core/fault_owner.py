@@ -148,6 +148,7 @@ OWNER_BY_EXIT: dict[int, str] = {
     33: Owner.PROJECT,  # verify-gate: one of the gate's three checks failed
     34: Owner.PROJECT,  # no gate verdict for the tree being advanced
     35: Owner.PROJECT,  # step precondition unmet (a red baseline)
+    39: Owner.PROJECT,  # harness_config.json still switches a dimension off
     # Round 41 站3 registered this as "neither INFRA nor CODE-FIX — read
     # degradations.jsonl for the signature and fix its cause". The cause is
     # whatever failed identically N times, which this code does not name.

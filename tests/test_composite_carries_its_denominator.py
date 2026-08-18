@@ -4,13 +4,14 @@
 
     overall_score = weighted_sum / weight_sum
 
-where `weight_sum` accumulates only the dimensions that were actually scored.
-`harness/harness_bridge.filter_enabled_dimensions` (via `_DIM_TO_FEATURE`)
-removes `mutation_testing`, `architecture` and `adversarial_review` from the
-list before that loop whenever `.methodology/harness_config.json` says so —
-the three dimensions the framework scores itself, and the three hardest to
-pass. Removing one therefore *raises* the mean, and the file that removes it
-is committed by the project being judged.
+where `weight_sum` accumulates only the dimensions that were actually scored,
+so a dimension that produced no number *raises* the mean.
+
+When this round was written there were two ways for a dimension to leave that
+sum: it was not measured, or a per-project feature flag removed it from the
+gate's list before scoring saw it. Round 60 站2 retired the flags, so only the
+first remains — but the reason the denominator has to travel with the number
+is unchanged, and the measurement below is what established it.
 
 Measured on the two projects that ran the same 494-line SPEC.md:
 
@@ -29,14 +30,14 @@ reader comparing the two, which is exactly what happened, is comparing 0.86 of
 the quality surface against 1.00 of it.
 
 Round 39 站2 made the disabling *visible* — the ledger, `gate_verify.jsonl` and
-`quality_manifest.json` all carry `dimensions_disabled`. It did not make it
-visible *next to the number it changes*, and `weight_covered` exists nowhere in
-the repo. Round 37's rule was that the denominator travels with the number;
+`quality_manifest.json` all carried `dimensions_disabled`. It did not make it
+visible *next to the number it changes*, and `weight_covered` existed nowhere
+in the repo. Round 37's rule was that the denominator travels with the number;
 this is the same rule one level up.
 
-This round does not zero a disabled dimension (Round 35: could-not-measure is
-not zero) and does not forbid disabling one — a JS project with no mutmut is a
-real case. It makes the score state its own scope.
+This round does not zero an unmeasured dimension (Round 35: could-not-measure
+is not zero). It makes the score state its own scope. Round 60 站2 went the
+rest of the way and removed the switch itself.
 """
 
 from __future__ import annotations
@@ -63,12 +64,10 @@ def test_a_published_composite_names_the_weight_it_covered():
     scope = measurement_scope(
         _dims(linting=100.0, type_safety=100.0, architecture=77.8),
         _WEIGHTS,
-        disabled=("mutation_testing",),
     )
     assert scope["weight_covered"] == 0.24
     assert scope["weight_total"] == 0.32
     assert scope["dimensions_scored"] == ["architecture", "linting", "type_safety"]
-    assert scope["dimensions_disabled"] == ["mutation_testing"]
 
 
 def test_a_dimension_that_could_not_be_measured_leaves_the_denominator_too():
@@ -79,27 +78,9 @@ def test_a_dimension_that_could_not_be_measured_leaves_the_denominator_too():
     scope = measurement_scope(
         _dims(linting=100.0, type_safety=None, mutation_testing=79.8, architecture=77.8),
         _WEIGHTS,
-        disabled=(),
     )
     assert scope["weight_covered"] == 0.25
     assert scope["dimensions_scored"] == ["architecture", "linting", "mutation_testing"]
     assert scope["dimensions_unscored"] == ["type_safety"]
 
 
-def test_disabling_a_dimension_cannot_hide_inside_the_number():
-    """The taskq-plus/taskq-renew pair, reduced to its mechanism.
-
-    Same four dimension scores; one run has mutation switched off. The
-    composite rises — that is the weighted mean doing what a weighted mean
-    does — and the scope is what tells the two numbers apart.
-    """
-    scored = dict(linting=100.0, type_safety=100.0, mutation_testing=79.8, architecture=100.0)
-    full = measurement_scope(_dims(**scored), _WEIGHTS, disabled=())
-    trimmed = measurement_scope(
-        _dims(**{k: v for k, v in scored.items() if k != "mutation_testing"}),
-        _WEIGHTS,
-        disabled=("mutation_testing",),
-    )
-    assert full["weight_covered"] > trimmed["weight_covered"]
-    assert trimmed["dimensions_disabled"] == ["mutation_testing"]
-    assert full["dimensions_disabled"] == []

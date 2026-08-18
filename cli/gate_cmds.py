@@ -33,7 +33,7 @@ from core.quality_gate import gate1_evidence
 from core.quality_gate.block_reason import derive_block_reasons
 from core.quality_gate.quality_report_verify import verify_quality_report
 from core.degradation_ledger import record_degradation
-from cli.exit_codes import EX_HARNESS_BUG
+from cli.exit_codes import EX_HARNESS_BUG, EX_RETIRED_FEATURE_FLAG
 from core.quality_gate.da_waiver import WAIVABLE_DIMENSIONS
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
@@ -1143,6 +1143,30 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
 
     project = str(Path(args.project).resolve())
 
+    # Round 60 站2: a config that still switches a dimension off is refused
+    # before anything else runs. The three flags that could do that are
+    # retired (core.harness_config.RETIRED_FEATURES) — silently ignoring the
+    # key would leave the project believing a dimension was excluded while
+    # the gate scored it, which is a worse state than either answer.
+    #
+    # One enforcement point, and it is this one: run-gate is the entrance
+    # every gate passes through, and after the retirement the key changes
+    # nothing in the judgement, so finalize-gate needs no second copy of the
+    # check (the R47 站3 asymmetry — run-gate PREPARES, finalize-gate JUDGES).
+    from core.harness_config import _read_raw, retired_disabling_keys
+    _retired = retired_disabling_keys((_read_raw(project) or {}).get("features"))
+    if _retired:
+        print(
+            "\n[BLOCKED] run-gate: .methodology/harness_config.json switches "
+            "off dimension(s) that can no longer be switched off:\n"
+            + "".join(f"  ✗ features.{k}: false\n" for k in _retired)
+            + "\n  A dimension is measured, or the gate blocks and the run "
+            "routes to repair.\n"
+            "  Remove the key(s). If the tool genuinely cannot run here that "
+            "is an INFRA\n  block with a repair route, not a scoring exemption."
+        )
+        return EX_RETIRED_FEATURE_FLAG
+
     # Block evaluation before printing the prompt — prevents fabrication via
     # "evaluate without tools, then install stub to pass finalize-gate".
     _tools_ok, _missing_tools = tool_checks.verify_gate_tools(args.gate, project)
@@ -1553,72 +1577,63 @@ def _check_gate4_prerequisites(project: Path) -> bool:
     # reconnaissance protocol).
     # A missing or empty file means CRG was never run — architecture-tier
     # scores derived from CRG data are therefore groundless.
-    from core.harness_config import is_dim_disabled
-    if is_dim_disabled("architecture", str(project)):
-        # Round 39 站2: recorded, not merely announced — this skip removes the
-        # only check that CRG reconnaissance ran at all, and a gate result
-        # that silently lost it is indistinguishable from one that had it.
-        from core.quality_gate.dimension_scope import record_dimension_scope
-        record_dimension_scope(project, gate=4)
-        print("[Gate 4] B3: CRG recon check skipped (crg_architecture disabled)", file=sys.stderr)
-    else:
-        try:
-            import yaml as _yaml
-            from core.quality_gate.gate_thresholds import gate_config_path as _gcp4
-            _crg_cfg_path = _gcp4(4)
-            # Round 30 站3: an unreadable gate-4 config must not leave
-            # `_crg_recon_required` at its "nothing required" default. The
-            # config is a framework-owned asset tracked by git — if it cannot
-            # be read, the run has no idea what Gate 4 requires, and a silent
-            # False here is the same "abstain reads as pass" the round removes.
-            if not _crg_cfg_path.exists():
-                print(f"[Gate 4] B3: [BLOCKED] gate config missing: {_crg_cfg_path}\n"
-                      f"  This is a framework-owned asset tracked by git — its absence\n"
-                      f"  means the harness checkout is incomplete, so Gate 4's own\n"
-                      f"  requirements cannot be read.\n"
-                      f"  Fix: restore the harness checkout, then re-run:\n"
-                      f"    git -C harness status && git -C harness checkout -- "
-                      f"harness/gate_configs", file=sys.stderr)
+    try:
+        import yaml as _yaml
+        from core.quality_gate.gate_thresholds import gate_config_path as _gcp4
+        _crg_cfg_path = _gcp4(4)
+        # Round 30 站3: an unreadable gate-4 config must not leave
+        # `_crg_recon_required` at its "nothing required" default. The
+        # config is a framework-owned asset tracked by git — if it cannot
+        # be read, the run has no idea what Gate 4 requires, and a silent
+        # False here is the same "abstain reads as pass" the round removes.
+        if not _crg_cfg_path.exists():
+            print(f"[Gate 4] B3: [BLOCKED] gate config missing: {_crg_cfg_path}\n"
+                  f"  This is a framework-owned asset tracked by git — its absence\n"
+                  f"  means the harness checkout is incomplete, so Gate 4's own\n"
+                  f"  requirements cannot be read.\n"
+                  f"  Fix: restore the harness checkout, then re-run:\n"
+                  f"    git -C harness status && git -C harness checkout -- "
+                  f"harness/gate_configs", file=sys.stderr)
+            blocked = True
+            _crg_recon_required = False
+        else:
+            try:
+                _crg_cfg = _yaml.safe_load(_crg_cfg_path.read_text(encoding="utf-8"))
+                _crg_recon_required = bool(
+                    (_crg_cfg or {}).get("crg", {}).get("reconnaissance")
+                )
+            except (_yaml.YAMLError, OSError) as _b3_cfg_exc:
+                print(f"[Gate 4] B3: [BLOCKED] gate config unreadable: "
+                      f"{_crg_cfg_path} ({_b3_cfg_exc})\n"
+                      f"  Gate 4's requirements cannot be read, so no verdict is\n"
+                      f"  possible. Fix: repair the YAML, then re-run:\n"
+                      f"    python harness_cli.py finalize-gate --gate 4 --phase 6 "
+                      f"--project .", file=sys.stderr)
                 blocked = True
                 _crg_recon_required = False
+        if _crg_recon_required:
+            recon_file = project / ".sessi-work" / "crg_reconnaissance.json"
+            recon_exists = recon_file.is_file() and recon_file.stat().st_size > 0
+            if not recon_exists:
+                print(
+                    "\n[BLOCKED] Gate 4 (B3): CRG reconnaissance output not found.\n"
+                    f"  Expected: {recon_file} (non-empty)\n"
+                    "  Gate 4 config declares crg.reconnaissance: true — the CRG bridge\n"
+                    "  must be executed before finalize-gate to provide architecture-tier\n"
+                    "  evaluation context.\n"
+                    "  Run the CRG reconnaissance protocol, then re-run:\n"
+                    "    python harness_cli.py finalize-gate --gate 4 --phase 6 --project .",
+                    file=sys.stderr,
+                )
+                blocked = True
             else:
-                try:
-                    _crg_cfg = _yaml.safe_load(_crg_cfg_path.read_text(encoding="utf-8"))
-                    _crg_recon_required = bool(
-                        (_crg_cfg or {}).get("crg", {}).get("reconnaissance")
-                    )
-                except (_yaml.YAMLError, OSError) as _b3_cfg_exc:
-                    print(f"[Gate 4] B3: [BLOCKED] gate config unreadable: "
-                          f"{_crg_cfg_path} ({_b3_cfg_exc})\n"
-                          f"  Gate 4's requirements cannot be read, so no verdict is\n"
-                          f"  possible. Fix: repair the YAML, then re-run:\n"
-                          f"    python harness_cli.py finalize-gate --gate 4 --phase 6 "
-                          f"--project .", file=sys.stderr)
-                    blocked = True
-                    _crg_recon_required = False
-            if _crg_recon_required:
-                recon_file = project / ".sessi-work" / "crg_reconnaissance.json"
-                recon_exists = recon_file.is_file() and recon_file.stat().st_size > 0
-                if not recon_exists:
-                    print(
-                        "\n[BLOCKED] Gate 4 (B3): CRG reconnaissance output not found.\n"
-                        f"  Expected: {recon_file} (non-empty)\n"
-                        "  Gate 4 config declares crg.reconnaissance: true — the CRG bridge\n"
-                        "  must be executed before finalize-gate to provide architecture-tier\n"
-                        "  evaluation context.\n"
-                        "  Run the CRG reconnaissance protocol, then re-run:\n"
-                        "    python harness_cli.py finalize-gate --gate 4 --phase 6 --project .",
-                        file=sys.stderr,
-                    )
-                    blocked = True
-                else:
-                    print(
-                        f"[Gate 4] B3: CRG recon output found "
-                        f"({recon_file.name}, {recon_file.stat().st_size} bytes) ✅",
-                        file=sys.stderr,
-                    )
-        except Exception as _b3exc:
-            print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
+                print(
+                    f"[Gate 4] B3: CRG recon output found "
+                    f"({recon_file.name}, {recon_file.stat().st_size} bytes) ✅",
+                    file=sys.stderr,
+                )
+    except Exception as _b3exc:
+        print(f"[Gate 4] B3: CRG recon check error ({_b3exc}) — skipping", file=sys.stderr)
 
     return blocked
 
@@ -1802,9 +1817,8 @@ def _record_undelivered_tests(
     """Put the declared-but-absent test names where the verdict can be re-read.
 
     Two destinations, for the two questions. The degradation ledger answers
-    "what did this run not deliver?" — the same question
-    `dimension_scope.record_dimension_scope` writes there for a switched-off
-    dimension, and the same shape. `args._spec_undelivered` carries the list
+    "what did this run not deliver?", in the shape every other recorder there
+    uses. `args._spec_undelivered` carries the list
     to the gate-result patch block so the committed artifact answers "what was
     this score computed over?" without counting a second time.
 

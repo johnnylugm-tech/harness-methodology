@@ -68,7 +68,7 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_print_constitution_result",
     ),
     "core.doctor": (
-        "run_doctor", "_check_dimension_scope_drift", "_check_ci_template_drift",
+        "run_doctor", "_check_ci_template_drift",
         "_check_submodule_behind", "_check_enforcer_provenance",
         "_check_phase_verdict_staleness", "_check_milestone_tree_matches_verdict",
         "_enforcer_shas_in", "_check_heartbeat", "_check_spawn_log_authenticity",

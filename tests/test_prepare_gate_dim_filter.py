@@ -1,22 +1,17 @@
-"""`prepare_gate` filters flag-disabled dimensions, and keeps the rest whole.
+"""`prepare_gate` hands the prompt the dimension list the YAML declares.
 
-Round 57 站0 / 站4 / 站6. Commit 22e2471 moved the feature-flag filter into
-`prepare_gate` so `evaluation_prompt()` stops advertising a dimension the
-orchestrator will not score — a real cost (a Gate 2 orchestrator spent its
-wall budget attempting mutation_testing for a project whose flag was false).
-It shipped with no test at all, and the guard has to exist before the next
-round can change anything near it.
+Round 57 站0/站4/站6 wrote this file for `22e2471`, which moved a feature-flag
+filter into `prepare_gate` so `evaluation_prompt()` would stop advertising a
+dimension the orchestrator was not going to score. Round 60 站2 retired the
+flags, so the filter has nothing to remove and is gone; what the file pins now
+is the other half, which was always the more important one:
 
-Two facts are pinned here, and they pull in opposite directions:
+    every field of every declared dimension reaches the prompt intact.
 
-* a disabled dimension must be **gone** from the config the prompt renders;
-* every other field of the surviving dimensions must be **intact**.
-
-The second is not decoration. `prepare_gate` used to rebuild `GateConfig`
-from a hand-written four-key dict (`name/tier/threshold/weight`) while
-`finalize_gate`'s `_s4_verifiable` selects on `tool` and
-`requires_tool_execution` — fields the YAML declares and nothing between the
-YAML and that selection carried. Measured at station 0::
+`prepare_gate` used to rebuild `GateConfig` from a hand-written four-key dict
+(`name/tier/threshold/weight`) while `finalize_gate`'s `_s4_verifiable` selects
+on `tool` and `requires_tool_execution` — fields the YAML declares and nothing
+between the YAML and that selection carried. Measured at Round 57 station 0::
 
     _load_config(1).dimensions[0] keys -> ['name','threshold','tier','weight']
     _s4_verifiable                     -> set()          (for every gate)
@@ -63,34 +58,28 @@ def _prepare(project: Path, gate_num: int):
     )
 
 
-def test_a_disabled_dimension_never_reaches_the_evaluation_prompt(
+def test_every_declared_dimension_reaches_the_evaluation_prompt(
     project_with_mutation_off,
 ):
-    ctx = _prepare(project_with_mutation_off, 2)
+    """No config can shrink the list — not even one still asking to.
 
-    names = [d.name for d in ctx.config.dimensions]
-    assert "mutation_testing" not in names, (
-        "the orchestrator reads evaluation_prompt() and attempts what it lists"
-    )
-    assert "mutation_testing" not in ctx.evaluation_prompt()
-    assert "test_coverage" in names, "only the disabled one goes"
-
-
-def test_the_disabled_dimension_stays_visible_to_the_ledger(
-    project_with_mutation_off,
-):
-    """Round 39 站2 must survive the filter.
-
-    `finalize_gate` derives `_disabled_dims` from `_DIM_TO_FEATURE` plus
-    harness_config, not from `ctx.config`, so removing the dimension from the
-    config does not hide the abstention. Pinned because the obvious next
-    refactor — deriving the disabled set from the config diff — would.
+    The fixture's project is the shape three corpus projects had on
+    2026-08-19: `features.mutation_testing: false`. run-gate refuses it
+    outright (tests/test_dimension_cannot_be_disabled.py); if something calls
+    `prepare_gate` directly anyway, the dimension is still there to be scored.
     """
-    from core.quality_gate.dimension_scope import disabled_dimensions
+    import yaml
 
-    assert disabled_dimensions(str(project_with_mutation_off)) == {
-        "mutation_testing": "mutation_testing"
-    }
+    from core.quality_gate.gate_thresholds import gate_config_path
+
+    ctx = _prepare(project_with_mutation_off, 2)
+    declared = [
+        d["name"]
+        for d in yaml.safe_load(
+            gate_config_path(2).read_text(encoding="utf-8"))["dimensions"]
+    ]
+    assert [d.name for d in ctx.config.dimensions] == declared
+    assert "mutation_testing" in ctx.evaluation_prompt()
 
 
 @pytest.mark.parametrize("gate_num", [1, 2, 3, 4])

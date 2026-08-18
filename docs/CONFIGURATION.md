@@ -17,7 +17,6 @@ that decides them.
 {
   "version": 1,
   "features": {
-    "mutation_testing": false,
     "cross_artifact_live_cov": false
   },
   "values": {
@@ -34,52 +33,35 @@ that decides them.
 
 | Key | Default | Effect |
 |---|---|---|
-| `mutation_testing` | `true` | Enables the mutation_testing gate dimension (mutmut / Stryker). Default flipped from `false` by 47ec3fd; set it `false` to opt out, and the harness drops the dimension and re-normalises the composite score. |
-| `phase4_llm_review` | `true` | Enables the adversarial_review dimension (Phase 4 LLM bug hunt). |
-| `crg_architecture` | `true` | Enables the CRG-backed architecture dimension. |
 | `cross_artifact_live_cov` | `false` | finalize-gate cross-artifact check re-runs live `pytest --cov` (up to ~120s) instead of reusing `.coverage` data. The `HARNESS_CROSS_ARTIFACT_COV` env var overrides this per invocation. |
 | `security_design` | **`true`** | Enables `core.quality_gate.security_design`'s structural completeness check of SAD.md §6 (STRIDE-lite threat model — see §6 below). **The one deliberate exception to "default = pre-existing behavior"** (Round 10 gap-analysis response). This flag is a mechanism kill-switch for emergency rollback, not a per-project opt-out — a project with no real attack surface should declare `applicability: none` + a justification *inside* the SEC block instead of disabling the flag, keeping the structural discipline (an honest, reviewed statement) rather than silently opting out. |
 
-Dimension flags are mapped by `core/harness_config.py::_DIM_TO_FEATURE` and
-consumed via `is_dim_disabled()`. `security_design` is NOT a gate dimension
-(no `_DIM_TO_FEATURE` entry) — it is a decidable preflight/CLI structural
-check, not a scored dimension (see §6).
+Neither key above is a gate dimension. No key in this file is: Round 60 站2
+retired the three that were (`mutation_testing`, `crg_architecture`,
+`phase4_llm_review`) — see below. `security_design` is a decidable
+preflight/CLI structural check, not a scored dimension (see §6).
 
-### Switching a dimension off leaves a record (Round 39 站2)
+### No dimension can be switched off (Round 60 站2)
 
-The three dimension flags above are the only settings in this file that can
-change a gate's verdict. Switching one off is legitimate — a project may
-genuinely have no mutmut or no code-review-graph — but it is never silent.
-Any code path that skips a dimension because of a flag **must** route through
-`core/quality_gate/dimension_scope.py`:
+`mutation_testing`, `crg_architecture` and `phase4_llm_review` each removed a
+dimension from the gate's list. They are **retired**
+(`core/harness_config.py::RETIRED_FEATURES`), and a config that still sets one
+to `false` is refused by `run-gate` with exit 39 — silently ignoring the key
+would leave a project believing a dimension was excluded while the gate scored
+it.
 
-```python
-from core.quality_gate.dimension_scope import record_dimension_scope
-record_dimension_scope(project, gate=gate_num)
-```
+Removing a dimension raised the composite (the mean is taken over what was
+scored) and the file that removed it is committed by the project being judged.
+Round 39 站2 made the switch visible; visibility was not the problem. A
+dimension is measured, or the gate blocks and the run routes to repair — a
+tool that cannot run here is an INFRA fact with a repair route (Round 32 站4),
+not a scoring exemption.
 
-That is an obligation on new skip sites, not a suggestion. Before it existed,
-a `false` would drop the dimension from scoring, make `crg-arch-check` return
-0 on the spot — turning CI's absolute architecture floor into an unconditional
-pass — and skip Gate 4's CRG-recon check, leaving exactly one `print()` behind.
-Nothing reached the degradation ledger, the quality manifest, the gate result
-or `gate_verify.jsonl`.
-
-What a skip now produces:
-
-| Where | What |
-|---|---|
-| `.methodology/degradation_ledger.jsonl` | one entry per skipped dimension, component `gate:dimension-disabled`, naming the flag |
-| `.methodology/gate_verify.jsonl` | `dimensions_disabled` on the verdict — written even when empty, so "nothing was disabled" is distinguishable from a record predating the field |
-| `.methodology/quality_manifest.json` | the same field on the gate result |
-| `harness_cli.py doctor` | WARNs when the current flags disagree with the set the latest verdict was measured over |
-
-`harness_config.json` is committed, so a flag applies to CI as well as to a
-local run — which is what makes it a *calibration* rather than a local
-exemption. The same property is why calibrating `crg_excludes` /
-`crg_cohesion_healthy` (§ below) is the only sanctioned answer to a CRG false
-positive: a waiver reached one enforcer, a committed setting reaches all of
-them.
+To restore a project that carried one of these keys: remove it, and let the
+dimension be scored. If its tool genuinely cannot finish in this environment,
+that is a budget problem to fix (`core/quality_gate/mutmut_scope.py`'s
+`scope_layers`, the Round 31 站3 cache resume, the Round 30 站5 wall-clock
+budget), not a dimension to drop.
 
 ## `values` — tunable parameters
 

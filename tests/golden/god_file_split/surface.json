@@ -514,7 +514,7 @@
     "cli.check_cmds::cmd_check_spec_alignment": "f6823fb3114e7b66",
     "cli.check_cmds::cmd_check_test_mirrors_spec": "6791fac7f19c8d6a",
     "cli.check_cmds::cmd_check_test_spec_consistency": "b0d38eda0acff0a9",
-    "cli.check_cmds::cmd_crg_arch_check": "d638746b262f45b9",
+    "cli.check_cmds::cmd_crg_arch_check": "c51797af4bb5a0c7",
     "cli.check_cmds::cmd_generate_verification_report": "29a22ee8c8814867",
     "cli.check_cmds::cmd_manifest": "9f3f036de12ef2d8",
     "cli.check_cmds::cmd_migrate_trace_overlay": "b65525cbb8402650",
@@ -530,7 +530,6 @@
     "cli.check_cmds::cmd_write_approval": "ea66ab4577f3ed4a",
     "core.doctor::_check_ci_template_drift": "100905544439a543",
     "core.doctor::_check_crash_bundles": "e6626ffc816e582a",
-    "core.doctor::_check_dimension_scope_drift": "7844fb1588ab3f88",
     "core.doctor::_check_enforcement_zombie_keys": "646303e3c9d66dbe",
     "core.doctor::_check_enforcer_provenance": "2a48b0f0f7d45d0b",
     "core.doctor::_check_gate1_evidence": "71da4982dd726d5c",
@@ -544,6 +543,6 @@
     "core.doctor::_check_testpaths_drift": "020b9d1e53eda76e",
     "core.doctor::_enforcer_shas_in": "91c22f1b7bc95364",
     "core.doctor::_phase_from_sentinel_name": "822801208daa956b",
-    "core.doctor::run_doctor": "7e353099680ea765"
+    "core.doctor::run_doctor": "43b0d7aed20a21a6"
   }
 }

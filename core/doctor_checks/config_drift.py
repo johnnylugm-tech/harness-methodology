@@ -1,10 +1,9 @@
 """doctor checks: settings that drifted from what reads them.
 
-Split out of core/doctor.py in R49-B. Four checks that ask the same question
-of four different files — whether a value the framework still reads matches
+Split out of core/doctor.py in R49-B. Three checks that ask the same question
+of three different files — whether a value the framework still reads matches
 the value something else has since changed:
 
-  dimension scope   the SSI dimension roster vs what the gate config scores
   enforcement keys  enforcement.json keys vs the ones any code still reads
   testpaths         pyproject's testpaths vs the suite the gate measures
   verify target     the Makefile recipe the one product-executing gate runs
@@ -24,41 +23,6 @@ from pathlib import Path
 
 from core.doctor_checks import Finding
 from core.utils.project_layout import ProjectLayout
-
-def _check_dimension_scope_drift(project: Path) -> list[Finding]:
-    """WARN when the dimensions in force differ from the last verdict's set.
-
-    Round 39 站2. A verdict in `.methodology/gate_verify.jsonl` records which
-    dimensions were disabled when it was produced. Turning one off (or back on)
-    afterwards does not invalidate the tree digest — the code did not change —
-    but it does mean the recorded PASS was measured against a different set of
-    rules than the ones now in force.
-
-    Silent when there is no verdict yet: that case is `advance-phase`'s BLOCK,
-    and repeating it here would only add noise to every fresh project.
-    """
-    from core.quality_gate.dimension_scope import disabled_dimensions
-    from core.quality_gate.gate_verify import read_verdicts
-
-    rows, err = read_verdicts(project)
-    if err or not rows:
-        return []
-    latest = rows[-1]
-    if "dimensions_disabled" not in latest:
-        return []  # recorded before the field existed — nothing to compare
-    recorded = sorted(latest.get("dimensions_disabled") or [])
-    current = sorted(disabled_dimensions(project))
-    if recorded == current:
-        return []
-    return [Finding(
-        "dimension-scope", "WARN",
-        f"gate {latest.get('gate')}'s recorded verdict was measured with "
-        f"dimensions_disabled={recorded}, but harness_config.json now says "
-        f"{current}. Fix: re-run `harness_cli.py verify-gate --gate "
-        f"{latest.get('gate')}` so the verdict and the configuration agree, "
-        f"or restore the feature flags the verdict was produced under.",
-    )]
-
 
 # hr_overrides + phase_truth: legacy fallbacks read by phase_truth_verifier
 # (migrated to harness_config values.phase_truth_* in Round 9 站3).

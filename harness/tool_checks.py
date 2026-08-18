@@ -149,11 +149,6 @@ def _walk_gate_tools(
     except (_yaml.YAMLError, OSError) as exc:
         return [], [f"gate config unreadable: {cfg_path.name} ({exc})"]
 
-    from harness.harness_bridge import filter_enabled_dimensions
-    cfg["dimensions"] = filter_enabled_dimensions(
-        cfg.get("dimensions", []), target_root
-    )
-
     rows: list[tuple[str, str | None, bool, str]] = []
     for dim in cfg.get("dimensions", []):
         dim_name = dim.get("name", "")

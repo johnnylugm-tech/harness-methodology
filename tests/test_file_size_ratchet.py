@@ -213,7 +213,7 @@ _LINE_CEILING: dict[str, int] = {
     # precondition and not a verdict on any NFR — the same file is required by
     # taskq-advance's NFR-07, whose enforcement is its own tests, and two
     # enforcers for one fact is the shape Round 38 had to undo.
-    "cli/gate_cmds.py": 2864,  # 2026-08-11: +89 lines — Bug B fix for P7 FR-09
+    "cli/gate_cmds.py": 2880,  # 2026-08-19: +16 — Round 60 站2: the run-gate precondition that refuses a config still switching a dimension off. Six lines are the block and its exit code; the rest is the comment recording why there is ONE enforcement point and why it is this one — run-gate is the entrance every gate passes through, and after the retirement the key changes nothing in the judgement, so finalize-gate needs no second copy (the Round 47 站3 asymmetry: run-gate PREPARES, finalize-gate JUDGES). Net of the Gate 4 B3 skip branch this round deleted (-9). Previous: 2864.  # 2026-08-11: +89 lines — Bug B fix for P7 FR-09
     # false-positive block: per-FR writer in _cmd_finalize_gate_impl grows
     # from ~10 lines to ~75 lines (fr_id consistency check + idempotency
     # guard that prevents a sub-agent from clobbering a sibling FR's per-FR

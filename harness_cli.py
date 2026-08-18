@@ -116,6 +116,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         record this phase does not contain the tree the phase's checks were
         measured on — the [BLOCKED] list names each file. Commit the listed
         work (or gitignore it, if it is generated at runtime) and re-run
+    39  run-gate: .methodology/harness_config.json still switches a dimension
+        off (features.<key>: false). No dimension can be excluded from a gate
+        any more — remove the named key; a tool that genuinely cannot run here
+        is an INFRA block with a repair route, not a scoring exemption
     70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
         code (see core/errors.py); not a project quality failure
     130 Interrupted (Ctrl-C)

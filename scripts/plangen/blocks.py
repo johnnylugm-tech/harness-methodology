@@ -54,10 +54,9 @@ _SPEC_COVERAGE_THRESHOLDS: dict = {2: 60.0, 3: 80.0, 4: 90.0}
 # 12 — Round 38 站1 had added architecture to gate 2 the day before and this
 # copy did not move with it.
 #
-# The feature-flag filtering that used to run over the *rendered strings*
-# ("mutation_testing(70)" had to be spelled exactly, threshold included, to be
-# removable) now runs over dimension names via core.harness_config's
-# _DIM_TO_FEATURE — the same mapping harness_bridge and dimension_scope read.
+# Round 60 站2: the feature-flag narrowing is gone with the flags. A plan asks
+# for every dimension the gate declares, because that is now the only set the
+# gate can judge.
 _GATE_NOTES: dict = {
     "traceability": "traceability: framework-owned, harness-computed",
     "adversarial_review": (
@@ -68,31 +67,22 @@ _GATE_NOTES: dict = {
 }
 
 
-def _build_gate_meta(features: "dict | None" = None) -> dict:
+def _build_gate_meta() -> dict:
     """``{gate: (score_gate, dim_count, prose)}`` read from the gate configs.
 
-    *features* is a project's `harness_config.json` feature block; dimensions
-    its flags switch off are dropped from both the prose and the count, so a
-    plan never asks for a dimension the gate will not score. Passing None
-    renders the framework's full declared set.
+    Every dimension the gate declares, because no project can switch one off
+    (Round 60 站2). The parameter that used to narrow this by a project's
+    feature flags is gone with them.
     """
-    from core.harness_config import _DEFAULTS, _DIM_TO_FEATURE
     from core.quality_gate.gate_thresholds import (
         GATE_CONFIG_NAMES,
         load_gate_dimensions,
         load_score_gate,
     )
 
-    def _enabled(name: str) -> bool:
-        key = _DIM_TO_FEATURE.get(name)
-        if key is None or features is None:
-            return True
-        return bool(features.get(key, _DEFAULTS[key]))
-
     result: dict = {}
     for gate_num in sorted(GATE_CONFIG_NAMES):
-        dims = [d for d in load_gate_dimensions(gate_num)
-                if _enabled(str(d["name"]))]
+        dims = list(load_gate_dimensions(gate_num))
         names = [str(d["name"]) for d in dims]
         prose = " · ".join(
             f"{d['name']}({float(d['threshold']):g})" for d in dims)
@@ -110,8 +100,7 @@ def _build_gate_meta(features: "dict | None" = None) -> dict:
     return result
 
 
-# The framework's declared gate table — every project's plan starts here and
-# `_build_gate_meta(features)` narrows it to what that project has switched on.
+# The framework's declared gate table — every project's plan is this table.
 _GATE_META: dict = _build_gate_meta()
 
 # A/B agent roles per phase: (Agent-A role, Agent-B role, task hint)

@@ -23,34 +23,32 @@ pytestmark = [pytest.mark.mutation_oracle, pytest.mark.core]
 class TestLoadHarnessConfig:
     def test_missing_file_returns_defaults(self, tmp_path):
         cfg = load_harness_config(tmp_path)
-        assert cfg["mutation_testing"] is True
-        assert cfg["crg_architecture"] is True
-        assert cfg["phase4_llm_review"] is True
+        assert cfg["security_design"] is True
+        assert cfg["cross_artifact_live_cov"] is False
 
     def test_valid_file_overrides_defaults(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"crg_architecture": False}})
+            json.dumps({"version": 1, "features": {"security_design": False}})
         )
         cfg = load_harness_config(tmp_path)
-        assert cfg["crg_architecture"] is False
-        assert cfg["mutation_testing"] is True  # default intact
-        assert cfg["phase4_llm_review"] is True  # default intact
+        assert cfg["security_design"] is False
+        assert cfg["cross_artifact_live_cov"] is False  # default intact
 
     def test_malformed_json_returns_defaults(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text("not json{{{")
         cfg = load_harness_config(tmp_path)
-        assert cfg["mutation_testing"] is True
-        assert cfg["crg_architecture"] is True
+        assert cfg["security_design"] is True
+        assert cfg["cross_artifact_live_cov"] is False
 
     def test_unknown_keys_ignored(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"future_flag": True, "crg_architecture": False}})
+            json.dumps({"version": 1, "features": {"future_flag": True, "security_design": False}})
         )
         cfg = load_harness_config(tmp_path)
-        assert cfg["crg_architecture"] is False
+        assert cfg["cross_artifact_live_cov"] is False
         assert "future_flag" not in cfg
 
 
@@ -104,15 +102,13 @@ class TestGetCrgSettings:
         features dict returned by load_harness_config."""
         self._write(tmp_path, {
             "version": 1,
-            "features": {"crg_architecture": False},
+            "features": {"security_design": False},
             "crg_cohesion_healthy": 0.2,
             "crg_excludes": [".claude/*"],
         })
         cfg = load_harness_config(tmp_path)
-        assert set(cfg) == {"mutation_testing", "phase4_llm_review",
-                            "crg_architecture", "cross_artifact_live_cov",
-                            "security_design"}
-        assert cfg["crg_architecture"] is False
+        assert set(cfg) == {"cross_artifact_live_cov", "security_design"}
+        assert cfg["security_design"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -120,27 +116,33 @@ class TestGetCrgSettings:
 # ---------------------------------------------------------------------------
 
 class TestGetFeature:
-    def test_mutation_testing_default_true(self, tmp_path):
-        assert get_feature(tmp_path, "mutation_testing") is True
+    def test_security_design_default_true(self, tmp_path):
+        assert get_feature(tmp_path, "security_design") is True
 
-    def test_crg_architecture_default_true(self, tmp_path):
-        assert get_feature(tmp_path, "crg_architecture") is True
+    def test_cross_artifact_live_cov_default_false(self, tmp_path):
+        assert get_feature(tmp_path, "cross_artifact_live_cov") is False
 
-    def test_phase4_llm_review_default_true(self, tmp_path):
-        assert get_feature(tmp_path, "phase4_llm_review") is True
+    def test_a_retired_flag_reads_as_nothing(self, tmp_path):
+        """Round 60 站2: the name is a tombstone, not a flag with a default.
+
+        `run-gate` refuses a config that still sets one to false
+        (tests/test_dimension_cannot_be_disabled.py); what this pins is that
+        no code path can read one back as True and act on it.
+        """
+        from core.harness_config import RETIRED_FEATURES
+
+        for key in RETIRED_FEATURES:
+            assert get_feature(tmp_path, key) is None
 
     def test_file_overrides_default(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
         (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"phase4_llm_review": False}})
+            json.dumps({"version": 1, "features": {"security_design": False}})
         )
-        assert get_feature(tmp_path, "phase4_llm_review") is False
+        assert get_feature(tmp_path, "security_design") is False
 
     def test_unknown_key_returns_none(self, tmp_path):
         assert get_feature(tmp_path, "nonexistent_flag") is None
-
-    def test_security_design_default_true(self, tmp_path):
-        assert get_feature(tmp_path, "security_design") is True
 
     def test_security_design_file_disables(self, tmp_path):
         (tmp_path / ".methodology").mkdir()
@@ -172,107 +174,6 @@ class TestMutmutAdvancePhaseRemoved:
 
 # ---------------------------------------------------------------------------
 # TestPhase4LLMReview
-# ---------------------------------------------------------------------------
-
-class TestPhase4LLMReview:
-    def test_adversarial_review_skipped_when_disabled(self, tmp_path):
-        """When phase4_llm_review=False, _override_adversarial_review_dim_score exits early."""
-        (tmp_path / ".methodology").mkdir()
-        (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"phase4_llm_review": False}})
-        )
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("adversarial_review", str(tmp_path)) is True
-
-    def test_adversarial_review_enabled_by_default(self, tmp_path):
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("adversarial_review", str(tmp_path)) is False
-
-
-# ---------------------------------------------------------------------------
-# TestCRGArchitecture
-# ---------------------------------------------------------------------------
-
-class TestCRGArchitecture:
-    def test_architecture_dim_disabled_when_flag_off(self, tmp_path):
-        (tmp_path / ".methodology").mkdir()
-        (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"crg_architecture": False}})
-        )
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("architecture", str(tmp_path)) is True
-
-    def test_architecture_enabled_by_default(self, tmp_path):
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("architecture", str(tmp_path)) is False
-
-
-# ---------------------------------------------------------------------------
-# TestDimFiltering
-# ---------------------------------------------------------------------------
-
-class TestDimFiltering:
-    def test_is_dim_disabled_unknown_dim_returns_false(self, tmp_path):
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("linting", str(tmp_path)) is False
-        assert is_dim_disabled("security", str(tmp_path)) is False
-
-    def test_mutation_testing_dim_disabled_when_flag_off(self, tmp_path):
-        (tmp_path / ".methodology").mkdir()
-        (tmp_path / ".methodology" / "harness_config.json").write_text(
-            json.dumps({"version": 1, "features": {"mutation_testing": False}})
-        )
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("mutation_testing", str(tmp_path)) is True
-
-    def test_mutation_testing_dim_enabled_by_default(self, tmp_path):
-        # default: mutation_testing=True → dim IS NOT disabled
-        from core.harness_config import is_dim_disabled
-        assert is_dim_disabled("mutation_testing", str(tmp_path)) is False
-
-
-# ---------------------------------------------------------------------------
-# TestBuildGateMeta
-# ---------------------------------------------------------------------------
-
-class TestBuildGateMeta:
-    def _features(self, **overrides):
-        base = {"mutation_testing": True, "crg_architecture": True, "phase4_llm_review": True}
-        return {**base, **overrides}
-
-    def test_mutation_testing_disabled_removes_dim_from_gates(self):
-        from scripts.generate_full_plan import _build_gate_meta
-        meta = _build_gate_meta(self._features(mutation_testing=False))
-        # Gate 2 originally has mutation_testing(70)
-        assert "mutation_testing(70)" not in meta[2][2]
-        # Dim count decremented
-        from scripts.generate_full_plan import _GATE_META
-        assert meta[2][1] == _GATE_META[2][1] - 1
-
-    def test_crg_disabled_removes_architecture_and_crg_note(self):
-        from scripts.generate_full_plan import _build_gate_meta, _GATE_META
-        meta = _build_gate_meta(self._features(crg_architecture=False))
-        assert "architecture(80)" not in meta[3][2]
-        assert "CRG recon inside run-gate" not in meta[3][2]
-        assert meta[3][1] == _GATE_META[3][1] - 1
-
-    def test_phase4_llm_review_disabled_removes_adversarial_review(self):
-        from scripts.generate_full_plan import _build_gate_meta, _GATE_META
-        meta = _build_gate_meta(self._features(phase4_llm_review=False))
-        assert "adversarial_review(100)" not in meta[3][2]
-        assert "bug_hunt_report.json" not in meta[3][2]
-        assert meta[3][1] == _GATE_META[3][1] - 1
-
-    def test_all_defaults_preserves_original(self):
-        from scripts.generate_full_plan import _build_gate_meta, _GATE_META
-        # mutation_testing=False by default, so gate meta differs from _GATE_META by that
-        meta = _build_gate_meta({"mutation_testing": True, "crg_architecture": True, "phase4_llm_review": True})
-        for gate_num in (1, 2, 3, 4):
-            assert meta[gate_num] == _GATE_META[gate_num]
-
-
-# ---------------------------------------------------------------------------
-# TestStallTimeouts — Improvement B (centralize stall thresholds)
 # ---------------------------------------------------------------------------
 
 class TestStallTimeouts:
@@ -397,7 +298,7 @@ class TestUnknownKeyWarn:
         import core.harness_config as hc
         hc._warned_unknown.clear()
         _write_cfg(tmp_path, {"version": 1,
-                              "features": {"crg_architecture": False},
+                              "features": {"security_design": False},
                               "values": {"drift_threshold": 70.0},
                               "crg_cohesion_healthy": 0.2,
                               "crg_excludes": []})

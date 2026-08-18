@@ -392,9 +392,7 @@ _GATE2_STEPS = [
     (
         "2. G2b: Evaluate ALL Gate 2 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate2_result.json.\\n"
         "   Dims: use the exact `dimensions:` list G2a just printed (it is computed from gate2_p3_exit.yaml, filtered by enabled feature flags — always current, do NOT hand-copy a dim list here).\\n"
-        f"{S.render_mutation_flag_note()}"
         f"{S.render_framework_owned_note(2)}"
-        f"{S.render_excluded_dims_rule()}"
         "   For any failing dim: fix the ROOT CAUSE in code (ruff/pyright/add tests/bandit/mutation), re-run the tool, update the score. (No auto-fix engine.)"
     ),
     (

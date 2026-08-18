@@ -27,7 +27,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, cast
 from core.harness_config import get_value as _get_value
-from core.harness_config import load_harness_config as _load_harness_config
 from core.phase_topology import (
     VALID_PHASES,
     phase_name,
@@ -126,7 +125,7 @@ def generate_full_plan(phase: int, repo_path: Path, output_path: Optional[Path] 
     a phase that is already underway. Returns the existing content unchanged in
     that case.
     """
-    gate_meta = _build_gate_meta(_load_harness_config(repo_path))
+    gate_meta = _build_gate_meta()
     max_fix_rounds = _get_value(repo_path, "max_fix_rounds")
 
     if output_path and output_path.exists() and not force:

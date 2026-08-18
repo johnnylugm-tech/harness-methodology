@@ -19,7 +19,6 @@ from pathlib import Path
 
 from core.doctor_checks import Finding
 from core.doctor_checks.config_drift import (
-    _check_dimension_scope_drift,
     _check_enforcement_zombie_keys,
     _check_testpaths_drift,
     _check_verify_target_recipe,
@@ -224,7 +223,6 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # different set of dimensions than the one in force. WARN, not ERROR: the
     # missing-verdict case is already advance-phase's BLOCK, and doctor does
     # not re-litigate it.
-    findings.extend(_check_dimension_scope_drift(project))
 
     # 14. The deployed CI workflow vs the template this harness ships
     # (Round 40 站1). Offline, cross-file, at-rest — the same shape as

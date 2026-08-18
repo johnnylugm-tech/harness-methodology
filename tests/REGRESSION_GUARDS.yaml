@@ -242,10 +242,6 @@
   bug: "documented-default drift (Round 36). Check A next to it asks whether a registry key HAS a row in docs/CONFIGURATION.md and never reads the Default column, so 47ec3fd could flip _DEFAULTS['mutation_testing'] False -> True while the operator-facing registry kept saying `false` — and both meta-tests stayed green. One key out of thirteen was wrong at the moment this check was written, which is the whole cost of the check. test_doc_row_scanner_actually_parses_the_tables is the negative control: a regex that silently matched nothing would have passed this for any document, including an empty one"
   fixed_in: "Round 36 站0 (Default-column parity + parse negative control)"
 
-- test: tests/test_workflowgen.py::TestFeatureFlagProse::test_note_states_the_live_default
-  bug: "prose-that-acts drift (Round 36). The Gate 2/3/4 NOTE told every orchestrator sub-agent that mutation_testing is 'disabled by default (mutation_testing=false)' for three days after the loader default became True — an instruction to write the opposite of the truth into a project's harness_config.json, in a byte-identical string living in three spec modules and fanning out to four shipped JS files and four goldens. spec_shared.render_mutation_flag_note() derives it from _DEFAULTS so the sentence cannot go stale; test_no_spec_module_hand_writes_the_flag_default keeps a fourth site from reintroducing a literal, and test_the_exempt_module_is_the_one_that_renders_it stops that exemption from outliving the renderer"
-  fixed_in: "Round 36 站1 (render-from-SSOT + completeness pair)"
-
 - test: tests/test_workflow_js_conventions.py::test_no_banned_runtime_constructs
   bug: "playbook §4 runtime-constraint regression class: scripts/workflowgen/ generating a construct the Claude Code Workflow runtime hard-rejects (import()/require()/fs.*/path.*/process.*/Date.now()/Math.random()/argless new Date()/inline schema object) would only surface as a hard failure at workflow launch time in integration-test — far downstream of this repo's own CI feedback loop"
   fixed_in: "Round 11 站5 (js_lint.py comment/string-aware scanner + conventions test)"
@@ -1333,26 +1329,6 @@
   bug: "a registry that a later round can silently extend is not a record of what was removed"
   fixed_in: "R39-站0"
 
-- test: tests/test_dimension_disable_is_recorded.py::test_a_disabled_dimension_is_recorded_not_just_printed
-  bug: "setting crg_architecture/mutation_testing/phase4_llm_review false dropped the dimension from scoring, made cmd_crg_arch_check return 0 on the spot (CI's absolute architecture floor became an unconditional pass) and skipped Gate 4's B3 CRG-recon check — leaving exactly one print(). A committed boolean could change the verdict while the verdict showed no sign of it"
-  fixed_in: "R39-站2 (core/quality_gate/dimension_scope.py records every skip in the degradation ledger; the switch stays, its invisibility does not — R38-DEFER-1)"
-
-- test: tests/test_dimension_disable_is_recorded.py::test_the_verdict_carries_the_dimensions_it_was_measured_over
-  bug: "R37 made a verdict carry the tree it was measured on and R38 站4 wrote that into gate_verify.jsonl; the dimension set was still implicit, so a PASS could not be told apart from a PASS over a smaller set"
-  fixed_in: "R39-站2 (dimensions_disabled travels in the verdict record and the quality manifest — the denominator travels with the number)"
-
-- test: tests/test_dimension_disable_is_recorded.py::test_a_fully_enabled_verdict_records_an_empty_set
-  bug: "an absent field cannot be told apart from 'nothing was disabled'; without writing the empty set, every verdict predating the field would read as fully-measured"
-  fixed_in: "R39-站2"
-
-- test: tests/test_dimension_disable_is_recorded.py::test_crg_arch_check_records_its_own_skip
-  bug: "the CI job is the enforcer that a disabled dimension silences most completely — it returns 0 and prints one line into a log nobody diffs"
-  fixed_in: "R39-站2"
-
-- test: tests/test_dimension_disable_is_recorded.py::test_the_map_is_the_one_in_harness_config
-  bug: "plangen/blocks.py carried a hand-written mirror of _DIM_TO_FEATURE, which is how a dimension ends up disabled in the plan and enabled in the gate"
-  fixed_in: "R39-站2 (dimension_scope reads core.harness_config._DIM_TO_FEATURE; R39-站3 made plangen read it too)"
-
 - test: tests/test_gate_dimension_prose_parity.py::test_prose_dimension_count_matches_the_gate_config
   bug: "the prompts told agents how many dimensions they would be judged on and every count was wrong — phase3 said 9 against 12, phase4 said 15 against 16, phase6 said 14 against 15. Round 38 站1 had added architecture to gate 2 the day before and no copy moved with it"
   fixed_in: "R39-站3 (spec_shared.render_gate_dims_summary / gate_dim_count read harness/gate_configs/*.yaml — R38-DEFER-2)"
@@ -1572,10 +1548,6 @@
 - test: tests/test_composite_carries_its_denominator.py::test_a_dimension_that_could_not_be_measured_leaves_the_denominator_too
   bug: "Round 35 keeps a could-not-measure from being scored zero; nothing kept it from being invisible"
   fixed_in: "R42-站4b"
-
-- test: tests/test_composite_carries_its_denominator.py::test_disabling_a_dimension_cannot_hide_inside_the_number
-  bug: "renew's own dimension scores with plus's config give 94.328 against its real 93.166 — measuring less raised the score by 1.16, and no artifact recorded which of the two a reader was looking at"
-  fixed_in: "R42-站4b (no verdict changes; the scope is what tells the two numbers apart)"
 
 - test: tests/test_single_file_community.py::test_a_community_that_is_one_file_names_that_file
   bug: "taskq-renew's storage-load-sub1/sub2 are Leiden splitting one file's internals (task_store.py, 12,575 bytes — LARGER than taskq-plus's 4,608, five files in storage/ on both sides), and three of the gate's four printed remedies assume a community is a set of modules. Calibration was the only executable one left after R38 removed the waiver"
@@ -2601,14 +2573,6 @@
 - test: tests/test_fr_scope_single_resolver.py::test_the_two_resolvers_agree_on_the_corpus_shape
   bug: "the positive control for the replacement: the ordinary pkg.mod shape, which is what all seven corpus projects use, must keep resolving to exactly the file it resolves to today"
   fixed_in: "R57-站2 (61 per-FR values recomputed before and after: zero differences)"
-
-- test: tests/test_prepare_gate_dim_filter.py::test_a_disabled_dimension_never_reaches_the_evaluation_prompt
-  bug: "22e2471 moved the feature-flag filter into prepare_gate — a real fix (a Gate 2 orchestrator burned its wall budget attempting mutation_testing for a project whose flag was false) that shipped with no test at all"
-  fixed_in: "R57-站4"
-
-- test: tests/test_prepare_gate_dim_filter.py::test_the_disabled_dimension_stays_visible_to_the_ledger
-  bug: "Round 39 站2 must survive the filter. _disabled_dims is derived from _DIM_TO_FEATURE plus harness_config rather than from ctx.config, so removing the dimension from the config does not hide the abstention — pinned because the obvious next refactor would"
-  fixed_in: "R57-站4"
 
 - test: tests/test_prepare_gate_dim_filter.py::test_the_config_carries_the_fields_the_verdict_selects_on
   bug: "GateConfig.from_dict dropped the YAML's `tool` and `requires_tool_execution`, to_dict never restored them, and prepare_gate rebuilt the config from a hand-written four-key dict"

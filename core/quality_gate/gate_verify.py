@@ -86,12 +86,6 @@ def record_verdict(
     """
     project = Path(project)
     now = time.time()
-    # Round 39 站2: the dimension set travels with the verdict, for the same
-    # reason the tree digest does — a PASS that hides what it skipped is a
-    # PASS a later reader cannot re-derive. Recorded even when empty, so
-    # "nothing was skipped" is distinguishable from "this record predates the
-    # field".
-    from core.quality_gate.dimension_scope import record_dimension_scope
     record = {
         # Round 24: one time base, both forms — epoch for arithmetic, ISO for
         # a human reading the file.
@@ -106,7 +100,6 @@ def record_verdict(
         # the fact — `advance-phase` is where it becomes a refusal, because
         # that is where a commit starts claiming to be the phase.
         "head_tree_sha256": committed_tree_digest(project),
-        "dimensions_disabled": record_dimension_scope(project, gate=gate),
         "checks": dict(checks),
         "verdict": verdict,
     }

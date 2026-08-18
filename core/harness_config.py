@@ -55,9 +55,6 @@ from pathlib import Path
 from typing import Any
 
 _DEFAULTS: dict[str, Any] = {
-    "mutation_testing": True,
-    "phase4_llm_review": True,
-    "crg_architecture": True,
     # Round 9: promoted from the HARNESS_CROSS_ARTIFACT_COV env var (which
     # still wins when set, for per-invocation override) — run live pytest
     # --cov during finalize-gate cross-artifact checks instead of reusing
@@ -74,14 +71,47 @@ _DEFAULTS: dict[str, Any] = {
     "security_design": True,
 }
 
-# Dimension name → harness_config.json feature key.
-# Single source of truth for the mapping; imported by harness_bridge,
-# harness_cli, and generate_full_plan.  Keep in sync with _DEFAULTS.
-_DIM_TO_FEATURE: dict[str, str] = {
-    "mutation_testing": "mutation_testing",
-    "architecture": "crg_architecture",
-    "adversarial_review": "phase4_llm_review",
-}
+# Round 60 站2 — the three flags that could take a dimension out of the
+# judgement, and the tombstone that replaces them.
+#
+# `mutation_testing`, `crg_architecture` (the `architecture` dimension) and
+# `phase4_llm_review` (`adversarial_review`) each removed a dimension from the
+# gate's dimension list. Nothing else rode on them: a repository-wide scan
+# found no use outside that one dimension's own enforcement chain.
+#
+# Removing a dimension RAISES the composite (the mean is taken over what was
+# scored), and the file that removes it — `.methodology/harness_config.json` —
+# is committed by the project being judged. Round 39 站2 made the switch
+# visible; visibility was not the problem. Measured across the eight corpus
+# projects on 2026-08-19: three carried `mutation_testing: false`, and the
+# prompt rule written to explain that state to the Gate 2 orchestrator
+# (`f4be095`) had to invent the project's motive because the framework has no
+# field recording one.
+#
+# A dimension is measured, or the gate blocks and the run routes to repair. A
+# tool that cannot run is an INFRA fact (Round 32 站4), never a quiet
+# subtraction from the denominator.
+#
+# The names are tombstoned rather than forgotten: silently ignoring
+# `mutation_testing: false` would leave a project believing it had switched
+# something off. Same discipline as EX_RETIRED_CONSTITUTION_GATE — the name
+# is not reused, and its presence is reported.
+RETIRED_FEATURES: frozenset[str] = frozenset({
+    "mutation_testing", "crg_architecture", "phase4_llm_review",
+})
+
+
+def retired_disabling_keys(features: "dict | None") -> list[str]:
+    """Sorted retired keys in *features* that ask for a dimension to be off.
+
+    A retired key set to ``true`` asks for nothing that is not already the
+    rule, so it is left to the existing unknown-key WARN; blocking on it would
+    refuse a config that agrees with us. Pure, so the block and its test share
+    no seam.
+    """
+    if not isinstance(features, dict):
+        return []
+    return sorted(k for k in RETIRED_FEATURES if k in features and not features[k])
 
 
 # Top-level keys the schema knows. Anything else in the file is a typo or
@@ -326,19 +356,6 @@ def get_crg_settings(project: "str | Path") -> dict:
     if isinstance(excludes, list):
         settings["excludes"] = [e for e in excludes if isinstance(e, str)]
     return settings
-
-
-def is_dim_disabled(dim_name: str, project_root: "str | Path") -> bool:
-    """True when this dimension's feature flag is disabled.
-
-    Looks up the dimension name in ``_DIM_TO_FEATURE`` to find its
-    feature-flag key, then checks ``get_feature()``.  Dimensions with
-    no mapping are never disabled (returns False).
-    """
-    feat = _DIM_TO_FEATURE.get(dim_name)
-    if feat is None:
-        return False
-    return not get_feature(project_root, feat)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
