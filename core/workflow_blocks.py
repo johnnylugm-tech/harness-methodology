@@ -109,8 +109,19 @@ def record_block(
     # it in the workflow's Phase Cursor instead would cost a dispatch on every
     # run, in a sandbox with no filesystem, to learn something only the ledger
     # knows — and would learn it on the runs where nothing is wrong.
+    # Round 64 站3 — a recurrence stays one until the block is resolved again.
+    #
+    # This read used to ask only whether the PRIOR row was resolved, and every
+    # reader (open_blocks, the doctor check, run-report) takes the last row per
+    # signature. So recording the same halt twice made the second row its own
+    # predecessor's answer: a block that had come back after a repair reported
+    # itself as a first sighting, doctor's ERROR fell to a WARN, and
+    # run-report's "<- RETURNED AFTER A REPAIR" disappeared. Not hypothetical
+    # since 6e7942e removed the clause telling the agent not to retry a
+    # record-block it could not confirm.
     prior = _latest_by_signature(read_blocks(project)).get(signature)
-    recurred = bool(prior and prior.get("resolved"))
+    recurred = bool(prior and (prior.get("resolved")
+                               or prior.get("recurred_after_resolution")))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -126,7 +137,12 @@ def record_block(
         "recurred_after_resolution": recurred,
     }
     if recurred and prior is not None:
-        entry["previous_resolution"] = str(prior.get("resolution", ""))[:400]
+        # The repair that did not hold is named on the row that closed the
+        # block; a second record of the same recurrence has to carry it
+        # forward, or the message below points at nothing.
+        entry["previous_resolution"] = str(
+            prior.get("resolution") or prior.get("previous_resolution", "")
+        )[:400]
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     print(

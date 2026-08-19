@@ -184,6 +184,10 @@ def test_a_recurrence_survives_a_second_record_of_the_same_block(project):
     assert read_blocks(project)[-1]["recurred_after_resolution"] is True, (
         "the second record of a returned block reported it as a first sighting"
     )
+    assert "0123abc" in read_blocks(project)[-1]["previous_resolution"], (
+        "the repair that did not hold is no longer named, so the warning "
+        "points at nothing"
+    )
     assert open_blocks(project)[0]["recurred_after_resolution"] is True, (
         "every reader takes the latest row, so the recurrence is now invisible "
         "to doctor and run-report"
