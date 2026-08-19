@@ -638,9 +638,13 @@
   bug: "the workflow substrate's agent() dispatches never reached sessions_spawn.log — 42 entries all from phase 3, so run-report's failure rate was a P3/P4 number presented as the run's"
   fixed_in: "10f7a46"
 
-- test: tests/test_workflow_js_conventions.py::test_the_wrapper_records_before_it_rethrows
-  bug: "a dead sub-agent cannot log itself; if the wrapper's catch block stops recording, failed dispatches vanish from the population again"
-  fixed_in: "10f7a46"
+- test: tests/test_workflow_js_conventions.py::test_the_wrapper_is_a_thin_pass_through
+  bug: "the dispatch wrapper had grown a per-dispatch telemetry buffer that rode along on the next prompt; dispatch() must remain a single-line pass-through"
+  fixed_in: "6e7942e"
+
+- test: tests/test_workflow_js_conventions.py::test_record_block_is_an_accountable_dispatch
+  bug: "recordBlock fired its dispatch and discarded the result, so repair_workflow was unreachable from run-all.js and the prompt instructed the agent to suppress retries"
+  fixed_in: "6e7942e"
 
 - test: tests/test_anti_fabrication.py::TestAgentNullIsNotFree::test_only_a_framework_verified_na_passes_vacuously
   bug: "an agent-authored `score: null` was waved through by five layers at once — S4 skipped it, the weighted average dropped it from the denominator (raising the composite), and _all_dims_pass treated it as vacuously satisfying its own floor; the evidence for it read 'dimension N/A per protocol (not free 100)', i.e. the agent knew a claimed score gets cross-validated and picked the door that did not"
