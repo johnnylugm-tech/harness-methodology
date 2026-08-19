@@ -1624,12 +1624,12 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
     + '- ONLY run the commands above, fix preflight issues, and report.',
     { label: 'preflight-' + attempt, phase: 'P2 · Entry & Preflight', agentType: 'general-purpose' },
   )
-  preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
-  if (preflightPass) break
-}
 if (preflightReport === null || preflightReport === undefined || preflightReport === '' || typeof preflightReport !== 'string') {
   log('  preflight agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'preflight', message: 'Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.' }
+}
+  preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
+  if (preflightPass) break
 }
 if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })
 
@@ -1856,12 +1856,12 @@ for (let attempt = 1; attempt <= 5; attempt++) {
     + 'SCOPE RULES:\n- DO NOT run advance-phase/push/run-gate.\n- ONLY check-constitution + edit P2 deliverables to fix.',
     { label: 'constitution-' + attempt, phase: 'P2 · Constitution Check', agentType: 'general-purpose' },
   )
-  constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
-  if (constPass) break
-}
 if (constReport === null || constReport === undefined || constReport === '' || typeof constReport !== 'string') {
   log('  constitution agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'constitution', message: 'Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.' }
+}
+  constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
+  if (constPass) break
 }
 if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })
 
@@ -1983,12 +1983,12 @@ for (let attempt = 1; attempt <= 5; attempt++) {
     + 'SCOPE RULES:\n- DO NOT re-do any P2 deliverable.\n- DO NOT run advance-phase here.\n- DO NOT use --no-verify.\n- ONLY push + verify HANDOVER.md.',
     { label: 'push-' + attempt, phase: 'P2 · Push', agentType: 'general-purpose' },
   )
-  pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
-  if (pushOk) break
-}
 if (pushReport === null || pushReport === undefined || pushReport === '' || typeof pushReport !== 'string') {
   log('  push-checkpoint agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'push-checkpoint', message: 'Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.' }
+}
+  pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
+  if (pushOk) break
 }
 if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })
 

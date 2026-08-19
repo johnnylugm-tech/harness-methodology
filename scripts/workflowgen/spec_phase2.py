@@ -106,13 +106,13 @@ def _render_phase2_entry_preflight() -> str:
         + "    + '- ONLY run the commands above, fix preflight issues, and report.',\n"
         + "    { label: 'preflight-' + attempt, phase: 'Entry & Preflight', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\\s*PASS/.test(preflightReport)\n"
-        + "  if (preflightPass) break\n"
-        + "}\n"
         + S.render_session_block_guard(
             'preflightReport', 'preflight', 2,
             message='Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.',
         )
+        + "  preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\\s*PASS/.test(preflightReport)\n"
+        + "  if (preflightPass) break\n"
+        + "}\n"
         + "if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })\n"
     )
 
@@ -365,13 +365,13 @@ def _render_phase2_constitution_check() -> str:
         + "    + 'SCOPE RULES:\\n- DO NOT run advance-phase/push/run-gate.\\n- ONLY check-constitution + edit P2 deliverables to fix.',\n"
         + "    { label: 'constitution-' + attempt, phase: 'Constitution Check', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  constPass = typeof constReport === 'string' && /CONSTITUTION:\\s*PASS/.test(constReport)\n"
-        + "  if (constPass) break\n"
-        + "}\n"
         + S.render_session_block_guard(
             'constReport', 'constitution', 2,
             message='Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.',
         )
+        + "  constPass = typeof constReport === 'string' && /CONSTITUTION:\\s*PASS/.test(constReport)\n"
+        + "  if (constPass) break\n"
+        + "}\n"
         + "if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })\n"
         + "\n"
         + "// T1-B audit fix: re-run check-artifact-consistency AFTER SAB Generation.\n"
@@ -518,13 +518,13 @@ def _render_phase2_push() -> str:
         + "    + 'SCOPE RULES:\\n- DO NOT re-do any P2 deliverable.\\n- DO NOT run advance-phase here.\\n- DO NOT use --no-verify.\\n- ONLY push + verify HANDOVER.md.',\n"
         + "    { label: 'push-' + attempt, phase: 'Push', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  pushOk = typeof pushReport === 'string' && /PUSH:\\s*PASS/.test(pushReport)\n"
-        + "  if (pushOk) break\n"
-        + "}\n"
         + S.render_session_block_guard(
             'pushReport', 'push-checkpoint', 2,
             message='Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.',
         )
+        + "  pushOk = typeof pushReport === 'string' && /PUSH:\\s*PASS/.test(pushReport)\n"
+        + "  if (pushOk) break\n"
+        + "}\n"
         + "if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })\n"
     )
 

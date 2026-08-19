@@ -281,6 +281,14 @@ def render_session_block_guard(
     non-empty string (e.g. `SAB: PASS`, 9 chars) falls through to the next
     halt() check, which reads the sub-agent's PASS/FAIL verdict via regex.
 
+    Place it immediately after the dispatch it guards — INSIDE any retry
+    loop, not after the loop's closing brace. Round 64 站2: Phase 2's
+    preflight (3 attempts), constitution (5) and push-checkpoint (5) had it
+    outside, so a quota cap on the first attempt kept dispatching into the
+    wall for 2 and 4 more turns while the log line it prints already said
+    "aborting retries". phase6, phase8 and the gate loop return or break
+    from inside, which is the shape this helper assumes.
+
     `extra_fields` is rendered inside the returned object literal so sites
     that need to carry more (Phase 3's `fr_id` + `gate1Pass`) keep their
     payload shape. `message` is the human-readable text shown by the
