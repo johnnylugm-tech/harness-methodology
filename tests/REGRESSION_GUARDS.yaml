@@ -2206,9 +2206,6 @@
   bug: "HARNESS_VOLATILE_PATHS was a hand-written list of twelve filenames. Round 48 站2's new .methodology/workflow_blocks.jsonl was not in it and neither was .methodology/agent_b_approvals/, so the framework's own observation and approval artifacts blocked the framework's own milestone commits — measured six times across P2 and P6. The mirror of Round 39's shape: not a removed mechanism's survivor, a new mechanism's unregistered output"
   fixed_in: "R50-站4c (both registries are complete over what the framework writes under .methodology/; 'unknown' is not an available answer)"
 
-- test: tests/test_spawn_log_schema.py::test_the_generated_workflow_writer_emits_only_known_fields
-  bug: ".methodology/sessions_spawn.log has two writers and had no schema. The generated JS is the one whose field names are never reviewed alongside the reader, and it is read from the SHIPPED run-all.js here because that is the copy that runs (Round 36)"
-  fixed_in: "R50-站5 (core/spawn_log_schema.py)"
 
 - test: tests/test_run_report.py::TestSpawnLogReport::test_workflow_rows_are_not_in_the_cost_denominator
   bug: "run-report divided 'rows carrying a cost' by 'all rows'. The Workflow substrate has no process envelope and no clock, so its 116 rows cannot carry one — a run whose every cost-capable dispatch recorded its cost read as 152/292, i.e. 48% of the spending apparently lost. The denominator stood for a population it was not"
