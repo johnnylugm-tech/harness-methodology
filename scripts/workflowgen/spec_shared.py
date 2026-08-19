@@ -221,3 +221,24 @@ async function dispatch(prompt, opts) {
   return res
 }
 """
+
+
+# Round 62 — parity for session_limit_blocked across all halt sites.
+#
+# The dispatch wrapper above can still return null/short text when the runtime
+# safety classifier (or a quota) blocks a dispatch — it does NOT throw, because
+# `agent()` resolves rather than rejects on classifier blocks. The framework
+# already wired `session_limit_blocked: true` to per-FR TDD/Gate sites
+# (run-all.js:2199-2202, :2306-2309, :2622-2624, :2776-2779, :3042-3044,
+# :3152-3154, :3347-3351, :3484-3486, :3680-3682, :3788-3790, :3996-4000,
+# :4111-4114), but the ad-hoc halts (preflight, load, constitution, push,
+# advance, peer-review, sab-generation, …) halt hard on first null.
+#
+# The driver at run-all.js:4218-4221 already recognizes `session_limit_blocked`
+# and routes it to `recordBlock(n, 'session-limit', …)` so the run aborts
+# relaunchable (state.json untouched, completed phases skipped on resume).
+#
+# Inlining the guard as a JS prelude is mechanical at each halt site —
+# no helper extraction needed; the existing 14 sites already inline this
+# pattern in the same shape (4 lines per site, ~80 lines added across the
+# 8 generators).

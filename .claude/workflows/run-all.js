@@ -1625,6 +1625,10 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
   preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
   if (preflightPass) break
 }
+if (preflightReport === null || preflightReport === undefined || (typeof preflightReport === 'string' && preflightReport.length < 10)) {
+  log('  preflight agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'preflight', message: 'Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.' }
+}
 if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })
 
 
@@ -1730,6 +1734,10 @@ const adrConstReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT touch SAD/TEST_SPEC.\n- DO NOT run phase-transition commands.\n- ONLY check-constitution + check-artifact-consistency on ADR.md and fix it.',
   { label: 'constitution-adr', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
 )
+if (adrConstReport === null || adrConstReport === undefined || (typeof adrConstReport === 'string' && adrConstReport.length < 10)) {
+  log('  adr-constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'adr-constitution', message: 'Agent hit session/rate limit during adr-constitution. Resume after quota reset — state.json is untouched.' }
+}
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
   return halt('adr-constitution', { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) })
 }
@@ -1740,6 +1748,10 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
     { label: 'aci-verify', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
   )
   if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
+    if (aciVerify === null || aciVerify === undefined || (typeof aciVerify === 'string' && aciVerify.length < 10)) {
+      log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+      return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }
+    }
     return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })
   }
 }
@@ -1808,7 +1820,7 @@ const sabReport = await dispatch(
   + '1. SAB-WRITE: Edit ' + REPO + '/02-architecture/SAD.md §5 — replace the `<!-- SAB:START -->` placeholder with a real `sab:` YAML block. CONTRACT (parsed by sab_parser.py):\n'
   + '   - `phase: 2` MUST be a bare int (NOT "2").\n'
   + '   - layers + allowed_dependencies reflect SAD §2 module design (api/service/store style).\n'
-  + '   - nfr_traceability: one entry per NFR enumerated from SPEC.md (parse `### NFR-XX:` headings — do not assume a fixed NFR count) with a `type` from the legal values (documentation/integration/layering/licensing/maintainability/mutation/performance/reliability/security/testability/verifiability/deployability/scalability/usability) + measurable `target` + `module`.\n'
+  + '   - nfr_traceability: one entry per NFR enumerated from SPEC.md (parse `### NFR-XX:` headings — do not assume a fixed NFR count) with a `type` from the legal values (documentation/integration/layering/licensing/maintainability/mutation/performance/reliability/security/testability/verifiability/deployability/scalability/usability) + measurable `target` + `module`. CRITICAL: `type:` and `dimension:` are TWO DIFFERENT FIELDS — the type vocabulary above is 14 names; the dimension vocabulary below is a separate 18+-name list. A name ONLY in the dimension list is NOT legal in `type:` and will be REFUSED. Copy the SPEC.md `dimension:` value into `dimension:`, NOT `type:`. For dimension-only NFRs (e.g. error_handling, architecture_constraints), pick the nearest type (reliability, layering).\n'
   + '   - nfr_traceability[*].dimension: REQUIRED whenever SRS.md/SPEC.md states a `dimension:` for that NFR — copy it VERBATIM, do not re-derive it from the type. This is the gate dimension the requirement is scored by, and the spec is the authority on it; the `type` keyword table is only a fallback for NFRs that state no dimension. Legal: adversarial_review/architecture/architecture_constraints/documentation/error_handling/execute_verification_target/integration_coverage/license_compliance/linting/mutation_testing/performance/readability/secrets_scanning/security/test_assertion_quality/test_coverage/traceability/type_safety, or `none` when the requirement genuinely has no automated scorer. A name outside that list is REFUSED by the parser, not ignored.\n'
   + '   - nfr_traceability[*].scope_layers: REQUIRED whenever SRS.md/SPEC.md limits an NFR to particular layers rather than the whole source tree (any phrasing that scopes the requirement to named layers/directories — the spec is often explicit that this is a runtime-budget limit). Value is a YAML list of names taken VERBATIM from the `layers:` block you wrote above — e.g. `scope_layers: ["service", "storage"]`. A name that is not one of your own declared layers is REFUSED by generate_sab.py --validate, not ignored. Omit the key entirely when the requirement covers everything. This is what the framework uses to bound `mutation_testing`; leaving it out on a scoped NFR means the whole tree gets mutated and the gate exceeds the very time budget the spec limited it to.\n'
   + '   - fr_module_traceability: one entry per FR enumerated from SPEC.md (parse `### FR-XX:` headings) pointing to a REAL module from SAD §2. If an FR legitimately owns MULTIPLE modules (e.g. SAD §6 maps it to more than one file), use a YAML list, not a single string — e.g. `FR-05: ["app.cli.main", "app.cli.commands"]`. A single string silently drops every module after the first; both forms are consumed identically downstream.\n'
@@ -1819,6 +1831,10 @@ const sabReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT modify harness/ source (running harness/scripts/generate_sab.py is allowed, editing it is NOT — HR-17).\n- DO NOT run advance-phase / push / run-gate.\n- ONLY edit SAD.md §5 SAB block + run generate_sab.py validate/generate.',
   { label: 'sab-generation', phase: 'P2 · SAB Generation', agentType: 'general-purpose' },
 )
+if (sabReport === null || sabReport === undefined || (typeof sabReport === 'string' && sabReport.length < 10)) {
+  log('  sab-generation agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'sab-generation', message: 'Agent hit session/rate limit during sab-generation. Resume after quota reset — state.json is untouched.' }
+}
 if (!(typeof sabReport === 'string' && /SAB:\s*PASS/.test(sabReport))) {
   return halt('sab-generation', { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) })
 }
@@ -1841,6 +1857,10 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
   if (constPass) break
 }
+if (constReport === null || constReport === undefined || (typeof constReport === 'string' && constReport.length < 10)) {
+  log('  constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'constitution', message: 'Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.' }
+}
 if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })
 
 log('check-artifact-consistency (post-SAB SEC-VALIDATE)')
@@ -1850,6 +1870,10 @@ const aciPostSab = await dispatch(
   { label: 'aci-post-sab', phase: 'P2 · Constitution Check', agentType: 'general-purpose' },
 )
 if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
+  if (aciPostSab === null || aciPostSab === undefined || (typeof aciPostSab === 'string' && aciPostSab.length < 10)) {
+    log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+    return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }
+  }
   return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })
 }
 
@@ -1960,6 +1984,10 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
   if (pushOk) break
 }
+if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
+  log('  push-checkpoint agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'push-checkpoint', message: 'Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.' }
+}
 if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })
 
 
@@ -1976,6 +2004,10 @@ const advanceReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT re-do P2.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md.',
   { label: 'advance', phase: 'P2 · Advance', agentType: 'general-purpose' },
 )
+if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  log('  advance-phase agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'advance-phase', message: 'Agent hit session/rate limit during advance-phase. Resume after quota reset — state.json is untouched.' }
+}
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return halt('advance-phase', { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) })
 }

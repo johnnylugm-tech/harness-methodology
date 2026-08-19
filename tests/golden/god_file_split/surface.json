@@ -506,7 +506,7 @@
     "cli.check_cmds::_run_gap_analysis": "5347c0b6ac61b79b",
     "cli.check_cmds::cmd_bug_hunt_targets": "ecee061ed581c30e",
     "cli.check_cmds::cmd_build_trace_attestation": "3b124162533becfc",
-    "cli.check_cmds::cmd_check_artifact_consistency": "3b6055a62c820b76",
+    "cli.check_cmds::cmd_check_artifact_consistency": "7705d92aa73435db",
     "cli.check_cmds::cmd_check_constitution": "67e6309860970ac6",
     "cli.check_cmds::cmd_check_logic": "febc704e2224668f",
     "cli.check_cmds::cmd_check_manifest_integrity": "50b9057d7200990f",

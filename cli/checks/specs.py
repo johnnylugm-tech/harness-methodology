@@ -212,6 +212,8 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     """
     project = Path(args.project).resolve()
     from core.quality_gate.artifact_consistency import (
+        check_ac_identifiers,
+        check_ac_test_spec_coverage,
         check_forward_refs,
         check_module_fr_coverage,
         check_nfr_adr_coverage,
@@ -239,6 +241,15 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
                   + ([] if getattr(args, 'forward_refs_only', False)
                      else (check_module_fr_coverage(project)
                            + check_nfr_adr_coverage(project)
+                           # Round 62: AC checks (Round 51) wired into CLI.
+                           # Gated on phase>=3 to mirror phase_hooks.py:1164-1167 —
+                           # TEST_SPEC.md is produced in Phase 2 but the population
+                           # is only meaningful at P3+; at earlier phases both
+                           # checks short-circuit to no-op on empty population.
+                           + (check_ac_identifiers(project)
+                              + check_ac_test_spec_coverage(project)
+                              if current_phase is not None and current_phase >= 3
+                              else [])
                            + check_security_design(project, phase=current_phase)
                            # Round 42 站3: the SRS's machine-readable FR Block.
                            # The reason `check_security_design` keeps its phase
