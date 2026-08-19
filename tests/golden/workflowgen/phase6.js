@@ -351,7 +351,7 @@ if (!gate4Pass) for (let round = 1; round <= 3; round++) {
     gate4Report = ''
     if (round < 3) continue
   }
-  if (gate4Report === null || gate4Report === undefined || (typeof gate4Report === 'string' && gate4Report.length < 10)) {
+  if (gate4Report === null || gate4Report === undefined || gate4Report === '' || typeof gate4Report !== 'string') {
     gate4Blocked = true
     log('  Gate 4 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
@@ -527,10 +527,10 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do Gate 4 / release docs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'tag-advance-r' + round, phase: 'Tag & Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
-    log('  Tag & Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.' }
-  }
+if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
+  log('  tag-advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.' }
+}
   // AUTHORITATIVE Advance verdict: advance-phase atomically writes
   // state.json current_phase=7 on success. Read it via a schema proxy —
   // the orchestrator's prose "ADVANCE: PASS" is narrative only.

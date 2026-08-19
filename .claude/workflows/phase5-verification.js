@@ -434,8 +434,8 @@ for (const frId of deltaTodo) {
   // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
   // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be
   // misreported as a code-quality failure. DELTA auto-skip makes resume safe.
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 5, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
@@ -602,7 +602,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do P5 docs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY spec-coverage-check + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 5, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }

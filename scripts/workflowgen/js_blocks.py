@@ -714,8 +714,8 @@ def render_per_fr_delta(
         + "  // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty\n"
         + "  // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be\n"
         + "  // misreported as a code-quality failure. DELTA auto-skip makes resume safe.\n"
-        + "  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {\n"
-        + "    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
+        + "  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {\n"
+        + "    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
         + f"    return {{ session_limit_blocked: true, phase: {phase}, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }}\n"
         + "  }\n"
         + render_terminal_abort_detectors(phase=phase, indent="  ", step="GATE1-DELTA")
@@ -870,7 +870,7 @@ def render_advance_loop(
         + f"    + 'SCOPE RULES:\\n{scope_extra}- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY {only_extra}advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
         + "    { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {\n"
+        + "  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {\n"
         + "    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
         + f"    return {{ session_limit_blocked: true, phase: {phase}, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }}\n"
         + "  }\n"
@@ -1132,7 +1132,7 @@ def render_gate_loop(
         + f"    + 'SCOPE RULES:\\n{scope_rules}',\n"
         + f"    {{ label: 'gate{gate_num}-r' + round, phase: 'Gate {gate_num}', agentType: 'general-purpose' }},\n"
         + agent_close
-        + f"  if (gate{gate_num}Report === null || gate{gate_num}Report === undefined || (typeof gate{gate_num}Report === 'string' && gate{gate_num}Report.length < 10)) {{\n"
+        + f"  if (gate{gate_num}Report === null || gate{gate_num}Report === undefined || gate{gate_num}Report === '' || typeof gate{gate_num}Report !== 'string') {{\n"
         + f"    gate{gate_num}Blocked = true\n"
         + f"    log('  Gate {gate_num} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
         + "    break\n"

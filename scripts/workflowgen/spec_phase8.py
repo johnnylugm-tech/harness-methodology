@@ -124,10 +124,10 @@ def _render_final_push() -> str:
         + "    + 'SCOPE RULES:\\n- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY push-milestone p8 + advance-phase --completed 8 + the specific fixes their own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
         + "    { label: 'final-push-r' + round, phase: 'Final Push', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {\n"
-        + "    log('  Final Push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
-        + "    return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }\n"
-        + "  }\n"
+        + S.render_session_block_guard(
+            'pushReport', 'final-push', 8,
+            message='Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.',
+        )
         + "  // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone\n"
         + "  // commit — the same artifact the step-0 GUARD checks. Read git log via a\n"
         + "  // schema proxy; the pusher's prose \"P8-PUSH: PASS\" is narrative only.\n"

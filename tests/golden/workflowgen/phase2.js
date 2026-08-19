@@ -624,8 +624,8 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
   preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
   if (preflightPass) break
 }
-if (preflightReport === null || preflightReport === undefined || (typeof preflightReport === 'string' && preflightReport.length < 10)) {
-  log('  preflight agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (preflightReport === null || preflightReport === undefined || preflightReport === '' || typeof preflightReport !== 'string') {
+  log('  preflight agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'preflight', message: 'Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.' }
 }
 if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })
@@ -743,8 +743,8 @@ const adrConstReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT touch SAD/TEST_SPEC.\n- DO NOT run phase-transition commands.\n- ONLY check-constitution + check-artifact-consistency on ADR.md and fix it.',
   { label: 'constitution-adr', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },
 )
-if (adrConstReport === null || adrConstReport === undefined || (typeof adrConstReport === 'string' && adrConstReport.length < 10)) {
-  log('  adr-constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (adrConstReport === null || adrConstReport === undefined || adrConstReport === '' || typeof adrConstReport !== 'string') {
+  log('  adr-constitution agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'adr-constitution', message: 'Agent hit session/rate limit during adr-constitution. Resume after quota reset — state.json is untouched.' }
 }
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
@@ -762,10 +762,10 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
     { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },
   )
   if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
-    if (aciVerify === null || aciVerify === undefined || (typeof aciVerify === 'string' && aciVerify.length < 10)) {
-      log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')
-      return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }
-    }
+if (aciVerify === null || aciVerify === undefined || aciVerify === '' || typeof aciVerify !== 'string') {
+  log('  artifact-consistency agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }
+}
     return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })
   }
 }
@@ -851,8 +851,8 @@ const sabReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT modify harness/ source (running harness/scripts/generate_sab.py is allowed, editing it is NOT — HR-17).\n- DO NOT run advance-phase / push / run-gate.\n- ONLY edit SAD.md §5 SAB block + run generate_sab.py validate/generate.',
   { label: 'sab-generation', phase: 'SAB Generation', agentType: 'general-purpose' },
 )
-if (sabReport === null || sabReport === undefined || (typeof sabReport === 'string' && sabReport.length < 10)) {
-  log('  sab-generation agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (sabReport === null || sabReport === undefined || sabReport === '' || typeof sabReport !== 'string') {
+  log('  sab-generation agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'sab-generation', message: 'Agent hit session/rate limit during sab-generation. Resume after quota reset — state.json is untouched.' }
 }
 if (!(typeof sabReport === 'string' && /SAB:\s*PASS/.test(sabReport))) {
@@ -880,8 +880,8 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
   if (constPass) break
 }
-if (constReport === null || constReport === undefined || (typeof constReport === 'string' && constReport.length < 10)) {
-  log('  constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (constReport === null || constReport === undefined || constReport === '' || typeof constReport !== 'string') {
+  log('  constitution agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'constitution', message: 'Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.' }
 }
 if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })
@@ -899,10 +899,10 @@ const aciPostSab = await dispatch(
   { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose' },
 )
 if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
-  if (aciPostSab === null || aciPostSab === undefined || (typeof aciPostSab === 'string' && aciPostSab.length < 10)) {
-    log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')
-    return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }
-  }
+if (aciPostSab === null || aciPostSab === undefined || aciPostSab === '' || typeof aciPostSab !== 'string') {
+  log('  artifact-consistency agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }
+}
   return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })
 }
 
@@ -1035,8 +1035,8 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
   if (pushOk) break
 }
-if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
-  log('  push-checkpoint agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (pushReport === null || pushReport === undefined || pushReport === '' || typeof pushReport !== 'string') {
+  log('  push-checkpoint agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'push-checkpoint', message: 'Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.' }
 }
 if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })
@@ -1062,8 +1062,8 @@ const advanceReport = await dispatch(
 )
 // F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth
 // (<90%); do NOT report "complete" when P3 was never entered.
-if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
-  log('  advance-phase agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
+  log('  advance-phase agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'advance-phase', message: 'Agent hit session/rate limit during advance-phase. Resume after quota reset — state.json is untouched.' }
 }
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {

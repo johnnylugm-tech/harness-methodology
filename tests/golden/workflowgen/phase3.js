@@ -492,9 +492,9 @@ for (const frId of frIds) {
     // Gate 1 FAIL — mirror the Gate 2 detection (below). Without this, a rate-limit mid-
     // TDD is misreported as a code-quality Gate 1 failure. Sentinel GUARD skips completed
     // FRs on resume, so aborting here is safe.
-    if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-      log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
-      return { session_limit_blocked: true, phase: 3, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }
+    if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+      log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+      return { session_limit_blocked: true, phase: 3, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }
     }
     // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
     // (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints "[FATAL] <fr> <step>:
@@ -655,7 +655,7 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
     + 'SCOPE RULES:\n- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\n- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes.',
     { label: 'gate2-r' + round, phase: 'Gate 2', agentType: 'general-purpose' },
   )
-  if (gate2Report === null || gate2Report === undefined || (typeof gate2Report === 'string' && gate2Report.length < 10)) {
+  if (gate2Report === null || gate2Report === undefined || gate2Report === '' || typeof gate2Report !== 'string') {
     gate2Blocked = true
     log('  Gate 2 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
@@ -714,7 +714,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-implement FRs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p3-post-gate2 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 3, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }

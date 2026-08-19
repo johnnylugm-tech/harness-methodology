@@ -244,10 +244,10 @@ def _render_phase6_tag_advance() -> str:
         + "    + 'SCOPE RULES:\\n- DO NOT re-do Gate 4 / release docs.\\n- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
         + "    { label: 'tag-advance-r' + round, phase: 'Tag & Advance', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {\n"
-        + "    log('  Tag & Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
-        + "    return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.' }\n"
-        + "  }\n"
+        + S.render_session_block_guard(
+            'advanceReport', 'tag-advance', 6,
+            message='Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.',
+        )
         + "  // AUTHORITATIVE Advance verdict: advance-phase atomically writes\n"
         + "  // state.json current_phase=7 on success. Read it via a schema proxy —\n"
         + "  // the orchestrator's prose \"ADVANCE: PASS\" is narrative only.\n"

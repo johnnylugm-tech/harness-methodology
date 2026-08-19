@@ -449,8 +449,8 @@ for (const frId of deltaTodo) {
   // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
   // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be
   // misreported as a code-quality failure. DELTA auto-skip makes resume safe.
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 8, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
@@ -621,10 +621,10 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p8 + advance-phase --completed 8 + the specific fixes their own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'final-push-r' + round, phase: 'Final Push', agentType: 'general-purpose' },
   )
-  if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
-    log('  Final Push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
-  }
+if (pushReport === null || pushReport === undefined || pushReport === '' || typeof pushReport !== 'string') {
+  log('  final-push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
+}
   // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone
   // commit — the same artifact the step-0 GUARD checks. Read git log via a
   // schema proxy; the pusher's prose "P8-PUSH: PASS" is narrative only.

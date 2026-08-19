@@ -109,10 +109,10 @@ def _render_phase2_entry_preflight() -> str:
         + "  preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\\s*PASS/.test(preflightReport)\n"
         + "  if (preflightPass) break\n"
         + "}\n"
-        + "if (preflightReport === null || preflightReport === undefined || (typeof preflightReport === 'string' && preflightReport.length < 10)) {\n"
-        + "  log('  preflight agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "  return { session_limit_blocked: true, phase: 2, step: 'preflight', message: 'Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.' }\n"
-        + "}\n"
+        + S.render_session_block_guard(
+            'preflightReport', 'preflight', 2,
+            message='Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.',
+        )
         + "if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })\n"
     )
 
@@ -234,10 +234,10 @@ def _render_phase2_constitution_check_adr() -> str:
         "  + 'SCOPE RULES:\\n- DO NOT touch SAD/TEST_SPEC.\\n- DO NOT run phase-transition commands.\\n- ONLY check-constitution + check-artifact-consistency on ADR.md and fix it.',\n"
         "  { label: 'constitution-adr', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },\n"
         ")\n"
-        + "if (adrConstReport === null || adrConstReport === undefined || (typeof adrConstReport === 'string' && adrConstReport.length < 10)) {\n"
-        + "  log('  adr-constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "  return { session_limit_blocked: true, phase: 2, step: 'adr-constitution', message: 'Agent hit session/rate limit during adr-constitution. Resume after quota reset — state.json is untouched.' }\n"
-        + "}\n"
+        + S.render_session_block_guard(
+            'adrConstReport', 'adr-constitution', 2,
+            message='Agent hit session/rate limit during adr-constitution. Resume after quota reset — state.json is untouched.',
+        )
         + "if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\\s*PASS/.test(adrConstReport))) {\n"
         "  return halt('adr-constitution', { error: 'ADR constitution check did not PASS', raw: String(adrConstReport ?? '').slice(-500) })\n"
         "}\n"
@@ -253,10 +253,10 @@ def _render_phase2_constitution_check_adr() -> str:
         "    { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },\n"
         "  )\n"
         "  if (!(typeof aciVerify === 'string' && /ACI:\\s*PASS/.test(aciVerify))) {\n"
-        + "    if (aciVerify === null || aciVerify === undefined || (typeof aciVerify === 'string' && aciVerify.length < 10)) {\n"
-        + "      log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "      return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }\n"
-        + "    }\n"
+        + S.render_session_block_guard(
+            'aciVerify', 'artifact-consistency', 2,
+            message='Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.',
+        )
         + "    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })\n"
         "  }\n"
         "}\n"
@@ -340,10 +340,10 @@ def _render_phase2_sab_generation() -> str:
         + "  + 'SCOPE RULES:\\n- DO NOT modify harness/ source (running harness/scripts/generate_sab.py is allowed, editing it is NOT — HR-17).\\n- DO NOT run advance-phase / push / run-gate.\\n- ONLY edit SAD.md §5 SAB block + run generate_sab.py validate/generate.',\n"
         + "  { label: 'sab-generation', phase: 'SAB Generation', agentType: 'general-purpose' },\n"
         + ")\n"
-        + "if (sabReport === null || sabReport === undefined || (typeof sabReport === 'string' && sabReport.length < 10)) {\n"
-        + "  log('  sab-generation agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "  return { session_limit_blocked: true, phase: 2, step: 'sab-generation', message: 'Agent hit session/rate limit during sab-generation. Resume after quota reset — state.json is untouched.' }\n"
-        + "}\n"
+        + S.render_session_block_guard(
+            'sabReport', 'sab-generation', 2,
+            message='Agent hit session/rate limit during sab-generation. Resume after quota reset — state.json is untouched.',
+        )
         + "if (!(typeof sabReport === 'string' && /SAB:\\s*PASS/.test(sabReport))) {\n"
         + "  return halt('sab-generation', { error: 'SAB generation did not PASS', raw: String(sabReport ?? '').slice(-500) })\n"
         + "}\n"
@@ -368,10 +368,10 @@ def _render_phase2_constitution_check() -> str:
         + "  constPass = typeof constReport === 'string' && /CONSTITUTION:\\s*PASS/.test(constReport)\n"
         + "  if (constPass) break\n"
         + "}\n"
-        + "if (constReport === null || constReport === undefined || (typeof constReport === 'string' && constReport.length < 10)) {\n"
-        + "  log('  constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "  return { session_limit_blocked: true, phase: 2, step: 'constitution', message: 'Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.' }\n"
-        + "}\n"
+        + S.render_session_block_guard(
+            'constReport', 'constitution', 2,
+            message='Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.',
+        )
         + "if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })\n"
         + "\n"
         + "// T1-B audit fix: re-run check-artifact-consistency AFTER SAB Generation.\n"
@@ -387,10 +387,10 @@ def _render_phase2_constitution_check() -> str:
         + "  { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose' },\n"
         + ")\n"
         + "if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {\n"
-        + "  if (aciPostSab === null || aciPostSab === undefined || (typeof aciPostSab === 'string' && aciPostSab.length < 10)) {\n"
-        + "    log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "    return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }\n"
-        + "  }\n"
+        + S.render_session_block_guard(
+            'aciPostSab', 'artifact-consistency', 2,
+            message='Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.',
+        )
         + "  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })\n"
         + "}\n"
     )
@@ -521,10 +521,10 @@ def _render_phase2_push() -> str:
         + "  pushOk = typeof pushReport === 'string' && /PUSH:\\s*PASS/.test(pushReport)\n"
         + "  if (pushOk) break\n"
         + "}\n"
-        + "if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {\n"
-        + "  log('  push-checkpoint agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "  return { session_limit_blocked: true, phase: 2, step: 'push-checkpoint', message: 'Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.' }\n"
-        + "}\n"
+        + S.render_session_block_guard(
+            'pushReport', 'push-checkpoint', 2,
+            message='Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.',
+        )
         + "if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })\n"
     )
 
@@ -547,10 +547,10 @@ def _render_phase2_advance() -> str:
         + ")\n"
         + "// F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth\n"
         + "// (<90%); do NOT report \"complete\" when P3 was never entered.\n"
-        + "if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {\n"
-        + "  log('  advance-phase agent blocked (session limit / rate limit) — aborting, resume after quota reset')\n"
-        + "  return { session_limit_blocked: true, phase: 2, step: 'advance-phase', message: 'Agent hit session/rate limit during advance-phase. Resume after quota reset — state.json is untouched.' }\n"
-        + "}\n"
+        + S.render_session_block_guard(
+            'advanceReport', 'advance-phase', 2,
+            message='Agent hit session/rate limit during advance-phase. Resume after quota reset — state.json is untouched.',
+        )
         + "if (!/ADVANCE:\\s*PASS/.test(String(advanceReport ?? ''))) {\n"
         + "  return halt('advance-phase', { error: 'advance-phase --completed 2 did not PASS', raw: String(advanceReport ?? '').slice(-600) })\n"
         + "}\n"

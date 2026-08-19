@@ -337,3 +337,59 @@ class TestNoPromptDescribesADisabledDimension:
             assert f"def {name}(" not in src, (
                 f"{name} describes a mechanism Round 60 removed"
             )
+
+
+class TestSessionBlockGuard:
+    """Round 63 — the `length < 10` magic number misclassified the 9-char
+    `SAB: PASS` reply from the sab-generation agent as a session-limit block
+    on taskq-cc 2026-08-19 (workflow wf_018138d9-78c). The guard must check
+    only true empty payloads (null / undefined / '' / non-string), never a
+    short PASS string.
+    """
+
+    def test_helper_does_not_emit_length_magic_number(self):
+        from scripts.workflowgen.spec_shared import render_session_block_guard
+
+        js = render_session_block_guard(
+            'sabReport', 'sab-generation', 2,
+            message='Agent hit session/rate limit during sab-generation. Resume after quota reset — state.json is untouched.',
+        )
+        assert 'length < 10' not in js, (
+            '< 10 magic number re-introduced in render_session_block_guard — '
+            '9-char PASS strings will be misclassified as session-limit blocks'
+        )
+        assert "=== ''" in js
+        assert "typeof" in js and "!== 'string'" in js
+        assert 'session_limit_blocked: true' in js
+        assert 'step: \'sab-generation\'' in js
+        assert 'phase: 2' in js
+
+    def test_helper_emits_extra_fields_inside_return_object(self):
+        from scripts.workflowgen.spec_shared import render_session_block_guard
+
+        js = render_session_block_guard(
+            'frReport', 'FR-01', 3,
+            extra_fields='fr_id: frId, gate1Pass',
+            message='Agent hit session/rate limit during FR-01 TDD. Resume after quota reset.',
+        )
+        assert 'fr_id: frId, gate1Pass' in js, (
+            'extra_fields not interpolated into the returned object literal'
+        )
+        assert 'step: \'FR-01\'' in js
+
+    def test_no_generated_workflow_contains_length_lt_10(self):
+        """The bug — the literal token sequence `length < 10` in a generated
+        JS workflow will re-introduce the misclassification. Pin the absence.
+        `length < 100` is a different check (review-reason min-length) and
+        out of scope for this regression."""
+        from scripts.workflowgen.generate_workflows import GENERATORS, generate
+        import re
+
+        pattern = re.compile(r'\blength\s*<\s*10\b')
+        for phase in sorted(GENERATORS):
+            text = generate(phase)
+            assert pattern.search(text) is None, (
+                f'phase{phase} generated workflow still contains the magic '
+                f'number `length < 10` — short PASS strings will be '
+                f'misclassified as session-limit blocks on resume'
+            )

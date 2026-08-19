@@ -468,8 +468,8 @@ for (const frId of deltaTodo) {
   // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
   // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be
   // misreported as a code-quality failure. DELTA auto-skip makes resume safe.
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
@@ -664,7 +664,7 @@ if (!gate3Pass) for (let round = 1; round <= 3; round++) {
     + 'SCOPE RULES:\n- DO NOT run advance-phase.\n- DO NOT edit gate3_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes.',
     { label: 'gate3-r' + round, phase: 'Gate 3', agentType: 'general-purpose' },
   )
-  if (gate3Report === null || gate3Report === undefined || (typeof gate3Report === 'string' && gate3Report.length < 10)) {
+  if (gate3Report === null || gate3Report === undefined || gate3Report === '' || typeof gate3Report !== 'string') {
     gate3Blocked = true
     log('  Gate 3 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
@@ -741,7 +741,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do P4 testing.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p4-pre-gate3 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }

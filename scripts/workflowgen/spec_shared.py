@@ -223,22 +223,59 @@ async function dispatch(prompt, opts) {
 """
 
 
-# Round 62 — parity for session_limit_blocked across all halt sites.
+# Round 63 — `length < 10` magic number misclassified 9-char `"SAB: PASS"` as
+# a session-limit block (measured on taskq-cc 2026-08-19, workflow
+# wf_018138d9-78c): the sab-generation agent returned exactly `SAB: PASS`,
+# the prior `< 10` check fired first, the run aborted relaunchable with
+# state.json untouched, and `.methodology/SAB.json` was already on disk.
 #
-# The dispatch wrapper above can still return null/short text when the runtime
-# safety classifier (or a quota) blocks a dispatch — it does NOT throw, because
-# `agent()` resolves rather than rejects on classifier blocks. The framework
-# already wired `session_limit_blocked: true` to per-FR TDD/Gate sites
-# (run-all.js:2199-2202, :2306-2309, :2622-2624, :2776-2779, :3042-3044,
-# :3152-3154, :3347-3351, :3484-3486, :3680-3682, :3788-3790, :3996-4000,
-# :4111-4114), but the ad-hoc halts (preflight, load, constitution, push,
-# advance, peer-review, sab-generation, …) halt hard on first null.
+# The fix separates the two checks the prior pattern fused. The runtime
+# safety classifier (and a quota cap) signals a blocked dispatch by
+# resolving to `null` / `undefined` / empty string / non-string — there
+# is no signal inside a "short but non-empty" string. The PASS regex below
+# this guard is the only correct reader of a 9-or-10-character reply; the
+# magic number was the wrong layer to ask.
 #
-# The driver at run-all.js:4218-4221 already recognizes `session_limit_blocked`
-# and routes it to `recordBlock(n, 'session-limit', …)` so the run aborts
-# relaunchable (state.json untouched, completed phases skipped on resume).
+# 11 sites across four generators previously inlined this pattern
+# (spec_phase2.py: 112, 237, 256, 343, 371, 390, 524, 550;
+# spec_phase3.py: 238; spec_phase6.py: 247; spec_phase8.py: 127). All call
+# this helper now — commonality, single source of truth.
 #
-# Inlining the guard as a JS prelude is mechanical at each halt site —
-# no helper extraction needed; the existing 14 sites already inline this
-# pattern in the same shape (4 lines per site, ~80 lines added across the
-# 8 generators).
+# The driver at run-all.js:4218-4221 already recognizes
+# `outcome.session_limit_blocked` and routes through `recordBlock(n,
+# 'session-limit', …)` so the run aborts relaunchable (state.json untouched,
+# completed phases skipped on resume). The return shape this helper
+# produces is the same one the driver reads — `phase`, `step`, optional
+# `fr_id` / `gate1Pass`, and a human-readable `message`.
+def render_session_block_guard(
+    var_name: str,
+    step_name: str,
+    phase_no: int,
+    *,
+    extra_fields: str = '',
+    message: str,
+) -> str:
+    """Emit the JS guard that distinguishes a session/rate-limit block from a
+    hard PASS/FAIL failure.
+
+    Fires ONLY on a truly empty payload — `null`, `undefined`, `''`, or a
+    non-string — the runtime safety classifier's signature for
+    blocked-by-classifier, and a quota cap's signature too. A short but
+    non-empty string (e.g. `SAB: PASS`, 9 chars) falls through to the next
+    halt() check, which reads the sub-agent's PASS/FAIL verdict via regex.
+
+    `extra_fields` is rendered inside the returned object literal so sites
+    that need to carry more (Phase 3's `fr_id` + `gate1Pass`) keep their
+    payload shape. `message` is the human-readable text shown by the
+    record-block CLI; each site passes its own to keep the wording
+    precise (Phase 6/8 mention the GUARD step's skip-on-resume behaviour;
+    Phase 3 mentions sentinel GUARD).
+    """
+    extra = (', ' + extra_fields) if extra_fields else ''
+    return (
+        f"if ({var_name} === null || {var_name} === undefined "
+        f"|| {var_name} === '' || typeof {var_name} !== 'string') {{\n"
+        f"  log('  {step_name} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
+        f"  return {{ session_limit_blocked: true, phase: {phase_no}, step: '{step_name}'{extra}, message: '{message}' }}\n"
+        f"}}\n"
+    )

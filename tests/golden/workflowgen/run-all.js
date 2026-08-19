@@ -1625,8 +1625,8 @@ for (let attempt = 1; attempt <= MAX_PREFLIGHT_ATTEMPTS; attempt++) {
   preflightPass = typeof preflightReport === 'string' && /PREFLIGHT:\s*PASS/.test(preflightReport)
   if (preflightPass) break
 }
-if (preflightReport === null || preflightReport === undefined || (typeof preflightReport === 'string' && preflightReport.length < 10)) {
-  log('  preflight agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (preflightReport === null || preflightReport === undefined || preflightReport === '' || typeof preflightReport !== 'string') {
+  log('  preflight agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'preflight', message: 'Agent hit session/rate limit during preflight. Resume after quota reset — state.json is untouched.' }
 }
 if (!preflightPass) return halt('preflight', { error: 'Phase 2 preflight did not PASS after ' + MAX_PREFLIGHT_ATTEMPTS + ' attempts', raw: String(preflightReport ?? '').slice(-600) })
@@ -1734,8 +1734,8 @@ const adrConstReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT touch SAD/TEST_SPEC.\n- DO NOT run phase-transition commands.\n- ONLY check-constitution + check-artifact-consistency on ADR.md and fix it.',
   { label: 'constitution-adr', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
 )
-if (adrConstReport === null || adrConstReport === undefined || (typeof adrConstReport === 'string' && adrConstReport.length < 10)) {
-  log('  adr-constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (adrConstReport === null || adrConstReport === undefined || adrConstReport === '' || typeof adrConstReport !== 'string') {
+  log('  adr-constitution agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'adr-constitution', message: 'Agent hit session/rate limit during adr-constitution. Resume after quota reset — state.json is untouched.' }
 }
 if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrConstReport))) {
@@ -1748,10 +1748,10 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
     { label: 'aci-verify', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
   )
   if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
-    if (aciVerify === null || aciVerify === undefined || (typeof aciVerify === 'string' && aciVerify.length < 10)) {
-      log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')
-      return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }
-    }
+if (aciVerify === null || aciVerify === undefined || aciVerify === '' || typeof aciVerify !== 'string') {
+  log('  artifact-consistency agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }
+}
     return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })
   }
 }
@@ -1831,8 +1831,8 @@ const sabReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT modify harness/ source (running harness/scripts/generate_sab.py is allowed, editing it is NOT — HR-17).\n- DO NOT run advance-phase / push / run-gate.\n- ONLY edit SAD.md §5 SAB block + run generate_sab.py validate/generate.',
   { label: 'sab-generation', phase: 'P2 · SAB Generation', agentType: 'general-purpose' },
 )
-if (sabReport === null || sabReport === undefined || (typeof sabReport === 'string' && sabReport.length < 10)) {
-  log('  sab-generation agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (sabReport === null || sabReport === undefined || sabReport === '' || typeof sabReport !== 'string') {
+  log('  sab-generation agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'sab-generation', message: 'Agent hit session/rate limit during sab-generation. Resume after quota reset — state.json is untouched.' }
 }
 if (!(typeof sabReport === 'string' && /SAB:\s*PASS/.test(sabReport))) {
@@ -1857,8 +1857,8 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   constPass = typeof constReport === 'string' && /CONSTITUTION:\s*PASS/.test(constReport)
   if (constPass) break
 }
-if (constReport === null || constReport === undefined || (typeof constReport === 'string' && constReport.length < 10)) {
-  log('  constitution agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (constReport === null || constReport === undefined || constReport === '' || typeof constReport !== 'string') {
+  log('  constitution agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'constitution', message: 'Agent hit session/rate limit during constitution. Resume after quota reset — state.json is untouched.' }
 }
 if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check FAIL after 5 attempts', raw: String(constReport ?? '').slice(-500) })
@@ -1870,10 +1870,10 @@ const aciPostSab = await dispatch(
   { label: 'aci-post-sab', phase: 'P2 · Constitution Check', agentType: 'general-purpose' },
 )
 if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
-  if (aciPostSab === null || aciPostSab === undefined || (typeof aciPostSab === 'string' && aciPostSab.length < 10)) {
-    log('  artifact-consistency agent blocked (session limit / rate limit) — aborting, resume after quota reset')
-    return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }
-  }
+if (aciPostSab === null || aciPostSab === undefined || aciPostSab === '' || typeof aciPostSab !== 'string') {
+  log('  artifact-consistency agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }
+}
   return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })
 }
 
@@ -1984,8 +1984,8 @@ for (let attempt = 1; attempt <= 5; attempt++) {
   pushOk = typeof pushReport === 'string' && /PUSH:\s*PASS/.test(pushReport)
   if (pushOk) break
 }
-if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
-  log('  push-checkpoint agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (pushReport === null || pushReport === undefined || pushReport === '' || typeof pushReport !== 'string') {
+  log('  push-checkpoint agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'push-checkpoint', message: 'Agent hit session/rate limit during push-checkpoint. Resume after quota reset — state.json is untouched.' }
 }
 if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 did not succeed in 5 attempts', raw: String(pushReport ?? '').slice(-500) })
@@ -2004,8 +2004,8 @@ const advanceReport = await dispatch(
   + 'SCOPE RULES:\n- DO NOT re-do P2.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md.',
   { label: 'advance', phase: 'P2 · Advance', agentType: 'general-purpose' },
 )
-if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
-  log('  advance-phase agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
+  log('  advance-phase agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'advance-phase', message: 'Agent hit session/rate limit during advance-phase. Resume after quota reset — state.json is untouched.' }
 }
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
@@ -2228,9 +2228,9 @@ for (const frId of frIds) {
       + 'SCOPE RULES:\n- DO NOT implement any FR OTHER than ' + frId + '.\n- DO NOT run run-gate (Gate 2), advance-phase, or push-milestone.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/ (HR-17).\n- ONLY the 7 steps above for ' + frId + ' (amend-sab in step 5, spec-coverage-check in step 7a is allowed).',
       { label: 'tdd-' + frId, phase: 'P3 · Per-FR TDD', agentType: 'general-purpose' },
     )
-    if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-      log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
-      return { session_limit_blocked: true, phase: 3, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }
+    if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+      log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+      return { session_limit_blocked: true, phase: 3, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }
     }
     const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
     if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
@@ -2335,7 +2335,7 @@ if (!gate2Pass) for (let round = 1; round <= 3; round++) {
     + 'SCOPE RULES:\n- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\n- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes.',
     { label: 'gate2-r' + round, phase: 'P3 · Gate 2', agentType: 'general-purpose' },
   )
-  if (gate2Report === null || gate2Report === undefined || (typeof gate2Report === 'string' && gate2Report.length < 10)) {
+  if (gate2Report === null || gate2Report === undefined || gate2Report === '' || typeof gate2Report !== 'string') {
     gate2Blocked = true
     log('  Gate 2 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
@@ -2378,7 +2378,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-implement FRs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p3-post-gate2 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'P3 · Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 3, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
@@ -2651,8 +2651,8 @@ for (const frId of deltaTodo) {
     + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run run-gate / bug-hunt / advance-phase / push-milestone.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
     { label: 'delta-' + frId, phase: 'P4 · Per-FR Delta', agentType: 'general-purpose' },
   )
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
@@ -2803,7 +2803,7 @@ if (!gate3Pass) for (let round = 1; round <= 3; round++) {
     + 'SCOPE RULES:\n- DO NOT run advance-phase.\n- DO NOT edit gate3_result.json to fake scores — fix the code.\n- DO NOT modify harness/ (HR-17).\n- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes.',
     { label: 'gate3-r' + round, phase: 'P4 · Gate 3', agentType: 'general-purpose' },
   )
-  if (gate3Report === null || gate3Report === undefined || (typeof gate3Report === 'string' && gate3Report.length < 10)) {
+  if (gate3Report === null || gate3Report === undefined || gate3Report === '' || typeof gate3Report !== 'string') {
     gate3Blocked = true
     log('  Gate 3 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
@@ -2864,7 +2864,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do P4 testing.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p4-pre-gate3 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'P4 · Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
@@ -3071,8 +3071,8 @@ for (const frId of deltaTodo) {
     + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run advance-phase / push-milestone / generate BASELINE docs.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
     { label: 'delta-' + frId, phase: 'P5 · Per-FR Delta', agentType: 'general-purpose' },
   )
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 5, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
@@ -3181,7 +3181,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do P5 docs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY spec-coverage-check + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'P5 · Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 5, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
@@ -3375,7 +3375,7 @@ if (!gate4Pass) for (let round = 1; round <= 3; round++) {
     gate4Report = ''
     if (round < 3) continue
   }
-  if (gate4Report === null || gate4Report === undefined || (typeof gate4Report === 'string' && gate4Report.length < 10)) {
+  if (gate4Report === null || gate4Report === undefined || gate4Report === '' || typeof gate4Report !== 'string') {
     gate4Blocked = true
     log('  Gate 4 agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     break
@@ -3513,10 +3513,10 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do Gate 4 / release docs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'tag-advance-r' + round, phase: 'P6 · Tag & Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
-    log('  Tag & Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.' }
-  }
+if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
+  log('  tag-advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.' }
+}
   const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
   const advV = await dispatch(
     'Run EXACTLY this command via the Bash tool (stdout is a single JSON line):\n`' + advVerifyCmd + '`\n'
@@ -3709,8 +3709,8 @@ for (const frId of deltaTodo) {
     + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run advance-phase / push-milestone / generate risk docs.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
     { label: 'delta-' + frId, phase: 'P7 · Per-FR Delta', agentType: 'general-purpose' },
   )
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 7, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
@@ -3817,7 +3817,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT re-do P7 docs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'P7 · Advance', agentType: 'general-purpose' },
   )
-  if (advanceReport === null || advanceReport === undefined || (typeof advanceReport === 'string' && advanceReport.length < 10)) {
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
     log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 7, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
@@ -4026,8 +4026,8 @@ for (const frId of deltaTodo) {
     + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
     { label: 'delta-' + frId, phase: 'P8 · Per-FR Delta', agentType: 'general-purpose' },
   )
-  if (frReport === null || frReport === undefined || (typeof frReport === 'string' && frReport.length < 10)) {
-    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting, resume after quota reset')
+  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 8, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
@@ -4140,10 +4140,10 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'SCOPE RULES:\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p8 + advance-phase --completed 8 + the specific fixes their own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'final-push-r' + round, phase: 'P8 · Final Push', agentType: 'general-purpose' },
   )
-  if (pushReport === null || pushReport === undefined || (typeof pushReport === 'string' && pushReport.length < 10)) {
-    log('  Final Push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
-  }
+if (pushReport === null || pushReport === undefined || pushReport === '' || typeof pushReport !== 'string') {
+  log('  final-push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+  return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
+}
   const p8VerifyCmd = 'git -C ' + REPO + ' fetch origin main --quiet && git -C ' + REPO + ' log origin/main --oneline --grep="P8" -1'
   const p8v = await dispatch(
     'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
