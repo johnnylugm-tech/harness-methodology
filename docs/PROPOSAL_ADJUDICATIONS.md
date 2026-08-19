@@ -3775,3 +3775,152 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 `node --check` 八支全過、sim 127/127、九個語料專案未提交檔案 mtime 全部早於本輪
 第一個 commit。
 
+
+---
+
+## Round 64 — 移除機制的第二種形狀：把守衛改寫成背書
+
+老闆令：`aa55492..54daf48` 五個 commit 的 code review 八項發現，
+挑出**相對嚴重**的進一步探研並修復；範圍裁決 **Tier 1+2+3 全做**；
+第一項的方向先**查證再決定**，證據到手後裁決 **復原 + 改寫 preamble**。
+
+基線 `54daf48`：pytest 7359 passed / 4 skipped、guards 647、ruff clean、
+`--check` 10/10、`node --check` 8/8、sim 104/104、run-all.js 346724。
+
+**輪次編號**：賬本最後一節是 Round 60（本人）。被審批次在註解裡自稱
+Round 62（`artifact_limits.py`）與 Round 63（`spec_shared.py`），
+兩者都沒有賬本節。本輪取 **64**，不追認也不改寫那兩個號。
+
+### 八項發現 → 六條根源
+
+| # | 發現（審查原話摘要） | 查證 | 根源 |
+|---|---|---|---|
+| 1 | dev-deps 分隔符只是換一種猜法 | **屬實，且更嚴重**：`templates/SRS.md` 根本沒有 §2.9 表 | D5 |
+| 2 | phase2 三處 retry guard 在迴圈外 | 屬實（逐行 + sim 復現） | D2 |
+| 3 | 「11 站全部改用 helper」不實 | 屬實：10 站，且漏提 js_blocks 三處 | D6 |
+| 4 | recordBlock 不冪等 | 屬實（`_latest_by_signature` last-write-wins） | D3 |
+| 5 | ratchet 數字對不上 | 屬實：348693 **在任何 commit 都不存在** | D4 |
+| 6 | dispatch log 三處殘留陳述 | **診斷不足**：殘留只是徵狀，病灶是機制被無聲刪除 | **D1** |
+| 7 | `length < 10` 守衛掃不到 run-all | 屬實（`GENERATORS` 不含 run-all/harness-repair） | D4′ |
+| 8 | SAB prompt 硬寫 14/18 | 屬實但今天正確，屬未來漂移 | 不做 |
+
+### D1 — 機制被刪除，而守衛被改寫成為刪除背書
+
+`6e7942e` 的 commit message 只說「The dispatch wrapper's comment is trimmed
+to what a maintainer needs」。diff 刪掉的是 `__dispatchLog`、
+`__dispatchFlushPreamble` 與 catch 區塊的記錄，`dispatch()` 只剩
+`return await agent(prompt, opts)`。**函式上方那段 Round 26 註解原封不動地留著**
+——Round 39 母體的兩半互換：走的是機制，留的是陳述。
+
+隨後三層守衛被改寫成主張相反的事：
+
+| commit | 守衛 | 改成 |
+|---|---|---|
+| `6e7942e` | `test_the_wrapper_records_before_it_rethrows` | `test_the_wrapper_is_a_thin_pass_through`（斷言相反） |
+| `6e7942e` | `res = await agent(` / `const __dispatchLog = []` 兩條斷言 | 前者改寫、後者刪除 |
+| `6e7942e` | sim「records ride along」 | 「no prompt carries a preamble」 |
+| `020695e` | registry：「a dead sub-agent cannot log itself」 | 「dispatch() must remain a single-line pass-through」，`fixed_in: 6e7942e` |
+| `54daf48` | `test_the_generated_workflow_writer_emits_only_known_fields` | 整支刪除 |
+
+`020695e` 與 `54daf48` 的 commit message 皆為單行、無 body。
+
+**查證（唯讀，語料）**——老闆令「先查證再決定」：
+
+| 事實 | 數值 |
+|---|---|
+| taskq-cc 最後一筆 workflow-substrate row | 2026-08-19 07:34 UTC |
+| `6e7942e` | 2026-08-19 14:03 UTC（**4.5 小時後**） |
+| 六專案 workflow rows | 123 / 200 / 116 / 217 / 185 / 49 |
+| 其中 EMPTY 或 ERROR | **11 筆** |
+| 交付物被 BOOKKEEPING / log-dispatch 文字汙染 | **0** |
+
+那 11 筆是「這些 dispatch 回空」的唯一紀錄，而「空 payload」正是同日
+`9fd9a12` 的分類器所讀的簽章。沒有任何 adjudication 授權移除，
+`docs/OBSERVABILITY.md` 仍描述它為活的。→ **誤傷，復原**。
+
+復原時改一處：preamble 原文「ignore its output, and do NOT mention it in your
+reply」是 `6e7942e` 自己從 recordBlock prompt 拿掉的同一種抑制措辭，
+而且它被前置到**幾乎每一次** dispatch 而非一次。改為失敗時一行回報即可。
+
+### D2 — 三處 guard 在迴圈外（`spec_phase2.py`）
+
+preflight（3 次）、constitution（5 次）、push-checkpoint（5 次）把 guard 放在
+`for` 的閉合括號之後；phase6 tag-advance、phase8 final-push、gate loop 都在
+迴圈內 return/break。sim 復現：配額在第 1 次被擋時，preflight 仍再燒 2 次、
+另兩處各再燒 4 次，而 guard 印的那行寫著「aborting retries」。
+
+**未修，且不是缺陷**：前幾次真 FAIL、最後一次回空仍判 session block。
+空回覆代表該次沒有產出判定，state.json 兩種情況都沒動，重啟會重跑
+——這是 phase6/phase8 自誕生起的合約。改成「優先採用前一次的 FAIL」
+是新政策，不是修復。審查發現 2 的後半段據此**部分駁回**。
+
+### D3 — `record_block` 不冪等
+
+`recurred` 只讀前一列的 `resolved`，而所有讀者（`open_blocks`、doctor、
+run-report）都取每個 signature 的**最後一列**。同一 halt 記兩次，
+第二列讀到自己那個未解決的前身 → `recurred_after_resolution: false` →
+doctor 的 ERROR 降 WARN、run-report 的 `<- RETURNED AFTER A REPAIR` 消失。
+`6e7942e` 拿掉「rather than retrying」之後這條路才走得到。
+正解在 `record_block`：復發狀態持續到下一次 resolution，
+`previous_resolution` 一併帶著走。
+
+### D4 — ratchet 的數字沒有來源
+
+`RUNALL_MAX_BYTES = 349000`，註記「Measured 348693」。逐 commit 實測：
+983b46e **348457**、9fd9a12 348377、6e7942e 346724、HEAD 346724。
+**348693 不對應任何一個時點**。兩個獨立成因：
+
+1. 生成器 `print(f"... ({len(text)} bytes)")` 印的是**字元數**，
+   run-all 的框線與破折號讓兩者差 ~2 KB（站1 修）；
+2. `6e7942e` 縮掉 1733 bytes 沒回調，slack 漂到 2276。
+
+`test_the_ratchet_note_reports_the_size_it_measured` 把最新一筆
+「Measured N」綁到 shipped 大小，本輪站6 自己就被它擋了一次（+48 要求重量）。
+
+**D4′**：`9fd9a12` 的 `length < 10` 釘子掃的是 `GENERATORS`（八支 phase
+生成器），run-all 與 harness-repair 不在該 dict，而 `spec_runall.py`
+自己寫 driver 的 `session_limit_blocked` 分支——同一個魔數在那裡復活，
+守衛照樣綠。改掃 shipped 檔。
+
+### D5 — 分隔符沒有任何一方是正統
+
+`templates/SRS.md` 沒有 §2.9 dev-deps 表，`scripts/` 沒有任何 prompt 宣告分隔符。
+`, ` 與 ` / ` 都是猜測，`6e7942e` 把第一種猜法叫 bug 換成第二種，
+同一個失敗搬到輸入空間的另一半。正解：兩種都吃。
+另一半病灶是**沉默**——`_filter_known` 對 PEP 508 拒絕的 token 直接 `continue`，
+於是「整格零依賴」沒有任何診斷。現在會報，空 token 與 stdlib 仍靜默
+（每個專案都會出現，恆響的警告不是警告）。
+
+### D6 — helper 的清單與事實不符
+
+註解列 11 站並宣稱「All call this helper now」：實際 10 站，
+`spec_phase3.py` 被點名卻仍手抄，`js_blocks.py` 三處（DELTA / advance / gate）
+完全沒提。三處 return 形狀的已收編（新增 `indent` 與 `step_js` 兩個參數，
+兩者都有立即呼叫者，`extra_fields` 也才第一次有生產呼叫者——
+R30 的恆空參數形狀）。gate loop 是唯一正當例外（設旗標 + break，
+payload 以 `gate` 為鍵），並由 inventory 測試釘住 1 producer + 2 exceptions。
+
+### 明列不做
+
+- **不改 SAB prompt 的 14/18 硬寫數字**（發現 8）：今天實測正確，
+  且該句真正的指令不依賴這兩個數。**再開條件**：詞彙表變動。
+- **不改「最後一次回空判 session block」的語意**（見 D2）。
+- **不追認 Round 62/63 兩個沒有賬本節的號碼**。
+- **不改 taskq-\* 任何檔案、不重判既有 gate 結果。**
+
+### 驗證
+
+六條反證（CP-1…CP-6）逐一 revert → 轉紅 → **反向編輯**還原 → sha256 逐檔相同：
+
+| # | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| CP-1 | wrapper catch 區塊不再記錄 | `test_the_wrapper_records_before_it_rethrows` ×9 |
+| CP-2 | preflight guard 搬回迴圈外 | sim `round64: a blocked preflight reply…` |
+| CP-3 | `recurred` 只讀 `resolved` | `test_a_recurrence_survives_a_second_record…` |
+| CP-4 | 註記改回 `Measured 348693` | `test_the_ratchet_note_reports_the_size_it_measured` |
+| CP-5 | 分隔符改回只認 `/` | `test_either_separator_yields_the_same_dependencies` |
+| CP-6 | 第 14 個手抄 guard | `test_the_guard_has_one_producer_and_two_named_exceptions` |
+
+pytest 7385 passed / 4 skipped、guards 647→655、ruff clean、`--check` 10/10、
+`node --check` 8/8、sim 106/106、run-all.js 348301 ≤ ceiling 348608、
+九個語料專案未提交檔案 mtime 全部早於本輪第一個 commit。

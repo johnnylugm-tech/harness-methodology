@@ -2661,3 +2661,27 @@
 - test: tests/test_prepare_gate_dim_filter.py::test_every_declared_dimension_reaches_the_evaluation_prompt
   bug: "22e2471 filtered the dimension list between the YAML and the prompt; with the flags retired nothing may shrink it, not even a config still asking to"
   fixed_in: "R60-站2"
+
+- test: tests/test_workflow_js_conventions.py::test_the_ratchet_note_reports_the_size_it_measured
+  bug: "RUNALL_MAX_BYTES stood 2276 bytes above a size nobody had re-measured, with a note claiming 'Measured 348693' — a number run-all.js has never weighed (348457 at the commit that wrote it, 346724 after 6e7942e shrank it). The generator printed len(text), a character count, under the label 'bytes'"
+  fixed_in: "R64-站4"
+
+- test: tests/test_workflow_js_conventions.py::test_no_shipped_workflow_classifies_a_block_by_string_length
+  bug: "9fd9a12 pinned the absence of `length < 10` over GENERATORS — the eight phase generators. run-all.js is not in that dict and spec_runall.py writes the driver's session_limit_blocked branch itself, so the magic number could return there with the guard green"
+  fixed_in: "R64-站0"
+
+- test: tests/test_workflow_blocks.py::test_a_recurrence_survives_a_second_record_of_the_same_block
+  bug: "recurred_after_resolution was computed from the prior row's `resolved` alone and every reader takes the last row per signature, so recording a returned block twice reported it as a first sighting — doctor's ERROR fell to a WARN and run-report dropped '<- RETURNED AFTER A REPAIR'"
+  fixed_in: "R64-站3"
+
+- test: tests/test_ssot_manifest_dev_deps.py::test_either_separator_yields_the_same_dependencies
+  bug: "the dev-deps cell parser insisted on one separator while no template or prompt declares one; 6e7942e swapped `, ` for ` / ` and moved the same zero-dependency scaffold to the other half of the input space"
+  fixed_in: "R64-站5"
+
+- test: tests/test_ssot_manifest_dev_deps.py::test_a_cell_that_yields_nothing_says_so
+  bug: "a dev-deps cell that contributed no dependencies at all produced no diagnostic — _filter_known dropped a PEP-508-invalid token with a bare `continue`, so the project shipped without its dev dependencies in silence"
+  fixed_in: "R64-站5"
+
+- test: tests/test_workflowgen.py::TestSessionBlockGuard::test_the_guard_has_one_producer_and_two_named_exceptions
+  bug: "the comment above render_session_block_guard said eleven sites 'all call this helper now'; ten did, spec_phase3.py was named and still hand-wrote it, and three js_blocks.py copies were not mentioned at all"
+  fixed_in: "R64-站6"
