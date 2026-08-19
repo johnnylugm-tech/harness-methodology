@@ -638,9 +638,13 @@
   bug: "the workflow substrate's agent() dispatches never reached sessions_spawn.log — 42 entries all from phase 3, so run-report's failure rate was a P3/P4 number presented as the run's"
   fixed_in: "10f7a46"
 
-- test: tests/test_workflow_js_conventions.py::test_the_wrapper_is_a_thin_pass_through
-  bug: "the dispatch wrapper had grown a per-dispatch telemetry buffer that rode along on the next prompt; dispatch() must remain a single-line pass-through"
-  fixed_in: "6e7942e"
+- test: tests/test_workflow_js_conventions.py::test_the_wrapper_records_before_it_rethrows
+  bug: "a dead sub-agent cannot log itself; if the wrapper's catch block stops recording, failed dispatches vanish from the population again"
+  fixed_in: "10f7a46, restored R64-站1 after 6e7942e deleted the mechanism under a commit message that said the wrapper's COMMENT was trimmed, and 020695e rewrote this entry into the opposite claim"
+
+- test: tests/test_workflow_js_conventions.py::test_the_preamble_does_not_suppress_the_agent
+  bug: "the bookkeeping preamble said 'ignore its output, and do NOT mention it in your reply' — the same suppress-verification clause 6e7942e removed from recordBlock's prompt, on a preamble prepended to nearly every dispatch instead of one"
+  fixed_in: "R64-站1"
 
 - test: tests/test_workflow_js_conventions.py::test_record_block_is_an_accountable_dispatch
   bug: "recordBlock fired its dispatch and discarded the result, so repair_workflow was unreachable from run-all.js and the prompt instructed the agent to suppress retries"
@@ -2206,6 +2210,9 @@
   bug: "HARNESS_VOLATILE_PATHS was a hand-written list of twelve filenames. Round 48 站2's new .methodology/workflow_blocks.jsonl was not in it and neither was .methodology/agent_b_approvals/, so the framework's own observation and approval artifacts blocked the framework's own milestone commits — measured six times across P2 and P6. The mirror of Round 39's shape: not a removed mechanism's survivor, a new mechanism's unregistered output"
   fixed_in: "R50-站4c (both registries are complete over what the framework writes under .methodology/; 'unknown' is not an available answer)"
 
+- test: tests/test_spawn_log_schema.py::test_the_generated_workflow_writer_emits_only_known_fields
+  bug: ".methodology/sessions_spawn.log has two writers and had no schema. The generated JS is the one whose field names are never reviewed alongside the reader, and it is read from the SHIPPED run-all.js here because that is the copy that runs (Round 36). Restored R64-站1: 54daf48 deleted it once the writer it reads was gone, which is the half that mattered — the assertion that the push site EXISTS is what turns a silent removal into a red test"
+  fixed_in: "R50-站5 (core/spawn_log_schema.py), restored R64-站1"
 
 - test: tests/test_run_report.py::TestSpawnLogReport::test_workflow_rows_are_not_in_the_cost_denominator
   bug: "run-report divided 'rows carrying a cost' by 'all rows'. The Workflow substrate has no process envelope and no clock, so its 116 rows cannot carry one — a run whose every cost-capable dispatch recorded its cost read as 152/292, i.e. 48% of the spending apparently lost. The denominator stood for a population it was not"

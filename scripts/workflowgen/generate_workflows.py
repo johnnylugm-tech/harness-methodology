@@ -279,7 +279,14 @@ def main() -> int:
     for text, target in targets:
         if args.write:
             target.write_text(text, encoding="utf-8")
-            print(f"[workflowgen] wrote {target.relative_to(REPO_ROOT)} ({len(text)} bytes)")
+            # len(text) counts characters; the ceilings, the runtime cap and
+            # every measurement in artifact_limits.py are bytes, and these
+            # files carry enough box-drawing and em-dashes for the two to
+            # differ by ~2 KB on run-all. Round 64 站1: printing one under the
+            # other's name is how a ratchet entry ends up quoting a size the
+            # tree never had.
+            size = len(text.encode("utf-8"))
+            print(f"[workflowgen] wrote {target.relative_to(REPO_ROOT)} ({size} bytes)")
         else:
             current = target.read_text(encoding="utf-8") if target.exists() else ""
             if current != text:

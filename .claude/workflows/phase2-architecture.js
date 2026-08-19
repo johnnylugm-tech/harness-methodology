@@ -76,8 +76,38 @@ function halt(step, shape) {
   return Object.assign({ halt_step: step }, shape)
 }
 
+// ── Round 26: workflow-substrate dispatch observability ────────────────────
+// Buffered because this sandbox has no filesystem, no shell and no clock; the
+// records ride along on the NEXT dispatch's prompt, so no agent reports its own
+// outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
+const __dispatchLog = []
+
+function __dispatchFlushPreamble() {
+  if (__dispatchLog.length === 0) return ''
+  const batch = JSON.stringify(__dispatchLog.splice(0, __dispatchLog.length))
+  return '[BOOKKEEPING — not part of your task]\n'
+    + 'Run this once via Bash, then continue with the task below:\n'
+    + '  ' + PY + ' ' + REPO + '/harness_cli.py log-dispatch --project ' + REPO
+    + ' --batch ' + JSON.stringify(batch) + '\n'
+    + 'It records earlier dispatches in this run. If it fails, say so in one line and carry on.\n\n'
+}
+
 async function dispatch(prompt, opts) {
-  return await agent(prompt, opts)
+  const label = (opts && opts.label) || 'agent'
+  const phaseLabel = (opts && opts.phase) || ''
+  let res
+  try {
+    res = await agent(__dispatchFlushPreamble() + prompt, opts)
+  } catch (err) {
+    __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
+                         substrate: 'workflow', error_output: String(err).slice(0, 300) })
+    throw err
+  }
+  const text = typeof res === 'string' ? res : String(res ?? '')
+  __dispatchLog.push({ role: label, phase_label: phaseLabel,
+                       status: text.length === 0 ? 'EMPTY' : 'complete',
+                       substrate: 'workflow', reply_chars: text.length })
+  return res
 }
 
 

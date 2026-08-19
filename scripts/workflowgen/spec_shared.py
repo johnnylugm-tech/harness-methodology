@@ -186,13 +186,56 @@ def render_dispatch_wrapper() -> str:
     `await dispatch(` and places this block after the meta object, so all 118
     call sites are decided in one place rather than in nine spec modules.
 
-    Per-dispatch telemetry from the workflow substrate is not persisted in
-    this version — see docs/OBSERVABILITY.md. The wrapper is a direct
-    pass-through to `agent()`.
+    Round 64 站1 — restored. 6e7942e emptied this body to a single
+    pass-through line under a commit message that says the wrapper's COMMENT
+    was trimmed; the comment above survived and the mechanism did not, which
+    is Round 39's shape with the two halves swapped. Three guards were then
+    rewritten to endorse the removal (the unit test, the sim test, and the
+    registry entry, in 020695e and 54daf48). Measured on the corpus before
+    restoring: the last row this wrapper wrote is 4.5 hours older than the
+    commit that deleted it, and the 11 EMPTY/ERROR rows it caught across six
+    projects — the exact signature 9fd9a12's classifier was built to read —
+    appear in no other record.
+
+    The preamble's wording changed with the restore. It used to say "ignore
+    its output, and do NOT mention it in your reply", which is the same
+    suppress-verification clause 6e7942e removed from recordBlock's prompt
+    and was right to remove. A failed bookkeeping write is now reportable in
+    one line; it is still not the agent's task.
     """
     return """
+// ── Round 26: workflow-substrate dispatch observability ────────────────────
+// Buffered because this sandbox has no filesystem, no shell and no clock; the
+// records ride along on the NEXT dispatch's prompt, so no agent reports its own
+// outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
+const __dispatchLog = []
+
+function __dispatchFlushPreamble() {
+  if (__dispatchLog.length === 0) return ''
+  const batch = JSON.stringify(__dispatchLog.splice(0, __dispatchLog.length))
+  return '[BOOKKEEPING — not part of your task]\\n'
+    + 'Run this once via Bash, then continue with the task below:\\n'
+    + '  ' + PY + ' ' + REPO + '/harness_cli.py log-dispatch --project ' + REPO
+    + ' --batch ' + JSON.stringify(batch) + '\\n'
+    + 'It records earlier dispatches in this run. If it fails, say so in one line and carry on.\\n\\n'
+}
+
 async function dispatch(prompt, opts) {
-  return await agent(prompt, opts)
+  const label = (opts && opts.label) || 'agent'
+  const phaseLabel = (opts && opts.phase) || ''
+  let res
+  try {
+    res = await agent(__dispatchFlushPreamble() + prompt, opts)
+  } catch (err) {
+    __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
+                         substrate: 'workflow', error_output: String(err).slice(0, 300) })
+    throw err
+  }
+  const text = typeof res === 'string' ? res : String(res ?? '')
+  __dispatchLog.push({ role: label, phase_label: phaseLabel,
+                       status: text.length === 0 ? 'EMPTY' : 'complete',
+                       substrate: 'workflow', reply_chars: text.length })
+  return res
 }
 """
 

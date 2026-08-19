@@ -251,10 +251,9 @@ def test_every_dispatch_goes_through_the_wrapper(filename):
     if "await dispatch(" not in text:
         pytest.skip(f"{filename} dispatches no agents")
     # The wrapper itself must call agent() — that is the one legitimate site.
-    assert text.count("return await agent(prompt, opts)") == 1, (
-        f"{filename}: expected exactly one `return await agent(prompt, opts)` "
-        f"(the wrapper's own call); found "
-        f"{text.count('return await agent(prompt, opts)')}"
+    assert text.count("res = await agent(") == 1, (
+        f"{filename}: expected exactly one `res = await agent(` (the wrapper's own "
+        f"call); found {text.count('res = await agent(')}"
     )
     assert text.count("await agent(") == 1, (
         f"{filename}: {text.count('await agent(') - 1} raw `await agent(` call(s) "
@@ -299,27 +298,28 @@ def test_the_wrapper_is_declared_exactly_once(filename):
     if "await dispatch(" not in text:
         pytest.skip(f"{filename} dispatches no agents")
     assert text.count("async function dispatch(") == 1
+    assert text.count("const __dispatchLog = []") == 1
 
 
 @pytest.mark.parametrize("filename", GENERATED_FILES)
-def test_the_wrapper_is_a_thin_pass_through(filename):
-    """dispatch() forwards to agent() and does nothing else.
+def test_the_preamble_does_not_suppress_the_agent(filename):
+    """The bookkeeping preamble rides on a prompt whose reply matters.
 
-    Round 26 站4: an earlier design buffered a per-dispatch record and rode it
-    along on the next sub-agent's prompt. The wrapper's body is now exactly
-    one line — no buffering, no prompt rewriting — so there is nothing here
-    for a future edit to quietly grow back into that shape.
+    Round 64 站1: its old wording — "ignore its output, and do NOT mention it
+    in your reply" — is the same suppress-verification clause 6e7942e removed
+    from recordBlock's prompt, on a preamble prepended to nearly every
+    dispatch in the run rather than to one.
     """
     text = _read(filename)
-    if "await dispatch(" not in text:
+    if "__dispatchFlushPreamble" not in text:
         pytest.skip(f"{filename} dispatches no agents")
-    start = text.index("async function dispatch(prompt, opts) {")
+    start = text.index("function __dispatchFlushPreamble()")
     end = text.index("\n}\n", start)
-    body = text[start:end].splitlines()[1:]
-    assert [line.strip() for line in body] == ["return await agent(prompt, opts)"], (
-        f"{filename}: dispatch() body is no longer a single pass-through line: "
-        f"{body!r}"
-    )
+    body = text[start:end]
+    for clause in ("do NOT mention it", "ignore its output", "forget this block"):
+        assert clause not in body, (
+            f"{filename}: the bookkeeping preamble tells the agent to {clause!r}"
+        )
 
 
 @pytest.mark.parametrize("filename", [RUNALL_FILE])

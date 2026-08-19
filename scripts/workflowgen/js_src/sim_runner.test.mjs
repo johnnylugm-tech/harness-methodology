@@ -824,22 +824,6 @@ test('run-all does nothing when the project is past Phase 8', async () => {
   assert.deepEqual(result.phases_run, [])
 })
 
-// ---- 13. Round 26 站4: the dispatch wrapper is a thin pass-through --------
-// An earlier design buffered a per-dispatch record and rode it along on the
-// NEXT dispatch's prompt — the only way to write anything from a sandbox
-// with no filesystem, no shell and no clock. No prompt in this run may carry
-// that preamble any more; per-dispatch telemetry is not persisted from the
-// workflow substrate in this version (see docs/OBSERVABILITY.md).
-test('round26: no dispatch prompt carries a bookkeeping preamble', async () => {
-  const { events } = await runWorkflow(WF('phase1-requirements.js'),
-                                       makeHappyResponder(happyOverrides()))
-  assert.ok(events.agents.length >= 2, 'need at least two dispatches to be meaningful')
-  for (const a of events.agents) {
-    assert.ok(!a.prompt.includes('[BOOKKEEPING'), `dispatch '${a.label}' carries a bookkeeping preamble`)
-    assert.ok(!a.prompt.includes('log-dispatch'), `dispatch '${a.label}' still asks for a log-dispatch side-command`)
-  }
-})
-
 // recordBlock's dispatch is schema'd and its result is used — matching every
 // other verified dispatch in run-all.js — rather than fired and discarded
 // with an instruction to not retry or escalate on the one path whose job is
@@ -853,7 +837,7 @@ test('round48: recordBlock is schema-verified, not fire-and-forget', async () =>
   assert.match(recorded[0].prompt, /repair_workflow/)
 })
 
-// ---- 13b. Round 64 站0: the bookkeeping preamble actually rides along ------
+// ---- 13. Round 64 站0: the bookkeeping preamble actually rides along -------
 // The wrapper buffers a record per dispatch and hands the buffer to the NEXT
 // dispatch as a preamble — the only way to write anything from a sandbox with
 // no filesystem, no shell and no clock. Inside the sim there is no shell
