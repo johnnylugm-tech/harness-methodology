@@ -195,9 +195,10 @@ def test_every_dispatch_goes_through_the_wrapper(filename):
     if "await dispatch(" not in text:
         pytest.skip(f"{filename} dispatches no agents")
     # The wrapper itself must call agent() — that is the one legitimate site.
-    assert text.count("res = await agent(") == 1, (
-        f"{filename}: expected exactly one `res = await agent(` (the wrapper's own "
-        f"call); found {text.count('res = await agent(')}"
+    assert text.count("return await agent(prompt, opts)") == 1, (
+        f"{filename}: expected exactly one `return await agent(prompt, opts)` "
+        f"(the wrapper's own call); found "
+        f"{text.count('return await agent(prompt, opts)')}"
     )
     assert text.count("await agent(") == 1, (
         f"{filename}: {text.count('await agent(') - 1} raw `await agent(` call(s) "
@@ -217,24 +218,52 @@ def test_the_wrapper_is_declared_exactly_once(filename):
     if "await dispatch(" not in text:
         pytest.skip(f"{filename} dispatches no agents")
     assert text.count("async function dispatch(") == 1
-    assert text.count("const __dispatchLog = []") == 1
 
 
 @pytest.mark.parametrize("filename", GENERATED_FILES)
-def test_the_wrapper_records_before_it_rethrows(filename):
-    """A dead sub-agent cannot log itself; the wrapper observes the outcome.
+def test_the_wrapper_is_a_thin_pass_through(filename):
+    """dispatch() forwards to agent() and does nothing else.
 
-    If the catch block ever stops pushing a record, failed dispatches vanish from
-    the population again — which is the exact asymmetry that made the failure rate
-    a P3-only number.
+    Round 26 站4: an earlier design buffered a per-dispatch record and rode it
+    along on the next sub-agent's prompt. The wrapper's body is now exactly
+    one line — no buffering, no prompt rewriting — so there is nothing here
+    for a future edit to quietly grow back into that shape.
     """
     text = _read(filename)
     if "await dispatch(" not in text:
         pytest.skip(f"{filename} dispatches no agents")
-    catch_start = text.index("} catch (err) {")
-    catch_end = text.index("throw err", catch_start)
-    assert "__dispatchLog.push(" in text[catch_start:catch_end], (
-        f"{filename}: the wrapper rethrows without recording the failure"
+    start = text.index("async function dispatch(prompt, opts) {")
+    end = text.index("\n}\n", start)
+    body = text[start:end].splitlines()[1:]
+    assert [line.strip() for line in body] == ["return await agent(prompt, opts)"], (
+        f"{filename}: dispatch() body is no longer a single pass-through line: "
+        f"{body!r}"
+    )
+
+
+@pytest.mark.parametrize("filename", [RUNALL_FILE])
+def test_record_block_is_an_accountable_dispatch(filename):
+    """recordBlock's dispatch is schema'd and its result is used, like every
+    other verified dispatch in this file — not fired and discarded.
+
+    recordBlock only exists in run-all.js (spec_runall composes it; the eight
+    phase files and harness-repair.js do not call it).
+    """
+    text = _read(filename)
+    start = text.index("async function recordBlock(")
+    end = text.index("\n}\n", start)
+    body = text[start:end]
+    assert "schema: RECORD_BLOCK_SCHEMA" in body, (
+        f"{filename}: recordBlock's dispatch no longer carries a schema"
+    )
+    assert "const result = await dispatch(" in body, (
+        f"{filename}: recordBlock no longer captures its dispatch's result"
+    )
+    assert "Do nothing else" not in body, (
+        f"{filename}: recordBlock's prompt reintroduced a suppress-verification clause"
+    )
+    assert "rather than retrying" not in body, (
+        f"{filename}: recordBlock's prompt reintroduced a suppress-retry clause"
     )
 
 

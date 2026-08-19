@@ -216,8 +216,15 @@ def _parse_spec_dev_deps_table(spec_path: Path) -> tuple[list[str], list[str]]:
 def _parse_srs_section29(srs_path: Path) -> tuple[list[str], list[str]]:
     """Parse SRS.md §2.9 Configuration files table — dev-deps cell.
 
-    SRS.md line 120 example:
-      | `requirements-dev.txt` | `import-linter`, `pip-licenses`, `mutmut`, `pytest-benchmark`, `httpx` | NFR-06/07/08/10 |
+    SRS.md mirrors SPEC.md §5.3 line 323 in both structure and separator:
+      | `requirements-dev.txt` | `import-linter` / `pip-licenses` / `mutmut` / `pytest-benchmark` / `httpx` | NFR-06/07/08/10 |
+
+    Split on ` / ` (the same delimiter `_parse_spec_dev_deps_table` uses), not
+    on `, `. Splitting on `, ` would keep the whole cell as one slash-bearing
+    token, which `_normalize_token` rejects via the PEP 508 name regex —
+    leaving the cell contributing zero dependencies to the scaffold. This was
+    the bug that left SRS-led projects without `pytest-benchmark` and friends
+    even when the canonical cell listed them plainly.
     """
     raw_deps: list[str] = []
     warnings: list[str] = []
@@ -235,10 +242,12 @@ def _parse_srs_section29(srs_path: Path) -> tuple[list[str], list[str]]:
         return [], warnings
 
     cell_text = line_match.group(1)
-    # SRS uses ", " separator
-    for raw in re.split(r"\s*,\s*", cell_text):
+    # SRS uses the same " / " separator as SPEC.md §5.3.
+    for raw in re.split(r"\s*/\s*", cell_text):
         raw = re.sub(r"[`*]", "", raw)
         raw = raw.strip()
+        if not raw:
+            continue
         raw_deps.append(raw)
 
     return _filter_known(raw_deps, warnings, "SRS.md §2.9 dev-deps"), warnings

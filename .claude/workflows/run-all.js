@@ -124,38 +124,8 @@ function halt(step, shape) {
   return Object.assign({ halt_step: step }, shape)
 }
 
-// ── Round 26: workflow-substrate dispatch observability ────────────────────
-// Buffered because this sandbox has no filesystem, no shell and no clock; the
-// records ride along on the NEXT dispatch's prompt, so no agent reports its own
-// outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
-const __dispatchLog = []
-
-function __dispatchFlushPreamble() {
-  if (__dispatchLog.length === 0) return ''
-  const batch = JSON.stringify(__dispatchLog.splice(0, __dispatchLog.length))
-  return '[BOOKKEEPING — one command, then forget this block]\n'
-    + 'Run exactly this, ignore its output, and do NOT mention it in your reply:\n'
-    + '  ' + PY + ' ' + REPO + '/harness_cli.py log-dispatch --project ' + REPO
-    + ' --batch ' + JSON.stringify(batch) + '\n'
-    + 'It records earlier dispatches in this run. It is not part of your task.\n\n'
-}
-
 async function dispatch(prompt, opts) {
-  const label = (opts && opts.label) || 'agent'
-  const phaseLabel = (opts && opts.phase) || ''
-  let res
-  try {
-    res = await agent(__dispatchFlushPreamble() + prompt, opts)
-  } catch (err) {
-    __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
-                         substrate: 'workflow', error_output: String(err).slice(0, 300) })
-    throw err
-  }
-  const text = typeof res === 'string' ? res : String(res ?? '')
-  __dispatchLog.push({ role: label, phase_label: phaseLabel,
-                       status: text.length === 0 ? 'EMPTY' : 'complete',
-                       substrate: 'workflow', reply_chars: text.length })
-  return res
+  return await agent(prompt, opts)
 }
 
 
@@ -215,32 +185,24 @@ const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
 log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 
 
-// ---- Round 48 站2: where the run stopped, written down ----
-// Every terminal exit below funnels through this. Before it, a halt existed
-// only as this script's return value: run-report reads sessions_spawn.log,
-// degradations.jsonl and the gate result files, and a workflow halt is in
-// none of them. The one event nobody recorded was where the pipeline stopped.
-//
-// It SPENDS a dispatch, unlike __dispatchFlushPreamble's ride-along. That is
-// unavoidable: this sandbox has no filesystem and no shell, and a halt is
-// terminal, so there is no next dispatch to ride on. One dispatch, once per
-// aborted run.
-//
-// Classification is NOT done here. harness_cli.py record-block calls
-// core/fault_owner.py and prints the owner; a copy of that table inside a
-// workflow string literal would be one fact in two places, on a surface no
-// unit test can reach.
+// recordBlock persists the reason a run halted to .methodology/workflow_blocks.jsonl
+// (harness_cli.py record-block) and reports the owner/repair_workflow it
+// classifies, so a caller can decide whether an autonomous fix is possible.
 async function recordBlock(phaseNo, step, message) {
   const clean = (s) => String(s == null ? '' : s).replace(/'/g, '').replace(/\s+/g, ' ').slice(0, 800)
   const cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
     + ' --phase ' + phaseNo + " --step '" + clean(step) + "' --message '" + clean(message) + "'"
   try {
-    await dispatch(
-      'Run EXACTLY this command via the Bash tool, then report its stdout verbatim as your final message. Do nothing else.\n`'
-      + cmd + '`\n'
-      + 'It records where this run stopped and who owns the failure. It always exits 0; if it does not, report that verbatim rather than retrying.',
-      { label: 'record-block', phase: 'Phase Cursor', agentType: 'general-purpose' },
+    const result = await dispatch(
+      'Run this command via the Bash tool:\n`' + cmd + '`\n'
+      + 'It writes the halt reason to .methodology/workflow_blocks.jsonl and prints one JSON line.\n'
+      + 'Report via the StructuredOutput tool the exact fields from that JSON: signature, owner, evidence, repair_workflow (string or null).',
+      { label: 'record-block', phase: 'Phase Cursor', agentType: 'general-purpose', schema: RECORD_BLOCK_SCHEMA },
     )
+    if (result && result.repair_workflow) {
+      log('  record-block: owner=' + result.owner + ' -- ' + result.repair_workflow + ' may be able to fix this autonomously')
+    }
+    return result
   } catch (e) {
     log('record-block dispatch failed (the halt below is still the real result): ' + String((e && e.message) || e).slice(0, 160))
   }
@@ -307,6 +269,16 @@ const FR_LIST_SCHEMA = {
   type: 'object',
   properties: { fr_ids_done: { type: 'array', items: { type: 'string' } } },
   required: ['fr_ids_done'],
+}
+const RECORD_BLOCK_SCHEMA = {
+  type: 'object',
+  properties: {
+    signature: { type: 'string' },
+    owner: { type: 'string' },
+    evidence: { type: 'string' },
+    repair_workflow: { type: ['string', 'null'] },
+  },
+  required: ['signature', 'owner', 'evidence'],
 }
 
 
