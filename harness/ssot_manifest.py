@@ -104,8 +104,23 @@ def _filter_known(deps: list[str], warnings: list[str], source: str) -> list[str
     """Apply PEP 508 + stdlib + allowlist filtering; record rejected tokens."""
     filtered: list[str] = []
     for raw in deps:
+        stripped = raw.strip().lower()
         norm = _normalize_token(raw)
         if norm is None:
+            # Round 64 站5 — a rejected token used to leave with a bare
+            # `continue`, so a whole dev-deps cell that the splitter failed to
+            # split (one token full of separators, which the PEP 508 name
+            # regex refuses) contributed zero dependencies and said nothing.
+            # The scaffold then shipped a project without its dev
+            # dependencies, which is the outcome 6e7942e set out to fix.
+            #
+            # Empty and stdlib tokens stay quiet: both are expected on every
+            # project, and a warning that always fires is not a warning.
+            if stripped and stripped not in _STDLIB_NAMES:
+                warnings.append(
+                    f"{source}: {raw!r} is not a valid package name — if the "
+                    f"cell lists several packages, this parser did not split it"
+                )
             continue
         if not _is_known_pypi(norm):
             warnings.append(f"{source}: filtered out non-PyPI token {raw!r}")
@@ -182,6 +197,26 @@ def _parse_spec_section2(spec_path: Path) -> tuple[list[str], list[str]]:
     return _filter_known(raw_deps, warnings, "SPEC.md §2"), warnings
 
 
+def _split_dep_cell(cell_text: str) -> list[str]:
+    """Split a dev-deps table cell into candidate package names.
+
+    Round 64 站5 — on BOTH separators, because neither is canonical.
+    `templates/SRS.md` has no §2.9 dev-deps table at all and nothing under
+    `scripts/` tells an author which one to use, so `, ` and ` / ` are two
+    guesses about a format the framework never specified. 6e7942e replaced
+    the first guess with the second and described the first as the bug; the
+    failure it was fixing — an unsplit cell becomes one token, the PEP 508
+    name regex refuses it, and the project is scaffolded without its dev
+    dependencies — simply moved to the other half of the input space.
+    """
+    out: list[str] = []
+    for raw in re.split(r"\s*[,/]\s*", cell_text):
+        raw = re.sub(r"[`*]", "", raw).strip()
+        if raw:
+            out.append(raw)
+    return out
+
+
 def _parse_spec_dev_deps_table(spec_path: Path) -> tuple[list[str], list[str]]:
     """Parse SPEC.md §5.3 line 323 dev-deps inline code-block.
 
@@ -205,9 +240,7 @@ def _parse_spec_dev_deps_table(spec_path: Path) -> tuple[list[str], list[str]]:
         return [], warnings
 
     cell_text = line_match.group(1)
-    for raw in re.split(r"\s*/\s*", cell_text):
-        raw = re.sub(r"[`*]", "", raw)
-        raw = raw.strip()
+    for raw in _split_dep_cell(cell_text):
         raw_deps.append(raw)
 
     return _filter_known(raw_deps, warnings, "SPEC.md §5.3 dev-deps"), warnings
@@ -216,15 +249,11 @@ def _parse_spec_dev_deps_table(spec_path: Path) -> tuple[list[str], list[str]]:
 def _parse_srs_section29(srs_path: Path) -> tuple[list[str], list[str]]:
     """Parse SRS.md §2.9 Configuration files table — dev-deps cell.
 
-    SRS.md mirrors SPEC.md §5.3 line 323 in both structure and separator:
+    SRS.md mirrors SPEC.md §5.3 line 323 in structure:
       | `requirements-dev.txt` | `import-linter` / `pip-licenses` / `mutmut` / `pytest-benchmark` / `httpx` | NFR-06/07/08/10 |
 
-    Split on ` / ` (the same delimiter `_parse_spec_dev_deps_table` uses), not
-    on `, `. Splitting on `, ` would keep the whole cell as one slash-bearing
-    token, which `_normalize_token` rejects via the PEP 508 name regex —
-    leaving the cell contributing zero dependencies to the scaffold. This was
-    the bug that left SRS-led projects without `pytest-benchmark` and friends
-    even when the canonical cell listed them plainly.
+    Splits on either separator — see `_split_dep_cell` for why neither one
+    gets to be the canonical one.
     """
     raw_deps: list[str] = []
     warnings: list[str] = []
@@ -242,12 +271,7 @@ def _parse_srs_section29(srs_path: Path) -> tuple[list[str], list[str]]:
         return [], warnings
 
     cell_text = line_match.group(1)
-    # SRS uses the same " / " separator as SPEC.md §5.3.
-    for raw in re.split(r"\s*/\s*", cell_text):
-        raw = re.sub(r"[`*]", "", raw)
-        raw = raw.strip()
-        if not raw:
-            continue
+    for raw in _split_dep_cell(cell_text):
         raw_deps.append(raw)
 
     return _filter_known(raw_deps, warnings, "SRS.md §2.9 dev-deps"), warnings
