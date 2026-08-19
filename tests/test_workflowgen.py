@@ -393,3 +393,39 @@ class TestSessionBlockGuard:
                 f'number `length < 10` — short PASS strings will be '
                 f'misclassified as session-limit blocks on resume'
             )
+
+    def test_the_guard_has_one_producer_and_two_named_exceptions(self):
+        """Round 64 站0 — the comment above the helper said eleven sites
+        "all call this helper now". Measured: ten do. `spec_phase3.py` and
+        two sites in `js_blocks.py` still hand-write the same JS, and the
+        comment does not mention the `js_blocks.py` ones at all — so the
+        next edit to the wording reaches ten of thirteen copies.
+
+        Two sites legitimately do not return the helper's shape:
+          - `spec_runall.py` — the driver READS a phase's outcome and
+            re-emits its own, one level up;
+          - the gate loop in `js_blocks.py` — sets a flag and `break`s out
+            of the retry loop instead of returning from the dispatch site.
+
+        Pinning the per-file count rather than the file names keeps those
+        two honest: a third hand-written copy in either file is a failure.
+        """
+        from pathlib import Path
+
+        wfgen = Path(__file__).resolve().parents[1] / "scripts" / "workflowgen"
+        expected = {
+            "spec_shared.py": 1,   # render_session_block_guard itself
+            "spec_runall.py": 1,   # the driver re-emits its own, one level up
+            "js_blocks.py": 1,     # the gate loop's flag-and-break shape
+        }
+        found = {}
+        for path in sorted(wfgen.glob("*.py")):
+            # The emitted JS literal, not the identifier: prose that names the
+            # mechanism is not a second producer of it.
+            count = path.read_text(encoding="utf-8").count("session_limit_blocked: true")
+            if count:
+                found[path.name] = count
+        assert found == expected, (
+            f"session_limit_blocked is written in {found}, expected {expected} "
+            f"— every other site must go through render_session_block_guard"
+        )

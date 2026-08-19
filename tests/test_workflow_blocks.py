@@ -156,6 +156,40 @@ def test_a_first_sighting_is_not_a_recurrence(project):
     )
 
 
+def test_a_recurrence_survives_a_second_record_of_the_same_block(project):
+    """Round 64 站0 — recording a block twice must not erase that it returned.
+
+    `recurred` is computed from the PRIOR row's `resolved` flag, and every
+    reader (`open_blocks`, doctor, run-report) takes the LAST row per
+    signature. So a second record of a block that had already come back
+    reads its own unresolved predecessor, writes `recurred_after_resolution:
+    false`, and last-write-wins turns doctor's ERROR into a WARN and drops
+    run-report's `<- RETURNED AFTER A REPAIR`.
+
+    Not hypothetical since 6e7942e: recordBlock's prompt no longer tells the
+    agent to report a failed record-block "rather than retrying", so a retry
+    that the first call had in fact completed writes the second row.
+    """
+    from core.fault_owner import Owner
+    from core.workflow_blocks import open_blocks, read_blocks, record_block, resolve_block
+
+    sig = record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS,
+                       message="crg_independent_failed")
+    resolve_block(project, sig, resolution="repair-harness pushed 0123abc")
+    record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS,
+                 message="crg_independent_failed")
+    record_block(project, phase=3, step="Gate 2", owner=Owner.HARNESS,
+                 message="crg_independent_failed")
+
+    assert read_blocks(project)[-1]["recurred_after_resolution"] is True, (
+        "the second record of a returned block reported it as a first sighting"
+    )
+    assert open_blocks(project)[0]["recurred_after_resolution"] is True, (
+        "every reader takes the latest row, so the recurrence is now invisible "
+        "to doctor and run-report"
+    )
+
+
 def test_resolving_a_signature_that_was_never_recorded_is_refused(project):
     """A receipt for a block nobody recorded is a claim with no subject —
     Round 45's rule (a verdict outlives its proof) at the ledger layer."""

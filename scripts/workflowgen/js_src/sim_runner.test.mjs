@@ -853,6 +853,66 @@ test('round48: recordBlock is schema-verified, not fire-and-forget', async () =>
   assert.match(recorded[0].prompt, /repair_workflow/)
 })
 
+// ---- 13b. Round 64 站0: the bookkeeping preamble actually rides along ------
+// The wrapper buffers a record per dispatch and hands the buffer to the NEXT
+// dispatch as a preamble — the only way to write anything from a sandbox with
+// no filesystem, no shell and no clock. Inside the sim there is no shell
+// either, so the preamble's PRESENCE in the next prompt is the observable.
+// Without this, the wrapper can be silently emptied and every other workflow
+// test still passes — which is what happened in 6e7942e.
+test('round26: dispatch records ride along on the next prompt', async () => {
+  const { events } = await runWorkflow(WF('phase1-requirements.js'),
+                                       makeHappyResponder(happyOverrides()))
+  assert.ok(events.agents.length >= 2, 'need at least two dispatches to observe a flush')
+  assert.ok(
+    !events.agents[0].prompt.includes('[BOOKKEEPING'),
+    'the FIRST dispatch has nothing to flush — an empty buffer must add nothing',
+  )
+  const carriers = events.agents.filter((a) => a.prompt.includes('[BOOKKEEPING'))
+  assert.ok(
+    carriers.length > 0,
+    'no dispatch carried the buffered records — the workflow substrate is invisible '
+    + 'to sessions_spawn.log again (Round 26 站5)',
+  )
+  assert.match(carriers[0].prompt, /harness_cli\.py log-dispatch --project/)
+  assert.match(carriers[0].prompt, /--batch/)
+})
+
+// ---- 13c. Round 64 站0: a blocked reply ends the retry loop -----------------
+// Phase 2's preflight, constitution and push-checkpoint sites each dispatch
+// inside a retry loop, and their session-limit guards sit AFTER the loop's
+// closing brace — unlike phase6/phase8/the gate loop, whose guards return or
+// break from inside. Two consequences, both observable here: the run keeps
+// dispatching into a wall it has already hit, and the verdict is read from
+// the LAST attempt, so real FAILs followed by one empty reply are reported as
+// a quota block (relaunchable, project not at fault) instead of a quality
+// failure.
+test('round64: a blocked preflight reply does not burn the remaining attempts', async () => {
+  const { result, events } = await runWorkflow(
+    WF('phase2-architecture.js'),
+    makeHappyResponder([{ match: /^preflight-/, respond: null }, ...happyOverrides()]),
+  )
+  assert.equal(result.session_limit_blocked, true)
+  const attempts = events.agents.filter((a) => a.label.startsWith('preflight-'))
+  assert.equal(attempts.length, 1,
+               `a blocked first attempt dispatched ${attempts.length} times before aborting`)
+})
+
+// The push-checkpoint loop retries five times, so it is the most expensive
+// of the three: a quota cap hit on the first attempt costs four more
+// dispatches against a wall the run has already reported as final.
+test('round64: a blocked push-checkpoint reply aborts on the first attempt', async () => {
+  const { result, events } = await runWorkflow(
+    WF('phase2-architecture.js'),
+    makeHappyResponder([{ match: /^push-/, respond: null }, ...happyOverrides()]),
+  )
+  assert.equal(result.session_limit_blocked, true)
+  assert.equal(result.step, 'push-checkpoint')
+  const attempts = events.agents.filter((a) => a.label.startsWith('push-'))
+  assert.equal(attempts.length, 1,
+               `a blocked first attempt dispatched ${attempts.length} times before aborting`)
+})
+
 test('round26: every workflow routes its dispatches through the wrapper', async () => {
   for (const f of ['phase1-requirements.js', 'phase3-implementation.js', 'run-all.js']) {
     const src = await readFile(WF(f), 'utf8')

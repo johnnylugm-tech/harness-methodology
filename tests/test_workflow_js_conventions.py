@@ -118,6 +118,62 @@ def test_runall_stays_within_its_headroom_ratchet():
     )
 
 
+def test_the_ratchet_note_reports_the_size_it_measured():
+    """Round 64 站0 — the ceiling's own note must describe THIS tree.
+
+    `RUNALL_MAX_BYTES`'s inline history opens with the current entry's
+    measurement. Measured 2026-08-20: the newest entry claims 348693, a
+    number run-all.js has never had — 348457 at the commit that wrote it
+    (983b46e), 346724 today, because 6e7942e shrank the file by 1733 bytes
+    and left the note alone. A ceiling standing 2276 bytes above a size
+    nobody re-measured is not a ratchet; it is a memoir.
+
+    The rule this pins is the cheapest one that stays honest: whatever the
+    newest entry says it measured has to be what the shipped file weighs.
+    Growing run-all then costs a re-measurement, which is the deliberate
+    act the note itself asks for.
+    """
+    import re
+
+    source = (
+        REPO_ROOT / "scripts" / "workflowgen" / "artifact_limits.py"
+    ).read_text(encoding="utf-8")
+    line = next(
+        ln for ln in source.splitlines() if ln.startswith("RUNALL_MAX_BYTES")
+    )
+    claimed = re.search(r"Measured (\d+)", line)
+    assert claimed, "the RUNALL_MAX_BYTES note no longer states what it measured"
+    size = len(_read(RUNALL_FILE).encode("utf-8"))
+    assert int(claimed.group(1)) == size, (
+        f"the RUNALL_MAX_BYTES note says it measured {claimed.group(1)} bytes; "
+        f"{RUNALL_FILE} weighs {size}. Re-measure and update the entry — the "
+        f"ceiling is only a ratchet while the number under it is this tree's"
+    )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_no_shipped_workflow_classifies_a_block_by_string_length(filename):
+    """Round 64 站0 — `length < 10` misclassified a 9-char `SAB: PASS`.
+
+    9fd9a12 pinned the absence of that token, but over `GENERATORS` — the
+    eight phase generators. run-all.js and its driver are not in that dict:
+    `spec_runall.py` writes the `session_limit_blocked` branch itself, from
+    code no phase generator produces, so the same magic number could come
+    back there with the guard still green. This scans the SHIPPED files,
+    which is where the runtime reads them (Round 36).
+
+    `length < 100` is the review-reason min-length check and out of scope.
+    """
+    import re
+
+    hits = re.findall(r"\blength\s*<\s*10\b", _read(filename))
+    assert not hits, (
+        f"{filename}: {len(hits)} occurrence(s) of the magic number "
+        f"`length < 10` — a short but non-empty reply would again be "
+        f"misclassified as a session-limit block"
+    )
+
+
 class TestScannerHandlesRegexLiterals:
     """Round 23 站3 — a `/.../` literal may contain a quote character.
 
@@ -204,6 +260,31 @@ def test_every_dispatch_goes_through_the_wrapper(filename):
         f"{filename}: {text.count('await agent(') - 1} raw `await agent(` call(s) "
         f"bypass the dispatch() wrapper, so those dispatches never reach "
         f"sessions_spawn.log"
+    )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_the_wrapper_records_before_it_rethrows(filename):
+    """A dead sub-agent cannot log itself; the wrapper observes the outcome.
+
+    If the catch block ever stops pushing a record, failed dispatches vanish
+    from the population again — which is the exact asymmetry that made the
+    failure rate a P3-only number.
+
+    Round 64 站0 restores this guard. 6e7942e deleted the mechanism it
+    watches in a commit whose message says the wrapper's *comment* was
+    trimmed, and 020695e rewrote this registry entry into the opposite
+    claim. Measured on the corpus: the wrapper was still producing rows
+    4.5 hours before it was removed, and the 11 EMPTY/ERROR rows it caught
+    across six projects exist in no other record.
+    """
+    text = _read(filename)
+    if "await dispatch(" not in text:
+        pytest.skip(f"{filename} dispatches no agents")
+    catch_start = text.index("} catch (err) {")
+    catch_end = text.index("throw err", catch_start)
+    assert "__dispatchLog.push(" in text[catch_start:catch_end], (
+        f"{filename}: the wrapper rethrows without recording the failure"
     )
 
 

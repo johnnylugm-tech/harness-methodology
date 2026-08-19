@@ -22,6 +22,7 @@ shape was written down once. These tests are that place's contract.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 from core.spawn_log_schema import (
@@ -121,6 +122,31 @@ def test_the_python_writers_emit_only_known_fields():
             assert name in known, (
                 f"{rel} writes {name!r} into sessions_spawn.log, and "
                 f"core/spawn_log_schema.py has never heard of it"
+            )
+
+
+def test_the_generated_workflow_writer_emits_only_known_fields():
+    """The JS side is generated; its field names must come from the same list.
+
+    Reads the shipped workflow rather than the generator, because the shipped
+    file is what runs (Round 36: the delivered copy is the one that counts).
+
+    Round 64 站0 restores this guard, deleted by 54daf48 after 6e7942e removed
+    the writer it reads. The assertion that the push site EXISTS is the half
+    that mattered: it is what turns "the workflow side stopped writing" from
+    a silent change into a red test.
+    """
+    js = (REPO / ".claude" / "workflows" / "run-all.js").read_text(encoding="utf-8")
+    # Rows reach the file as a `log-dispatch --batch` payload; the workflow
+    # builds each one here.
+    blocks = re.findall(r"__dispatchLog\.push\(\s*\{(.*?)\}\s*\)", js, re.S)
+    assert blocks, "no __dispatchLog.push call found in the shipped run-all.js"
+    known = REQUIRED_FIELDS | OPTIONAL_FIELDS
+    for block in blocks:
+        for key in re.findall(r"(\w+)\s*:", block):
+            assert key in known, (
+                f"the generated workflow writes {key!r} into sessions_spawn.log, "
+                f"and core/spawn_log_schema.py has never heard of it"
             )
 
 
