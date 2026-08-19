@@ -21,6 +21,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+# Round 64 站6 — the session-limit guard has one producer. This module's two
+# retry loops used to hand-write it; spec_shared holds no import of this one,
+# so the edge only goes this way.
+from .spec_shared import render_session_block_guard
+
 _JS_SRC_DIR = Path(__file__).resolve().parent / "js_src"
 _EXPORT_RE = re.compile(r"^export\s+(?=function\b)", re.MULTILINE)
 
@@ -717,10 +722,14 @@ def render_per_fr_delta(
         + "  // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty\n"
         + "  // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be\n"
         + "  // misreported as a code-quality failure. DELTA auto-skip makes resume safe.\n"
-        + "  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {\n"
-        + "    log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
-        + f"    return {{ session_limit_blocked: true, phase: {phase}, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }}\n"
-        + "  }\n"
+        + render_session_block_guard(
+            'frReport', '', phase,
+            step_js='frId',
+            extra_fields='fr_id: frId, gate1Pass',
+            message="Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. "
+                    "Resume after quota reset — completed FRs skip via DELTA auto-satisfy.",
+            indent='  ',
+        )
         + render_terminal_abort_detectors(phase=phase, indent="  ", step="GATE1-DELTA")
         + "  // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness\n"
         + "  // quality_manifest — NOT the sub-agent's self-reported \"GATE1: PASS\" string. A\n"
@@ -873,10 +882,12 @@ def render_advance_loop(
         + f"    + 'SCOPE RULES:\\n{scope_extra}- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY {only_extra}advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
         + "    { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },\n"
         + "  )\n"
-        + "  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {\n"
-        + "    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
-        + f"    return {{ session_limit_blocked: true, phase: {phase}, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }}\n"
-        + "  }\n"
+        + render_session_block_guard(
+            'advanceReport', 'advance', phase,
+            message='Agent hit session/rate limit during Advance. '
+                    'Resume after quota reset — the GUARD step skips if already advanced.',
+            indent='  ',
+        )
         + "  // AUTHORITATIVE Advance verdict: advance-phase atomically writes\n"
         + f"  // state.json current_phase={next_phase} on success. Read it via a schema proxy —\n"
         + "  // the orchestrator's prose \"ADVANCE: PASS\" is narrative only.\n"

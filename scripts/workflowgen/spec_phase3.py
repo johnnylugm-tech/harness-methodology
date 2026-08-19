@@ -235,10 +235,14 @@ def _render_per_fr_tdd() -> str:
         + "    // Gate 1 FAIL — mirror the Gate 2 detection (below). Without this, a rate-limit mid-\n"
         + "    // TDD is misreported as a code-quality Gate 1 failure. Sentinel GUARD skips completed\n"
         + "    // FRs on resume, so aborting here is safe.\n"
-        + "    if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {\n"
-        + "      log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
-        + "      return { session_limit_blocked: true, phase: 3, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }\n"
-        + "    }\n"
+        + S.render_session_block_guard(
+            'frReport', '', 3,
+            step_js='frId',
+            extra_fields='fr_id: frId, gate1Pass',
+            message="Agent hit session/rate limit during ' + frId + ' TDD. "
+                    "Resume after quota reset — sentinel GUARD will skip completed FRs.",
+            indent='    ',
+        )
         + B.render_terminal_abort_detectors(phase=3, indent="    ", step="GATE1")
         + "    // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes\n"
         + "    // gate_results.gate1[fr].quality_complete on every finalize-gate, pass OR fail) —\n"

@@ -2381,7 +2381,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     { label: 'advance-r' + round, phase: 'P3 · Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
-    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+    log('  advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 3, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
   const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
@@ -2655,7 +2655,7 @@ for (const frId of deltaTodo) {
   )
   if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 4, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+    return { session_limit_blocked: true, phase: 4, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
   if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
@@ -2867,7 +2867,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     { label: 'advance-r' + round, phase: 'P4 · Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
-    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+    log('  advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
   const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
@@ -3075,7 +3075,7 @@ for (const frId of deltaTodo) {
   )
   if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 5, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+    return { session_limit_blocked: true, phase: 5, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
   if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
@@ -3184,7 +3184,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     { label: 'advance-r' + round, phase: 'P5 · Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
-    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+    log('  advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 5, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
   const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
@@ -3713,7 +3713,7 @@ for (const frId of deltaTodo) {
   )
   if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 7, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+    return { session_limit_blocked: true, phase: 7, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
   if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
@@ -3820,7 +3820,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     { label: 'advance-r' + round, phase: 'P7 · Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
-    log('  Advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+    log('  advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 7, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
   }
   const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
@@ -4030,7 +4030,7 @@ for (const frId of deltaTodo) {
   )
   if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 8, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+    return { session_limit_blocked: true, phase: 8, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
   if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {

@@ -451,7 +451,7 @@ for (const frId of deltaTodo) {
   // misreported as a code-quality failure. DELTA auto-skip makes resume safe.
   if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-    return { session_limit_blocked: true, phase: 8, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
+    return { session_limit_blocked: true, phase: 8, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
   // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
   // (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints "[FATAL] <fr> <step>:

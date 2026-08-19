@@ -255,8 +255,20 @@ async function dispatch(prompt, opts) {
 #
 # 11 sites across four generators previously inlined this pattern
 # (spec_phase2.py: 112, 237, 256, 343, 371, 390, 524, 550;
-# spec_phase3.py: 238; spec_phase6.py: 247; spec_phase8.py: 127). All call
-# this helper now — commonality, single source of truth.
+# spec_phase3.py: 238; spec_phase6.py: 247; spec_phase8.py: 127).
+#
+# Round 64 站6: that list was wrong in both directions. Ten of the eleven
+# called the helper, not eleven — spec_phase3.py was named and still
+# hand-wrote it — and three more copies in js_blocks.py (the per-FR DELTA
+# loop, the advance loop, the gate loop) were not mentioned at all, so an
+# edit to the wording would have reached ten of thirteen sites. The DELTA,
+# advance and TDD copies now call this helper too, via `indent` and
+# `step_js`. The gate loop is the one site that legitimately does not: it
+# sets a flag and `break`s out of its retry loop rather than returning from
+# the dispatch, and its payload is keyed by `gate` instead of `phase`.
+# tests/test_workflowgen.py::TestSessionBlockGuard pins that inventory, so
+# a fourteenth hand-written copy is a failure rather than a comment to
+# update.
 #
 # The driver at run-all.js:4218-4221 already recognizes
 # `outcome.session_limit_blocked` and routes through `recordBlock(n,
@@ -271,6 +283,8 @@ def render_session_block_guard(
     *,
     extra_fields: str = '',
     message: str,
+    indent: str = '',
+    step_js: "str | None" = None,
 ) -> str:
     """Emit the JS guard that distinguishes a session/rate-limit block from a
     hard PASS/FAIL failure.
@@ -294,13 +308,23 @@ def render_session_block_guard(
     payload shape. `message` is the human-readable text shown by the
     record-block CLI; each site passes its own to keep the wording
     precise (Phase 6/8 mention the GUARD step's skip-on-resume behaviour;
-    Phase 3 mentions sentinel GUARD).
+    Phase 3 mentions sentinel GUARD). Both are emitted inside the JS, and
+    `message` inside single quotes, so a site whose text names a runtime
+    value passes the concatenation itself (`… during ' + frId + ' TDD…`).
+
+    `indent` prefixes every emitted line, for sites nested inside a loop
+    body. `step_js` names the step with a JS expression instead of a
+    literal — the per-FR sites report the FR id they were working on, which
+    is not known until the loop runs. It lands in a `+`-concatenation, so
+    an expression looser than that needs its own parentheses.
     """
     extra = (', ' + extra_fields) if extra_fields else ''
+    log_subject = f"' + {step_js} + '" if step_js else step_name
+    step_value = step_js if step_js else f"'{step_name}'"
     return (
-        f"if ({var_name} === null || {var_name} === undefined "
+        f"{indent}if ({var_name} === null || {var_name} === undefined "
         f"|| {var_name} === '' || typeof {var_name} !== 'string') {{\n"
-        f"  log('  {step_name} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
-        f"  return {{ session_limit_blocked: true, phase: {phase_no}, step: '{step_name}'{extra}, message: '{message}' }}\n"
-        f"}}\n"
+        f"{indent}  log('  {log_subject} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
+        f"{indent}  return {{ session_limit_blocked: true, phase: {phase_no}, step: {step_value}{extra}, message: '{message}' }}\n"
+        f"{indent}}}\n"
     )
