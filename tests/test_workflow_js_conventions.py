@@ -12,6 +12,7 @@ workflowgen-generated (Round 11 plan's 明確不做 list).
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -471,3 +472,89 @@ def test_no_shipped_workflow_hardcodes_the_project_layout_into_a_coverage_run(fi
             f"03-development/ path. The project's test and source directories "
             f"are resolve_targets' answer, not the prompt's"
         )
+
+
+# Round 66 站0. `nohup … &` launches a harness run the agent then supervises by
+# hand. Every one of those prompts ends its poll loop by telling the agent to
+# walk away from a run that is still going.
+_ABANDONMENT = re.compile(r"do\s+n[o']?t\s+kill", re.IGNORECASE)
+
+# `kill -0 <PID>` is the poll — it asks whether the run is alive and signals
+# nothing. Any other `kill` in a prompt is a reap.
+_POLL = "kill -0"
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_no_shipped_workflow_tells_the_agent_to_leave_a_run_behind(filename):
+    """Round 66 站0 — abandoning a run is not the same as ending it.
+
+    Measured on taskq-cc's live Phase 4, 2026-08-21 04:10-04:20: 99 processes
+    with PPID 1, every one of their pgid leaders already dead; 25 concurrent
+    `pytest … --cov`; 306 multiprocessing workers; load average 28-42. The
+    orphaned command is verbatim the coverage command these prompts issue.
+
+    One of the two phrasings says the quiet part: "do NOT kill the PID — it is
+    still legitimately running; resume by re-running this same step". Leave it
+    running AND start a replacement. The abandoned run keeps the CPU and the
+    project's sqlite file, so the replacement is slower, so it hits the cap
+    too. That is not a load spike, it is positive feedback.
+
+    Whether an abandoned run can be reaped at all is the harness's half
+    (`core.utils.subprocess_group.run_isolated` plus a SIGTERM handler); this
+    is the prompt's half, and neither substitutes for the other.
+    """
+    for lineno, line in enumerate(_read(filename).splitlines(), 1):
+        match = _ABANDONMENT.search(line)
+        assert match is None, (
+            f"{filename}:{lineno} instructs the agent to leave a background "
+            f"harness run going: {match.group(0)!r}. A poll cap that does not "
+            f"reap converts a slow run into an unowned one"
+        )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_every_backgrounded_launch_has_a_reap(filename):
+    """Counting, not phrasing: a prompt that can start it must be able to end it.
+
+    The banned-phrase test above catches today's two wordings. This one holds
+    the shape regardless of wording — if a prompt gains a `nohup` launch it has
+    to gain the instruction that ends it, in the same edit.
+    """
+    text = _read(filename)
+    launches = [
+        n for n, line in enumerate(text.splitlines(), 1) if "nohup " in line
+    ]
+    reaps = [
+        n for n, line in enumerate(text.splitlines(), 1)
+        if "kill " in line and _POLL not in line
+    ]
+    assert len(reaps) >= len(launches), (
+        f"{filename} launches {len(launches)} background run(s) "
+        f"(lines {launches}) but carries only {len(reaps)} reap instruction(s) "
+        f"(lines {reaps}). `{_POLL}` asks whether it is alive; it does not end "
+        f"it"
+    )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_the_delta_fastpath_does_not_fan_out_over_the_frs(filename):
+    """The probe's own comment says sequential; its instruction does not.
+
+    `js_blocks.py` tells the agent to "Run it BACKGROUNDED for every FR, not
+    just slow ones", and eight lines further down explains a backoff interval
+    with "this probe walks the FRs one at a time". Ten `run-fr-step` processes
+    were observed running concurrently against one project tree, each with its
+    own agent, each running the full suite with xdist against the same sqlite
+    file.
+
+    Backgrounding exists to survive the Bash tool's own timeout, not to
+    parallelise. Making the instruction say what the comment already claims is
+    a wording fix, not a design change.
+    """
+    text = _read(filename)
+    assert "BACKGROUNDED for every FR" not in text, (
+        f"{filename} reads as an instruction to launch one background "
+        f"run-fr-step per FR at once. These runs share one project tree, one "
+        f"test database and one source_tree_lock — the probe walks the FRs one "
+        f"at a time, and the prompt has to say so"
+    )

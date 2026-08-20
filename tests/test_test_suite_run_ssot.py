@@ -548,3 +548,75 @@ def test_a_suite_that_never_finishes_is_reported_as_a_timeout(tmp_path, monkeypa
     assert result.passed is False
     assert result.returncode == 124
     assert "timed out" in result.reason
+
+
+# Round 66 站0. The modules that still execute the project's own tree outside
+# `run_suite`. `_ADVANCE_SUITE_CONSUMERS` above deliberately stopped at the
+# advance-phase call graph on scope grounds (Round 25, a performance round);
+# these three are re-opened on different grounds — correctness. None of them
+# takes `source_tree_lock`, so their pytest runs proceed while mutmut is
+# mid-mutation and measure a tree that is not the delivered one, and none of
+# them reaps on timeout, so what they start outlives them.
+#
+# `confidence_scorer.py` and `stage_pass_generator.py` also build pytest
+# argvs and are deliberately absent: both have ZERO production callers
+# (stage_pass_generator has emitted a deprecation warning since v2.5.0 and is
+# referenced only by tests/test_w6_gap_fill.py). Wiring dead code would be
+# wiring dead code. `scripts/verify_regression_guards.py` runs the harness's
+# own tests, not a project tree, where no mutation window exists.
+_SOURCE_TREE_EXECUTORS = (
+    "cli/project_cmds.py",                    # cmd_status --full
+    "core/quality_gate/cross_artifact.py",    # check_coverage_report
+    "core/quality_gate/mutation_enforcer.py",  # mutmut / stryker
+)
+
+
+def _bounded_project_runs(source: str) -> list[int]:
+    """`subprocess.*` calls that name BOTH a working directory and a timeout.
+
+    That pair is the whole signature. `cwd=` says the command runs inside a
+    tree this process does not own; `timeout=` says this call intends to kill
+    it. Round 65 established that killing has to mean killing the group, so a
+    call carrying both halves goes through a primitive that reaps —
+    `run_against_source_tree` when the command executes the tree's code (it
+    adds the wait for mutmut's mutation window), `run_isolated` when it merely
+    runs there, like a `gh` query, or when the lock is already held.
+
+    A git or gh call with a timeout and no cwd is a leaf outside any tree and
+    stays where it is; a call with a cwd and no timeout never kills anything.
+    """
+    hits: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "subprocess"):
+            continue
+        kwargs = {kw.arg for kw in node.keywords}
+        if "cwd" in kwargs and "timeout" in kwargs:
+            hits.append(node.lineno)
+    return hits
+
+
+def test_executing_the_project_tree_goes_through_one_primitive():
+    """Zero allowlist, same as the advance-path rule above.
+
+    Measured on taskq-cc 2026-08-21 04:15: six harness processes queued on
+    `.methodology/.mutation_exclusive.lock` while 25 pytest runs that never
+    ask for it saturated the machine. A lock only serialises the callers who
+    take it.
+    """
+    offenders = []
+    for rel in _SOURCE_TREE_EXECUTORS:
+        src = (REPO / rel).read_text(encoding="utf-8")
+        offenders += [f"{rel}:{line}" for line in _bounded_project_runs(src)]
+    assert not offenders, (
+        "a time-bounded command still runs inside the project tree without "
+        "the lock that waits for the mutation window and without the group "
+        "kill that makes its timeout mean anything — use "
+        "core.quality_gate.source_tree_lock.run_against_source_tree (or, "
+        "where the lock is already held, core.utils.subprocess_group."
+        "run_isolated):\n  " + "\n  ".join(offenders)
+    )
