@@ -219,3 +219,72 @@ def test_isolating_a_group_has_one_producer():
         f"isolation without killing the group removes the reaper the process "
         f"had; the pair lives in core/utils/subprocess_group.run_isolated"
     )
+
+
+# Round 66. `timeout=` on a spawn is a declaration that this call intends to
+# kill what it started. On POSIX that kills the direct child and nothing else,
+# so every such call is a place a process tree can be left with PPID 1 — which
+# is what put 99 orphans, 25 concurrent coverage runs and load average 28-42
+# on taskq-cc on 2026-08-21.
+#
+# The rule is that `timeout=` and the group kill are one decision, and
+# run_isolated is where both live. The debt is not: 92 production call sites
+# still pass `timeout=` to subprocess directly. Converting them all in one
+# round would be the runaway refactor this repo's own rules forbid, and most
+# of them are leaves (`git rev-parse`, `ruff check`) where killing the child
+# IS killing the tree.
+#
+# So this number ratchets. It may go down and it may not go up: a new spawn
+# that wants a timeout uses run_isolated, and an old one converts when its
+# file is being worked on for another reason anyway. Lower it in the same
+# commit that converts a site — like every other ratchet here, an unchanged
+# number after a conversion is the drift the ratchet exists to catch.
+_UNREAPED_TIMEOUT_SITES = 92
+
+
+def _timeout_bearing_spawns() -> "list[str]":
+    """`file:line` of every production `subprocess.*(…, timeout=…)`."""
+    import ast
+
+    skip = {".venv", ".git", "__pycache__", "node_modules", "tests"}
+    owner = "core/utils/subprocess_group.py"
+    sites: list[str] = []
+    for path in sorted(REPO_ROOT.rglob("*.py")):
+        rel = path.relative_to(REPO_ROOT)
+        if any(part in skip for part in rel.parts) or str(rel) == owner:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute)
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"):
+                continue
+            if func.attr not in ("run", "Popen", "check_output", "call",
+                                 "check_call"):
+                continue
+            if any(kw.arg == "timeout" for kw in node.keywords):
+                sites.append(f"{rel}:{node.lineno}")
+    return sites
+
+
+def test_spawns_that_intend_to_kill_only_ratchet_down():
+    """A timeout without a reaper is a place a tree can be abandoned."""
+    sites = _timeout_bearing_spawns()
+    assert len(sites) <= _UNREAPED_TIMEOUT_SITES, (
+        f"{len(sites)} production subprocess calls pass `timeout=` without "
+        f"going through core.utils.subprocess_group.run_isolated, up from "
+        f"{_UNREAPED_TIMEOUT_SITES}. A new one is not allowed: `timeout=` "
+        f"says this call will kill the command, and killing has to mean "
+        f"killing the group.\n  " + "\n  ".join(sites[-12:])
+    )
+    assert len(sites) == _UNREAPED_TIMEOUT_SITES, (
+        f"{len(sites)} sites remain, below the recorded {_UNREAPED_TIMEOUT_SITES}. "
+        f"Good — lower _UNREAPED_TIMEOUT_SITES to {len(sites)} in the commit "
+        f"that converted them, so the next reader inherits the real number"
+    )

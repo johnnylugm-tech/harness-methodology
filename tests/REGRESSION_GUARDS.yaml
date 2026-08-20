@@ -2725,3 +2725,35 @@
 - test: tests/test_load_context_fallback.py::test_an_explicit_coveragerc_source_reaches_the_prompt
   bug: "resolve_targets puts .coveragerc [run] source above active_src_dir for the coverage target; a prompt naming the directory itself cannot honour a project that scoped its own coverage"
   fixed_in: "R65-站2"
+
+- test: tests/test_agent_spawn_isolation.py::test_a_timed_out_agent_does_not_orphan_what_it_started
+  bug: "AgentSpawner.spawn used a bare subprocess.run(timeout=), which kills the direct `claude` process and nothing it started; measured on taskq-cc 2026-08-21, 99 orphans with PPID 1 including 25 concurrent `pytest --cov` runs the timed-out agents had launched"
+  fixed_in: "R66-站1 (core/agent_spawner.py -> run_isolated)"
+
+- test: tests/test_agent_spawn_isolation.py::test_a_terminated_run_reaps_the_tree_it_started
+  bug: "the repo had no signal handler at all, so `kill <PID>` terminated the harness where it stood — no finally ran, run_isolated's reaper never fired, and since R65 the children are in their own session where nothing outside can reach them"
+  fixed_in: "R66-站1 (core.errors.install_termination_handler)"
+
+- test: tests/test_source_tree_lock_nesting.py::test_nesting_the_source_tree_lock_reports_instead_of_hanging
+  bug: "nesting source_tree_lock in one process queued it behind itself forever; the only protection was a sentence in the docstring, and R66 added five acquire sites"
+  fixed_in: "R66-站3"
+
+- test: tests/test_test_suite_run_ssot.py::test_executing_the_project_tree_goes_through_one_primitive
+  bug: "cli/project_cmds.py, cross_artifact.py and mutation_enforcer.py ran the project's own tree with neither source_tree_lock nor a group kill — coverage measured against a tree mutmut was mid-mutation on, and xdist workers left behind on timeout"
+  fixed_in: "R66-站3 (run_against_source_tree)"
+
+- test: tests/test_subprocess_group.py::test_spawns_that_intend_to_kill_only_ratchet_down
+  bug: "106 production spawns carried `timeout=` with no reaper and nothing counted them, so the class that produced this round's stall could grow silently one call site at a time"
+  fixed_in: "R66-站4"
+
+- test: tests/test_workflow_js_conventions.py::test_no_shipped_workflow_tells_the_agent_to_leave_a_run_behind
+  bug: "32 shipped instructions told the agent to abandon a background harness run at the poll cap; one said it outright — 'do NOT kill the PID — it is still legitimately running; resume by re-running this same step' — so the abandoned run and its replacement competed for the same tree"
+  fixed_in: "R66-站2"
+
+- test: tests/test_workflow_js_conventions.py::test_every_backgrounded_launch_has_a_reap
+  bug: "every workflow handed the agent a PID to supervise and none of them carried an instruction that ends the run; `kill -0` asks whether it is alive and signals nothing"
+  fixed_in: "R66-站2"
+
+- test: tests/test_workflow_js_conventions.py::test_the_delta_fastpath_does_not_fan_out_over_the_frs
+  bug: "'Run it BACKGROUNDED for every FR' read as a fan-out while the same block's comment eight lines below said 'this probe walks the FRs one at a time'; ten run-fr-step processes were observed running concurrently against one project tree and one sqlite file"
+  fixed_in: "R66-站2"
