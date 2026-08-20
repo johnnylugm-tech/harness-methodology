@@ -23,6 +23,13 @@ other end from where it stands, so a caller does not get to request one end —
 `tests/test_subprocess_group.py` pins this module as the only producer of
 `start_new_session=`.
 
+The leak is the visible half. Measured while counter-proving the fix: with
+the group kill disabled, the `communicate()` after the kill took 120.09s to
+return on a 3s timeout, because the surviving grandchild still held the
+stdout/stderr pipes it had inherited. So killing only the direct child does
+not merely leak a process, it stalls the caller for as long as the leak
+lives — a gate that reported a 300s timeout could sit there far longer.
+
 WHY BaseException AND NOT Exception
 
 `subprocess.run`'s own handler is a bare `except:`, and CPython's comment on

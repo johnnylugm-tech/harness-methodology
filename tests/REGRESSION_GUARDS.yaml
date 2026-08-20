@@ -2685,3 +2685,43 @@
 - test: tests/test_workflowgen.py::TestSessionBlockGuard::test_the_guard_has_one_producer_and_two_named_exceptions
   bug: "the comment above render_session_block_guard said eleven sites 'all call this helper now'; ten did, spec_phase3.py was named and still hand-wrote it, and three js_blocks.py copies were not mentioned at all"
   fixed_in: "R64-站6"
+
+- test: tests/test_subprocess_group.py::test_a_timed_out_run_takes_the_whole_group_with_it
+  bug: "b12ff21 put the process in its own session and never killed the group; measured, a grandchild survived subprocess.run's timeout with PPID 1 and PGID 74754 — a group nothing in the harness signals"
+  fixed_in: "R65-站1 (core/utils/subprocess_group.run_isolated)"
+
+- test: tests/test_subprocess_group.py::test_an_interrupt_does_not_leave_the_command_running
+  bug: "the inlined handler was `except Exception`, which does not see KeyboardInterrupt; Ctrl-C unwound past the kill and released source_tree_lock while an unowned pytest kept writing into the project tree"
+  fixed_in: "R65-站1"
+
+- test: tests/test_subprocess_group.py::test_a_timed_out_tool_does_not_orphan_what_it_spawned
+  bug: "run_tool reported TIMEOUT -2 while whatever the tool had spawned kept running; system-verification runs the delivered product, so the next tool run met 'address already in use' with no trace of the holder"
+  fixed_in: "R65-站1"
+
+- test: tests/test_subprocess_group.py::test_isolating_a_group_has_one_producer
+  bug: "two call sites asked for start_new_session= independently and only one wrote the reaper; b90e227 then deleted tool_runners' now-unused os and signal imports 'to satisfy ruff', removing the last trace of the missing half"
+  fixed_in: "R65-站1"
+
+- test: tests/test_test_suite_run_ssot.py::test_a_suite_that_never_finishes_is_reported_as_a_timeout
+  bug: "b12ff21 rewrote _measure's subprocess handling and every test in the file was as green after as before — nothing anywhere asked what happens when the suite does not finish"
+  fixed_in: "R65-站0"
+
+- test: tests/test_workflow_js_conventions.py::test_the_ratchet_notes_arithmetic_closes
+  bug: "73be69c recorded '+35 ... Previous: 348608' with RUNALL_MAX_BYTES still 348608 — the file's delta written in the ceiling's vocabulary, so the chain did not close and the real event (headroom 307 -> 272) went unrecorded. R64's sibling guard reads `Measured` and passed"
+  fixed_in: "R65-站3"
+
+- test: tests/test_workflow_js_conventions.py::test_no_shipped_workflow_hardcodes_the_project_layout_into_a_coverage_run
+  bug: "b12ff21 wrote 03-development/tests/ and --cov=03-development/src into the P4 prompt; both are ProjectLayout's first choice only, so a root-layout project ran a command that collected nothing and Gate 3 charged the difference to the project"
+  fixed_in: "R65-站2"
+
+- test: tests/test_load_context_fallback.py::test_load_context_reports_the_resolved_test_and_coverage_targets
+  bug: "the P4 coverage prompt had no way to learn where this project's tests are; the answer existed only inside resolve_targets, which no prompt can import"
+  fixed_in: "R65-站2"
+
+- test: tests/test_load_context_fallback.py::test_the_reported_targets_follow_the_project_not_the_default_layout
+  bug: "a project with no 03-development/ directory keeps its tests at the root — Round 32 站3 removed the fifth hand-rolled copy of this probe from tool_runners.py, and the prompt was a sixth"
+  fixed_in: "R65-站2"
+
+- test: tests/test_load_context_fallback.py::test_an_explicit_coveragerc_source_reaches_the_prompt
+  bug: "resolve_targets puts .coveragerc [run] source above active_src_dir for the coverage target; a prompt naming the directory itself cannot honour a project that scoped its own coverage"
+  fixed_in: "R65-站2"

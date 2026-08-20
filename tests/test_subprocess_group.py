@@ -92,17 +92,33 @@ def _reap(pid: int) -> None:
 
 
 def test_a_timed_out_run_takes_the_whole_group_with_it(tmp_path):
-    """The mechanism, stated once: nothing the command spawned outlives it."""
+    """The mechanism, stated once: nothing the command spawned outlives it.
+
+    The wall-clock bound is load-bearing, not decoration. Killing only the
+    direct child leaves the grandchild holding the stdout/stderr pipes it
+    inherited, so the `communicate()` that follows the kill blocks until the
+    LAST descendant exits — measured at 120.09s against a 3s timeout when the
+    group kill was disabled. Without this bound the test still passes, on the
+    strength of having waited two minutes for the leak to end by itself. The
+    leak is the visible half; the stall is the half that stops a gate.
+    """
     from core.utils.subprocess_group import run_isolated
 
     pidfile = tmp_path / "grandchild.pid"
+    started = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
         run_isolated(
             [sys.executable, "-c", _SPAWNS_A_GRANDCHILD, str(pidfile)],
             timeout=3,
         )
+    elapsed = time.monotonic() - started
     grandchild = _read_pid(pidfile)
     try:
+        assert elapsed < 30, (
+            f"the timed-out call took {elapsed:.1f}s to return on a 3s "
+            f"timeout — it is waiting on pipes a surviving descendant still "
+            f"holds open"
+        )
         assert _died_within(grandchild), (
             f"grandchild {grandchild} outlived the timeout. Isolating the "
             f"process group without killing it removes the only reaper the "

@@ -3778,6 +3778,127 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 65 — 半座機制：linter 報告了缺的那一半，於是把 linter 關掉
+
+老闆令：`0efae09..73be69c` 四個 commit 的 code review 六項發現，
+「是否是正解？有沒有產生其他副作用？」→ **針對值得修復的部分套用正解（not workaround）**。
+
+基線 `73be69c`：pytest 7386 passed / 4 skipped、guards 655、ruff clean、
+`--check` 10/10、run-all.js 348336。
+
+### 母體（本輪形狀）
+
+`b12ff21` 在兩個 subprocess 呼叫點加上 `start_new_session=True`，
+commit message 寫「prevent runaway child processes from becoming orphaned (PPID 1)」。
+兩處只有一處補上 killpg。實測（本輪站0，兩支對照腳本）：
+
+```
+-- harness/tool_runners.py 現狀，subprocess.run(timeout=2) --
+CHILD 74754 pgid 74754   GC 74755
+TimeoutExpired 後：74755  PPID 1  PGID 74754   仍在跑
+
+-- 同腳本，不帶 start_new_session --
+TimeoutExpired 後：74797  PPID 1  PGID 74793   ← harness 自己的 group
+```
+
+`subprocess.run` 只殺直系子程序，所以**孫程序本來就會變孤兒**；
+`start_new_session` 改變的是它變成誰的孤兒——74793 是 harness 自己的 process group，
+終端 Ctrl-C 與任何 group kill 都還到得了；74754 是**沒有人會發訊號的 group**。
+唯一存在過的回收路徑，以「防止它造成的洩漏」為名被移除。
+
+接著 `b90e227`：**「remove unused os and signal imports to satisfy ruff」**。
+那兩個 import 是缺的那一半留下的唯一痕跡。
+**linter 報告了一座半成品機制，回應是讓 linter 閉嘴，不是把機制蓋完。**
+
+這是 R30（恆空參數＝半座機制）往下一層：R30 的訊號是「參數永遠是空的」，
+本輪的訊號是「import 永遠沒被用到」。兩次都是工具已經指出來了，而修法修在訊號上。
+
+### 六項發現的裁決
+
+| # | 發現 | 裁決 | 依據 |
+|---|---|---|---|
+| 1 | `tool_runners.py` 只 setsid 不 killpg | **屬實，站1 修** | 實測孤兒 PID/PGID（上表） |
+| 2 | `except Exception` 看不到 KeyboardInterrupt；丟失 `with Popen` | **屬實，站1 修** | 實測：新寫法 Ctrl-C 後直系子程序仍活；舊 `subprocess.run` 會殺掉 |
+| 3 | phase4 prompt 硬編 `03-development/tests/` | **屬實，站2 修** | `active_test_dir`/`active_src_dir` 有 root fallback；Gate 3 用 `resolve_targets` 重量 |
+| 4 | `os.killpg` 在 Windows 不存在 | **屬實，站1 一併解** | `AttributeError` 不在 `(OSError, ProcessLookupError)` 內；repo 有 6 處 `os.name == "nt"` 生產分支 |
+| 5 | 逾時路徑零守衛 | **屬實，站0 補** | `test_test_suite_run_ssot.py` 改寫前後同樣全綠 |
+| 6 | ratchet 註記 `Previous: 348608` 而常數仍是 348608 | **屬實，站3 修** | 逐條算術：七條鏈只有最新那條不閉合 |
+
+### 站1 的三個附帶結論
+
+1. **正解是「一個生產者」，不是「兩處各補一次 killpg」**。setsid 與 killpg 是一個機制的兩端，
+   呼叫點站的位置看不到另一端，所以呼叫點不該有權只要一端。
+   `core/utils/subprocess_group.run_isolated` 是唯一允許寫 `start_new_session=` 的模組，
+   由 `test_isolating_a_group_has_one_producer` 釘住。
+2. **Windows 不假裝有這個機制**：沒有 process group 的平台就不要 setsid，
+   直系子程序照 `subprocess.run` 的方式殺掉。不是加 Windows 分支，是不要求自己解不掉的隔離。
+3. **反證 CP-1 揭出我自己測試的破口**：關掉 group kill 後測試仍然綠，
+   因為孫程序**繼承了 stdout/stderr pipe**，kill 之後的 `communicate()` 會一直等到
+   最後一個後代退出——3 秒逾時實測跑了 **120.09s**。
+   測試是「等了兩分鐘等到洩漏自己結束」才綠的。
+   加上 wall-clock 上界後才能鑑別。**洩漏是看得見的那一半，卡住是會讓 gate 停擺的那一半。**
+
+### 站2：prompt 是第六份 hand-rolled 定義
+
+`harness/tool_runners.py:133` 的註解記著 Round 32 站3 把「硬編 `03-development/tests` 再退回 `tests`」
+從那支檔案移除，稱它為**第五份**。`b12ff21` 把同一份放回 prompt——
+**唯一沒有任何 import 到得了的那一層**。
+
+正解不是把 prompt 的路徑寫得更聰明（那是把 SSOT 用散文複製一次，R17 母體），
+而是讓 prompt **去讀**：`load-context --json` 新增 `test_target` / `cov_target`
+兩個欄位，來源就是 `resolve_targets`；prompt 從 `.sessi-work/phase4_ctx.json` 讀。
+那支檔案本來就是 `lessons` 的通道，而且同一支 workflow 的 per-FR delta prompt 已經在 `cat` 它——
+**是往既有通道加一個欄位，不是加一條通道**。
+同時刪掉 step 1 用散文重述同一條規則的那一句。
+
+**ratchet 在路上擋了兩次**：第一版 prompt 超出天花板 65 bytes，`--write` 拒寫；
+第二版仍被新守衛擋下（散文裡寫了 `03-development/`，而守衛掃的就是這個）。
+兩次都是縮 prompt 不是抬天花板——那正是 `RUNALL_MAX_BYTES` 註記自己要求的。
+
+### 站3：R64 的守衛讀了一個欄位，錯的是另一個欄位
+
+`73be69c` 記「+35 ... Previous: 348608」而常數仍是 348608。
+天花板沒動；+35 是**底下那支檔案**的變化（348301→348336）。
+底下六條的簽名數字都是對**天花板**做的事，`Previous:` 是那之前的天花板——
+這條用了跟自己的歷史不同的詞彙，348608 + 35 = 348643 指向一個從沒存在過的天花板。
+真正發生的事（headroom 307→272）沒有被記下來。
+
+R64 一天前才為這段註記蓋了守衛，它讀 `Measured`，而且**通過**——348336 確實是那棵樹的大小。
+錯的是守衛沒讀的那個欄位。**檢查加在上一個缺陷出現的位置，而不是加在被主張的那件事上。**
+`test_the_ratchet_notes_arithmetic_closes` 改成走整條鏈：
+`Previous + delta` 必須等於該條產生的天花板。實測七條鏈六條成立，斷點正好在 `73be69c`。
+
+### 明列不做
+
+- **不加 Windows 的 job object / taskkill /T**：無法在此驗證，且 CI 只有 ubuntu。
+  `run_isolated` 在沒有 process group 的平台退回 `subprocess.run` 的行為並寫明。
+  re-open：出現 Windows CI 或 Windows 上的實測工單。
+- **不動 `phase5-verification.js` 的 `tests/integration/` 硬編路徑**：
+  同一類但屬先前既有，且該行自帶 "skip gracefully if dir absent"。
+  re-open：有專案的 integration 測試不在 `tests/integration/`。
+- **不動 `--cov` 之外的 prompt 路徑陳述**（bug-hunt 的 "write a repro test under
+  03-development/tests/"）：那是寫入位置的建議，不是被 Gate 3 重量的判準。
+- **不改 `suite_timeout` 的 30 秒下限**：站0 的逾時測試改 patch 這個旋鈕，
+  其餘全是真的 pytest 執行。
+
+### 反證（七條，全紅，還原後 sha256 逐檔相同）
+
+| # | 反證 | 結果 |
+|---|---|---|
+| CP-1 | `GROUP_KILL_AVAILABLE` 反轉 | RED（120.39s——就是那個卡住） |
+| CP-2 | `except BaseException` → `except Exception` | RED |
+| CP-3 | 刪掉 `_measure` 的 TimeoutExpired 分支 | RED |
+| CP-4 | prompt 硬編路徑放回並重生成 | RED（兩支 shipped JS） |
+| CP-5b | 任一條 `Previous:` 改一個數字 | RED |
+| CP-6 | load-context 拿掉 `test_target` | RED（3 紅） |
+| CP-7 | 別的模組再寫一次 `start_new_session` | RED |
+
+**誠實記錄兩件自己的錯**：
+(a) CP-5 的第一版改的是「ceiling 23 above it」這句散文，沒有守衛讀它，理應綠，
+    不算反證，已作廢改用 CP-5b；
+(b) 反證腳本兩次用空字串當 mutation，`str.replace("", old)` 會把 `old` 插到檔頭，
+    `cli/project_cmds.py` 因此一度被改壞。以反向編輯還原並 `git show HEAD:` 對 sha256 確認相同。
+
 ## Round 64 — 移除機制的第二種形狀：把守衛改寫成背書
 
 老闆令：`aa55492..54daf48` 五個 commit 的 code review 八項發現，
