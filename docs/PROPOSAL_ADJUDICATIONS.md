@@ -3778,6 +3778,143 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 66 — 放棄一個子程序不等於回收它
+
+老闆令：「目前系統仍舊會有嚴重的卡頓問題，重新驗證問題的真實性與根源性…
+要明確問題的根源是 harness bug or workflow JS bug，且要套用正確的解法(not workaround)，
+並且不要破壞共通性。」
+
+基線 `197f1cb`：pytest 7404 passed / 4 skipped、guards 665、ruff clean、
+`--check` 10/10、sim 130/130、run-all.js 348585 ≤ 348608。
+
+### 卡頓是真的，這是量到的數字
+
+taskq-cc 的活躍 Phase 4 run，2026-08-21 04:10–04:20，全部以 `ps` / `lsof` 直接讀取：
+
+| 量測 | 數字 |
+|---|---|
+| load average | **28.41 / 42.03 / 40.49** |
+| PPID=1 的孤兒程序 | **99** |
+| 同時執行的 `pytest 03-development/tests --cov=03-development/src` | **25** |
+| `multiprocessing.spawn` worker | **306** |
+| 孤兒已燒掉的 CPU 秒數 | **1781.7** |
+| 排在 `.methodology/.mutation_exclusive.lock` 上的 harness 程序 | **6** |
+| `wall-clock timeout at 600s` 帳本筆數 | **11**（3 筆在 04:13:57–58 同時觸發） |
+
+所有 pgid leader（24691 / 5210 / 98294 / 81606 / 84076 / 86710）**全部已死**，
+`ps -p` 一個都找不到 —— 這些 group 沒有任何人能對它發訊號。孤兒執行的指令逐字
+就是 Phase 4 prompt 叫 agent 下的覆蓋率命令。持有那把 flock 的是 mutmut
+（pid 27982），十四分鐘只推進 0.67 CPU 秒；排在它後面的五個是 `finalize-gate`
+—— **框架自己的工作，被沒有主人的工作餓死**。
+
+`/tmp/gate1delta_FR-01.log` 三行寫完整條因果：
+
+```
+[DEGRADED] agent:developer:4: wall-clock timeout at 600s
+[DEGRADED] run-fr-step:GATE1-DELTA: step dispatch failed (FR-01 GATE1-DELTA: TIMEOUT)
+[DEGRADED] run-fr-step:GATE1-DELTA: task_timeout escalated 600 -> 1200 (…)
+```
+
+### 根源
+
+> **系統在三個地方「放棄」一個長時間執行的子程序，三處都只放棄不回收，
+> 然後各自再啟動一個替代品。** 被放棄的那棵樹繼續佔 CPU、繼續握著共用的
+> sqlite 檔與 source tree，於是下一次更慢、更容易超時、再放棄一個。
+> 這是正回饋，不是負載尖峰。
+
+R65 說 setsid 與 killpg 是一個機制的兩端；本輪是同一句話往上一層：
+**`timeout=` 與 group 回收是同一個決定**。
+
+### 歸屬：harness 與 workflow JS 各有獨立來源，互不涵蓋
+
+| # | owner | 位置 | 缺陷 | 修在 |
+|---|---|---|---|---|
+| A | **harness** | `core/agent_spawner.py:701` | `subprocess.run(timeout=)` 起 `claude -p`；逾時只殺 CLI，agent 的整棵工具樹存活 | `a9a170e` 站1 |
+| B | **harness** | `harness_cli.py::main` | 全 repo 零個 signal handler；外部 `kill` 跳過所有 `finally`，而 R65 之後子程序在自己的 session 裡，外面根本無從發訊號 —— 誠實的 kill 反而製造更深的孤兒 | `a9a170e` 站1 |
+| C | **workflow JS** | `js_blocks.py:423,686,713`、`spec_phase3.py:213,405,422` | poll 上限明文「do not kill the PID」，已交付 JS 共 32 處 | `5da435c` 站2 |
+| C′ | **workflow JS** | `js_blocks.py:684` | 「BACKGROUNDED for every FR」被讀成 N 路並行（實測 10 個同時），而同段註解自稱 sequential | `5da435c` 站2 |
+| D | **harness** | 3 個活站點 + `mutation_enforcer` 8 處 | 既不拿 `source_tree_lock` 也不走 `run_isolated` | `4939e65` 站3 |
+
+C 的措辭來自 `459caa7 sync(workflows): update JS workflows from integration-test`
+—— 從別的樹搬進來，本 repo 從未記錄過理由。**不是在推翻誰的守衛。**
+其中一種措辭把整件事說了出來：
+
+> do NOT kill the PID — it is still legitimately running; resume by re-running this same step
+
+放著它跑，同時啟動替代品。
+
+### D 的前情：R25 曾明確「不做」，本輪以不同理由重開
+
+本檔 Round 25 節「本輪明確不做」與 `tests/test_test_suite_run_ssot.py` 的註解
+都寫著這些站點「不在 advance-phase 的同一次呼叫裡，一起改是失控重構」——
+那是**效能**輪的範圍裁決。本輪的理由是**正確性**：這些 pytest 在 mutmut 正持有
+`source_tree_lock` 變異原始碼時照跑，量到的覆蓋率不是交付碼的覆蓋率。
+新證據，重開，不是推翻。
+
+### 明列不接，附證據
+
+- `confidence_scorer.py:155,243`、`stage_pass_generator.py:234,263` ——
+  **生產零呼叫者**（後者自 v2.5.0 deprecated，全 repo 只有
+  `tests/test_w6_gap_fill.py` 引用）。接了是接死碼。告知，不刪。
+- `scripts/verify_regression_guards.py:66` —— 跑的是 harness 自己的樹，
+  沒有 mutmut 視窗。
+- `core/traceability/auto_fix_propose.py:264,287` —— 沒有 `timeout=`，
+  不屬於「打算殺它」那一類。
+- **不加 run-fr-step 總預算**：站1+站2 之後 poll 上限會真的回收，
+  逾時不再累積；再加一層是第二個執法點。
+  再開條件：站2 之後仍量到 run-fr-step 超過 30 分鐘。
+
+### 站-1 的前提在執行前消失了
+
+老闆核准清理 99 個孤兒。04:35 重新普查時：taskq-cc 相關程序 202→9、
+pytest 25→2、worker 306→2、flock 佇列 6→0、runnable 程序 4。
+那 25 個 pytest **全部自己跑完了** —— 每個約 48 秒的 CPU 工作花掉 12 分鐘
+wall clock，正是互相搶佔的簽名。load average 32.99 是 EWMA 殘影，不是現況。
+**沒有東西可殺，所以沒有殺。** 唯一符合條件的是老闆的 IDE daemon。
+這件事本身是新資訊：**風暴是間歇性的，綁在 timeout→放生→retry 的週期上。**
+
+### 七條反證
+
+| # | 變動 | 結果 |
+|---|---|---|
+| CP-1 | agent spawn 改回 `subprocess.run` | RED，還原 sha256 相同 |
+| CP-2 | `main()` 不再安裝 handler | RED，還原 sha256 相同 |
+| CP-3 | 鎖不再拒絕巢狀 | RED（測試逾時＝缺陷本身），還原 sha256 相同 |
+| CP-4 | 「do not kill the PID」放回 spec + 重生 | RED，7 檔 sha256 全同 |
+| CP-5 | fan-out 措辭放回 + 重生 | RED，7 檔 sha256 全同 |
+| CP-6 | cross_artifact 改回 `subprocess.run` | **第一版仍綠** —— 見下 |
+| CP-6b | 同上，忠實還原整個呼叫 | RED，還原 sha256 相同 |
+| CP-7 | 新增一個帶 `timeout=` 的裸 spawn | RED，還原 sha256 相同 |
+
+**誠實記自己的錯**：CP-6 第一版只替換了呼叫的前兩行，把 `project=` 留著、
+沒有寫回 `cwd=`；守衛的判準是 `cwd=` 與 `timeout=` 同時出現，所以它**正確地**
+沒有觸發。那不是守衛的破口，是我的變異不忠實 —— 與 R65 兩次用空字串當變異
+同一類錯誤。CP-6b 忠實還原整個呼叫後立刻轉紅並指名 `cross_artifact.py:481`。
+
+### 站4 的 ratchet
+
+`test_spawns_that_intend_to_kill_only_ratchet_down` 數「生產碼裡帶 `timeout=`
+但不走 `run_isolated` 的 subprocess 呼叫」：本輪前 **106**，本輪後 **92**。
+不歸零的理由寫在測試裡：一次改 92 站是全域規範禁止的失控重構，而其中多數
+是葉子（`git rev-parse`、`ruff check`），殺子程序本來就等於殺整棵樹。
+只能降不能升，**下界也斷言** —— 改完卻不動常數，正是 ratchet 存在要抓的漂移。
+
+### 終局
+
+pytest **7436 passed / 4 skipped**（基線 7404）、guards **665 → 673**、
+ruff clean、`--check` 10/10、sim 130/130、
+run-all.js **348585 → 348426**、`RUNALL_MAX_BYTES` **348608 → 348526**
+（史上第二次下修，兩次都是縮 prompt 而不是抬天花板）。
+
+### 如果這個結論是錯的，最可能錯在哪
+
+我把「放棄不回收」當成唯一根源。即使三個回收缺口全補上，
+**每個 FR 各跑一次全套 `pytest --cov`（xdist 12 workers）在同一棵樹、
+同一個 sqlite 檔上**這件事本身仍然貴。若下一次 E2E 仍慢，要查的不是回收，
+是「每個 FR 都重跑全套」這個設計 —— 那時要動的是量測範圍，不是再加一層 kill。
+
+---
+
 ## Round 65 — 半座機制：linter 報告了缺的那一半，於是把 linter 關掉
 
 老闆令：`0efae09..73be69c` 四個 commit 的 code review 六項發現，

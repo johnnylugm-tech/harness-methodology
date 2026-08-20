@@ -150,7 +150,17 @@ one.
 
 `harness_cli.py`'s `main()` routes every command through `_dispatch()`:
 
-- `KeyboardInterrupt` → exit `130`, no bundle written.
+- `KeyboardInterrupt` → exit `130`, no bundle written. Since Round 66 SIGTERM
+  lands here too: `main()` installs a handler that raises
+  `core.errors.HarnessTerminated`, a `KeyboardInterrupt` subclass, so
+  `kill <PID>` unwinds the run instead of ending it where it stands — every
+  `finally` runs, `run_isolated` reaps the process group it started, and
+  `source_tree_lock` is released. Unhandled, SIGTERM's default disposition
+  skipped all of that, and since Round 65 the children live in their own
+  session where nothing outside can signal them. The two causes are told
+  apart by the message (`[INTERRUPTED]` alone is Ctrl-C; SIGTERM names the
+  signal), not by the exit code — the verdict is the same either way:
+  somebody stopped this run.
 - A known control-flow exception (`GateBlockedError`, `KillSwitchBlockedError`)
   leaking past the site that should have caught it → `[WARN] <ClassName>
   leaked to top-level` + exit `1` — visible, not alarming: it means a call
