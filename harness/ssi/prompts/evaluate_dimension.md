@@ -206,7 +206,7 @@ python3 -m detect_secrets scan . --baseline .secrets.baseline
 
 ### license_compliance (Tier 1)
 ```bash
-scancode --license --json-pp - src/ | head -300
+scancode --license --processes 2 --json-pp - src/ | head -300
 ```
 
 ### mutation_testing (Tier 1)

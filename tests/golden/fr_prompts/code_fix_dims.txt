@@ -47,7 +47,7 @@ PYTEST: 2 failed, 8 passed
 3. Resolve test_coverage failures (see TEST COVERAGE FIX above):
    a. ADD any missing required test functions to `tests/test_fr01.py`.
    b. For tests that exist but FAIL: fix source code or the failing assertion.
-4. Run `python3 -m pytest tests/ -q` to confirm ALL tests pass.
+4. Run `python3 -m pytest tests/test_fr01.py -q` to confirm tests pass.
 5. Commit: `git add 03-development/src/ tests/test_fr01.py && git commit -m 'fix(FR-01): address Gate1 failing dims'`
 
 [OUTPUT FORMAT]

@@ -216,13 +216,13 @@ def build_code_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path,
             f"You are a code fixer. Gate 1 for {fr_id} could not complete "
             f"(sub-agent timeout or error — no gate1_result.json was written).\n\n"
             f"[TASK — diagnostic mode]\n"
-            f"1. Run `python3 -m pytest tests/ -q` to identify failing / missing tests.\n"
+            f"1. Run `python3 -m pytest {test_file} -q` to identify failing / missing tests.\n"
             f"2. Run `python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003` to identify lint errors.\n"
             f"3. Based on actual results:\n"
             f"   a. If tests are failing or missing → add/fix tests in `{test_file}` "
             f"AND fix source code in `{src_dir}/` as needed.\n"
             f"   b. If lint errors → fix source code only.\n"
-            f"4. Run `python3 -m pytest tests/ -q` to confirm all tests pass.\n"
+            f"4. Run `python3 -m pytest {test_file} -q` to confirm all tests pass.\n"
             f"5. Commit all changed files: "
             f"`git add {src_dir}/ {test_file} && "
             f"git commit -m 'fix({fr_id}): address Gate1 failures'`\n\n"
@@ -297,7 +297,7 @@ def build_code_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path,
             f"   b. For tests that exist but FAIL: fix source code or the failing assertion."
         )
         n += 1
-    task_lines.append(f"{n}. Run `python3 -m pytest tests/ -q` to confirm ALL tests pass.")
+    task_lines.append(f"{n}. Run `python3 -m pytest {test_file} -q` to confirm tests pass.")
     n += 1
     git_paths = " ".join(filter(None, [
         f"{src_dir}/" if _src_failing else "",

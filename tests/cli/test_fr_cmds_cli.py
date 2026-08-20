@@ -677,7 +677,7 @@ class TestRunFrStep:
         )
         assert "no gate1_result.json was written" in prompt
         assert "diagnostic mode" in prompt
-        assert "pytest tests/ -q" in prompt
+        assert "pytest tests/test_fr02.py -q" in prompt
         assert "ruff check" in prompt
         assert "[TEST COVERAGE FIX" not in prompt
         assert "Deleting or modifying existing passing tests" in prompt

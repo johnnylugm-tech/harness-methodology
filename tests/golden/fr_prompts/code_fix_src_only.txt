@@ -28,7 +28,7 @@ PYTEST: 2 failed, 8 passed
 [TASK]
 1. Read `harness/ssi/prompts/evaluate_dimension.md` for each failing dimension's criteria.
 2. Fix source code in `03-development/src/` to address non-test-coverage failing dimensions.
-3. Run `python3 -m pytest tests/ -q` to confirm ALL tests pass.
+3. Run `python3 -m pytest tests/test_fr01.py -q` to confirm tests pass.
 4. Commit: `git add 03-development/src/ && git commit -m 'fix(FR-01): address Gate1 failing dims'`
 
 [OUTPUT FORMAT]

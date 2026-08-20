@@ -1,12 +1,12 @@
 You are a code fixer. Gate 1 for FR-01 could not complete (sub-agent timeout or error — no gate1_result.json was written).
 
 [TASK — diagnostic mode]
-1. Run `python3 -m pytest tests/ -q` to identify failing / missing tests.
+1. Run `python3 -m pytest tests/test_fr01.py -q` to identify failing / missing tests.
 2. Run `python3 -m ruff check 03-development/src/ --extend-ignore RUF001,RUF002,RUF003` to identify lint errors.
 3. Based on actual results:
    a. If tests are failing or missing → add/fix tests in `tests/test_fr01.py` AND fix source code in `03-development/src/` as needed.
    b. If lint errors → fix source code only.
-4. Run `python3 -m pytest tests/ -q` to confirm all tests pass.
+4. Run `python3 -m pytest tests/test_fr01.py -q` to confirm all tests pass.
 5. Commit all changed files: `git add 03-development/src/ tests/test_fr01.py && git commit -m 'fix(FR-01): address Gate1 failures'`
 
 [FORBIDDEN]
