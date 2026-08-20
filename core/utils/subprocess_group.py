@@ -39,6 +39,17 @@ Exception` lets Ctrl-C unwind past the kill — and in
 `source_tree_lock` while a pytest nobody is holding still writes into the
 project tree, which is the one thing that lock exists to prevent.
 
+WHY stdin IS /dev/null
+
+Round 66: a new session has no controlling terminal, so a child that reads an
+inherited terminal stdin there gets SIGTTIN and stops — a stall this module
+would itself have introduced. Every caller is non-interactive by construction
+(`claude -p` carries its prompt in argv; pytest and the tool runners read
+files), so the answer is not to keep the terminal but to say so: an immediate
+EOF. `core/agent_spawner.py:200` has to denoise the CLI's own "no stdin data
+received in Ns, proceeding without it" — that wait is the same hazard already
+costing time on the path that works.
+
 WHERE THERE ARE NO PROCESS GROUPS
 
 `os.killpg` does not exist on Windows, and `AttributeError` is not an
@@ -97,6 +108,7 @@ def run_isolated(
         cmd,
         cwd=cwd,
         env=env,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

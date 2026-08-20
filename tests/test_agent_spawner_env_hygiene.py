@@ -61,7 +61,7 @@ class TestSpawnUsesChildEnv:
             return P()
 
         with patch("core.agent_spawner.shutil.which", return_value="/fake/claude"), \
-             patch("core.agent_spawner.subprocess.run", side_effect=fake_run):
+             patch("core.agent_spawner.run_isolated", side_effect=fake_run):
             spawner = AgentSpawner(project_path=tmp_path)
             result = spawner.spawn(
                 role="developer", prompt="noop", context={}, phase=3,

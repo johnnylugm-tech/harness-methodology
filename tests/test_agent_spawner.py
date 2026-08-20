@@ -41,7 +41,7 @@ class TestAgentSpawner:
             "session_id": "abc123",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 result = spawner.spawn(
                     role="reviewer",
                     prompt="Assess risk",
@@ -99,7 +99,7 @@ class TestAgentSpawner:
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 result = spawner.spawn(
                     role="developer", prompt="Task", context={}, model="claude",
                 )
@@ -121,7 +121,7 @@ class TestAgentSpawner:
         def _exists_only_mcp(self: Path) -> bool:
             return str(self).endswith(".mcp.json")
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 with patch.object(Path, "exists", _exists_only_mcp):
                     result = spawner.spawn(
                         role="developer", prompt="Task", context={}, model="claude",
@@ -145,7 +145,7 @@ class TestAgentSpawner:
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
         # Return False for all paths: SOP files are skipped, MCP path triggers warning.
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 with patch.object(Path, "exists", return_value=False):
                     result = spawner.spawn(
                         role="developer", prompt="Task", context={}, model="claude",
@@ -163,7 +163,7 @@ class TestAgentSpawner:
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
         inline = '{"mcpServers":{"crg":{"command":"uvx"}}}'
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 result = spawner.spawn(
                     role="developer", prompt="Task", context={}, model="claude",
                     mcp_config=inline,
@@ -179,7 +179,7 @@ class TestAgentSpawner:
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 result = spawner.spawn(
                     role="developer", prompt="Task", context={}, model="claude",
                     setting_sources="project",
@@ -196,7 +196,7 @@ class TestAgentSpawner:
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 result = spawner.spawn(
                     role="developer", prompt="Task", context={}, model="claude",
                     mcp_config=None,
@@ -225,7 +225,7 @@ class TestAgentSpawner:
             "session_id": "00c21a73-99e5-4195-9111-8f616d334f4e",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task", context={"step": "TDD-RED"},
                     model="claude",
@@ -244,7 +244,7 @@ class TestAgentSpawner:
             "session_id": "x",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task", context={"step": "TDD-RED"},
                     model="claude",
@@ -265,7 +265,7 @@ class TestAgentSpawner:
             "session_id": "x",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"step": "TDD-RED"}, model="claude",
@@ -283,7 +283,7 @@ class TestAgentSpawner:
             "session_id": "x",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"step": "TDD-RED"}, model="claude",
@@ -310,7 +310,7 @@ class TestAgentSpawner:
             "session_id": "x",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"step": "GATE1"}, model="claude",
@@ -335,7 +335,7 @@ class TestAgentSpawner:
             "session_id": "x",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"step": "GATE1"}, model="claude",
@@ -357,7 +357,7 @@ class TestAgentSpawner:
             "commit": "",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"step": "LINT-FIX"}, model="claude",
@@ -397,7 +397,7 @@ class TestAgentSpawner:
             "commit": "",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -614,7 +614,8 @@ class TestRegressionGuardEndToEnd:
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 result = spawner.spawn(
                     role="developer", prompt="Improve FR-01",
                     context={}, model="claude", fr_id="FR-01",
@@ -643,7 +644,8 @@ class TestRegressionGuardEndToEnd:
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 result = spawner.spawn(
                     role="developer", prompt="Improve FR-01",
                     context={}, model="claude", fr_id="FR-01",
@@ -687,7 +689,8 @@ class TestRegressionGuardEndToEnd:
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 result = spawner.spawn(
                     role="developer", prompt="Improve FR-01",
                     context={}, model="claude", fr_id="FR-01",
@@ -730,7 +733,8 @@ class TestRegressionGuardEndToEnd:
             return claude_proc
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 result = spawner.spawn(
                     role="developer", prompt="Improve FR-01",
                     context={}, model="claude", fr_id="FR-01",
@@ -773,7 +777,8 @@ class TestRegressionGuardEndToEnd:
         mock_logger.log_spawn = mock_log_spawn
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 with patch("core.sessions_spawn_logger.SessionsSpawnLogger", return_value=mock_logger):
                     result = spawner.spawn(
                         role="developer", prompt="Improve FR-01",
@@ -809,7 +814,7 @@ class TestTimeoutRegressionGuard:
         spawner._dispatch_diff_budget = tracking_guard
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run") as mock_run:
+            with patch("core.agent_spawner.run_isolated") as mock_run:
                 mock_run.side_effect = _sp.TimeoutExpired(["claude", "-p"], 60)
                 result = spawner.spawn(
                     role="developer", prompt="Do task",
@@ -835,7 +840,7 @@ class TestTimeoutRegressionGuard:
         mock_proc.stderr = "API error: Connection closed by remote host"
         mock_proc.stdout = ""
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(role="developer", prompt="Do task",
                                        context={}, model="claude")
         assert result["status"] == "ERROR"
@@ -860,7 +865,7 @@ class TestTimeoutRegressionGuard:
         mock_proc.stdout = ""
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Do task",
                     context={}, model="claude",
@@ -1081,7 +1086,7 @@ class TestCalculateLogicalRemoval:
             "status": "complete", "commit": "abcd",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1110,7 +1115,7 @@ class TestCalculateLogicalRemoval:
             "status": "complete", "commit": "abcd",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1135,7 +1140,7 @@ class TestCalculateLogicalRemoval:
             "status": "complete", "commit": "abcd",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1174,7 +1179,7 @@ class TestCalculateLogicalRemoval:
             },
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1207,7 +1212,7 @@ class TestCalculateLogicalRemoval:
             "result": "done", "session_id": "x", "commit": "abcd",
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1240,7 +1245,7 @@ class TestCalculateLogicalRemoval:
         mock_proc.stdout = ""
         mock_proc.stderr = "some real failure"
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1284,7 +1289,7 @@ class TestCalculateLogicalRemoval:
         })
         mock_proc.stderr = ""
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1312,7 +1317,7 @@ class TestCalculateLogicalRemoval:
         mock_proc.stdout = '{"truncated": "json"'  # unparseable
         mock_proc.stderr = "the real cause"
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3}, model="claude",
@@ -1343,7 +1348,7 @@ class TestCalculateLogicalRemoval:
             "usage": {"input_tokens": 10, "output_tokens": 2},
         })
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc):
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"phase": 3, "step": "run-fr-step"}, model="claude",
@@ -1432,7 +1437,8 @@ class TestStructuralRetry:
             }))
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 with patch("core.agent_spawner.time.sleep"):
                     result = spawner.spawn(
                         role="developer", prompt="Task",
@@ -1457,7 +1463,8 @@ class TestStructuralRetry:
             return self._make_proc(returncode=1, stderr=self._SYNTHETIC_STDERR)
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 with patch("core.agent_spawner.time.sleep"):
                     result = spawner.spawn(
                         role="developer", prompt="Task",
@@ -1481,7 +1488,8 @@ class TestStructuralRetry:
             return self._make_proc(returncode=1, stderr="some unrelated tool crash")
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 result = spawner.spawn(
                     role="developer", prompt="Task",
                     context={"step": "TDD-RED"}, model="claude", fr_id="FR-01",
@@ -1510,7 +1518,8 @@ class TestStructuralRetry:
             }))
 
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect):
+            with patch("core.agent_spawner.subprocess.run", side_effect=side_effect), \
+                 patch("core.agent_spawner.run_isolated", side_effect=side_effect):
                 with patch("core.agent_spawner.time.sleep"):
                     spawner.spawn(
                         role="developer", prompt="Task",
@@ -1596,7 +1605,7 @@ class TestUnattendedPreamble:
         mock_proc.returncode = 0
         mock_proc.stdout = json.dumps({"result": "ok", "session_id": "x"})
         with patch("shutil.which", return_value="/usr/bin/claude"):
-            with patch("subprocess.run", return_value=mock_proc) as mock_run:
+            with patch("core.agent_spawner.run_isolated", return_value=mock_proc) as mock_run:
                 spawner.spawn(role="developer", prompt="Task", context={},
                               model="claude")
                 cmd = mock_run.call_args[0][0]

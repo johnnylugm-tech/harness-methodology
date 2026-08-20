@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from pathlib import Path
 
+from core.utils.subprocess_group import run_isolated
 from core.spawn_log_schema import ENVELOPE_TOP_KEYS as _ENVELOPE_TOP_KEYS
 from core.spawn_log_schema import ENVELOPE_USAGE_KEYS as _ENVELOPE_USAGE_KEYS
 
@@ -698,10 +699,13 @@ class AgentSpawner:
         for _attempt in range(1, _STRUCTURAL_RETRY_ATTEMPTS + 1):
             _spawn_started_at = time.monotonic()
             try:
-                proc = subprocess.run(
+                # Round 66: an agent is a process that starts processes, so
+                # `subprocess.run`'s "kill the direct child" left every
+                # timed-out dispatch's tool tree running with PPID 1 while
+                # `_note_wallclock_kill` doubled the budget and re-dispatched
+                # on top of it. `timeout=` and the group kill are one decision.
+                proc = run_isolated(
                     cmd,
-                    capture_output=True,
-                    text=True,
                     timeout=task_timeout,
                     cwd=str(self.project_path.resolve()) if self.project_path else None,
                     env=_child_env(),

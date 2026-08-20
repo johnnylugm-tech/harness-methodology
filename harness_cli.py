@@ -372,8 +372,11 @@ def _dispatch(args: argparse.Namespace, argv: list[str]) -> int:
 
     try:
         return args.func(args)
-    except KeyboardInterrupt:
-        print("\n[INTERRUPTED]", file=sys.stderr)
+    except KeyboardInterrupt as exc:
+        # Round 66: core.errors.HarnessTerminated is a KeyboardInterrupt
+        # subclass, so SIGTERM lands here too and carries a message; Ctrl-C
+        # carries none. One handler, one exit code, two nameable causes.
+        print(f"\n[INTERRUPTED] {exc}".rstrip(), file=sys.stderr)
         return EX_KEYBOARD_INTERRUPT
     except _leaked_control_flow_exceptions() as exc:
         # These are meant to be caught close to their raise site (e.g.
@@ -427,6 +430,11 @@ def _leaked_control_flow_exceptions() -> tuple[type[BaseException], ...]:
 
 def main() -> int:
     """Main entry point for the CLI."""
+    # Round 66: before anything else, so that a run killed during startup
+    # still unwinds through _dispatch rather than dying where it stands.
+    from core.errors import install_termination_handler
+    install_termination_handler()
+
     # Load .env from CWD first (covers `cd project && python harness_cli.py`).
     env_loader.load_env_file(Path.cwd() / ".env")
     # Also load from --project path if it differs from CWD.

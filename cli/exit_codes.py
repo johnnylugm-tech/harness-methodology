@@ -110,5 +110,6 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_UNCOMMITTED_DELIVERABLES: "advance-phase: delivered files differ from HEAD, so the commit about to record this phase does not contain the tree the phase's checks were measured on — the [BLOCKED] list names each file. Harness bookkeeping and the files this command rewrites itself are excluded. Commit the listed work (or gitignore it, if it is generated at runtime) and re-run",
     EX_RETIRED_FEATURE_FLAG: "run-gate: .methodology/harness_config.json still switches a dimension off (features.<key>: false). No dimension can be excluded from a gate any more — a dimension is measured, or the gate blocks and the run routes to repair. Remove the named key; if the tool genuinely cannot run here, that is an INFRA block with a repair route, not a scoring exemption",
     EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
-    EX_KEYBOARD_INTERRUPT: "Interrupted (Ctrl-C)",
+    EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
+                           "(Round 66: the run unwinds and reaps what it started)",
 }

@@ -17,11 +17,52 @@ from __future__ import annotations
 import json
 import os
 import platform
+import signal
 import subprocess
 import sys
 import time
 import traceback
 from pathlib import Path
+
+
+class HarnessTerminated(KeyboardInterrupt):
+    """SIGTERM reached a harness run.
+
+    A subclass of KeyboardInterrupt on purpose: `harness_cli._dispatch` has
+    caught that since Round 13 and answers EX_KEYBOARD_INTERRUPT, which is
+    already the right verdict — somebody stopped this run; it is not a
+    [HARNESS-BUG] crash and not a project quality failure. Subclassing keeps
+    one handler and still lets the message name which of the two happened.
+    """
+
+
+def install_termination_handler() -> None:
+    """Make `kill <PID>` unwind the run instead of ending it where it stands.
+
+    Round 66. SIGTERM's default disposition terminates the process outright:
+    no `finally` runs, so `core.utils.subprocess_group.run_isolated`'s
+    `except BaseException: _terminate(proc)` never fires and
+    `source_tree_lock` never releases in an orderly way. Since Round 65 the
+    children `run_isolated` starts live in their OWN session, which makes this
+    worse than it sounds — nothing outside can signal that group, so an
+    unhandled SIGTERM to the harness leaves a deeper orphan than the
+    abandonment it was meant to replace.
+
+    That matters because the workflow prompts hand a background PID to an
+    agent and tell it to walk away at the poll cap. Telling the agent to kill
+    instead is only correct if killing is something this process can hear.
+
+    Raising from the handler is how a signal becomes an unwind: CPython runs
+    it in the main thread between bytecodes, so a blocked `communicate()`
+    raises exactly as it does under Ctrl-C. Idempotent; installed once from
+    `harness_cli.main()`, which every subcommand passes through.
+    """
+    def _terminated(signum: int, _frame: object) -> None:
+        raise HarnessTerminated(
+            f"terminated by signal {signum} — reaping what this run started"
+        )
+
+    signal.signal(signal.SIGTERM, _terminated)
 
 # Round 28 站4 — a crash bundle must outlive the run that produced it.
 #
