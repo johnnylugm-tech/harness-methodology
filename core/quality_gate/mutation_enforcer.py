@@ -34,6 +34,7 @@ from core.harness_config import get_timeout
 from core.quality_gate.mutmut_report import format_score_message
 from core.quality_gate.mutmut_scope import mutate_dirs
 from core.quality_gate.source_tree_lock import source_tree_lock
+from core.utils.subprocess_group import run_isolated
 from core.tree_custody import custody
 from core.utils.project_layout import ProjectLayout
 
@@ -120,9 +121,9 @@ def _is_editable_install(project: Path) -> bool:
     Python resolves imports via the ``.pth`` file → mutations are never tested.
     """
     try:
-        result = subprocess.run(
+        result = run_isolated(
             [sys.executable, "-m", "pip", "list", "--editable", "--format", "json"],
-            capture_output=True, text=True, timeout=30,
+            timeout=30,
             cwd=str(project),
         )
         if result.returncode != 0 or not result.stdout.strip():
@@ -545,9 +546,9 @@ def _apply_mutmut_to_workdir(mutant_id: Union[str, int], workdir: str) -> None:
     pass the workdir returned by ``run_mutation_precheck`` and execute
     the apply in a subprocess with ``cwd=workdir``.
     """
-    subprocess.run(
+    run_isolated(
         ["mutmut", "apply", str(mutant_id)],
-        cwd=workdir, capture_output=True, text=True, timeout=30,
+        cwd=workdir, timeout=30,
     )
 
 
@@ -804,9 +805,9 @@ def run_stryker_precheck(project: Path) -> tuple[bool, str]:
             "Install Node.js + npm (Node 18+ recommended)."
         )
 
-    probe = subprocess.run(
+    probe = run_isolated(
         ["npx", "--no-install", "stryker", "--version"],
-        cwd=project, capture_output=True, text=True, timeout=60,
+        cwd=project, timeout=60,
     )
     if probe.returncode != 0:
         return False, (
@@ -817,10 +818,9 @@ def run_stryker_precheck(project: Path) -> tuple[bool, str]:
 
     report_path = project / "reports" / "mutation" / "mutation.json"
     try:
-        r = subprocess.run(
+        r = run_isolated(
             ["npx", "--no-install", "stryker", "run"],
-            cwd=project, capture_output=True, text=True,
-            timeout=get_timeout("mutation", project),  # 60 min hard cap — same budget as the mutmut path
+            cwd=project, timeout=get_timeout("mutation", project),  # 60 min hard cap — same budget as the mutmut path
         )
     except subprocess.TimeoutExpired:
         return False, (
@@ -988,9 +988,8 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         with source_tree_lock(project), custody(
             project, "mutation:src", paths=_custody_paths(src_dirs),
         ):
-            r = subprocess.run(
-                cmd, cwd=workdir, capture_output=True, text=True,
-                env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
+            r = run_isolated(
+                cmd, cwd=workdir, env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
                 timeout=get_timeout("mutation", project),  # 60 min hard cap — mutation testing is meaningless if it hangs
             )
 
@@ -1002,9 +1001,8 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
             )
 
         # mutmut results reads .mutmut-cache only — no pytest invocation, no env= needed (Bug #142)
-        res = subprocess.run(
-            ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
-            timeout=30,
+        res = run_isolated(
+            ["mutmut", "results"], cwd=workdir, timeout=30,
         )
         if res.returncode != 0:
             return False, (
@@ -1203,9 +1201,8 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
         # to keep any concurrent test-suite run (test_suite_run._measure)
         # from observing a mutant mid-flight.
         with source_tree_lock(project):
-            r = subprocess.run(
-                cmd, cwd=workdir, capture_output=True, text=True,
-                env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
+            r = run_isolated(
+                cmd, cwd=workdir, env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
                 timeout=get_timeout("mutation", project),
             )
         # mutmut 2.x exit codes:
@@ -1223,9 +1220,8 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
             )
 
         # mutmut results reads .mutmut-cache only — no pytest invocation, no env= needed (Bug #142)
-        res = subprocess.run(
-            ["mutmut", "results"], cwd=workdir, capture_output=True, text=True,
-            timeout=30,
+        res = run_isolated(
+            ["mutmut", "results"], cwd=workdir, timeout=30,
         )
         out = res.stdout.strip()
         _write_survivors_artifact(

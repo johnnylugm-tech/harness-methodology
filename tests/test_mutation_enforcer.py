@@ -869,7 +869,7 @@ def test_l1_mutmut_cache_persistence(tmp_path, monkeypatch):
             (fake_workdir / ".mutmut-cache").write_bytes(updated_cache)
         return R()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(me, "run_isolated", fake_subprocess_run)
 
     ok, msg = me.run_mutation_precheck(tmp_path)
     assert ok, msg
@@ -932,7 +932,7 @@ def test_run_mutation_precheck_promotes_workdir_cache_on_success(tmp_path, monke
             (workdir_path / ".mutmut-cache").write_bytes(b"workdir-cache")
         return R()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
 
     me.run_mutation_precheck(tmp_path)
 
@@ -970,7 +970,7 @@ def test_run_mutation_precheck_no_partial_cache_left_on_failure(tmp_path, monkey
             stderr = "simulated crash"
         return R()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
 
     ok, msg = me.run_mutation_precheck(tmp_path)
     assert not ok
@@ -1002,7 +1002,7 @@ def test_run_mutation_precheck_passes_autoload_disabled_env_to_mutmut_run(tmp_pa
             captured.append(kwargs)
         return R()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "src"))
     monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
     monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
@@ -1031,7 +1031,7 @@ def test_apply_mutmut_to_workdir_runs_in_workdir(tmp_path, monkeypatch):
             stderr = ""
         return R()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     me._apply_mutmut_to_workdir(5, "/tmp/_mutmut_run.abc")
     assert calls["cmd"] == ["mutmut", "apply", "5"]
     assert calls["kwargs"]["cwd"] == "/tmp/_mutmut_run.abc"
@@ -1128,7 +1128,7 @@ def test_compute_mutation_score_promotes_cache_to_project_root(tmp_path, monkeyp
             return _R(0, "Survived 🙁 (1)\n", "")
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
@@ -1156,7 +1156,7 @@ def test_compute_mutation_score_does_not_promote_on_failure(tmp_path, monkeypatc
     def fake_run(cmd, **kwargs):
         return _R(1, "boom", "mutmut crashed")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     ok, score, _msg = me.compute_mutation_score(tmp_path)
@@ -1197,7 +1197,7 @@ def test_compute_mutation_score_publishes_partial_cache_on_timeout(tmp_path, mon
             raise subprocess.TimeoutExpired(cmd, 3600)
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
@@ -1244,7 +1244,7 @@ def test_compute_mutation_score_does_not_publish_empty_cache_on_timeout(tmp_path
             raise subprocess.TimeoutExpired(cmd, 3600)
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     ok, _score, msg = me.compute_mutation_score(tmp_path)
@@ -1283,7 +1283,7 @@ def test_compute_mutation_score_general_exception_does_not_publish(tmp_path, mon
             raise OSError("disk full")
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     ok, score, _msg = me.compute_mutation_score(tmp_path)
@@ -1441,7 +1441,7 @@ def test_stale_cache_removed_when_workdir_cache_absent(tmp_path, monkeypatch):
             stderr = ""
         return R()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
@@ -1476,7 +1476,7 @@ def test_compute_mutation_score_uses_sys_executable_for_runner(tmp_path, monkeyp
             captured_setup_cfgs.append(cfg_text)
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     me.compute_mutation_score(tmp_path)
@@ -1514,7 +1514,7 @@ def test_compute_mutation_score_passes_autoload_disabled_env_to_mutmut_run(tmp_p
             captured.append(kwargs)
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     me.compute_mutation_score(tmp_path)
@@ -1571,7 +1571,7 @@ def test_cmd_mutation_test_score_exits_zero_on_success(tmp_path, monkeypatch):
             return _R(0, "Survived 🙁 (2)\n", "")
         return _R(0, "", "")
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
 
     import argparse
@@ -1796,7 +1796,7 @@ def test_mutmut_results_crash_returns_false(tmp_path, monkeypatch):
             stderr = ""
         return SuccessResult()
 
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
     monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))
@@ -1850,7 +1850,7 @@ def test_zero_mutants_from_corrupt_cache_returns_false(tmp_path, monkeypatch):
         return R()
 
     monkeypatch.setattr(me, "_count_mutmut_results", fake_count)
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
     monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))
@@ -1920,7 +1920,7 @@ def test_sqlite_error_not_swallowed_as_zero_mutants(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sqlite3, "connect", raising_connect)
     monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
-    monkeypatch.setattr(me.subprocess, "run", fake_run)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
     monkeypatch.setattr(me, "_write_survivors_artifact", lambda *a, **k: None)
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
     monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))

@@ -27,18 +27,34 @@ about to mutate again.
 
 This lock is held for the whole ``mutmut run`` subprocess
 (``mutation_enforcer.py``) and acquired, blocking, by
-``test_suite_run._measure`` before it runs pytest — so a concurrent test
-execution simply waits for the in-flight mutation window to close instead
-of racing it.
+``run_against_source_tree`` below — so a concurrent test execution simply
+waits for the in-flight mutation window to close instead of racing it.
+
+Round 66: a lock only serialises the callers who take it. Measured on
+taskq-cc at 04:15 on 2026-08-21, six harness processes were queued on this
+flock while 25 pytest runs that never ask for it had the machine — every one
+of them launched by an agent through its own Bash tool, and three more
+started by harness code that built its own ``subprocess.run``. The two halves
+a caller needs are the wait for the mutation window and the group kill that
+makes its own timeout mean something, and neither is optional, so
+``run_against_source_tree`` pairs them and is the way in.
 """
 from __future__ import annotations
 
 import contextlib
 import fcntl
+import subprocess  # nosec B404
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional, Sequence
+
+from core.utils.subprocess_group import run_isolated
 
 _LOCK_FILENAME = ".mutation_exclusive.lock"
+
+# Lock files this process already holds. `flock` is per-descriptor, so a
+# second acquisition inside the same process opens a fresh descriptor and
+# queues behind itself with nothing left to release it.
+_HELD: set[str] = set()
 
 
 @contextlib.contextmanager
@@ -48,15 +64,51 @@ def source_tree_lock(project: "str | Path") -> Generator[None]:
     Backed by ``flock`` on a sentinel file under ``.methodology/`` — safe
     across processes (every mutmut/pytest invocation is its own `harness_cli.py`
     subprocess), released automatically on process exit even if the holder
-    crashes. Do not nest calls for the same project within one process:
-    `flock` is per-file-descriptor, so a second `with` block on the same
-    project just re-enters on a fresh descriptor and blocks on itself.
+    crashes.
+
+    Nesting it for the same project in one process raises. That used to be a
+    sentence in this docstring and an unbounded, silent hang for anyone who
+    did not read it — the exact failure shape Round 66 is about. Waiting on
+    another process is the lock working; waiting on yourself is a bug in the
+    caller, and it should read as one immediately.
     """
     lock_path = Path(project) / ".methodology" / _LOCK_FILENAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    key = str(lock_path.resolve())
+    if key in _HELD:
+        raise RuntimeError(
+            f"source_tree_lock({project}) is already held by this process. "
+            f"Nesting it queues the process behind itself and nothing will "
+            f"ever release it — hold it once, at the outermost caller."
+        )
     with open(lock_path, "a+") as fh:
         fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        _HELD.add(key)
         try:
             yield
         finally:
+            _HELD.discard(key)
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
+def run_against_source_tree(
+    cmd: Sequence[str],
+    *,
+    project: "str | Path",
+    timeout: float,
+    env: Optional[dict] = None,
+) -> "subprocess.CompletedProcess[str]":
+    """Run *cmd* inside *project*, once the mutation window is closed.
+
+    The one way to execute a project's own tree. Raises
+    ``subprocess.TimeoutExpired`` and ``FileNotFoundError`` exactly as
+    ``subprocess.run`` does, so a caller keeps the handlers it already had —
+    what it does not keep is the ability to time out and leave the command's
+    children running.
+
+    Where the lock is already held (``mutation_enforcer`` holds it around the
+    whole ``mutmut run``), call ``run_isolated`` directly instead; nesting
+    raises.
+    """
+    with source_tree_lock(project):
+        return run_isolated(cmd, timeout=timeout, cwd=str(project), env=env)

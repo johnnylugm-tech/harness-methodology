@@ -53,7 +53,8 @@ class TestStrykerPrecheck:
         ])
         runner, _ = _fake_run({"stryker --version": (0, "9.6.1"),
                                "stryker run": (0, "done")})
-        monkeypatch.setattr(subprocess, "run", runner)
+        monkeypatch.setattr(
+            "core.quality_gate.mutation_enforcer.run_isolated", runner)
         ok, msg = run_stryker_precheck(tmp_path)
         assert ok is False
         assert "1 surviving mutant(s)" in msg
@@ -64,13 +65,15 @@ class TestStrykerPrecheck:
         self._report(tmp_path, [{"status": "Killed", "mutatorName": "X"}])
         runner, _ = _fake_run({"stryker --version": (0, "9.6.1"),
                                "stryker run": (0, "done")})
-        monkeypatch.setattr(subprocess, "run", runner)
+        monkeypatch.setattr(
+            "core.quality_gate.mutation_enforcer.run_isolated", runner)
         assert run_stryker_precheck(tmp_path) == (True, "")
 
     def test_missing_stryker_blocks_with_install_hint(self, tmp_path, monkeypatch):
         _js_state(tmp_path)
         runner, _ = _fake_run({"stryker --version": (1, "not found")})
-        monkeypatch.setattr(subprocess, "run", runner)
+        monkeypatch.setattr(
+            "core.quality_gate.mutation_enforcer.run_isolated", runner)
         ok, msg = run_stryker_precheck(tmp_path)
         assert ok is False and "npm ci" in msg
 
@@ -78,7 +81,8 @@ class TestStrykerPrecheck:
         _js_state(tmp_path)
         runner, _ = _fake_run({"stryker --version": (0, "9.6.1"),
                                "stryker run": (0, "done, but no reporter")})
-        monkeypatch.setattr(subprocess, "run", runner)
+        monkeypatch.setattr(
+            "core.quality_gate.mutation_enforcer.run_isolated", runner)
         ok, msg = run_stryker_precheck(tmp_path)
         assert ok is False and "mutation.json" in msg
 
@@ -86,7 +90,8 @@ class TestStrykerPrecheck:
         """run_mutation_precheck routes js/ts projects to stryker, not mutmut."""
         _js_state(tmp_path)
         runner, calls = _fake_run({"stryker --version": (1, "no")})
-        monkeypatch.setattr(subprocess, "run", runner)
+        monkeypatch.setattr(
+            "core.quality_gate.mutation_enforcer.run_isolated", runner)
         ok, msg = run_mutation_precheck(tmp_path)
         assert ok is False and "StrykerJS" in msg
         assert any("stryker" in " ".join(map(str, c)) for c in calls)

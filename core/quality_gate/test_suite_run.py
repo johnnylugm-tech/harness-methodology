@@ -56,9 +56,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.quality_gate.cov_utils import read_coveragerc_source
-from core.quality_gate.source_tree_lock import source_tree_lock
+from core.quality_gate.source_tree_lock import run_against_source_tree
 from core.utils.project_layout import ProjectLayout
-from core.utils.subprocess_group import run_isolated
 
 __all__ = [
     "SuiteResult",
@@ -308,10 +307,9 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
             # and reaps, and a handler wide enough to see KeyboardInterrupt.
             # Ctrl-C then unwound past the kill and released the lock below
             # while a pytest nobody was holding still wrote into the tree.
-            with source_tree_lock(project):
-                proc = run_isolated(
-                    cmd, timeout=timeout, cwd=str(project), env=_scrubbed_env(),
-                )
+            proc = run_against_source_tree(
+                cmd, project=project, timeout=timeout, env=_scrubbed_env(),
+            )
         except subprocess.TimeoutExpired:
             return SuiteResult(
                 passed=False, coverage=None, test_target=test_target,

@@ -92,7 +92,7 @@ def run_isolated(
     cmd: Sequence[str],
     *,
     timeout: float,
-    cwd: Optional[str] = None,
+    cwd: "str | os.PathLike[str] | None" = None,
     env: Optional[dict] = None,
 ) -> "subprocess.CompletedProcess[str]":
     """`subprocess.run(capture_output=True, text=True, timeout=...)`, group-safe.

@@ -79,7 +79,7 @@ def test_check_coverage_report_no_percentage(tmp_path):
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 0
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_subprocess_exception(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
@@ -88,7 +88,7 @@ def test_check_coverage_report_subprocess_exception(mock_run, tmp_path):
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 0
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_diff_greater_than_10(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
@@ -99,7 +99,7 @@ def test_check_coverage_report_diff_greater_than_10(mock_run, tmp_path):
     assert violations[0]["severity"] == "CRITICAL"
     assert "diff=15.0%" in violations[0]["issue"]
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_bare_overall_percentage(mock_run, tmp_path):
     """Bare 'Overall: 85%' should be extracted and compared, not silently ignored."""
@@ -111,7 +111,7 @@ def test_check_coverage_report_bare_overall_percentage(mock_run, tmp_path):
     assert violations[0]["severity"] == "CRITICAL"
     assert "diff=11.0%" in violations[0]["issue"]
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_bare_total_percentage(mock_run, tmp_path):
     """Bare 'Total: 95%' should be extracted and compared, not silently ignored."""
@@ -123,7 +123,7 @@ def test_check_coverage_report_bare_total_percentage(mock_run, tmp_path):
     assert violations[0]["severity"] == "CRITICAL"
     assert "diff=15.0%" in violations[0]["issue"]
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "1"})
 def test_check_coverage_report_diff_greater_than_5(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
@@ -134,7 +134,7 @@ def test_check_coverage_report_diff_greater_than_5(mock_run, tmp_path):
     assert violations[0]["severity"] == "HIGH"
     assert "diff=6.0%" in violations[0]["issue"]
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "0"}, clear=True)
 def test_check_coverage_report_fast_path_success(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
@@ -145,7 +145,7 @@ def test_check_coverage_report_fast_path_success(mock_run, tmp_path):
     assert len(violations) == 1
     assert violations[0]["severity"] == "CRITICAL"
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "0"}, clear=True)
 def test_check_coverage_report_fast_path_no_coverage_file(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
@@ -154,7 +154,7 @@ def test_check_coverage_report_fast_path_no_coverage_file(mock_run, tmp_path):
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 0
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "0"}, clear=True)
 def test_check_coverage_report_fast_path_unparseable(mock_run, tmp_path):
     (tmp_path / "04-testing").mkdir(parents=True)
@@ -164,7 +164,7 @@ def test_check_coverage_report_fast_path_unparseable(mock_run, tmp_path):
     violations = check_coverage_report(tmp_path, 4)
     assert len(violations) == 0
 
-@patch("subprocess.run")
+@patch("core.quality_gate.source_tree_lock.run_against_source_tree")
 @patch.dict(os.environ, {"HARNESS_CROSS_ARTIFACT_COV": "0"}, clear=True)
 def test_check_coverage_report_extracts_line_coverage_not_first_percentage(mock_run, tmp_path):
     """Regex must extract 'Line coverage' value, not the first % in the file.

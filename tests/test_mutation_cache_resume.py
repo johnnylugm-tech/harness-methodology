@@ -86,7 +86,7 @@ def _run_capturing_workdir(monkeypatch, project, *, cache_bytes: "bytes | None")
             seen["inherited"] = cache.read_bytes() if cache.is_file() else None
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(me.subprocess, "run", _fake_run)
+    monkeypatch.setattr(me, "run_isolated", _fake_run)
     me.compute_mutation_score(project)
     return seen
 
@@ -135,7 +135,7 @@ def test_the_inherited_cache_is_the_one_the_score_is_read_from(
     def _fake_run(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(me.subprocess, "run", _fake_run)
+    monkeypatch.setattr(me, "run_isolated", _fake_run)
     ok, score, msg = me.compute_mutation_score(project)
     assert ok, msg
     assert score == 90.0, msg

@@ -457,8 +457,9 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
     # default False = the pre-flag behavior). When off, fall back to
     # .coverage data if available.
     import os as _os
-    import subprocess  # nosec B404
     import sys
+
+    from core.quality_gate.source_tree_lock import run_against_source_tree
 
     _live_env = _os.environ.get("HARNESS_CROSS_ARTIFACT_COV")
     if _live_env is not None:
@@ -472,10 +473,13 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
             test_target = layout.get_relative_str(layout.active_test_dir)
             
         try:
-            result = subprocess.run(  # nosec B603 B607
+            # Round 66: waits out any in-flight mutation window and kills the
+            # whole group on timeout. Before this, a coverage number taken here
+            # could be measured against a tree mutmut was mid-way through
+            # mutating, and a slow suite left its xdist workers behind.
+            result = run_against_source_tree(
                 [sys.executable, "-m", "pytest", test_target, "--cov=.", "--cov-report=term-missing", "-q"],
-                cwd=str(project_root),
-                capture_output=True, text=True,
+                project=project_root,
                 timeout=120,
             )
         except Exception:
@@ -486,10 +490,9 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
         if not coverage_data.exists():
             return violations  # No coverage data — skip silently
         try:
-            result = subprocess.run(  # nosec B603 B607
+            result = run_against_source_tree(
                 [sys.executable, "-m", "coverage", "report", "--format=total"],
-                cwd=str(project_root),
-                capture_output=True, text=True,
+                project=project_root,
                 timeout=15,
             )
         except Exception:
