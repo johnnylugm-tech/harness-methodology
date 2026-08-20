@@ -22,7 +22,9 @@ Return-code conventions (negative = harness-internal, not tool exit codes):
 
 from __future__ import annotations
 
+import os
 import re
+import signal
 import subprocess
 from typing import Any, Callable, Optional
 
@@ -254,6 +256,7 @@ def run_tool(
                 timeout=timeout,
                 cwd=root,
                 env=env,
+                start_new_session=True,
             )
         combined = (proc.stdout + proc.stderr).strip()
         if artifact and os.path.isfile(artifact):

@@ -49,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -301,23 +302,37 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
             # a mutation window observes a genuinely mutated file and fails
             # for a reason that has nothing to do with the project's code.
             with source_tree_lock(project):
-                proc = subprocess.run(  # nosec B603
+                proc = subprocess.Popen(  # nosec B603
                     cmd, cwd=str(project), env=_scrubbed_env(),
-                    capture_output=True, text=True, timeout=timeout,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, start_new_session=True,
                 )
-        except subprocess.TimeoutExpired:
-            return SuiteResult(
-                passed=False, coverage=None, test_target=test_target,
-                cov_target=cov_target, returncode=124, output="",
-                ran=True, reason=f"test suite timed out after {timeout}s",
-            )
+                try:
+                    stdout_str, stderr_str = proc.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
+                    proc.communicate()
+                    return SuiteResult(
+                        passed=False, coverage=None, test_target=test_target,
+                        cov_target=cov_target, returncode=124, output="",
+                        ran=True, reason=f"test suite timed out after {timeout}s",
+                    )
+                except Exception:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
+                    raise
         except FileNotFoundError as exc:
             return SuiteResult(
                 passed=False, coverage=None, test_target=test_target,
                 cov_target=cov_target, returncode=127, output="",
                 ran=False, reason=f"pytest not runnable: {exc}",
             )
-        output = proc.stdout + proc.stderr
+        output = stdout_str + stderr_str
         coverage = _read_coverage(json_path)
         test_outcomes = _parse_junit_outcomes(junit_path, project)
     return SuiteResult(
