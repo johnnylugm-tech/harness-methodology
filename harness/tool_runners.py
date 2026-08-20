@@ -245,17 +245,16 @@ def run_tool(
     else:
         _measured = nullcontext()
 
+    # Round 65 站1: run_isolated, not subprocess.run. system-verification runs
+    # the delivered product, so whatever that product starts — a uvicorn bound
+    # to a port, a worker — is a grandchild of this call. subprocess.run kills
+    # the direct child and nothing else, and the next tool run then meets
+    # "address already in use" with no trace of who is holding the port.
+    from core.utils.subprocess_group import run_isolated
+
     try:
         with _measured:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=root,
-                env=env,
-                start_new_session=True,
-            )
+            proc = run_isolated(cmd, timeout=timeout, cwd=root, env=env)
         combined = (proc.stdout + proc.stderr).strip()
         if artifact and os.path.isfile(artifact):
             try:

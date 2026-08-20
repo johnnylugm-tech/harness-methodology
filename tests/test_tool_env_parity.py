@@ -84,9 +84,14 @@ def _captured_env(monkeypatch, tool: str, root) -> dict:
         seen["env"] = kwargs.get("env")
         return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
 
-    monkeypatch.setattr(tr.subprocess, "run", _fake_run)
+    # Round 65 站1: run_tool reaches its subprocess through
+    # core.utils.subprocess_group.run_isolated, the framework's only producer
+    # of `start_new_session=`. Spying on the producer rather than on
+    # subprocess.run keeps this observing the one call that actually runs a
+    # tool, instead of a stdlib entry point run_tool may or may not use.
+    monkeypatch.setattr("core.utils.subprocess_group.run_isolated", _fake_run)
     tr.run_tool(tool, str(root))
-    assert "cmd" in seen, f"{tool}: run_tool never reached subprocess.run"
+    assert "cmd" in seen, f"{tool}: run_tool never reached run_isolated"
     return seen
 
 

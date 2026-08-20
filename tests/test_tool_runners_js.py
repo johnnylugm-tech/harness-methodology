@@ -2,7 +2,8 @@
 
 Each scorer is fed a realistic captured tool output and must produce the
 documented score. Network/subprocess is never touched except the artifact-
-append test, which monkeypatches subprocess.run.
+append test, which monkeypatches core.utils.subprocess_group.run_isolated
+(Round 65 站1: run_tool's one route to a subprocess).
 """
 
 import json
@@ -152,7 +153,7 @@ class TestArtifactAppend:
             (cov / "coverage-summary.json").write_text(COVERAGE_ARTIFACT, encoding="utf-8")
             return subprocess.CompletedProcess(cmd, 0, stdout="3 passed", stderr="")
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", fake_run)
         out, rc = run_tool("vitest-cov", str(tmp_path))
         assert rc == 0
         assert _ARTIFACT_MARKER in out
@@ -168,7 +169,7 @@ class TestArtifactAppend:
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(cmd, 1, stdout="FAIL", stderr="")
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", fake_run)
         out, rc = run_tool("vitest-cov", str(tmp_path))
         assert _ARTIFACT_MARKER not in out
         assert not (cov / "coverage-summary.json").exists()
@@ -178,7 +179,7 @@ class TestArtifactAppend:
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(cmd, 1, stdout="FAIL", stderr="")
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", fake_run)
         out, rc = run_tool("vitest-cov", str(tmp_path))
         assert _ARTIFACT_MARKER not in out
         assert compute_tool_score("vitest-cov", out, rc) == 0.0

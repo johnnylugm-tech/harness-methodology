@@ -49,7 +49,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import signal
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -59,6 +58,7 @@ from pathlib import Path
 from core.quality_gate.cov_utils import read_coveragerc_source
 from core.quality_gate.source_tree_lock import source_tree_lock
 from core.utils.project_layout import ProjectLayout
+from core.utils.subprocess_group import run_isolated
 
 __all__ = [
     "SuiteResult",
@@ -301,38 +301,30 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
             # source_tree_lock.py. Without this, a suite run landing inside
             # a mutation window observes a genuinely mutated file and fails
             # for a reason that has nothing to do with the project's code.
+            # Round 65 站1: the kill-the-whole-group half of this lives in
+            # core.utils.subprocess_group, with the setsid that makes it
+            # necessary. Inlining it here cost the two things `subprocess.run`
+            # was doing for free — the `with Popen(...)` that closes the pipes
+            # and reaps, and a handler wide enough to see KeyboardInterrupt.
+            # Ctrl-C then unwound past the kill and released the lock below
+            # while a pytest nobody was holding still wrote into the tree.
             with source_tree_lock(project):
-                proc = subprocess.Popen(  # nosec B603
-                    cmd, cwd=str(project), env=_scrubbed_env(),
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, start_new_session=True,
+                proc = run_isolated(
+                    cmd, timeout=timeout, cwd=str(project), env=_scrubbed_env(),
                 )
-                try:
-                    stdout_str, stderr_str = proc.communicate(timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
-                        pass
-                    proc.communicate()
-                    return SuiteResult(
-                        passed=False, coverage=None, test_target=test_target,
-                        cov_target=cov_target, returncode=124, output="",
-                        ran=True, reason=f"test suite timed out after {timeout}s",
-                    )
-                except Exception:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except (OSError, ProcessLookupError):
-                        pass
-                    raise
+        except subprocess.TimeoutExpired:
+            return SuiteResult(
+                passed=False, coverage=None, test_target=test_target,
+                cov_target=cov_target, returncode=124, output="",
+                ran=True, reason=f"test suite timed out after {timeout}s",
+            )
         except FileNotFoundError as exc:
             return SuiteResult(
                 passed=False, coverage=None, test_target=test_target,
                 cov_target=cov_target, returncode=127, output="",
                 ran=False, reason=f"pytest not runnable: {exc}",
             )
-        output = stdout_str + stderr_str
+        output = proc.stdout + proc.stderr
         coverage = _read_coverage(json_path)
         test_outcomes = _parse_junit_outcomes(junit_path, project)
     return SuiteResult(

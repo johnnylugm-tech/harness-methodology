@@ -621,14 +621,14 @@ class TestRunToolPythonPathInjection:
         nothing to inject, env stays None.
         """
         captured = {}
-        real_run = __import__("subprocess").run
+        from core.utils.subprocess_group import run_isolated as real_run
 
         def _spy_run(cmd, **kwargs):
             captured["cmd"] = cmd
             captured["env"] = kwargs.get("env")
             return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
 
-        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", _spy_run)
         project = _make_src_layout_project(tmp_path)
         run_tool("ruff", str(project))
         assert captured["cmd"][0] != "pytest"
@@ -644,13 +644,13 @@ class TestRunToolPythonPathInjection:
         # instead of the target project's own .venv) — only PYTHONPATH
         # staying absent is what this test pins.
         captured = {}
-        real_run = __import__("subprocess").run
+        from core.utils.subprocess_group import run_isolated as real_run
 
         def _spy_run(cmd, **kwargs):
             captured["env"] = kwargs.get("env")
             return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
 
-        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", _spy_run)
         tests_dir = tmp_path / "03-development" / "tests"
         tests_dir.mkdir(parents=True)
         (tests_dir / "test_x.py").write_text("def test_ok():\n    assert True\n",
@@ -673,13 +673,13 @@ class TestRunToolCovTargetScoping:
 
     def test_pytest_cov_scopes_to_active_src_dir(self, tmp_path, monkeypatch):
         captured = {}
-        real_run = __import__("subprocess").run
+        from core.utils.subprocess_group import run_isolated as real_run
 
         def _spy_run(cmd, **kwargs):
             captured["cmd"] = cmd
             return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
 
-        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", _spy_run)
         project = _make_src_layout_project(tmp_path)
         run_tool("pytest-cov", str(project))
         cov_args = [a for a in captured["cmd"] if a.startswith("--cov=")]
@@ -687,13 +687,13 @@ class TestRunToolCovTargetScoping:
 
     def test_pytest_cov_flat_layout_falls_back_to_dot(self, tmp_path, monkeypatch):
         captured = {}
-        real_run = __import__("subprocess").run
+        from core.utils.subprocess_group import run_isolated as real_run
 
         def _spy_run(cmd, **kwargs):
             captured["cmd"] = cmd
             return real_run(["true"], **{k: v for k, v in kwargs.items() if k != "env"})
 
-        monkeypatch.setattr("harness.tool_runners.subprocess.run", _spy_run)
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", _spy_run)
         tests_dir = tmp_path / "03-development" / "tests"
         tests_dir.mkdir(parents=True)
         (tests_dir / "test_x.py").write_text("def test_ok():\n    assert True\n",

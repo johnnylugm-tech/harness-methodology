@@ -3,7 +3,9 @@
 Selection rationale:
   harness/tool_runners.py had 50.2% kill rate because run_tool() dispatch dict,
   _SKIP_TOOLS, _DEFAULT_TIMEOUTS, and tool command construction had ZERO tests.
-  These 6 tests cover those paths directly via mock subprocess.
+  These 6 tests cover those paths directly via mock subprocess — patched at
+  core.utils.subprocess_group.run_isolated, run_tool's one route to a
+  subprocess since Round 65 站1.
 
   core/quality_gate/sab_parser.py had 78% — kept the 4 highest-coverage tests for
   derive_gate_score_overrides (NFR→gate floor) and SAB auto-derive pipeline.
@@ -24,7 +26,7 @@ def test_run_tool_skip_tools_returns_empty_minus_one():
     """Mutating skip_inline=True tools (e.g. "scancode"→"XXscancodeXX") breaks this.
     Note: mutmut was previously skip_inline=True but commit 631782b activated it."""
     from harness.tool_runners import run_tool
-    with patch("subprocess.run") as mock_sp:
+    with patch("core.utils.subprocess_group.run_isolated") as mock_sp:
         out, rc = run_tool("scancode", "/tmp")
         assert out == ""
         assert rc == -1
@@ -43,7 +45,7 @@ def test_run_tool_dispatches_correct_ruff_command(tmp_path):
     mock_result.stderr = ""
     mock_result.returncode = 0
 
-    with patch("subprocess.run", return_value=mock_result) as mock_sp:
+    with patch("core.utils.subprocess_group.run_isolated", return_value=mock_result) as mock_sp:
         out, rc = run_tool("ruff", str(tmp_path))
 
     args = mock_sp.call_args[0][0]          # first positional arg = command list
@@ -64,7 +66,7 @@ def test_run_tool_dispatches_correct_mypy_command(tmp_path):
     from harness.tool_runners import run_tool
 
     mock_result = MagicMock(stdout="Success: no issues found", stderr="", returncode=0)
-    with patch("subprocess.run", return_value=mock_result) as mock_sp:
+    with patch("core.utils.subprocess_group.run_isolated", return_value=mock_result) as mock_sp:
         out, rc = run_tool("mypy", str(tmp_path))
 
     args = mock_sp.call_args[0][0]
@@ -83,7 +85,7 @@ def test_run_tool_timeout_returns_minus_two(tmp_path):
     """Mutating timeout value or the -2 return breaks this."""
     from harness.tool_runners import run_tool
 
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ruff", 30)):
+    with patch("core.utils.subprocess_group.run_isolated", side_effect=subprocess.TimeoutExpired("ruff", 30)):
         out, rc = run_tool("ruff", str(tmp_path))
 
     assert rc == -2
@@ -98,7 +100,7 @@ def test_run_tool_unknown_tool_returns_empty_minus_one(tmp_path):
     """Mutating the dict lookup fallback ("" / -1) is caught here."""
     from harness.tool_runners import run_tool
 
-    with patch("subprocess.run") as mock_sp:
+    with patch("core.utils.subprocess_group.run_isolated") as mock_sp:
         out, rc = run_tool("nonexistent-tool-xyz", str(tmp_path))
 
     assert out == ""
@@ -119,7 +121,7 @@ def test_run_tool_timeout_override_is_used(tmp_path):
         captured_timeout.append(kwargs.get("timeout"))
         return MagicMock(stdout="", stderr="", returncode=0)
 
-    with patch("subprocess.run", side_effect=fake_run):
+    with patch("core.utils.subprocess_group.run_isolated", side_effect=fake_run):
         run_tool("ruff", str(tmp_path), timeout_override=99)
 
     assert captured_timeout == [99]   # override must be used, not _DEFAULT_TIMEOUTS["ruff"]
@@ -255,7 +257,7 @@ def test_run_tool_default_timeout_passed_to_subprocess(tmp_path):
         captured_bandit.append(kwargs.get("timeout")) if cmd[0] == "bandit" else None
         return MagicMock(stdout="", stderr="", returncode=0)
 
-    with patch("subprocess.run", side_effect=fake_run):
+    with patch("core.utils.subprocess_group.run_isolated", side_effect=fake_run):
         run_tool("ruff", str(tmp_path))
         run_tool("mypy", str(tmp_path))
         run_tool("bandit", str(tmp_path))
@@ -276,7 +278,7 @@ def test_run_tool_default_timeout_passed_to_subprocess(tmp_path):
         def _fake(cmd, **kwargs):
             captured_t.append(kwargs.get("timeout"))
             return MagicMock(stdout="", stderr="", returncode=0)
-        with patch("subprocess.run", side_effect=_fake):
+        with patch("core.utils.subprocess_group.run_isolated", side_effect=_fake):
             run_tool(tool_name, str(tmp_path))
         assert captured_t == [expected], f"{tool_name} timeout must be {expected}s, got {captured_t}"
 
@@ -307,7 +309,7 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
         ("readability-v2", sys.executable, ["-m", "harness.toolchains.readability_v2"]),
     ]
     for tool_name, expected_bin, required_flags in tool_checks:
-        with patch("subprocess.run", return_value=mock_result) as mock_sp:
+        with patch("core.utils.subprocess_group.run_isolated", return_value=mock_result) as mock_sp:
             run_tool(tool_name, str(tmp_path))
         args = mock_sp.call_args[0][0]
         assert args[0] == expected_bin, f"{tool_name}: expected binary '{expected_bin}', got '{args[0]}'"
@@ -323,7 +325,7 @@ def test_run_tool_scancode_also_skipped():
     Covers mutants 2-3 (second set member mutation)."""
     from harness.tool_runners import run_tool
 
-    with patch("subprocess.run") as mock_sp:
+    with patch("core.utils.subprocess_group.run_isolated") as mock_sp:
         out, rc = run_tool("scancode", "/tmp")
     assert rc == -1
     assert out == ""

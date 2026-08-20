@@ -70,9 +70,12 @@ def _captured_argv(monkeypatch, tool: str, root) -> list[str]:
         seen["cmd"] = list(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
 
-    monkeypatch.setattr(tr.subprocess, "run", _fake_run)
+    # Round 65 站1: the framework reaches every tool subprocess through
+    # core.utils.subprocess_group.run_isolated, its only producer of
+    # `start_new_session=`. Spy on the producer, not on stdlib.
+    monkeypatch.setattr("core.utils.subprocess_group.run_isolated", _fake_run)
     tr.run_tool(tool, str(root))
-    assert "cmd" in seen, f"{tool}: run_tool never reached subprocess.run"
+    assert "cmd" in seen, f"{tool}: run_tool never reached run_isolated"
     return seen["cmd"]
 
 
