@@ -106,12 +106,22 @@ def test_a_timed_out_agent_does_not_orphan_what_it_started(tmp_path, monkeypatch
 # Driver for the SIGTERM test. Runs inside a real `harness_cli._dispatch`, so
 # the exit code and the reaping are the shipped ones, not a reconstruction.
 _SIGTERM_DRIVER = """
-import argparse, pathlib, sys
+import argparse, contextlib, io, os, signal, sys
 sys.path.insert(0, {repo!r})
 import harness_cli
 from core.utils.subprocess_group import run_isolated
 
-harness_cli.install_termination_handler()
+# Install the handler the way the shipped CLI does — through main(). `--help`
+# is the cheapest real path through it; argparse exits before any subcommand
+# runs, and the handler is installed before argparse is reached.
+sys.argv = ["harness_cli.py", "--help"]
+with contextlib.redirect_stdout(io.StringIO()):
+    try:
+        harness_cli.main()
+    except SystemExit:
+        pass
+assert signal.getsignal(signal.SIGTERM) not in (signal.SIG_DFL, signal.SIG_IGN), \\
+    "harness_cli.main() did not install a SIGTERM handler"
 
 SPAWNER = (
     "import pathlib, subprocess, sys, time\\n"
@@ -125,7 +135,10 @@ def _run(_args):
     return 0
 
 args = argparse.Namespace(func=_run, project={project!r}, command="probe")
-sys.exit(harness_cli._dispatch(args, []))
+# argv carries --project so that a crash bundle, if this ever reaches its own
+# timeout instead of the signal, is written under the tmp project and not into
+# the harness repo (core.errors._project_from_argv falls back to cwd).
+sys.exit(harness_cli._dispatch(args, ["--project", {project!r}]))
 """
 
 

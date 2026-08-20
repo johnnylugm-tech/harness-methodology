@@ -479,9 +479,17 @@ def test_no_shipped_workflow_hardcodes_the_project_layout_into_a_coverage_run(fi
 # walk away from a run that is still going.
 _ABANDONMENT = re.compile(r"do\s+n[o']?t\s+kill", re.IGNORECASE)
 
-# `kill -0 <PID>` is the poll — it asks whether the run is alive and signals
-# nothing. Any other `kill` in a prompt is a reap.
-_POLL = "kill -0"
+# A launch is the shape that hands a PID to the agent to supervise. A bare
+# `nohup` inside prose (phase 3 tells the agent it was NOT given a PID for the
+# TDD steps, "unlike GATE1's step 6 below … `nohup … & echo $!`") is a mention,
+# not a launch.
+_LAUNCH = re.compile(r"nohup .*echo \$!")
+
+# `kill -0 <PID>` is the poll: it asks whether the run is alive and signals
+# nothing. Any other kill — `kill <PID>`, `pkill -TERM -P <PID>` — is a reap.
+# Counted per occurrence, not per line, because a poll instruction and the
+# cap's reap sit in the same sentence.
+_REAP = re.compile(r"\bp?kill (?!-0\b)")
 
 
 @pytest.mark.parametrize("filename", GENERATED_FILES)
@@ -521,18 +529,12 @@ def test_every_backgrounded_launch_has_a_reap(filename):
     to gain the instruction that ends it, in the same edit.
     """
     text = _read(filename)
-    launches = [
-        n for n, line in enumerate(text.splitlines(), 1) if "nohup " in line
-    ]
-    reaps = [
-        n for n, line in enumerate(text.splitlines(), 1)
-        if "kill " in line and _POLL not in line
-    ]
+    launches = _LAUNCH.findall(text)
+    reaps = _REAP.findall(text)
     assert len(reaps) >= len(launches), (
-        f"{filename} launches {len(launches)} background run(s) "
-        f"(lines {launches}) but carries only {len(reaps)} reap instruction(s) "
-        f"(lines {reaps}). `{_POLL}` asks whether it is alive; it does not end "
-        f"it"
+        f"{filename} hands the agent {len(launches)} background PID(s) but "
+        f"carries only {len(reaps)} reap instruction(s). `kill -0` asks "
+        f"whether it is alive; it does not end it"
     )
 
 
