@@ -44,6 +44,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import subprocess  # nosec B404
+import threading
 from pathlib import Path
 from typing import Generator, Optional, Sequence
 
@@ -51,10 +52,14 @@ from core.utils.subprocess_group import run_isolated
 
 _LOCK_FILENAME = ".mutation_exclusive.lock"
 
-# Lock files this process already holds. `flock` is per-descriptor, so a
-# second acquisition inside the same process opens a fresh descriptor and
-# queues behind itself with nothing left to release it.
-_HELD: set[str] = set()
+# (thread, lock file) pairs currently held. `flock` is per-file-DESCRIPTION,
+# so a second acquisition opens a fresh descriptor and conflicts with the
+# first — which is correct between two threads (they really are two callers,
+# and one waiting for the other is the lock working) and a permanent
+# self-deadlock within one call stack, where nothing is left to release it.
+# Keyed by thread for exactly that reason: it is the *same caller* asking
+# twice that is the bug, not the same process.
+_HELD: set[tuple[int, str]] = set()
 
 
 @contextlib.contextmanager
@@ -66,19 +71,19 @@ def source_tree_lock(project: "str | Path") -> Generator[None]:
     subprocess), released automatically on process exit even if the holder
     crashes.
 
-    Nesting it for the same project in one process raises. That used to be a
-    sentence in this docstring and an unbounded, silent hang for anyone who
-    did not read it — the exact failure shape Round 66 is about. Waiting on
-    another process is the lock working; waiting on yourself is a bug in the
-    caller, and it should read as one immediately.
+    Nesting it for the same project on the same THREAD raises. That used to
+    be a sentence in this docstring and an unbounded, silent hang for anyone
+    who did not read it — the exact failure shape Round 66 is about. Waiting
+    on another process, or on another thread, is the lock working; waiting on
+    yourself is a bug in the caller, and it should read as one immediately.
     """
     lock_path = Path(project) / ".methodology" / _LOCK_FILENAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    key = str(lock_path.resolve())
+    key = (threading.get_ident(), str(lock_path.resolve()))
     if key in _HELD:
         raise RuntimeError(
-            f"source_tree_lock({project}) is already held by this process. "
-            f"Nesting it queues the process behind itself and nothing will "
+            f"source_tree_lock({project}) is already held by this thread. "
+            f"Nesting it queues the thread behind itself and nothing will "
             f"ever release it — hold it once, at the outermost caller."
         )
     with open(lock_path, "a+") as fh:

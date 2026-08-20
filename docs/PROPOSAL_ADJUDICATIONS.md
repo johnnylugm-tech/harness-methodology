@@ -3891,6 +3891,29 @@ wall clock，正是互相搶佔的簽名。load average 32.99 是 EWMA 殘影，
 沒有觸發。那不是守衛的破口，是我的變異不忠實 —— 與 R65 兩次用空字串當變異
 同一類錯誤。CP-6b 忠實還原整個呼叫後立刻轉紅並指名 `cross_artifact.py:481`。
 
+### 站6 —— CI 抓到我在站3 引入的回歸
+
+`f6d984b` push 之後 Harness CI 的 Framework Self-Tests 紅：
+`test_source_tree_lock_serialises_concurrent_holders — assert 2 == 4`。
+
+站3 的巢狀守衛把 `_HELD` 用**鎖檔本身**當 key，於是**第二條執行緒**被當成
+「同一個呼叫者在巢狀」而被拒絕 —— 那正是這把鎖存在的目的。
+`flock` 是 per-file-DESCRIPTION：兩條執行緒各自 `open()` 出獨立 description，
+本來就該互相排隊。**「巢狀」的定義是同一條執行緒問兩次，不是同一個 process。**
+
+**本地為什麼沒抓到**：那支既有測試用四條執行緒各 sleep 0.05s，判定靠排程。
+我跑了三次全套都綠；**修復前直接重跑六次，紅了四次**。
+與 R65 站4「測試等了兩分鐘才綠」同一類：**判定由機器心情決定的測試不算判定。**
+
+修法：key 改成 `(threading.get_ident(), lock_path)`。
+新守衛 `test_a_second_thread_waits_it_is_not_refused` **不靠排程**：
+holder 先 `Event.set()` 宣告自己已在臨界區，waiter 才啟動，
+並要求 waiter 事後仍是 `is_alive()` —— 結果不可能取決於誰先醒。
+CP-8（key 改回 process-wide）三次全紅，還原 sha256 相同。
+
+**這條記在這裡而不是被抹掉**：本輪的整個主題是「機制只做了一半」，
+而我自己在站3 做了一半——加了拒絕，沒有定義「誰是同一個呼叫者」。
+
 ### 站4 的 ratchet
 
 `test_spawns_that_intend_to_kill_only_ratchet_down` 數「生產碼裡帶 `timeout=`
