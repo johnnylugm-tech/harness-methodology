@@ -761,6 +761,17 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         print(f"[WARN] load-context: SAD.md modules parse failed, "
               f"modules stays empty: {exc}", file=sys.stderr)
 
+    # Round 65 站2: where this project's tests and source are, from the one
+    # resolver Gate 3 re-measures with. The P4 coverage prompt used to name
+    # `03-development/{tests,src}` itself — ProjectLayout's first choice, not
+    # its only one — so a root-layout project was told to run a command that
+    # collects nothing. Unguarded on purpose: resolve_targets is pure path
+    # resolution, and a load-context that cannot say where the tests are has
+    # nothing useful to hand the next agent.
+    from core.quality_gate.test_suite_run import resolve_targets
+
+    test_target, cov_target = resolve_targets(project)
+
     result = {
         "phase": phase,
         "project_name": project.name,
@@ -770,6 +781,8 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         "gate_results": gate_results,
         "current_phase": current_phase,
         "fr_id_source": fr_id_source or "none",
+        "test_target": test_target,
+        "cov_target": cov_target,
     }
 
     # Direction C: auto-inject relevant past-failure lessons at phase entry.

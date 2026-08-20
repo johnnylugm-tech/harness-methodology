@@ -117,3 +117,46 @@ def test_p1_brief_but_canonical_spec_missing(tmp_project: Path) -> None:
     result = _run_load_context(tmp_project, env={})
     assert result["fr_ids"] == []
     assert result["fr_id_source"] == "none"
+
+
+# ── Round 65 站2: where the tests are, said once ────────────────────────────
+
+def test_load_context_reports_the_resolved_test_and_coverage_targets(tmp_project):
+    """The Phase 4 coverage prompt reads these instead of naming paths.
+
+    `b12ff21` wrote `03-development/tests/` and `--cov=03-development/src`
+    into the prompt. Those are `ProjectLayout`'s FIRST choice, not its only
+    one: a project with no `03-development/` directory keeps its tests at the
+    root, the command exits 4 collecting nothing, `coverage_raw.txt` is
+    written empty — and the same prompt tells the agent that a mismatch
+    against the framework's own measurement is reported CRITICAL. Round 32
+    站3 removed the fifth hand-rolled copy of this probe from
+    `harness/tool_runners.py`; the prompt was a sixth, out of reach of every
+    import that had unified the other five.
+    """
+    from core.quality_gate.test_suite_run import resolve_targets
+
+    ctx = _run_load_context(tmp_project, {})
+    assert (ctx["test_target"], ctx["cov_target"]) == resolve_targets(tmp_project)
+
+
+def test_the_reported_targets_follow_the_project_not_the_default_layout(tmp_path):
+    """A root-layout project must be told `tests`, not `03-development/tests`."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / ".methodology").mkdir()
+    ctx = _run_load_context(tmp_path, {})
+    assert ctx["test_target"] == "tests"
+    assert ctx["cov_target"] == "src"
+
+
+def test_an_explicit_coveragerc_source_reaches_the_prompt(tmp_path):
+    """`.coveragerc [run] source` wins for --cov, as it does at Gate 3."""
+    (tmp_path / "03-development" / "tests").mkdir(parents=True)
+    (tmp_path / "03-development" / "src").mkdir(parents=True)
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / ".coveragerc").write_text(
+        "[run]\nsource = 03-development/src/pkg\n", encoding="utf-8")
+    ctx = _run_load_context(tmp_path, {})
+    assert ctx["test_target"] == "03-development/tests"
+    assert ctx["cov_target"] == "03-development/src/pkg"
