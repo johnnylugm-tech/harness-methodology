@@ -118,6 +118,52 @@ def test_runall_stays_within_its_headroom_ratchet():
     )
 
 
+def _ratchet_line() -> str:
+    source = (
+        REPO_ROOT / "scripts" / "workflowgen" / "artifact_limits.py"
+    ).read_text(encoding="utf-8")
+    return next(
+        ln for ln in source.splitlines() if ln.startswith("RUNALL_MAX_BYTES")
+    )
+
+
+def test_the_ratchet_notes_arithmetic_closes():
+    """Round 65 站0 — every entry's `Previous:` must be the ceiling before it.
+
+    The note is a chain, newest first: each entry states the delta it applied
+    and the value it applied it to, so `Previous + delta` has to equal the
+    ceiling the entry produced — the constant for the newest entry, and the
+    next entry's `Previous` for every other. Six of the seven links held when
+    this was written; the newest read `+35 … Previous: 348608` while the
+    constant was still 348608, which is a ceiling that did not move written up
+    as one that did.
+
+    Round 64 added the sibling check below, on `Measured`. It passed: 348336
+    was this tree's size. The entry lied in the one field the guard did not
+    read — which is why this one reads the fields as a system rather than one
+    at a time.
+    """
+    import re
+
+    line = _ratchet_line()
+    deltas = [int(m) for m in re.findall(r"(?<![\w.])([+-]\d+)\s*—", line)]
+    previous = [int(m) for m in re.findall(r"Previous:\s*(\d+)", line)]
+    assert deltas, "the RUNALL_MAX_BYTES note no longer states any delta"
+    assert len(previous) >= len(deltas), (
+        f"{len(deltas)} deltas but only {len(previous)} `Previous:` values — "
+        f"every entry that moved the ceiling has to say what it moved it from"
+    )
+    produced = RUNALL_MAX_BYTES
+    for index, (delta, prior) in enumerate(zip(deltas, previous)):
+        assert prior + delta == produced, (
+            f"entry {index} of the RUNALL_MAX_BYTES note says it applied "
+            f"{delta:+d} to {prior}, which is {prior + delta}; the ceiling it "
+            f"produced is {produced}. An entry that leaves the ceiling where it "
+            f"was must record +0, not the size delta of the file underneath it"
+        )
+        produced = prior
+
+
 def test_the_ratchet_note_reports_the_size_it_measured():
     """Round 64 站0 — the ceiling's own note must describe THIS tree.
 
@@ -393,3 +439,35 @@ def test_the_halt_helper_is_declared_exactly_once(filename):
     assert strip_comments_and_strings(text).count("function halt(") == 1, (
         f"{filename}: halt() must be declared exactly once"
     )
+
+
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_no_shipped_workflow_hardcodes_the_project_layout_into_a_coverage_run(filename):
+    """Round 65 站0 — the coverage command must not out-guess resolve_targets.
+
+    `03-development/tests` and `03-development/src` are the FIRST choice of
+    `ProjectLayout.active_test_dir` / `active_src_dir`, not the only one: both
+    fall back to root `tests/` and `src/`, documented and exercised. Gate 3
+    re-measures coverage through `resolve_targets`, which honours the fallback
+    and an explicit `.coveragerc` `[run] source` on top of it.
+
+    So on a root-layout project `b12ff21`'s command exits 4 with no tests
+    collected, `coverage_raw.txt` is written empty, and the same prompt tells
+    the agent that a mismatch against the framework's own measurement is
+    reported CRITICAL — a difference the framework manufactured, charged to
+    the project. Round 32 站3 removed the fifth hand-rolled copy of this exact
+    probe from `harness/tool_runners.py`; this is the same copy one layer up,
+    in a prompt.
+
+    The resolved targets travel in `.sessi-work/phaseN_ctx.json`, which
+    `load-context` writes from `resolve_targets` and which these workflows
+    already read for other fields.
+    """
+    for lineno, line in enumerate(_read(filename).splitlines(), 1):
+        if "-m pytest" not in line or "--cov=" not in line:
+            continue
+        assert "03-development/" not in line, (
+            f"{filename}:{lineno} builds a coverage run against a hardcoded "
+            f"03-development/ path. The project's test and source directories "
+            f"are resolve_targets' answer, not the prompt's"
+        )

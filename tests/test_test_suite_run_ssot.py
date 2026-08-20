@@ -512,3 +512,39 @@ def test_timeout_precedence_is_configurable_with_a_floor(tmp_path):
     bound, which is why one number is needed rather than none.
     """
     assert suite_timeout(tmp_path) >= 30
+
+
+def test_a_suite_that_never_finishes_is_reported_as_a_timeout(tmp_path, monkeypatch):
+    """Round 65 站0 — the timeout path had no test at all.
+
+    `b12ff21` rewrote `_measure`'s subprocess handling (subprocess.run →
+    Popen + communicate + killpg) and 131 tests in this file's neighbourhood
+    were as green after as before: nothing anywhere asked what happens when
+    the suite does not finish. A rewrite whose only failing mode is invisible
+    is a rewrite nobody can review.
+
+    `suite_timeout` has a floor of 30s by design, so the budget is patched
+    rather than configured — everything else here is a real pytest execution
+    against a real project that really hangs.
+    """
+    from core.quality_gate import test_suite_run as tsr
+
+    (tmp_path / "03-development" / "src").mkdir(parents=True)
+    (tmp_path / "03-development" / "tests").mkdir(parents=True)
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / "03-development" / "src" / "mod.py").write_text(
+        "def value():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "03-development" / "tests" / "test_hangs.py").write_text(
+        "import time\n\n\ndef test_hangs():\n    time.sleep(120)\n", encoding="utf-8")
+
+    monkeypatch.setattr(tsr, "suite_timeout", lambda _project: 3)
+    reset_suite_cache()
+    try:
+        result = run_suite(tmp_path)
+    finally:
+        reset_suite_cache()
+
+    assert result.ran is True, "a suite that hung did run — it just did not finish"
+    assert result.passed is False
+    assert result.returncode == 124
+    assert "timed out" in result.reason
