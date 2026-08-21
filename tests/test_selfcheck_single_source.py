@@ -62,6 +62,64 @@ def test_the_pre_push_hook_runs_the_self_check_script():
     )
 
 
+def test_the_hook_actually_reaches_the_self_check(tmp_path):
+    """Naming the script is not running it.
+
+    Round 67 站8's counter-proof CP-6 found this hole in the test above: the
+    mutation `if false && [ -x .../self_check.sh ]` disables the call
+    completely and leaves the string in the file, so the grep-shaped guard
+    stayed green. That is Round 64's shape — a guard that reads as enforcement
+    and is not — so it is closed here rather than noted.
+
+    This runs the real hook over a scratch repo with stand-ins for everything
+    it shells out to, and asks the only question that matters: did
+    self_check.sh execute? The hook's later steps (run-phase) fail in this
+    fixture and that is fine — the sentinel is written before them.
+    """
+    import subprocess
+
+    def _git(*args):
+        subprocess.run(["git", "-C", str(tmp_path), *args],  # nosec B603 B607
+                       capture_output=True, check=False)
+
+    _git("init", "-q")
+    _git("config", "user.email", "t@t")
+    _git("config", "user.name", "t")
+
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "tests").mkdir()
+    sentinel = tmp_path / "self_check_ran"
+    (tmp_path / "scripts" / "self_check.sh").write_text(
+        f"#!/bin/bash\ntouch {sentinel}\nexit 0\n", encoding="utf-8")
+    (tmp_path / "scripts" / "self_check.sh").chmod(0o755)
+    (tmp_path / "scripts" / "verify_regression_guards.py").write_text(
+        "import sys; sys.exit(0)\n", encoding="utf-8")
+    (tmp_path / "tests" / "REGRESSION_GUARDS.yaml").write_text("[]\n", encoding="utf-8")
+    (tmp_path / "harness_cli.py").write_text("import sys; sys.exit(0)\n", encoding="utf-8")
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / ".methodology" / "state.json").write_text(
+        '{"current_phase": 1}', encoding="utf-8")
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    _git("add", "-A")
+    _git("commit", "-qm", "feat: a change that is not a harness chore")
+
+    head = subprocess.run(  # nosec B603 B607
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=False).stdout.strip()
+
+    subprocess.run(  # nosec B603
+        ["bash", str(PRE_PUSH)], cwd=str(tmp_path),
+        input=f"refs/heads/main {head} refs/heads/main {'0' * 40}\n",
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+
+    assert sentinel.exists(), (
+        "the pre-push hook ran to completion without executing "
+        "scripts/self_check.sh. The call site is present in the file and "
+        "unreachable — which is exactly what a text search cannot tell you"
+    )
+
+
 def test_ci_does_not_keep_a_second_copy_of_the_checks():
     """The point is one source, not two that agree today.
 

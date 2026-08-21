@@ -3778,6 +3778,162 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 67 — 框架算出了真值，判定與交付物讀的是別的東西
+
+老闆令：「檢視 taskq-cc 在 P1~P8 的執行過程和紀錄，以及 harness-methodology 的
+git history，(1) 驗證前幾 round 的修復是否都有到位？(2) 探討是否有其他根本性或
+結構性問題？(3) 檢查 GitHub CI 的錯誤是否有其他問題？…確認根源 並用正解 not workaround」
+
+基線 `36ff4e5`：pytest 7437 passed / 4 skipped、guards 674、ruff clean、
+`--check` 10/10、run-all.js 348426。
+
+taskq-cc 跑完 P1–P8：Gate 4 composite **95.28 PASS**，P7/P8 十個 FR 幾乎全部 100.0。
+同一次執行的降級帳本 **1040 筆**。兩個數字都要是真的，才叫「到位」。
+
+### 母體一句話
+
+> **框架算出了真值，而判定與交付物讀的是另一個來源。**
+
+不是沒算。是算完之後，沒有任何機制要求那個數字必須有去處。
+這是 R21（判定早於真值）、R43（偵測到了卻沒有執行者）、R30（半座機制）的再一次；
+本輪除了修五個實例，站8 針對「一個新量測可以沒有消費者」這件事本身。
+
+### (1) 前幾輪修復是否到位 —— 到位的，誠實記錄
+
+| 輪次 | 機制 | 實證 |
+|---|---|---|
+| R55/R56 | AC → TEST_SPEC 鏈 | 460 筆 `obligation:artifact_consistency`，**真的擋住 P3 entry**（`return EX_ADVANCE_ENTRY_OBLIGATIONS`）。機制在工作 |
+| R60 | 宣告的維度不得缺席 | gate4 十六維全部有 entry，`absent_declared_dimensions` 的 raise 路徑在 |
+| R52 | verify-target | Makefile 缺席時 32 筆 ledger row；補上後 `execute_verification_target` 的證據是 `exit 0 / verify-system: PASS` |
+| R66 | 放棄=回收 | 08-21 06:00 之後 150 筆降級**零 timeout、零 dispatch failed**。**保留**：那時已進 P6–P8，工作性質不同，不能單憑此斷言 |
+| — | `spec_undelivered: []` | 今天重跑 `spec_coverage_report`：**118/118, 0 missing**。gate4 那個空陣列是誠實的；帳本裡「47 of 118」是 08-20 的舊狀態。**列為非缺陷** |
+
+### (2) 八條確診缺陷
+
+| # | owner | 病灶 | 硬證據 |
+|---|---|---|---|
+| F1 | harness | 持久化重讀 agent 寫的磁碟檔，只同步固定欄位 | committed `gate4_result.json` 十六維 **零個 `score_source`**；七個語料專案合計出現 **1 次** |
+| F2 | harness | composite 迴圈與 `_dim_passes` 都不看 `score_source` | 同檔 `weight_covered: 0.88` vs 95.28＝**全 1.0 分母重算吻合到小數點**（0.88 分母是 95.6591）；`taskq_api.service.auth` 被 5 個 autouse fixture 替換 |
+| F3 | harness | `pytest-cov` 的 pattern 是 OR，`\d+ passed` 就放行 | `gate_evidence/gate4/test_coverage.txt` **205 bytes，pytest-benchmark 的結尾**，無 TOTAL 無 %，而該維度 100.0 |
+| F4 | harness | 同一 entry 的 `score` 來自框架、`tool_evidence` 來自 agent | `integration_coverage` evidence「TOTAL 81% → score = 81」而 score 欄位 **82.0**；`test_coverage` evidence「→ score = 99.7」而欄位 **100.0** |
+| F5 | harness | 沒人問過消費專案 pin 的 harness SHA 其 CI 綠不綠 | 8 專案 **2 個** pin 在 `Framework Self-Tests=failure`（taskq-super `f99a8b0d`、taskq-cc `f6d984bc`） |
+| F6 | 流程 | pre-push 與 CI 對「push 前該過什麼」有兩份定義 | 25 個 run 12 紅；可讀的 9 個裡 **6 個是確定性失敗**；hook 逐行確認不含 ruff / pytest |
+| F7 | harness | 併發鎖測試由排程判定 | R66 那次 CI 紅就是它；本地 6 跑 4 紅 |
+| F8 | harness | `contract_coverage_gap` 算出來了，唯一 caller 只寫 ledger | `uncovered_modules: ["taskq_api", "taskq_api.__main__", "taskq_api.cli"]` × 130 筆，`lint-imports` 照樣回報契約守住 |
+
+### (3) CI
+
+12 紅 / 25。可取得明細的 9 個：`test_file_size_ratchet` ×3、`test_workflow_js_conventions` ×2、
+`test_patch_discipline`、`test_spec_contract`、一次 ruff —— **6 個是秒級、確定性、本地跑得出來的**。
+另外 2 個是真回歸（sim testbed、dispatchLog），1 個是 F7 的 flaky。
+
+**pre-push hook 存在且已啟用**（`core.hooksPath = scripts/hooks`），它跑 `run-phase`
+preflight ＋ guard registry，**不跑 ruff、不跑 pytest**。這是母體的流程面。
+
+### 本輪做了什麼
+
+站0 二十三條紅斷言（四條刻意綠，是counterweight）。
+站1 `build_persisted_gate_result` ＋ `ctx.finalized_result`。
+站2 `framework_measured` 一個函式三個讀者、`composite_over` 回報它實際除的分母、
+`dimension_not_measured` 指名 fixture/file/module。
+站3 `_TOOL_REQUIRED_PATTERNS`（只加兩個工具）。
+站4 `preflight_submodule_pin_ci`，複用既有 `fetch_ci_verdict`，零新網路程式碼。
+站5 `scripts/self_check.sh`，CI 與 pre-push 同源。
+站6 併發鎖測試改 Event 驅動。
+站7 `contract_coverage_blocking_reason`。
+站8 `tests/MEASUREMENT_SINKS.yaml` ＋ 守衛。
+
+### 裁決
+
+**R67-A：`declared_only` 不重開。** 我在提問時說「兩條『無執行者』約束其實
+import-linter 能執行」——**這個主張過強，本節撤回它**。
+`"api > service > repository > models"` 是自由文字；要讓 import-linter 執行它，
+框架得去猜 `taskq_api.api` / `.service` / `.repository` / `.models` 這些模組名。
+**猜不是決定。** R54 的裁決站得住。再開條件：SAB 的 `architecture_constraints`
+改成結構化欄位（動到所有消費專案的 schema，是獨立一輪）。
+
+**R67-B：站1 的計畫被自己的檢查推翻。** 計畫寫「刪掉 gate_cmds 的逐維 `score`
+白名單同步」。實作時查出：有些修正**只發生在 `DimResult` 上、從沒寫回 `raw`**
+——spec cap（`score = min(score, _spec_cap)`）就是一個。刪掉會**無聲地把每個
+committed test_coverage 分數解除上限**。所以那個迴圈留著，兩層各自承載不同東西，
+註解寫明。正確的終局是讓那些修正也寫回 `raw`，屆時該迴圈才真的是 no-op ——
+逐一追蹤，另案。
+
+**R67-C：F4 不單獨修法。** 「分數高於它引用的證據」是 F1 的第二個後果：
+committed entry 的 `score` 來自框架、`tool_evidence` 來自 agent，拼在一起沒人比對。
+站1 之後 evidence 由框架那份帶入，矛盾自然消失。
+**不做**「解析 evidence 句子裡的數字再比對」——那是 R19 的病（規則與被檢查者同源，
+用英文句子當資料來源）。再開條件：站1 之後仍量到 score 與 evidence 內數字不符。
+
+**R67-D：`AGENT_UNVERIFIED` 與 `STUBBED_BOUNDARY` 同時生效，沒有分兩個 commit。**
+計畫說先量發生率再決定。站1 完成後量了：七個語料專案的 committed gate result 裡
+`score_source` 總共出現 **1 次**（taskq-api 的一個 `framework_na`），
+**零個 agent_unverified、零個 stubbed_boundary**。發生率**不可從歷史得知**，
+因為 F1 讓標記從來沒落過盤。**這是行動的理由，不是等待的理由。**
+
+**R67-E：`composite_over` 與 `measurement_scope` 的預設權重仍是兩份。**
+前者對 gate config 未定價的維度用 `1/len(dims)`（沿用被取代的迴圈），
+後者用 `0.0`。生產上從未分歧，因為每份 gate YAML 都替它宣告的每個維度定價。
+統一它會改變既有分數的算法，與本輪的判定改動混在一起不安全。**記錄，不動。**
+
+**R67-F：`harness_bridge.py` 4582 → 4730，沒有拆。**
+它是 god file，本輪讓它更大。R49 的「先織網再動刀」是安全拆分的形狀，那是一整輪。
+記錄而非在兩個判定改動之間動刀。
+
+**R67-G：站8 的註冊表用 `unreviewed` 而不是猜。**
+Self-Review 曾設下條件：若 `record_degradation` 的 component 有九成以上是字面量才做
+完整版。實測 **49 字面 / 9 f-string = 84.5%**，低於門檻 —— 但九個 f-string
+**全部有字面前綴**（`run-fr-step:` / `doctor:` / `obligation:` / `agent:` / `gate:s4:`），
+所以守衛能 100% 靜態覆蓋，「錯覺」的疑慮被量測解除而不是被推論繞過。
+37 個 key 裡我讀過並判定的有 7 個，其餘 **30 個標 `unreviewed`**，只能降不能升，
+新 producer 不得使用該值。
+
+### 反證
+
+九條，每站一條。全部以反向編輯還原（不用 `git restore`），還原後七個檔案的
+`sha256` 逐檔相同。
+
+| # | 變異 | 結果 |
+|---|---|---|
+| CP-1 | 合併函式不再帶入框架的 breakdown | 紅 ×2 |
+| CP-2 | `dimension_not_measured` 的 raise 關掉 | 紅（Gate 1 回到 exit 0） |
+| CP-3 | `composite_over` 改回 `d.score is not None` | 紅：`assert 1.0 == 0.5` —— taskq-cc「0.88 vs 1.0」的縮小版 |
+| CP-4 | `_TOOL_REQUIRED_PATTERNS` 檢查關掉 | 紅 ×2 |
+| CP-5 | red 的 pin 回 `passed=True` | 紅 ×4 |
+| **CP-6** | **`if false && [ -x .../self_check.sh ]`** | **綠 —— 守衛有洞** |
+| CP-6b | 同一個變異，對上新加的執行式守衛 | 紅 |
+| CP-7 | `LOCK_EX` → `LOCK_SH` | 紅：`a contender got past the lock … [True, True, True]` |
+| CP-8 | `contract_coverage_blocking_reason` 恆回 None | 紅 ×2 |
+| CP-9 | 註冊表刪掉一個 producer 的 key | 紅 ×2（未註冊 ＋ ratchet 未同步下修） |
+
+**CP-6 是本輪第二個要記下來的自我發現。** 那個變異是**忠實的**（真的把 hook 的
+self-check 關掉了），而 `test_the_pre_push_hook_runs_the_self_check_script`
+只檢查檔案裡**出現**  `self_check.sh` 這個字串 —— 死條件底下的呼叫仍然出現。
+**一個讀起來像執法、實際上不是的守衛，正是 R64 的母體。**
+所以沒有記為「已知限制」，而是補上 `test_the_hook_actually_reaches_the_self_check`：
+在一個 scratch git repo 上跑真的 hook，用 sentinel 檔問「self_check 到底有沒有被執行」。
+CP-6b 用同一個變異對它，紅。
+
+與 R66 的 CP-6 對照：那次是**我的變異不忠實**；這次是**守衛真的有洞**。
+兩者都只能靠實際跑一次變異才會知道，這是反證存在的理由。
+
+### 一件本輪自己撞上的事
+
+站5 的 `self_check.sh` 第一次執行就抓到**本輪自己造成的兩個 ratchet 回歸**：
+`pinned_submodule_sha` 用裸 `subprocess.run(timeout=)` 讓 R66 的 spawn ratchet
+從 92 升到 93，以及三個檔案超過行數上限。兩者都是確定性檢查，都不在我先前跑的
+任何子集裡。**沒有站5，這就是那「6/9 確定性紅」再加兩筆。**
+
+### 如果這個結論是錯的，最可能錯在
+
+我把八條收斂成一個母體，可能是**過度歸納**。F5/F6 是流程面（版本與守門），
+F1–F4 是資料流面（量測到判定），兩者共用「有兩個來源、沒人比對」這個形狀，
+但**不共用同一段程式碼**。站8 的註冊表只覆蓋得到 F1–F4 那一類（degradation
+producer 與 gate 欄位）；F5/F6 不在它的射程內。所以誠實的說法是：
+**母體有四條，F5/F6 是同形但獨立的第二件事**，不要為了敘事漂亮把它們綁在一起。
+
+---
+
 ## Round 66 — 放棄一個子程序不等於回收它
 
 老闆令：「目前系統仍舊會有嚴重的卡頓問題，重新驗證問題的真實性與根源性…

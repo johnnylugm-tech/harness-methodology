@@ -1,0 +1,116 @@
+# MEASUREMENT_SINKS — where each thing the framework measures ends up.
+#
+# Round 67 站8. Five of this round's eight defects were the same shape: the
+# framework computed the true thing and nothing read it.
+#
+#   score_source          computed, published in measurement_scope, invisible
+#                         to the verdict and absent from the committed file
+#   contract_coverage_gap computed since Round 46, one caller, wrote a log row
+#   uncovered modules     130 ledger rows in taskq-cc while lint-imports
+#                         reported the contract kept
+#   submodule pin CI      answerable by a function that already existed
+#   the pre-push list     enforced only after the push
+#
+# Each was fixed in its own station. This file is for the next one: a
+# measurement may be report-only, but "nobody decided" stops being an
+# available state. Every `record_degradation` component in the tree appears
+# here with one of three sinks.
+#
+#   verdict      something refuses to proceed on this — name it in `where`
+#   report-only  deliberately recorded and not enforced — `why` is required,
+#                and "we have not got round to it" is not a why
+#   unreviewed   nobody has read this site and asked the question
+#
+# `unreviewed` is a real answer and stays available, for the reason Round 50
+# 站4 kept `unknown` as an owner: the alternative is a guess wearing a
+# decision's clothes. What it does not get is permanence — the count only
+# ratchets down (tests/test_measurement_sinks.py), so a round that touches
+# one of these sites has to answer for it, and a NEW producer cannot be
+# added as unreviewed at all.
+#
+# Keys are the component string. A component built from an f-string is keyed
+# by its literal prefix plus `*` (all nine such sites in the tree have one;
+# a producer whose component has no literal prefix fails the guard, because
+# a sink nobody can name is a sink nobody can check).
+
+sinks:
+  # ── verdict ────────────────────────────────────────────────────────────
+  "gate:stubbed-boundary":
+    sink: verdict
+    where: >-
+      harness_bridge.finalize_gate raises GateBlockedError
+      (dimension_not_measured) when a suite-measured dimension carries
+      score_source=stubbed_boundary. Round 67 站2.
+  "gate:arch-constraints":
+    sink: verdict
+    where: >-
+      Two raises in finalize_gate — arch_constraint_unconfigured (Round 54)
+      for a constraint whose executor this project has not configured, and
+      arch_contract_coverage (Round 67 站7) for delivered modules no contract
+      reaches. The declared_only rows in the same component are report-only
+      by adjudication R54; see docs/PROPOSAL_ADJUDICATIONS.md.
+  "gate:verify-target":
+    sink: verdict
+    where: >-
+      verify_target.blocking_reason, raised in finalize_gate. Round 52 站1.
+  "gate:verify-system-reach":
+    sink: verdict
+    where: >-
+      _verify_system_reach_block in finalize_gate. Round 52 站2.
+  "milestone:uncommitted":
+    sink: verdict
+    where: >-
+      cli/phase_cmds.py returns EX_ADVANCE_UNCOMMITTED_DELIVERABLES on the
+      same path that writes these rows.
+  "obligation:*":
+    sink: verdict
+    where: >-
+      cli/phase_cmds.py returns EX_ADVANCE_ENTRY_OBLIGATIONS on the same
+      path. These are the 460 rows in taskq-cc's ledger that really did stop
+      P3 entry — the mechanism working, recorded here so it is not mistaken
+      for the ones that did not.
+
+  # ── report-only ────────────────────────────────────────────────────────
+  "spec:undelivered":
+    sink: report-only
+    why: >-
+      The threshold ladder (Gate 1 40, G2/G3/G4 60/80/90) already judges the
+      ratio; _record_undelivered_tests' own docstring records the decision —
+      replacing one stated number with a stricter stated number is not a fix.
+      What the rows add is that a pass over the ladder no longer erases what
+      it passed over. Reopen if a project ships a gate PASS with names on
+      this list that were never delivered by Phase 8.
+
+  # ── unreviewed ─────────────────────────────────────────────────────────
+  # Nobody has read these sites and asked whether anything acts on them.
+  # Round 67 did not read them either, and says so rather than guessing.
+  "advance-phase": {sink: unreviewed}
+  "advance-phase:deliverable-anchors": {sink: unreviewed}
+  "advance-phase:regen-view": {sink: unreviewed}
+  "agent:*": {sink: unreviewed}
+  "auto_fix.guardrails.rollback_if_unsafe": {sink: unreviewed}
+  "ci:verdict": {sink: unreviewed}
+  "crash-triage": {sink: unreviewed}
+  "crg:baseline": {sink: unreviewed}
+  "crg:graph-scope": {sink: unreviewed}
+  "doctor:*": {sink: unreviewed}
+  "doctor:unavailable": {sink: unreviewed}
+  "drift_detector._load_sab_baseline": {sink: unreviewed}
+  "finalize-gate": {sink: unreviewed}
+  "fr-step-no-progress": {sink: unreviewed}
+  "gate1_evidence.record_gate1_score": {sink: unreviewed}
+  "gate:S6-exclusion-vcs": {sink: unreviewed}
+  "gate:coverage-denominator": {sink: unreviewed}
+  "gate:delivery-fingerprint": {sink: unreviewed}
+  "gate:env-repair": {sink: unreviewed}
+  "gate:evidence-not-persisted": {sink: unreviewed}
+  "gate:evidence-too-large": {sink: unreviewed}
+  "gate:s4:*": {sink: unreviewed}
+  "gate:scan-scope": {sink: unreviewed}
+  "gate:test-skips": {sink: unreviewed}
+  "harness_bridge.generate_quality_manifest": {sink: unreviewed}
+  "mutation:scope": {sink: unreviewed}
+  "mutation:score-artifact": {sink: unreviewed}
+  "phase_cmds._advance_fsm": {sink: unreviewed}
+  "run-fr-step:*": {sink: unreviewed}
+  "state-io": {sink: unreviewed}

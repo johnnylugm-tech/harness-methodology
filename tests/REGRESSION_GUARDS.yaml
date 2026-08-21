@@ -2761,3 +2761,67 @@
 - test: tests/test_source_tree_lock_nesting.py::test_a_second_thread_waits_it_is_not_refused
   bug: "R66 站3's nesting guard keyed the held set by lock file alone, so a second THREAD was refused as though it were the same caller — the one thing the lock exists for. CI caught it (assert 2 == 4 in the four-thread test) after three green full-suite runs locally; direct runs then failed 4 of 6, because that test decides by thread scheduling"
   fixed_in: "R66-站6 (keyed by (thread ident, lock path))"
+
+- test: tests/test_gate_result_persistence_source.py::test_the_persisted_breakdown_is_the_framework_view_not_the_agent_view
+  bug: "the persist step re-read the agent-written gate result from disk and copied back a fixed list of fields, so every framework correction to `breakdown` was dropped — taskq-cc's committed gate4_result.json carries sixteen dimensions and zero score_source beside a measurement_scope naming two of them unscored; across all seven corpus projects score_source appears once"
+  fixed_in: "R67-站1 (cli.gate_cmds.build_persisted_gate_result + ctx.finalized_result)"
+
+- test: tests/test_gate_result_persistence_source.py::test_a_field_the_framework_invents_tomorrow_survives_persistence
+  bug: "the same defect stated as a property — R30 added `score` to the copy whitelist, R50/R51 added score_source upstream, and nobody came back; any field added in-memory from then on was lost by default"
+  fixed_in: "R67-站1"
+
+- test: tests/test_stubbed_boundary_reaches_the_verdict.py::test_a_stubbed_boundary_dimension_does_not_pass
+  bug: "a dimension measured over a suite that replaces a SAB high-risk module was marked, logged, dropped from weight_covered — and still counted as passing; taskq-cc published Gate 4 PASS at 95.28 with test_coverage 100.0 while five autouse fixtures replaced taskq_api.service.auth"
+  fixed_in: "R67-站2 (framework_measured read by the verdict; dimension_not_measured block)"
+
+- test: tests/test_stubbed_boundary_reaches_the_verdict.py::test_the_composite_denominator_has_one_definition
+  bug: "measurement_scope selected on score_source and finalize_gate's averaging loop asked `d.score is None`, so one artifact published weight_covered 0.88 beside a composite that recomputes exactly over 1.0"
+  fixed_in: "R67-站2 (composite_over returns the denominator it divided by)"
+
+- test: tests/test_tool_evidence_content.py::test_a_run_with_no_coverage_in_it_is_not_coverage_evidence
+  bug: "the pytest-cov content patterns are an OR containing `\\d+ passed`, so 205 bytes of pytest-benchmark tail with no TOTAL row and no percentage was accepted as the evidence for test_coverage = 100.0"
+  fixed_in: "R67-站3 (_TOOL_REQUIRED_PATTERNS)"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_a_pin_on_a_red_build_blocks
+  bug: "nothing ever asked whether the harness commit a project pins had passing CI; two of eight corpus projects pin a SHA whose own Framework Self-Tests were red, one of them the commit R66 pushed and corrected an hour later"
+  fixed_in: "R67-站4 (preflight_submodule_pin_ci over the existing fetch_ci_verdict)"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_an_unobtainable_verdict_is_infra_not_a_pass
+  bug: "R37's rule one level up — no gh, no network or no run yet is INFRA, never a green verdict"
+  fixed_in: "R67-站4"
+
+- test: tests/test_selfcheck_single_source.py::test_the_pre_push_hook_runs_the_self_check_script
+  bug: "the pre-push hook ran run-phase preflight and the guard registry but neither ruff nor pytest, so the full rule was enforced only after the push landed; 6 of the 9 legible red CI runs in the last 25 were deterministic checks it could have caught"
+  fixed_in: "R67-站5 (scripts/self_check.sh called by CI and by the hook)"
+
+- test: tests/test_selfcheck_single_source.py::test_ci_does_not_keep_a_second_copy_of_the_checks
+  bug: "two lists that agree today is how they drift — a step added to the CI job is invisible to the hook"
+  fixed_in: "R67-站5"
+
+- test: tests/test_contract_coverage_reaches_the_verdict.py::test_an_uncovered_module_blocks
+  bug: "contract_coverage_gap computed which delivered modules no import-linter contract reaches and its one caller wrote a log row; taskq-cc logged 130 of them naming taskq_api/__main__/cli while lint-imports reported the contract kept"
+  fixed_in: "R67-站7 (contract_coverage_blocking_reason)"
+
+- test: tests/test_contract_coverage_reaches_the_verdict.py::test_a_project_with_no_contract_at_all_is_not_blocked
+  bug: "counterweight — a project with no layering contract is not a project with a leaky one (R46: an absent witness is absent, not failing)"
+  fixed_in: "R67-站7"
+
+- test: tests/test_source_tree_lock.py::test_source_tree_lock_serialises_concurrent_holders
+  bug: "four threads each sleeping 0.05s inside the critical section decided this test by OS scheduling: green on three consecutive full-suite runs locally, red on CI for R66, then red on 4 of 6 direct runs"
+  fixed_in: "R67-站6 (Event-driven: the holder announces before any contender starts)"
+
+- test: tests/test_measurement_sinks.py::test_every_producer_names_a_sink
+  bug: "five of R67's eight defects were a measurement with no consumer; nothing required a new one to declare where its finding goes"
+  fixed_in: "R67-站8 (tests/MEASUREMENT_SINKS.yaml)"
+
+- test: tests/test_measurement_sinks.py::test_unreviewed_only_ratchets_down
+  bug: "'nobody has read this site' was not an available answer, so the alternative was a guess wearing a decision's clothes; without a ratchet the registry would have absorbed new producers as unreviewed forever"
+  fixed_in: "R67-站8"
+
+- test: tests/test_measurement_sinks.py::test_every_component_can_be_named
+  bug: "a component built from an f-string with no literal prefix cannot be registered or referred to, which would leave a silent hole in the registry"
+  fixed_in: "R67-站8"
+
+- test: tests/test_selfcheck_single_source.py::test_the_hook_actually_reaches_the_self_check
+  bug: "R67 站8's CP-6: the string-matching guard stayed green against `if false && [ -x .../self_check.sh ]` — a faithful mutation that disables the call and leaves the text in place. A guard that reads as enforcement and is not is R64's mother defect; this one runs the real hook over a scratch repo and asks whether self_check executed"
+  fixed_in: "R67-站8 (counter-proof CP-6b red)"
