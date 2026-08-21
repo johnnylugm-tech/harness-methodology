@@ -611,7 +611,19 @@ _LINE_CEILING: dict[str, int] = {
     "core/agent_spawner.py": 1286,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
-    "scripts/phase_auditor.py": 1848,
+    "scripts/phase_auditor.py": 1856,
+    # 2026-08-22: 1848 -> 1856 (+8). Round 69 站1: C5's `_check_traceability_depth`
+    # FR-coverage check used `re.findall(r"\\bFR-\\d+\\b", srs)` over the whole
+    # SRS.md body, which caught unpadded section refs in
+    # `<!-- DERIVED: SPEC §3 FR-1 -->`-style notes and inflated the expected
+    # count to ~20 when only the ~12 actual headings are in scope — surfaced
+    # on taskq-new P1 audit 2026-08-22 as `covers only 11/20 FRs (55%)`. Fix
+    # extracts from `##/### (N)?FR-XX:` heading lines only, normalises
+    # zero-pad, and skips `*-deferred` (existing test fixtures that author
+    # `## FR-01 Login` instead of `### FR-01:` continue to pass — confirmed
+    # against tests/test_phase_auditor.py::TestTraceabilityFrCoverage). Most
+    # of the +8 is the comment recording the over-match; the regex block
+    # itself is roughly the same size as the one it replaced.
     # 2026-07-13: +5 lines — Round 10 站4: P2 Agent B checklist (both
     # _AGENT_B_CHECKS[2] and the SAD.md deliverable's own "checks" list)
     # gains a SEC-block-complete item; P4 hunt step text notes threat_model
