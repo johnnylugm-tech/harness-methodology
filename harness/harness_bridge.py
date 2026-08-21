@@ -3383,6 +3383,37 @@ class HarnessBridge:
                 details={"arch_contract_coverage": [_coverage_reason]},
             )
 
+        # ── Round 68 站1: the files the project says it must ship ────────────
+        # Every other check in this framework reads one artifact against
+        # another. None opened the tree. taskq-cc published Gate 4 PASS at
+        # 95.28 with `.env.example` absent — SPEC §8 #26 is a grep over it —
+        # and with `migrations/` and `alembic.ini` under `03-development/src/`
+        # while SAD.md:45 asserts the tree "matches SPEC.md §6 exactly".
+        #
+        # The declaration is the project's, which is the limit of what this
+        # buys and is stated in the module rather than hidden: a project that
+        # declares nothing gets a ledger row, not a block. What it does buy is
+        # that a declaration which IS made is decided by something that always
+        # runs — unlike the `declared_only` constraints above, `Path.exists()`
+        # needs no configuration and no guess at a module name.
+        from core.quality_gate.required_artifacts import (
+            record_required_artifacts,
+            required_artifacts_blocking_reason,
+        )
+        _artifact_reason = required_artifacts_blocking_reason(
+            record_required_artifacts(ctx.project_root)
+        )
+        if _artifact_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"required_artifact_missing": [_artifact_reason]},
+            )
+
         # ── Round 51 站3: a number measured over a suite that removed the
         # thing it measures ──────────────────────────────────────────────────
         # Round 67 站2 keeps the findings: the verdict now refuses these

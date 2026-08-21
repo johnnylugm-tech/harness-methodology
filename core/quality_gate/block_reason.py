@@ -192,6 +192,19 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "fix: a project with no contract is not blocked here, but it has "
         "stopped claiming a boundary rather than started keeping one.",
     ),
+    "required_artifact_missing": (
+        "A file the SAB declares this project must ship is not at the declared path",
+        "Each entry names one path from the SAB's `required_artifacts` and says "
+        "which of two things is true of it. Absent: the file is nowhere in the "
+        "tree — deliver it, or drop the entry if it turned out not to be "
+        "required. Delivered elsewhere: the file exists at the path the message "
+        "gives, usually under `03-development/src/` because that is the tree "
+        "the coverage scope measures — move it to the declared path, or correct "
+        "the declaration. Both are one edit and both make the SAB more true; "
+        "what is not available is leaving a declaration that the tree "
+        "contradicts, which is how a spec's mandatory config files become free "
+        "points for the dimensions they feed.",
+    ),
     "dimension_not_measured": (
         "A dimension carries a score that is not a measurement of the delivered code",
         "Each entry names a dimension and why its number does not describe this "

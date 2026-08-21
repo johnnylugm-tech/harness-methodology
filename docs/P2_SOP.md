@@ -147,6 +147,12 @@ sab:
 
   high_risk_modules:
     - "app.api.webhooks"
+
+  required_artifacts:  # 本專案「必須交付」的 repo-relative 路徑
+    # 每次 finalize-gate 都會拿這份清單去對交付樹。檔案不存在、或存在但不在
+    # 宣告的位置，都會擋下並在訊息裡指名是哪一種。SPEC 沒有規定必備檔案時
+    # 省略或留 []。
+    - ".env.example"
 ```
 
 > **NFR type 完整清單（8 個）**：

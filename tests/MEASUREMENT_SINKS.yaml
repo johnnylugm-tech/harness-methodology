@@ -49,6 +49,16 @@ sinks:
       arch_contract_coverage (Round 67 站7) for delivered modules no contract
       reaches. The declared_only rows in the same component are report-only
       by adjudication R54; see docs/PROPOSAL_ADJUDICATIONS.md.
+  "gate:required-artifacts":
+    sink: verdict
+    where: >-
+      required_artifacts_blocking_reason, raised in finalize_gate as
+      required_artifact_missing. Round 68 站1. Both statuses block — a declared
+      path that is absent and one that ships somewhere else are the same
+      defect stated twice. The second row this component writes, for a project
+      that declares nothing at all, is deliberately NOT a verdict: this
+      station checks declarations, it does not invent them, and Round 57's
+      "who declares the scope" is not solved here.
   "gate:verify-target":
     sink: verdict
     where: >-

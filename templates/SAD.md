@@ -203,6 +203,13 @@ sab:
 
   high_risk_modules:
     - "app.api.webhooks"
+
+  required_artifacts:  # repo-relative paths this project MUST ship
+    # Checked against the delivered tree at every gate. A path that
+    # is absent, or that ships somewhere other than where it is
+    # declared, blocks and the message says which. Omit or leave []
+    # if the spec names no mandatory files.
+    - ".env.example"
 ```
 <!-- SAB:END -->
 

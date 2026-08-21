@@ -63,6 +63,9 @@ class SABSpec:
     fr_module_traceability: dict = field(default_factory=dict)
     architecture_constraints: list = field(default_factory=list)
     high_risk_modules: list = field(default_factory=list)
+    # Round 68 站1: repo-relative paths this project must ship, checked against
+    # the delivered tree at every finalize (core.quality_gate.required_artifacts).
+    required_artifacts: list = field(default_factory=list)
 
     @property
     def modules(self) -> list:
@@ -105,6 +108,7 @@ class SABSpec:
             "fr_module_traceability": self.fr_module_traceability,
             "architecture_constraints": self.architecture_constraints,
             "high_risk_modules": self.high_risk_modules,
+            "required_artifacts": self.required_artifacts,
         }
 
 
@@ -404,6 +408,7 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         fr_module_traceability=sab_data.get("fr_module_traceability", {}),
         architecture_constraints=sab_data.get("architecture_constraints", []),
         high_risk_modules=sab_data.get("high_risk_modules", []),
+        required_artifacts=sab_data.get("required_artifacts", []),
     )
 
 
@@ -525,6 +530,17 @@ def render_canonical_sab_template(
         elif f.name == "high_risk_modules":
             lines.append("  high_risk_modules:")
             lines.append(f'    - "{module_example}"')
+        elif f.name == "required_artifacts":
+            # Round 68 站1. The paths are checked against the delivered tree at
+            # every finalize, so the example has to be a shape a real project
+            # writes: config files a spec calls mandatory, whose absence
+            # otherwise turns the dimensions they feed into free points.
+            lines.append("  required_artifacts:  # repo-relative paths this project MUST ship")
+            lines.append("    # Checked against the delivered tree at every gate. A path that")
+            lines.append("    # is absent, or that ships somewhere other than where it is")
+            lines.append("    # declared, blocks and the message says which. Omit or leave []")
+            lines.append("    # if the spec names no mandatory files.")
+            lines.append('    - ".env.example"')
         else:
             raise RuntimeError(
                 f"render_canonical_sab_template: unhandled SABSpec field {f.name!r} — "
