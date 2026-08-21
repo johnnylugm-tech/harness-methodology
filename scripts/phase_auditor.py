@@ -816,9 +816,28 @@ class PhaseAuditor:
                 detail="",
             ))
 
-        # FR coverage: cross-check every FR-ID from SRS.md appears in the matrix
+        # FR coverage: cross-check every FR-ID from SRS.md appears in the matrix.
+        # Match only `## FR-XX:` / `### FR-XX:` (and the NFR- counterparts)
+        # heading lines so unrelated references — e.g. `<!-- DERIVED: SPEC
+        # §3 FR-1 -->` notes that cite a SPEC section by its unpadded number —
+        # do not inflate the expected count. Heading IDs are normalised to
+        # zero-padded form. Headings suffixed `-deferred` are explicit
+        # deferrals and not part of the in-scope requirement set the matrix
+        # must cover.
         srs = self._content(["01-requirements/SRS.md"]) or ""
-        srs_frs = sorted(set(re.findall(r"\bFR-\d+\b", srs)))
+        heading_blocks = re.findall(
+            r"^#{2,3} ((?:N)?FR-\d+[^\n]*)$",
+            srs,
+            flags=re.MULTILINE,
+        )
+        in_scope = []
+        for heading in heading_blocks:
+            if heading.strip().endswith("-deferred"):
+                continue
+            m = re.match(r"(?:N)?FR-(\d+)", heading)
+            if m:
+                in_scope.append(f"FR-{int(m.group(1)):02d}")
+        srs_frs = sorted(set(in_scope))
         if srs_frs:
             missing_frs = [fr for fr in srs_frs if fr not in content]
             covered = len(srs_frs) - len(missing_frs)
