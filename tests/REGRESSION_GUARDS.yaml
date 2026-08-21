@@ -2825,3 +2825,82 @@
 - test: tests/test_selfcheck_single_source.py::test_the_hook_actually_reaches_the_self_check
   bug: "R67 站8's CP-6: the string-matching guard stayed green against `if false && [ -x .../self_check.sh ]` — a faithful mutation that disables the call and leaves the text in place. A guard that reads as enforcement and is not is R64's mother defect; this one runs the real hook over a scratch repo and asks whether self_check executed"
   fixed_in: "R67-站8 (counter-proof CP-6b red)"
+
+# ── Round 68 ──────────────────────────────────────────────────────────────
+# Six deductions in an external review of a finished project. Two were the
+# reviewer's (out-of-scope by the SRS's own words, and a container artifact no
+# document asks for), one is the testbed SPEC's, three are this framework's —
+# and all three of those are "the requirement named something and nobody
+# opened the tree to look".
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_a_declared_artifact_that_is_absent_is_reported
+  bug: "a file a spec calls mandatory was absent from the whole tree and every gate passed — SPEC §8 #26 is a grep over `.env.example` and the SRS transcribed it as the only one of twenty-seven acceptance rows carrying no AC identifier"
+  fixed_in: "R68-站1"
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_a_declared_artifact_delivered_elsewhere_names_where
+  bug: "`migrations/` and `alembic.ini` are drawn at the project root and ship under 03-development/src, while the SAD asserts the tree 'matches SPEC §6 exactly'. 'Somewhere else' has to be reported as itself, not as absent, or the fix is writing a file that already exists"
+  fixed_in: "R68-站1"
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_an_artifact_at_its_declared_path_is_not_reported
+  bug: "a checker that fires on files that ARE where they were declared is one nobody reads"
+  fixed_in: "R68-站1"
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_a_project_that_declares_nothing_is_recorded_not_blocked
+  bug: "R50 站4's rule one layer up: declaring nothing is an honest state and must not be blocked, but it must not be silent either — otherwise a project that listed nothing looks identical to one that listed everything and delivered it"
+  fixed_in: "R68-站1"
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_the_blocking_reason_names_both_kinds
+  bug: "R48's rule: a block a project cannot act on. The message has to name each path and, for a relocated one, where it actually is"
+  fixed_in: "R68-站1"
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_required_artifacts_survives_the_sab_round_trip
+  bug: "a SAB key that exists in the parser and not on SABSpec never reaches the canonical template, so no project would ever learn to write one"
+  fixed_in: "R68-站1"
+
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_a_missing_declared_deliverable_stops_the_gate
+  bug: "the pure decision function existing is not the verdict reading it — R67's mother defect. This runs a real finalize"
+  fixed_in: "R68-站1"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_the_baseline_env_carries_a_sentinel_that_means_what_it_says
+  bug: "the mutation baseline re-runs a project's own suite once per mutant and told it nothing, so four acceptance tests read PYTEST_DISABLE_PLUGIN_AUTOLOAD as 'you are the mutation baseline' — a proposition it does not state — and skipped themselves in a suite whose own NFR forbids skips"
+  fixed_in: "R68-站2"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_every_env_var_the_framework_exports_is_registered
+  bug: "docs/CONFIGURATION.md registered every env var the framework READS and none of the eight it WRITES into a subprocess; an undocumented export is what left PYTEST_DISABLE_PLUGIN_AUTOLOAD available to be repurposed as a semantic signal"
+  fixed_in: "R68-站2"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_a_runner_that_narrows_the_mutant_killers_is_recorded
+  bug: "`paths_to_mutate` is rendered from the SAB and `[mutmut] runner` — which tests may kill a mutant, and therefore what the score is — was hand-written and read by nothing"
+  fixed_in: "R68-站2"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_a_runner_pinned_to_an_interpreter_outside_the_project_is_recorded
+  bug: "a committed absolute interpreter path is correct on one machine; mutmut runs the runner from a workdir the framework creates, which is why a project reaches for one"
+  fixed_in: "R68-站2"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_a_plain_runner_is_not_reported
+  bug: "a runner that narrows nothing must not be reported — R45's doctor false-accusation shape"
+  fixed_in: "R68-站2"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_a_project_with_no_setup_cfg_is_not_reported
+  bug: "no config is not a narrow config (R46: an absent witness is absent, not failing)"
+  fixed_in: "R68-站2"
+
+- test: tests/test_mutation_baseline_sentinel.py::test_the_regenerate_hook_asks_before_its_own_early_returns
+  bug: "_regenerate_mutmut_scope returns early four times; a runner check placed after any of them never asks the project most likely to have hand-written one — the project with no SAB"
+  fixed_in: "R68-站2"
+
+- test: tests/test_partial_neutralisation.py::test_a_partially_guarded_test_is_neutralised
+  bug: "`_is_neutralised` required EVERY assertion to sit under a swallowing handler, so six integration tests that put the escape hatch around some of their assertions and left the rest outside were all reported clean, with test_assertion_quality at 100.0"
+  fixed_in: "R68-站3"
+
+- test: tests/test_partial_neutralisation.py::test_a_handler_that_re_raises_is_still_not_neutralised
+  bug: "R53 站3's stated false positive must stay excluded after the every→any change; it is excluded by `_handler_swallows_assertion`, which is the whole argument for making the change"
+  fixed_in: "R68-站3 (green from station 0 — pins existing correct behaviour)"
+
+- test: tests/test_partial_neutralisation.py::test_a_fully_guarded_test_is_still_neutralised
+  bug: "the case that already worked has to keep working across an every→any rewrite"
+  fixed_in: "R68-站3 (green from station 0)"
+
+- test: tests/test_partial_neutralisation.py::test_a_test_with_no_assertions_is_not_neutralised
+  bug: "`zero_assert` and `neutralised` name different defects with different fixes; a shell must not be renamed into the other bucket"
+  fixed_in: "R68-站3 (green from station 0)"
