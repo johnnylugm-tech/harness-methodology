@@ -513,9 +513,27 @@ def _mutmut_subprocess_env(workdir: str) -> dict:
     "unrecognized arguments" error, surfaced in the existing
     stdout/stderr-capturing failure message — strictly better than silent
     corruption or an INTERNALERROR wall.
+
+    Round 68 站2 — HARNESS_MUTATION_BASELINE. This function re-runs a
+    project's own test suite once per mutant, and until now it did so without
+    telling the suite. A test that genuinely cannot be in the mutant set — one
+    that shells out to a nested pytest, or that re-runs the whole suite
+    through `make` — therefore has to detect the situation from a side effect,
+    and the only side effect available was the line above. taskq-cc's
+    acceptance suite does exactly that, four times:
+
+        if os.environ.get("PYTEST_DISABLE_PLUGIN_AUTOLOAD") == "1":
+            pytest.skip(...)
+
+    That variable means "plugin autoload is off". Its truth is not the same
+    proposition, and reading it as one is how four skips ended up in a suite
+    whose own NFR-09 is a zero-skip rule. The sentinel is added BESIDE the
+    sandbox, not instead of it: Bug #142's default-deny is still load-bearing,
+    and a project keying on the sandbox flag keeps working.
     """
     env = os.environ.copy()
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+    env["HARNESS_MUTATION_BASELINE"] = "1"
 
     runner = _resolved_workdir_runner(workdir)
     try:

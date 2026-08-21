@@ -316,9 +316,18 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
     a reason to block a phase advance that has already passed every gate.
     """
     from core.quality_gate.mutmut_scope import (
+        record_runner_scope,
         resolve_mutation_scope,
         write_paths_to_mutate,
     )
+
+    # Round 68 站2: ask about `runner` BEFORE the four early returns below.
+    # This function renders `paths_to_mutate` — which code is mutated — and
+    # leaves `runner` — which tests may kill a mutant, and therefore the
+    # score — entirely to the project. The runner is a fact about the project
+    # in every state this function can return in, and the project most likely
+    # to have hand-written one is the project with no SAB.
+    record_runner_scope(project)
 
     sab_path = project / ".methodology" / "SAB.json"
     if not sab_path.exists():

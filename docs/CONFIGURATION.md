@@ -173,6 +173,31 @@ scans the source and fails on unregistered additions.
 | `USER` | system | Default operator id for kill-switch audit logging. |
 | `CI` | system | When set, `run-phase` skips the spawn-substrate preflight probe (Round 29) — CI never dispatches an interactive per-FR loop, so there is no sub-agent substrate to validate, and the probe (which requires the `claude` CLI) can only ever fail there. |
 | `GITHUB_ACTIONS` | system | Same effect as `CI` above — GitHub Actions sets this even when the generic `CI` var is absent. |
+
+### Variables the framework EXPORTS
+
+Round 68 站2. The registry above covered every variable the framework
+**reads**. It covered none of the eight the framework **writes** into a
+subprocess environment, and a variable exported into a project's own test
+process is as much a public interface as one consumed from the operator's
+shell: a project's acceptance suite read `PYTEST_DISABLE_PLUGIN_AUTOLOAD` as
+"you are the mutation baseline" — a proposition it does not state — because
+nothing said what it did mean or offered anything that did.
+`tests/test_mutation_baseline_sentinel.py` scans for `env["NAME"] = …` in the
+production packages and fails on an unregistered addition, the same shape as
+the read scan.
+
+| Variable | Written by | Meaning for the process that receives it |
+|---|---|---|
+| `HARNESS_MUTATION_BASELINE` | `mutation_enforcer._mutmut_subprocess_env` | `"1"` means this pytest run is the mutation baseline or a mutant evaluation. A test that cannot be in the mutant-killing set (it shells out to a nested pytest, or re-runs the whole suite through `make`) may key on this; nothing else may, and it is not a licence to skip. |
+| `PYTEST_DISABLE_PLUGIN_AUTOLOAD` | `mutation_enforcer._mutmut_subprocess_env` | `"1"` — pytest entry-point plugins are not auto-loaded for the mutation run (Bug #142 default-deny). Core pytest plugins are unaffected; demand expressed as a flag in the `[mutmut] runner` is re-enabled via `PYTEST_ADDOPTS`. **A fixture-only plugin has no flag to express demand with**, so its fixtures are unavailable here — that is the sandbox working, not a project defect. |
+| `PYTEST_ADDOPTS` | `mutation_enforcer._mutmut_subprocess_env` | `-p <name>` re-enabling exactly the plugins the resolved runner asked for; prepended by pytest to every invocation including mutmut's internal ones. |
+| `HARNESS_REACH_RUNNERS` | `quality_gate.verify_system_reach` | Sidecar handshake: which runners the reach probe expects to observe. |
+| `HARNESS_REACH_SIDECAR` | `quality_gate.verify_system_reach` | Path the reach sidecar writes its observation to. |
+| `COVERAGE_FILE` | `quality_gate.verify_system_reach` | Where coverage data for the reach measurement lands, so it does not collide with the project's own `.coverage`. |
+| `COVERAGE_PROCESS_START` | `quality_gate.verify_system_reach` | Enables coverage in subprocesses the verification target spawns — the delivered entry point runs in one. |
+| `PYTHONPATH` | `harness.tool_runners`, `scripts.check_fr_full` | The canonical source root (`03-development/src`) prepended so a tool run from the project root can import the delivered package. |
+| `PATH` | `core.agent_spawner`, `core.utils.venv_env` | The project venv's `bin` prepended, so a spawned tool resolves the project's interpreter rather than the operator's. |
 | `METHODOLOGY_CONSTITUTION_PROFILE` | harness | JSON string overriding the on-demand constitution profile. The name reaching `os.environ.get` is a module constant, not a literal at the call site, so the AST scan cannot see it and this row is hand-written. Round 40 站3 closed the neighbouring hole — a name passed through a one-line helper — by deriving the helpers rather than listing them; this remaining shape is a genuine limit, not a licence to hand-register whatever the scan misses. |
 
 **Not in this table, on purpose:** `COHESION_HEALTHY`, `COMMUNITY_OVERSIZED`

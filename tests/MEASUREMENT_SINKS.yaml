@@ -91,6 +91,21 @@ sinks:
       it passed over. Reopen if a project ships a gate PASS with names on
       this list that were never delivered by Phase 8.
 
+  "mutation:runner":
+    sink: report-only
+    why: >-
+      Round 68 站2. `paths_to_mutate` is rendered from the SAB by
+      _regenerate_mutmut_scope; `runner` — which tests may kill a mutant, and
+      therefore what the score is — is hand-written and was read by nothing.
+      Not a verdict, and the why is not deferral: a test that shells out to a
+      nested pytest, or re-runs the whole suite through `make`, genuinely
+      cannot be in the mutant-killing set, so narrowing is sometimes correct
+      and a block on it would be satisfied by making the baseline unrunnable.
+      Reopen if a project's recorded mutation score is traced to a `-k` that
+      excluded tests which could have killed mutants inside paths_to_mutate —
+      that is decidable by re-running the baseline without the filter, and it
+      is the measurement this row exists to make possible.
+
   # ── unreviewed ─────────────────────────────────────────────────────────
   # Nobody has read these sites and asked whether anything acts on them.
   # Round 67 did not read them either, and says so rather than guessing.

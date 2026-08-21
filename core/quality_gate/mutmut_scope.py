@@ -42,8 +42,13 @@ STRING and never resolved it against a filesystem.
 from __future__ import annotations
 
 import configparser
+import shlex
 from pathlib import Path
 from typing import Optional
+
+# Flags in a `[mutmut] runner` that remove tests from the set allowed to kill a
+# mutant. Each one moves the score, and none of them is derived from the SAB.
+_NARROWING_FLAGS = ("-k", "--deselect", "--ignore")
 
 
 def resolve_mutation_scope(
@@ -312,3 +317,78 @@ def write_paths_to_mutate(
         )
         cfg.write(f)
     return True, old
+
+
+def record_runner_scope(project_root: "str | Path") -> list[str]:
+    """What the project's `[mutmut] runner` narrows, recorded not blocked.
+
+    Round 68 站2. `_regenerate_mutmut_scope` renders `paths_to_mutate` from
+    the SAB, so WHICH CODE is mutated is the framework's. Which TESTS are
+    allowed to kill a mutant — and therefore what the score is — comes from
+    `runner`, which is hand-written, unreviewed and read by nothing.
+    Measured on a real project: `-k "not test_ac_n and not test_perf_"` beside
+    a mutation_testing score of 81.6, and an interpreter pinned to an absolute
+    path that is correct on exactly one machine.
+
+    Recorded rather than blocked, and the reason is real rather than deferral:
+    a test that shells out to a nested pytest, or that re-runs the whole suite
+    through `make`, genuinely cannot be in the mutant-killing set — leaving it
+    there multiplies every mutant's runtime by the suite's. Narrowing is
+    sometimes necessary. Being invisible is not.
+
+    The absolute-interpreter check is here rather than in a lint because the
+    cause is on this side: mutmut runs the runner from an ephemeral workdir
+    the framework creates, which is why a relative `.venv/bin/python` does not
+    survive and a project reaches for an absolute one.
+
+    Returns the findings (empty when there is nothing to say). Never raises.
+    """
+    from core.degradation_ledger import record_degradation
+
+    project = Path(project_root)
+    cfg_path = project / "setup.cfg"
+    if not cfg_path.is_file():
+        return []
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(str(cfg_path), encoding="utf-8")
+        runner = cfg.get("mutmut", "runner", fallback="").strip()
+    except (OSError, configparser.Error):
+        return []
+    if not runner:
+        return []
+
+    try:
+        tokens = shlex.split(runner)
+    except ValueError:
+        tokens = runner.split()
+
+    findings: list[str] = []
+    for flag in _NARROWING_FLAGS:
+        if any(t == flag or t.startswith(flag + "=") for t in tokens):
+            findings.append(
+                f"`{flag}` removes tests from the set allowed to kill a "
+                f"mutant, so it moves the mutation score"
+            )
+    if tokens:
+        interpreter = Path(tokens[0])
+        if interpreter.is_absolute() and not str(interpreter).startswith(
+            str(project.resolve()) + "/"
+        ):
+            findings.append(
+                f"the runner is pinned to {tokens[0]}, an interpreter outside "
+                f"this project — correct on one machine"
+            )
+
+    if findings:
+        record_degradation(
+            project, "mutation:runner",
+            f"[mutmut] runner is hand-written and narrows or pins the "
+            f"baseline: {'; '.join(findings)}",
+            "paths_to_mutate is rendered from the SAB and runner is not, so "
+            "the half that decides which tests may kill a mutant — and "
+            "therefore the score — is unreviewed. Recorded, not blocked: a "
+            "test that re-runs the suite cannot be in the mutant set",
+            data={"runner": runner, "findings": findings}, owner="project",
+        )
+    return findings
