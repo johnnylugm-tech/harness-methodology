@@ -11,31 +11,71 @@ from core.quality_gate.source_tree_lock import source_tree_lock
 
 
 def test_source_tree_lock_serialises_concurrent_holders(tmp_path: Path) -> None:
+    """Mutual exclusion, decided by the lock rather than by the scheduler.
+
+    Round 67 站6. This used to start four threads that each slept 0.05s inside
+    the critical section and then compared the intervals for overlap. Whether
+    it passed depended on when the OS ran them: it went red on CI for Round 66
+    (`assert 2 == 4`) after passing three consecutive full-suite runs locally,
+    and then failed 4 of 6 direct runs on the same tree. A test whose verdict
+    is a scheduling outcome reports whichever answer the machine felt like
+    giving that minute — which is the shape Round 67 is about, in the tests.
+
+    So nothing here races. The holder announces that it is inside the critical
+    section before any contender starts, and the contenders are required to
+    still be waiting while it holds; they are released only when it exits.
+    """
     (tmp_path / ".methodology").mkdir()
-    intervals: list[tuple[float, float]] = []
-    lock = threading.Lock()  # guards `intervals`, not the thing under test
+    holding, may_release = threading.Event(), threading.Event()
+    entered = threading.Semaphore(0)
+    outcomes: list[object] = []
+    guard = threading.Lock()  # guards `outcomes`, not the thing under test
 
-    def hold(duration: float) -> None:
+    def holder() -> None:
         with source_tree_lock(tmp_path):
-            start = time.monotonic()
-            time.sleep(duration)
-            end = time.monotonic()
-        with lock:
-            intervals.append((start, end))
+            holding.set()
+            may_release.wait(30)
 
-    threads = [threading.Thread(target=hold, args=(0.05,)) for _ in range(4)]
-    for t in threads:
+    def contender() -> None:
+        try:
+            with source_tree_lock(tmp_path):
+                with guard:
+                    outcomes.append(True)
+        except BaseException as exc:  # noqa: BLE001 -- the thing under test
+            with guard:
+                outcomes.append(exc)
+        finally:
+            entered.release()
+
+    h = threading.Thread(target=holder)
+    h.start()
+    assert holding.wait(30), "the holder never entered the critical section"
+
+    contenders = [threading.Thread(target=contender) for _ in range(3)]
+    for t in contenders:
         t.start()
-    for t in threads:
-        t.join()
+    # Give them a real chance to acquire something they must not acquire.
+    time.sleep(0.2)
+    try:
+        with guard:
+            assert not outcomes, (
+                "a contender got past the lock while another thread was "
+                f"holding it: {outcomes}"
+            )
+    finally:
+        may_release.set()
 
-    assert len(intervals) == 4
-    intervals.sort()
-    for (_, prev_end), (next_start, _) in zip(intervals, intervals[1:]):
-        assert next_start >= prev_end, (
-            "two holders overlapped inside the critical section — "
-            f"intervals={intervals}"
+    for _ in contenders:
+        assert entered.acquire(timeout=30), (
+            "a contender never finished after the holder released the lock"
         )
+    h.join(timeout=30)
+    for t in contenders:
+        t.join(timeout=30)
+
+    assert outcomes == [True, True, True], (
+        f"every contender should have acquired the lock in turn: {outcomes}"
+    )
 
 
 def test_source_tree_lock_creates_methodology_dir_if_missing(tmp_path: Path) -> None:
