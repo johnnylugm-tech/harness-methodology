@@ -33,6 +33,8 @@ import subprocess  # nosec B404
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from core.utils.subprocess_group import run_isolated
+
 _TIMEOUT = 10
 _SUBMODULE_DIRNAME = "harness"
 
@@ -47,9 +49,12 @@ def pinned_submodule_sha(project: "str | Path") -> "str | None":
     """
     project = Path(project)
     try:
-        proc = subprocess.run(  # nosec B603 B607
+        # Round 66's rule: a call carrying a timeout is a call that intends to
+        # kill, and killing has to mean killing the group. `run_isolated`
+        # supplies capture_output/text.
+        proc = run_isolated(
             ["git", "-C", str(project), "submodule", "status", _SUBMODULE_DIRNAME],
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            timeout=_TIMEOUT,
         )
     except (OSError, subprocess.SubprocessError):
         return None
