@@ -87,6 +87,24 @@ _TEST_SPEC_COVERING = """\
 | 4 | `test_metrics_requires_admin` | AC-9.5 |
 """
 
+# taskq-api wrote sub-assertion rule_ids without the dash
+# (`AC1.1-status-201`). The cover check used to read every gap as "AC
+# cited by no TEST_SPEC case"; now it normalises and counts the prefix.
+_TEST_SPEC_NODASH = """\
+# TEST_SPEC.md
+
+### FR-09: 健康檢查與可觀測性
+
+**Sub-assertions**
+
+| rule_id | predicate | applies_to |
+|---|---|---|
+| AC9.1-status-503 | expected_status == "503" | 1 |
+| AC9.2-status-503 | expected_status == "503" | 2 |
+| AC9.3-no-auth | auth_required == "false" | 3 |
+| AC9.5-admin-only | expected_status == "403" | 4 |
+"""
+
 _TEST_SPEC_MISSING_ONE = """\
 # TEST_SPEC.md
 
@@ -153,6 +171,39 @@ def test_full_coverage_is_silent(tmp_path):
 
     project = _project(tmp_path, _SRS_IDENTIFIED, _TEST_SPEC_COVERING)
     assert check_ac_test_spec_coverage(project) == []
+
+
+def test_no_dash_citations_normalise_to_canonical(tmp_path):
+    """TEST_SPEC rule_ids routinely drop the dash (`AC9.1-status-503`).
+
+    Before the normalisation in `check_ac_test_spec_coverage`, the strict
+    `_AC_ID` regex matched nothing on that line and the cover check
+    reported every SRS criterion as uncited — a 100% false-positive rate
+    on taskq-api's P2 exit. The normalisation must now agree with the
+    canonical citation in `_TEST_SPEC_COVERING` and produce no findings.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_test_spec_coverage
+
+    project = _project(tmp_path, _SRS_IDENTIFIED, _TEST_SPEC_NODASH)
+    assert check_ac_test_spec_coverage(project) == []
+
+
+def test_no_dash_and_dash_citations_compare_equal(tmp_path):
+    """The two test_spec corpora must produce the same coverage verdict.
+
+    A coverage check that says "AC-9.1 cited" for one file and "AC-9.1
+    not cited" for a byte-equivalent file with the dash dropped would
+    read the dash as a meaning-bearing signal. The whole point of the
+    normalisation is to make it not one.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_test_spec_coverage
+
+    with_dash = _project(tmp_path / "with_dash", _SRS_IDENTIFIED, _TEST_SPEC_COVERING)
+    without_dash = _project(tmp_path / "without_dash", _SRS_IDENTIFIED, _TEST_SPEC_NODASH)
+    assert (
+        check_ac_test_spec_coverage(with_dash)
+        == check_ac_test_spec_coverage(without_dash)
+    )
 
 
 def test_the_checks_are_exported():
