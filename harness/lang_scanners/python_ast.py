@@ -101,11 +101,34 @@ def _assertion_nodes(fn: "ast.AST") -> "list[ast.AST]":
 
 
 def _is_neutralised(fn: "ast.AST") -> bool:
-    """True when every assertion in *fn* sits under a handler that swallows it.
+    """True when ANY assertion in *fn* sits under a handler that swallows it.
 
-    "Every", not "any": a test that checks three things and guards one of them
-    still has two verdicts that can fail, and calling it neutralised would be a
-    false positive on the shape where a handler adds diagnostics and re-raises.
+    Round 68 站3 corrects Round 53 站3's "every". That rule was chosen to avoid
+    a false positive on "a handler adds diagnostics and re-raises" — but that
+    shape is already excluded one function up, by
+    `_handler_swallows_assertion`'s `not any(isinstance(n, ast.Raise) ...)`.
+    The outer rule was a second net across the same hole, and it is the one
+    thirteen real tests went through.
+
+    The shape it let past, from an integration suite whose gate published PASS
+    with test_assertion_quality at 100.0:
+
+        try:
+            post = client.post("/v1/tasks", json=payload, headers=headers)
+            assert post.status_code == 201, post.text     # cannot fail
+            get = client.get(f"/v1/tasks/{task_id}", headers=headers)
+        except Exception as exc:
+            pytest.skip(f"POST/GET raised {type(exc).__name__} …")
+        assert get.status_code == 200, get.text           # outside the try
+
+    Six functions in that one file carry a swallowing handler and none was
+    reported, because each left some assertions outside it. The two inside
+    genuinely cannot end the test: an AssertionError there becomes a skip. Two
+    discarded verdicts are two discarded verdicts whatever their neighbours do.
+
+    Blast radius, measured across nine trees before the change: +8 on one
+    project, +5 on another, 0 on the six others and 0 on this framework's own
+    6,377 tests.
     """
     nodes = _assertion_nodes(fn)
     if not nodes:
@@ -123,7 +146,7 @@ def _is_neutralised(fn: "ast.AST") -> bool:
                 ))
     if not spans:
         return False
-    return all(
+    return any(
         any(lo <= getattr(n, "lineno", -1) <= hi for lo, hi in spans) for n in nodes
     )
 
