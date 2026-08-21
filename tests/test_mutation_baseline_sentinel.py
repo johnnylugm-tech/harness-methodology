@@ -191,13 +191,20 @@ def test_the_regenerate_hook_asks_before_its_own_early_returns():
     unreadable SAB, no `scope_layers`, an unresolvable path. The runner is a
     fact about the project in every one of those states, so the question has
     to be asked before them, not after.
+
+    Counter-proof CP-10 found this test's first version green against the
+    mutation it exists to catch: it searched for the bare NAME, and the
+    function imports `record_runner_scope` at its top, so what it measured was
+    always the import's position. R64's shape — a guard that reads as
+    enforcement and is not — so it looks for a CALL.
     """
     import inspect
 
     from cli.phase_cmds import _regenerate_mutmut_scope
 
     src = inspect.getsource(_regenerate_mutmut_scope)
-    call = src.find("record_runner_scope")
+    call_m = re.search(r"^\s*record_runner_scope\s*\(", src, re.MULTILINE)
+    call = call_m.start() if call_m else -1
     first_return = min(
         (m.start() for m in re.finditer(r"^\s+return\b", src, re.MULTILINE)),
         default=-1,

@@ -2886,8 +2886,8 @@
   fixed_in: "R68-站2"
 
 - test: tests/test_mutation_baseline_sentinel.py::test_the_regenerate_hook_asks_before_its_own_early_returns
-  bug: "_regenerate_mutmut_scope returns early four times; a runner check placed after any of them never asks the project most likely to have hand-written one — the project with no SAB"
-  fixed_in: "R68-站2"
+  bug: "_regenerate_mutmut_scope returns early four times; a runner check placed after any of them never asks the project most likely to have hand-written one — the project with no SAB. R68's CP-10: this test's first version stayed GREEN against exactly that mutation, because it searched for the bare NAME and the function imports record_runner_scope at its top — what it measured was always the import's position. R64's shape, a guard that reads as enforcement and is not; it now looks for a call"
+  fixed_in: "R68-站2 (counter-proof CP-10b red)"
 
 - test: tests/test_partial_neutralisation.py::test_a_partially_guarded_test_is_neutralised
   bug: "`_is_neutralised` required EVERY assertion to sit under a swallowing handler, so six integration tests that put the escape hatch around some of their assertions and left the rest outside were all reported clean, with test_assertion_quality at 100.0"

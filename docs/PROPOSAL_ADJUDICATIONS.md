@@ -3889,6 +3889,23 @@ non-existent director(ies)」（08-19 14:56，owner=harness）看起來是活 bu
 回 `03-development/src/taskq_api/repository, 03-development/src/taskq_api/service`，
 兩條都 `exists() == True`。** R50 站4b 已修，該筆是舊狀態。
 
+### 反證（11 條，一條需要補守衛）
+
+CP-1..CP-11 逐條變異 → 確認轉紅 → **以反向編輯還原**（不用 `git restore`）
+→ `sha256` 逐檔比對，八個生產檔案全部位元組相同。
+
+**CP-10 對忠實變異保持綠。** 把 `record_runner_scope(project)` 搬到
+`_regenerate_mutmut_scope` 的第一個 `return False` 之後——正是這條守衛存在要抓的事
+——守衛卻沒紅。原因：它用 `src.find("record_runner_scope")` 找**裸名字**，
+而該函式在最上方 `from ... import record_runner_scope`，
+所以它量到的永遠是 import 的位置，不是呼叫的位置。
+**這是 R64 的母體（守衛讀起來像執法，實際不是），與 R67 的 CP-6 同形。**
+補法不是記為已知限制，是改成找**呼叫**（`^\s*record_runner_scope\s*\(`）；
+CP-10b 對同一變異紅。
+
+**與 R66 CP-6 的對照仍然成立**：那次是變異不忠實，R67 與本輪這兩次是守衛真的有洞。
+**三次都只能靠實跑變異才知道。**
+
 ### 過程紀錄
 
 - 站0 commit 用了 `-c core.hooksPath=/dev/null`，等於繞過 pre-commit hook，
