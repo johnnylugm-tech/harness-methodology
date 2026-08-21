@@ -1811,6 +1811,63 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
               file=sys.stderr)
 
 
+def build_persisted_gate_result(
+    framework_view: "dict | None", agent_view: dict,
+) -> dict:
+    """The document to commit: the framework's corrections over the agent's file.
+
+    Round 67 站1. `finalize_gate` reads `.sessi-work/gate{N}_result.json` and
+    then corrects it — S4 writes back a score it reproduced itself,
+    `_mark_framework_na` turns an unverified null into a framework-verified
+    N/A, `_mark_stubbed_boundary_dimensions` records that a dimension was
+    measured over a suite that replaced its own boundary. The persist step
+    then re-read the same file from disk and copied four top-level fields plus
+    one field per dimension (`score`) onto it, so every other correction was
+    dropped.
+
+    The comment that used to sit at the copy loop recorded this once already,
+    from Round 30: the corrected per-dimension score never reached the
+    persisted breakdown, and Round 30 answered it by adding `score` to the
+    list. Rounds 50 and 51 then added `score_source` upstream and nobody came
+    back. Measured on taskq-cc's committed gate4_result.json (2026-08-21):
+    sixteen dimensions, zero `score_source`, beside a `measurement_scope`
+    that names two of them as unscored — the only field that could explain
+    that denominator is the one the list did not carry.
+
+    So the rule is not a longer list. Where the framework spoke, the framework
+    wins; where it did not, the agent's field stands (`rounds_used`,
+    per-dimension `tests_passed`, the devil's-advocate block — real fields
+    nothing upstream touches, and dropping them would trade one silent loss
+    for another).
+
+    `framework_view` is None for any caller that has no finalized result to
+    hand, in which case this is the agent's document unchanged — the behaviour
+    every path had before this function existed.
+    """
+    doc = dict(agent_view)
+    if not isinstance(framework_view, dict):
+        return doc
+
+    for key, value in framework_view.items():
+        if key != "breakdown":
+            doc[key] = value
+
+    fw_breakdown = framework_view.get("breakdown")
+    if not isinstance(fw_breakdown, dict):
+        return doc
+
+    ag_breakdown = agent_view.get("breakdown")
+    merged = dict(ag_breakdown) if isinstance(ag_breakdown, dict) else {}
+    for name, entry in fw_breakdown.items():
+        base = merged.get(name)
+        merged[name] = (
+            {**base, **entry} if isinstance(base, dict) and isinstance(entry, dict)
+            else entry
+        )
+    doc["breakdown"] = merged
+    return doc
+
+
 def _record_undelivered_tests(
     args: argparse.Namespace, project_path: Path
 ) -> "list[dict]":
@@ -2104,7 +2161,17 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                     # the harness recomputes it from breakdown weights.  Without this
                     # patch the persisted file would still carry the agent's raw score.
                     try:
-                        _gp_json = json.loads(_gp_src.read_text(encoding="utf-8"))
+                        # Round 67 站1: the agent's file is the floor, not the
+                        # document. finalize_gate corrected `raw` in place and
+                        # stashed it; merging it over the disk copy is what
+                        # carries S4's write-backs, `framework_na` and
+                        # `stubbed_boundary` into the committed artifact. The
+                        # per-dimension whitelist below became a no-op the day
+                        # this line landed — see build_persisted_gate_result.
+                        _gp_json = build_persisted_gate_result(
+                            getattr(ctx, "finalized_result", None),
+                            json.loads(_gp_src.read_text(encoding="utf-8")),
+                        )
                         _gp_json["composite_score"] = round(result.score, 4)
                         # P6-BUG-13: also patch harness-computed fields so that
                         # PhaseAuditor C10 and advance-phase can read gate PASS
@@ -2138,16 +2205,28 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         if _ac and any(v is not None for v in _ac.values()):
                             _gp_json.setdefault("breakdown", {}).setdefault(
                                 "architecture", {})["calibration"] = _ac
-                        # Round 30: framework-owned dimensions (architecture via the
-                        # independent CRG run, adversarial_review via its own override —
-                        # harness_bridge.py's _CRG_ONLY_DIMS / _override_adversarial_review_
-                        # dim_score) are corrected in-memory on `result.dimensions`, but this
-                        # block re-reads the agent-written file from disk and only ever
-                        # patched 4 top-level fields — the corrected per-dimension score
-                        # never reached the persisted breakdown, so QUALITY_REPORT.md showed
-                        # None for a dimension the framework had actually scored. Sync every
-                        # dimension's score back (a no-op for dims finalize_gate didn't
-                        # touch, since those already match what score.py wrote).
+                        # Round 30 added this loop because the persist step
+                        # re-read the agent's file and lost the framework's
+                        # corrected per-dimension score. Round 67 站1 fixed
+                        # that cause upstream — but the loop STAYS, and the
+                        # reason is worth stating because Round 67 planned to
+                        # delete it and its own check said no: there are
+                        # corrections that live only on `DimResult` and were
+                        # never written back into `raw`. The spec cap is one
+                        # (`harness_bridge.py`: `score = min(score,
+                        # _spec_cap)` runs while building the DimResult, and
+                        # the breakdown dict beside it keeps the uncapped
+                        # number). Removing this would silently un-cap every
+                        # committed test_coverage score.
+                        #
+                        # So the two layers carry different things: the merge
+                        # above carries everything written into the breakdown,
+                        # this carries what was only ever written onto the
+                        # dimension objects. The right end state is for those
+                        # corrections to reach `raw` too, at which point this
+                        # loop really is a no-op — recorded in
+                        # docs/PROPOSAL_ADJUDICATIONS.md rather than attempted
+                        # here, because each one has to be traced individually.
                         _gp_breakdown = _gp_json.setdefault("breakdown", {})
                         for _dim_result in result.dimensions:
                             _gp_breakdown.setdefault(_dim_result.name, {})["score"] = _dim_result.score

@@ -179,6 +179,23 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "environment, record that outcome (the framework files it as infra_fail) "
         "rather than omitting the dimension.",
     ),
+    "dimension_not_measured": (
+        "A dimension carries a score that is not a measurement of the delivered code",
+        "Each entry names a dimension and why its number does not describe this "
+        "tree. Two shapes. (1) A suite that replaces a module the SAB declares "
+        "high-risk: an autouse fixture patches it away, so every dimension "
+        "measured by running that suite is measuring the substitute. Remove the "
+        "autouse replacement so the real module is exercised, or — if the module "
+        "genuinely is not high-risk — stop declaring it in the SAB, which is a "
+        "change to a claim rather than a way around the check. Per-test "
+        "monkeypatching inside a test that says what it is isolating is not "
+        "caught by this and never was; `autouse=True` is, because it silently "
+        "applies to the whole file. (2) A score the framework re-ran the tool "
+        "for and could not reproduce: fix the run so the two agree, or write "
+        "the framework's number. Do NOT lower the threshold and do NOT delete "
+        "the dimension — this is not a quality failure, it is the gate saying "
+        "it has no measurement to judge.",
+    ),
     "infra_fail": (
         "Dimension scored zero because its tool could not run (infrastructure, not quality)",
         "This is an environment failure, not a code defect — do NOT send it into a "

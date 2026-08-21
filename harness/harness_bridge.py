@@ -372,6 +372,64 @@ def absent_declared_dimensions(
     return sorted(set(declared) - set(reported))
 
 
+def framework_measured(d: "DimResult") -> bool:
+    """Did the framework measure this dimension over the delivered code?
+
+    Round 50 站2: "has a number" is not "was measured". A score the framework
+    tried to reproduce and could not (SCORE_SOURCE_AGENT_UNVERIFIED) is the
+    agent's claim standing alone. Round 51 站3 added the second case: a number
+    measured over a suite that replaced the thing it measures
+    (SCORE_SOURCE_STUBBED_BOUNDARY). A score with no recorded source predates
+    the field and keeps its old meaning.
+
+    Round 67 站2 made this a function because it had become the answer to
+    three questions asked in three places, and only one of them was asking it.
+    `measurement_scope` selected on it; the composite's averaging loop and the
+    per-dimension pass check each had their own `if d.score is None`, which is
+    a different question with the same answer most of the time. Measured on
+    taskq-cc's committed Gate 4: `weight_covered: 0.88` published beside a
+    composite of 95.28 that recomputes exactly over weight 1.0, and a PASS
+    verdict for a `test_coverage` of 100.0 whose suite stubs
+    `taskq_api.service.auth` in five files.
+    """
+    return (d.score is not None
+            and d.score_source not in _SOURCES_NOT_FRAMEWORK_MEASURED)
+
+
+def composite_over(
+    dims: "list[DimResult]",
+    weights: "dict[str, float]",
+) -> dict:
+    """The weighted composite, and the denominator it was actually taken over.
+
+    Returns ``{score, weight, dimensions}``. `weight` is not an estimate of
+    the denominator or a second derivation of it — it is the sum this
+    function divided by, which is what `measurement_scope` publishes beside
+    the number.
+
+    The default weight for a dimension the gate config does not price is
+    `1 / len(dims)`, unchanged from the loop this replaces. `measurement_scope`
+    prices such a dimension at 0.0 instead; the two have never disagreed in
+    production because every gate YAML prices every dimension it declares, and
+    reconciling them is a separate decision from this one (recorded in
+    docs/PROPOSAL_ADJUDICATIONS.md rather than made here).
+    """
+    scored = sorted((d for d in dims if framework_measured(d)),
+                    key=lambda d: d.name)
+    fallback = 1.0 / max(len(dims), 1)
+    weighted = 0.0
+    total = 0.0
+    for d in scored:
+        w = weights.get(d.name, fallback)
+        weighted += (d.score or 0.0) * w
+        total += w
+    return {
+        "score": weighted / max(total, 0.001),
+        "weight": round(total, 10),
+        "dimensions": [d.name for d in scored],
+    }
+
+
 def measurement_scope(
     dims: "list[DimResult]",
     weights: "dict[str, float]",
@@ -411,21 +469,8 @@ def measurement_scope(
     only where the framework RAN the tool, and a flag-disabled dimension never
     reaches that loop.
     """
-    # Round 50 站2: "has a number" is not "was measured". A score the
-    # framework tried to reproduce and could not (SCORE_SOURCE_AGENT_UNVERIFIED)
-    # is the agent's claim standing alone, and counting its weight as covered
-    # is the denominator overstating itself. A score with no recorded source
-    # predates this field and keeps its old meaning.
-    scored = sorted(
-        d.name for d in dims
-        if d.score is not None
-        and d.score_source not in _SOURCES_NOT_FRAMEWORK_MEASURED
-    )
-    unscored = sorted(
-        d.name for d in dims
-        if d.score is None
-        or d.score_source in _SOURCES_NOT_FRAMEWORK_MEASURED
-    )
+    scored = sorted(d.name for d in dims if framework_measured(d))
+    unscored = sorted(d.name for d in dims if not framework_measured(d))
     return {
         "weight_covered": round(sum(weights.get(n, 0.0) for n in scored), 10),
         "weight_total": round(sum(weights.values()), 10),
@@ -3267,7 +3312,11 @@ class HarnessBridge:
 
         # ── Round 51 站3: a number measured over a suite that removed the
         # thing it measures ──────────────────────────────────────────────────
-        _mark_stubbed_boundary_dimensions(ctx, raw)
+        # Round 67 站2 keeps the findings: the verdict now refuses these
+        # dimensions, and a refusal a project cannot act on is the shape
+        # Round 48 named. The rows say which fixture in which file replaced
+        # which module.
+        _boundary_findings = _mark_stubbed_boundary_dimensions(ctx, raw)
 
         # ── Round 51 站4: which files left the coverage denominator ─────────
         _record_coverage_denominator(ctx)
@@ -3765,18 +3814,18 @@ class HarnessBridge:
             _overall_score = float(_raw_overall)
         elif dims and _dim_weights:
             # Compute weighted average from breakdown using gate config weights.
-            # Skip dimensions whose score is None (e.g. pytest-benchmark with no
-            # benchmark tests — dimension not yet applicable, returns None). Their
-            # weight is redistributed across the remaining dimensions.
-            _weighted = 0.0
-            _total_weight = 0.0
-            for d in dims:
-                if d.score is None:
-                    continue
-                w = _dim_weights.get(d.name, 1.0 / max(len(dims), 1))
-                _weighted += d.score * w
-                _total_weight += w
-            _overall_score = _weighted / max(_total_weight, 0.001)
+            # Dimensions the framework did not measure leave the average, and
+            # their weight is redistributed across the rest — a score of None
+            # (pytest-benchmark with no benchmarks: not yet applicable) and a
+            # score measured over a stubbed boundary are both "not a number
+            # about this tree".
+            #
+            # Round 67 站2: this loop used to ask `d.score is None` and nothing
+            # else, so `measurement_scope` published `weight_covered: 0.88`
+            # beside a composite averaged over 1.0 — one artifact, two
+            # denominators. Both now read `framework_measured`, and the
+            # denominator that gets published is the one this division used.
+            _overall_score = composite_over(dims, _dim_weights)["score"]
         elif dims:
             # Same None-skip as the weighted branch above — a dim with no
             # applicable score (e.g. pytest-benchmark with no benchmarks)
@@ -3888,6 +3937,60 @@ class HarnessBridge:
                 ]},
             )
 
+        # Round 67 站2: a number the framework did not measure over the
+        # delivered code is not evidence that dimension passed. `_SOURCES_NOT_
+        # FRAMEWORK_MEASURED` has said which numbers those are since Round 50,
+        # and its own comment says it is one definition so two readers cannot
+        # drift — it had two readers and neither was the verdict. Measured on
+        # taskq-cc: `test_coverage` 100.0 over a suite that replaces
+        # `taskq_api.service.auth` in five files, published PASS at 95.28.
+        #
+        # This runs before the threshold comparison rather than inside
+        # `_dim_passes`, because the two answer different questions and a
+        # project needs to be told which one it failed: "the number is too
+        # low" is fixable by better code, "the number is not about your code"
+        # is not.
+        _unmeasured = sorted(
+            d.name for d in dims
+            if d.score is not None and not framework_measured(d)
+        )
+        if _unmeasured:
+            _stub_by_module = {
+                f["module"]: f for f in reversed(_boundary_findings or [])
+            }
+            _detail = []
+            for _name in _unmeasured:
+                _src = next((d.score_source for d in dims if d.name == _name), None)
+                if _src == SCORE_SOURCE_STUBBED_BOUNDARY and _stub_by_module:
+                    _who = "; ".join(
+                        f"{f['fixture']} in {f['file']} replaces {f['module']}"
+                        for f in sorted(
+                            _stub_by_module.values(),
+                            key=lambda f: (f["file"], f["fixture"]),
+                        )
+                    )
+                    _detail.append(
+                        f"{_name}: measured over a suite that replaces a "
+                        f"declared high-risk boundary ({_who}) — the score is "
+                        f"not a measurement of the delivered code. Remove the "
+                        f"autouse replacement, or stop declaring the module "
+                        f"high-risk in the SAB if it is not"
+                    )
+                else:
+                    _detail.append(
+                        f"{_name}: carries a score the framework ran the tool "
+                        f"for and could not reproduce (score_source={_src}). "
+                        f"The number is the agent's claim standing alone"
+                    )
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
+                    open_critical=0, open_high=0, quality_complete=False,
+                ),
+                details={"dimension_not_measured": _detail},
+            )
+
         def _dim_passes(d: DimResult) -> bool:
             if d.score is not None:
                 return d.score >= _effective_threshold(d)
@@ -3915,6 +4018,17 @@ class HarnessBridge:
         ctx.measurement_scope = measurement_scope(  # type: ignore[attr-defined]
             dims, _dim_weights,
         )
+
+        # Round 67 站1: the corrected result, for whoever persists it. Every
+        # write into `raw` above — S4's framework score, `_mark_framework_na`,
+        # `_mark_stubbed_boundary_dimensions` — lived only here, because the
+        # persist step in `cli/gate_cmds.py` re-read the agent's file from disk
+        # and copied a fixed list of fields back onto it. Measured on
+        # taskq-cc's committed gate4_result.json: sixteen dimensions, zero
+        # `score_source`, beside a `measurement_scope` naming two of them as
+        # unscored. Stashed rather than re-derived, same rule as the line
+        # above: a second derivation is a second source.
+        ctx.finalized_result = raw  # type: ignore[attr-defined]
 
         result = GateResult(
             gate_num=ctx.gate_num,
