@@ -50,6 +50,7 @@ __all__ = [
     "STATUS_ENFORCED",
     "STATUS_UNCONFIGURED",
     "classify_constraints",
+    "contract_coverage_blocking_reason",
     "contract_coverage_gap",
     "read_bandit_config",
     "read_import_contracts",
@@ -449,6 +450,45 @@ def unconfigured_blocking_reason(rows: "list[dict]") -> "str | None":
         f"{len(stuck)} declared architecture constraint(s) name something this "
         f"framework already runs a tool for, and this project has not "
         f"configured that tool to decide them:\n" + "\n".join(lines)
+    )
+
+
+def contract_coverage_blocking_reason(project: "str | Path") -> "str | None":
+    """Why the gate stops over an import-linter contract's shape, or None.
+
+    Round 67 站7. `contract_coverage_gap` has computed this since Round 46 and
+    its docstring ends "The caller decides what a missing contract means for
+    its gate" — there was one caller and it wrote a degradation row.
+    taskq-cc's ledger carries 130 of them, every one naming
+    `["taskq_api", "taskq_api.__main__", "taskq_api.cli"]`, while
+    `lint-imports` reported the contract kept for the whole run and the
+    architecture dimension scored 88.9.
+
+    This is not Round 54's `declared_only` reopened. That adjudication stands:
+    a constraint nothing in this framework can decide is recorded and never
+    blocked, because the only way to satisfy such a block is to delete a true
+    declaration. This is the opposite situation — the contract exists, the
+    tool runs, and the framework has already computed exactly which delivered
+    modules it does not reach. Nothing is being guessed.
+
+    None when the project ships no import-linter configuration at all: a
+    project with no layering contract is not a project with a leaky one, and
+    `contract_coverage_gap` returns [] there by design (Round 46's rule that
+    an absent witness is absent, not failing).
+    """
+    gap = contract_coverage_gap(project)
+    if not gap:
+        return None
+    return (
+        f"{len(gap)} delivered module(s) are outside every import-linter "
+        f"contract, so `lint-imports` reports the contract kept no matter "
+        f"what they import:\n"
+        + "\n".join(f"  {m}" for m in gap)
+        + "\n    fix: add these to an existing contract's source modules (or "
+          "name a package above them), or write a contract that covers them. "
+          "Do NOT delete the contracts to clear this — a project with no "
+          "contract is not blocked here, but it also stops claiming a "
+          "boundary it is not keeping."
     )
 
 

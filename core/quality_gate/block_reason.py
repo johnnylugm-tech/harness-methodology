@@ -179,6 +179,19 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "environment, record that outcome (the framework files it as infra_fail) "
         "rather than omitting the dimension.",
     ),
+    "arch_contract_coverage": (
+        "An import-linter contract exists and does not reach every delivered module",
+        "The entry lists modules this project ships that appear in no "
+        "contract's source modules. `lint-imports` reports those contracts "
+        "kept regardless of what these modules import, so the boundary is "
+        "claimed and not enforced — the composition root importing the "
+        "database driver directly is the usual shape. Add the named modules "
+        "to an existing contract's sources, or name a package above them "
+        "(naming the root package covers everything under it), then re-run "
+        "the gate. Deleting the contracts also clears this, and is the wrong "
+        "fix: a project with no contract is not blocked here, but it has "
+        "stopped claiming a boundary rather than started keeping one.",
+    ),
     "dimension_not_measured": (
         "A dimension carries a score that is not a measurement of the delivered code",
         "Each entry names a dimension and why its number does not describe this "

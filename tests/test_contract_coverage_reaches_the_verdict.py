@@ -29,8 +29,6 @@ statement.
 
 from __future__ import annotations
 
-import pytest
-
 
 def _project_with_a_partial_contract(tmp_path):
     """A tree whose import-linter config names two of its three modules."""
@@ -98,12 +96,7 @@ def test_a_project_with_no_contract_at_all_is_not_blocked(tmp_path):
     assert contract_coverage_blocking_reason(tmp_path) is None
 
 
-@pytest.mark.parametrize("covered", ["shopfront.cli", "shopfront"])
-def test_a_contract_that_covers_the_tree_does_not_block(tmp_path, covered):
-    """Satisfiable two ways — name the module, or name a package above it."""
-    from core.quality_gate.arch_constraints import contract_coverage_blocking_reason
-
-    project = _project_with_a_partial_contract(tmp_path)
+def _rewrite_contract(project, *sources: str) -> None:
     (project / ".importlinter").write_text(
         "[importlinter]\n"
         "root_package = shopfront\n"
@@ -112,13 +105,43 @@ def test_a_contract_that_covers_the_tree_does_not_block(tmp_path, covered):
         "name = forbidden\n"
         "type = forbidden\n"
         "source_modules =\n"
-        "    shopfront.api\n"
-        "    shopfront.service\n"
-        f"    {covered}\n"
-        "forbidden_modules =\n"
-        "    sqlalchemy\n",
+        + "".join(f"    {s}\n" for s in sources)
+        + "forbidden_modules =\n"
+          "    sqlalchemy\n",
         encoding="utf-8",
     )
+
+
+def test_a_contract_that_covers_the_tree_does_not_block(tmp_path):
+    """Naming the root package covers everything under it — one line, satisfied."""
+    from core.quality_gate.arch_constraints import contract_coverage_blocking_reason
+
+    project = _project_with_a_partial_contract(tmp_path)
+    _rewrite_contract(project, "shopfront")
     assert contract_coverage_blocking_reason(project) is None, (
-        f"a contract naming {covered} still reported a gap"
+        "a contract naming the root package still reported a gap"
+    )
+
+
+def test_the_package_itself_is_a_delivered_module(tmp_path):
+    """`shopfront/__init__.py` ships, so `shopfront` is a module a contract
+    has to reach — naming every submodule and not the package leaves the
+    composition root unconstrained.
+
+    This is not hypothetical: taskq-cc's ledger reports the gap as
+    `["taskq_api", "taskq_api.__main__", "taskq_api.cli"]`, and the first of
+    those is exactly this case — `contract_coverage_gap`'s own docstring
+    records `taskq_api.app` importing SQLAlchemy directly while the contract
+    read as kept.
+    """
+    from core.quality_gate.arch_constraints import contract_coverage_blocking_reason
+
+    project = _project_with_a_partial_contract(tmp_path)
+    _rewrite_contract(project, "shopfront.api", "shopfront.service",
+                      "shopfront.cli")
+
+    reason = contract_coverage_blocking_reason(project)
+    assert reason and "shopfront" in reason, (
+        f"every submodule is named and the package itself is not, and the "
+        f"gate did not say so: {reason}"
     )

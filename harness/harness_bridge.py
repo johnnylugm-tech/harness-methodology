@@ -3326,6 +3326,7 @@ class HarnessBridge:
         # taskq-api's VERIFICATION_REPORT certified five constraints honoured
         # while two of them were being violated in the delivered tree.
         from core.quality_gate.arch_constraints import (
+            contract_coverage_blocking_reason,
             record_constraint_status,
             unconfigured_blocking_reason,
         )
@@ -3356,6 +3357,30 @@ class HarnessBridge:
                     quality_complete=False, rounds_used=0,
                 ),
                 details={"arch_constraint_unconfigured": [_constraint_reason]},
+            )
+
+        # ── Round 67 站7: a contract that does not reach the delivered tree ──
+        # `contract_coverage_gap` has computed this since Round 46 and its
+        # docstring ends "The caller decides what a missing contract means for
+        # its gate". There was one caller and it wrote a ledger row — 130 of
+        # them in taskq-cc, every one naming taskq_api / __main__ / cli, while
+        # lint-imports reported the contract kept for the whole run.
+        #
+        # Distinct from the `declared_only` case above, which Round 54 settled
+        # and this does not reopen: there, nothing in the framework can decide
+        # the constraint and the only way to clear a block would be to delete
+        # a true declaration. Here the contract exists, the tool runs, and the
+        # uncovered modules are a list the framework already has.
+        _coverage_reason = contract_coverage_blocking_reason(ctx.project_root)
+        if _coverage_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"arch_contract_coverage": [_coverage_reason]},
             )
 
         # ── Round 51 站3: a number measured over a suite that removed the
@@ -4006,7 +4031,7 @@ class HarnessBridge:
             _stub_by_module = {
                 f["module"]: f for f in reversed(_boundary_findings or [])
             }
-            _detail = []
+            _unmeasured_detail: list[str] = []
             for _name in _unmeasured:
                 _src = next((d.score_source for d in dims if d.name == _name), None)
                 if _src == SCORE_SOURCE_STUBBED_BOUNDARY and _stub_by_module:
@@ -4017,7 +4042,7 @@ class HarnessBridge:
                             key=lambda f: (f["file"], f["fixture"]),
                         )
                     )
-                    _detail.append(
+                    _unmeasured_detail.append(
                         f"{_name}: measured over a suite that replaces a "
                         f"declared high-risk boundary ({_who}) — the score is "
                         f"not a measurement of the delivered code. Remove the "
@@ -4025,7 +4050,7 @@ class HarnessBridge:
                         f"high-risk in the SAB if it is not"
                     )
                 else:
-                    _detail.append(
+                    _unmeasured_detail.append(
                         f"{_name}: carries a score the framework ran the tool "
                         f"for and could not reproduce (score_source={_src}). "
                         f"The number is the agent's claim standing alone"
@@ -4036,7 +4061,7 @@ class HarnessBridge:
                     gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
                     open_critical=0, open_high=0, quality_complete=False,
                 ),
-                details={"dimension_not_measured": _detail},
+                details={"dimension_not_measured": _unmeasured_detail},
             )
 
         def _dim_passes(d: DimResult) -> bool:
