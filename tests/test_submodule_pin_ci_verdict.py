@@ -1,0 +1,147 @@
+"""Round 67 站0 — the framework version a project pins has to be a green one.
+
+Round 37 built `core/ci_verdict` because taskq-renew pushed 52 times onto a red
+build and nothing ever asked GitHub what happened. It closed the loop for the
+commit being pushed. It never closed the other direction: the harness commit a
+consuming project has PINNED.
+
+Measured 2026-08-22 across the eight projects on this machine, by asking
+`gh api repos/johnnylugm-tech/harness-methodology/commits/<pin>/check-runs`
+for each `git submodule status` SHA:
+
+    taskq                a8ab61a1  ALL GREEN
+    taskq-plus           d5810d68  ALL GREEN
+    taskq-renew          c09fae1f  ALL GREEN
+    taskq-api            11c4eafd  ALL GREEN
+    taskq-advance        5a87e35f  ALL GREEN
+    taskq-super          f99a8b0d  Framework Self-Tests=failure
+    taskq-cc             f6d984bc  Framework Self-Tests=failure
+    run-all-by-workflow  68209a97  ALL GREEN
+
+Two of eight are running a framework whose own test suite was red at that
+commit. taskq-cc's `f6d984bc` is the one Round 66 pushed and had to fix in
+`36ff4e5` — the pin carries the regression, and the project ran P6 through P8
+on it while nothing in the framework said a word.
+
+`fetch_ci_verdict` already answers this question and needs no new network
+code: the submodule's own origin IS the harness repo. What is missing is a
+caller.
+
+`unavailable` stays `unavailable` — Round 37's rule, restated: a verdict that
+could not be obtained is not a green verdict, and it is INFRA rather than a
+project failure.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+
+def _runner_returning(*names_and_conclusions):
+    """A `gh run list --json name,conclusion` stand-in.
+
+    `fetch_ci_verdict` takes its runner as a parameter precisely so a test
+    never patches a module global (Round 37's own note).
+    """
+    import json
+
+    payload = json.dumps([
+        {"name": n, "conclusion": c} for n, c in names_and_conclusions
+    ])
+
+    def _run(cmd):
+        return 0, payload, ""
+    return _run
+
+
+def _unavailable_runner(cmd):
+    return 1, "", "gh: command not found"
+
+
+def test_a_pin_on_a_red_build_blocks(tmp_path):
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    res = submodule_pin_verdict(
+        tmp_path, pinned_sha="f6d984bc421b502ed104d9a328f053159e44f504",
+        runner=_runner_returning(("Framework Self-Tests", "failure"),
+                                 ("Validate Cross-References", "success")),
+    )
+    assert res["passed"] is False, (
+        "a submodule pinned at a commit whose own CI was red was accepted. "
+        "Every gate this project runs is executed by that code"
+    )
+    assert "Framework Self-Tests" in res["message"], (
+        f"the block must name the failing job, not just say red: {res}"
+    )
+    assert "f6d984bc" in res["message"], (
+        f"the block must name the pin it is talking about: {res}"
+    )
+
+
+def test_a_pin_on_a_green_build_passes(tmp_path):
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    res = submodule_pin_verdict(
+        tmp_path, pinned_sha="11c4eafd2bc29b102df7c02f041d0ec18b27c7e7",
+        runner=_runner_returning(("Framework Self-Tests", "success"),
+                                 ("Validate Module Manifests", "success")),
+    )
+    assert res["passed"] is True, f"a green pin was blocked: {res}"
+
+
+def test_an_unobtainable_verdict_is_infra_not_a_pass(tmp_path):
+    """Round 37's rule, one level up. No network is not proof of green."""
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    res = submodule_pin_verdict(
+        tmp_path, pinned_sha="deadbeef" * 5, runner=_unavailable_runner,
+    )
+    assert res["passed"] is False, (
+        "an unobtainable CI verdict was treated as a pass"
+    )
+    assert res.get("infra") is True, (
+        "no gh / no network is the framework's problem to report as INFRA, "
+        f"not the project's failure to fix: {res}"
+    )
+
+
+def test_no_submodule_is_not_a_failure(tmp_path):
+    """A project with the harness vendored rather than pinned has no SHA to
+    check, and Round 46's rule is that an absent witness is reported as absent
+    — not as a pass, and not as a block the project cannot act on."""
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    res = submodule_pin_verdict(tmp_path, pinned_sha=None, runner=_unavailable_runner)
+    assert res["passed"] is True
+    assert res.get("skipped") is True, f"an absent pin must say so: {res}"
+
+
+def test_the_check_is_in_the_preflight_registry():
+    """A checker nothing calls is the shape this whole round is about.
+
+    `tests/test_preflight_registry.py` already forces every `preflight_*`
+    method to be registered or excluded with a reason; this pins the other
+    direction for this specific check, so it cannot be quietly dropped from
+    the pipeline while the module stays in the tree.
+    """
+    from core.phase_hooks import PREFLIGHT_CHECKS, PhaseHooks
+
+    keys = [k for k, _ in PREFLIGHT_CHECKS]
+    assert "submodule_pin_ci" in keys, (
+        f"submodule_pin_ci is not in PREFLIGHT_CHECKS: {keys}"
+    )
+    assert hasattr(PhaseHooks, "preflight_submodule_pin_ci")
+
+
+@pytest.mark.parametrize("conclusion", ["cancelled", "timed_out", "startup_failure"])
+def test_a_non_success_conclusion_is_not_success(tmp_path, conclusion):
+    """`success` is the only conclusion that means the tests ran and passed."""
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    res = submodule_pin_verdict(
+        tmp_path, pinned_sha="a" * 40,
+        runner=_runner_returning(("Framework Self-Tests", conclusion)),
+    )
+    assert res["passed"] is False, (
+        f"conclusion={conclusion} was read as green"
+    )
