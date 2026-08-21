@@ -25,14 +25,12 @@ jobs:
           pip install pytest pyyaml ruff mypy
           pip install -r requirements.txt
 
-      - name: Lint (ruff)
-        run: ruff check .
-
-      - name: Regression-guard registry check
-        run: python scripts/verify_regression_guards.py
-
-      - name: Unit tests
-        run: pytest tests/ -v --tb=short
+      # Round 67 站5: one list of checks, run here and by scripts/hooks/pre-push.
+      # Splitting it back into per-step `run:` lines re-creates the drift this
+      # replaced — the hook cannot see a step that exists only in this file.
+      # Pinned by tests/test_selfcheck_single_source.py.
+      - name: Self-check (lint + guard registry + unit tests)
+        run: scripts/self_check.sh
 
   validate-manifests:
     name: Validate Module Manifests

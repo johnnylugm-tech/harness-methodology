@@ -144,6 +144,24 @@ if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/sc
             }
         fi
     fi
+
+    # Round 67 站5: everything CI's Framework Self-Tests job runs — ruff, the
+    # guard registry, the full pytest suite — from the one script that job
+    # also calls. Same condition as the block above: framework repo only,
+    # because a consuming project has neither this suite nor a reason to run
+    # it. Of the last 25 CI runs here 12 were red, and 6 of the 9 with
+    # retrievable logs failed a deterministic check this would have caught.
+    if [ -x "$PROJECT_ROOT/scripts/self_check.sh" ]; then
+        "$PROJECT_ROOT/scripts/self_check.sh" || {
+            echo ""
+            echo "=============================================="
+            echo "PRE-PUSH BLOCKED: self-check failed"
+            echo "=============================================="
+            echo "The failing step above is one CI runs too — pushing would"
+            echo "turn the build red for the same reason."
+            exit 1
+        }
+    fi
 fi
 
 # Run full Phase preflight before push (no bypass — use run-phase for complete check)
