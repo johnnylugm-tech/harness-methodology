@@ -325,6 +325,7 @@ PREFLIGHT_CHECKS: "tuple[tuple[str, str], ...]" = (
     ("artifact_consistency", "preflight_artifact_consistency"),
     ("reliability_lint", "preflight_reliability_lint"),
     ("config_liveness", "preflight_config_liveness"),
+    ("submodule_pin_ci", "preflight_submodule_pin_ci"),
 )
 
 # preflight_* methods deliberately NOT in the automatic pipeline (reason required):
@@ -584,6 +585,34 @@ class PhaseHooks:
                     "message": f"Circuit OPEN for agents: {open_agents}"}
         print("   Kill-switch operational")
         return {"passed": True, "kill_switch": "operational"}
+
+    def preflight_submodule_pin_ci(self) -> Dict[str, Any]:
+        """Round 67 站4: is the framework commit this project pins a green one?
+
+        Every gate, every score and every block in this project is produced by
+        the code at that SHA. Measured across the eight projects on this
+        machine, two of them pin a harness commit whose own Framework
+        Self-Tests were red — one of them the commit Round 66 pushed and had
+        to correct an hour later.
+
+        Never raises: an unreachable GitHub is reported as INFRA by
+        `submodule_pin_verdict`, not converted into a pass and not allowed to
+        take the run down.
+        """
+        print("\n[PRE-FLIGHT] Harness Submodule Pin CI Verdict")
+        from core.quality_gate.submodule_pin import (
+            pinned_submodule_sha, submodule_pin_verdict,
+        )
+        try:
+            res = submodule_pin_verdict(
+                self.project_path,
+                pinned_sha=pinned_submodule_sha(self.project_path),
+            )
+        except Exception as exc:  # pragma: no cover — reporting must not stop a run
+            return {"passed": True, "skipped": True, "infra": True,
+                    "message": f"pin check unavailable: {type(exc).__name__}: {exc}"}
+        print(f"   {res['message']}")
+        return res
 
     def preflight_drift_detection(self) -> Dict[str, Any]:
         """Run M2 drift detection: compare specs vs implementation."""

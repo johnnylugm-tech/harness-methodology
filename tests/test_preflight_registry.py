@@ -30,7 +30,7 @@ from core.phase_hooks import (
     PhaseHooks,
 )
 
-# The 15 result keys external readers rely on (details["fsm"], details["sab"], …).
+# The 16 result keys external readers rely on (details["fsm"], details["sab"], …).
 _EXPECTED_KEYS = (
     "manifest_integrity",
     "fsm",
@@ -47,6 +47,10 @@ _EXPECTED_KEYS = (
     "artifact_consistency",
     "reliability_lint",
     "config_liveness",
+    # Round 67 站4. Appended, not inserted: external readers index this dict
+    # by key, and the two that read it positionally (the obligation filter and
+    # _do_preflight_all's ordering assertion above) read the registry itself.
+    "submodule_pin_ci",
 )
 
 
