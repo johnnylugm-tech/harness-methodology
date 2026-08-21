@@ -136,7 +136,14 @@ def check_spec_alignment(project: Path) -> list[Violation]:
             message=(f"canonical_spec declares {fid} but SRS.md has no such FR "
                      f"(dropped requirement — ingestion must transcribe 100% or "
                      f"record it as {fid}-deferred / NFR-99)")))
-    for fid in sorted(srs_frs - canonical_frs):
+    # `### FR-99-deferred: ...` is the framework-blessed way to record an
+    # explicit out-of-scope deferral; the dropped-requirement branch already
+    # subtracts `srs_deferred` so a heading like that is invisible on the
+    # "canonical declared but SRS missing" axis. Symmetric parity on the
+    # "SRS declares but canonical doesn't" axis was missing — `FR-99-deferred`
+    # would otherwise read as an invented requirement. Subtract `srs_deferred`
+    # here too.
+    for fid in sorted(srs_frs - canonical_frs - srs_deferred):
         violations.append(Violation(
             check_type="invented_requirement", rule_id=fid, severity="error",
             message=(f"SRS.md declares {fid} with no counterpart in canonical_spec "

@@ -104,6 +104,26 @@ def test_deferred_requirement_not_dropped(tmp_path: Path) -> None:
     assert [v for v in check_spec_alignment(proj) if v.severity == "error"] == []
 
 
+def test_deferred_requirement_not_invented(tmp_path: Path) -> None:
+    """Symmetric to test_deferred_requirement_not_dropped.
+
+    The SRS carries `### FR-99-deferred:` — explicit deferral of a
+    requirement the canonical_spec never declared. The invented-requirement
+    check must NOT call this out as a fabricated FR; the previous code only
+    subtracted `srs_deferred` on the dropped-requirement axis and missed
+    this case, surfacing on taskq-new 2026-08-22 as a blocking
+    spec_alignment divergence for `FR-99`.
+    """
+    proj = _project(
+        tmp_path,
+        canonical="### FR-01: login\n",
+        srs=("### FR-01: login\n\n"
+             "### FR-99-deferred: SPEC §6 (folder structure) "
+             "was explicitly removed\n"),
+    )
+    assert [v for v in check_spec_alignment(proj) if v.severity == "error"] == []
+
+
 def test_missing_canonical_file_blocks(tmp_path: Path) -> None:
     _write(tmp_path / "PROJECT_BRIEF.md", "canonical_spec: SPEC.md\n")
     _write(ProjectLayout(tmp_path).srs_path, "### FR-01: login\n")
