@@ -727,6 +727,38 @@ def _mutation_artifact_violations(
     return [], []
 
 
+# Round 67 站3. The patterns above answer "is this output from that tool?"
+# — an OR, deliberately, so a clean run and a failing run both satisfy it.
+# For a dimension whose SCORE IS READ OUT OF THE OUTPUT, that is not enough:
+# it also has to answer "is the quantity in here?".
+#
+# Measured on taskq-cc's committed Gate 4:
+# .methodology/gate_evidence/gate4/test_coverage.txt is 205 bytes —
+#
+#     Outliers: 1 Standard Deviation from Mean; 1.5 IQR ...
+#     OPS: Operations Per Second, computed as 1 / Mean
+#     287 passed, 12 warnings in 88.80s (0:01:28)
+#
+# the tail of a pytest-benchmark run, cited as the evidence for
+# test_coverage = 100.0. It satisfied `\d+ passed` and nothing else was
+# required. Round 45 closed "the cited file is gone"; Round 32 closed "the
+# cited file is a stub"; this is the third shape — a real file, real tool
+# output, and the output of a different run than the number beside it.
+#
+# Only the two coverage dimensions are listed. The rule that a score must be
+# derivable from its evidence is general, but these are the dimensions whose
+# score is a number lifted out of the text; ruff's `All checks passed!`
+# already proves everything ruff's score needs, and requiring more of thirty
+# tools is how a guard starts manufacturing the fabrication it exists to
+# prevent (Round 27's note, ten lines below).
+_TOOL_REQUIRED_PATTERNS: dict[str, "tuple[str, list[str]]"] = {
+    "pytest-cov": ("a coverage measurement", [r"TOTAL\s+\d+", r"\d+%", r"coverage:"]),
+    "pytest-cov-integration": (
+        "a coverage measurement", [r"TOTAL\s+\d+", r"\d+%", r"coverage:"],
+    ),
+}
+
+
 def _validate_tool_content(
     content: str,
     tool: str | None,
@@ -740,6 +772,8 @@ def _validate_tool_content(
       1. Minimum size (file only — inline snippets are expected to be short)
       2. Comment-header stub detection (applies to both file and inline)
       3. Tool-specific structural pattern match (applies to both)
+      4. For tools whose dimension score is read out of the output: the
+         quantity itself is present (Round 67 站3)
 
     Returns list of violation messages (empty = OK).
     """
@@ -776,6 +810,20 @@ def _validate_tool_content(
             violations.append(
                 f"{dim_name}: {kind} does not match any expected output pattern for "
                 f"'{tool}' — content may not be genuine {tool} output"
+            )
+
+    # 4. The quantity the score was read from has to be in there.
+    if tool and tool in _TOOL_REQUIRED_PATTERNS:
+        what, required = _TOOL_REQUIRED_PATTERNS[tool]
+        if not any(
+            re.search(p, content, re.IGNORECASE | re.MULTILINE) for p in required
+        ):
+            kind = "tool_evidence" if inline else "tool_output"
+            violations.append(
+                f"{dim_name}: {kind} contains no {what} — no TOTAL row, no "
+                f"percentage, no coverage header. The score cited against this "
+                f"evidence cannot have been read out of it; re-run the tool "
+                f"with coverage enabled and cite that run"
             )
 
     return violations
