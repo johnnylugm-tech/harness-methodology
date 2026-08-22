@@ -396,54 +396,49 @@ def check_module_fr_coverage(project: Path) -> list[Violation]:
 # always leaves a `.<digit>` ahead. `..` (the range operator) and `-label`
 # (a branch suffix, deliberately truncated — see the test corpus) both still
 # terminate a match.
-_AC_ID = re.compile(r"\bAC-[A-Za-z]?\d+(?:\.\d+)*(?:-\d+)*(?![\w]|\.\d)")
-# `_AC_ID` declares the canonical id shape (`AC-1.1`, `AC-N3.4`). The
-# coverage check below also reads TEST_SPEC, where the same id routinely
-# appears as a sub-assertion rule_id prefix without the dash
-# (`AC1.1-status-201`) — a workflow-agent convention, not a deviation a
-# second regex would have prevented. `_AC_ID_BROAD` keeps the same body
-# with the dash made optional, and the compare in
-# `check_ac_test_spec_coverage` normalises both sides to zero-padded
-# canonical form before the set difference so the dash gap does not read
-# as 94 false-positive violations. Bumping the regex would break the other
-# five call sites (`check_ac_identifiers`, the bullet label tests,
-# `_AC_ID_LOOSE`'s refuse-channel), so the change is local to the
-# coverage check by design.
-_AC_ID_BROAD = re.compile(
-    r"\bAC-?[A-Za-z]?\d+(?:\.\d+)*(?:-[a-zA-Z][\w-]*)?\b")
+#
+# Round 69 站3: the body is a NAMED STRING, and the two spellings below are
+# built from it. b128efb wrote a second pattern by hand instead — `_AC_ID_BROAD`
+# — for a real reason (TEST_SPEC sub-assertion rule_ids drop the dash:
+# `AC1.1-status-201`, and `_AC_ID` read zero tokens out of them, so on
+# taskq-new 59 of 100 declared criteria were reported as cited by nothing).
+# Writing it by hand re-opened both questions this comment block closes:
+# `_AC_ID_BROAD` ended in `\b` and gave `AC-1` back for `AC-1.1a`, exactly the
+# Round 56 substitution; and it stopped admitting the numeric branch suffix
+# `AC-9.1-2`, which is how taskq-renew writes every one of its criteria.
+# Measured violation counts for `check_ac_test_spec_coverage`:
+#
+#     project         _AC_ID both sides   b128efb   this
+#     taskq-new              59              0        0
+#     taskq-renew            11             40       11
+#     taskq-advance          86             86       86
+#     taskq-super           111            111      111
+#     taskq / taskq-cc        0              0        0
+#
+# The 29 extra rows on taskq-renew were all false: `AC-01-1` normalised to
+# None, and a None declared id was reported uncited unconditionally, even
+# where TEST_SPEC cited it verbatim.
+_AC_BODY = r"[A-Za-z]?\d+(?:\.\d+)*(?:-\d+)*(?![\w]|\.\d)"
+# The canonical shape, dash required. Behaviour is byte-for-byte what it was.
+_AC_ID = re.compile(rf"\bAC-{_AC_BODY}")
+# The same shape as a TEST_SPEC citation, where the dash is routinely dropped.
+# One difference from `_AC_ID`, and it is visible in the pattern rather than
+# in a second author's reading of it. A predicate suffix needs no special
+# case: the terminator already stops the match before `-latency-p95`.
+_AC_ID_CITED = re.compile(rf"\bAC-?{_AC_BODY}")
 
 
-def _normalise_ac_token(token: str) -> str | None:
-    """Reduce `AC1.1`, `AC-1.1`, `AC-N3.4`, `AC-N9.1` to a canonical form
-    that compares equal regardless of dash or zero-pad. The digit run
-    is zero-padded to two places so `AC-N9.1` and `AC-N09.1` map to the
-    same key; the tail (`.K.L.M`) is preserved because `_AC_ID` already
-    treats it as part of the id.
+def _with_dash(token: str) -> str:
+    """`AC1.1` -> `AC-1.1`; anything already canonical is returned unchanged.
 
-    A trailing `-suffix` (TEST_SPEC sub-assertion rule_ids routinely
-    carry one, e.g. `AC9.1-status-503`) is dropped before normalisation;
-    the suffix names the predicate, not the criterion it sits under.
-
-    Returns None when the token does not look like an AC reference at
-    all (e.g. `AC-1` with no criterion index, or a stray `ACX1` whose
-    letter is not the NFR marker). The caller drops None tokens — they
-    are not part of the population to compare.
+    Deliberately NOT zero-padding. b128efb's normaliser padded the digit run
+    so `AC-N9.1` and `AC-N09.1` would compare equal, and that is the branch
+    that returned None for `AC-9.1-2`. Measured across the corpus — taskq-
+    advance (37 zero-padded SRS ids), taskq-super and taskq-renew — the number
+    of declared criteria that would match only after padding is 0. It bought
+    nothing and cost 29 false violations.
     """
-    m = re.match(
-        r"^AC-?([A-Za-z])?(\d+)((?:\.\d+)*)(?:-[a-zA-Z][\w-]*)?$", token)
-    if not m:
-        return None
-    letter, num, tail = m.groups()
-    letter = letter or ""
-    if letter and letter != "N":
-        # `_AC_ID` permits any leading letter; we only normalise the
-        # NFR split, because that is the only place where a zero-pad gap
-        # is observable today. Anything else is a corpus-wide identifier
-        # scheme and we leave it alone — a project that invents a new
-        # letter and forgets to zero-pad gets a parse-gap row, not a
-        # silent normalisation.
-        return token
-    return f"AC-{letter}{int(num):02d}{tail}"
+    return token if token.startswith("AC-") else "AC-" + token[2:]
 # What WANTED to be an identifier, for the parse-gap channel only. A different
 # question from `_AC_ID` (which decides what IS one), not a second spelling of
 # it: `check_ac_identifiers` reports a loose token only when `_AC_ID` finds no
@@ -652,26 +647,19 @@ def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
     test_spec = ProjectLayout(project).test_spec_path
     cited: set[str] = set()
     if test_spec.exists():
-        # Use `_AC_ID_BROAD` here (not `_AC_ID`) because TEST_SPEC
-        # sub-assertion rule_ids are routinely written without the dash
-        # (`AC1.1-status-201`); `_AC_ID` would parse that as zero tokens
-        # and the dash gap would read as "every AC is uncited". The SRS
-        # side stays `_AC_ID` so a typo never silently passes — that
-        # question is `check_ac_identifiers`'s job, not this one's.
-        for token in _AC_ID_BROAD.findall(
-                test_spec.read_text(encoding="utf-8", errors="replace")):
-            normalised = _normalise_ac_token(token)
-            if normalised is not None:
-                cited.add(normalised)
+        # `_AC_ID_CITED`, not `_AC_ID`: TEST_SPEC sub-assertion rule_ids are
+        # routinely written without the dash (`AC1.1-status-201`), which
+        # `_AC_ID` parses as zero tokens — the dash gap then reads as "every
+        # AC is uncited". The SRS side stays `_AC_ID` so a typo never silently
+        # passes; that question is `check_ac_identifiers`'s, not this one's.
+        cited = {
+            _with_dash(t) for t in _AC_ID_CITED.findall(
+                test_spec.read_text(encoding="utf-8", errors="replace"))
+        }
 
     violations: list[Violation] = []
     for ac in sorted(declared):
-        # Normalise the declared side too: SRS is zero-padded but the
-        # declared dict is keyed by the raw `_AC_ID` match, so `AC-N9.1`
-        # and `AC-N09.1` must compare equal before the set difference
-        # can be trusted.
-        normalised_declared = _normalise_ac_token(ac)
-        if normalised_declared is not None and normalised_declared in cited:
+        if _with_dash(ac) in cited:
             continue
         violations.append(Violation(
             check_type="ac_no_test_case", rule_id=declared[ac], severity="error",

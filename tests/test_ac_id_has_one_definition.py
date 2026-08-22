@@ -92,13 +92,28 @@ def test_a_predicate_suffix_matches_the_criterion_it_sits_under(
 
 def test_there_is_one_ac_body_literal_in_the_module() -> None:
     """The two spellings must share their body, or Round 55's range rule and
-    Round 56's terminator have to be fixed twice next time."""
+    Round 56's terminator have to be fixed twice next time.
+
+    Names may still be MENTIONED — the comment that removed them explains why
+    they went, which is Round 39's rule. What must not come back is a second
+    definition.
+    """
+    import ast
+
     src = Path("core/quality_gate/artifact_consistency.py").read_text(
         encoding="utf-8")
-    assert "_AC_ID_BROAD" not in src, (
+    tree = ast.parse(src)
+    bound = {
+        t.id
+        for node in ast.walk(tree) if isinstance(node, ast.Assign)
+        for t in node.targets if isinstance(t, ast.Name)
+    } | {
+        n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+    }
+    assert "_AC_ID_BROAD" not in bound, (
         "a second, independently written identifier pattern is back"
     )
-    assert "_normalise_ac_token" not in src, (
+    assert "_normalise_ac_token" not in bound, (
         "the zero-padding normaliser is what returned None for AC-9.1-2"
     )
     assert src.count(r"(?:\.\d+)*(?:-\d+)*") == 1, (
