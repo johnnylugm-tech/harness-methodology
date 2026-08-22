@@ -90,3 +90,50 @@ def test_the_other_tools_keep_their_current_rule():
     assert _validate_tool_content(
         "All checks passed!\n" * 4, "ruff", "linting", inline=False,
     ) == []
+
+
+# ── the JSON envelope tool_runners.py::_score_pytest_benchmark actually reads ──
+#
+# Round 50 站1 rewrote the scorer to parse ONLY the --benchmark-json report
+# ("There is deliberately no table fallback ... inventing a number from the
+# rendering is what this round removed") — it reads
+# json.loads(report)["benchmarks"][i]["stats"]["mean"]. The four patterns
+# above this test describe the console table that scorer stopped reading;
+# none of them match this shape, so a project that captures evidence the way
+# the registry actually invokes the tool (--benchmark-json + output_artifact,
+# tests/test_benchmark_scoring.py) failed S3-A with genuine, scorer-readable
+# evidence. Measured on taskq-cc's actual Gate 3 run.
+_REAL_BENCHMARK_JSON = """{
+  "machine_info": {"node": "ci-runner", "python_version": "3.11.15"},
+  "commit_info": {"id": "651b223", "dirty": false},
+  "benchmarks": [
+    {"name": "test_create_task", "stats": {"mean": 0.000341, "min": 0.0003, "max": 0.0004}},
+    {"name": "test_get_by_id", "stats": {"mean": 0.000249, "min": 0.0002, "max": 0.0003}}
+  ]
+}"""
+
+
+def test_a_real_benchmark_json_report_is_accepted_as_performance_evidence():
+    """The counterweight to the fix: genuine --benchmark-json evidence must pass.
+
+    Before this round, every project whose evidence matched what the scorer
+    actually reads was rejected by S3-A as 'not genuine pytest-benchmark
+    output' — the two checks had fallen out of sync since Round 50 站1.
+    """
+    assert _validate_tool_content(
+        _REAL_BENCHMARK_JSON, "pytest-benchmark", "performance", inline=False,
+    ) == [], "genuine --benchmark-json evidence (the format the scorer itself reads) was rejected"
+
+
+def test_a_prose_stub_is_still_rejected_as_benchmark_evidence():
+    """The fix adds recognized JSON shape, not a blanket 'anything goes'.
+
+    Mirrors Round 27's taskq-plus example ('NFR-08 satisfied contractually')
+    — a hand-written sentence must not pass as tool_evidence just because it
+    is long enough to clear the byte floor.
+    """
+    prose = "Performance dimension satisfied — no regressions observed in this release."
+    violations = _validate_tool_content(
+        prose, "pytest-benchmark", "performance", inline=False,
+    )
+    assert violations, "a prose sentence with no benchmark structure was accepted as evidence"

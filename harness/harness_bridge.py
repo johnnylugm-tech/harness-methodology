@@ -233,6 +233,20 @@ _TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
         # r"-+\s*benchmark[:\s]", which still matched the "-benchmark " inside
         # "pytest-benchmark tests". Only the real separator rule — three or more
         # dashes AND the colon — describes output the tool alone produces.
+        #
+        # tool_runners.py::_score_pytest_benchmark (Round 50 站1) reads ONLY the
+        # --benchmark-json report ("There is deliberately no table fallback") —
+        # the four patterns above describe the console rendering that scorer
+        # stopped parsing. Evidence captured the way the registry actually
+        # invokes this tool (--benchmark-json + output_artifact,
+        # tests/test_benchmark_scoring.py) is therefore the JSON envelope, and
+        # it matched none of the four patterns above, so genuine evidence for
+        # every project using the scorer's own expected format failed S3-A.
+        # These three describe the JSON shape _score_pytest_benchmark parses
+        # (`json.loads(report)["benchmarks"][i]["stats"]["mean"]`).
+        r'"benchmarks"\s*:',
+        r'"machine_info"',
+        r'"stats"\s*:\s*\{',
     ],
     "pytest-cov-integration": [
         r"\d+ passed",
