@@ -1505,6 +1505,19 @@ def _abort_no_progress_with_self_doubt(
         f"(failure_class={failure_class})",
         why=f"identical tool signature across rounds: {sig[:150]}", owner="project"
     )
+    # Round 2026-08-23 (FR-99 finalization recovery): if the ephemeral
+    # evaluator verdict says quality_complete=true at score>=score_gate
+    # while the durable manifest stamp says quality_complete=false, the
+    # loop aborted not because the code is wrong but because finalize-gate
+    # never re-attempted the commit. Emit a [HARNESS-BUG] banner that
+    # run-all.js's in-loop regex (line 2342 et seq.) routes to
+    # harness-repair instead of the regular fix-loop halt, and prints
+    # the exact recovery command. Discovered via the FR-99 block pattern:
+    # the verifier is correct to read only the manifest (see
+    # verify_gate1_qc.py docstring lines 34-39), but the dispatch loop
+    # has no early-exit when the manifest was rolled back from a
+    # never-recovered commit failure — this is that exit.
+    diag = _detect_evaluator_passed_but_commit_uncommitted(project, fr_id)
     print(
         f"[run-fr-step] {fr_id} BLOCKED: 2 consecutive no-progress rounds"
         f" — human intervention required\n"
@@ -1516,7 +1529,82 @@ def _abort_no_progress_with_self_doubt(
         f" correct, report this as [HARNESS-BUG] rather than dispatching"
         f" another fix round."
     )
+    if diag is not None:
+        print(
+            f"\n[HARNESS-BUG] This is a bug in harness-methodology itself\n"
+            f"  {fr_id}: evaluator verdict was PASS "
+            f"(score={diag['score']:.1f}, gate1_result.json quality_complete=true),\n"
+            f"  but the durable git commit did not land "
+            f"(manifest quality_complete=false despite score>=score_gate).\n"
+            f"  The dispatch loop cannot detect this — it only sees the manifest.\n"
+            f"  Recovery: finalize the commit manually with --force:\n"
+            f"    python harness_cli.py finalize-gate --gate 1 --phase {step or 3} "
+            f"--fr-id {fr_id} --project {project}"
+        )
     return 2
+
+
+def _detect_evaluator_passed_but_commit_uncommitted(
+    project: Path, fr_id: str, *, score_gate: float = 100.0
+) -> dict | None:
+    """Detect when an FR's evaluator verdict passed but the durable commit
+    failed — i.e. .sessi-work/gate1_result.json (LLM-written, ephemeral)
+    says quality_complete=true at score>=score_gate while the manifest
+    stamp (durable) at .methodology/quality_manifest.json says
+    quality_complete=false despite score>=score_gate.
+
+    Round 2026-08-23 — recovery path for FR-99 and any future FR whose
+    finalize-gate was interrupted after the optimistic stamp and never
+    re-attempted. Returns a small diagnostic dict so the caller can print a
+    recovery hint, or None if the condition does not hold.
+
+    IMPORTANT: this reads the LLM-written .sessi-work/gate1_result.json
+    (which is gitignored and ephemeral), but ONLY as one half of an
+    AND-conjunction against the durable manifest. The verifier at
+    harness/scripts/verify_gate1_qc.py correctly trusts only the manifest
+    for its PASS/FAIL verdict (per its docstring lines 34-39); here we use
+    the ephemeral artifact only to detect "evaluator said PASS but commit
+    never landed", not as a pass condition in itself.
+    """
+    try:
+        rj_path = project / ".sessi-work" / "gate1_result.json"
+        if not rj_path.exists():
+            return None
+        rj = json.loads(rj_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(rj, dict) or rj.get("fr_id") != fr_id:
+        return None
+    if rj.get("quality_complete") is not True:
+        return None
+    rj_score = rj.get("overall_score")
+    if not isinstance(rj_score, (int, float)) or rj_score < score_gate:
+        return None
+
+    try:
+        mfst_path = project / ".methodology" / "quality_manifest.json"
+        if not mfst_path.exists():
+            return None
+        mfst = json.loads(mfst_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(mfst, dict):
+        return None
+    g1 = ((mfst.get("gate_results") or {}).get("gate1") or {})
+    fr_entry = g1.get(fr_id)
+    if not isinstance(fr_entry, dict):
+        return None
+    if fr_entry.get("quality_complete") is not False:
+        return None
+    mfst_score = fr_entry.get("score")
+    if not isinstance(mfst_score, (int, float)) or mfst_score < score_gate:
+        return None
+
+    return {
+        "score": float(rj_score),
+        "manifest_score": float(mfst_score),
+        "rounds_used": rj.get("rounds_used"),
+    }
 
 
 # Per-step default max_turns for run-fr-step. --max-turns override takes priority.

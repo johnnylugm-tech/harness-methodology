@@ -1676,8 +1676,16 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
     # Sentinel: run-gate must have been called before finalize-gate
     # v2.13: pass args.phase so the path matches what run-gate wrote
     # in the same phase (Bug #121 — no cross-phase sentinel reuse).
+    # Round 2026-08-23: --force bypasses the sentinel check so an operator
+    # can re-finalize when the sentinel was lost/rolled-back but the
+    # gate evidence still exists on disk (e.g. FR-99 case: gate1_result.json
+    # has quality_complete=true, manifest score>=score_gate; the only thing
+    # missing is the git commit and the manifest stamp). WARNING: --force
+    # does NOT bypass the tool-availability check above (S0a) — that is
+    # too dangerous to skip because it would let finalize-gate judge a tree
+    # the evidence never saw.
     sf = _shared._sentinel_path(project_path, args.gate, fr_id, phase=args.phase)
-    if not sf.exists():
+    if not sf.exists() and not getattr(args, "force", False):
         print(
             f"\n[BLOCKED] run-gate --gate {args.gate} --phase {args.phase}"
             + (f" --fr-id {fr_id}" if fr_id else "")
@@ -1685,6 +1693,7 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
             f"\n  must be called before finalize-gate."
             f"\n  Missing sentinel: {sf.relative_to(project_path)}"
             f"\n  Writing gate{{N}}_result.json directly without run-gate is not permitted."
+            f"\n  To re-finalize without re-running run-gate, pass --force."
         )
         return 1
 
