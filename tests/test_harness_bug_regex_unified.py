@@ -1,0 +1,95 @@
+r"""Round 69 follow-up (code review of 17f5f448/7584a7da).
+
+`HARNESS_BUG_RE_JS`'s own comment claimed to be "one statement of the
+crash-banner shape, shared by every site that routes on it" — it wasn't.
+`render_terminal_abort_detectors` had grown its own independently-narrowed
+inline copy (a `{0,200}`-window regex) while the module constant — the one
+`render_sync_verified`'s Sync step actually tests against — stayed the OLD
+broad `/\[HARNESS-BUG\]/`, still open to the exact FR-04 proof-by-absence
+false-positive 7584a7da meant to fix everywhere. The two-detector split also
+meant a genuine crash whose exception message put the fixed banner sentence
+past 200 chars from the tag would silently read as an ordinary GATE1 FAIL.
+"""
+from __future__ import annotations
+
+import re
+
+from scripts.workflowgen.generate_workflows import generate, generate_composite
+from scripts.workflowgen.js_blocks import HARNESS_BUG_RE_JS
+
+
+def _js_regex_to_python(js_regex: str) -> re.Pattern:
+    assert js_regex.startswith("/") and js_regex.endswith("/i")
+    body = js_regex[1:-2]
+    return re.compile(body, re.IGNORECASE)
+
+
+def test_the_module_constant_is_the_narrow_form() -> None:
+    assert "This is a bug in harness-methodology itself" in HARNESS_BUG_RE_JS, (
+        "the shared constant must require the banner's literal second line, "
+        "not just the bracketed [HARNESS-BUG] tag"
+    )
+    assert "{0," not in HARNESS_BUG_RE_JS, (
+        "a bounded distance window between the tag and the banner sentence "
+        "reintroduces the false-negative this round removed: "
+        "format_harness_bug_banner puts the exception's own unbounded "
+        "message on the same line as the tag, before the fixed sentence"
+    )
+
+
+def test_a_far_apart_banner_still_matches() -> None:
+    """The exact failure mode: a long exception summary pushes the fixed
+    second line of the banner past what a {0,200} window could reach."""
+    pattern = _js_regex_to_python(HARNESS_BUG_RE_JS)
+    long_summary = "x" * 400
+    banner = (
+        f"[HARNESS-BUG] ValueError: {long_summary}\n"
+        "  This is a bug in harness-methodology itself, NOT a problem with "
+        "your project's code or tests.\n"
+    )
+    assert pattern.search(banner), (
+        "a genuine crash banner with a long exception summary must still "
+        "be detected — a distance cap silently drops it"
+    )
+
+
+def test_a_proof_by_absence_quote_does_not_match() -> None:
+    """Round 66/7584a7da's FR-04 incident, restated for the shared regex."""
+    pattern = _js_regex_to_python(HARNESS_BUG_RE_JS)
+    proof_by_absence = (
+        "GATE1: PASS. No [FATAL] / [HARNESS-BUG] / [BLOCKED] found in log."
+    )
+    assert not pattern.search(proof_by_absence), (
+        "quoting the bracketed tag alone (to prove its absence) must not "
+        "trigger the detector — that is the FR-04 false positive"
+    )
+
+
+def test_both_sites_use_the_shared_constant_not_a_second_copy() -> None:
+    """Sync (render_sync_verified) and the per-FR loop
+    (render_terminal_abort_detectors) must test the SAME pattern — a second,
+    independently-drifting inline copy is what let the Sync site stay on the
+    old broad regex after 7584a7da narrowed the other one."""
+    run_all = generate_composite("run-all")
+    occurrences = run_all.count(HARNESS_BUG_RE_JS)
+    assert occurrences >= 2, (
+        f"expected the shared HARNESS_BUG_RE_JS pattern at both the per-FR "
+        f"loop site and the Sync site in run-all.js; found {occurrences} "
+        f"occurrence(s) — a site has its own independent copy again"
+    )
+
+
+def test_spec_phase3_names_the_real_infra_signature() -> None:
+    """7584a7da's paraphrasing pass weakened the AAP-INFRA prompt case from
+    literal detection strings to vague prose ("AAP block or INFRA fatal"),
+    giving the TDD agent nothing to pattern-match the log against. The real
+    signal is `_abort_dispatch_infra_or_harness_bug`'s own fixed print
+    (cli/fr_cmds.py): "[FATAL] {fr_id} {step}: INFRA detected in sub-agent
+    output — ...". The stable, fr_id/step-independent substring must be
+    named verbatim in the prompt."""
+    phase3 = generate(3)
+    assert "INFRA detected in sub-agent output" in phase3, (
+        "the AAP-INFRA prompt case must name the literal substring "
+        "_abort_dispatch_infra_or_harness_bug actually prints, not a "
+        "paraphrase the TDD agent cannot grep the log for"
+    )

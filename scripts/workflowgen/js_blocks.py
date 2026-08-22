@@ -44,7 +44,16 @@ def _crg_standalone_specs() -> str:
 
 # One statement of the crash-banner shape, shared by every site that routes on
 # it (Round 13 站2: HARNESS_BUG and INFRA must not be sent to CODE-FIX).
-HARNESS_BUG_RE_JS = r"/\[HARNESS-BUG\]/"
+#
+# R69 follow-up: this claim was false — render_terminal_abort_detectors had
+# grown its own narrower `{0,200}`-window copy while this constant (what
+# render_sync_verified's Sync step actually tests) stayed the OLD broad
+# `/\[HARNESS-BUG\]/`, still open to the FR-04 proof-by-absence false-positive
+# 7584a7da meant to fix everywhere. Both sites share this one definition now,
+# and the `{0,200}` window is gone too: `format_harness_bug_banner` puts the
+# exception's own unbounded message before the fixed second line, so a long
+# first-line summary could push it past 200 chars and hide a real crash.
+HARNESS_BUG_RE_JS = r"/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i"
 
 
 def render_rule_prose(rule_id: str) -> str:
@@ -680,10 +689,9 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"in the shell that launches this process, then re-run via "
         f"Workflow({{scriptPath, resumeFromRunId}}).' }}\n"
         f"{i}}}\n"
-        f"{i}// L1.6 (R66 narrow): previously `/\\[HARNESS-BUG\\]/` alone — false-matched the\n"
-        f"{i}// TDD agent's proof-by-absence quote ('No [HARNESS-BUG] in log') on FR-04 2026-08-22.\n"
-        f"{i}// Require the harness banner's literal second-line within 200 chars.\n"
-        f"{i}if (/\\[HARNESS-BUG\\][\\s\\S]{{0,200}}This is a bug in harness-methodology itself/i.test(frReportText)) {{\n"
+        f"{i}// L1.6 (see HARNESS_BUG_RE_JS above for why this is narrow, and shared\n"
+        f"{i}// with the Sync step's identical check — R66/R69).\n"
+        f"{i}if ({HARNESS_BUG_RE_JS}.test(frReportText)) {{\n"
         f"{i}  log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, "
         f"aborting remaining FRs')\n"
         f"{i}  return {{ harness_bug_detected: true, phase: {phase}, fr_id: frId, gate1Pass, "

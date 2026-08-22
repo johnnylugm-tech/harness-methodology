@@ -251,7 +251,7 @@ test('phase7 Sync: a FAIL verdict early-returns an error (post-advance push did 
 // there (Round 13 站2's routing rule).
 test('phase7 Sync: [HARNESS-BUG] stops the loop instead of retrying', async () => {
   const overrides = [
-    { match: /^sync-\d+$/, respond: 'SYNC: FAIL — [HARNESS-BUG] crash bundle at .methodology/crash/x.json' },
+    { match: /^sync-\d+$/, respond: 'SYNC: FAIL — harness-methodology itself crashed\n[HARNESS-BUG] ValueError: foo\n  This is a bug in harness-methodology itself\n  Crash bundle: .methodology/crash/x.json' },
     ...happyOverrides(),
   ]
   const { result, events } = await runWorkflow(WF('phase7-risk.js'), makeHappyResponder(overrides))

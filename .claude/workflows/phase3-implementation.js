@@ -475,7 +475,7 @@ for (const frId of frIds) {
       + '   - FAIL → fix failing dims (ruff check . --fix; add tests for coverage; fix pyright errors), repeat the GATE1 invocation procedure (a/b/c). Max 3 rounds.\n'
       + '   - Still failing after 3 → report FAIL.\n'
       + '   - Structurally-broken dispatch: log contains "sub-agent dispatch is structurally broken" (claude.ai connectors disabled). STOP, do NOT unset env vars, do NOT retry GATE1. Report "' + frId + ' GATE1: FAIL — sub-agent dispatch structurally broken (claude.ai connectors disabled), escalate to human".\n'
-      + '   - AAP-INFRA / harness-INFRA: log contains AAP block or INFRA fatal but NOT structurally-broken substring. PROJECT-level (modules not in SAB.json), not dispatch. Fix: `harness_cli.py amend-sab --project ' + REPO + '` then re-run GATE1. Report "' + frId + ' GATE1: FAIL — infra-class fatal, amend project state".\n'
+      + '   - AAP-INFRA / harness-INFRA: log contains the literal substring "INFRA detected in sub-agent output" (run-fr-step\'s own _abort_dispatch_infra_or_harness_bug short-circuit — NOT "sub-agent dispatch is structurally broken"). PROJECT-level (modules not in SAB.json), not dispatch. Fix: `harness_cli.py amend-sab --project ' + REPO + '` then re-run GATE1. Report "' + frId + ' GATE1: FAIL — infra-class fatal, amend project state".\n'
       + '   - Harness crash (HARNESS-BUG banner in log): the log contains the harness crash banner (`[HARNESS-BUG] <ExcType>: <summary>` then `This is a bug in harness-methodology itself`). NOT your code/tests. STOP, do not retry, do not modify project code. Report "' + frId + ' GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)" and stop this TDD chain.\n'
       + '   - AAP block: log contains "Unregistered modules detected: {…}" — step 5 amend-sab didn\'t run. Verify .methodology/SAB.json committed; else run `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` + manual `git add ... && git commit`, repeat GATE1. Max 1 amend round per FR.\n'
       + '   R66: in final prose do NOT write [HARNESS-BUG] / [FATAL] / [BLOCKED] / `structurally broken dispatch environment` verbatim (run-all abort detectors match even when quoted to prove absence). Paraphrase.\n'
@@ -517,10 +517,9 @@ for (const frId of frIds) {
       log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
       return { dispatch_structurally_broken: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
     }
-    // L1.6 (R66 narrow): previously `/\[HARNESS-BUG\]/` alone — false-matched the
-    // TDD agent's proof-by-absence quote ('No [HARNESS-BUG] in log') on FR-04 2026-08-22.
-    // Require the harness banner's literal second-line within 200 chars.
-    if (/\[HARNESS-BUG\][\s\S]{0,200}This is a bug in harness-methodology itself/i.test(frReportText)) {
+    // L1.6 (see HARNESS_BUG_RE_JS above for why this is narrow, and shared
+    // with the Sync step's identical check — R66/R69).
+    if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
       log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
       return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
     }
@@ -809,7 +808,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   const syncText = String(syncReport ?? '')
   syncPass = /SYNC:\s*PASS/.test(syncText)
   if (syncPass) break
-  if (/\[HARNESS-BUG\]/.test(syncText)) {
+  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(syncText)) {
     log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
     return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
   }

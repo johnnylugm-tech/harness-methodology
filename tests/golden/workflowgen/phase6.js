@@ -619,7 +619,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   const syncText = String(syncReport ?? '')
   syncPass = /SYNC:\s*PASS/.test(syncText)
   if (syncPass) break
-  if (/\[HARNESS-BUG\]/.test(syncText)) {
+  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(syncText)) {
     log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
     return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
   }

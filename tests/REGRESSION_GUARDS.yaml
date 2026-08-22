@@ -3033,3 +3033,19 @@
 - test: tests/test_phase_hooks_adapter.py::test_bvs_phase_order_no_longer_has_an_extractor
   bug: "R39's rule applies to unreachable code as much as to prose: the extractor branch went with the registry membership it served, and this test — the only thing that ever executed it — now pins the removal instead of the branch"
   fixed_in: "R69-站2"
+
+- test: tests/test_harness_bug_regex_unified.py::test_the_module_constant_is_the_narrow_form
+  bug: "7584a7da narrowed render_terminal_abort_detectors' inline HARNESS-BUG regex but left HARNESS_BUG_RE_JS — the constant render_sync_verified's Sync step actually tests — as the old broad /\\[HARNESS-BUG\\]/, still open to the FR-04 proof-by-absence false positive at the Sync site"
+  fixed_in: "code-review follow-up 2026-08-22"
+
+- test: tests/test_harness_bug_regex_unified.py::test_a_far_apart_banner_still_matches
+  bug: "7584a7da's narrow regex required the banner's second line within a fixed {0,200}-char window, but format_harness_bug_banner puts the exception's own unbounded message on the same line as the tag first — a long summary silently hid a genuine crash as an ordinary GATE1 FAIL"
+  fixed_in: "code-review follow-up 2026-08-22"
+
+- test: tests/test_harness_bug_regex_unified.py::test_both_sites_use_the_shared_constant_not_a_second_copy
+  bug: "the per-FR loop and Sync detectors independently drifted from each other once (R66/7584a7da fixed one, not the other); pin them to one definition so a future edit cannot repeat it silently"
+  fixed_in: "code-review follow-up 2026-08-22"
+
+- test: tests/test_harness_bug_regex_unified.py::test_spec_phase3_names_the_real_infra_signature
+  bug: "7584a7da's paraphrasing pass weakened the AAP-INFRA prompt case from the real, stable substring _abort_dispatch_infra_or_harness_bug prints (\"INFRA detected in sub-agent output\") to vague prose (\"AAP block or INFRA fatal\") the TDD agent has nothing to grep the log for"
+  fixed_in: "code-review follow-up 2026-08-22"
