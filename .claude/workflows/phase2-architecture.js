@@ -1021,7 +1021,7 @@ if (peerReviewPassed) log('  → Peer Review PASS (APPROVE)')
 phase('Preview Next-Phase')
 log('preview-next-phase --phase 2 (predict Phase 3 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-2 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -1031,15 +1031,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 3 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-2 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 3 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose' },
@@ -1051,7 +1058,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 3 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 3 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 

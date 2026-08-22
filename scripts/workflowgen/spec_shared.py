@@ -37,6 +37,20 @@ def render_phase_complete_marker() -> str:
     return f"  {PHASE_COMPLETE_KEY}: true,\n"
 
 
+# The D4 spec-coverage floor each exit gate verifies against, keyed by the
+# phase that closes that gate (core.phase_topology.EXIT_GATE_MAP's key set).
+#
+# Round 69 站1. spec-coverage-check's floor is not a gate dimension, so the
+# gate config has nothing to read and each phase named its own constant:
+# _D4_THRESHOLD_P3/P4/P6, three literals whose comments pointed at each other
+# ("See spec_phase4._D4_THRESHOLD_P4"). That was survivable while exactly one
+# renderer per phase used the number. `render_advance_loop` now needs the same
+# number to re-verify the exit gate against the tree it is about to advance,
+# and a fourth hand-copy is how a threshold starts drifting from the gate it
+# claims to describe (Round 33's shape, four rounds running).
+D4_THRESHOLDS: "dict[int, float]" = {3: 60.0, 4: 80.0, 6: 90.0}
+
+
 # Round 39 站3 — the dimension list a prompt states is the one the gate scores.
 #
 # Round 18 站2 made the gate_configs YAML the only authority on a *threshold*,

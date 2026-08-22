@@ -24,7 +24,7 @@ from pathlib import Path
 # Round 64 站6 — the session-limit guard has one producer. This module's two
 # retry loops used to hand-write it; spec_shared holds no import of this one,
 # so the edge only goes this way.
-from .spec_shared import render_session_block_guard
+from .spec_shared import D4_THRESHOLDS, render_session_block_guard
 
 _JS_SRC_DIR = Path(__file__).resolve().parent / "js_src"
 _EXPORT_RE = re.compile(r"^export\s+(?=function\b)", re.MULTILINE)
@@ -364,13 +364,20 @@ def render_preview_next_phase(phase: int) -> str:
     """Read-only carry-over-obligation check between Peer Review and Push.
 
     `harness_cli.py preview-next-phase --phase N` (Round 15 §2) simulates
-    the P(N+1) entry preflight — the same ten `_DELAYED_BLOCKING_PREFLIGHTS`
-    categories (drift_detection / sab / traceability / fr_spec_consistency /
-    property_spec / artifact_consistency / reliability_lint / config_liveness /
-    previous_phase_artifacts / bvs_phase_order) that `advance-phase`'s own
-    carry-over preview inspects — one phase earlier, so a finding is still
-    fixable from inside THIS phase's own loop instead of only visible after
-    Push has already published the phase's commit.
+    the P(N+1) entry preflight — the `_DELAYED_BLOCKING_PREFLIGHTS` categories
+    that `advance-phase`'s own carry-over preview inspects — one phase
+    earlier, so a finding is still fixable from inside THIS phase's own loop
+    instead of only visible after Push has already published the phase's
+    commit.
+
+    The category list is deliberately NOT restated here. dc92fb5's docstring
+    named ten, and two of the ten (`previous_phase_artifacts`,
+    `bvs_phase_order`) never wrote the `blocking` key
+    `preview_next_phase_blocking` filters on, so eight could reach an
+    obligation — a prompt-facing claim about a set nobody had asked whether
+    its members could fire. Round 69 站2 gave one of them the key and removed
+    the other; `core/phase_hooks._DELAYED_BLOCKING_PREFLIGHTS` is where the
+    set lives, and copying it into prose is how it drifts again.
 
     No phase workflow called this before (measured on taskq-api
     2026-08-22: P2 burned ~40 agent dispatches / ~50 minutes before the
@@ -388,16 +395,28 @@ def render_preview_next_phase(phase: int) -> str:
     than a per-check-id template: obligations name their own file/rule_id
     (`Obligation` dataclass, `core/phase_hooks.py`), so the fix is always
     "open what this line names and close the gap it describes" regardless
-    of which of the ten categories fired — one prompt covers all of them
-    without hardcoding a per-category branch that would drift from
+    of which category fired — one prompt covers all of them without
+    hardcoding a per-category branch that would drift from
     `_obligations_from_preflight`'s own extractors.
+
+    Round 69 站1 — a reading nobody took is not a finding. `previewReport` is
+    `null` when the dispatch was skipped, rate-limited, or hit a terminal API
+    error: the CLI never ran. dc92fb5 folded that into the same boolean as
+    "obligations were found", so it dispatched the FIXER with an empty
+    obligation list twice and then halted with "obligations still present
+    after 3 round(s)" — asserting as fact the one thing that was never
+    measured, and wording the stop as the project's fault (Round 35, Round
+    48). A null reply, and a verdict that reports failure while naming
+    nothing, each take their own exit now. The sibling dispatch in this file
+    already did it that way: `render_entry_preflight` halts with "agent
+    returned null (skipped or terminal API error)".
     """
     next_phase = phase + 1
     return (
         render_phase_header("Preview Next-Phase")
         + f"log('preview-next-phase --phase {phase} (predict Phase {next_phase} entry-blocking findings before Push)')\n"
         + "const MAX_PREVIEW_FIX_ROUNDS = 3\n"
-        + "let previewClean = false, previewReport = null\n"
+        + "let previewClean = false, previewReport = null, previewReason = ''\n"
         + "for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {\n"
         + "  previewReport = await agent(\n"
         + f"    'YOU ARE THE PHASE-{phase} PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\\n'\n"
@@ -407,15 +426,22 @@ def render_preview_next_phase(phase: int) -> str:
         + "    + 'Report via the StructuredOutput tool: pass = true ONLY if the output says \"clean — no blocking obligations predicted\"; reason = the verbatim output (or its obligation lines if long).',\n"
         + "    { label: 'preview-next-phase-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + "  )\n"
-        + "  previewClean = !!(previewReport && previewReport.pass === true)\n"
+        + "  if (previewReport === null || previewReport === undefined) {\n"
+        + f"    return halt('preview-next-phase-unmeasured', {{ error: 'preview-next-phase was never read, so Phase {next_phase} entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' }})\n"
+        + "  }\n"
+        + "  previewClean = previewReport.pass === true\n"
         + "  if (previewClean) { log('  → Preview Next-Phase: clean'); break }\n"
+        + "  previewReason = String(previewReport.reason ?? '').trim()\n"
+        + "  if (previewReason === '') {\n"
+        + "    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })\n"
+        + "  }\n"
         + "  log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')\n"
         + "  if (round < MAX_PREVIEW_FIX_ROUNDS) {\n"
         + "    const fixReport = await agent(\n"
         + f"      'YOU ARE THE PHASE-{phase} PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\\n'\n"
         + "      + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + f"      + 'The following obligations were predicted to block Phase {next_phase} entry:\\n\\n'\n"
-        + "      + String((previewReport && previewReport.reason) ?? '') + '\\n\\n'\n"
+        + "      + previewReason + '\\n\\n'\n"
         + "      + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\\n\\n'\n"
         + "      + 'SCOPE:\\n- ONLY what is named.\\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\\'t route around it.\\n- NOT phase-transition/push/advance-phase.',\n"
         + "      { label: 'preview-fix-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose' },\n"
@@ -428,7 +454,7 @@ def render_preview_next_phase(phase: int) -> str:
         + "  }\n"
         + "}\n"
         + "if (!previewClean) {\n"
-        + f"  return halt('preview-next-phase', {{ error: 'Phase {next_phase} entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) }})\n"
+        + f"  return halt('preview-next-phase', {{ error: 'Phase {next_phase} entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) }})\n"
         + "}\n"
     )
 
@@ -875,6 +901,63 @@ def render_milestone(
     )
 
 
+def render_exit_gate_reverify_step(phase: int) -> "str | None":
+    """The numbered step that re-records the exit gate's verdict, or None.
+
+    Round 69 站1. `verify-gate` writes the gate's PASS together with
+    `delivered_tree_digest(project)`, and `advance-phase` refuses a phase
+    whose exit gate has no PASS *for the tree it is about to record*
+    (`core/quality_gate/gate_verify.has_matching_pass` →
+    `EX_ADVANCE_GATE_VERDICT_MISSING`). Anything that writes a delivered file
+    after that verdict silently unmakes it.
+
+    Three phases did:
+
+      * **P6, long before this round.** Gate 4 records the verdict, then
+        `Release Docs` writes RELEASE_NOTES.md and FINAL_SIGN_OFF.md at the
+        project root — both git-tracked, both inside the digest — under SCOPE
+        RULES that say "DO NOT re-run Gate 4". Measured in taskq-cc's
+        `.methodology/gate_verify.jsonl`: four gate-4 verdicts at commit
+        11673af2 across three different tree digests.
+      * **P3 and P4, since dc92fb5**, which placed the `preview-next-phase`
+        fixer — a step whose purpose is to edit files — between the gate loop
+        and the advance loop.
+
+    Moving those steps earlier does not work: Release Docs quotes the Gate 4
+    score, so it cannot precede the gate. The verdict is what has to move.
+    This step is verbatim what `advance-phase`'s own [BLOCKED] message already
+    tells the operator to do — "Re-run verify-gate against the tree you are
+    about to advance" — so the framework knew the answer and the workflow
+    simply never asked.
+
+    Safe as a rule because `verify-gate` does not write the tree it measures:
+    taskq-cc ran it twice at 11673af2 and recorded the identical digest, as
+    did taskq-api at 4ffeb3a0. Its only write is one appended line to
+    `gate_verify.jsonl`, which Round 44 put in `HARNESS_VOLATILE_PATHS`.
+
+    Returns None for a phase that closes no gate — P5 and P7 have no verdict
+    to re-record, and buying them a dispatch for it would be a step with
+    nothing to check.
+    """
+    from core.phase_topology import EXIT_GATE_MAP
+
+    gate = EXIT_GATE_MAP.get(phase)
+    if gate is None:
+        return None
+    threshold = D4_THRESHOLDS[phase]
+    return (
+        f"RE-VERIFY GATE {gate} (do this FIRST): `' + PY + ' ' + REPO + "
+        f"'/harness_cli.py verify-gate --project ' + REPO + ' --gate {gate} "
+        f"--phase {phase} --spec-threshold {threshold}`\\n"
+        f"   The earlier Gate {gate} PASS was measured on the tree as it stood "
+        f"THEN; every step since has written the delivered tree, and "
+        f"advance-phase compares that verdict\\'s digest against the tree it is "
+        f"about to record. This is what makes the verdict describe the tree "
+        f"being advanced. Non-zero exit: its [BLOCKED] line names which check "
+        f"regressed — fix it and re-run this step."
+    )
+
+
 def render_advance_loop(
     *,
     phase: int,
@@ -907,6 +990,16 @@ def render_advance_loop(
     unlike every other migrated phase's plain synchronous call.
     """
     steps = list(precheck_steps or [])
+    # Derived from EXIT_GATE_MAP rather than passed by the caller: three call
+    # sites each remembering to ask for it is three chances to forget one, and
+    # the phase that needs it most (P6) does not even use this renderer.
+    _reverify = render_exit_gate_reverify_step(phase)
+    if _reverify is not None:
+        steps.insert(0, _reverify)
+        # The closing SCOPE line is an allow-list; a step the agent is told to
+        # run and then told it may not run is a contradiction it has to pick a
+        # side of.
+        only_extra = "verify-gate + " + only_extra
     steps.append(
         advance_step_override if advance_step_override is not None else
         f"advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed {phase} --project ' + REPO + '`\\n'\n"

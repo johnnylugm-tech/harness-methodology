@@ -1225,7 +1225,7 @@ log('  Forward ref check PASSED')
 phase('P1 · Preview Next-Phase')
 log('preview-next-phase --phase 1 (predict Phase 2 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-1 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -1235,15 +1235,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P1 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 2 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-1 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 2 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P1 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -1255,7 +1262,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 2 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 2 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -2017,7 +2024,7 @@ if (peerReviewPassed) log('  → Peer Review PASS (APPROVE)')
 phase('P2 · Preview Next-Phase')
 log('preview-next-phase --phase 2 (predict Phase 3 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-2 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -2027,15 +2034,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P2 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 3 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-2 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 3 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P2 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -2047,7 +2061,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 3 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 3 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -2451,7 +2465,7 @@ if (!gate2Pass) {
 phase('P3 · Preview Next-Phase')
 log('preview-next-phase --phase 3 (predict Phase 4 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-3 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -2461,15 +2475,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P3 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 4 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-3 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 4 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P3 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -2481,7 +2502,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 4 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 4 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -2497,11 +2518,12 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 4 ]`. If Phase 4 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
-    + '1. GUARD + PUSH ⑤ p3-post-gate2: `git -C ' + REPO + ' log --oneline --grep="P3-post-gate2)" -1`. If a commit exists, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n   Pre-flight (enforced): gate2_result.json composite ≥75 + per-FR Gate 1 sentinel .sessi-work/sentinels/g1_p3_<fr>.flag exists for every FR. If BLOCKED, read the error list and fix.\n'
-    + '2. advance-phase — run BACKGROUNDED (internally runs `ruff check .` + `mypy .` + `pytest --cov-fail-under=100` over the WHOLE project as sequential subprocess calls inside one opaque Bash call; harmless today at this project\'s size (~25s measured) but this cost only grows as more FRs/tests land, and a single opaque long Bash call is exactly what the 180s stall watchdog kills — same class of risk as GATE1, same fix):\n   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 3 --project ' + REPO + ' > /tmp/advance_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\n   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report "ADVANCE: TIMEOUT".\n   c. Once DONE: `cat /tmp/advance_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\n   advance-phase independently re-verifies EVERYTHING before it will advance (lint, types, coverage, document quality, reliability lint, architecture drift, Phase Truth, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says (it often includes the precise command to run), then repeat the advance-phase backgrounded procedure (a/b/c). Do NOT guess what might be wrong — trust only what advance-phase itself reports.\n   advance-phase is safe to re-run: it re-checks and re-reports without side effects until every check passes, so iterate within this round as many times as needed.\n'
-    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 4 (advance-phase atomically writes state.json when complete).\n\n'
+    + '1. RE-VERIFY GATE 2 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 2 --phase 3 --spec-threshold 60.0`\n   The earlier Gate 2 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
+    + '2. GUARD + PUSH ⑤ p3-post-gate2: `git -C ' + REPO + ' log --oneline --grep="P3-post-gate2)" -1`. If a commit exists, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n   Pre-flight (enforced): gate2_result.json composite ≥75 + per-FR Gate 1 sentinel .sessi-work/sentinels/g1_p3_<fr>.flag exists for every FR. If BLOCKED, read the error list and fix.\n'
+    + '3. advance-phase — run BACKGROUNDED (internally runs `ruff check .` + `mypy .` + `pytest --cov-fail-under=100` over the WHOLE project as sequential subprocess calls inside one opaque Bash call; harmless today at this project\'s size (~25s measured) but this cost only grows as more FRs/tests land, and a single opaque long Bash call is exactly what the 180s stall watchdog kills — same class of risk as GATE1, same fix):\n   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 3 --project ' + REPO + ' > /tmp/advance_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\n   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report "ADVANCE: TIMEOUT".\n   c. Once DONE: `cat /tmp/advance_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\n   advance-phase independently re-verifies EVERYTHING before it will advance (lint, types, coverage, document quality, reliability lint, architecture drift, Phase Truth, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says (it often includes the precise command to run), then repeat the advance-phase backgrounded procedure (a/b/c). Do NOT guess what might be wrong — trust only what advance-phase itself reports.\n   advance-phase is safe to re-run: it re-checks and re-reports without side effects until every check passes, so iterate within this round as many times as needed.\n'
+    + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 4 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_4_PLAN: ' + REPO + '/.methodology/phase4_plan.md\n\n'
-    + 'SCOPE RULES:\n- DO NOT re-implement FRs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p3-post-gate2 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    + 'SCOPE RULES:\n- DO NOT re-implement FRs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY verify-gate + push-milestone p3-post-gate2 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'P3 · Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
@@ -2974,7 +2996,7 @@ if (!gate3Pass) {
 phase('P4 · Preview Next-Phase')
 log('preview-next-phase --phase 4 (predict Phase 5 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-4 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -2984,15 +3006,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P4 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 5 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-4 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 5 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P4 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -3004,7 +3033,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 5 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 5 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -3020,12 +3049,13 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 5 ]`. If Phase 5 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
-    + '1. PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + ' --push`\n'
+    + '1. RE-VERIFY GATE 3 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 3 --phase 4 --spec-threshold 80.0`\n   The earlier Gate 3 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
+    + '2. PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)\n'
+    + '3. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
-    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 5 (advance-phase atomically writes state.json when complete).\n\n'
+    + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 5 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_5_PLAN: ' + REPO + '/.methodology/phase5_plan.md\n\n'
-    + 'SCOPE RULES:\n- DO NOT re-do P4 testing.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p4-pre-gate3 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    + 'SCOPE RULES:\n- DO NOT re-do P4 testing.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY verify-gate + push-milestone p4-pre-gate3 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'P4 · Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
@@ -3329,7 +3359,7 @@ if (!(milestoneReport && milestoneReport.pass === true)) {
 phase('P5 · Preview Next-Phase')
 log('preview-next-phase --phase 5 (predict Phase 6 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-5 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -3339,15 +3369,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P5 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 6 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-5 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 6 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P5 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -3359,7 +3396,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 6 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 6 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -3699,7 +3736,7 @@ for (const v of peerVerdict.verdicts) {
 phase('P6 · Preview Next-Phase')
 log('preview-next-phase --phase 6 (predict Phase 7 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-6 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -3709,15 +3746,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P6 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 7 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-6 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 7 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P6 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -3729,7 +3773,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 7 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 7 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -3745,12 +3789,13 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 7 ]`. Also check: `git -C ' + REPO + ' tag -l "harness-v4-*" | head -1`. If Phase 7 is confirmed OR tag already exists, report "ADVANCE: PASS (already advanced)" and stop.\n'
-    + '1. GIT-TAG (skip if step 0 found an existing tag): `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it. Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + ' --push`\n'
+    + '1. RE-VERIFY GATE 4 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 4 --phase 6 --spec-threshold 90.0`\n   The earlier Gate 4 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
+    + '2. GIT-TAG (skip if step 0 found an existing tag): `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it. Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\n'
+    + '3. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
-    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 7 (advance-phase atomically writes state.json when complete).\n\n'
+    + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 7 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_7_PLAN: ' + REPO + '/.methodology/phase7_plan.md\n\n'
-    + 'SCOPE RULES:\n- DO NOT re-do Gate 4 / release docs.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    + 'SCOPE RULES:\n- DO NOT re-run run-gate / finalize-gate or re-author release docs (step 1 re-records the verdict; it does not re-score the gate).\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY verify-gate + git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'tag-advance-r' + round, phase: 'P6 · Tag & Advance', agentType: 'general-purpose' },
   )
 if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
@@ -4042,7 +4087,7 @@ if (!(milestoneReport && milestoneReport.pass === true)) {
 phase('P7 · Preview Next-Phase')
 log('preview-next-phase --phase 7 (predict Phase 8 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-7 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -4052,15 +4097,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P7 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 8 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-7 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 8 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P7 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -4072,7 +4124,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 8 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 8 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -4399,7 +4451,7 @@ if (!(archiveReport && archiveReport.pass === true)) {
 phase('P8 · Preview Next-Phase')
 log('preview-next-phase --phase 8 (predict Phase 9 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-8 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -4409,15 +4461,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'P8 · Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 9 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-8 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 9 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'P8 · Preview Next-Phase', agentType: 'general-purpose' },
@@ -4429,7 +4488,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 9 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 9 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 

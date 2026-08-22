@@ -711,7 +711,7 @@ if (!gate3Pass) {
 phase('Preview Next-Phase')
 log('preview-next-phase --phase 4 (predict Phase 5 entry-blocking findings before Push)')
 const MAX_PREVIEW_FIX_ROUNDS = 3
-let previewClean = false, previewReport = null
+let previewClean = false, previewReport = null, previewReason = ''
 for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   previewReport = await dispatch(
     'YOU ARE THE PHASE-4 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
@@ -721,15 +721,22 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
     + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
     { label: 'preview-next-phase-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
-  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewReport === null || previewReport === undefined) {
+    return halt('preview-next-phase-unmeasured', { error: 'preview-next-phase was never read, so Phase 5 entry is unknown, not blocked', reason: 'agent returned null (skipped or terminal API error)' })
+  }
+  previewClean = previewReport.pass === true
   if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  previewReason = String(previewReport.reason ?? '').trim()
+  if (previewReason === '') {
+    return halt('preview-next-phase-unmeasured', { error: 'checker reported not-clean and named no obligation, so no fixer has anything to open', reason: 'pass=false with an empty reason' })
+  }
   log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
   if (round < MAX_PREVIEW_FIX_ROUNDS) {
     const fixReport = await dispatch(
       'YOU ARE THE PHASE-4 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
       + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
       + 'The following obligations were predicted to block Phase 5 entry:\n\n'
-      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + previewReason + '\n\n'
       + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
       + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
       { label: 'preview-fix-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose' },
@@ -741,7 +748,7 @@ for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
   }
 }
 if (!previewClean) {
-  return halt('preview-next-phase', { error: 'Phase 5 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
+  return halt('preview-next-phase', { error: 'Phase 5 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: previewReason.slice(-1200) })
 }
 
 
@@ -773,12 +780,13 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 5 ]`. If Phase 5 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
-    + '1. PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)\n'
-    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + '`\n'
+    + '1. RE-VERIFY GATE 3 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 3 --phase 4 --spec-threshold 80.0`\n   The earlier Gate 3 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
+    + '2. PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)\n'
+    + '3. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + '`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
-    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 5 (advance-phase atomically writes state.json when complete).\n\n'
+    + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 5 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_5_PLAN: ' + REPO + '/.methodology/phase5_plan.md\n\n'
-    + 'SCOPE RULES:\n- DO NOT re-do P4 testing.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p4-pre-gate3 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    + 'SCOPE RULES:\n- DO NOT re-do P4 testing.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY verify-gate + push-milestone p4-pre-gate3 + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
     { label: 'advance-r' + round, phase: 'Advance', agentType: 'general-purpose' },
   )
   if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {

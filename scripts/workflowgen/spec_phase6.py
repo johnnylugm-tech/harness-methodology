@@ -35,9 +35,10 @@ _META_PHASES_6 = [
     "Peer Review", "Preview Next-Phase", "Tag & Advance", "Sync",
 ]
 
-# See spec_phase4._D4_THRESHOLD_P4 — spec-coverage-check's floor is not a gate
-# dimension, so the gate config has nothing to read; named once per phase.
-_D4_THRESHOLD_P6 = 90.0
+# See spec_shared.D4_THRESHOLDS — spec-coverage-check's floor is not a gate
+# dimension, so the gate config has nothing to read; it is stated once there
+# because this phase's Tag & Advance re-verify needs the same number.
+_D4_THRESHOLD_P6 = S.D4_THRESHOLDS[6]
 
 _GATE4_STEPS = [
     "1. G4a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 4 --phase 6 --project ' + REPO + '` (CRG recon runs inside). Read the printed prompt.",
@@ -236,12 +237,17 @@ def _render_phase6_tag_advance() -> str:
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
         + "    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo \"current_phase=$PHASE\"; [ \"$PHASE\" -ge 7 ]`. Also check: `git -C ' + REPO + ' tag -l \"harness-v4-*\" | head -1`. If Phase 7 is confirmed OR tag already exists, report \"ADVANCE: PASS (already advanced)\" and stop.\\n'\n"
-        + "    + '1. GIT-TAG (skip if step 0 found an existing tag): `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it. Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\\n'\n"
-        + "    + '2. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + '`\\n'\n"
+        # Round 69 站1: this phase is the reason the rule exists — Release Docs
+        # writes two root deliverables AFTER the Gate 4 verdict is recorded.
+        # Rendered, not typed, so it stays equal to what render_advance_loop
+        # gives P3 and P4.
+        + f"    + '1. {B.render_exit_gate_reverify_step(6)}\\n'\n"
+        + "    + '2. GIT-TAG (skip if step 0 found an existing tag): `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it. Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\\n'\n"
+        + "    + '3. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + '`\\n'\n"
         + "    + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints \"[BLOCKED] ...\", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\\n'\n"
-        + "    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 7 (advance-phase atomically writes state.json when complete).\\n\\n'\n"
+        + "    + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 7 (advance-phase atomically writes state.json when complete).\\n\\n'\n"
         + "    + 'Report final line: \"ADVANCE: PASS|FAIL — <details>\". If still FAIL after exhausting this round\\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_7_PLAN: ' + REPO + '/.methodology/phase7_plan.md\\n\\n'\n"
-        + "    + 'SCOPE RULES:\\n- DO NOT re-do Gate 4 / release docs.\\n- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
+        + "    + 'SCOPE RULES:\\n- DO NOT re-run run-gate / finalize-gate or re-author release docs (step 1 re-records the verdict; it does not re-score the gate).\\n- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY verify-gate + git tag + advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
         + "    { label: 'tag-advance-r' + round, phase: 'Tag & Advance', agentType: 'general-purpose' },\n"
         + "  )\n"
         + S.render_session_block_guard(

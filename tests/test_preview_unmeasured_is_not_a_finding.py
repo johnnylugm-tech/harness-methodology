@@ -66,16 +66,19 @@ def test_the_halt_message_does_not_blame_the_project_for_a_missing_reading() -> 
     )
 
 
-def test_the_docstring_names_only_categories_that_can_fire() -> None:
-    """dc92fb5's docstring lists ten `_DELAYED_BLOCKING_PREFLIGHTS` names.
+def test_the_docstring_does_not_restate_the_category_registry() -> None:
+    """dc92fb5's docstring enumerated ten `_DELAYED_BLOCKING_PREFLIGHTS` names.
 
     Two of them (`previous_phase_artifacts`, `bvs_phase_order`) never write a
     `blocking` key, so `preview_next_phase_blocking`'s
-    ``not res.get("blocking")`` drops them unconditionally — a prompt-facing
-    claim about ten categories that eight can reach.
+    ``not res.get("blocking")`` drops them unconditionally — a claim about ten
+    categories that eight could reach, written down because the list was
+    copied rather than read. Naming one or two while explaining something is
+    fine; restating the set is what drifts.
     """
     doc = B.render_preview_next_phase.__doc__ or ""
     named = set(re.findall(r"[a-z_]{4,}", doc)) & _DELAYED_BLOCKING_PREFLIGHTS
-    assert "bvs_phase_order" not in named, (
-        "the docstring still names a category the preview cannot surface"
+    assert len(named) < 5, f"the docstring re-enumerates the registry: {sorted(named)}"
+    assert "_DELAYED_BLOCKING_PREFLIGHTS" in doc, (
+        "it must point at where the set actually lives"
     )

@@ -109,11 +109,13 @@ def _render_bug_hunt() -> str:
     )
 
 
-# The D4 spec-coverage floor for this phase, stated once. It is NOT a gate
-# dimension — spec-coverage-check owns it — so it has no entry in the gate
-# config the rest of this block reads from; naming it here at least keeps the
-# prose, the `--threshold` argument and the pass line from drifting apart.
-_D4_THRESHOLD_P4 = 80.0
+# The D4 spec-coverage floor for this phase. It is NOT a gate dimension —
+# spec-coverage-check owns it — so it has no entry in the gate config the rest
+# of this block reads from. Round 69 站1 moved the literal to
+# spec_shared.D4_THRESHOLDS: render_advance_loop's exit-gate re-verify needs
+# the same number, and this alias keeps the prose, the `--threshold` argument
+# and the pass line reading from one place.
+_D4_THRESHOLD_P4 = S.D4_THRESHOLDS[4]
 
 _GATE3_STEPS = [
     "1. G3a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 3 --phase 4 --project ' + REPO + '` (CRG recon runs inside automatically). Read the printed evaluation prompt.",

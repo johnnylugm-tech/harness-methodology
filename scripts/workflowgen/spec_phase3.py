@@ -389,9 +389,10 @@ def _render_phase3_sync() -> str:
     ))
 
 
-# See spec_phase4._D4_THRESHOLD_P4 — spec-coverage-check's floor is not a gate
-# dimension, so the gate config has nothing to read; named once per phase.
-_D4_THRESHOLD_P3 = 60.0
+# See spec_shared.D4_THRESHOLDS — spec-coverage-check's floor is not a gate
+# dimension, so the gate config has nothing to read; it is stated once there
+# because render_advance_loop's exit-gate re-verify needs the same number.
+_D4_THRESHOLD_P3 = S.D4_THRESHOLDS[3]
 
 _GATE2_STEPS = [
     "1. G2a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 2 --phase 3 --project ' + REPO + '` — read the printed evaluation prompt.",
