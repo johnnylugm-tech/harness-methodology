@@ -58,7 +58,19 @@ def test_a_truncated_id_is_refused_by_both_readers() -> None:
 
 
 def test_a_numeric_branch_suffix_survives_the_round_trip(tmp_path: Path) -> None:
-    """taskq-renew's whole SRS is `AC-01-1`, `AC-01-2`, … verbatim."""
+    """taskq-renew's whole SRS is `AC-01-1`, `AC-01-2`, … verbatim.
+
+    CP-12 note: this test used to assert only that the check reports nothing.
+    That stayed GREEN when `(?:-\\d+)*` was cut out of the body, because BOTH
+    readers then truncated `AC-01-1` to `AC-01` and agreed with each other —
+    the test was measuring agreement between two readers, not that the id
+    survived. It reads the id back whole first.
+    """
+    assert _AC_ID.findall("AC-01-1") == ["AC-01-1"], (
+        "the branch suffix is being dropped; AC-01-1 and AC-01-2 collapse onto "
+        "one id that a single citation then covers"
+    )
+    assert _AC_ID_CITED.findall("AC-01-1") == ["AC-01-1"]
     srs = (
         "# SRS\n\n### FR-01: widget\n\n**Acceptance criteria**\n\n"
         "- **AC-01-1**: accepts input.\n"

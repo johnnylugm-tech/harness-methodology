@@ -76,6 +76,29 @@ def test_every_delayed_blocking_member_can_write_the_key_its_consumer_reads(
     )
 
 
+def test_previous_phase_artifacts_states_blocking_where_it_fails(tmp_path) -> None:
+    """CP-8 note: the AST guard above asks whether the method writes the key
+    ANYWHERE. That stayed GREEN when the key was cut from the result path,
+    because the two exception branches still carry it — a method that only
+    says `blocking` when its import fails passes a question about whether it
+    can. This asks the failing path itself.
+
+    The tree is a phase-2 project with none of SPECIFY's four deliverables, so
+    `verify_phase_chain` reports broken links; the result must both fail and
+    say it blocks, or `preview_next_phase_blocking` drops it.
+    """
+    from core.phase_hooks import PhaseHooks
+
+    (tmp_path / ".methodology").mkdir(parents=True)
+    res = PhaseHooks(str(tmp_path), phase=2,
+                     enable_kill_switch=False).preflight_previous_phase_artifacts()
+    assert res["passed"] is False, "fixture no longer breaks the artifact chain"
+    assert res.get("blocking") is True, (
+        "the failing path does not state `blocking`, so every finding it "
+        "produces is dropped on the way to an obligation"
+    )
+
+
 def test_bvs_phase_order_is_not_previewable() -> None:
     """Removed deliberately; a future round putting it back has to say why."""
     assert "bvs_phase_order" not in _DELAYED_BLOCKING_PREFLIGHTS

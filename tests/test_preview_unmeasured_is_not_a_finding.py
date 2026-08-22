@@ -35,11 +35,20 @@ def _preview(phase: int = 3) -> str:
 
 
 def test_a_null_reading_halts_as_unmeasured_not_as_findings() -> None:
+    """CP-5 note: the first version of this test asserted only that the string
+    `preview-next-phase-unmeasured` appeared somewhere in the block. It stayed
+    GREEN when the null branch's condition was mutated to `if (false)`, because
+    the *other* unmeasured exit — pass=false with an empty reason — carries the
+    same label. It was measuring a label, not a branch. It reads the condition
+    now."""
     text = _preview()
-    assert "preview-next-phase-unmeasured" in text, (
-        "a null checker reply must take its own exit, distinguishable from "
-        "'obligations were found'"
+    assert "previewReport === null || previewReport === undefined" in text, (
+        "the null reply has no branch of its own"
     )
+    assert re.search(
+        r"previewReport === null[^\n]*\n\s*return halt\('preview-next-phase-unmeasured'",
+        text,
+    ), "a null checker reply must take the unmeasured exit, not the fixer loop"
     assert "agent returned null" in text
 
 

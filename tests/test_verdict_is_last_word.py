@@ -101,13 +101,31 @@ def test_the_d4_threshold_has_one_source() -> None:
     Before this round it was three hand-written constants whose comments
     pointed at each other (`See spec_phase4._D4_THRESHOLD_P4`); a fourth copy
     inside the advance loop is how that becomes a drift.
+
+    Asserting the VALUES are equal would be a guard that reads as enforcement
+    and is not (Round 64's shape): a hand-typed `60.0` that happens to match
+    passes it. So the assertion is structural — each `_D4_THRESHOLD_PN` must
+    be a subscript of the shared map, not a literal.
     """
-    from scripts.workflowgen import spec_phase3, spec_phase4, spec_phase6
+    import ast
+    from pathlib import Path
 
     assert sorted(S.D4_THRESHOLDS) == sorted(EXIT_GATE_MAP)
-    assert spec_phase3._D4_THRESHOLD_P3 == S.D4_THRESHOLDS[3]
-    assert spec_phase4._D4_THRESHOLD_P4 == S.D4_THRESHOLDS[4]
-    assert spec_phase6._D4_THRESHOLD_P6 == S.D4_THRESHOLDS[6]
+    for phase in sorted(EXIT_GATE_MAP):
+        src = Path(f"scripts/workflowgen/spec_phase{phase}.py").read_text(
+            encoding="utf-8")
+        assigned = [
+            node.value
+            for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name)
+                    and t.id == f"_D4_THRESHOLD_P{phase}" for t in node.targets)
+        ]
+        assert len(assigned) == 1, f"P{phase} assigns the constant {len(assigned)}x"
+        assert isinstance(assigned[0], ast.Subscript), (
+            f"spec_phase{phase}._D4_THRESHOLD_P{phase} is a literal again — "
+            f"it must read spec_shared.D4_THRESHOLDS"
+        )
 
 
 def test_verify_gate_does_not_write_the_tree_it_measures(tmp_path) -> None:

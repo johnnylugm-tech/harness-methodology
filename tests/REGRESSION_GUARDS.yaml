@@ -2904,3 +2904,132 @@
 - test: tests/test_partial_neutralisation.py::test_a_test_with_no_assertions_is_not_neutralised
   bug: "`zero_assert` and `neutralised` name different defects with different fixes; a shell must not be renamed into the other bucket"
   fixed_in: "R68-站3 (green from station 0)"
+
+# ── Round 69 ──────────────────────────────────────────────────────────────
+# Eleven /code-review findings against 713c7f7..HEAD, all eleven reproduced,
+# plus three measured while verifying them. Two母體: a write that outlives the
+# verdict measuring it, and an exemption granted by a sentence.
+
+- test: tests/test_verdict_is_last_word.py::test_no_authoring_dispatch_survives_the_verdict
+  bug: "verify-gate records a gate PASS with delivered_tree_digest and advance-phase refuses a phase whose exit gate has no PASS for THAT tree, so any step writing a delivered file after the verdict unmakes it. P3 and P4 got the preview fixer put there by dc92fb5; P6 has had Release Docs there since long before — taskq-cc's gate_verify.jsonl carries four gate-4 verdicts at commit 11673af2 across three tree digests"
+  fixed_in: "R69-站1 (render_exit_gate_reverify_step, derived from EXIT_GATE_MAP)"
+
+- test: tests/test_verdict_is_last_word.py::test_p6_release_docs_does_not_outlive_gate4
+  bug: "the oldest instance, named on its own: Release Docs writes RELEASE_NOTES.md and FINAL_SIGN_OFF.md at the project root under SCOPE RULES that say DO NOT re-run Gate 4, so P6's verdict structurally could not describe the tree it advanced"
+  fixed_in: "R69-站1"
+
+- test: tests/test_verdict_is_last_word.py::test_advance_loop_reverifies_when_the_phase_has_an_exit_gate
+  bug: "the re-verify step must come from EXIT_GATE_MAP inside render_advance_loop, not from three call sites each remembering to ask — and the phase that needed it most (P6) does not use that renderer at all"
+  fixed_in: "R69-站1"
+
+- test: tests/test_verdict_is_last_word.py::test_advance_loop_does_not_reverify_when_there_is_no_exit_gate
+  bug: "P5 and P7 close no gate; a re-verify step there is a dispatch bought for nothing"
+  fixed_in: "R69-站1 (green from station 0 — pins the anti-over-fix)"
+
+- test: tests/test_verdict_is_last_word.py::test_the_d4_threshold_has_one_source
+  bug: "the D4 floor was three per-phase literals whose comments pointed at each other; the re-verify step needs the same number and a fourth hand-copy is how a threshold drifts from the gate it describes. The assertion is STRUCTURAL (each _D4_THRESHOLD_PN must be a Subscript, not a Constant) because comparing values would pass a hand-typed 60.0 — R64's shape"
+  fixed_in: "R69-站1 (spec_shared.D4_THRESHOLDS)"
+
+- test: tests/test_verdict_is_last_word.py::test_verify_gate_does_not_write_the_tree_it_measures
+  bug: "the whole re-verify rule rests on this: if verify-gate wrote the tree it measures, re-verifying would invalidate itself. Measured in the corpus first — taskq-cc ran it twice at 11673af2 and recorded the identical digest f8e8638ae7bd, taskq-api twice at 4ffeb3a0 and recorded 83675e3dcbd4 both times"
+  fixed_in: "R69-站1 (green from station 0 — pins the premise)"
+
+- test: tests/test_preview_unmeasured_is_not_a_finding.py::test_a_null_reading_halts_as_unmeasured_not_as_findings
+  bug: "previewClean = !!(report && report.pass === true) folded 'the dispatch was skipped or rate-limited' into 'obligations were found', so the block dispatched a fixer with an empty obligation list twice and halted claiming obligations were present. R35 and R48 both broken by the same three lines. CP-5: the first version of this test read a label and stayed GREEN when the null branch's condition was mutated to `if (false)`, because the other unmeasured exit carries the same label; it reads the condition now"
+  fixed_in: "R69-站1 (counter-proof CP-5 red after the guard was fixed)"
+
+- test: tests/test_preview_unmeasured_is_not_a_finding.py::test_the_fixer_is_not_dispatched_without_an_obligation_list
+  bug: "the fixer's prompt interpolated (report && report.reason) ?? '' — an empty string buys a dispatch that can only report 'nothing named'"
+  fixed_in: "R69-站1"
+
+- test: tests/test_preview_unmeasured_is_not_a_finding.py::test_the_halt_message_does_not_blame_the_project_for_a_missing_reading
+  bug: "the halt text is what the operator and the fault-owner classifier read; 'obligations still present after 3 round(s)' asserts as fact the one thing that was never measured"
+  fixed_in: "R69-站1"
+
+- test: tests/test_preview_unmeasured_is_not_a_finding.py::test_the_docstring_does_not_restate_the_category_registry
+  bug: "dc92fb5's docstring enumerated ten _DELAYED_BLOCKING_PREFLIGHTS names; two of the ten could never reach an obligation. A set copied into prose is a set that drifts — it points at the registry now"
+  fixed_in: "R69-站1"
+
+- test: tests/test_delayed_blocking_members_can_fire.py::test_every_delayed_blocking_member_can_write_the_key_its_consumer_reads
+  bug: "preview_next_phase_blocking filters on res.get('blocking') and two of the ten members never wrote it, so every finding they produced was dropped — including for the two dedicated extractors Round 15 §3 wrote for branches nothing could reach. R43 站1's guard asks whether the NAME is right; this asks whether the named method can produce the key"
+  fixed_in: "R69-站2"
+
+- test: tests/test_delayed_blocking_members_can_fire.py::test_previous_phase_artifacts_states_blocking_where_it_fails
+  bug: "CP-8: the AST guard above asks whether the method writes the key ANYWHERE, and stayed GREEN when the key was cut from the result path because two exception branches still carried it. A method that only says `blocking` when its import fails passes a question about whether it can"
+  fixed_in: "R69-站2 (counter-proof CP-8 red after the guard was added)"
+
+- test: tests/test_delayed_blocking_members_can_fire.py::test_bvs_phase_order_is_not_previewable
+  bug: "removed from the set rather than given the key: both findings it can produce (an HR-03 phase skip, FSM FREEZE) are the environmental kind the set's own comment already excludes, and the entry preflight blocks on both. The plan's stated reason — that it fails on every preview — was MEASURED FALSE: BVSRunner compares current_phase < PHASE_PREREQUISITES[N+1], i.e. N < N"
+  fixed_in: "R69-站2"
+
+- test: tests/test_delayed_blocking_members_can_fire.py::test_the_preview_sibling_inherits_the_projects_drift_threshold
+  bug: "cmd_preview_next_phase reads drift_threshold from the project's config and hands it to the outer PhaseHooks; the sibling was built without it, so a project that set 70 was previewed at the 85.0 default and could be handed a drift obligation its own entry preflight would never have raised"
+  fixed_in: "R69-站2"
+
+- test: tests/test_ac_id_has_one_definition.py::test_a_truncated_id_is_refused_by_both_readers
+  bug: "b128efb's second, hand-written pattern ended in \\b, which the engine satisfies by backtracking to a PREFIX — AC-1.1a came back as AC-1, the exact substitution R56 removed the trailing \\b to stop"
+  fixed_in: "R69-站3"
+
+- test: tests/test_ac_id_has_one_definition.py::test_a_numeric_branch_suffix_survives_the_round_trip
+  bug: "_normalise_ac_token returned None for AC-9.1-2, and a None declared id was reported uncited unconditionally. taskq-renew writes every criterion that way: 11 -> 40 violations at b128efb, all 29 new ones false. CP-12: the first version asserted only that the check reports nothing, and stayed GREEN when the branch-suffix group was cut, because BOTH readers then truncated and agreed with each other — it was measuring agreement, not survival"
+  fixed_in: "R69-站3 (counter-proof CP-12 red after the guard was fixed)"
+
+- test: tests/test_ac_id_has_one_definition.py::test_a_predicate_suffix_matches_the_criterion_it_sits_under
+  bug: "_normalise_ac_token returned the raw token when the leading letter was not N, so a declared AC-P1.1 never equalled the cited AC-P1.1-latency-p95"
+  fixed_in: "R69-站3"
+
+- test: tests/test_ac_id_has_one_definition.py::test_there_is_one_ac_body_literal_in_the_module
+  bug: "an identifier with two independently written patterns is an identifier whose R55 range rule and R56 terminator have to be fixed twice; the body is one named string now. Names may still be MENTIONED — the comment that removed them explains why — so the assertion is on bindings, not on text"
+  fixed_in: "R69-站3"
+
+- test: tests/test_fr_and_nfr_are_two_namespaces.py::test_an_nfr_heading_never_enters_the_fr_set
+  bug: "54651a0's (?:N)?FR- folded NFR into the FR namespace. Live on all eight corpus projects: taskq FR-06..FR-09, taskq-plus and taskq-renew FR-09..FR-12, the rest FR-11 and FR-12 — every one an ### NFR-nn: heading counted as functional"
+  fixed_in: "R69-站4"
+
+- test: tests/test_fr_and_nfr_are_two_namespaces.py::test_a_deferred_heading_with_a_title_is_excluded
+  bug: "endswith('-deferred') ran against the whole heading INCLUDING its title, so `### FR-99-deferred: out of scope` — the shape taskq-new and taskq-advance actually write — never matched"
+  fixed_in: "R69-站4"
+
+- test: tests/test_fr_and_nfr_are_two_namespaces.py::test_an_nfr_row_in_the_matrix_does_not_cover_an_fr
+  bug: "`fr not in content` is a substring test, so an NFR-05 matrix row answered for FR-05. That is why the NFR fold never surfaced as a false Missing: — the two defects cancelled, and the shipped test's expected value was the product of both"
+  fixed_in: "R69-站4"
+
+- test: tests/test_fr_and_nfr_are_two_namespaces.py::test_an_unpadded_matrix_id_covers_an_unpadded_srs_id
+  bug: "54651a0 zero-padded the SRS side and left the matrix side raw text, so a project writing FR-1 in both files would have been reported missing"
+  fixed_in: "R69-站4"
+
+- test: tests/test_deferral_must_be_structural.py::test_a_prose_mention_does_not_silence_an_invented_requirement
+  bug: "spec_alignment's docstring states that only structural FR forms are read; _FR_DEFERRED was the one unanchored exception, and 6181d52 subtracted it on the invented axis too — so a complete `### FR-12:` section is silenced by the words FR-12-deferred appearing anywhere, including in a sentence saying FR-12 was NOT deferred"
+  fixed_in: "R69-站5"
+
+- test: tests/test_deferral_must_be_structural.py::test_the_three_structural_deferral_forms_all_count
+  bug: "the three forms are the ones the corpus writes — heading (taskq-new SRS.md:1402), table row (taskq SRS.md:599-603), bold bullet (taskq-super SRS.md:1085); restricting to them changes the verdict on none of the nine corpus projects"
+  fixed_in: "R69-站5"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_a_deferral_line_is_recorded_not_counted_as_coverage
+  bug: "1547d71's Step 1d solved a real dead end and its legal move is a sentence, while the check was a substring search — so the framework began teaching in writing how to satisfy the coverage gate with one line of prose, including for AC-N7.2, the criterion the check's own docstring cites as having reached delivery unverified. The deferral lines are cut out before the citation scan, or every deferred id reads back as cited"
+  fixed_in: "R69-站5"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_a_deferral_is_written_to_the_ledger
+  bug: "non-blocking must not mean free (R68 站1): gate:ac-deferred names every deferred id, owner=project, and is what a later round reads to ask whether any named verifier was ever run"
+  fixed_in: "R69-站5"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_a_deferral_that_names_no_tool_is_an_error
+  bug: "a deferral that names nobody can never be asked whether the thing it points at ran — the shape Step 1d's own Why block records an agent inventing ('all unit-layer; deferred to downstream phases')"
+  fixed_in: "R69-站5"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_an_uncited_criterion_is_still_an_error
+  bug: "the three-state split must not soften the state that was already right"
+  fixed_in: "R69-站5 (anti-over-fix)"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_the_prompt_quotes_the_shape_verbatim
+  bug: "the prompt stated the shape the checker matches in its own words; same binding spec_phase1.py already has to ac_label_shape()"
+  fixed_in: "R69-站5"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_the_new_rows_are_documented_where_their_siblings_are
+  bug: "ac_no_test_case, ac_population_unread and ac_parse_gap are explained in docs/OBSERVABILITY.md for whoever reads an error_details payload; a fourth and fifth row nobody documented is a row nobody can act on"
+  fixed_in: "R69-站5"
+
+- test: tests/test_phase_hooks_adapter.py::test_bvs_phase_order_no_longer_has_an_extractor
+  bug: "R39's rule applies to unreachable code as much as to prose: the extractor branch went with the registry membership it served, and this test — the only thing that ever executed it — now pins the removal instead of the branch"
+  fixed_in: "R69-站2"

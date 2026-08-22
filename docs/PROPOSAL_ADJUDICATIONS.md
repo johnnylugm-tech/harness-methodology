@@ -3778,6 +3778,148 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 69 — 判定被記錄之後，還有人在寫那棵樹
+
+老闆令：`/code-review` 對 `713c7f7..HEAD` 的 8 個 commit 提出 11 項發現，
+「把所有發現問題展開成可執行的修復方案（確認根源 並用正解 not workaround）」。
+
+基線：`8b14844e` 之前的 `17f5f448`，pytest 7507 passed / 4 skipped、guards 708。
+
+### 11 項逐條裁決 —— 全部屬實
+
+與 Round 68 不同（那輪六項裡兩項是外部報告憑空發明），本次 11 項全部重現。
+
+| # | 位置 | 查證方式 | 根源 |
+|---|---|---|---|
+| 1 | `js_blocks.py` preview 插在 verdict 之後 | 讀 `has_matching_pass`（純 digest 比對）＋既有測試 `test_gate_verify.py:155` | **harness**（且 P6 早於此，見 E1） |
+| 2 | `_AC_ID_BROAD` 尾端 `\b` 回溯替換復活 | 實跑：`AC-1.1a` → `_AC_ID=[]` / `BROAD=['AC-1']` | **harness**（繞過 R56） |
+| 3 | `letter != "N"` 回傳未剝 suffix 的 raw token | 實跑：`norm('AC-P1.1-latency-p95')` 回自己 | **harness** |
+| 4 | `(?:N)?FR-` 把 NFR 併進 FR | 語料實測：8 個專案全中招 | **harness**（回歸） |
+| 5 | `endswith("-deferred")` 比含標題整行 | 實跑：`### FR-99-deferred: X` 永遠跳不過 | **harness** |
+| 6 | `AC-9.1-2` → `_normalise_ac_token` 回 None | 語料實測：taskq-renew 11 → 40，29 筆全假 | **harness**（回歸） |
+| 7 | Step 1d 教一行散文滿足覆蓋 gate | 檢查自己 docstring 舉的 `AC-N7.2` 反例 | **harness**（檢查層） |
+| 8 | `_FR_DEFERRED` 全文無錨點 | 模組 docstring 自稱「never a bare prose mention」 | **harness**（既有，擴大到 invented 軸） |
+| 9 | checker null 與「有 obligation」不可分辨 | 讀生成 JS：null → 派 fixer 吃空清單 ×2 → halt 指控專案 | **harness** |
+| 10 | 宣稱十類，兩類永遠產不出 obligation | AST 掃描：`blocking` key 8/10 | **harness**（既有，R43 站1 同型第三、四例） |
+| 11 | sibling 沒轉傳 `drift_threshold` | 讀碼 + 行為測試 | **harness** |
+
+**11 項沒有一項是 workflow JS bug。** `.claude/workflows/*.js` 全是
+`generate_workflows.py` 的產物；本輪同樣一字不手改，全部走 `--write` 重生成。
+
+### 三件加碼發現（審查未提）
+
+**E1 —— P6 的 exit gate 判定從來對不上被 advance 的樹，早於這 8 個 commit。**
+`phase6-quality.js`：Gate 4 記下 digest（第 362 行）→ Release Docs 寫
+`RELEASE_NOTES.md` + `FINAL_SIGN_OFF.md`（第 383 行，專案根、git-tracked）
+→ SCOPE RULES 明文「DO NOT re-run Gate 4」（第 393 行）。
+taskq-cc 的 `.methodology/gate_verify.jsonl` 在 commit `11673af2` 上有
+**4 筆 gate-4 verdict、3 個不同的樹 digest**。
+→ **dc92fb5 不是製造者，是傳播者**：它把同一形狀複製到 P3 與 P4。
+→ 這也否決了原方案「把 preview 往前搬」：Release Docs 仍在 verdict 之後。
+
+**E2 —— `phase_auditor` 的 FR 比對是子字串。**
+`fr not in content` 讓矩陣裡的 `NFR-05` 滿足 `FR-05`。這正是 #4 的假 FR 沒有
+當場爆掉的原因——兩個 bug 互相遮蔽，而 54651a0 自己的測試期望值（4）就是
+兩者相消的產物。
+
+**E3 —— 零補齊正規化在整個語料裡零作用。**
+`_normalise_ac_token` 的補零是 #6 那個 `None` 的來源。實測 taskq-advance
+（SRS 37 個補零 id）、taskq-super、taskq-renew：**因補零而漏配的 id = 0**。
+沒有證據支撐的複雜度，直接刪除。
+
+### 決定性的量測
+
+**AC 識別碼四欄對照**（`check_ac_test_spec_coverage` 違規數）：
+
+| 專案 | 舊（`_AC_ID` 兩側） | b128efb | 本輪 |
+|---|---|---|---|
+| taskq-new | **59**（真痛點） | 0 | **0 ✓** |
+| taskq-renew | 11 | **40**（+29 假指控） | **11 ✓** |
+| taskq-advance | 86 | 86 | 86 |
+| taskq-super | 111 | 111 | 111 |
+| taskq / taskq-cc / taskq-api / taskq-plus | 0 | 0 | 0 |
+
+本輪拿到 b128efb 想要的全部好處，不製造它的回歸。做法：body 抽成**一個
+字串** `_AC_BODY`，兩種拼法由它組出（dash 必需 / dash 選用），刪掉
+`_AC_ID_BROAD` 與 `_normalise_ac_token`。
+
+**`verify-gate` 對交付樹零寫入 —— 語料實證。** 站 1 的整個修法建立在此。
+taskq-cc 在 `11673af2` 上 12:40 與 12:45 兩次連跑，digest 逐位元組相同
+（`f8e8638ae7bd`）；taskq-api 在 `4ffeb3a0` 上兩筆同為 `83675e3dcbd4`。
+
+**結構化 FR 免除對語料零影響。** `check_spec_alignment` 九專案輸出逐專案相同。
+
+**FR/NFR 分離後語料對賬。** 八個專案的 SRS FR 集合與矩陣 FR 集合完全相等
+（taskq 5/5、taskq-plus 與 taskq-renew 8/8、其餘五個 10/10），零 missing。
+
+### 我在計畫裡寫錯的一件事（量測推翻，照實記）
+
+計畫主張移除 `bvs_phase_order` 的理由是「它結構上不可預覽：sibling 跑在
+phase=N+1 而 state.json 仍在 N，前置條件必然不滿足」。**這是錯的。**
+`BVSRunner.run` 比較的是 `current_phase < PHASE_PREREQUISITES[N+1]`，也就是
+`N < N`，恆為假。在 /tmp 的 taskq-cc 副本上把 `current_phase` 改成 3、
+sibling 跑 phase 4，**零 violation**。
+
+留下的理由是這個 set 自己的註解本來就寫著的那條：它能產生的兩種發現
+（HR-03 phase skip、FSM FREEZE）都是 environmental 類，不是當前相位的
+authoring loop 能關掉的 carry-over obligation，而 entry preflight 已經擋兩者。
+移除同時刪掉它那條 R15 §3 寫的、從來到不了的 extractor 分支（R39 規則）。
+
+### 反證：22 條，其中 3 條揭出我自己的守衛有洞
+
+全部 22 條先紅、再以**位置定位的反向編輯**還原，八個生產檔逐檔
+`git diff --quiet` 通過。
+
+- **CP-5**：`test_a_null_reading_halts_as_unmeasured_not_as_findings` 對忠實
+  變異保持綠——它只斷言字串 `preview-next-phase-unmeasured` 出現在區塊裡，
+  而**另一個** unmeasured 出口帶同一個 label。量到的是標籤，不是分支。
+  改成讀條件本身。
+- **CP-8**：`_writes_blocking` 的 AST 守衛問「這個方法有沒有寫過這個 key」，
+  把 key 從 result path 剪掉仍綠——兩個 exception 分支還帶著它。補一支
+  行為測試直接問失敗路徑。
+- **CP-12**：`test_a_numeric_branch_suffix_survives_the_round_trip` 只斷言
+  「檢查回報零」，把 `(?:-\d+)*` 從 body 剪掉仍綠——因為**兩個 reader 同時
+  退化並彼此同意**。它量的是兩個 reader 的一致性，不是 id 有沒有活下來。
+  補上直接讀回整個 id 的斷言。
+
+第四件是**反證機器自己的 bug**：CP-10 的還原用
+`replace(repl, find, 1)`，而 `repl` 是 `"        )"`，它在 `phase_hooks.py`
+的第一個出現位置在 1580 行之前——還原把 kwarg 寫進了一個無關的
+`Obligation(...)` 呼叫。**反證機器污染了它正在證明的檔案。**
+發現後以兩次精確反向編輯修回（不是 `git restore`），確認 `git diff --quiet`
+通過，並把還原改成位置定位。
+
+### 明列不做（附再開條件）
+
+- **不驗證 `Deferred:` 行指名的工具是否真的跑過。** 本輪只擋「沒指名」。
+  再開條件＝`gate:ac-deferred` 累積到能看出哪些工具名是真的被執行的。
+  這是 R43 母體在本輪的殘留。
+- **不 revert 那 8 個 commit。** 它們已 push 且各自解了真問題（taskq-new 59
+  筆假指控、taskq-api P2 的 50 分鐘空轉、SRS prose 誤計）；正解是修在來源。
+- **AC 三態今天爆炸半徑為零**，且照實記：沒有語料專案寫過 `Deferred:` 行
+  （Step 1d 才 shipped 幾小時），所以八個專案的違規數與站 3 逐筆相同，
+  taskq-super 的 `AC-N7.2` 仍是 `ac_no_test_case`——它是 uncited，不是
+  deferred。機制先於 prompt 的建議落到任何一棵樹。
+- **#1/E1 的後果強度是 Medium 不是 High。** 語料顯示 agent 在 taskq-cc 的 P6
+  上確實自己重跑了 verify-gate（同一 commit 4 筆 verdict），所以現場行為
+  比較可能是「昂貴、非確定性」而不是硬死鎖。修法在兩種情況下都正確，但
+  **這不是死鎖，是每次都靠 agent 自己補救**，不冒充成更嚴重的戰果。
+- **站 1 的 re-verify 成本沒量。** 每個 exit-gate 相位多一次 verify-gate，
+  含 `pip install code-review-graph` + CRG 圖建置。若過貴，替代方案是把
+  verdict 記錄從 verify-gate 拆成獨立的輕量 `record-verdict`——更大的一輪。
+
+### 終局
+
+pytest **7551 passed / 4 skipped**（基線 7507，+44）、guards **708 → 739**、ruff clean、
+`generate_workflows.py --check` 10/10、`node --check` 十支全過、
+`js_src` `node --test` 130/130、22 條反證全紅、八個生產檔還原後
+`git diff --quiet` 逐檔通過、十個語料專案零我方異動
+（taskq-new 的 ledger 在本輪期間多了兩筆 `run-fr-step:TDD-RED`，
+時間戳 19:11，來自另一個並行的 P3 dispatch，不是本輪；
+taskq-api 的 ledger 異動時間戳為 2026-08-13，早於本輪九天）。
+
+---
+
 ## Round 68 — 需求指名的東西，沒有人打開交付樹去看
 
 老闆令：「檢查下面對專案 taskq-cc 的報告，針對扣分的部分重新驗證問題的真實性與
