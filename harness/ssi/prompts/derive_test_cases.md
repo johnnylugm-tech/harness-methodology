@@ -167,6 +167,53 @@ Rules:
 
 ---
 
+## Step 1d: NFR Acceptance-Criteria Disposition (MANDATORY — every declared AC-id must be citable)
+
+> Why: Steps 1/1b/1c only get an NFR a test case when one of its keywords,
+> SAD module traits, or SAD §6 threats trips a pattern (NP-01..NP-15). An
+> NFR whose dimension is `documentation` / `license_compliance` /
+> `architecture_constraints` / `mutation_testing` / `integration_coverage` /
+> `readability` — verified by static tooling (docstring scanners,
+> `pip-licenses`, `import-linter`, `mutmut`, coverage line count, `radon`)
+> rather than a request/response case — trips none of them. Left silent,
+> Agent A has no instruction for what to do with that NFR's declared
+> `AC-Nx.y` identifiers, and no instruction means no citation: `harness
+> check_ac_test_spec_coverage` (Round 51/55/62) requires every declared
+> AC-id from SRS.md to appear somewhere in TEST_SPEC.md's text, FR and NFR
+> alike, with zero classification-based exemption — so an NFR that
+> legitimately needs no test case still needs its AC-ids written down
+> somewhere, or the gate reads it as a dropped requirement at P2 exit.
+> Measured: an Agent-A-invented but instruction-free convention ("Active
+> Patterns: none... deferred to downstream phases") read as reasonable
+> prose to a human and to Agent B, but cited zero AC-ids and produced
+> dozens of avoidable P2→P3 blocking obligations.
+
+For every NFR whose declared `AC-Nx.y` identifiers were **not** covered by a
+Step 1 / 1b / 1c pattern activation (in whole or in part — a partially
+activated NFR still needs this for its uncovered ids):
+
+- Write ONE line per NFR, in its TEST_SPEC.md section, in exactly this shape:
+
+  ```
+  Deferred: AC-Nx.y[, AC-Nx.z, ...] — <one sentence: which downstream phase
+  or which tool verifies this>, not a TEST_SPEC case.
+  ```
+
+- **List every uncovered AC-id verbatim, individually.** A summary sentence
+  with no ids (`"all unit-layer; deferred to downstream phases"`) does NOT
+  satisfy this step — the gate scans for the literal id text, not the
+  sentence's intent.
+- The "which tool verifies this" clause must name a real, already-declared
+  mechanism (e.g. "D5 docstring-coverage scanner", "`pip-licenses` SBOM
+  check (NFR-07)", "`mutmut run` mutation score (NFR-08)", "`lint-imports`
+  layer contract (NFR-06)") — never invent a placeholder tool, and never
+  fabricate a TEST_SPEC test-function row just to force a citation; a
+  disposition line is not a test case and must not be dressed as one.
+- This is a citation-completeness step, not a new test-authoring
+  obligation — it costs one line per NFR, not a Q1-Q8 pass.
+
+---
+
 ## Step 2: Per-FR Derivation (8-Question Protocol)
 
 Repeat for each `FR-XX` in SRS §2:
@@ -438,6 +485,14 @@ Standard Verification:
       `applicability: full`) has its `verified_by` test as a row in the
       owning FR's TEST_SPEC entry, with `SEC: <threat-id>` trigger recorded.
       A threat whose forced NP pattern has zero corresponding row → REJECT
+- [ ] **NFR AC-id citation completeness (Step 1d)**: grep TEST_SPEC.md's
+      full text for every `AC-Nx.y` identifier SRS.md declares under an
+      NFR heading. Every one must appear — either inside a Step-1/1b/1c
+      derived test case, or inside a `Deferred: AC-Nx.y — ...` line.
+      A declared NFR AC-id that appears in NEITHER shape → REJECT. A
+      `Deferred` line with no AC-id, or with a subset of the NFR's ids
+      silently missing the rest → REJECT (Step 1d requires every id,
+      individually).
 - [ ] No test function names are generic (`test_basic`, `test_case_1`, etc.)
 - [ ] All derivation fields are non-empty and cite a Q-number or NP-number
 - [ ] Module names in test functions match SAD.md module/class names where available
