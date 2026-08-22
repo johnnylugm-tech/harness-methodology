@@ -216,7 +216,7 @@ test('phase3 GATE1 verify: hallucinated pass:true cannot rescue a deterministic 
 // not fall through to the deterministic-verdict read as an ordinary FAIL.
 test('phase3 TDD loop: [HARNESS-BUG] banner in the GATE1 log aborts the FR loop (not a code-quality FAIL)', async () => {
   const overrides = [
-    { match: /^tdd-/, respond: 'FR-01 GATE1: FAIL — harness-methodology bug detected, escalate to human (see [HARNESS-BUG] message and its crash bundle path)' },
+    { match: /^tdd-/, respond: 'FR-01 GATE1: FAIL — harness-methodology itself crashed\n[HARNESS-BUG] ValueError: foo\n  This is a bug in harness-methodology itself\n  Crash bundle: .methodology/crash/x.json' },
     ...happyOverrides(),
   ]
   const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
@@ -925,8 +925,10 @@ test('round26: every workflow routes its dispatches through the wrapper', async 
 const TERMINAL_FLAG_CASES = [
   {
     flag: 'harness_bug_detected',
-    reply: 'FR-01 GATE1: FAIL — harness-methodology bug detected, escalate to human '
-      + '(see [HARNESS-BUG] message and its crash bundle path)',
+    reply: 'FR-01 GATE1: FAIL — harness-methodology itself crashed\n'
+      + '[HARNESS-BUG] ValueError: foo\n'
+      + '  This is a bug in harness-methodology itself\n'
+      + '  Crash bundle: .methodology/crash/x.json',
     why: 'harness-methodology itself crashed — no later phase can be trusted',
   },
   {

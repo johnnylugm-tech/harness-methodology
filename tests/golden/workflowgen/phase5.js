@@ -457,14 +457,10 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
-  // L1.6 (Round 13 站0): detect a [HARNESS-BUG] banner (core/errors.py's crash
-  // boundary — harness_cli.py's main() converting an uncaught exception into this
-  // signal instead of a bare traceback) surfaced via the sub-agent reading its own
-  // GATE1-DELTA log. Unlike the structurally-broken-dispatch signature above (a known,
-  // human-actionable env-var cause), this means harness-methodology itself crashed —
-  // the FR loop cannot proceed until a human fixes the harness bug, and treating it
-  // as a code-quality FAIL would send CODE-FIX at a defect that isn't there.
-  if (/\[HARNESS-BUG\]/.test(frReportText)) {
+  // L1.6 (R66 narrow): previously `/\[HARNESS-BUG\]/` alone — false-matched the
+  // TDD agent's proof-by-absence quote ('No [HARNESS-BUG] in log') on FR-04 2026-08-22.
+  // Require the harness banner's literal second-line within 200 chars.
+  if (/\[HARNESS-BUG\][\s\S]{0,200}This is a bug in harness-methodology itself/i.test(frReportText)) {
     log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
     return { harness_bug_detected: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
