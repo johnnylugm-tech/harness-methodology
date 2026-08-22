@@ -32,7 +32,7 @@ _HEADER_4 = f"""\
 _META_PHASES_4 = [
     "Entry & Preflight", "Test Plan", "Env Check",
     "Load FRs", "Per-FR Delta", "Coverage", "Bug Hunt", "Artifacts Commit",
-    "Gate 3", "Advance", "Sync",
+    "Gate 3", "Preview Next-Phase", "Advance", "Sync",
 ]
 
 
@@ -237,6 +237,7 @@ def generate_phase4() -> str:
             include_manifest_integrity=False,
             deferred_fixes_step=_GATE3_DEFERRED_FIXES_STEP,
         ),
+        B.render_preview_next_phase(4),
         B.render_advance_loop(
             phase=4, next_phase=5,
             precheck_steps=[

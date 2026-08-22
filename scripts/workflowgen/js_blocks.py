@@ -360,6 +360,79 @@ def render_entry_preflight(
     )
 
 
+def render_preview_next_phase(phase: int) -> str:
+    """Read-only carry-over-obligation check between Peer Review and Push.
+
+    `harness_cli.py preview-next-phase --phase N` (Round 15 §2) simulates
+    the P(N+1) entry preflight — the same ten `_DELAYED_BLOCKING_PREFLIGHTS`
+    categories (drift_detection / sab / traceability / fr_spec_consistency /
+    property_spec / artifact_consistency / reliability_lint / config_liveness /
+    previous_phase_artifacts / bvs_phase_order) that `advance-phase`'s own
+    carry-over preview inspects — one phase earlier, so a finding is still
+    fixable from inside THIS phase's own loop instead of only visible after
+    Push has already published the phase's commit.
+
+    No phase workflow called this before (measured on taskq-api
+    2026-08-22: P2 burned ~40 agent dispatches / ~50 minutes before the
+    exact findings this step predicts surfaced at the literal last step,
+    `advance-phase --completed 2`, over TEST_SPEC.md AC citations that
+    `check-artifact-consistency` mid-loop could never have caught — that
+    CLI command gates the same checks on `current_phase >= 3`, which is
+    always false while still inside phase N's own authoring loop).
+
+    Read-only and idempotent (writes no state.json/HANDOVER/commit) —
+    calling it every round costs one cheap dispatch and has no state to
+    corrupt if the fixer round doesn't converge.
+
+    The fixer round hands the agent the obligation list verbatim rather
+    than a per-check-id template: obligations name their own file/rule_id
+    (`Obligation` dataclass, `core/phase_hooks.py`), so the fix is always
+    "open what this line names and close the gap it describes" regardless
+    of which of the ten categories fired — one prompt covers all of them
+    without hardcoding a per-category branch that would drift from
+    `_obligations_from_preflight`'s own extractors.
+    """
+    next_phase = phase + 1
+    return (
+        render_phase_header("Preview Next-Phase")
+        + f"log('preview-next-phase --phase {phase} (predict Phase {next_phase} entry-blocking findings before Push)')\n"
+        + "const MAX_PREVIEW_FIX_ROUNDS = 3\n"
+        + "let previewClean = false, previewReport = null\n"
+        + "for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {\n"
+        + "  previewReport = await agent(\n"
+        + f"    'YOU ARE THE PHASE-{phase} PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\\n'\n"
+        + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + f"    + 'Run EXACTLY: `' + PY + ' ' + REPO + '/harness_cli.py preview-next-phase --phase {phase} --project ' + REPO + '`\\n'\n"
+        + "    + 'READ-ONLY — no state/HANDOVER/commit writes.\\n\\n'\n"
+        + "    + 'Report via the StructuredOutput tool: pass = true ONLY if the output says \"clean — no blocking obligations predicted\"; reason = the verbatim output (or its obligation lines if long).',\n"
+        + "    { label: 'preview-next-phase-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
+        + "  )\n"
+        + "  previewClean = !!(previewReport && previewReport.pass === true)\n"
+        + "  if (previewClean) { log('  → Preview Next-Phase: clean'); break }\n"
+        + "  log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')\n"
+        + "  if (round < MAX_PREVIEW_FIX_ROUNDS) {\n"
+        + "    const fixReport = await agent(\n"
+        + f"      'YOU ARE THE PHASE-{phase} PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\\n'\n"
+        + "      + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + f"      + 'The following obligations were predicted to block Phase {next_phase} entry:\\n\\n'\n"
+        + "      + String((previewReport && previewReport.reason) ?? '') + '\\n\\n'\n"
+        + "      + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\\n\\n'\n"
+        + "      + 'SCOPE:\\n- ONLY what is named.\\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\\'t route around it.\\n- NOT phase-transition/push/advance-phase.',\n"
+        + "      { label: 'preview-fix-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose' },\n"
+        + "    )\n"
+        + render_session_block_guard(
+            'fixReport', 'preview-next-phase-fix', phase,
+            message='Agent hit session/rate limit during the pre-push obligation fixer. Resume after quota reset — state.json is untouched.',
+            indent='    ',
+        )
+        + "  }\n"
+        + "}\n"
+        + "if (!previewClean) {\n"
+        + f"  return halt('preview-next-phase', {{ error: 'Phase {next_phase} entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) }})\n"
+        + "}\n"
+    )
+
+
 def render_env_check(phase: int) -> str:
     envcheck_log = f"/tmp/envcheck_phase{phase}.log"
     return (

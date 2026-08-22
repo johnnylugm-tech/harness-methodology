@@ -32,7 +32,7 @@ _HEADER_6 = f"""\
 
 _META_PHASES_6 = [
     "Entry & Preflight", "Gate 4", "Release Docs",
-    "Peer Review", "Tag & Advance", "Sync",
+    "Peer Review", "Preview Next-Phase", "Tag & Advance", "Sync",
 ]
 
 # See spec_phase4._D4_THRESHOLD_P4 — spec-coverage-check's floor is not a gate
@@ -318,6 +318,7 @@ def generate_phase6() -> str:
         ),
         _render_phase6_release_docs(),
         _render_phase6_peer_review(),
+        B.render_preview_next_phase(6),
         _render_phase6_tag_advance(),
         B.render_sync_verified(),
         (

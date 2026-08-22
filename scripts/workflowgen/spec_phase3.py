@@ -34,7 +34,7 @@ _HEADER_3 = """\
 
 _META_PHASES_3 = [
     "Entry & Preflight", "Env Check", "Load FRs",
-    "Per-FR TDD", "Milestones", "Gate 2", "Advance", "Sync",
+    "Per-FR TDD", "Milestones", "Gate 2", "Preview Next-Phase", "Advance", "Sync",
 ]
 
 
@@ -460,6 +460,7 @@ def generate_phase3() -> str:
             on_fail_error_msg="Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=True,
         ),
+        B.render_preview_next_phase(3),
         B.render_advance_loop(
             phase=3, next_phase=4,
             precheck_steps=[

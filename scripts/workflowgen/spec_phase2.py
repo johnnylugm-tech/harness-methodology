@@ -59,7 +59,7 @@ _META_PHASES_2 = [
     "Entry & Preflight", "Load Upstream", "Sub-Task 1/3 — SAD.md",
     "Sub-Task 2/3 — ADR.md", "Constitution Check — ADR",
     "Sub-Task 3/3 — TEST_SPEC.md", "SAB Generation", "Constitution Check",
-    "Peer Review", "Push", "Advance", "Sync",
+    "Peer Review", "Preview Next-Phase", "Push", "Advance", "Sync",
 ]
 
 _PHASE2_MAX_ROUND_CONSTS = (
@@ -597,6 +597,7 @@ def generate_phase2() -> str:
         _render_phase2_sab_generation(),
         _render_phase2_constitution_check(),
         _render_phase2_peer_review(),
+        B.render_preview_next_phase(2),
         _render_phase2_push(),
         _render_phase2_advance(),
         B.render_sync_verified(),

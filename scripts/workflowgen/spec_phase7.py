@@ -31,7 +31,7 @@ _HEADER_7 = """\
 _META_PHASES_7 = [
     "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR Delta", "Risk Docs", "Artifacts Commit", "Milestone",
-    "Advance", "Sync",
+    "Preview Next-Phase", "Advance", "Sync",
 ]
 
 
@@ -102,6 +102,7 @@ def generate_phase7() -> str:
             label="milestone-p7",
             extra_note=" (after risk register complete)",
         ),
+        B.render_preview_next_phase(7),
         B.render_advance_loop(
             phase=7, next_phase=8,
             scope_extra="- DO NOT re-do P7 docs.\\n",

@@ -36,7 +36,7 @@ _HEADER_5 = """\
 _META_PHASES_5 = [
     "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR Delta", "Verification Docs", "Artifacts Commit", "Milestone",
-    "Advance", "Sync",
+    "Preview Next-Phase", "Advance", "Sync",
 ]
 
 
@@ -112,6 +112,7 @@ def generate_phase5() -> str:
             label="milestone-baseline",
             extra_note=" (after VERIFICATION_REPORT.md generated)",
         ),
+        B.render_preview_next_phase(5),
         B.render_advance_loop(
             phase=5, next_phase=6,
             precheck_steps=[

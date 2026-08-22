@@ -55,6 +55,60 @@ class TestEntryPreflight:
         assert "DO NOT generate BASELINE docs" in text
 
 
+class TestPreviewNextPhase:
+    """Fix B (Round 15 §2's `preview-next-phase` was never wired into any
+    phase workflow): a read-only carry-over-obligation check + bounded
+    3-round fixer, inserted before each phase's own Push/Advance step so a
+    `_DELAYED_BLOCKING_PREFLIGHTS` finding surfaces inside that phase's own
+    loop instead of only at its `advance-phase` exit gate. See
+    scripts/workflowgen/artifact_limits.py's RUNALL_MAX_BYTES entry for the
+    measured taskq-api incident this closes.
+    """
+
+    def test_checker_uses_schema_not_prose_regex(self):
+        # sim_runner's generic happy-path responder synthesizes a passing
+        # object for any schema call but only a fixed narrative string for a
+        # schema-less one — a plain-text regex on that string never matches,
+        # which is exactly the false-halt round50's sim caught before ship.
+        text = B.render_preview_next_phase(2)
+        assert "schema: VERDICT_SCHEMA" in text
+        assert "PHASE-2 PRE-PUSH OBLIGATION CHECKER" in text
+        assert "--phase 2" in text
+        assert "Phase 3 entry" in text
+
+    def test_fixer_forbids_harness_edits_and_fabricated_cases(self):
+        text = B.render_preview_next_phase(2)
+        assert "NOT harness/ (HR-17)" in text
+        assert "Never fabricate a case to force a citation" in text
+        assert "NOT phase-transition" in text
+
+    def test_bounded_retry_then_escalate(self):
+        text = B.render_preview_next_phase(2)
+        assert "MAX_PREVIEW_FIX_ROUNDS = 3" in text
+        assert "halt('preview-next-phase'" in text
+
+    def test_present_before_advance_in_every_phase(self):
+        # Every phase's own Advance-triggering step ("Advance", "Tag &
+        # Advance", "Final Push") must come AFTER "Preview Next-Phase" in
+        # both the meta phases list and the actual generated dispatch order
+        # — the whole point is catching the obligation before that step
+        # commits/advances, not after.
+        advance_titles = {
+            1: "Advance", 2: "Advance", 3: "Advance", 4: "Advance",
+            5: "Advance", 6: "Tag & Advance", 7: "Advance", 8: "Final Push",
+        }
+        for phase, advance_title in advance_titles.items():
+            text = generate(phase)
+            preview_pos = text.find("phase('Preview Next-Phase')")
+            advance_pos = text.find(f"phase('{advance_title}')")
+            assert preview_pos != -1, f"phase {phase}: no Preview Next-Phase step"
+            assert advance_pos != -1, f"phase {phase}: no {advance_title!r} step"
+            assert preview_pos < advance_pos, (
+                f"phase {phase}: Preview Next-Phase must come before "
+                f"{advance_title!r}, found at {preview_pos} >= {advance_pos}"
+            )
+
+
 class TestManifestIntegrity:
     def test_defines_the_helper_without_calling_it(self):
         # Round 22 站2: the renderer emits the helper only. Its former entry
@@ -134,7 +188,7 @@ class TestPhase8Generation:
         assert titles == [
             "Entry & Preflight", "Env Check", "Load FRs",
             "Per-FR Delta", "Config Docs", "Artifacts Commit", "Archive",
-            "Final Push", "Sync",
+            "Preview Next-Phase", "Final Push", "Sync",
         ]
 
     def test_no_forbidden_runtime_apis(self):

@@ -33,6 +33,7 @@ export const meta = {
     { title: 'Verification Docs' },
     { title: 'Artifacts Commit' },
     { title: 'Milestone' },
+    { title: 'Preview Next-Phase' },
     { title: 'Advance' },
     { title: 'Sync' },
   ],
@@ -563,6 +564,47 @@ const milestoneReport = await dispatch(
 )
 if (!(milestoneReport && milestoneReport.pass === true)) {
   return halt('milestone', { error: 'Phase 5 p5-baseline milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' })
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// Phase: Preview Next-Phase
+// ══════════════════════════════════════════════════════════════════════════
+
+phase('Preview Next-Phase')
+log('preview-next-phase --phase 5 (predict Phase 6 entry-blocking findings before Push)')
+const MAX_PREVIEW_FIX_ROUNDS = 3
+let previewClean = false, previewReport = null
+for (let round = 1; round <= MAX_PREVIEW_FIX_ROUNDS; round++) {
+  previewReport = await dispatch(
+    'YOU ARE THE PHASE-5 PRE-PUSH OBLIGATION CHECKER. Round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + '.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + 'Run EXACTLY: `' + PY + ' ' + REPO + '/harness_cli.py preview-next-phase --phase 5 --project ' + REPO + '`\n'
+    + 'READ-ONLY — no state/HANDOVER/commit writes.\n\n'
+    + 'Report via the StructuredOutput tool: pass = true ONLY if the output says "clean — no blocking obligations predicted"; reason = the verbatim output (or its obligation lines if long).',
+    { label: 'preview-next-phase-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+  )
+  previewClean = !!(previewReport && previewReport.pass === true)
+  if (previewClean) { log('  → Preview Next-Phase: clean'); break }
+  log('  → obligation(s) found (round ' + round + '/' + MAX_PREVIEW_FIX_ROUNDS + ')')
+  if (round < MAX_PREVIEW_FIX_ROUNDS) {
+    const fixReport = await dispatch(
+      'YOU ARE THE PHASE-5 PRE-PUSH OBLIGATION FIXER. Round ' + round + '.\n'
+      + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+      + 'The following obligations were predicted to block Phase 6 entry:\n\n'
+      + String((previewReport && previewReport.reason) ?? '') + '\n\n'
+      + 'Each names a file/rule_id — open it, close the gap surgically. Never fabricate a case to force a citation.\n\n'
+      + 'SCOPE:\n- ONLY what is named.\n- NOT harness/ (HR-17) — a framework bug: STOP, report, don\'t route around it.\n- NOT phase-transition/push/advance-phase.',
+      { label: 'preview-fix-r' + round, phase: 'Preview Next-Phase', agentType: 'general-purpose' },
+    )
+    if (fixReport === null || fixReport === undefined || fixReport === '' || typeof fixReport !== 'string') {
+      log('  preview-next-phase-fix agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+      return { session_limit_blocked: true, phase: 5, step: 'preview-next-phase-fix', message: 'Agent hit session/rate limit during the pre-push obligation fixer. Resume after quota reset — state.json is untouched.' }
+    }
+  }
+}
+if (!previewClean) {
+  return halt('preview-next-phase', { error: 'Phase 6 entry obligations still present after ' + MAX_PREVIEW_FIX_ROUNDS + ' round(s) — escalate to human', raw: String((previewReport && previewReport.reason) ?? 'agent returned null').slice(-1200) })
 }
 
 

@@ -35,7 +35,7 @@ _HEADER_8 = """\
 _META_PHASES_8 = [
     "Entry & Preflight", "Env Check", "Load FRs",
     "Per-FR Delta", "Config Docs", "Artifacts Commit", "Archive",
-    "Final Push", "Sync",
+    "Preview Next-Phase", "Final Push", "Sync",
 ]
 
 
@@ -192,6 +192,7 @@ def generate_phase8() -> str:
             phase=8,
         ),
         _render_archive(),
+        B.render_preview_next_phase(8),
         _render_final_push(),
         B.render_sync_verified(extra_lines=[
             "3. `git -C ' + REPO + ' tag -l \\\"harness-v*\\\" | head -3` — confirm any Phase 6 gate4 tag is pushed; if there is a P6 tag but `git push origin --tags` hasn\\'t run yet, push tags.",

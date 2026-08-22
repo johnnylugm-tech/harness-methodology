@@ -132,6 +132,10 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "state.json last_gate >= this gate transcribed (VERDICT_SCHEMA); skips "
      "the round loop only when finalize-gate already fully finalized this "
      "gate (Phase Truth included), not merely SSI-scored"),
+    (r"^preview-next-phase-r$", "carrier", "schema",
+     "preview-next-phase CLI (read-only P(N+1) carry-over-obligation "
+     "check) rc transcribed into VERDICT_SCHEMA; pass=true only on the "
+     "literal 'clean — no blocking obligations predicted' line"),
     # ── judgment: the LLM output IS the work product ──
     (r"^a-$", "judgment", "none",
      "A agents author deliverable content (SRS/SAD/ADR/TEST_SPEC…)"),
@@ -141,6 +145,9 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "holistic peer review; balanced-JSON parse + field validation"),
     (r"^peer-fix-r$", "judgment", "none",
      "fixer applies peer-review gaps; next review round is the gate"),
+    (r"^preview-fix-r$", "judgment", "none",
+     "fixer applies preview-next-phase obligations; next round's "
+     "preview-next-phase-r carrier is the gate, not this dispatch's prose"),
     (r"^tdd-$", "judgment", "js-regex",
      "drives run-fr-step TDD chain; gate1-verify carrier is the verdict"),
     (r"^delta-$", "judgment", "js-regex",

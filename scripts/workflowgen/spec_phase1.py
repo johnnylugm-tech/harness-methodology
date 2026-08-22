@@ -90,7 +90,7 @@ _META_PHASES_1 = [
     "Preflight", "Load Project Brief", "Sub-Task 1/4 — SRS.md",
     "Sub-Task 2/4 — SPEC_TRACKING.md", "Sub-Task 3/4 — TRACEABILITY_MATRIX.md",
     "Sub-Task 4/4 — TEST_INVENTORY.yaml", "Constitution Check", "Peer Review",
-    "Load Legal Artifacts", "Forward Ref Check", "Push", "Advance", "Sync",
+    "Load Legal Artifacts", "Forward Ref Check", "Preview Next-Phase", "Push", "Advance", "Sync",
 ]
 
 _PHASE1_HEADER_TAIL = """\
@@ -985,6 +985,7 @@ def generate_phase1() -> str:
         _render_phase1_constitution_check(),
         _render_phase1_peer_review_call(),
         _render_phase1_forward_ref_check(),
+        B.render_preview_next_phase(1),
         _render_phase1_push(),
         _render_phase1_advance(),
         B.render_sync_verified(),
