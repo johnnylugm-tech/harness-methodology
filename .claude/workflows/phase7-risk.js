@@ -446,7 +446,9 @@ for (const frId of deltaTodo) {
   // that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.
   // Abort once the structural signal is observed.
   const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
-  if (/structurally broken dispatch environment/i.test(frReportText) || /\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
+  // Round 66: narrow match — the TDD prompt writes 'structurally broken dispatch
+  // environment' on ANY [FATAL], so the broad regex false-matched AAP-INFRA.
+  if (/\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
     log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
