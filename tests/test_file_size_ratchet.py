@@ -611,7 +611,7 @@ _LINE_CEILING: dict[str, int] = {
     "core/agent_spawner.py": 1286,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: GitHubFetcher/
     # LocalFetcher.get_file_content now log the swallowed decode/read error.
-    "scripts/phase_auditor.py": 1856,
+    "scripts/phase_auditor.py": 1901,  # 2026-08-22: +45 — Round 69 站4. Net of a 17-line deletion inside check_c5_content_depth: the inline heading loop and the substring comparison are gone, replaced by two module-level pure functions (`_srs_in_scope_fr_ids`, `_matrix_fr_ids`) the tests can call without a fetcher. Most of the growth is the comment block recording what 54651a0 introduced and how it was measured — three defects live on all eight corpus projects: `(?:N)?FR-` invented FR-06..FR-09 on taskq, FR-09..FR-12 on taskq-plus/renew and FR-11/FR-12 everywhere else (all `### NFR-nn:` headings); the `-deferred` test ran against the heading INCLUDING its title so it never fired; and the matrix comparison was a substring test, which is why the first defect never surfaced as a false Missing:. After the fix every corpus project's SRS FR set equals its matrix FR set exactly. Previous: 1856.
     # 2026-08-22: 1848 -> 1856 (+8). Round 69 站1: C5's `_check_traceability_depth`
     # FR-coverage check used `re.findall(r"\\bFR-\\d+\\b", srs)` over the whole
     # SRS.md body, which caught unpadded section refs in

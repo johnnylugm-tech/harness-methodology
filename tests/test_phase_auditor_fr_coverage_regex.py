@@ -92,9 +92,16 @@ def _matrix_with_three_frs():
 
 
 def test_fr_coverage_counts_headings_only():
-    """The check sees only the four in-scope headings (3 FR + 1 NFR),
-    not the unpadded prose references. All four appear in the matrix.
-    Expected: PASS with "covers all 4 FR(s) from SRS"."""
+    """The check sees only the three FR headings, not the unpadded prose
+    references and not the NFR heading. Expected: PASS with "all 3 FR(s)".
+
+    Round 69 站4 — this assertion used to read `all 4 FR(s)`, and that 4 was
+    the product of two defects cancelling. `### NFR-01:` was folded into the
+    FR namespace as FR-01 (merging with the real FR-01, so it cost nothing
+    visible here) and `### FR-99-deferred: <title>` was NOT excluded, because
+    the `-deferred` test ran against the whole heading including its title.
+    Three real FRs plus FR-99 came to 4. Both are fixed; the denominator is 3.
+    """
     files = {
         "01-requirements/SRS.md": _srs_with_headings_and_unpadded_prose(),
         "01-requirements/TRACEABILITY_MATRIX.md": _matrix_with_three_frs(),
@@ -104,14 +111,17 @@ def test_fr_coverage_counts_headings_only():
     fr_findings = [f for f in a.result.findings if "covers" in f.title]
     assert fr_findings, "expected an FR-coverage finding"
     title = fr_findings[0].title
-    # Heading-derived set has 4 IDs (FR-01, FR-02, FR-03, FR-99 from NFR-99).
-    # PASS branch renders "covers all 4 FR(s) from SRS".
-    assert "all 4 FR(s)" in title, f"expected PASS with 4, got: {title!r}"
+    assert "all 3 FR(s)" in title, f"expected PASS with 3, got: {title!r}"
     assert fr_findings[0].severity == "PASS"
 
 
 def test_fr_coverage_excludes_deferred_headings():
-    """`### FR-XX-deferred:` headings must not enter the in-scope set."""
+    """`### FR-XX-deferred: <title>` headings must not enter the in-scope set.
+
+    The fixture's deferral carries a title, which is how projects actually
+    write it (taskq-new SRS.md:1402). Matching `-deferred` against the whole
+    heading line never fired.
+    """
     files = {
         "01-requirements/SRS.md": _srs_with_headings_and_unpadded_prose(),
         "01-requirements/TRACEABILITY_MATRIX.md": _matrix_with_three_frs(),
@@ -120,9 +130,7 @@ def test_fr_coverage_excludes_deferred_headings():
     a.check_c5_content_depth()
     fr_findings = [f for f in a.result.findings if "covers" in f.title]
     title = fr_findings[0].title
-    # FR-99-deferred must not be in the denominator — the heading-derived
-    # set is 4 IDs, not 5.
-    assert "all 4 FR(s)" in title, f"deferred heading should be excluded: {title!r}"
+    assert "all 3 FR(s)" in title, f"deferred heading should be excluded: {title!r}"
 
 
 def test_fr_coverage_normalises_unpadded_heading():
@@ -176,24 +184,22 @@ def test_old_regex_would_have_overcounted():
     """The bare `\\bFR-\\d+\\b` regex counts every occurrence anywhere in
     the file. With the prose notes that contain `FR-1`, `FR-2`, it would
     produce 6 distinct IDs (FR-1, FR-2, FR-01, FR-02, FR-03, FR-99).
-    The fix must yield exactly 4 (the in-scope headings)."""
+    The fix must yield exactly the three in-scope headings.
+
+    Round 69 站4 — this test used to re-implement the fix inline, and its copy
+    had already drifted (`^### ` against the production `^#{2,3} `), so it was
+    asserting about a regex nothing runs. It calls the production function
+    now: a test that restates the implementation agrees with its own author,
+    not with the code.
+    """
     import re
+
+    from scripts.phase_auditor import _srs_in_scope_fr_ids
+
     srs = _srs_with_headings_and_unpadded_prose()
     old = sorted(set(re.findall(r"\bFR-\d+\b", srs)))
     # Demonstrate the over-match (this is the bug evidence).
     assert len(old) == 6, (
         f"baseline assumption broken — old regex matched {old}"
     )
-    # Now apply the fix logic.
-    heading_blocks = re.findall(
-        r"^### ((?:N)?FR-\d+[^\n]*)$", srs, flags=re.MULTILINE,
-    )
-    in_scope = []
-    for h in heading_blocks:
-        if h.strip().endswith("-deferred"):
-            continue
-        m = re.match(r"(?:N)?FR-(\d+)", h)
-        if m:
-            in_scope.append(f"FR-{int(m.group(1)):02d}")
-    new = sorted(set(in_scope))
-    assert new == ["FR-01", "FR-02", "FR-03", "FR-99"], new
+    assert sorted(_srs_in_scope_fr_ids(srs)) == ["FR-01", "FR-02", "FR-03"]

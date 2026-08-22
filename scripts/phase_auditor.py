@@ -32,6 +32,7 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for direct runs
 
 from core.phase_topology import ENTRY_GATE_MAP, VALID_PHASES  # noqa: E402
+from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX  # noqa: E402
 
 
 # ─────────────────────────────────────────────
@@ -51,6 +52,65 @@ HARD_RULES = {
 # Gate entry requirements: phase → required gate number that must have PASS.
 # Sourced from the topology SSOT (core/phase_topology.py) — do not re-declare.
 _ENTRY_GATE_MAP: dict[int, int] = ENTRY_GATE_MAP
+
+
+# ── FR coverage: FR and NFR are two namespaces (Round 69 站4) ────────────────
+#
+# 54651a0 fixed a real over-match — `\bFR-\d+\b` pulled `FR-1` out of a
+# `<!-- DERIVED: SPEC §3 FR-1 -->` note and inflated the denominator — and
+# introduced three defects doing it, all three live on all eight corpus
+# projects today:
+#
+#   * `re.match(r"(?:N)?FR-(\d+)", heading)` folds NFR into FR. Measured, the
+#     ids this check invented: taskq FR-06..FR-09, taskq-plus and taskq-renew
+#     FR-09..FR-12, everyone else FR-11 and FR-12 — every one of them an
+#     `### NFR-nn:` heading read as a functional requirement. The regex it
+#     replaced could not do this: there is no word boundary inside `NFR`, so
+#     `\bFR-` never matched one. Whether NFRs are covered is
+#     `preflight_traceability` 4c's question; this check is named FR coverage.
+#   * `heading.strip().endswith("-deferred")` was evaluated against the whole
+#     heading INCLUDING its title, so `### FR-99-deferred: out of scope` never
+#     matched. taskq-advance and taskq-new both carry one.
+#   * the comparison was `fr not in content`, a substring test, so an
+#     `NFR-05` row in TRACEABILITY_MATRIX.md satisfied `FR-05`. That is why
+#     the first defect did not surface as a false "Missing:" — the two
+#     cancelled, and the shipped test's expected value was the product of both.
+#
+# The subsection-numbered heading form (`### 3.1 FR-01`) comes from
+# `SRS_SUBSECTION_PREFIX`, the same SSOT `core/quality_gate/spec_alignment.py`
+# reads, rather than a fourth local spelling of it.
+_SRS_FR_HEADING = re.compile(
+    r"^#{2,3}\s+" + SRS_SUBSECTION_PREFIX + r"(N?)FR-(\d+)(-deferred)?\b",
+    re.MULTILINE,
+)
+# An FR id anywhere in the matrix, as a token. The negative lookbehind is what
+# stops `NFR-05` from answering for `FR-05`.
+_MATRIX_FR_ID = re.compile(r"(?<![A-Za-z])FR-(\d+)\b")
+
+
+def _fr_id(num: str) -> str:
+    """Zero-pad so `FR-1` and `FR-01` are one id. Both sides, or normalising
+    one of them invents a gap on a project that writes `FR-1` in both files."""
+    return f"FR-{int(num):02d}"
+
+
+def _srs_in_scope_fr_ids(text: str) -> set[str]:
+    """Functional requirements the traceability matrix must cover.
+
+    Headings only — a prose mention cannot create a requirement. NFR headings
+    and `-deferred` headings are both out: the first belongs to another
+    namespace, the second is an explicit out-of-scope declaration.
+    """
+    return {
+        _fr_id(num)
+        for nfr, num, deferred in _SRS_FR_HEADING.findall(text)
+        if not nfr and not deferred
+    }
+
+
+def _matrix_fr_ids(text: str) -> set[str]:
+    """FR ids the matrix actually mentions."""
+    return {_fr_id(num) for num in _MATRIX_FR_ID.findall(text)}
 
 # Minimum numeric score for each exit gate (from framework spec)
 # Gate 2 = P3 exit (≥40%), Gate 3 = P4 exit (≥70%), Gate 4 = P6 QA (≥88%)
@@ -816,30 +876,15 @@ class PhaseAuditor:
                 detail="",
             ))
 
-        # FR coverage: cross-check every FR-ID from SRS.md appears in the matrix.
-        # Match only `## FR-XX:` / `### FR-XX:` (and the NFR- counterparts)
-        # heading lines so unrelated references — e.g. `<!-- DERIVED: SPEC
-        # §3 FR-1 -->` notes that cite a SPEC section by its unpadded number —
-        # do not inflate the expected count. Heading IDs are normalised to
-        # zero-padded form. Headings suffixed `-deferred` are explicit
-        # deferrals and not part of the in-scope requirement set the matrix
-        # must cover.
+        # FR coverage: cross-check every FR-ID from SRS.md appears in the
+        # matrix. Both sides are read as ID SETS (see `_srs_in_scope_fr_ids` /
+        # `_matrix_fr_ids` above) rather than one side scanned and the other
+        # substring-searched — `NFR-05` contains `FR-05`.
         srs = self._content(["01-requirements/SRS.md"]) or ""
-        heading_blocks = re.findall(
-            r"^#{2,3} ((?:N)?FR-\d+[^\n]*)$",
-            srs,
-            flags=re.MULTILINE,
-        )
-        in_scope = []
-        for heading in heading_blocks:
-            if heading.strip().endswith("-deferred"):
-                continue
-            m = re.match(r"(?:N)?FR-(\d+)", heading)
-            if m:
-                in_scope.append(f"FR-{int(m.group(1)):02d}")
-        srs_frs = sorted(set(in_scope))
+        srs_frs = sorted(_srs_in_scope_fr_ids(srs))
         if srs_frs:
-            missing_frs = [fr for fr in srs_frs if fr not in content]
+            matrix_frs = _matrix_fr_ids(content)
+            missing_frs = [fr for fr in srs_frs if fr not in matrix_frs]
             covered = len(srs_frs) - len(missing_frs)
             pct = covered / len(srs_frs) * 100
             if pct >= 100:
