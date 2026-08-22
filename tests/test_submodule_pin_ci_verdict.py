@@ -116,6 +116,97 @@ def test_no_submodule_is_not_a_failure(tmp_path):
     assert res.get("skipped") is True, f"an absent pin must say so: {res}"
 
 
+def test_a_local_only_pin_bypasses_the_ci_check(tmp_path):
+    """Round 2026-08-23 (HARNESS-FIX): a pin on a commit not yet on any
+    remote-tracking branch cannot have a CI verdict yet — the verdict is
+    structurally absent, not red and not a real INFRA failure. The bypass
+    reports `passed=True` with `skipped="local_only_pin"` (Round 46) and
+    a message that points at the push command the operator must run.
+
+    Pushed pins still go through the strict path (the existing tests above
+    pin `here cover that). Only this specific temporal-state case is bypassed.
+    """
+    import subprocess as _sp
+    from core.quality_gate.submodule_pin import (
+        _commit_pushed_to_origin, submodule_pin_verdict,
+    )
+
+    # Build a real git repo at tmp_path/"harness" so the helper can query
+    # remote-tracking branches without any mocked module globals.
+    submodule_dir = tmp_path / "harness"
+    submodule_dir.mkdir()
+    _sp.run(["git", "-C", str(submodule_dir), "init", "--quiet"],
+            check=True, capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "config", "user.email",
+             "test@local"], check=True, capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "config", "user.name", "t"],
+            check=True, capture_output=True)
+    (submodule_dir / "f").write_text("x\n")
+    _sp.run(["git", "-C", str(submodule_dir), "add", "f"], check=True,
+            capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "commit", "-m", "i",
+             "--quiet"], check=True, capture_output=True)
+    sha = _sp.run(["git", "-C", str(submodule_dir), "rev-parse", "HEAD"],
+                  capture_output=True, text=True).stdout.strip()
+
+    # No remote-tracking branches → commit is local-only.
+    assert _commit_pushed_to_origin(submodule_dir, sha) is False, (
+        "a freshly-committed SHA with no remotes should register as "
+        "local-only, not as pushed"
+    )
+
+    # High-level verdict: passed, but clearly marked as skipped-by-design
+    # with the push hint, NOT converted into a silent pass.
+    res = submodule_pin_verdict(tmp_path, pinned_sha=sha,
+                                runner=_unavailable_runner)
+    assert res["passed"] is True, (
+        "a local-only pin must not be flagged INFRA — its CI verdict is "
+        f"structurally absent, not red; got {res}"
+    )
+    assert res.get("skipped") == "local_only_pin", (
+        f"a local-only pin must say so explicitly, never silently; got {res}"
+    )
+    assert "push" in res["message"].lower(), (
+        f"the bypass message must tell the operator how to get a real CI "
+        f"verdict; got {res['message']}"
+    )
+
+    # After pushing to a real remote-tracking branch, the same verdict
+    # goes through the STRICT path again — runner returns "unavailable"
+    # → block with infra=True (preserves Round 37).
+    _sp.run(["git", "-C", str(submodule_dir), "checkout", "-b", "rel",
+             "--quiet"], check=True, capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "update-ref",
+             "refs/remotes/origin/rel", sha], check=True,
+            capture_output=True)
+    assert _commit_pushed_to_origin(submodule_dir, sha) is True, (
+        "a SHA on a remote-tracking branch must register as pushed"
+    )
+    strict = submodule_pin_verdict(tmp_path, pinned_sha=sha,
+                                    runner=_unavailable_runner)
+    assert strict["passed"] is False, (
+        "once pushed, a real-but-unobtainable verdict must still INFRA-block"
+    )
+    assert strict.get("infra") is True, (
+        "Round 37's rule is preserved for the pushed-but-unavailable case"
+    )
+
+
+def test_a_path_that_is_not_a_git_dir_falls_through_to_strict(tmp_path):
+    """A tmp_path that lacks the `harness` dir entirely must NOT register
+    as a local-only pin — the bypass would lie about a pin that does not
+    exist. Helper returns True (conservative); caller falls through to
+    the existing INFRA path."""
+    from core.quality_gate.submodule_pin import _commit_pushed_to_origin
+
+    # tmp_path has no `harness` subdir at all → conservative True.
+    assert _commit_pushed_to_origin(tmp_path / "harness",
+                                    "a" * 40) is True, (
+        "an absent submodule must NOT be classified as local-only — that "
+        "would bypass the CI check on a pin that does not exist"
+    )
+
+
 def test_the_check_is_in_the_preflight_registry():
     """A checker nothing calls is the shape this whole round is about.
 

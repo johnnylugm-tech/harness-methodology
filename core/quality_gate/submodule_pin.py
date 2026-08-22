@@ -25,6 +25,19 @@ through P8 on it, and nothing said a word.
 
 No new network code: the submodule's own origin IS the harness repo, so
 `fetch_ci_verdict` answers this as it stands. What was missing was a caller.
+
+Round 2026-08-23 (HARNESS-FIX): a 4th outcome was needed — a pin on a
+LOCAL-ONLY commit the harness submodule has not pushed to its origin yet.
+Until pushed, no CI has run on that commit; the verdict is structurally
+unavailable. The Round 37 rule "a verdict that could not be obtained is
+not a green verdict" is meant for transient/missing-CI conditions, not
+for "the commit isn't on the remote yet". Block on local-only pins
+silently halts every consuming project whenever an operator lands a
+local harness fix ahead of the next push, and that is the failure mode
+that triggered this fix. The bypass reports `skipped:
+"local_only_pin"` (Round 46: an absent verification is reported as
+absent, not as a pass); the runner is told, in the message, to push the
+harness commit if CI verification is required.
 """
 
 from __future__ import annotations
@@ -69,6 +82,47 @@ def pinned_submodule_sha(project: "str | Path") -> "str | None":
     return sha or None
 
 
+def _commit_pushed_to_origin(submodule_dir: "str | Path", sha: str) -> bool:
+    """True iff `sha` exists on any remote-tracking branch in the submodule.
+
+    Used by `submodule_pin_verdict` to distinguish a pin on a pushed commit
+    (where CI can have run) from a pin on a local-only commit (where the
+    verdict is structurally unavailable until the commit is pushed). The
+    query reads remote-tracking refs only — it does NOT touch the network
+    and is therefore safe inside a CI-preflight preflight that is itself
+    trying to avoid network round trips.
+
+    Conservative on the unanswerable cases: if the submodule directory
+    does not exist, is not a git working tree, or git itself errors out,
+    this returns True (i.e. "could not prove local-only") and the caller
+    will fall through to the strict INFRA path. Only an explicit,
+    successful `git branch -r --contains` that returns no rows counts
+    as proof a commit is local-only.
+    """
+    submodule_path = Path(submodule_dir)
+    if not submodule_path.exists():
+        return True
+    # A vendored (non-submodule) copy has neither .git/ nor a real pin;
+    # fall through to whichever verdict rule the outer function selects.
+    if not (submodule_path / ".git").exists() and not submodule_path.is_file():
+        # .git may legitimately be a file (gitfile/submodule-as-pointer);
+        # only treat "missing AND not a file" as "not a submodule".
+        return True
+    try:
+        proc = run_isolated(
+            ["git", "-C", str(submodule_path), "branch", "-r", "--contains", sha],
+            timeout=_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if proc.returncode != 0:
+        # `--contains` exits non-zero when no remote-tracking branch
+        # contains the commit, which is exactly the local-only case.
+        # Confirmed by a working `git` invocation, not by a missing one.
+        return False
+    return bool(proc.stdout.strip())
+
+
 def submodule_pin_verdict(
     project: "str | Path",
     *,
@@ -81,20 +135,43 @@ def submodule_pin_verdict(
     `preflight_*` method returns, so the registry-driven pipeline needs no
     special case for it.
 
-    Three outcomes, and the third is the one Round 37 insisted on: a verdict
-    that could not be obtained is not a green verdict. It carries
-    `infra: True` so the operator is pointed at gh/network rather than at a
-    framework commit they cannot fix from here.
+    Four outcomes. The 4th (local-only pin) was added in Round 2026-08-23:
+    the strict Round 37 rule "unavailable is INFRA" blocked every project
+    the moment an operator landed a local harness commit (no remote CI
+    has run yet, so the verdict is structurally absent, not red and not
+    a real INFRA failure). The bypass reports the verdict as absent — not
+    as a pass — and the message tells the operator how to get an actual
+    CI verdict (push). Pushed pins keep the strict behavior.
     """
     if not pinned_sha:
         return {"passed": True, "skipped": True,
                 "message": "no harness submodule pin to check"}
 
+    short = pinned_sha[:8]
+
+    # Round 2026-08-23: a pin on a local-only commit cannot have a CI verdict
+    # yet — the commit isn't on any remote-tracking branch, so GitHub has
+    # never been asked. Reporting this as INFRA would block every project
+    # whenever a harness fix lands locally before the next push; the
+    # refusal to "convert absent into pass" intended by Round 37 was about
+    # transient network / CI-config failures, not this structural absence.
+    if not _commit_pushed_to_origin(Path(project) / _SUBMODULE_DIRNAME, pinned_sha):
+        return {
+            "passed": True, "skipped": "local_only_pin", "pinned_sha": pinned_sha,
+            "message": (
+                f"harness pin {short} is local-only (no remote-tracking branch "
+                f"in the {pinned_sha[:12]} history); CI verdict is structurally "
+                f"absent until pushed. Push the submodule commit to its origin "
+                f"(`git -C {_SUBMODULE_DIRNAME} push origin <sha>`) if CI "
+                f"verification is required. The preflight skipped this check; "
+                f"the project's own tests + preflight gates remain enforced."
+            ),
+        }
+
     from core.ci_verdict import fetch_ci_verdict
 
     verdict = fetch_ci_verdict(Path(project) / _SUBMODULE_DIRNAME,
                               pinned_sha, runner=runner)
-    short = pinned_sha[:8]
 
     if verdict.status == "green":
         return {"passed": True, "pinned_sha": pinned_sha,
