@@ -69,3 +69,84 @@ def load_quality_manifest(project: "str | Path", *, lenient: bool = False) -> di
     as load_state."""
     project = Path(project)
     return _load_json_object(ProjectLayout(project).quality_manifest_path, lenient=lenient, project=project)
+
+
+def sync_missing_fr_traceability(project: "str | Path", fr_id: str, manifest: dict) -> dict:
+    """Backfill one `fr_module_traceability[fr_id]` entry from SAB.json into
+    quality_manifest.json, additively, if the manifest lacks it and SAB.json
+    has it. Returns the (possibly updated) manifest dict.
+
+    `quality_manifest.json`'s `fr_module_traceability` is written once, at
+    Phase-2 exit, from the SAB.json read at that moment (harness_bridge.py
+    `generate_quality_manifest`, `force=False`, never regenerated after). An
+    FR whose concrete module path is only decided during Phase 3 — the
+    documented "framework-owned, path decided at P3" placeholder pattern
+    (SRS.md §7 / TRACEABILITY_MATRIX.md, e.g. FR-99) — gets its module
+    recorded into SAB.json's `fr_module_traceability` after that snapshot,
+    so the manifest's copy silently falls behind for exactly that FR. Every
+    per-FR coverage-scope reader here (`_fr_module_paths`, `fr_coverage_record`,
+    `_gate1_per_fr_coverage_verdict`) reads ONLY the manifest, so a scope
+    that genuinely exists in SAB.json is reported as unresolvable
+    (`None`) and the FR is scored against the whole project instead of its
+    own module.
+
+    This does NOT touch the "cannot resolve scope at all" behavior any of
+    those readers document (Round 46: score the harsher whole-project
+    number rather than abstain) — it only fires when SAB.json actually HAS
+    an entry the manifest doesn't, i.e. only for genuinely resolvable
+    scope the manifest is simply out of date on. Never overwrites or
+    removes an existing manifest key (the curated, Phase-2 baseline for
+    every other FR is untouched); never raises (a missing/corrupt SAB.json
+    is "sync unavailable", same as an unresolvable scope today, matching
+    the defensive-read pattern already used for SAB.json in
+    `boundary_realism.py`/`required_artifacts.py`).
+    """
+    existing = manifest.get("fr_module_traceability")
+    if isinstance(existing, dict) and fr_id in existing:
+        return manifest  # already present — no-op, never overrides
+
+    sab_path = ProjectLayout(Path(project)).methodology_dir / "SAB.json"
+    if not sab_path.is_file():
+        return manifest
+    try:
+        sab = json.loads(sab_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return manifest
+    if not isinstance(sab, dict):
+        return manifest
+    sab_entry = sab.get("fr_module_traceability", {}).get(fr_id) if isinstance(
+        sab.get("fr_module_traceability"), dict) else None
+    if not sab_entry:
+        return manifest
+
+    from core.atomic_io import atomic_write_json, file_lock, state_lock_path
+
+    manifest_path = ProjectLayout(Path(project)).quality_manifest_path
+    try:
+        with file_lock(state_lock_path(Path(project))):
+            # Re-read under the lock: another process may have raced us
+            # (or already performed this exact backfill) since the caller's
+            # copy was loaded.
+            on_disk = _load_json_object(manifest_path, lenient=True, project=Path(project))
+            trace = on_disk.setdefault("fr_module_traceability", {})
+            if fr_id not in trace:
+                trace[fr_id] = sab_entry
+                atomic_write_json(manifest_path, on_disk)
+                record_degradation(
+                    project, "state-io.sync_missing_fr_traceability",
+                    f"quality_manifest.json fr_module_traceability missing "
+                    f"'{fr_id}' — backfilled from SAB.json ({sab_entry!r})",
+                    why="quality_manifest.json's fr_module_traceability is a "
+                        "Phase-2-exit snapshot; SAB.json is amended later in "
+                        "Phase 3 for framework-owned/placeholder FRs whose "
+                        "module path is only decided post-P2",
+                    owner="harness",
+                )
+    except OSError:
+        return manifest
+
+    updated = dict(manifest)
+    updated_trace = dict(existing) if isinstance(existing, dict) else {}
+    updated_trace[fr_id] = sab_entry
+    updated["fr_module_traceability"] = updated_trace
+    return updated

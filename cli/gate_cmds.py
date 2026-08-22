@@ -2088,6 +2088,18 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
     bridge = HarnessBridge()
     fr_id = getattr(args, "fr_id", None) or None
 
+    if args.gate == 1 and fr_id:
+        # Backfill quality_manifest.json's fr_module_traceability[fr_id] from
+        # SAB.json before any scoring runs, so every per-FR coverage-scope
+        # reader below (S4 cross-validation included) sees a resolvable
+        # scope for an FR whose module path SAB.json already declares —
+        # see core.state_io.sync_missing_fr_traceability for why this can
+        # legitimately be missing (Phase-2-frozen manifest vs. a
+        # framework-owned FR whose path is only decided in Phase 3).
+        from core.state_io import sync_missing_fr_traceability
+        sync_missing_fr_traceability(
+            project_path, fr_id, load_quality_manifest(project_path, lenient=True))
+
     print(f"\n{'='*60}\nfinalize-gate: Gate {args.gate} | Phase {args.phase}\n{'='*60}")
 
     if (code := _finalize_gate_preflight(args, project_path)) is not None:

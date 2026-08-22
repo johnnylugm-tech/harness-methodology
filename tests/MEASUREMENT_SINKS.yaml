@@ -121,6 +121,25 @@ sinks:
       that is decidable by re-running the baseline without the filter, and it
       is the measurement this row exists to make possible.
 
+  "state-io.sync_missing_fr_traceability":
+    sink: report-only
+    why: >-
+      FR-99 Gate 1 fix. quality_manifest.json's fr_module_traceability is
+      frozen at Phase-2 exit; SAB.json's copy is amended later in Phase 3
+      for a framework-owned/placeholder FR whose module path is only
+      decided post-P2 (e.g. FR-99). Every per-FR coverage-scope reader
+      (_fr_module_paths, fr_coverage_record, _gate1_per_fr_coverage_verdict)
+      reads only the manifest, so the FR's genuinely resolvable scope was
+      reported as unresolvable and the FR silently scored against the whole
+      project instead of its own module. This row records every backfill —
+      not a verdict, because the backfill itself is what makes the FR's own
+      Gate 1 test_coverage score correct; nothing needs to act on the row
+      for the fix to take effect. Reopen if a project's backfilled entry
+      ever disagrees with what a human later curates into SAD.md/SAB.json
+      for that FR — this function never overwrites an existing manifest
+      key, so that would mean the ADDITION itself, not a later edit, was
+      wrong.
+
   # ── unreviewed ─────────────────────────────────────────────────────────
   # Nobody has read these sites and asked whether anything acts on them.
   # Round 67 did not read them either, and says so rather than guessing.
