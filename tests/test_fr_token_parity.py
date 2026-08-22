@@ -73,7 +73,14 @@ FR_PATTERN_REGISTRY = [
     ("spec_alignment._FR_HEADING", spec_alignment._FR_HEADING),
     ("spec_alignment._FR_TABLE", spec_alignment._FR_TABLE),
     ("spec_alignment._FR_JSON", spec_alignment._FR_JSON),
-    ("spec_alignment._FR_DEFERRED", spec_alignment._FR_DEFERRED),
+    # Round 69 站5 split `_FR_DEFERRED` into the three structural forms the
+    # corpus writes. Each is registered separately so the (?<!N) lookbehind is
+    # proved on every one of them, not on whichever the tuple happens to
+    # start with.
+    *(
+        (f"spec_alignment._FR_DEFERRED_FORMS[{i}]", pat)
+        for i, pat in enumerate(spec_alignment._FR_DEFERRED_FORMS)
+    ),
 ]
 
 
@@ -94,7 +101,11 @@ def test_fr_patterns_still_match_genuine_frs():
         "| FR-01 | `store.py` handles persistence |"
     ) == [("01", "store.py")]
     assert spec_tracking_render._FR_CELL.findall("FR-03") == ["03"]
-    assert spec_alignment._FR_DEFERRED.findall("FR-07-deferred") == ["07"]
+    # Round 69 站5: a deferral must be structural, so the genuine-match proof
+    # uses the three shapes the corpus writes rather than a bare token.
+    assert spec_alignment._deferred_fr_ids("### FR-07-deferred: out of scope\n") == {"FR-07"}
+    assert spec_alignment._deferred_fr_ids("| FR-07-deferred | none |\n") == {"FR-07"}
+    assert spec_alignment._deferred_fr_ids("- **FR-07-deferred** — out of scope\n") == {"FR-07"}
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +149,12 @@ def test_refresh_status_table_leaves_nfr_rows_alone():
 
 
 def test_deferred_excuse_requires_a_real_fr_marker():
-    """`NFR-06-deferred` must not excuse FR-06 from front-edge coverage."""
-    assert spec_alignment._deferred_fr_ids("NFR-06-deferred") == set()
-    assert spec_alignment._deferred_fr_ids("FR-06-deferred") == {"FR-06"}
+    """`NFR-06-deferred` must not excuse FR-06 from front-edge coverage.
+
+    Round 69 站5 added a second requirement on top of the lookbehind: the
+    deferral must be STRUCTURAL. A bare token in a sentence excuses nothing
+    now, in either namespace, so the FR side is asserted through a heading.
+    """
+    assert spec_alignment._deferred_fr_ids("### NFR-06-deferred: x\n") == set()
+    assert spec_alignment._deferred_fr_ids("FR-06-deferred") == set()
+    assert spec_alignment._deferred_fr_ids("### FR-06-deferred: x\n") == {"FR-06"}

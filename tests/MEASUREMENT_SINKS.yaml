@@ -49,6 +49,21 @@ sinks:
       arch_contract_coverage (Round 67 站7) for delivered modules no contract
       reaches. The declared_only rows in the same component are report-only
       by adjudication R54; see docs/PROPOSAL_ADJUDICATIONS.md.
+  "gate:ac-deferred":
+    sink: report-only
+    why: >-
+      Round 69 站5. A criterion deferred to a named tool is not a criterion
+      that was tested, and it is not a criterion that was dropped either. The
+      `ac_deferred` finding is `info` so it does not block — an NFR verified
+      by pip-licenses or import-linter genuinely has no request/response case,
+      and before Step 1d there was no legal way to say so. This row is what
+      stops "no legal way" from becoming "free": it names every deferred id,
+      owner=project.
+    reopen_when: >-
+      the framework can confirm that a verifier named in a `Deferred:` line
+      exists and ran. Nothing does that today, so a deferral is a promise this
+      round records and cannot check. The rows are the evidence a later round
+      reads to find out which tool names are real.
   "gate:required-artifacts":
     sink: verdict
     where: >-

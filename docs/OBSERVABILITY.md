@@ -1126,6 +1126,30 @@ as having no acceptance criteria at all. Three of the eight also report one or
 two tokens that are prose describing the format; an `info` row that names its
 tokens is how you tell those apart.
 
+Round 69 站5 gives the same check two more rows, because "cited" and "covered"
+had been one word. `derive_test_cases.md`'s Step 1d tells Agent A to dispose of
+an NFR criterion that no request/response case can reach by writing a line
+reading `Deferred: AC-Nx.y — <which tool verifies this>`; the coverage check
+was a substring search, so that line satisfied it outright — including for
+`AC-N7.2` ("`08-config/SBOM.json` exists"), the criterion this module's own
+docstring cites as the one that reached delivery unverified.
+
+The check now reads three states. **`ac_deferred`** (`info`, one row per
+criterion) is a criterion with no case and a named verifier: recorded, not
+counted as coverage, and non-blocking — nothing here confirms the named
+verifier exists or ever ran, and the row is what says so.
+**`ac_deferral_unattributed`** (`error`) is a `Deferred:` line that names ids
+and no verifier; a deferral that names nobody can never be asked whether the
+thing it points at ran. `ac_no_test_case` keeps its meaning for a criterion disposed of in neither
+way. The deferral lines are removed from the text before the citation scan, or
+every deferred id would read back as cited — which is the conflation the split
+exists to end.
+
+`record_ac_deferrals` writes one `gate:ac-deferred` row to
+`.methodology/degradations.jsonl` carrying the full id list, `owner=project`.
+Non-blocking is not free (Round 68 站1): the row is what a later round reads to
+ask whether any named verifier was ever run, which nothing does today.
+
 Phase 3's Gate 1 coverage line changed shape. It used to read
 `whole-project coverage {n}%`; it now prints one row per FR with that FR's own
 percentage and the scope it was measured over (`own modules`, or

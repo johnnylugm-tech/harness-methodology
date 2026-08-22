@@ -179,7 +179,7 @@ Rules:
 > Agent A has no instruction for what to do with that NFR's declared
 > `AC-Nx.y` identifiers, and no instruction means no citation: `harness
 > check_ac_test_spec_coverage` (Round 51/55/62) requires every declared
-> AC-id from SRS.md to appear somewhere in TEST_SPEC.md's text, FR and NFR
+> AC-id from SRS.md to be disposed of somewhere in TEST_SPEC.md, FR and NFR
 > alike, with zero classification-based exemption — so an NFR that
 > legitimately needs no test case still needs its AC-ids written down
 > somewhere, or the gate reads it as a dropped requirement at P2 exit.
@@ -187,16 +187,25 @@ Rules:
 > Patterns: none... deferred to downstream phases") read as reasonable
 > prose to a human and to Agent B, but cited zero AC-ids and produced
 > dozens of avoidable P2→P3 blocking obligations.
+>
+> **A `Deferred:` line is NOT coverage** (Round 69 站5). The checker reads
+> three states, not two: cited by a case, deferred to a named verifier, or
+> uncited. A deferral is non-blocking and it is not free — each one is an
+> `ac_deferred` finding and a `gate:ac-deferred` row in the degradation
+> ledger, on record as a criterion nothing in this phase verified. Do not
+> reach for it to make a gate go quiet; reach for it when the criterion
+> genuinely has no request/response case.
 
 For every NFR whose declared `AC-Nx.y` identifiers were **not** covered by a
 Step 1 / 1b / 1c pattern activation (in whole or in part — a partially
 activated NFR still needs this for its uncovered ids):
 
-- Write ONE line per NFR, in its TEST_SPEC.md section, in exactly this shape:
+- Write ONE line per NFR, in its TEST_SPEC.md section, in exactly this shape
+  (quoted verbatim from `artifact_consistency.ac_deferral_shape()`, which is
+  what the checker matches):
 
   ```
-  Deferred: AC-Nx.y[, AC-Nx.z, ...] — <one sentence: which downstream phase
-  or which tool verifies this>, not a TEST_SPEC case.
+  Deferred: AC-Nx.y[, AC-Nx.z, ...] — <which downstream phase or which tool verifies this>, not a TEST_SPEC case.
   ```
 
 - **List every uncovered AC-id verbatim, individually.** A summary sentence

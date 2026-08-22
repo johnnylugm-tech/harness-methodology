@@ -44,9 +44,10 @@ from core.quality_gate.legal_artifacts import LEGAL_ARTIFACTS
 from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["ac_label_shape", "check_ac_identifiers", "check_ac_test_spec_coverage",
-           "check_forward_refs", "check_nfr_adr_coverage",
-           "check_module_fr_coverage"]
+__all__ = ["ac_deferral_shape", "ac_label_shape", "check_ac_identifiers",
+           "check_ac_test_spec_coverage", "check_forward_refs",
+           "check_nfr_adr_coverage", "check_module_fr_coverage",
+           "record_ac_deferrals"]
 
 # Legal deliverable filenames per stage directory (forward-reference whitelist).
 # Authoritative list lives in `core.quality_gate.legal_artifacts` (single source
@@ -439,6 +440,65 @@ def _with_dash(token: str) -> str:
     nothing and cost 29 false violations.
     """
     return token if token.startswith("AC-") else "AC-" + token[2:]
+
+
+# ── deferral: a criterion nobody will test, said out loud (Round 69 站5) ─────
+#
+# 1547d71 added Step 1d to `harness/ssi/prompts/derive_test_cases.md` for a
+# real reason: an NFR verified by `pip-licenses` / `import-linter` / `mutmut` /
+# a docstring scanner trips none of the NP-01..NP-15 patterns, gets no test
+# case from Steps 1/1b/1c, and this check — which asks only whether the id
+# appears somewhere in TEST_SPEC.md — then reads it as a dropped requirement.
+# Before Step 1d there was no legal move.
+#
+# Step 1d's legal move is a sentence, and this check was a substring search,
+# so the prompt began teaching in writing how to satisfy the gate with one
+# line of prose. `check_ac_test_spec_coverage`'s own docstring cites `AC-N7.2`
+# ("`08-config/SBOM.json` exists") as the criterion that reached delivery
+# unverified; `Deferred: AC-N7.2 — SBOM check` would have closed that gate.
+#
+# So the answer is three states, not two. A deferral is recognised, is NOT
+# counted as coverage, must name what does verify the criterion, and is
+# written to the degradation ledger — visible, non-blocking, not free.
+_AC_DEFERRAL_LINE = re.compile(r"^[ \t>*\-]*Deferred:[ \t]*(?P<body>.+)$",
+                               re.MULTILINE)
+# Em dash is the canonical separator; the two near-misses are accepted because
+# refusing them would silently push an honest deferral back into "cited", which
+# is the state this whole mechanism exists to stop it reaching.
+_DEFERRAL_SEPARATORS = ("—", "–", " - ")
+
+
+def ac_deferral_shape() -> str:
+    """The one spelling of the deferral line — for the prompt and the message.
+
+    Same binding `spec_phase1.py` already has to `ac_label_shape()`: the
+    prompt states the shape this module matches, from this module, so the two
+    cannot disagree. tests/test_ac_deferral_is_not_coverage.py holds
+    `derive_test_cases.md` to it verbatim.
+    """
+    return ("Deferred: AC-Nx.y[, AC-Nx.z, ...] — <which downstream phase or "
+            "which tool verifies this>, not a TEST_SPEC case.")
+
+
+def _parse_deferrals(text: str) -> "tuple[set[str], set[str]]":
+    """(attributed, unattributed) canonical ids from *text*'s Deferred lines.
+
+    Unattributed means the line named ids and no verifier — no `— <clause>`,
+    or an empty one. A deferral that names nobody can never be asked whether
+    the thing it points at ever ran.
+    """
+    attributed: set[str] = set()
+    unattributed: set[str] = set()
+    for m in _AC_DEFERRAL_LINE.finditer(text):
+        body = m.group("body")
+        head, why = body, ""
+        for sep in _DEFERRAL_SEPARATORS:
+            if sep in body:
+                head, _, why = body.partition(sep)
+                break
+        ids = {_with_dash(t) for t in _AC_ID_CITED.findall(head)}
+        (attributed if why.strip() else unattributed).update(ids)
+    return attributed, unattributed
 # What WANTED to be an identifier, for the parse-gap channel only. A different
 # question from `_AC_ID` (which decides what IS one), not a second spelling of
 # it: `check_ac_identifiers` reports a loose token only when `_AC_ID` finds no
@@ -644,22 +704,31 @@ def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
                 f"requirement's heading as a `#### AC-x.y` heading or as a "
                 f"bullet under {ac_label_shape()}; e.g. {sorted(present)[:3]}"))]
 
-    test_spec = ProjectLayout(project).test_spec_path
-    cited: set[str] = set()
-    if test_spec.exists():
-        # `_AC_ID_CITED`, not `_AC_ID`: TEST_SPEC sub-assertion rule_ids are
-        # routinely written without the dash (`AC1.1-status-201`), which
-        # `_AC_ID` parses as zero tokens — the dash gap then reads as "every
-        # AC is uncited". The SRS side stays `_AC_ID` so a typo never silently
-        # passes; that question is `check_ac_identifiers`'s, not this one's.
-        cited = {
-            _with_dash(t) for t in _AC_ID_CITED.findall(
-                test_spec.read_text(encoding="utf-8", errors="replace"))
-        }
+    cited, deferred, unattributed = _test_spec_dispositions(project)
 
     violations: list[Violation] = []
     for ac in sorted(declared):
-        if _with_dash(ac) in cited:
+        key = _with_dash(ac)
+        if key in cited:
+            continue
+        if key in unattributed:
+            violations.append(Violation(
+                check_type="ac_deferral_unattributed", rule_id=declared[ac],
+                severity="error", file="02-architecture/TEST_SPEC.md",
+                message=(f"{ac} ({declared[ac]}) is deferred in TEST_SPEC.md "
+                         f"with no verifier named. Write it as "
+                         f"`{ac_deferral_shape()}` — a deferral that names "
+                         f"nobody can never be asked whether the thing it "
+                         f"points at ran")))
+            continue
+        if key in deferred:
+            violations.append(Violation(
+                check_type="ac_deferred", rule_id=declared[ac],
+                severity="info", file="02-architecture/TEST_SPEC.md",
+                message=(f"{ac} ({declared[ac]}) has no TEST_SPEC case and is "
+                         f"deferred to a named verifier. Recorded, not "
+                         f"counted as coverage: nothing here checks that the "
+                         f"named verifier exists or ever ran")))
             continue
         violations.append(Violation(
             check_type="ac_no_test_case", rule_id=declared[ac], severity="error",
@@ -668,3 +737,60 @@ def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
                      f"that no TEST_SPEC case cites — this is the last point at "
                      f"which the requirement could still have been caught")))
     return violations
+
+
+def _test_spec_dispositions(
+    project: Path,
+) -> "tuple[set[str], set[str], set[str]]":
+    """(cited, deferred, unattributed) canonical ids from TEST_SPEC.md.
+
+    The deferral lines are cut out of the text BEFORE `cited` is built. They
+    contain the ids they defer, so scanning the whole file would put every
+    deferred criterion straight back into "a TEST_SPEC case cites it" — which
+    is exactly the conflation this split exists to end.
+    """
+    test_spec = ProjectLayout(project).test_spec_path
+    if not test_spec.exists():
+        return set(), set(), set()
+    text = test_spec.read_text(encoding="utf-8", errors="replace")
+    deferred, unattributed = _parse_deferrals(text)
+    remainder = _AC_DEFERRAL_LINE.sub("", text)
+    # `_AC_ID_CITED`, not `_AC_ID`: TEST_SPEC sub-assertion rule_ids are
+    # routinely written without the dash (`AC1.1-status-201`), which `_AC_ID`
+    # parses as zero tokens — the dash gap then reads as "every AC is
+    # uncited". The SRS side stays `_AC_ID` so a typo never silently passes;
+    # that question is `check_ac_identifiers`'s, not this one's.
+    cited = {_with_dash(t) for t in _AC_ID_CITED.findall(remainder)}
+    return cited, deferred - cited, unattributed - cited
+
+
+def record_ac_deferrals(project: "str | Path") -> list[str]:
+    """Write one ledger row naming every criterion deferred to a tool.
+
+    Returns the ids recorded. Non-blocking must not mean free (Round 68 站1):
+    the row is what a later round reads to ask whether any of the named
+    verifiers was ever run, which nothing does today.
+
+    Never raises — a project whose TEST_SPEC cannot be read is a worse reason
+    to stop a gate than the thing this was going to report.
+    """
+    from core.degradation_ledger import record_degradation
+
+    project = Path(project)
+    try:
+        _, deferred, _ = _test_spec_dispositions(project)
+    except OSError:
+        return []
+    if not deferred:
+        return []
+    ids = sorted(deferred)
+    record_degradation(
+        project, "gate:ac-deferred",
+        f"{len(ids)} acceptance criterion(s) deferred to a named tool "
+        f"instead of a TEST_SPEC case",
+        why=("a deferral is a promise that something else verifies the "
+             "criterion, and no check confirms the named verifier exists or "
+             "ever ran — the criterion is on record as unverified here"),
+        data={"deferred": ids}, owner="project",
+    )
+    return ids

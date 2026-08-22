@@ -44,9 +44,31 @@ _FR_HEADING = re.compile(
     r"^#{1,6}\s*" + SRS_SUBSECTION_PREFIX + r"FR-(\d+)\b", re.MULTILINE)
 _FR_TABLE = re.compile(r"^\|\s*FR-(\d+)\b", re.MULTILINE)
 _FR_JSON = re.compile(r'"id"\s*:\s*"FR-(\d+)"')
+# A deferral is a structure, not a sentence (Round 69 站5).
+#
+# This module's docstring states the contract every pattern above honours:
+# "Only *structural* FR forms are read (never prose mentions), so a stray
+# 'FR-01' in a sentence cannot create a phantom requirement." `_FR_DEFERRED`
+# was the one exception — an unanchored scan of the whole file. While it only
+# fed the dropped-requirement branch that was already too wide; 6181d52
+# subtracted the same set on the INVENTED axis, where it does something
+# stronger: an SRS with a complete `### FR-12:` section is silenced as long as
+# the two words `FR-12-deferred` appear anywhere in the file, including in a
+# sentence explaining that FR-12 was NOT deferred.
+#
+# The three forms below are the ones the corpus writes: heading (taskq-new
+# SRS.md:1402), table row (taskq SRS.md:599-603), bold bullet (taskq-super
+# SRS.md:1085). Restricting to them changes the verdict on none of the nine
+# corpus projects.
+#
 # (?<!N): "NFR-06-deferred" must not phantom-excuse FR-06 from front-edge
 # coverage (parity-locked by tests/test_fr_token_parity.py).
-_FR_DEFERRED = re.compile(r"(?<!N)FR-(\d+)-deferred\b")
+_FR_DEFERRED_FORMS = (
+    re.compile(r"^#{1,6}\s*" + SRS_SUBSECTION_PREFIX
+               + r"(?<!N)FR-(\d+)-deferred\b", re.MULTILINE),
+    re.compile(r"^\|\s*(?<!N)FR-(\d+)-deferred\b", re.MULTILINE),
+    re.compile(r"^\s*[-*]\s*\*{0,2}\s*(?<!N)FR-(\d+)-deferred\b", re.MULTILINE),
+)
 
 # canonical_spec declaration in PROJECT_BRIEF.md — two accepted layouts, same
 # as the P1 fallback in cli/project_cmds.py (kept in sync; ~4 lines, replicated
@@ -74,7 +96,10 @@ def _structural_fr_ids(text: str) -> set[str]:
 
 
 def _deferred_fr_ids(text: str) -> set[str]:
-    return {_fid(m) for m in _FR_DEFERRED.findall(text)}
+    ids: set[str] = set()
+    for pat in _FR_DEFERRED_FORMS:
+        ids.update(_fid(m) for m in pat.findall(text))
+    return ids
 
 
 def resolve_canonical_spec(project: Path) -> str | None:

@@ -1189,6 +1189,7 @@ class PhaseHooks:
             check_forward_refs,
             check_module_fr_coverage,
             check_nfr_adr_coverage,
+            record_ac_deferrals,
         )
         from core.quality_gate.security_design import check_security_design
         from core.quality_gate.srs_structure import check_srs_structure
@@ -1210,6 +1211,10 @@ class PhaseHooks:
                 violations = violations + check_nfr_adr_coverage(self._layout.root)
                 violations = violations + check_ac_identifiers(self._layout.root)
                 violations = violations + check_ac_test_spec_coverage(self._layout.root)
+                # Round 69 站5: an `ac_deferred` row is `info`, so it does not
+                # fail this preflight — which is correct, and is exactly why
+                # it also has to be written down. Non-blocking is not free.
+                record_ac_deferrals(self._layout.root)
             violations = violations + check_security_design(self._layout.root, phase=self.phase)
             # Round 42 站3: the SRS's machine-readable FR Block. It joins this
             # set rather than growing its own hook because the phase rule it
