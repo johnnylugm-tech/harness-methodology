@@ -73,6 +73,29 @@ class Obligation:
 # assertion in tests/test_preflight_registry.py now pins the two registries to
 # each other; it is the fourth instance of the registry-vs-consumer
 # disagreement Round 27 站4 catalogued.
+#
+# Round 69 站2: that guard asks whether the NAME is right. It does not ask
+# whether the named method can produce the key the consumer reads, and two
+# members could not — neither `previous_phase_artifacts` nor `bvs_phase_order`
+# ever wrote `blocking`, so `preview_next_phase_blocking`'s
+# `not res.get("blocking")` dropped them however they failed. Both even had
+# dedicated obligation extractors, written by Round 15 §3 for branches nothing
+# could reach. The first now states the key (it is an unconditional blocker
+# and its finding — "phase N's deliverable is missing" — is exactly a
+# carry-over obligation). The second is gone, and tests/
+# test_delayed_blocking_members_can_fire.py holds the new question.
+#
+# `bvs_phase_order` is removed rather than given the key because both findings
+# it can produce are the environmental/FSM kind this set's second paragraph
+# above already excludes: an HR-03 phase skip, and FSM FREEZE. Neither is
+# something the current phase's authoring loop can close, and the entry
+# preflight already blocks on both. Measured, and NOT the reason Round 69's
+# plan gave: the plan asserted BVS would fail on every preview because the
+# sibling runs at phase=N+1 while state.json still says N. It does not —
+# `BVSRunner.run` compares `current_phase < PHASE_PREREQUISITES[N+1]`, which
+# is `N < N`, false. On a scratch copy of taskq-cc forced to current_phase=3,
+# the phase-4 sibling reported zero violations. The plan's premise was wrong;
+# the removal stands on the exclusion this comment already stated.
 _DELAYED_BLOCKING_PREFLIGHTS: frozenset[str] = frozenset({
     "drift_detection",
     "sab",
@@ -83,7 +106,6 @@ _DELAYED_BLOCKING_PREFLIGHTS: frozenset[str] = frozenset({
     "reliability_lint",
     "config_liveness",
     "previous_phase_artifacts",
-    "bvs_phase_order",
 })
 
 
@@ -209,16 +231,10 @@ def _obligations_from_preflight(
                 check_id=check_id, target_phase=target_phase,
                 rule_id=check_id, message=str(m),
             ))
-    elif check_id == "bvs_phase_order":
-        # Use `violations` (list of {rule, message} dicts).
-        for v in res.get("violations") or []:
-            if not isinstance(v, dict):
-                continue
-            out.append(Obligation(
-                check_id=check_id, target_phase=target_phase,
-                rule_id=str(v.get("rule", check_id)),
-                message=str(v.get("message", "BVS phase-order violation")),
-            ))
+    # Round 69 站2: the `bvs_phase_order` branch that used to sit here is gone
+    # with the registry membership it served. Round 39's rule — removing a
+    # mechanism means removing what still says it exists — applies to a
+    # branch nothing can reach as much as to prose.
     else:
         # Generic fallback: one obligation per blocking result, carrying the
         # check's own error string. File/line not available.
@@ -1565,6 +1581,23 @@ class PhaseHooks:
 
         Ensures the ASPICE chain is intact before starting the current phase.
         P1 is exempt (no previous phase).
+
+        `blocking` is unconditionally True from P2 on, and is stated rather
+        than implied because `preview_next_phase_blocking` filters on it:
+        ``if res.get("passed") or not res.get("blocking"): continue``. This
+        method is in `_DELAYED_BLOCKING_PREFLIGHTS` and had never written the
+        key, so every finding it produced was dropped on the way to an
+        obligation — including the one Round 15 §3 wrote a dedicated extractor
+        for. Measured on a scratch copy of taskq-cc at phase 4 with
+        `02-architecture/SAD.md` removed: `verify_phase_chain` reports
+        ``PLAN->IMPLEMENT: Previous phase PLAN missing artifacts: ['SAD.md']``
+        and the preview returned zero obligations.
+
+        It is a blocker at every phase rather than a delayed one — a broken
+        artifact chain is never informational — but the finding it carries is
+        a carry-over obligation in the sense the preview means: phase N can
+        still write the missing deliverable, and phase N+1 cannot start
+        without it.
         """
         print("\n[PRE-FLIGHT] Previous Phase Artifact Check")
         if self.phase is None or self.phase <= 1:
@@ -1576,11 +1609,11 @@ class PhaseHooks:
             result = registry.verify_phase_chain(self.phase)
         except ImportError:
             print("   ERROR: PhaseArtifactRegistry not importable — cannot verify artifact chain")
-            return {"passed": False, "skipped": True,
+            return {"passed": False, "blocking": True, "skipped": True,
                     "error": "PhaseArtifactRegistry import failed"}
         except Exception as exc:
             print(f"   ERROR: Artifact chain verification crashed: {exc}")
-            return {"passed": False, "skipped": True,
+            return {"passed": False, "blocking": True, "skipped": True,
                     "error": f"verify_phase_chain({self.phase}) raised {type(exc).__name__}: {exc}"}
 
         all_ok = result["all_verified"]
@@ -1594,6 +1627,7 @@ class PhaseHooks:
 
         return {
             "passed": all_ok,
+            "blocking": True,
             "verified": result["verified_links"],
             "missing": result["missing_links"],
             "stats": result["stats"],
@@ -1667,6 +1701,14 @@ class PhaseHooks:
         sibling = PhaseHooks(
             str(self.project_path), phase=next_phase,
             enable_kill_switch=False,
+            # Round 69 站2: the sibling measures drift too, and without this it
+            # measured it at the 85.0 default. `cmd_preview_next_phase` reads
+            # `drift_threshold` out of the project's own config and hands it to
+            # the outer instance; a project that set 70 was previewed at 85 and
+            # could be handed a drift obligation its own entry preflight would
+            # never have blocked on — a fixer dispatched at a threshold nobody
+            # configured.
+            drift_threshold=self.drift_threshold,
         )
         import contextlib
         import io

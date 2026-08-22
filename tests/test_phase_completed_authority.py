@@ -85,6 +85,15 @@ def advance_project(tmp_path, monkeypatch):
         lambda *_a, **_k: {"passed": True, "gate": "stub",
                            "reason": "test stub (authority fixture)"},
     )
+    # Round 69 站2: `previous_phase_artifacts` now writes the `blocking` key
+    # its consumer filters on, so this tree — which holds no P1 deliverables —
+    # correctly reports four missing SPECIFY artifacts and cmd_advance_phase
+    # correctly refuses. Stubbed for the same reason the two above are: these
+    # tests are about what phase_completed records, not about obligations.
+    monkeypatch.setattr(
+        "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+        lambda _self, _next_phase: [],
+    )
     monkeypatch.delenv("HARNESS_NO_GIT", raising=False)
     return proj
 
@@ -468,6 +477,13 @@ def test_advance_phase_heals_dangling_sha_before_staging(tmp_path, monkeypatch):
     )
     # Stub _advance_prechecks (commit-rollback scope, not under test).
     monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    # Round 69 站2 — see the advance_project fixture: this tree holds no P1
+    # deliverables, so the entry preview now correctly refuses. Not what this
+    # test is about (dangling-SHA self-healing).
+    monkeypatch.setattr(
+        "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+        lambda _self, _next_phase: [],
+    )
     # completed=1 keeps the path minimal (no exit gate, no CRG wiki).
     args = argparse.Namespace(project=str(proj), completed_phase=1)
     rc = phase_cmds.cmd_advance_phase(args)
@@ -539,6 +555,11 @@ def test_advance_phase_reverify_also_runs_entry_gate(tmp_path, monkeypatch):
         tmp_path, orphan_sha_from=None,
     )
     monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    # Round 69 站2 — see the advance_project fixture.
+    monkeypatch.setattr(
+        "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+        lambda _self, _next_phase: [],
+    )
     # current_phase=2 (already past P1) → re-verify for completed=1.
     args = argparse.Namespace(project=str(proj), completed_phase=1)
     rc = phase_cmds.cmd_advance_phase(args)

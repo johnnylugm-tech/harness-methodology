@@ -65,6 +65,16 @@ def advance_project(tmp_path, monkeypatch):
         lambda *_a, **_k: {"passed": True, "gate": "stub",
                            "reason": "test stub (rollback fixture)"},
     )
+    # Round 69 站2: `previous_phase_artifacts` now writes the `blocking` key
+    # its consumer filters on, so this tree — which holds no P1 deliverables —
+    # correctly reports four missing SPECIFY artifacts and cmd_advance_phase
+    # correctly refuses. Same scoping decision Round 43 站2 already made for
+    # tests/test_handover_generator.py's helper; the refusal itself is covered
+    # by tests/test_advance_refuses_a_blocked_entry.py.
+    monkeypatch.setattr(
+        "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+        lambda _self, _next_phase: [],
+    )
     monkeypatch.delenv("HARNESS_NO_GIT", raising=False)
     return proj
 

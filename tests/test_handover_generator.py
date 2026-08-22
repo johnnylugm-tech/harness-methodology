@@ -1440,6 +1440,14 @@ class TestCmdAdvancePhase:
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.setattr("harness.handover_generator.HandoverGenerator.write", fake_write)
         monkeypatch.setattr("cli.phase_cmds._advance_prechecks", lambda project, phase: 0)
+        # This test builds its own args rather than going through
+        # _call_advance_phase, so it misses that helper's Round 43 站2 stub.
+        # Round 69 站2 made `previous_phase_artifacts` reach the obligation
+        # list, and this tmp_path tree holds no P1 deliverables.
+        monkeypatch.setattr(
+            "core.phase_hooks.PhaseHooks.preview_next_phase_blocking",
+            lambda _self, _next_phase: [],
+        )
 
         # Round 38 站4: the exit gate needs a PASS verdict for this tree.
         # Recorded after the subprocess fake so the digest is taken in the

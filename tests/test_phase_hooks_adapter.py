@@ -673,13 +673,30 @@ def test_obligations_previous_phase_artifacts_extracts_missing_links() -> None:
     assert "PLAN->IMPLEMENT" in obls[0].message
 
 
-def test_obligations_bvs_phase_order_extracts_violations() -> None:
-    from core.phase_hooks import _obligations_from_preflight
+def test_bvs_phase_order_no_longer_has_an_extractor() -> None:
+    """Round 69 站2 removed `bvs_phase_order` from
+    `_DELAYED_BLOCKING_PREFLIGHTS`, and its extractor branch with it.
 
+    The branch this replaces was written by Round 15 §3 for a member that
+    never wrote the `blocking` key its consumer filters on, so it was
+    unreachable from the day it was written and this test was the only thing
+    that ever executed it. Both findings the check can produce — an HR-03
+    phase skip and FSM FREEZE — are the environmental kind the set's own
+    comment excludes, and the entry preflight already blocks on both.
+
+    What survives is the generic fallback, which is the correct answer for a
+    check_id the preview does not carry: one obligation, the check's own
+    message, no pretence of structure.
+    """
+    from core.phase_hooks import (
+        _DELAYED_BLOCKING_PREFLIGHTS,
+        _obligations_from_preflight,
+    )
+
+    assert "bvs_phase_order" not in _DELAYED_BLOCKING_PREFLIGHTS
     res = {"passed": False, "violations": [
         {"rule": "HR-03", "message": "Phase 5 entered before Phase 4 exit gate"},
     ]}
     obls = _obligations_from_preflight("bvs_phase_order", res, target_phase=5)
     assert len(obls) == 1
-    assert obls[0].rule_id == "HR-03"
-    assert "before Phase 4" in obls[0].message
+    assert obls[0].rule_id == "bvs_phase_order"
