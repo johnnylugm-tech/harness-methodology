@@ -87,10 +87,7 @@ def _commit_pushed_to_origin(submodule_dir: "str | Path", sha: str) -> bool:
 
     Used by `submodule_pin_verdict` to distinguish a pin on a pushed commit
     (where CI can have run) from a pin on a local-only commit (where the
-    verdict is structurally unavailable until the commit is pushed). The
-    query reads remote-tracking refs only — it does NOT touch the network
-    and is therefore safe inside a CI-preflight preflight that is itself
-    trying to avoid network round trips.
+    verdict is structurally unavailable until the commit is pushed).
 
     Conservative on the unanswerable cases: if the submodule directory
     does not exist, is not a git working tree, or git itself errors out,
@@ -98,6 +95,20 @@ def _commit_pushed_to_origin(submodule_dir: "str | Path", sha: str) -> bool:
     will fall through to the strict INFRA path. Only an explicit,
     successful `git branch -r --contains` that returns no rows counts
     as proof a commit is local-only.
+
+    Code-review follow-up (2026-08-23): this used to answer purely from
+    whatever remote-tracking refs happened to be cached locally, with no
+    fetch — described as network-free by design. That is unsafe: the
+    standard way a pin gets applied is `git submodule update`, which
+    fetches only the pinned commit OBJECT and does not reliably update
+    `refs/remotes/origin/*`. A normal, freshly-updated checkout can
+    therefore fail `--contains` against a commit that has been on GitHub
+    (and had CI run, possibly red) for a while, silently misreporting it
+    as local-only and skipping `fetch_ci_verdict` entirely. A best-effort
+    `git fetch origin` now refreshes the cache first; a failed fetch (no
+    `origin` remote, no network — exactly what this module's own unit
+    tests construct) is swallowed and falls through to the `--contains`
+    check unchanged, so no existing caller's behavior changes.
     """
     submodule_path = Path(submodule_dir)
     if not submodule_path.exists():
@@ -108,6 +119,13 @@ def _commit_pushed_to_origin(submodule_dir: "str | Path", sha: str) -> bool:
         # .git may legitimately be a file (gitfile/submodule-as-pointer);
         # only treat "missing AND not a file" as "not a submodule".
         return True
+    try:
+        run_isolated(
+            ["git", "-C", str(submodule_path), "fetch", "origin", "--quiet"],
+            timeout=_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass  # best-effort refresh; --contains below still runs on whatever is cached
     try:
         proc = run_isolated(
             ["git", "-C", str(submodule_path), "branch", "-r", "--contains", sha],

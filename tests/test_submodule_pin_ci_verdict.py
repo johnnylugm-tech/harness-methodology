@@ -192,6 +192,73 @@ def test_a_local_only_pin_bypasses_the_ci_check(tmp_path):
     )
 
 
+def test_a_stale_local_cache_does_not_hide_an_actually_pushed_commit(tmp_path):
+    """Code-review follow-up (2026-08-23): the standard way a pin gets
+    applied — `git submodule update` — fetches only the pinned commit
+    OBJECT and does not reliably update `refs/remotes/origin/*`. Build the
+    exact shape that produces: a real `origin` remote (a local bare repo,
+    not a URL, so this test stays fully offline), a submodule clone whose
+    `origin/main` cache is stale (still points at an older commit) even
+    though a newer commit — the one about to be checked — has genuinely
+    been pushed to that same origin. Before this round's fix, the stale
+    cache alone made `_commit_pushed_to_origin` say "local-only"; the
+    fetch-before-check refresh must find it."""
+    import subprocess as _sp
+    from core.quality_gate.submodule_pin import _commit_pushed_to_origin
+
+    origin_bare = tmp_path / "origin.git"
+    _sp.run(["git", "init", "--quiet", "--bare", str(origin_bare)],
+            check=True, capture_output=True)
+
+    submodule_dir = tmp_path / "harness"
+    _sp.run(["git", "clone", "--quiet", str(origin_bare), str(submodule_dir)],
+            check=True, capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "config", "user.email",
+             "test@local"], check=True, capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "config", "user.name", "t"],
+            check=True, capture_output=True)
+    (submodule_dir / "f").write_text("a\n")
+    _sp.run(["git", "-C", str(submodule_dir), "add", "f"], check=True,
+            capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "commit", "-m", "a", "--quiet"],
+            check=True, capture_output=True)
+    _sp.run(["git", "-C", str(submodule_dir), "push", "-u", "origin",
+             "HEAD:main", "--quiet"], check=True, capture_output=True)
+
+    # A second commit lands on origin from elsewhere (a different clone) —
+    # submodule_dir's own `refs/remotes/origin/main` never hears about it.
+    other_clone = tmp_path / "other_clone"
+    _sp.run(["git", "clone", "--quiet", str(origin_bare), str(other_clone)],
+            check=True, capture_output=True)
+    _sp.run(["git", "-C", str(other_clone), "config", "user.email",
+             "test@local"], check=True, capture_output=True)
+    _sp.run(["git", "-C", str(other_clone), "config", "user.name", "t"],
+            check=True, capture_output=True)
+    (other_clone / "g").write_text("b\n")
+    _sp.run(["git", "-C", str(other_clone), "add", "g"], check=True,
+            capture_output=True)
+    _sp.run(["git", "-C", str(other_clone), "commit", "-m", "b", "--quiet"],
+            check=True, capture_output=True)
+    _sp.run(["git", "-C", str(other_clone), "push", "origin", "main",
+             "--quiet"], check=True, capture_output=True)
+    sha_b = _sp.run(["git", "-C", str(other_clone), "rev-parse", "HEAD"],
+                    capture_output=True, text=True).stdout.strip()
+
+    # Mimic `git submodule update`: fetch only the pinned OBJECT into
+    # submodule_dir, without updating refs/remotes/origin/main — the exact
+    # gap this round's fix closes. submodule_dir's cache still says main
+    # is at the FIRST commit.
+    _sp.run(["git", "-C", str(submodule_dir), "fetch", "origin", sha_b,
+             "--quiet"], check=True, capture_output=True)
+
+    assert _commit_pushed_to_origin(submodule_dir, sha_b) is True, (
+        "sha_b is genuinely on origin (pushed by another clone) but "
+        "submodule_dir's own remote-tracking cache predates that push — "
+        "the fetch-before-check refresh must still find it, not report "
+        "a false local-only bypass"
+    )
+
+
 def test_a_path_that_is_not_a_git_dir_falls_through_to_strict(tmp_path):
     """A tmp_path that lacks the `harness` dir entirely must NOT register
     as a local-only pin — the bypass would lie about a pin that does not

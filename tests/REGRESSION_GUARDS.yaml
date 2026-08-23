@@ -3065,3 +3065,7 @@
 - test: tests/test_finalize_gate_force_sentinel.py::test_force_with_a_different_frs_evidence_still_blocks
   bug: "the --force narrowing must check the fr_id INSIDE gate{N}_result.json, not merely that the file exists — the file is shared across FRs within a phase, so evidence for a different FR must not authorize --force for this one"
   fixed_in: "code-review follow-up 2026-08-23"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_a_stale_local_cache_does_not_hide_an_actually_pushed_commit
+  bug: "_commit_pushed_to_origin answered purely from cached local remote-tracking refs with no fetch; `git submodule update` (the standard way a pin is applied) fetches only the pinned commit object and does not reliably update refs/remotes/origin/*, so a normal checkout could misreport an actually-pushed (possibly CI-red) commit as local-only and skip fetch_ci_verdict entirely"
+  fixed_in: "code-review follow-up 2026-08-23"
