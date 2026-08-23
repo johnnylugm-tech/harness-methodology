@@ -3120,3 +3120,11 @@
 - test: tests/test_harness_bug_regex_unified.py::test_spec_phase3_names_the_signal_the_agent_can_actually_read
   bug: "the GATE1 prompt has to name a signal the agent can extract deterministically; 7584a7da regressed it to prose the agent could not grep, and Round 70 站3 replaced the whole prose-matching class with run-fr-step's exit code"
   fixed_in: "Round 70 站3"
+
+- test: tests/test_file_size_ratchet.py::test_no_path_has_two_ceilings
+  bug: "_LINE_CEILING is the most-edited file in the repo (162 commits in thirty days) and every edit is a hand-written prepend that demotes the old entry to a '#' comment; forgetting the '#' leaves two live keys, Python keeps the LAST (the older, looser ceiling), and no other test notices because the ratchet still compares a real number against a real limit. Hit for real while writing the 2026-08-23 code-review follow-up and caught only by re-reading the diff"
+  fixed_in: "Round 70 站4"
+
+- test: tests/test_file_size_ratchet.py::test_the_duplicate_check_reads_source_not_the_built_dict
+  bug: "the obvious implementation of the guard above — comparing len(dict) to len(set(dict)) — is unfalsifiable, since a dict literal's duplicates are already collapsed by the time the module imports; this pins that the check parses the source"
+  fixed_in: "Round 70 站4"

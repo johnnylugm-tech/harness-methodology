@@ -1119,3 +1119,61 @@ def test_comparator_quiet_at_or_under_limits():
         rel: _LINE_CEILING[rel],
         "cli/small.py": _GOD_FILE_THRESHOLD - 1,
     }) == []
+
+
+def _ceiling_keys_in_source() -> list[str]:
+    """The ceiling table's keys as WRITTEN, before Python collapses duplicates.
+
+    `_LINE_CEILING` itself cannot answer this: a dict literal with the same key
+    twice is legal and silently keeps the last value, so by the time the module
+    is imported the evidence is gone.
+    """
+    import ast
+
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        target = getattr(node, "target", None)
+        if isinstance(node, ast.AnnAssign) and getattr(target, "id", "") == "_LINE_CEILING":
+            value = node.value
+            assert isinstance(value, ast.Dict)
+            return [
+                str(k.value) for k in value.keys
+                if isinstance(k, ast.Constant)
+            ]
+    raise AssertionError("_LINE_CEILING is no longer an annotated dict literal")
+
+
+def test_no_path_has_two_ceilings():
+    """Round 70 站4. This table is the most-edited file in the repo — 162
+    commits in thirty days — and every edit is a hand-written prepend: a new
+    `"path": N,` line on top, the old entry demoted to a `#` comment below it.
+    Forget the `#` and the file has two live entries for one path. Python keeps
+    the LAST one, which is the older and therefore looser ceiling, and no test
+    notices: the ratchet still compares a real number against a real limit and
+    still passes.
+
+    Not hypothetical. It happened while writing the 2026-08-23 code-review
+    follow-up, was caught by re-reading the diff rather than by anything here,
+    and would have silently re-opened whatever headroom the demoted entry had.
+    """
+    keys = _ceiling_keys_in_source()
+    duplicates = sorted({k for k in keys if keys.count(k) > 1})
+    assert not duplicates, (
+        "these paths have more than one live entry in _LINE_CEILING; Python "
+        "keeps the last, which is the older and looser ceiling: "
+        + ", ".join(duplicates)
+        + ". A demoted historical entry must start with '#'."
+    )
+
+
+def test_the_duplicate_check_reads_source_not_the_built_dict():
+    """Negative: the guard has to fail on a literal the interpreter would
+    accept. Reading `_LINE_CEILING` instead would make it unfalsifiable —
+    `len(d) == len(set(d))` is true of every dict there has ever been."""
+    import ast
+
+    dup = ast.parse('D: dict = {"a": 1, "a": 2}').body[0]
+    assert isinstance(dup, ast.AnnAssign) and isinstance(dup.value, ast.Dict)
+    written = [k.value for k in dup.value.keys if isinstance(k, ast.Constant)]
+    assert len(written) == 2 and len(set(written)) == 1
+    assert len(eval(compile(ast.Expression(dup.value), "<t>", "eval"))) == 1
