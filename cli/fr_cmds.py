@@ -748,7 +748,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                           f" — same error signature as previous round")
                     if no_progress_count >= 2:
                         return _abort_no_progress_with_self_doubt(
-                            fr_id, step, project, _last_failure_class, curr_sig
+                            fr_id, step, phase, project, _last_failure_class, curr_sig
                         )
                 else:
                     no_progress_count = 0
@@ -1475,7 +1475,8 @@ def _abort_dispatch_infra_or_harness_bug(
 
 
 def _abort_no_progress_with_self_doubt(
-    fr_id: str, step: str, project: Path, failure_class: "str | None", sig: str
+    fr_id: str, step: str, phase: int, project: Path,
+    failure_class: "str | None", sig: str
 ) -> int:
     """Round 17 站2 (finding B): the fix-round loop hit 2 consecutive
     no-progress rounds — the SAME tool error signature twice, no forward
@@ -1538,7 +1539,7 @@ def _abort_no_progress_with_self_doubt(
             f"(manifest quality_complete=false despite score>=score_gate).\n"
             f"  The dispatch loop cannot detect this — it only sees the manifest.\n"
             f"  Recovery: finalize the commit manually with --force:\n"
-            f"    python harness_cli.py finalize-gate --gate 1 --phase {step or 3} "
+            f"    python harness_cli.py finalize-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project {project}"
         )
     return 2
