@@ -454,7 +454,7 @@ for (const frId of deltaTodo) {
   }
   // L1.6 (see HARNESS_BUG_RE_JS above for why this is narrow, and shared
   // with the Sync step's identical check — R66/R69).
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
     log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
     return { harness_bug_detected: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
@@ -682,7 +682,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   const syncText = String(syncReport ?? '')
   syncPass = /SYNC:\s*PASS/.test(syncText)
   if (syncPass) break
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(syncText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(syncText)) {
     log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
     return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
   }

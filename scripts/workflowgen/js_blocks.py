@@ -45,15 +45,14 @@ def _crg_standalone_specs() -> str:
 # One statement of the crash-banner shape, shared by every site that routes on
 # it (Round 13 站2: HARNESS_BUG and INFRA must not be sent to CODE-FIX).
 #
-# R69 follow-up: this claim was false — render_terminal_abort_detectors had
-# grown its own narrower `{0,200}`-window copy while this constant (what
-# render_sync_verified's Sync step actually tests) stayed the OLD broad
-# `/\[HARNESS-BUG\]/`, still open to the FR-04 proof-by-absence false-positive
-# 7584a7da meant to fix everywhere. Both sites share this one definition now,
-# and the `{0,200}` window is gone too: `format_harness_bug_banner` puts the
-# exception's own unbounded message before the fixed second line, so a long
-# first-line summary could push it past 200 chars and hide a real crash.
-HARNESS_BUG_RE_JS = r"/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i"
+# R69-follow-up-2: unbounded [\s\S]* (this constant's prior form) matched
+# spec_phase3.py's OWN GATE1-prompt paraphrase of the banner — both phrases
+# inline on one line, no newline between them — reopening the FR-04
+# proof-by-absence false positive. format_harness_bug_banner's real banner
+# always puts the fixed sentence on its OWN line, 2-space indented
+# (core/errors.py); matching that literal shape (not a char-count window)
+# catches every real crash and rejects the prompt's inline description.
+HARNESS_BUG_RE_JS = r"/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i"
 
 
 def render_rule_prose(rule_id: str) -> str:

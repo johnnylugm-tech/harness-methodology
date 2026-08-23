@@ -2339,7 +2339,7 @@ for (const frId of frIds) {
       log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
       return { dispatch_structurally_broken: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
     }
-    if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
+    if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
       log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
       return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
     }
@@ -2563,7 +2563,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   const syncText = String(syncReport ?? '')
   syncPass = /SYNC:\s*PASS/.test(syncText)
   if (syncPass) break
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(syncText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(syncText)) {
     log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
     return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
   }
@@ -2808,7 +2808,7 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
     log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
     return { harness_bug_detected: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
@@ -3274,7 +3274,7 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
     log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
     return { harness_bug_detected: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
@@ -4003,7 +4003,7 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
     log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
     return { harness_bug_detected: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
@@ -4365,7 +4365,7 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(frReportText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
     log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
     return { harness_bug_detected: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
   }
@@ -4549,7 +4549,7 @@ for (let sAttempt = 1; sAttempt <= SYNC_MAX_ATTEMPTS; sAttempt++) {
   const syncText = String(syncReport ?? '')
   syncPass = /SYNC:\s*PASS/.test(syncText)
   if (syncPass) break
-  if (/\[HARNESS-BUG\][\s\S]*This is a bug in harness-methodology itself/i.test(syncText)) {
+  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(syncText)) {
     log('  Sync reports [HARNESS-BUG] — harness-methodology crashed; not a project blocker and not something a retry can clear')
     return { harness_bug_detected: true, step: 'sync', message: 'git push was rejected by a harness-methodology crash ([HARNESS-BUG] — see the crash bundle path in the log), not by a project quality failure. A human must fix the harness bug.', raw: syncText.slice(-600) }
   }

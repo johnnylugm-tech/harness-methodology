@@ -3069,3 +3069,7 @@
 - test: tests/test_submodule_pin_ci_verdict.py::test_a_stale_local_cache_does_not_hide_an_actually_pushed_commit
   bug: "_commit_pushed_to_origin answered purely from cached local remote-tracking refs with no fetch; `git submodule update` (the standard way a pin is applied) fetches only the pinned commit object and does not reliably update refs/remotes/origin/*, so a normal checkout could misreport an actually-pushed (possibly CI-red) commit as local-only and skip fetch_ci_verdict entirely"
   fixed_in: "code-review follow-up 2026-08-23"
+
+- test: tests/test_harness_bug_regex_unified.py::test_the_prompts_own_paraphrase_does_not_match
+  bug: "this session's own b453cf6c widened HARNESS_BUG_RE_JS to unbounded [\\s\\S]*, which matched the GATE1 dispatch prompt's OWN inline description of the crash banner shape (spec_phase3.py) — reopening the FR-04 proof-by-absence false positive the narrow form existed to prevent"
+  fixed_in: "code-review follow-up 2026-08-23"
