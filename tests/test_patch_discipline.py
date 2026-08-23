@@ -94,9 +94,14 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # test_run_mutation_precheck_promotes_workdir_cache_on_success just
     # above it). Deliberately does NOT stub _copy_setup_cfg_to_workdir like
     # its siblings do — that call must run for real so the workdir's
-    # setup.cfg exists when the new env-computation helper reads it back.
-    # Not a new coupling, one more instance of the established pattern.
-    "tests/test_mutation_enforcer.py": 52,
+    # 2026-08-24 (+7): R71-站1's _compute_mutation_score kill-restore test
+    # (test_compute_mutation_score_restores_source_when_subprocess_is_killed)
+    # monkeypatches the same 7-private-name seam (_resolve_mutmut_workdir/
+    # _is_editable_install/_read_paths_to_exclude/_detect_data_only_files/
+    # _abs_paths_to_mutate/_resolve_test_dir/_copy_setup_cfg_to_workdir)
+    # to isolate the test from real filesystem/mutmut I/O. Same established
+    # seam run_mutation_precheck tests in this file already use. Previous: 52.
+    "tests/test_mutation_enforcer.py": 59,
     "tests/cli/test_phase_cmds_cli.py": 42,  # 2026-08-06 Round 39: +2 — _mock_advance_phase_bypass_prechecks (L314) and TestP7AdvanceGeneratesP8Baseline._setup (L1817) now stub cli.phase_cmds._verify_entry_gate alongside _advance_prechecks/_advance_fsm. Same seam cmd_advance_phase tests already go through (the gate is now an inline call in cmd_advance_phase between _advance_prechecks and _advance_fsm); one more private-name patch for an already-accepted seam, not a new coupling.
     # 2026-07-27 Round 29 (+4): TestRunPhaseCISubstrateProbeSkip's 2 tests each
     # monkeypatch cli.phase_cmds._verify_entry_gate (the same already-accepted
