@@ -97,7 +97,7 @@ _SHARED_HOISTS: tuple[tuple[str, str, bool], ...] = (
 # WITH_TITLES variant — a superset that every consumer validates against
 # identically. (Checked field by field, not inferred from the names.)
 _SCHEMA_UNION = (
-    "VERDICT_SCHEMA", "RC_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "DELTA_FAST_SCHEMA",
+    "VERDICT_SCHEMA", "RC_SCHEMA", "FR_STEP_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "DELTA_FAST_SCHEMA",
     "PHASE_SCHEMA", "ENV_CHECK_SCHEMA", "GATE_VERIFY_SCHEMA", "FR_LIST_SCHEMA",
     "RECORD_BLOCK_SCHEMA",
 )

@@ -184,6 +184,16 @@ const RC_SCHEMA = {
   properties: { rc: { type: 'integer', description: 'exact numeric exit code of the command' } },
   required: ['rc'],
 }
+// Round 70 站3: a per-FR GATE1 / GATE1-DELTA report. Routing reads `rc`, never
+// the prose; `final_line` is for the operator's log and nothing branches on it.
+const FR_STEP_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exact exit code of run-fr-step, read off the last RC= line (-1 if it never finished)' },
+    final_line: { type: 'string', description: 'one-line human summary of the outcome' },
+  },
+  required: ['rc'],
+}
 const ENV_CHECK_SCHEMA = {
   type: 'object',
   properties: {
@@ -467,18 +477,19 @@ for (const frId of frIds) {
       + '5. amend-sab (proactive, BEFORE GATE1): `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` (first-class dispatch, idempotent, deterministic — does NOT spawn a sub-agent). If new modules are registered to .methodology/SAB.json: commit them (`git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m "amend: register SAB modules (' + frId + ')"`) before proceeding to GATE1. This FR\'s GREEN/IMPROVE steps may have added modules GATE1\'s Architecture Amendment Protocol would otherwise BLOCK on — registering them now avoids a wasted GATE1 round.\n'
       + '6. GATE1 — long-running (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s: can silently block ~2400s worst case). Run it BACKGROUNDED — do NOT invoke it as a plain synchronous command:\n'
       + '   GATE1 invocation procedure (a/b/c):\n'
-      + '   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + ' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\n'
-      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~20min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report "' + frId + ' GATE1: TIMEOUT" (not FAIL).\n'
-      + '   c. Once DONE: `cat /tmp/gate1_' + frId + '.log` for the full output — identical to what a synchronous run would have printed. Parse PASS/FAIL from it exactly as before.\n'
+      + '   a. Launch: `nohup bash -c \'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + '; echo "RC=$?"\' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\n'
+      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~20min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
+      + '   c. Once DONE: `tail -200 /tmp/gate1_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — that integer, verbatim, is what you report. It is NOT the Bash tool\'s rc, and you must not compute, infer or round it: read it off the line.\n'
       + '   Gate 1 per-dimension thresholds are printed in the log itself (dynamic — read from quality_manifest gate_score_overrides, do not assume fixed numbers).\n'
       + '   - PASS → done.\n'
       + '   - FAIL → fix failing dims (ruff check . --fix; add tests for coverage; fix pyright errors), repeat the GATE1 invocation procedure (a/b/c). Max 3 rounds.\n'
       + '   - Still failing after 3 → report FAIL.\n'
-      + '   - Structurally-broken dispatch: log contains "sub-agent dispatch is structurally broken" (claude.ai connectors disabled). STOP, do NOT unset env vars, do NOT retry GATE1. Report "' + frId + ' GATE1: FAIL — sub-agent dispatch structurally broken (claude.ai connectors disabled), escalate to human".\n'
-      + '   - AAP-INFRA / harness-INFRA: log contains the literal substring "INFRA detected in sub-agent output" (run-fr-step\'s own _abort_dispatch_infra_or_harness_bug short-circuit — NOT "sub-agent dispatch is structurally broken"). PROJECT-level (modules not in SAB.json), not dispatch. Fix: `harness_cli.py amend-sab --project ' + REPO + '` then re-run GATE1. Report "' + frId + ' GATE1: FAIL — infra-class fatal, amend project state".\n'
-      + '   - Harness crash (HARNESS-BUG banner in log): the log contains the harness crash banner (`[HARNESS-BUG] <ExcType>: <summary>` then `This is a bug in harness-methodology itself`). NOT your code/tests. STOP, do not retry, do not modify project code. Report "' + frId + ' GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)" and stop this TDD chain.\n'
+      + '   The RC decides what happens next, and the workflow reads the integer — not your wording, so paraphrase the reason however you like:\n'
+      + '   - RC=23 (dispatch structurally broken, claude.ai connectors disabled): STOP. Do NOT unset env vars, do NOT retry — every retry fails identically.\n'
+      + '   - RC=70 (harness-methodology itself crashed): NOT your code or tests. STOP, do not retry, do not modify project code. The log names a crash bundle path; quote it in your reason.\n'
+      + '   - RC=25 (INFRA precondition block): project state, not code. STOP this chain; the workflow routes it to `amend-sab`.\n'
+      + '   - Any other nonzero RC = an ordinary Gate 1 FAIL → fix failing dims and repeat the a/b/c procedure (max 3 rounds, as above).\n'
       + '   - AAP block: log contains "Unregistered modules detected: {…}" — step 5 amend-sab didn\'t run. Verify .methodology/SAB.json committed; else run `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` + manual `git add ... && git commit`, repeat GATE1. Max 1 amend round per FR.\n'
-      + '   R66: in final prose do NOT write [HARNESS-BUG] / [FATAL] / [BLOCKED] / `structurally broken dispatch environment` verbatim (run-all abort detectors match even when quoted to prove absence). Paraphrase.\n'
       + '   run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-phase --phase 3 --project ' + REPO + '`.\n'
       + '7. ORCH-POST (after GATE1 PASS, per phase3_plan.md [ORCH-POST]):\n'
       + '   a. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '` (per-FR D4 ≥40%). FAIL → add the missing test implementations for ' + frId + ', re-run.\n'
@@ -487,41 +498,37 @@ for (const frId of frIds) {
       + '       and may not reflect modules added during Phase 3 implementation. Only run generate_sab.py --overwrite\n'
       + '       manually AFTER updating SAD.md §5 to include all Phase 3 modules.)\n\n'
       + 'Implement the module per SPEC.md (read ' + REPO + '/SPEC.md for ' + frId + ') + SAD.md module mapping. Write source under the package directory layout your project uses: if `03-development/src/<package>/` is a FLAT PACKAGE (one `<module>.py` per file, e.g. `03-development/src/<package>/<module>.py`), write `src/<package>/<module>.py`; if it is MODULE-PER-DIR (one `<module>/__init__.py` per directory), write `src/<package>/<module>/__init__.py`. The init-project directory scaffold shows which layout your project uses. Do NOT place this FR\'s implementation inside a file another FR already owns or a shared/global file (e.g. `cli.py`) used by multiple FRs — each FR\'s logic belongs in its own module per SAD.md/quality_manifest.json\'s fr_module_traceability mapping. Tests for ' + frId + ' MUST be placed at the path(s) declared in TEST_SPEC.md §FR-' + frNum + ' (test file list) — TEST_SPEC.md is the canonical source of truth for test placement. If TEST_SPEC lists multiple test files (e.g. unit + integration variants), you MUST create all of them; pass `--test-file <path1> --test-file <path2> ...` to MIRROR and related tooling. The legacy single-file convention (`tests/test_fr' + frNum + '.py` only) is no longer required when TEST_SPEC specifies otherwise. Docstrings must include [' + frId + '] reference (NFR-05).\n\n'
-      + 'Report final line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>".\n\n'
+      + 'Report via the StructuredOutput tool: { rc: <the integer from step 6c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }. If GATE1 never ran to completion (timeout at the poll cap), rc is -1.\n\n'
       + 'SCOPE RULES:\n- DO NOT implement any FR OTHER than ' + frId + '.\n- DO NOT run run-gate (Gate 2), advance-phase, or push-milestone.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/ (HR-17).\n- ONLY the 7 steps above for ' + frId + ' (amend-sab in step 5, spec-coverage-check in step 7a is allowed).',
-      { label: 'tdd-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose' },
+      { label: 'tdd-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: FR_STEP_SCHEMA },
     )
     // L1: distinguish a session/rate-limit block (null/empty agent return) from a real
     // Gate 1 FAIL — mirror the Gate 2 detection (below). Without this, a rate-limit mid-
     // TDD is misreported as a code-quality Gate 1 failure. Sentinel GUARD skips completed
     // FRs on resume, so aborting here is safe.
-    if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+    if (frReport === null || frReport === undefined || typeof frReport !== 'object') {
       log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
       return { session_limit_blocked: true, phase: 3, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' TDD. Resume after quota reset — sentinel GUARD will skip completed FRs.' }
     }
-    // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
-    // (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints "[FATAL] <fr> <step>:
-    // sub-agent dispatch is structurally broken — claude.ai connectors are disabled" to
-    // stderr and returns exit code 23). A sub-agent reading its own GATE1 log and seeing
-    // that banner will escalate to human with "FAIL — structurally broken dispatch" even
-    // when the gate has not yet run a single evaluation round. The harness-side
-    // _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer
-    // for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but the TDD dispatches AND the
-    // first-round prompt path do NOT have it. Continuing to dispatch the remaining FRs in
-    // that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.
-    // Abort once the structural signal is observed.
-    const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
-    // Round 66: narrow match — the TDD prompt writes 'structurally broken dispatch
-    // environment' on ANY [FATAL], so the broad regex false-matched AAP-INFRA.
-    if (/\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
-      log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+    // L1.5-L1.7: the three terminal aborts, read from run-fr-step's own exit code
+    // (launch line's `; echo "RC=$?"`, carried by FR_STEP_SCHEMA). Prose is not
+    // load-bearing — see render_terminal_abort_detectors' docstring (Round 70 站3).
+    const frRc = (frReport && typeof frReport.rc === 'number') ? frReport.rc : null
+    // 23 — dispatch structurally broken; every retry fails identically.
+    if (frRc === 23) {
+      log('  ' + frId + ' exited 23 — dispatch is structurally broken (claude.ai connectors disabled), aborting remaining FRs')
       return { dispatch_structurally_broken: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
     }
-    // L1.6 (see HARNESS_BUG_RE_JS above for why this is narrow, and shared
-    // with the Sync step's identical check — R66/R69).
-    if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
-      log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
-      return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+    // 70 — harness crashed. Not a project defect; no re-run clears it.
+    if (frRc === 70) {
+      log('  ' + frId + ' exited 70 — harness-methodology crashed, aborting remaining FRs')
+      return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed (exit 70 — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+    }
+    // 25 — INFRA precondition block: project state, repairable, but not by a fix
+    // agent aimed at code. Separate from 70 since 站2, because the remedy is.
+    if (frRc === 25) {
+      log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
+      return { infra_abort: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run this phase.' }
     }
     // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes
     // gate_results.gate1[fr].quality_complete on every finalize-gate, pass OR fail) —

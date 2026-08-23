@@ -299,6 +299,7 @@ def render_session_block_guard(
     message: str,
     indent: str = '',
     step_js: "str | None" = None,
+    payload: str = 'string',
 ) -> str:
     """Emit the JS guard that distinguishes a session/rate-limit block from a
     hard PASS/FAIL failure.
@@ -308,6 +309,13 @@ def render_session_block_guard(
     blocked-by-classifier, and a quota cap's signature too. A short but
     non-empty string (e.g. `SAB: PASS`, 9 chars) falls through to the next
     halt() check, which reads the sub-agent's PASS/FAIL verdict via regex.
+
+    `payload='object'` is the same guard for a dispatch that carries a schema:
+    the blocked shapes are identical (`null` / `undefined`), but the "wrong
+    type" half has to test for an object rather than a string, and there is no
+    empty-string case. Round 70 站3 moved the per-FR GATE1 / GATE1-DELTA
+    dispatches onto RC_SCHEMA, and a guard still asking `typeof x !== 'string'`
+    would have called every successful one of them a rate limit.
 
     Place it immediately after the dispatch it guards — INSIDE any retry
     loop, not after the loop's closing brace. Round 64 站2: Phase 2's
@@ -335,9 +343,16 @@ def render_session_block_guard(
     extra = (', ' + extra_fields) if extra_fields else ''
     log_subject = f"' + {step_js} + '" if step_js else step_name
     step_value = step_js if step_js else f"'{step_name}'"
+    if payload not in ('string', 'object'):
+        raise ValueError(f"payload must be 'string' or 'object', not {payload!r}")
+    empty = (
+        f"|| {var_name} === '' || typeof {var_name} !== 'string'"
+        if payload == 'string'
+        else f"|| typeof {var_name} !== 'object'"
+    )
     return (
         f"{indent}if ({var_name} === null || {var_name} === undefined "
-        f"|| {var_name} === '' || typeof {var_name} !== 'string') {{\n"
+        f"{empty}) {{\n"
         f"{indent}  log('  {log_subject} agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')\n"
         f"{indent}  return {{ session_limit_blocked: true, phase: {phase_no}, step: {step_value}{extra}, message: '{message}' }}\n"
         f"{indent}}}\n"

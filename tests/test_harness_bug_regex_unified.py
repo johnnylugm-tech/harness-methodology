@@ -104,17 +104,23 @@ def test_both_sites_use_the_shared_constant_not_a_second_copy() -> None:
     )
 
 
-def test_spec_phase3_names_the_real_infra_signature() -> None:
+def test_spec_phase3_names_the_signal_the_agent_can_actually_read() -> None:
     """7584a7da's paraphrasing pass weakened the AAP-INFRA prompt case from
     literal detection strings to vague prose ("AAP block or INFRA fatal"),
-    giving the TDD agent nothing to pattern-match the log against. The real
-    signal is `_abort_dispatch_infra_or_harness_bug`'s own fixed print
-    (cli/fr_cmds.py): "[FATAL] {fr_id} {step}: INFRA detected in sub-agent
-    output — ...". The stable, fr_id/step-independent substring must be
-    named verbatim in the prompt."""
+    giving the TDD agent nothing to pattern-match the log against. The
+    original fix named the substring `_abort_dispatch_infra_or_harness_bug`
+    prints; Round 70 站3 replaced the whole class of prose-matching with the
+    exit code that call site returns, so what the prompt must name is the
+    RC and how to read it. The property the assertion protects is unchanged
+    — the agent must be told a signal it can extract deterministically, not
+    asked to characterise the log in its own words."""
     phase3 = generate(3)
-    assert "INFRA detected in sub-agent output" in phase3, (
-        "the AAP-INFRA prompt case must name the literal substring "
-        "_abort_dispatch_infra_or_harness_bug actually prints, not a "
-        "paraphrase the TDD agent cannot grep the log for"
+    assert 'RC=<integer>' in phase3, (
+        "the GATE1 prompt must tell the agent exactly what to read off the "
+        "log; a paraphrase is what 7584a7da regressed to"
     )
+    for rc in ('RC=23', 'RC=70', 'RC=25'):
+        assert rc in phase3, (
+            f"{rc} is one of the three terminal aborts the prompt must name "
+            "so the agent stops instead of retrying into it"
+        )

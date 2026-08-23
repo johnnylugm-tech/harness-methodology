@@ -258,9 +258,18 @@ class TestOrchPostIsPerPhaseNotPerFr:
 
     def test_amend_sab_appears_once_per_generated_workflow(self):
         for phase in self.FR_LOOP_PHASES:
-            text = generate(phase)
-            assert text.count("amend-sab") == 1, (
-                f"phase{phase} generates {text.count('amend-sab')} amend-sab "
+            # Round 70 站3: the INFRA abort's return payload names amend-sab as
+            # the operator's repair route. That line is a `return { ... }`, not
+            # a prompt — no agent reads it, so it cannot cause the repeat
+            # dispatch this guard exists to prevent. Excluded by the flag it
+            # carries rather than by loosening the count.
+            lines = [
+                ln for ln in generate(phase).splitlines()
+                if "infra_abort: true" not in ln
+            ]
+            mentions = "\n".join(lines).count("amend-sab")
+            assert mentions == 1, (
+                f"phase{phase} generates {mentions} amend-sab dispatch "
                 f"mentions; it is project-wide and idempotent, so exactly one "
                 f"belongs in the whole workflow"
             )

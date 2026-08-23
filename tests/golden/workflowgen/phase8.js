@@ -185,6 +185,16 @@ const RC_SCHEMA = {
   properties: { rc: { type: 'integer', description: 'exact numeric exit code of the command' } },
   required: ['rc'],
 }
+// Round 70 站3: a per-FR GATE1 / GATE1-DELTA report. Routing reads `rc`, never
+// the prose; `final_line` is for the operator's log and nothing branches on it.
+const FR_STEP_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exact exit code of run-fr-step, read off the last RC= line (-1 if it never finished)' },
+    final_line: { type: 'string', description: 'one-line human summary of the outcome' },
+  },
+  required: ['rc'],
+}
 const ENV_CHECK_SCHEMA = {
   type: 'object',
   properties: {
@@ -437,46 +447,43 @@ for (const frId of deltaTodo) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '1. GATE1-DELTA — long-running when code changed (harness runs up to 3 internal CODE-FIX rounds plus, on FAIL, a full TDD-RED→GREEN→IMPROVE→GATE1 chain — can silently block well past 180s). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\n'
-    + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\n'
-    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\'s own retries). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report "' + frId + ' GATE1: TIMEOUT" (not FAIL).\n'
-    + '   c. DONE → `cat /tmp/gate1delta_' + frId + '.log` for the full output, identical to a synchronous run. Parse PASS/FAIL from it.\n'
-    + '   - PASS → done.\n'
-    + '   - FAIL → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report FAIL.\n'
+    + '   a. `nohup bash -c \'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 8 --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + '; echo "RC=$?"\' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\n'
+    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\'s own retries). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
+    + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — report that integer verbatim. It is NOT the Bash tool\'s rc; do not compute or infer it.\n'
+    + '   - RC=0 → done.\n'
+    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
+    + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
-    + 'Report final line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>".\n\n'
+    + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }.\n\n'
     + 'SCOPE RULES:\n- DO NOT touch any FR OTHER than ' + frId + '.\n- DO NOT run push-milestone / generate config docs / create archive.\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\n- DO NOT modify harness/.\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',
-    { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose' },
+    { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: FR_STEP_SCHEMA },
   )
   // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty
   // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be
   // misreported as a code-quality failure. DELTA auto-skip makes resume safe.
-  if (frReport === null || frReport === undefined || frReport === '' || typeof frReport !== 'string') {
+  if (frReport === null || frReport === undefined || typeof frReport !== 'object') {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 8, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
-  // L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent
-  // (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints "[FATAL] <fr> <step>:
-  // sub-agent dispatch is structurally broken — claude.ai connectors are disabled" to
-  // stderr and returns exit code 23). A sub-agent reading its own GATE1-DELTA log and seeing
-  // that banner will escalate to human with "FAIL — structurally broken dispatch" even
-  // when the gate has not yet run a single evaluation round. The harness-side
-  // _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer
-  // for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but the TDD dispatches AND the
-  // first-round prompt path do NOT have it. Continuing to dispatch the remaining FRs in
-  // that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.
-  // Abort once the structural signal is observed.
-  const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)
-  // Round 66: narrow match — the TDD prompt writes 'structurally broken dispatch
-  // environment' on ANY [FATAL], so the broad regex false-matched AAP-INFRA.
-  if (/\[FATAL\][^\n]*dispatch is structurally broken/i.test(frReportText)) {
-    log('  ' + frId + ' reports [FATAL] structurally broken dispatch (claude.ai connectors disabled) — aborting remaining FRs')
+  // L1.5-L1.7: the three terminal aborts, read from run-fr-step's own exit code
+  // (launch line's `; echo "RC=$?"`, carried by FR_STEP_SCHEMA). Prose is not
+  // load-bearing — see render_terminal_abort_detectors' docstring (Round 70 站3).
+  const frRc = (frReport && typeof frReport.rc === 'number') ? frReport.rc : null
+  // 23 — dispatch structurally broken; every retry fails identically.
+  if (frRc === 23) {
+    log('  ' + frId + ' exited 23 — dispatch is structurally broken (claude.ai connectors disabled), aborting remaining FRs')
     return { dispatch_structurally_broken: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL in the shell that launches this process, then re-run via Workflow({scriptPath, resumeFromRunId}).' }
   }
-  // L1.6 (see HARNESS_BUG_RE_JS above for why this is narrow, and shared
-  // with the Sync step's identical check — R66/R69).
-  if (/\[HARNESS-BUG\][^\n]*\n {2}This is a bug in harness-methodology itself/i.test(frReportText)) {
-    log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, aborting remaining FRs')
-    return { harness_bug_detected: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+  // 70 — harness crashed. Not a project defect; no re-run clears it.
+  if (frRc === 70) {
+    log('  ' + frId + ' exited 70 — harness-methodology crashed, aborting remaining FRs')
+    return { harness_bug_detected: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: harness-methodology itself crashed (exit 70 — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
+  }
+  // 25 — INFRA precondition block: project state, repairable, but not by a fix
+  // agent aimed at code. Separate from 70 since 站2, because the remedy is.
+  if (frRc === 25) {
+    log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
+    return { infra_abort: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run this phase.' }
   }
   // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness
   // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A

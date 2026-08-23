@@ -106,4 +106,13 @@ def test_sim_testbed_passes():
     # was being injected twice, so `dispatch` called itself and the run died on
     # `Maximum call stack size exceeded`. node --check passed, --check passed,
     # and all 130 workflow tests passed on that same file.
-    assert int(m.group(1)) >= 102, f"sim suite shrank: only {m.group(1)} passing tests (floor 102)"
+    # 102 -> 116 by Round 70 站3. The three terminal aborts stop being regexes
+    # over the sub-agent's prose and read run-fr-step's own exit code, so the
+    # per-FR pins double (a third abort class joins them: 25, INFRA), and five
+    # new phase3 scenarios cover what the prose form could not be tested for —
+    # an agent that OBEYS its prompt (which forbids writing the tags verbatim
+    # and asks for a sentence containing none of them) reporting a real crash,
+    # and its reverse, a passing run whose summary quotes the banner. The
+    # second of those is the shape that actually shipped as a false positive
+    # (taskq-api FR-04) and had no test at all.
+    assert int(m.group(1)) >= 116, f"sim suite shrank: only {m.group(1)} passing tests (floor 116)"

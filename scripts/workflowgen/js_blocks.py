@@ -239,6 +239,17 @@ const RC_SCHEMA = {
   properties: { rc: { type: 'integer', description: 'exact numeric exit code of the command' } },
   required: ['rc'],
 }""",
+    "FR_STEP_SCHEMA": """\
+// Round 70 站3: a per-FR GATE1 / GATE1-DELTA report. Routing reads `rc`, never
+// the prose; `final_line` is for the operator's log and nothing branches on it.
+const FR_STEP_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exact exit code of run-fr-step, read off the last RC= line (-1 if it never finished)' },
+    final_line: { type: 'string', description: 'one-line human summary of the outcome' },
+  },
+  required: ['rc'],
+}""",
     "CTX_SCHEMA": """\
 const CTX_SCHEMA = {
   type: 'object',
@@ -649,7 +660,7 @@ def render_load_frs(phase: int, *, include_fr_titles: bool = False) -> str:
 
 
 def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> str:
-    """The two per-FR conditions no fix agent can resolve (Round 13 站0/站2).
+    """The three per-FR conditions no fix agent can resolve (Round 13 站0/站2).
 
     Both were written for Phase 3's TDD loop and stayed there. P4, P5, P7 and P8
     run their own per-FR Gate 1 loops through `render_per_fr_delta` and had
@@ -661,26 +672,40 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
     `indent` differs by host (P3's loop body sits one level deeper than the
     delta loop's); `step` names the step in the operator-facing message, so a
     P5 abort does not claim to have happened in GATE1.
+
+    Round 70 站3 — they are told apart by `run-fr-step`'s own exit code, not
+    by prose. The prose version was revised four times in five days
+    (7584a7da, b453cf6c, 4c8b020d, and 17f5f448 on its sibling) and none of
+    the four could work, because the same generator's GATE1 prompt tells the
+    agent to report `"<FR> GATE1: FAIL — harness-methodology itself crashed,
+    escalate to human"` — a sentence with no bracketed tag in it — and its
+    R66 clause forbids writing `[HARNESS-BUG]` verbatim at all. The detector
+    required the banner's literal two lines. An agent that obeyed its prompt
+    could not trip it; an agent that disobeyed could, which is the one shape
+    `sim_runner.test.mjs` had a fixture for, and why all four revisions were
+    green. Measured across nine projects: zero crash bundles, zero
+    harness-crash rows in any degradation ledger, and the single recorded
+    firing of this detector was a FALSE positive (taskq-api FR-04, which had
+    passed — R66's note in artifact_limits.py).
+
+    The exit codes are `cli/exit_codes.py`'s, and the launch line captures
+    them with the `; echo "RC=$?"` idiom this file already uses at six other
+    sites (`render_env_check` is the same shape, down to the `nohup bash -c`
+    quoting). 23 = EX_DISPATCH_STRUCTURALLY_BROKEN, 70 = EX_HARNESS_BUG,
+    25 = EX_FR_STEP_INFRA_ABORT — three classes, three codes since 站2, and
+    three exits here rather than two, because INFRA has a repair route the
+    other two do not (`amend-sab`, then re-run).
     """
     i = indent
     return (
-        f"{i}// L1.5: detect a structurally-broken dispatch [FATAL] surfaced via the sub-agent\n"
-        f"{i}// (harness/cli/fr_cmds.py:_abort_dispatch_structurally_broken prints \"[FATAL] <fr> <step>:\n"
-        f"{i}// sub-agent dispatch is structurally broken — claude.ai connectors are disabled\" to\n"
-        f"{i}// stderr and returns exit code 23). A sub-agent reading its own {step} log and seeing\n"
-        f"{i}// that banner will escalate to human with \"FAIL — structurally broken dispatch\" even\n"
-        f"{i}// when the gate has not yet run a single evaluation round. The harness-side\n"
-        f"{i}// _is_connector_disabled_failure guard already catches this AT the fr_cmds.py layer\n"
-        f"{i}// for LINT-FIX / COVERAGE-FIX / GATE1-final-dispatch, but the TDD dispatches AND the\n"
-        f"{i}// first-round prompt path do NOT have it. Continuing to dispatch the remaining FRs in\n"
-        f"{i}// that state burns ~5min and ~50K tokens per FR on identically-broken dispatches.\n"
-        f"{i}// Abort once the structural signal is observed.\n"
-        f"{i}const frReportText = (typeof frReport === 'string') ? frReport : JSON.stringify(frReport)\n"
-        f"{i}// Round 66: narrow match — the TDD prompt writes 'structurally broken dispatch\n"
-        f"{i}// environment' on ANY [FATAL], so the broad regex false-matched AAP-INFRA.\n"
-        f"{i}if (/\\[FATAL\\][^\\n]*dispatch is structurally broken/i.test(frReportText)) {{\n"
-        f"{i}  log('  ' + frId + ' reports [FATAL] structurally broken dispatch "
-        f"(claude.ai connectors disabled) — aborting remaining FRs')\n"
+        f"{i}// L1.5-L1.7: the three terminal aborts, read from run-fr-step's own exit code\n"
+        f"{i}// (launch line's `; echo \"RC=$?\"`, carried by FR_STEP_SCHEMA). Prose is not\n"
+        f"{i}// load-bearing — see render_terminal_abort_detectors' docstring (Round 70 站3).\n"
+        f"{i}const frRc = (frReport && typeof frReport.rc === 'number') ? frReport.rc : null\n"
+        f"{i}// 23 — dispatch structurally broken; every retry fails identically.\n"
+        f"{i}if (frRc === 23) {{\n"
+        f"{i}  log('  ' + frId + ' exited 23 — dispatch is structurally broken "
+        f"(claude.ai connectors disabled), aborting remaining FRs')\n"
         f"{i}  return {{ dispatch_structurally_broken: true, phase: {phase}, fr_id: frId, gate1Pass, "
         f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: dispatch is structurally broken "
         f"(env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset "
@@ -688,16 +713,24 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"in the shell that launches this process, then re-run via "
         f"Workflow({{scriptPath, resumeFromRunId}}).' }}\n"
         f"{i}}}\n"
-        f"{i}// L1.6 (see HARNESS_BUG_RE_JS above for why this is narrow, and shared\n"
-        f"{i}// with the Sync step's identical check — R66/R69).\n"
-        f"{i}if ({HARNESS_BUG_RE_JS}.test(frReportText)) {{\n"
-        f"{i}  log('  ' + frId + ' reports [HARNESS-BUG] — harness-methodology crashed, "
+        f"{i}// 70 — harness crashed. Not a project defect; no re-run clears it.\n"
+        f"{i}if (frRc === 70) {{\n"
+        f"{i}  log('  ' + frId + ' exited 70 — harness-methodology crashed, "
         f"aborting remaining FRs')\n"
         f"{i}  return {{ harness_bug_detected: true, phase: {phase}, fr_id: frId, gate1Pass, "
         f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: harness-methodology itself "
-        f"crashed ([HARNESS-BUG] — see the crash bundle path in the log). This is not a project "
+        f"crashed (exit 70 — see the crash bundle path in the log). This is not a project "
         f"quality issue; a human must diagnose and fix the harness bug before this FR can "
         f"proceed.' }}\n"
+        f"{i}}}\n"
+        f"{i}// 25 — INFRA precondition block: project state, repairable, but not by a fix\n"
+        f"{i}// agent aimed at code. Separate from 70 since 站2, because the remedy is.\n"
+        f"{i}if (frRc === 25) {{\n"
+        f"{i}  log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')\n"
+        f"{i}  return {{ infra_abort: true, phase: {phase}, fr_id: frId, gate1Pass, "
+        f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: an INFRA precondition failed "
+        f"(exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project "
+        f"state with `harness_cli.py amend-sab`, then re-run this phase.' }}\n"
         f"{i}}}\n"
     )
 
@@ -812,15 +845,16 @@ def render_per_fr_delta(
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
         + "    + '1. GATE1-DELTA — long-running when code changed (harness runs up to 3 internal CODE-FIX rounds plus, on FAIL, a full TDD-RED→GREEN→IMPROVE→GATE1 chain — can silently block well past 180s). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\\n'\n"
-        + f"    + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase {phase} --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\\n'\n"
-        + "    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\\'s own retries). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report \"' + frId + ' GATE1: TIMEOUT\" (not FAIL).\\n'\n"
-        + "    + '   c. DONE → `cat /tmp/gate1delta_' + frId + '.log` for the full output, identical to a synchronous run. Parse PASS/FAIL from it.\\n'\n"
-        + "    + '   - PASS → done.\\n'\n"
-        + "    + '   - FAIL → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report FAIL.\\n'\n"
+        + f"    + '   a. `nohup bash -c \\'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase {phase} --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + '; echo \"RC=$?\"\\' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\\n'\n"
+        + "    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\\'s own retries). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
+        + "    + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\\'s own exit code — report that integer verbatim. It is NOT the Bash tool\\'s rc; do not compute or infer it.\\n'\n"
+        + "    + '   - RC=0 → done.\\n'\n"
+        + "    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\\n'\n"
+        + "    + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\\n'\n"
         + "    + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\\n\\n'\n"
-        + "    + 'Report final line: \"' + frId + ' GATE1: PASS\" or \"' + frId + ' GATE1: FAIL — <reason>\".\\n\\n'\n"
+        + "    + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\\'s last RC= line>, final_line: \"' + frId + ' GATE1: PASS\" or \"' + frId + ' GATE1: FAIL — <reason>\" }.\\n\\n'\n"
         + f"    + 'SCOPE RULES:\\n- DO NOT touch any FR OTHER than ' + frId + '.\\n{forbidden_note}- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\\n- DO NOT modify harness/.\\n- ONLY GATE1-DELTA (+ full TDD if needed) for ' + frId + '.',\n"
-        + "    { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose' },\n"
+        + "    { label: 'delta-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: FR_STEP_SCHEMA },\n"
         + "  )\n"
         + "  // L1 (ported from phase3): distinguish a session/rate-limit block (null/empty\n"
         + "  // agent return) from a real Gate 1 FAIL — a rate-limit mid-DELTA must not be\n"
@@ -832,6 +866,7 @@ def render_per_fr_delta(
             message="Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. "
                     "Resume after quota reset — completed FRs skip via DELTA auto-satisfy.",
             indent='  ',
+            payload='object',
         )
         + render_terminal_abort_detectors(phase=phase, indent="  ", step="GATE1-DELTA")
         + "  // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness\n"

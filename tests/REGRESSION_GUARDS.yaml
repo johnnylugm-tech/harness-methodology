@@ -3046,9 +3046,12 @@
   bug: "the per-FR loop and Sync detectors independently drifted from each other once (R66/7584a7da fixed one, not the other); pin them to one definition so a future edit cannot repeat it silently"
   fixed_in: "code-review follow-up 2026-08-22"
 
-- test: tests/test_harness_bug_regex_unified.py::test_spec_phase3_names_the_real_infra_signature
-  bug: "7584a7da's paraphrasing pass weakened the AAP-INFRA prompt case from the real, stable substring _abort_dispatch_infra_or_harness_bug prints (\"INFRA detected in sub-agent output\") to vague prose (\"AAP block or INFRA fatal\") the TDD agent has nothing to grep the log for"
-  fixed_in: "code-review follow-up 2026-08-22"
+# Renamed in Round 70 站3 to test_spec_phase3_names_the_signal_the_agent_can_actually_read
+# (registered at the end of this file). The property is unchanged — the prompt must name a
+# signal the agent can extract deterministically — but what that signal IS changed from the
+# substring _abort_dispatch_infra_or_harness_bug prints to the exit code it returns, because
+# the whole prose-matching class was removed. The old name would have pinned a mechanism that
+# no longer exists.
 
 - test: tests/test_fr_step_no_progress_self_doubt.py::test_recovery_banner_prints_a_real_phase_number
   bug: "f0de7eac's FR-99 recovery banner printed `--phase {step or 3}` using the step-name string (e.g. 'GATE1') instead of the real phase int already in scope at the call site; finalize-gate's --phase is type=int, so the copy-pasted recovery command argparse-rejected with 'invalid int value'"
@@ -3113,3 +3116,7 @@
 - test: tests/test_fr_step_infra_routing.py::test_the_two_classes_do_not_share_one_exit_code
   bug: "the property behind the fix, stated once: whatever the two codes are, a caller branching on the integer must be able to tell an INFRA precondition block from a harness crash"
   fixed_in: "Round 70 站2"
+
+- test: tests/test_harness_bug_regex_unified.py::test_spec_phase3_names_the_signal_the_agent_can_actually_read
+  bug: "the GATE1 prompt has to name a signal the agent can extract deterministically; 7584a7da regressed it to prose the agent could not grep, and Round 70 站3 replaced the whole prose-matching class with run-fr-step's exit code"
+  fixed_in: "Round 70 站3"

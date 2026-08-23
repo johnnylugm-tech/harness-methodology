@@ -216,12 +216,82 @@ test('phase3 GATE1 verify: hallucinated pass:true cannot rescue a deterministic 
 // not fall through to the deterministic-verdict read as an ordinary FAIL.
 test('phase3 TDD loop: [HARNESS-BUG] banner in the GATE1 log aborts the FR loop (not a code-quality FAIL)', async () => {
   const overrides = [
-    { match: /^tdd-/, respond: 'FR-01 GATE1: FAIL — harness-methodology itself crashed\n[HARNESS-BUG] ValueError: foo\n  This is a bug in harness-methodology itself\n  Crash bundle: .methodology/crash/x.json' },
+    { match: /^tdd-/, respond: { rc: 70, final_line: 'FR-01 GATE1: FAIL — harness-methodology itself crashed\n[HARNESS-BUG] ValueError: foo\n  This is a bug in harness-methodology itself\n  Crash bundle: .methodology/crash/x.json' } },
     ...happyOverrides(),
   ]
   const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
   assert.equal(result.harness_bug_detected, true, JSON.stringify(result).slice(0, 200))
   assert.match(result.message, /harness-methodology itself crashed/)
+})
+
+// The reverse, which is the half that had no test and let the FR-04 false
+// positive ship: prose that CONTAINS the banner while the command succeeded
+// must not abort. That is exactly the proof-by-absence summary R66 found in a
+// passing run ("No [FATAL] / [HARNESS-BUG] / [BLOCKED] AAP-INFRA in any log"),
+// and the shape four regex revisions kept trying to exclude by wording.
+test('phase3 TDD loop: prose quoting the banner does not abort when rc says it succeeded', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 0, final_line: 'FR-01 GATE1: PASS — no [FATAL] / [HARNESS-BUG] / [BLOCKED] in any log\n[HARNESS-BUG] ValueError: foo\n  This is a bug in harness-methodology itself' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.notEqual(result.harness_bug_detected, true,
+    'the command exited 0 — quoting the banner in a summary is not a crash')
+  assert.notEqual(result.dispatch_structurally_broken, true)
+  assert.notEqual(result.infra_abort, true)
+})
+
+// ---- 3b'. the SAME crash, reported by an agent that followed its prompt ----
+// Round 70 站3. The fixture above is an agent that pasted the banner verbatim
+// — which spec_phase3.py's own R66 clause forbids ("in final prose do NOT
+// write [HARNESS-BUG] ... verbatim"), and whose GATE1 failure case tells the
+// agent to report a sentence that contains neither bracketed tag nor banner
+// line. So the detector fired only for an agent that disobeyed, and the four
+// regex revisions between 2026-08-19 and 2026-08-23 were all tuned against
+// that one disobedient shape.
+//
+// run-fr-step exits 70 on a harness crash (cli/exit_codes.EX_HARNESS_BUG, and
+// since 站2 also for a banner it finds in its own sub-agent's output). The
+// launch line captures it and the agent carries the integer; the prompt's
+// prose is no longer load-bearing.
+test('phase3 TDD loop: a harness crash reported by an obedient agent (rc only) still aborts', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 70, final_line: 'FR-01 GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.equal(result.harness_bug_detected, true, JSON.stringify(result).slice(0, 200))
+})
+
+test('phase3 TDD loop: a structurally-broken dispatch is rc 23, not a phrase', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 23, final_line: 'FR-01 GATE1: FAIL — escalate to human' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.equal(result.dispatch_structurally_broken, true, JSON.stringify(result).slice(0, 200))
+})
+
+test('phase3 TDD loop: an INFRA abort is rc 25 and is not a harness bug', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.equal(result.infra_abort, true, JSON.stringify(result).slice(0, 200))
+  assert.notEqual(result.harness_bug_detected, true, 'INFRA is project state, not a harness defect')
+})
+
+test('phase3 TDD loop: an ordinary Gate 1 failure (rc 1) is not an abort', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 1, final_line: 'FR-01 GATE1: FAIL — coverage 71%' } },
+    { match: /^gate1-verify-/, respond: { pass: false, reason: 'GATE1_VERIFIED_FAIL score=71.4' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.notEqual(result.harness_bug_detected, true)
+  assert.notEqual(result.dispatch_structurally_broken, true)
+  assert.ok(result.error, 'it must still fail the gate, just not as a terminal abort')
 })
 
 // ---- 3c. Sync verdict FAIL branch (Round 28) -------------------------------
@@ -922,20 +992,26 @@ test('round26: every workflow routes its dispatches through the wrapper', async 
 // on to Phase 4. A run in which harness itself crashed on FR-01 reported
 // `phases_run: [3,4,5,6,7,8]` and no error — the sixth appearance of "the
 // detector was built, the consumer never read it".
+// Round 70 站3: the replies are `{rc}` objects now, not prose. The prose form
+// these carried until this round was an agent that had DISOBEYED its own
+// prompt (spec_phase3.py's R66 clause forbids writing the tags verbatim, and
+// its GATE1 failure case asks for a sentence containing none of them) — the
+// only shape the four regex revisions were ever tested against.
 const TERMINAL_FLAG_CASES = [
   {
     flag: 'harness_bug_detected',
-    reply: 'FR-01 GATE1: FAIL — harness-methodology itself crashed\n'
-      + '[HARNESS-BUG] ValueError: foo\n'
-      + '  This is a bug in harness-methodology itself\n'
-      + '  Crash bundle: .methodology/crash/x.json',
+    reply: { rc: 70, final_line: 'FR-01 GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)' },
     why: 'harness-methodology itself crashed — no later phase can be trusted',
   },
   {
     flag: 'dispatch_structurally_broken',
-    reply: 'FR-01 GATE1: FAIL — [FATAL] FR-01 GATE1: sub-agent dispatch is structurally '
-      + 'broken — Claude Code reports claude.ai connectors are disabled',
+    reply: { rc: 23, final_line: 'FR-01 GATE1: FAIL — escalate to human, the dispatch environment is unusable' },
     why: 'no sub-agent can be dispatched at all — every later phase would fail identically',
+  },
+  {
+    flag: 'infra_abort',
+    reply: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' },
+    why: 'an INFRA precondition failed — the fix is amend-sab, not a code-fix agent',
   },
 ]
 
@@ -974,7 +1050,7 @@ for (const [n, file] of Object.entries(DELTA_PHASE_FILES)) {
   for (const { flag, reply } of TERMINAL_FLAG_CASES) {
     test(`round28: ${file} per-FR loop aborts on ${flag}`, async () => {
       const { result } = await runWorkflow(WF(file), makeHappyResponder(
-        [{ match: /^delta-FR-/, respond: reply.replace('GATE1', 'GATE1-DELTA') }, ...happyOverrides()]))
+        [{ match: /^delta-FR-/, respond: { ...reply, final_line: reply.final_line.replace('GATE1', 'GATE1-DELTA') } }, ...happyOverrides()]))
       assert.equal(result[flag], true,
         `${file}: ${flag} not raised — the failure would be routed to CODE-FIX as a `
         + `code-quality FAIL. Got: ${JSON.stringify(result).slice(0, 200)}`)

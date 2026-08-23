@@ -209,18 +209,19 @@ def _render_per_fr_tdd() -> str:
         + "      + '5. amend-sab (proactive, BEFORE GATE1): `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` (first-class dispatch, idempotent, deterministic — does NOT spawn a sub-agent). If new modules are registered to .methodology/SAB.json: commit them (`git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m \"amend: register SAB modules (' + frId + ')\"`) before proceeding to GATE1. This FR\\'s GREEN/IMPROVE steps may have added modules GATE1\\'s Architecture Amendment Protocol would otherwise BLOCK on — registering them now avoids a wasted GATE1 round.\\n'\n"
         + "      + '6. GATE1 — long-running (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s: can silently block ~2400s worst case). Run it BACKGROUNDED — do NOT invoke it as a plain synchronous command:\\n'\n"
         + "      + '   GATE1 invocation procedure (a/b/c):\\n'\n"
-        + "      + '   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + ' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\\n'\n"
-        + "      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~20min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report \"' + frId + ' GATE1: TIMEOUT\" (not FAIL).\\n'\n"
-        + "      + '   c. Once DONE: `cat /tmp/gate1_' + frId + '.log` for the full output — identical to what a synchronous run would have printed. Parse PASS/FAIL from it exactly as before.\\n'\n"
+        + "      + '   a. Launch: `nohup bash -c \\'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + '; echo \"RC=$?\"\\' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\\n'\n"
+        + "      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~20min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
+        + "      + '   c. Once DONE: `tail -200 /tmp/gate1_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\\'s own exit code — that integer, verbatim, is what you report. It is NOT the Bash tool\\'s rc, and you must not compute, infer or round it: read it off the line.\\n'\n"
         + "      + '   Gate 1 per-dimension thresholds are printed in the log itself (dynamic — read from quality_manifest gate_score_overrides, do not assume fixed numbers).\\n'\n"
         + "      + '   - PASS → done.\\n'\n"
         + "      + '   - FAIL → fix failing dims (ruff check . --fix; add tests for coverage; fix pyright errors), repeat the GATE1 invocation procedure (a/b/c). Max 3 rounds.\\n'\n"
         + "      + '   - Still failing after 3 → report FAIL.\\n'\n"
-        + "      + '   - Structurally-broken dispatch: log contains \"sub-agent dispatch is structurally broken\" (claude.ai connectors disabled). STOP, do NOT unset env vars, do NOT retry GATE1. Report \"' + frId + ' GATE1: FAIL — sub-agent dispatch structurally broken (claude.ai connectors disabled), escalate to human\".\\n'\n"
-        + "      + '   - AAP-INFRA / harness-INFRA: log contains the literal substring \"INFRA detected in sub-agent output\" (run-fr-step\\'s own _abort_dispatch_infra_or_harness_bug short-circuit — NOT \"sub-agent dispatch is structurally broken\"). PROJECT-level (modules not in SAB.json), not dispatch. Fix: `harness_cli.py amend-sab --project ' + REPO + '` then re-run GATE1. Report \"' + frId + ' GATE1: FAIL — infra-class fatal, amend project state\".\\n'\n"
-        + "      + '   - Harness crash (HARNESS-BUG banner in log): the log contains the harness crash banner (`[HARNESS-BUG] <ExcType>: <summary>` then `This is a bug in harness-methodology itself`). NOT your code/tests. STOP, do not retry, do not modify project code. Report \"' + frId + ' GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)\" and stop this TDD chain.\\n'\n"
+        + "      + '   The RC decides what happens next, and the workflow reads the integer — not your wording, so paraphrase the reason however you like:\\n'\n"
+        + "      + '   - RC=23 (dispatch structurally broken, claude.ai connectors disabled): STOP. Do NOT unset env vars, do NOT retry — every retry fails identically.\\n'\n"
+        + "      + '   - RC=70 (harness-methodology itself crashed): NOT your code or tests. STOP, do not retry, do not modify project code. The log names a crash bundle path; quote it in your reason.\\n'\n"
+        + "      + '   - RC=25 (INFRA precondition block): project state, not code. STOP this chain; the workflow routes it to `amend-sab`.\\n'\n"
+        + "      + '   - Any other nonzero RC = an ordinary Gate 1 FAIL → fix failing dims and repeat the a/b/c procedure (max 3 rounds, as above).\\n'\n"
         + "      + '   - AAP block: log contains \"Unregistered modules detected: {…}\" — step 5 amend-sab didn\\'t run. Verify .methodology/SAB.json committed; else run `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` + manual `git add ... && git commit`, repeat GATE1. Max 1 amend round per FR.\\n'\n"
-        + "      + '   R66: in final prose do NOT write [HARNESS-BUG] / [FATAL] / [BLOCKED] / `structurally broken dispatch environment` verbatim (run-all abort detectors match even when quoted to prove absence). Paraphrase.\\n'\n"
         + "      + '   run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-phase --phase 3 --project ' + REPO + '`.\\n'\n"
         + "      + '7. ORCH-POST (after GATE1 PASS, per phase3_plan.md [ORCH-POST]):\\n'\n"
         + "      + '   a. `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 40.0 --fr-id ' + frId + '` (per-FR D4 ≥40%). FAIL → add the missing test implementations for ' + frId + ', re-run.\\n'\n"
@@ -229,9 +230,9 @@ def _render_per_fr_tdd() -> str:
         + "      + '       and may not reflect modules added during Phase 3 implementation. Only run generate_sab.py --overwrite\\n'\n"
         + "      + '       manually AFTER updating SAD.md §5 to include all Phase 3 modules.)\\n\\n'\n"
         + "      + 'Implement the module per SPEC.md (read ' + REPO + '/SPEC.md for ' + frId + ') + SAD.md module mapping. Write source under the package directory layout your project uses: if `03-development/src/<package>/` is a FLAT PACKAGE (one `<module>.py` per file, e.g. `03-development/src/<package>/<module>.py`), write `src/<package>/<module>.py`; if it is MODULE-PER-DIR (one `<module>/__init__.py` per directory), write `src/<package>/<module>/__init__.py`. The init-project directory scaffold shows which layout your project uses. Do NOT place this FR\\'s implementation inside a file another FR already owns or a shared/global file (e.g. `cli.py`) used by multiple FRs — each FR\\'s logic belongs in its own module per SAD.md/quality_manifest.json\\'s fr_module_traceability mapping. Tests for ' + frId + ' MUST be placed at the path(s) declared in TEST_SPEC.md §FR-' + frNum + ' (test file list) — TEST_SPEC.md is the canonical source of truth for test placement. If TEST_SPEC lists multiple test files (e.g. unit + integration variants), you MUST create all of them; pass `--test-file <path1> --test-file <path2> ...` to MIRROR and related tooling. The legacy single-file convention (`tests/test_fr' + frNum + '.py` only) is no longer required when TEST_SPEC specifies otherwise. Docstrings must include [' + frId + '] reference (NFR-05).\\n\\n'\n"
-        + "      + 'Report final line: \"' + frId + ' GATE1: PASS\" or \"' + frId + ' GATE1: FAIL — <reason>\".\\n\\n'\n"
+        + "      + 'Report via the StructuredOutput tool: { rc: <the integer from step 6c\\'s last RC= line>, final_line: \"' + frId + ' GATE1: PASS\" or \"' + frId + ' GATE1: FAIL — <reason>\" }. If GATE1 never ran to completion (timeout at the poll cap), rc is -1.\\n\\n'\n"
         + "      + 'SCOPE RULES:\\n- DO NOT implement any FR OTHER than ' + frId + '.\\n- DO NOT run run-gate (Gate 2), advance-phase, or push-milestone.\\n- DO NOT edit .methodology/quality_manifest.json or .sessi-work/gate1_result.json to fake/reset scores — fix the underlying code/tests instead.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY the 7 steps above for ' + frId + ' (amend-sab in step 5, spec-coverage-check in step 7a is allowed).',\n"
-        + "      { label: 'tdd-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose' },\n"
+        + "      { label: 'tdd-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: FR_STEP_SCHEMA },\n"
         + "    )\n"
         + "    // L1: distinguish a session/rate-limit block (null/empty agent return) from a real\n"
         + "    // Gate 1 FAIL — mirror the Gate 2 detection (below). Without this, a rate-limit mid-\n"
@@ -244,6 +245,7 @@ def _render_per_fr_tdd() -> str:
             message="Agent hit session/rate limit during ' + frId + ' TDD. "
                     "Resume after quota reset — sentinel GUARD will skip completed FRs.",
             indent='    ',
+            payload='object',
         )
         + B.render_terminal_abort_detectors(phase=3, indent="    ", step="GATE1")
         + "    // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes\n"
@@ -446,7 +448,7 @@ def generate_phase3() -> str:
         "",
         B.WRITE_SCOPE_BLOCK,
         "",
-        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "FR_LIST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "FR_STEP_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA_WITH_TITLES", "FR_LIST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
         _render_phase3_entry_preflight(),
         B.render_env_check(phase=3),
         B.render_manifest_integrity_fn(phase=3),
