@@ -19,6 +19,7 @@ from pathlib import Path
 from cli import gate_cmds
 from cli.exit_codes import (
     EX_FR_STEP_INFRA_ABORT,
+    EX_HARNESS_BUG,
     EX_STEP_PRECONDITION_BLOCKED,
     EX_STEP_REPEATED_FAILURE,
 )
@@ -1459,7 +1460,17 @@ def _abort_dispatch_infra_or_harness_bug(
     _abort_dispatch_structurally_broken's shape. Not dispatching CODE-FIX/
     COVERAGE-FIX: this is not a code-quality problem, and retrying GATE1
     (the S3 short-circuit's response to a different, code-fixable class of
-    parse failure) would not resolve it either."""
+    parse failure) would not resolve it either.
+
+    Round 70 站2: the two classes get two codes. This function computes `cls`
+    and then discarded it, returning 25 for both, while the remedies are
+    opposite — INFRA is project state the operator repairs with `amend-sab`
+    before re-running, a HARNESS_BUG is this framework's own defect and the
+    run must stop. 70 is not a new code: `harness_cli.py`'s crash boundary
+    already returns EX_HARNESS_BUG for a banner it printed itself, and a
+    banner surfacing through a sub-agent's output is the same fact by a
+    different route.
+    """
     kind = ("a bug in harness-methodology itself" if cls == "HARNESS_BUG"
             else "an infrastructure precondition failure (the tool never ran)")
     print(
@@ -1472,7 +1483,7 @@ def _abort_dispatch_infra_or_harness_bug(
         f"--fr-id {fr_id} --project {project}",
         file=sys.stderr,
     )
-    return EX_FR_STEP_INFRA_ABORT
+    return EX_HARNESS_BUG if cls == "HARNESS_BUG" else EX_FR_STEP_INFRA_ABORT
 
 
 def _abort_no_progress_with_self_doubt(

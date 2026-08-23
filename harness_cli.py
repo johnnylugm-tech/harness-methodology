@@ -68,8 +68,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     23  Sub-agent dispatch is structurally broken (e.g. claude.ai connectors
         disabled) — not a retryable failure
     24  run-phase: spawn-substrate preflight probe FAILED
-    25  run-fr-step: [HARNESS-BUG]/INFRA_FAIL signature found in sub-agent
-        output — aborted before dispatching a fix agent
+    25  run-fr-step: INFRA_FAIL signature found in sub-agent output —
+        aborted before dispatching a fix agent; repair project state
+        (amend-sab) and re-run. A [HARNESS-BUG] banner in the same output
+        is code 70, not this one: the remedies are opposite.
     26  [FATAL] .methodology/state.json or quality_manifest.json exists but
         is not readable/parseable JSON — project data corruption, NOT a
         harness-methodology bug (see core/state_io.py's StateCorruptError)
@@ -120,8 +122,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         off (features.<key>: false). No dimension can be excluded from a gate
         any more — remove the named key; a tool that genuinely cannot run here
         is an INFRA block with a repair route, not a scoring exemption
-    70  [HARNESS-BUG] — an uncaught exception in harness-methodology's own
-        code (see core/errors.py); not a project quality failure
+    70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
+        uncaught exception at the crash boundary (core/errors.py), or the
+        same banner surfacing through a sub-agent's GATE1 output
+        (run-fr-step). Not a project quality failure; no re-run clears it.
     130 Interrupted (Ctrl-C)
 """
 from __future__ import annotations

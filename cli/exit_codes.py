@@ -94,7 +94,7 @@ REGISTRY: dict[int, str] = {
     EX_GHOST_DETECTED: "GHOST_DETECTED — agent claimed work but made no substantive code change (see .sessi-work/ghost_detected/)",
     EX_DISPATCH_STRUCTURALLY_BROKEN: "Sub-agent dispatch is structurally broken (e.g. claude.ai connectors disabled) — not a retryable failure",
     EX_SUBSTRATE_PREFLIGHT_FAIL: "run-phase: spawn-substrate preflight probe FAILED — sub-agents cannot run pytest/git in this environment",
-    EX_FR_STEP_INFRA_ABORT: "run-fr-step: a [HARNESS-BUG] banner or INFRA_FAIL precondition-block signature was found in the sub-agent's GATE1 output — aborted before dispatching a fix agent at a problem no code change can resolve",
+    EX_FR_STEP_INFRA_ABORT: "run-fr-step: an INFRA_FAIL precondition-block signature was found in the sub-agent's GATE1 output — aborted before dispatching a fix agent at a problem no code change can resolve; repair project state (amend-sab) and re-run",
     EX_STATE_CORRUPT: "[FATAL] .methodology/state.json or quality_manifest.json exists but is not readable/parseable JSON — project data corruption, NOT a harness-methodology bug (see core/state_io.py's StateCorruptError)",
     EX_ADVANCE_MANIFEST_CORRUPT: "advance-phase: quality_manifest.json parses but its structure is corrupt (truncated fr_ids / cleared traceability / wiped gate1) — refusing to commit it; restore from HEAD and re-run",
     EX_ADVANCE_PUSH_FAILED: "advance-phase --push: the handover commit landed locally but `git push` failed — NOT rolled back; fix connectivity/remote and re-run the push command printed in the [BLOCKED] message",
@@ -109,7 +109,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_ENTRY_OBLIGATIONS: "advance-phase: the preflight simulated at the phase being entered reports findings that would block entry there — the [BLOCKED] table names each one by check, rule and file:line. state.json was NOT advanced: a project whose current_phase names a phase its own entry preflight rejects is a state with no truth value. Resolve the listed findings and re-run",
     EX_ADVANCE_UNCOMMITTED_DELIVERABLES: "advance-phase: delivered files differ from HEAD, so the commit about to record this phase does not contain the tree the phase's checks were measured on — the [BLOCKED] list names each file. Harness bookkeeping and the files this command rewrites itself are excluded. Commit the listed work (or gitignore it, if it is generated at runtime) and re-run",
     EX_RETIRED_FEATURE_FLAG: "run-gate: .methodology/harness_config.json still switches a dimension off (features.<key>: false). No dimension can be excluded from a gate any more — a dimension is measured, or the gate blocks and the run routes to repair. Remove the named key; if the tool genuinely cannot run here, that is an INFRA block with a repair route, not a scoring exemption",
-    EX_HARNESS_BUG: "[HARNESS-BUG] — an uncaught exception in harness-methodology's own code (see core/errors.py); not a project quality failure",
+    EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",
 }

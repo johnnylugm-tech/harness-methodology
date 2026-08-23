@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cli.exit_codes import EX_FR_STEP_INFRA_ABORT
+from cli.exit_codes import EX_FR_STEP_INFRA_ABORT, EX_HARNESS_BUG
 from cli.fr_cmds import (
     _abort_dispatch_infra_or_harness_bug,
     _classify_infra_or_harness_bug,
@@ -64,12 +64,48 @@ def test_classify_prioritizes_harness_bug_over_infra_when_both_present():
 
 def test_abort_returns_infra_abort_exit_code(capsys):
     rc = _abort_dispatch_infra_or_harness_bug(
-        "FR-01", "GATE1", 3, Path("/tmp/project"), "HARNESS_BUG", "[HARNESS-BUG] x"
+        "FR-01", "GATE1", 3, Path("/tmp/project"), "INFRA", "phantom module"
     )
     assert rc == EX_FR_STEP_INFRA_ABORT
     err = capsys.readouterr().err
     assert "[FATAL]" in err
     assert "not dispatching a fix agent" in err.lower() or "not a code-quality" in err.lower()
+
+
+def test_a_harness_bug_in_the_subagent_output_exits_as_a_harness_bug(capsys):
+    """Round 70 站2. This function computes `cls` — "HARNESS_BUG" or "INFRA" —
+    and then discarded it, returning 25 for both. The two have opposite
+    remedies: INFRA is a project-state problem the operator fixes with
+    `amend-sab` and re-runs, a HARNESS_BUG is this framework's own defect and
+    the run must stop. A caller branching on the integer could not tell them
+    apart, which is a fifth entry for the "one code, two meanings" list
+    `cli/exit_codes.py`'s own docstring keeps.
+
+    70 is not a new code: it is what `harness_cli.py`'s crash boundary already
+    returns for a [HARNESS-BUG] banner it printed itself. A banner arriving via
+    a sub-agent's output is the same fact reported by a different route."""
+    rc = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/project"), "HARNESS_BUG", "[HARNESS-BUG] x"
+    )
+    assert rc == EX_HARNESS_BUG, (
+        f"a HARNESS_BUG class returned {rc} — the same code an INFRA "
+        "precondition failure returns, and the two need opposite responses"
+    )
+    err = capsys.readouterr().err
+    assert "[FATAL]" in err
+    assert "a bug in harness-methodology itself" in err
+
+
+def test_the_two_classes_do_not_share_one_exit_code(capsys):
+    """The property, stated once: whatever the codes are, they differ."""
+    infra = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/p"), "INFRA", "phantom module"
+    )
+    harness_bug = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/p"), "HARNESS_BUG", "[HARNESS-BUG] x"
+    )
+    capsys.readouterr()
+    assert infra != harness_bug
 
 
 def test_abort_message_distinguishes_infra_from_harness_bug(capsys):

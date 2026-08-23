@@ -3105,3 +3105,11 @@
 - test: tests/test_gate1_score_gate_ssot.py::test_declared_and_enforced_cannot_disagree
   bug: "load_score_gate answers what the YAML DECLARES and returns None when it declares nothing, so every consumer that had to state a number invented its own default; effective_score_gate is the one function that applies the same default from_dict applies"
   fixed_in: "Round 70 站1"
+
+- test: tests/test_fr_step_infra_routing.py::test_a_harness_bug_in_the_subagent_output_exits_as_a_harness_bug
+  bug: "_abort_dispatch_infra_or_harness_bug computed cls (HARNESS_BUG / INFRA) and then discarded it, returning 25 for both — a fifth 'one code, two meanings' entry, and the two need opposite responses (amend-sab and re-run vs stop, the framework is broken)"
+  fixed_in: "Round 70 站2"
+
+- test: tests/test_fr_step_infra_routing.py::test_the_two_classes_do_not_share_one_exit_code
+  bug: "the property behind the fix, stated once: whatever the two codes are, a caller branching on the integer must be able to tell an INFRA precondition block from a harness crash"
+  fixed_in: "Round 70 站2"

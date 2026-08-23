@@ -171,6 +171,16 @@ one.
   ready-to-paste maintenance prompt), the `[HARNESS-BUG]` banner prints to
   stderr, and the process exits `70`.
 
+Exit `70` is not only the crash boundary's. Since Round 70 站2,
+`run-fr-step` returns it when it finds that same banner in a **sub-agent's**
+GATE1 output (`cli/fr_cmds.py::_abort_dispatch_infra_or_harness_bug`): the
+harness crashed inside the child, and the fact is the same whichever process
+observed it. That call site used to return `25` for this and for an
+`INFRA_FAIL` precondition block alike, although the two need opposite
+responses — INFRA is project state the operator repairs with `amend-sab`
+before re-running, a harness bug is not repairable from the project at all.
+`25` now means INFRA only.
+
 This is the "nice-to-have automatic self-repair" evaluated for this round,
 implemented in its safe form. A production run does **not** auto-patch
 harness's own code — that would fight harness's own guards and ratchets
