@@ -72,3 +72,33 @@ def test_recovery_banner_prints_a_real_phase_number(monkeypatch, capsys, tmp_pat
         f"it): {out}"
     )
     assert "--phase GATE1" not in out
+
+
+def test_detects_a_realistic_passing_score_not_just_a_perfect_100(tmp_path):
+    """Code-review follow-up (2026-08-23): the real Gate 1 pass bar is 80
+    (cli/fr_prompts/gate.py's prompt text + harness_bridge.py's
+    `_gt = ctx.config.get("score_gate", 80)`), not the 100.0 this function
+    used to require. Gate 1's own dimension thresholds (100/100/80/100 at
+    weight 0.25 each) mean any FR that passes every dimension scores AT
+    LEAST 95 but need not score a perfect 100 — test_coverage alone can be
+    anywhere 80-100. A score of 95 is a realistic, common passing FR."""
+    from cli.fr_cmds import _detect_evaluator_passed_but_commit_uncommitted
+
+    (tmp_path / ".sessi-work").mkdir()
+    (tmp_path / ".sessi-work" / "gate1_result.json").write_text(json.dumps({
+        "fr_id": "FR-01", "quality_complete": True, "overall_score": 95.0,
+    }), encoding="utf-8")
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / ".methodology" / "quality_manifest.json").write_text(json.dumps({
+        "gate_results": {"gate1": {"FR-01": {
+            "quality_complete": False, "score": 95.0,
+        }}},
+    }), encoding="utf-8")
+
+    diag = _detect_evaluator_passed_but_commit_uncommitted(tmp_path, "FR-01")
+    assert diag is not None, (
+        "a legitimately-passing FR scoring 95 (a realistic, common Gate 1 "
+        "score — not a perfect 100) must still trigger the FR-99 recovery "
+        "diagnostic; requiring >=100 silently missed most real recovery cases"
+    )
+    assert diag["score"] == 95.0

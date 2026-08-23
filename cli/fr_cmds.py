@@ -1546,7 +1546,7 @@ def _abort_no_progress_with_self_doubt(
 
 
 def _detect_evaluator_passed_but_commit_uncommitted(
-    project: Path, fr_id: str, *, score_gate: float = 100.0
+    project: Path, fr_id: str, *, score_gate: float = 80.0
 ) -> dict | None:
     """Detect when an FR's evaluator verdict passed but the durable commit
     failed — i.e. .sessi-work/gate1_result.json (LLM-written, ephemeral)
@@ -1566,6 +1566,18 @@ def _detect_evaluator_passed_but_commit_uncommitted(
     for its PASS/FAIL verdict (per its docstring lines 34-39); here we use
     the ephemeral artifact only to detect "evaluator said PASS but commit
     never landed", not as a pass condition in itself.
+
+    Code-review follow-up (2026-08-23): `score_gate` defaulted to 100.0,
+    but Gate 1's real pass bar — both what the GATE1 prompt tells the LLM
+    to write (`cli/fr_prompts/gate.py`: "quality_complete = (overall_score
+    >= 80)") and what finalize_gate actually stamps into the manifest
+    (`harness_bridge.py`: `_gt = ctx.config.get("score_gate", 80)`) — is
+    80, not 100 or ssi/scripts/score.py's unrelated 85 default (dead for
+    Gate 1: gate1_per_fr.yaml declares no score_gate, and finalize_gate
+    never calls calculate_gate_score). A legitimately-passing FR can score
+    anywhere from 95 to 100 (per-dimension thresholds 100/100/80/100 at
+    weight 0.25 each), so requiring >=100 silently missed most real
+    recovery cases.
     """
     try:
         rj_path = project / ".sessi-work" / "gate1_result.json"
