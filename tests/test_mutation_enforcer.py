@@ -1945,4 +1945,104 @@ def test_sqlite_error_not_swallowed_as_zero_mutants(tmp_path, monkeypatch):
     )
 
 
+# ---------------------------------------------------------------------------
+# Round: _compute_mutation_score must restore a mutant left by a killed
+# mutmut subprocess (custody() parity with run_mutation_precheck)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_mutation_score_restores_source_when_subprocess_is_killed(tmp_path, monkeypatch):
+    """A mutmut child killed externally mid-mutant must not leave the mutant behind.
+
+    mutmut mutates ``paths_to_mutate`` files in place at their real project
+    path (see ``source_tree_lock.py`` / ``tree_custody.py`` docstrings).
+    ``run_mutation_precheck`` wraps its identical ``mutmut run`` subprocess
+    call in ``core.tree_custody.custody()``, which restores + byte-verifies
+    the watched files in a ``finally`` regardless of how the subprocess
+    exits. ``_compute_mutation_score`` — the function actually invoked by
+    the live `harness_cli.py mutation-test-score` CLI path — historically
+    guarded the same call with ``source_tree_lock`` alone, which serialises
+    concurrent readers but does nothing to restore a mutant left by a killed
+    child. taskq-new reproduced this exact gap: an agent's `kill -9`/`pkill`
+    of a stalled mutmut/pytest child (not raising `TimeoutExpired` — an
+    *external* kill of the child, distinct from `run_isolated`'s own
+    internal timeout) left mutated source shipped in a release commit
+    (`1745c79 release(P6): Gate4 PASS score=94.6`, three files).
+
+    This simulates exactly that: the fake `run_isolated` mutates the
+    watched file on disk (as mutmut would mid-mutant) and returns a
+    completed-process-shaped result with a signal-killed returncode
+    (-9) *without raising* — precisely what `subprocess.Popen.communicate()`
+    returns when an unrelated process SIGKILLs the child, as opposed to
+    `run_isolated`'s own timeout path which raises `TimeoutExpired`.
+    """
+    import core.quality_gate.mutation_enforcer as me
+
+    src = tmp_path / "03-development" / "src"
+    src.mkdir(parents=True)
+    tests = tmp_path / "03-development" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_x.py").write_text("def test_x(): pass\n", encoding="utf-8")
+
+    watched_file = src / "module.py"
+    original_content = "def f():\n    return 1\n"
+    watched_file.write_text(original_content, encoding="utf-8")
+
+    fake_workdir = tmp_path / "_mutmut_workdir"
+    fake_workdir.mkdir()
+
+    def fake_mkdtemp(prefix=None, dir=None):
+        return str(fake_workdir)
+
+    def fake_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and len(cmd) >= 2 and cmd[0] == "mutmut" and cmd[1] == "run":
+            # Simulate mutmut mid-mutant: the live source file is rewritten
+            # exactly as an applied-but-unreverted mutant would be, then the
+            # child is reported as SIGKILLed (-9) with no exception raised —
+            # the shape an external `kill -9`/`pkill` of the child produces,
+            # NOT `run_isolated`'s own TimeoutExpired path.
+            watched_file.write_text("def f():\n    return 2\n", encoding="utf-8")
+
+            class Killed:
+                returncode = -9
+                stdout = ""
+                stderr = ""
+            return Killed()
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(me.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(me, "run_isolated", fake_run)
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut" if name == "mutmut" else None)
+    monkeypatch.setattr(me, "_resolve_mutmut_workdir", lambda _p: (tmp_path, "03-development/src"))
+    monkeypatch.setattr(me, "_is_editable_install", lambda _p: False)
+    monkeypatch.setattr(me, "_read_paths_to_exclude", lambda _p: [])
+    monkeypatch.setattr(me, "_detect_data_only_files", lambda _p: [])
+    monkeypatch.setattr(me, "_abs_paths_to_mutate", lambda _cwd, _paths: str(src))
+    monkeypatch.setattr(me, "_resolve_test_dir", lambda _cwd, _p: str(tests))
+    monkeypatch.setattr(me, "_copy_setup_cfg_to_workdir", lambda *a, **kw: None)
+
+    ok, score, msg = me.compute_mutation_score(tmp_path)
+
+    assert ok is False, (
+        f"external kill (returncode -9) must be reported as a failed run, "
+        f"got ok={ok}, score={score}, msg={msg!r}"
+    )
+    assert watched_file.read_text(encoding="utf-8") == original_content, (
+        "BUG: the mutant survived on disk after a killed mutmut child — "
+        "_compute_mutation_score is not custody()-protected like its "
+        "run_mutation_precheck sibling, so the next `git add -A` release "
+        "commit would ship this mutant as if it were real project code "
+        "(reproduces taskq-new's 1745c79 incident)."
+    )
+
+    from core.tree_custody import open_custody_ids
+    assert open_custody_ids(tmp_path) == [], (
+        "custody was left open after the call returned — a subsequent "
+        "release commit would be blocked by assert_no_open_custody() even "
+        "though the tree was actually restored cleanly"
+    )
 

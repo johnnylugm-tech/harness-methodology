@@ -1218,7 +1218,21 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
         # files in place, so hold the exclusive lock for the whole subprocess
         # to keep any concurrent test-suite run (test_suite_run._measure)
         # from observing a mutant mid-flight.
-        with source_tree_lock(project):
+        #
+        # Round 53 站1 gave run_mutation_precheck custody() over the same
+        # paths for the same reason (a killed mutmut leaves the mutated
+        # source and its `.bak` — taskq-super shipped exactly that in
+        # `5535033 release(P6): Gate4 PASS score=93.9`); this sibling
+        # function runs the identical mutating subprocess but was never
+        # given the same protection, and taskq-new reproduced the incident
+        # here (`1745c79 release(P6): Gate4 PASS score=94.6`, three files).
+        # custody()'s finally restores + byte-verifies the watched paths
+        # regardless of how the subprocess dies (this function's own
+        # `except subprocess.TimeoutExpired` only ever caught its own
+        # internal timeout, never an external `kill -9` of the child).
+        with source_tree_lock(project), custody(
+            project, "mutation:src", paths=_custody_paths(src_dirs),
+        ):
             r = run_isolated(
                 cmd, cwd=workdir, env=_mutmut_subprocess_env(workdir),  # Bug #142: sandbox pytest plugin autoload
                 timeout=get_timeout("mutation", project),
