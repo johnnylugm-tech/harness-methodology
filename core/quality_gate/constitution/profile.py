@@ -343,6 +343,14 @@ class DimensionConfig:
     requires_tool_execution: bool = False
 
 
+# What a gate config that declares no `score_gate` is held to. Named rather
+# than typed at the two sites that need it (`GateConfig.from_dict` and
+# `effective_score_gate`) so "declared" and "enforced" cannot answer the same
+# question differently — the split that let Gate 1 run at 1.0 while three
+# other places said 80.
+UNDECLARED_SCORE_GATE = 75.0
+
+
 @dataclass
 class GateConfig:
     """Typed configuration for a quality gate, loaded from YAML."""
@@ -377,7 +385,17 @@ class GateConfig:
 
     @classmethod
     def from_dict(cls, raw: dict, gate_num: int) -> "GateConfig":
-        """Parse a GateConfig from a raw YAML dict."""
+        """Parse a GateConfig from a raw YAML dict.
+
+        Round 70 站1: `score_gate` used to fall back to `raw.get("gate", 75)`.
+        `gate:` is which gate this config IS (`gate: 1`), not what it demands,
+        so gate1_per_fr.yaml — the one gate that declared no `score_gate` —
+        resolved to a composite floor of **1.0**, measured on taskq-cc and
+        taskq-api. `finalize_gate` reads this attribute, so 1.0 was the number
+        the verdict actually used while three other places said 80. The gate
+        number is no longer a candidate; a config that declares nothing gets
+        the same 75 default every other missing field gets.
+        """
         dims = []
         for d in raw.get("dimensions", []):
             dims.append(DimensionConfig(
@@ -390,7 +408,7 @@ class GateConfig:
             ))
         return cls(
             gate_num=gate_num,
-            score_gate=float(raw.get("score_gate", raw.get("gate", 75))),
+            score_gate=float(raw.get("score_gate", UNDECLARED_SCORE_GATE)),
             dimensions=dims,
             per_dim_min=float(raw["per_dim_min"]) if raw.get("per_dim_min") is not None else None,
             max_rounds=int(raw.get("max_rounds", 3)),
@@ -399,6 +417,27 @@ class GateConfig:
             scope=str(raw.get("scope", "")),
             crg=dict(raw.get("crg", {})),
         )
+
+
+def effective_score_gate(gate_num: int) -> float:
+    """The composite floor `finalize_gate` will actually compare against.
+
+    Round 70 站1. `gate_thresholds.load_score_gate` answers a narrower
+    question — what the YAML DECLARES — and returns None when it declares
+    nothing, which is correct for that reader and useless to a consumer that
+    has to state a number (the GATE1 prompt, the FR-99 recovery diagnostic).
+    Every such consumer was left to invent its own answer, and the three that
+    did gave 80, 80.0 and 100.0 while the verdict used 1.0.
+
+    This is the one function that closes the gap between "declared" and
+    "enforced": it applies the same `UNDECLARED_SCORE_GATE` default
+    `GateConfig.from_dict` applies, so what a prompt tells the evaluating LLM
+    and what the framework holds it to cannot disagree.
+    """
+    from core.quality_gate.gate_thresholds import load_score_gate
+
+    declared = load_score_gate(gate_num)
+    return UNDECLARED_SCORE_GATE if declared is None else declared
 
 
 def _phase_configs() -> dict[int, PhaseConfig]:

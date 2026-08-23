@@ -41,8 +41,21 @@ _PHASE_EXIT_GATES: dict = EXIT_GATE_MAP                 # phase → exit gate nu
 # ① and ② are the P1/P2 Agent-B-review checkpoint pushes.
 _PHASE_PUSH_LABELS: dict = {1: "PUSH ① — ", 2: "PUSH ② — "}
 
-# D4 spec-coverage-check thresholds per exit gate (unified v2.6)
-_SPEC_COVERAGE_THRESHOLDS: dict = {2: 60.0, 3: 80.0, 4: 90.0}
+# D4 spec-coverage-check thresholds per gate (unified v2.6)
+#
+# Round 70 站1: gate 1's 40.0 was missing, and nothing noticed because the only
+# reader sat behind `if score_gate is not None` and gate 1 declared no
+# score_gate — declaring one (gate1_per_fr.yaml) walked straight into a
+# KeyError here, on a branch that had never executed for gate 1 in the life of
+# this table. The number itself is not new: it is what the GATE1 dispatch
+# prompt has always passed to spec-coverage-check
+# (`scripts/workflowgen/spec_phase3.py`, `--threshold 40.0 --fr-id`).
+# tests/test_gate1_score_gate_ssot.py pins the two together so the pair cannot
+# drift the way this entry's absence did; folding them (and the phase-indexed
+# `spec_shared.D4_THRESHOLDS`, which carries the same three exit-gate numbers
+# under phase keys) into one table is its own round — recorded in
+# docs/PROPOSAL_ADJUDICATIONS.md.
+_SPEC_COVERAGE_THRESHOLDS: dict = {1: 40.0, 2: 60.0, 3: 80.0, 4: 90.0}
 
 # Round 39 站3 — the plan's gate table is rendered, not retyped.
 #

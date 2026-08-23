@@ -35,6 +35,7 @@ from core.failure_modes import DISPATCH_FAILURE_STATUSES
 from core.harness_config import get_timeout, get_value
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
+from core.quality_gate.constitution.profile import effective_score_gate
 from core.quality_gate.ghost_detector import (
     detect_ghost_changes,
     write_ghost_paper_trail,
@@ -1546,7 +1547,7 @@ def _abort_no_progress_with_self_doubt(
 
 
 def _detect_evaluator_passed_but_commit_uncommitted(
-    project: Path, fr_id: str, *, score_gate: float = 80.0
+    project: Path, fr_id: str, *, score_gate: float | None = None
 ) -> dict | None:
     """Detect when an FR's evaluator verdict passed but the durable commit
     failed — i.e. .sessi-work/gate1_result.json (LLM-written, ephemeral)
@@ -1567,18 +1568,21 @@ def _detect_evaluator_passed_but_commit_uncommitted(
     the ephemeral artifact only to detect "evaluator said PASS but commit
     never landed", not as a pass condition in itself.
 
-    Code-review follow-up (2026-08-23): `score_gate` defaulted to 100.0,
-    but Gate 1's real pass bar — both what the GATE1 prompt tells the LLM
-    to write (`cli/fr_prompts/gate.py`: "quality_complete = (overall_score
-    >= 80)") and what finalize_gate actually stamps into the manifest
-    (`harness_bridge.py`: `_gt = ctx.config.get("score_gate", 80)`) — is
-    80, not 100 or ssi/scripts/score.py's unrelated 85 default (dead for
-    Gate 1: gate1_per_fr.yaml declares no score_gate, and finalize_gate
-    never calls calculate_gate_score). A legitimately-passing FR can score
-    anywhere from 95 to 100 (per-dimension thresholds 100/100/80/100 at
-    weight 0.25 each), so requiring >=100 silently missed most real
-    recovery cases.
+    `score_gate` defaults to Gate 1's declared composite floor, read from
+    the same `load_score_gate` SSOT every other consumer reads. This
+    parameter has now been wrong twice by being typed rather than read:
+    100.0 originally (which excluded taskq's real 97.46 / 98.88 / 97.55
+    FRs from ever triggering this recovery path), then 80.0 in the
+    2026-08-23 code-review follow-up — right by luck, since what
+    finalize_gate compared against at the time was 1.0. Round 70 站1 put
+    the number in gate1_per_fr.yaml so there is one place to be wrong.
+
+    `effective_score_gate` is what `finalize_gate` itself compares against,
+    declared or defaulted, so this diagnostic and the verdict it is
+    reasoning about read one number.
     """
+    if score_gate is None:
+        score_gate = effective_score_gate(1)
     try:
         rj_path = project / ".sessi-work" / "gate1_result.json"
         if not rj_path.exists():

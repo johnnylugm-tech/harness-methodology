@@ -104,7 +104,7 @@ python3 harness_cli.py load-context --phase 3 --project . --json \
 - **[ORCH-GREEN]**   `run-fr-step --phase 3 --fr-id {FR-ID} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`
 - **[ORCH-IMPROVE]** `run-fr-step --phase 3 --fr-id {FR-ID} --step TDD-IMPROVE --project .`
 - **[ORCH-GATE1]**   `run-fr-step --phase 3 --fr-id {FR-ID} --step GATE1 --project .`
-> Gate 1 thresholds: linting(100) · type_safety(100) · test_coverage(80) · architecture_constraints(100)
+> Gate 1 thresholds: linting(100) · type_safety(100) · test_coverage(80) · architecture_constraints(100) · composite ≥ 80  [D4 spec-coverage unified ≥40%]
 > Crash recovery: `resume-fr-phase --phase 3 --project .`
 >
 > **Gate 1 outcomes:**

@@ -4,6 +4,13 @@
 gate: 1
 trigger: per_fr_completion
 scope: single_fr
+# The composite floor, declared here for the same reason gates 2/3/4 declare
+# theirs (75/80/85): `load_score_gate` is the one reader, and a gate that
+# declares nothing forces every consumer to answer the question itself. Gate 1
+# went without it until Round 70, and the four consumers that had to guess gave
+# three different answers — see tests/test_gate1_score_gate_ssot.py. 80 is what
+# the GATE1 dispatch prompt has told the evaluating LLM since it was written.
+score_gate: 80
 dimensions:
   - { name: linting,               tier: 1, threshold: 100, weight: 0.25, tool: ruff,        requires_tool_execution: true }
   - { name: type_safety,           tier: 1, threshold: 100, weight: 0.25, tool: pyright,     requires_tool_execution: true }

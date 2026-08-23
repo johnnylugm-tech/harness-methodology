@@ -21,6 +21,7 @@ prompt that silently says nothing about a dimension the gate will score.
 
 from pathlib import Path
 
+from core.quality_gate.constitution.profile import effective_score_gate
 from core.quality_gate.gate_thresholds import load_gate_dimensions
 from core.state_io import load_quality_manifest
 
@@ -155,6 +156,13 @@ def build_gate1_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, te
 
     _dims = _gate1_dimensions(project)
     _label_w = max(len(d["name"]) for d in _dims) + 2
+    # Round 70 站1: the composite floor was the one number in this prompt still
+    # typed rather than read. It said 80 while `finalize_gate` compared against
+    # 1.0 (GateConfig.from_dict read `gate: 1` as a threshold), so the LLM was
+    # being told a bar the framework did not enforce. `effective_score_gate` is
+    # what finalize_gate itself will use, declared or defaulted — this prompt
+    # must never state a bar the verdict does not apply.
+    _score_gate = effective_score_gate(1)
 
     _tool_lines = "".join(
         f"   {chr(ord('a') + i)}. {d['name'] + ':':<{_label_w}}"
@@ -239,14 +247,14 @@ def build_gate1_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, te
         f"   {{\n"
         f'     "gate": 1, "phase": {phase}, "fr_id": "{fr_id}",\n'
         f'     "overall_score": <float>,           // weighted avg of breakdown scores\n'
-        f'     "quality_complete": true,            // true if overall_score >= 80\n'
+        f'     "quality_complete": true,            // true if overall_score >= {_score_gate:g}\n'
         f'     "rounds_used": 1,\n'
         f'     "breakdown": {{\n'
         f"{_schema_lines}"
         f'     }}\n'
         f"   }}\n"
         f"   overall_score = ({_formula}).\n"
-        f"   quality_complete = (overall_score >= 80) AND (every dimension score >= its threshold).\n"
+        f"   quality_complete = (overall_score >= {_score_gate:g}) AND (every dimension score >= its threshold).\n"
         f"   CRITICAL: `tool_evidence` is REQUIRED for every dimension.\n"
         f"   If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.\n"
         f"   Score fabrication (writing a score without running the tool) also causes S3 block.\n"

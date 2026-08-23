@@ -3960,7 +3960,21 @@ class HarnessBridge:
         # so the verdict reflects the corrected scores.
         # Dimensions with score=None (e.g. pytest-benchmark with no benchmark tests)
         # are excluded — the dimension is not yet applicable.
-        _gt = ctx.config.get("score_gate", 80) if isinstance(ctx.config, dict) else getattr(ctx.config, 'score_gate', 80)
+        # Round 70 站1: both fallbacks used to read `80` and neither was ever
+        # what this line compared against for Gate 1 — `GateConfig.from_dict`
+        # resolved `score_gate` to 1.0 (it read `gate: 1` as a threshold), and
+        # a dataclass field is always present so the getattr default was dead.
+        # A ctx carrying no floor now defers to `effective_score_gate`, the
+        # same function the GATE1 prompt states its bar from.
+        _cfg_gt = (
+            ctx.config.get("score_gate")
+            if isinstance(ctx.config, dict)
+            else getattr(ctx.config, "score_gate", None)
+        )
+        if _cfg_gt is None:
+            from core.quality_gate.constitution.profile import effective_score_gate
+            _cfg_gt = effective_score_gate(ctx.gate_num)
+        _gt = _cfg_gt
 
         def _effective_threshold(d: DimResult) -> float:
             """The bar this dimension is actually judged against.

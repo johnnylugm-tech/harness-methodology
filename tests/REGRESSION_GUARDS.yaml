@@ -3073,3 +3073,35 @@
 - test: tests/test_harness_bug_regex_unified.py::test_the_prompts_own_paraphrase_does_not_match
   bug: "this session's own b453cf6c widened HARNESS_BUG_RE_JS to unbounded [\\s\\S]*, which matched the GATE1 dispatch prompt's OWN inline description of the crash banner shape (spec_phase3.py) — reopening the FR-04 proof-by-absence false positive the narrow form existed to prevent"
   fixed_in: "code-review follow-up 2026-08-23"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_gate1_declares_its_composite_floor_in_the_yaml
+  bug: "Gate 1 was the only gate whose composite floor was declared nowhere, so load_score_gate(1) returned None and four consumers each invented an answer"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_the_config_finalize_gate_actually_compares_against_is_that_number
+  bug: "the number finalize_gate compared Gate 1's composite against was 1.0 (measured on taskq-cc and taskq-api) while its own comment, the GATE1 prompt and the FR-99 diagnostic all said 80"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_a_gate_number_is_never_read_as_a_score_threshold
+  bug: "GateConfig.from_dict fell back to raw.get('gate', 75) — `gate:` is which gate the config IS, not what it demands, so gate1_per_fr.yaml's `gate: 1` became a composite floor of 1.0"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_the_gate1_prompt_states_the_number_the_gate_enforces
+  bug: "the GATE1 dispatch prompt typed its composite floor instead of reading it, so it told the evaluating LLM a bar (80) the framework did not enforce (1.0)"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_the_gate1_plan_line_states_a_composite_floor_and_a_d4_floor
+  bug: "plangen guards its whole composite clause with `if score_gate is not None` and the D4 spec-coverage floor rides in the same clause, so every project's phase3_plan.md stated Gate 2's composite and D4 numbers and neither of Gate 1's — measured byte-identical on taskq / taskq-api / taskq-cc"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_the_gate1_d4_floor_matches_what_the_dispatch_prompt_passes
+  bug: "Gate 1's per-FR D4 floor lived only inside the GATE1 prompt's `--threshold 40.0` string, with no entry in either threshold table, so the plan side had nothing to state and nothing to drift against"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_the_fr99_recovery_diagnostic_reads_the_same_source
+  bug: "the FR-99 recovery diagnostic typed its own copy of the floor and was wrong twice — 100.0 (which excluded taskq's real 97.46 / 98.88 / 97.55 FRs) and then 80.0 while the verdict used 1.0"
+  fixed_in: "Round 70 站1"
+
+- test: tests/test_gate1_score_gate_ssot.py::test_declared_and_enforced_cannot_disagree
+  bug: "load_score_gate answers what the YAML DECLARES and returns None when it declares nothing, so every consumer that had to state a number invented its own default; effective_score_gate is the one function that applies the same default from_dict applies"
+  fixed_in: "Round 70 站1"
