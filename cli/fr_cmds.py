@@ -1581,13 +1581,7 @@ def _detect_evaluator_passed_but_commit_uncommitted(
     if not isinstance(rj_score, (int, float)) or rj_score < score_gate:
         return None
 
-    try:
-        mfst_path = project / ".methodology" / "quality_manifest.json"
-        if not mfst_path.exists():
-            return None
-        mfst = json.loads(mfst_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
+    mfst = load_quality_manifest(project, lenient=True)
     if not isinstance(mfst, dict):
         return None
     g1 = ((mfst.get("gate_results") or {}).get("gate1") or {})
