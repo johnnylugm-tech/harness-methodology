@@ -3778,6 +3778,114 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 70 — 判準與它自己的指令反相
+
+老闆令：重新盤點 `11b182c..HEAD` 這一輪的十個 commit，從熱點看
+(1) 有沒有反覆修改、甚至沒套用正解，(2) 還有沒有根本性/結構性問題；
+並且——**所有發現都要先從既有專案驗證，再進行修復**。
+
+基線：`4c8b020d`，pytest 7580 passed / 4 skipped、guards 749。
+
+### 熱點 A — HARNESS-BUG 偵測，四天四次修改，四次都在猜文字
+
+`17f5f448` → `7584a7da` → `b453cf6c` → `4c8b020d`。四次都在調 regex 的寬窄，
+沒有一次動到病因：**同一個生成器的 GATE1 失敗案例要求 agent 報告
+「`<FR> GATE1: FAIL — harness-methodology itself crashed, escalate to human`」
+——一句不含任何方括號標籤的話——而它的 R66 條款更明文禁止逐字寫
+`[HARNESS-BUG]`；偵測器卻要求 banner 的字面兩行。**
+
+```
+prompt 規定的報告（遵守 R66）  -> match: False
+agent 違規逐字貼 banner        -> match: True
+```
+
+判準與指令反相：機制只在 agent 違規時才會 true。四次全綠的原因是
+`sim_runner.test.mjs` 的 fixture 餵的正是「違規的 agent」——fixture 與被測規則
+同源（R19 母體），從沒有一條 fixture 是遵守指令的 agent。
+
+**專案端量測（結果比預期的冷，如實記錄）**：九個專案 crash bundle **0 個**、
+degradation ledger 的 harness-crash 條目 **0 筆**（總量 2451）、`lessons/`
+**0 筆**；該偵測器唯一一次真實觸發是**假陽性**（taskq-api FR-04，R66 記載，
+該 FR 實際 PASS）。真陽性 0 次、假陽性 1 次，而四次修法把假陽性堵住的同時，
+把真陽性的門檻推高到「agent 必須違反 R66 才觸發」。
+
+### 熱點 B — `score_gate`，上一輪修在第四份陳述上，依據是錯的
+
+上一輪的結論寫「真值是 80，`harness_bridge.py` 與 GATE1 prompt 兩處互相印證」。
+專案端實地執行推翻其中一處：taskq-cc 與 taskq-api 的
+`GateConfig.from_dict(gate1_per_fr.yaml, 1).score_gate` 都是 **1.0**——
+`raw.get("score_gate", raw.get("gate", 75))` 把 `gate: 1` 這個**gate 編號**
+讀成了分數門檻，而 `harness_bridge.py:4722` 正是 finalize_gate 用的 loader。
+上一輪把它記成「dormant」也是錯的：它不是休眠，它就是現行值。
+
+**但對它危害的假設也被量測推翻**：8 專案 72 個已評分 Gate 1 FR，composite
+最低 **97.46**，低於 80 的 **0 個**。`1.0` 與 `80` 在真實資料上行為完全相同。
+
+### 兩個結構性缺陷
+
+**S1 — Gate 1 是唯一沒在 YAML 宣告 composite 門檻的 gate。**
+`load_score_gate(1)` 回 None（2/3/4 是 75/80/85），於是四個消費點各自作答，
+給出三個不同答案。專案端量到的具體損失：`plangen` 把整段 composite 子句
+包在 `if score_gate is not None` 裡，而 D4 spec-coverage 門檻也在同一個子句，
+所以每個專案的 `phase3_plan.md` 都寫著 Gate 2 的
+`composite ≥ 75 [… · D4 … ≥60%]`，Gate 1 那行兩個數字都沒有——taskq /
+taskq-api / taskq-cc 逐字相同。
+
+**S2 — 背景執行路徑丟掉 exit code。**
+`run-fr-step` 回 23 / 70 / 25 三個確定性整數，但 GATE1 / GATE1-DELTA 的
+launch 是 `nohup … & echo $!` + `kill -0` 輪詢，`$?` 從沒被捕捉，判定只好猜文字。
+而**同一個檔案裡 6 個其他站點早就在捕捉**（`js_blocks.py:508/581/1286/1339`、
+`spec_phase4.py:148/149`、`spec_repair.py:118`），`render_env_check` 更是
+一模一樣的樣板，它的註解記載的正是同一種病：
+
+> 2026-07-02 paraphrase incident (phase3): the agent rewrote ENV_CHECK_RC=0 as
+> "RC=0" and the regex gate false-negatived a READY environment. **Schema
+> transport is paraphrase-proof.**
+
+順帶讀碼發現第五組 exit-code 混用：`_abort_dispatch_infra_or_harness_bug`
+自己算出 `cls`（HARNESS_BUG / INFRA）卻對兩者都 return 25，而兩者的處置相反。
+
+### 四站
+
+| 站 | 修在哪 | commit |
+|---|---|---|
+| 1 | `gate1_per_fr.yaml` 宣告 `score_gate: 80`；`profile.py` 不再把 gate 編號當分數；`effective_score_gate` 收斂「宣告」與「執行」；四個消費點全部讀它 | `7c1db03` |
+| 2 | 一個 abort class 一個 exit code（HARNESS_BUG → 70，INFRA 留 25），三份描述同步 | `151438c` |
+| 3 | 三條 abort 判定改讀 `run-fr-step` 的 exit code；launch 沿用同檔既有的 `; echo "RC=$?"` 樣板；`FR_STEP_SCHEMA` | `0ff41d5` |
+| 4 | ratchet 表的重複鍵守衛（AST 讀原始碼，不讀已建構的 dict） | `e088061` |
+
+### 明列不做
+
+- **不拆 `RUNALL_MAX_BYTES` 的註解**：單行 13,374 字元、14 筆歷史條目、
+  有一支測試在 parse 它——用註解當資料庫是真問題，但拆檔要一併改那支測試，
+  與本輪四站不相稱。**再開條件**：下一次有人需要在那行裡找一筆舊條目而找不到。
+- **不統一 D4 門檻的兩份表**：`spec_shared.D4_THRESHOLDS`（以 phase 索引）與
+  `plangen._SPEC_COVERAGE_THRESHOLDS`（以 gate 索引）帶著同樣三個數字，
+  分屬兩個互不 import 的 package。站1 只補上 gate 1 缺的那筆（40.0，原本只存在於
+  GATE1 prompt 的 `--threshold 40.0` 字串裡），並用守衛把兩處綁住。
+- **Sync 站保留文字判定，且理由寫進碼裡**：`render_sync_verified` 跑的是前景
+  `git push`，crash 發生在 pre-push hook 的子程序，`git push` 只會回 1——RC
+  區分不了「hook 說 blocked」與「hook crash」。兩種來源對應兩種機制，不是漂移。
+- **不改 `taskq-*` 任何檔案**：全程唯讀，只讀不寫。
+
+### 驗證
+
+四條反證逐一 revert → 轉紅 → **從備份逐位元組還原** → sha256 相同：
+
+| 站 | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| 1 | 拿掉 `score_gate: 80` + 還原 `raw.get("gate")` fallback | `test_gate1_score_gate_ssot.py` 8 條中的 5 條 |
+| 2 | 兩個 class 收回同一個 return | `test_a_harness_bug_…_exits_as_a_harness_bug` + `test_the_two_classes_do_not_share_one_exit_code` |
+| 3 | 停用 `frRc === 70` 分支 | 五個 workflow 檔共 7 條 sim 斷言 |
+| 4 | 注入一個掉了 `#` 的 `"cli/fr_cmds.py": 9999,` | `test_no_path_has_two_ceilings`（**其餘 5 條全綠**——這就是這張表在沒有這支守衛時的價值量測） |
+
+專案端後驗（唯讀）：taskq-api 自己那份**舊** YAML 配上修好的 `profile.py` 得到
+**75.0**（不再是 1.0），harness-methodology 的新 YAML 得到 **80.0**；
+`plangen` 對 gate 1 產出的行現在含 `composite ≥ 80  [D4 spec-coverage unified ≥40%]`
+（golden diff 就是專案端缺席的那一行）。
+
+---
+
 ## Round 69 — 判定被記錄之後，還有人在寫那棵樹
 
 老闆令：`/code-review` 對 `713c7f7..HEAD` 的 8 個 commit 提出 11 項發現，
