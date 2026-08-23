@@ -3057,3 +3057,11 @@
 - test: tests/test_fr_step_no_progress_self_doubt.py::test_detects_a_realistic_passing_score_not_just_a_perfect_100
   bug: "_detect_evaluator_passed_but_commit_uncommitted's score_gate defaulted to 100.0, but the real Gate 1 pass bar (cli/fr_prompts/gate.py's prompt text + harness_bridge.py's `_gt = ctx.config.get(\"score_gate\", 80)`) is 80 — any FR passing every dimension at its own threshold scores >=95 but rarely a perfect 100, so the FR-99 recovery diagnostic silently missed most real recovery cases"
   fixed_in: "code-review follow-up 2026-08-23"
+
+- test: tests/test_finalize_gate_force_sentinel.py::test_force_without_any_evidence_still_blocks
+  bug: "f0de7eac's --force bypassed the run-gate anti-fabrication sentinel unconditionally for any FR/gate, including one that never called run-gate at all — exactly the fabrication the sentinel's own message says it exists to block"
+  fixed_in: "code-review follow-up 2026-08-23"
+
+- test: tests/test_finalize_gate_force_sentinel.py::test_force_with_a_different_frs_evidence_still_blocks
+  bug: "the --force narrowing must check the fr_id INSIDE gate{N}_result.json, not merely that the file exists — the file is shared across FRs within a phase, so evidence for a different FR must not authorize --force for this one"
+  fixed_in: "code-review follow-up 2026-08-23"

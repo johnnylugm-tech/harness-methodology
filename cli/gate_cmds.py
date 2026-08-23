@@ -1684,8 +1684,38 @@ def _finalize_gate_preflight(args: argparse.Namespace, project_path: Path) -> "i
     # does NOT bypass the tool-availability check above (S0a) — that is
     # too dangerous to skip because it would let finalize-gate judge a tree
     # the evidence never saw.
+    #
+    # Code-review follow-up (2026-08-23): --force alone used to bypass the
+    # sentinel unconditionally — for ANY FR/gate, including one that never
+    # called run-gate at all — which is exactly the fabrication this
+    # sentinel exists to block ("Writing gate{N}_result.json directly
+    # without run-gate is not permitted"). The FR-99 recovery shape this
+    # was built for always has genuine evidence on disk; require it, so
+    # --force narrows back to that recovery case instead of a blanket
+    # bypass. Reuses the same gate-agnostic loader `_collect_da_waivers`
+    # and friends already use (_load_gate_result_json), and the same
+    # fr_id-match already enforced at the per-FR-file write site below.
     sf = _shared._sentinel_path(project_path, args.gate, fr_id, phase=args.phase)
-    if not sf.exists() and not getattr(args, "force", False):
+    _forced = bool(getattr(args, "force", False))
+    if not sf.exists() and _forced:
+        _evidence = _load_gate_result_json(project_path, args.gate)
+        _evidence_is_real = bool(_evidence) and (
+            fr_id is None or _evidence.get("fr_id") == fr_id
+        )
+        if not _evidence_is_real:
+            print(
+                f"\n[BLOCKED] --force cannot bypass the run-gate sentinel: no "
+                f"gate{args.gate}_result.json evidence"
+                + (f" for {fr_id}" if fr_id else "")
+                + f" exists at any candidate location, so there is nothing "
+                f"genuine to re-finalize.\n"
+                f"  Run: python harness_cli.py run-gate --gate {args.gate} "
+                f"--phase {args.phase}"
+                + (f" --fr-id {fr_id}" if fr_id else "")
+                + f" --project {args.project}"
+            )
+            return 1
+    if not sf.exists() and not _forced:
         print(
             f"\n[BLOCKED] run-gate --gate {args.gate} --phase {args.phase}"
             + (f" --fr-id {fr_id}" if fr_id else "")
