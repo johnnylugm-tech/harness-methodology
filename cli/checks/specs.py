@@ -49,6 +49,9 @@ from core.utils.project_layout import ProjectLayout
 # beginning `test_`.
 _TEST_IDENT = re.compile(r"^test_[A-Za-z0-9_]+$")
 _NFR_ID = re.compile(r"^NFR-\d+$")
+# Unanchored: used only to ask whether the file names NFRs SOMEWHERE, when
+# no entry in its declaration list does (see nfr_layering_population).
+_NFR_ID_ANYWHERE = re.compile(r"\bNFR-\d+\b")
 
 # Fields that can carry the entry's SUBJECT. `cross_ref_nfrs` deliberately is
 # not one: reading any NFR-shaped token in the row turns 63 FR tests across
@@ -94,6 +97,94 @@ def _entry_subject_nfr(entry: dict) -> str:
     return ""
 
 
+def nfr_layering_population(project: "str | Path") -> dict:
+    """What the rule was able to read, before asking anything of it.
+
+    Round 74 站4. Station 6 of Round 73 made this rule executable and measured
+    the three projects where it started returning targets. Six of the nine
+    still return none, `nfr_layering_violations` returned `[]` for every one,
+    and `[]` is indistinguishable from "checked and clean" — the shape Rounds
+    32 and 35 named for a single measurement, here for a population. That
+    round's docstring went further and asserted the six were empty because
+    the projects "declare no unit/static NFR entry at all", which is true of
+    two of them and false of the rest:
+
+      taskq-renew   49 NFR entries, every layer `integration`   truly none
+      taskq-super   14 NFR entries, every layer `integration`   truly none
+      taskq         entries live at top-level `tests:`          unreadable
+      taskq-plus    no entry-shaped list anywhere               unreadable
+      taskq-cc      92 entries, NFRs are in `cross_cutting`     unreadable
+      taskq-new     50 entries, NFRs are in `cross_cutting`     unreadable
+
+    The last four are not a missing spelling. `cross_cutting` and `fr_tests`
+    — the two sections `templates/TEST_INVENTORY.yaml` actually defines — map
+    a dimension or an FR to a list of names, and a bare name has no layer.
+    The question this rule asks is which UNIT/STATIC NFR tests belong in the
+    Deferred section, and under that schema the answer is not recoverable.
+    Round 43: a check with no executor is written down, not invented. So it
+    is said, not guessed and not silently passed.
+
+    Returns ``{status, container, entries, with_layer, with_nfr, top_keys}``
+    where `status` is one of:
+
+      ``entries``       an entry list was found, with layers and NFR subjects
+      ``nfr_elsewhere`` entries carry layers but name no NFR, while the file
+                        names NFRs somewhere else — the NFR tests are in a
+                        section with no layer
+      ``no_layer``      entries were found and not one has a `layer` field
+      ``no_entries``    no entry-shaped list under any key this can read
+      ``absent``        no TEST_INVENTORY.yaml, or it does not parse
+
+    The `nfr_elsewhere` split is decided from the file, not assumed: taskq,
+    taskq-cc and taskq-new each carry a full entry list where every row has a
+    layer and none has an NFR subject, and each also carries a
+    `cross_cutting` block naming NFR ids. The NFR tests are declared; they are
+    declared where no layer exists.
+    """
+    import yaml
+
+    inventory_path = Path(project) / "TEST_INVENTORY.yaml"
+    out = {"status": "absent", "container": "", "entries": 0,
+           "with_layer": 0, "with_nfr": 0, "top_keys": []}
+    if not inventory_path.is_file():
+        return out
+    try:
+        inv = yaml.safe_load(inventory_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        print(f"[WARN] TEST_INVENTORY.yaml unreadable ({exc}) — the NFR "
+              f"Layering Hard Rule is NOT being checked this run")
+        return out
+    if not isinstance(inv, dict):
+        return out
+    out["top_keys"] = sorted(inv)
+
+    # `test_inventory.tests` is the shape the P1 prompt describes; `tests` at
+    # the top level is where taskq put the same list. Neither is in the
+    # template, which is station 5's subject.
+    for container, section in (("test_inventory.tests", inv.get("test_inventory")),
+                               ("tests", inv)):
+        entries = section.get("tests") if isinstance(section, dict) else None
+        if isinstance(entries, list) and entries:
+            out["container"] = container
+            out["entries"] = len(entries)
+            out["with_layer"] = sum(
+                1 for e in entries if isinstance(e, dict) and e.get("layer"))
+            out["with_nfr"] = sum(
+                1 for e in entries
+                if isinstance(e, dict) and _entry_subject_nfr(e))
+            if not out["with_layer"]:
+                out["status"] = "no_layer"
+            elif not out["with_nfr"] and _NFR_ID_ANYWHERE.search(
+                    inventory_path.read_text(encoding="utf-8")):
+                out["status"] = "nfr_elsewhere"
+            else:
+                out["status"] = "entries"
+            return out
+
+    out["status"] = "no_entries"
+    return out
+
+
 def nfr_layering_targets(project: "str | Path") -> list[dict]:
     """The unit/static NFR tests this project's inventory declares.
 
@@ -101,6 +192,11 @@ def nfr_layering_targets(project: "str | Path") -> list[dict]:
     value in the entry is identifier-shaped, which the caller reports rather
     than dropping — silently shrinking the population is what `function_name`
     did for as long as it existed.
+
+    An empty list here is not an answer on its own. `nfr_layering_population`
+    is what says whether it means "this project declares none" or "the entry
+    list is somewhere this cannot read", and `nfr_layering_violations` reports
+    the difference rather than returning clean for both.
     """
     import yaml
 
@@ -113,8 +209,14 @@ def nfr_layering_targets(project: "str | Path") -> list[dict]:
         print(f"[WARN] TEST_INVENTORY.yaml unreadable ({exc}) — the NFR "
               f"Layering Hard Rule is NOT being checked this run")
         return []
-    section = inv.get("test_inventory") if isinstance(inv, dict) else None
-    entries = (section or {}).get("tests") if isinstance(section, dict) else None
+    if not isinstance(inv, dict):
+        return []
+    entries = None
+    for section in (inv.get("test_inventory"), inv):
+        candidate = section.get("tests") if isinstance(section, dict) else None
+        if isinstance(candidate, list) and candidate:
+            entries = candidate
+            break
     if not isinstance(entries, list):
         return []
 
@@ -134,13 +236,61 @@ def nfr_layering_targets(project: "str | Path") -> list[dict]:
     return targets
 
 
+def nfr_layering_not_checked(project: "str | Path") -> str:
+    """Why this project's population is empty, or "" if the rule ran.
+
+    Round 74 站4. Kept apart from `nfr_layering_violations` on purpose: a
+    caller that had to tell the two apart by reading a prefix off a sentence
+    would be doing the thing this round keeps finding. A violation blocks; a
+    reason the rule could not run is printed and does not.
+
+    It does not block because the framework never defined the shape the rule
+    needs. `templates/TEST_INVENTORY.yaml` ships `fr_tests` and
+    `cross_cutting`, both of which map a key to a list of bare names with no
+    layer, while the P1 prompt describes an entry list with `layer` and
+    `tc_id` that the template does not contain (station 5). Charging a project
+    for writing what it was given is Round 42's defect.
+    """
+    if nfr_layering_targets(project):
+        return ""
+    pop = nfr_layering_population(project)
+    if pop["status"] == "no_entries":
+        return (f"TEST_INVENTORY.yaml holds no entry list this rule can read "
+                f"(top-level keys: {', '.join(pop['top_keys']) or 'none'}); "
+                f"names under `cross_cutting` / `fr_tests` carry no layer, so "
+                f"which of them are unit/static is not decidable here")
+    if pop["status"] == "no_layer":
+        return (f"{pop['entries']} entries under `{pop['container']}` and not "
+                f"one carries a `layer` field, so no entry can be unit/static")
+    if pop["status"] == "nfr_elsewhere":
+        return (f"{pop['entries']} entries under `{pop['container']}`, all "
+                f"with a layer and none naming an NFR, while the file names "
+                f"NFR ids elsewhere — this project's NFR tests are declared "
+                f"in a section that carries no layer")
+    return ""
+
+
 def nfr_layering_violations(project: "str | Path") -> list[str]:
     """Declared unit/static NFR tests not found in the Deferred section.
 
-    Measured across the corpus with both defects fixed: taskq-api 17 targets,
+    Measured across the nine projects on this machine: taskq-api 17 targets,
     taskq-advance 6, run-all-by-workflow 11, every one present — the rule
-    executes and blocks nobody. taskq-renew, taskq-super, taskq-cc and
-    taskq-new declare no unit/static NFR entry at all.
+    executes and blocks nobody.
+
+    The other six return no targets, and Round 74 站4 is the correction of
+    what Round 73 said about that. Two of them (taskq-renew, taskq-super)
+    genuinely declare no unit/static NFR entry: they have 49 and 14 NFR
+    entries and every layer is `integration`. The other four do not declare
+    them anywhere this can read — taskq at a top-level `tests:` key, which is
+    now read, and taskq-plus, taskq-cc and taskq-new in `cross_cutting`,
+    where a bare test name has no layer at all and the rule's question is
+    therefore unanswerable. That is said here rather than returned as clean.
+
+    The could-not-read sentence is not a violation of the rule and not a
+    verdict: `templates/TEST_INVENTORY.yaml` never defined the shape this
+    needs (station 5), so charging a project for not writing it would be
+    Round 42's defect. It is the sentence that makes "nothing to check"
+    distinguishable from "nothing found".
     """
     project = Path(project)
     spec_path = ProjectLayout(project).test_spec_path
@@ -235,6 +385,14 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
         return 1
 
     # NFR Layering Hard Rule
+    not_checked = nfr_layering_not_checked(project)
+    if not_checked:
+        # Round 74 站4. Six of the nine projects on this machine returned an
+        # empty population and a clean verdict, indistinguishable from each
+        # other. This line is the difference. It does not block: the shape
+        # the rule needs is one the framework's own template never defined.
+        print(f"\n[not checked] NFR Layering Hard Rule did not run — {not_checked}")
+
     missing_nfrs = nfr_layering_violations(project)
     if missing_nfrs:
         print("\n[FAIL] TEST_SPEC.md is missing Unit/Static NFRs in the 'Deferred to Downstream Phases' table:")

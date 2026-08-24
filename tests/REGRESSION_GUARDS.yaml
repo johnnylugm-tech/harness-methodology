@@ -3448,3 +3448,23 @@
 - test: tests/test_test_spec_parser_parity.py::test_the_registry_names_every_table_reader_in_the_tree
   bug: "exemption-by-omission (Round 36 站2's completeness pair): the parity test only reaches readers it was told about, so a third hand-rolled one would be as unguarded as the bridge was. The first version of this scan searched a function's code for the string `Test Function` — the string station 3 REMOVED from the bridge — so it could only ever find readers nobody had fixed; its counter-proof deleted the bridge from the registry and the test stayed green. It now finds every function in the tree that splits a markdown row into cells, which is what a reader does whether or not it was fixed, and each is either a registered TEST_SPEC declaration reader or carries a statement of which other table it reads. A stale entry fails too — a name that no longer exists is a free pass for whatever takes it next"
   fixed_in: "Round 74 站3 (detector corrected by counter-proof)"
+
+- test: tests/test_empty_population_says_why.py::test_declaring_none_and_being_unreadable_are_different_answers
+  bug: "Round 73 站6 made the NFR Layering Hard Rule executable and measured the three projects where it started returning targets. Six of the nine still returned none and nfr_layering_violations returned [] for every one, indistinguishable from `checked and clean` — Rounds 32/35's rule (could-not-measure is a sentence) at the level of a POPULATION rather than a single measurement. That round's docstring also asserted the six were empty because those projects `declare no unit/static NFR entry at all`, which is true of taskq-renew and taskq-super (49 and 14 NFR entries, every layer integration) and false of taskq, taskq-cc, taskq-new and taskq-plus, whose NFR tests are declared in `cross_cutting` where a bare name has no layer. Widening a list of field spellings would have been Round 73 站3's own rejected shape; the rule now reports which of the four states its population is in"
+  fixed_in: "Round 74 站4 (nfr_layering_population + nfr_layering_not_checked)"
+
+- test: tests/test_empty_population_says_why.py::test_the_population_is_classified_from_the_file
+  bug: "the four states are decided from the file, not assumed. `nfr_elsewhere` in particular — entries present, every row carrying a layer, no row naming an NFR, and the file naming NFR ids somewhere else — is the state taskq, taskq-cc and taskq-new are in, and each of them declares its NFR tests in a `cross_cutting` block that has no layer field at all. Without the split, `0 targets` covers both `this project has no unit/static NFR test` and `this rule cannot see this project's NFR tests`"
+  fixed_in: "Round 74 站4"
+
+- test: tests/test_empty_population_says_why.py::test_the_top_level_tests_list_is_read
+  bug: "taskq puts the same entry list at a top-level `tests:` key rather than under `test_inventory:`; Round 73 hardcoded the path one level down and read nothing. Reading both is not spelling-guessing — it is the same key with the same tc_id / layer / test_function rows"
+  fixed_in: "Round 74 站4"
+
+- test: tests/test_empty_population_says_why.py::test_an_unreadable_population_does_not_become_a_violation
+  bug: "Round 42 — a project must not be blocked for the shape the framework gave it. templates/TEST_INVENTORY.yaml ships fr_tests and cross_cutting, and neither carries a layer, so turning `I could not check` into a FAIL would fail four of the nine projects here for writing what the template contains. The reason is a separate return value rather than a tagged string in the violations list, so no caller has to tell a block from a note by reading a prefix off a sentence"
+  fixed_in: "Round 74 站4"
+
+- test: tests/test_empty_population_says_why.py::test_the_reason_names_something_the_reader_can_act_on
+  bug: "`could not read` with no object is the silence it replaced (Round 48: a halt with no owner is not a halt, applied to a reading). Each sentence names the container it did read and the count in it, or the top-level keys it found instead"
+  fixed_in: "Round 74 站4"
