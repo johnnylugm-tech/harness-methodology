@@ -628,6 +628,27 @@ def _write_survivors_artifact(
 #: evaluate_dimension.md, all three via this constant or a citation of it.
 MUTATION_SCORE_ARTIFACT = ".methodology/mutation_score.json"
 
+# The field that says this artifact came out of THIS framework rather than out
+# of a text editor. Both writers below set it; `_mutation_artifact_violations`
+# requires it. Named once because a writer and a reader that each spell the
+# same key are one rename away from a check that silently stops checking.
+#
+# Round 72 站2. Every reader of this file took `data["score"]` and asked
+# nothing else, while `_mutation_artifact_violations`'s own docstring said "the
+# framework's own artifact is the source". Measured on taskq-new's Gate 4: the
+# file carried `"generated_at": "2026-08-23T14:51:22.f+00:00"` (a strftime
+# placeholder this code cannot emit), no `enforcer_sha` at all, and a `note`
+# reading "reconstructed from .mutmut-cache … 685 untested mutants are
+# out-of-scope" — a hand-built number with a hand-picked denominator, recorded
+# in gate4_result.json as `"framework: compute_mutation_score → killed=256
+# survived=99 score=72.1"` with `framework_override: true`.
+#
+# Presence, not shape: `enforcer_sha()` legitimately returns "unknown" when git
+# is unavailable, and a value-shape rule would fail those runs. Measured across
+# the corpus, the five projects whose artifact this code actually wrote all
+# carry the key and no extra keys; taskq-new is the only one missing it.
+MUTATION_SCORE_PROVENANCE_KEY = "enforcer_sha"
+
 
 def _write_score_artifact(
     project: Path,
@@ -682,7 +703,7 @@ def _write_score_artifact(
         "paths_to_exclude": sorted(paths_to_exclude),
         "mutated_files": mutated_files,
         "cache_sha256": cache_sha,
-        "enforcer_sha": enforcer_sha(),
+        MUTATION_SCORE_PROVENANCE_KEY: enforcer_sha(),
     }
     out = project / MUTATION_SCORE_ARTIFACT
     try:
@@ -727,7 +748,7 @@ def _write_unmeasured_artifact(project: Path, reason: str) -> None:
         "tool": "mutmut",
         "score": None,
         "could_not_measure": reason,
-        "enforcer_sha": enforcer_sha(),
+        MUTATION_SCORE_PROVENANCE_KEY: enforcer_sha(),
     }
     out = project / MUTATION_SCORE_ARTIFACT
     try:

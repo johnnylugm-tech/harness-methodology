@@ -148,6 +148,10 @@ def test_the_framework_artifact_supplies_the_score(project):
             "mutated_files": 3,
             "cache_sha256": "deadbeef",
             "generated_at": "2026-08-03T00:00:00+00:00",
+            # Round 72 站2: the provenance stamp both writers emit. Without it
+            # the artifact is one no framework wrote, which is now its own
+            # `unverifiable` finding and would mask what these tests are about.
+            "enforcer_sha": "0" * 40,
         }),
         encoding="utf-8",
     )
@@ -164,6 +168,10 @@ def test_a_claim_that_contradicts_the_artifact_is_blocked(project):
             "mutated_files": 8,
             "cache_sha256": "deadbeef",
             "generated_at": "2026-08-03T00:00:00+00:00",
+            # Round 72 站2: the provenance stamp both writers emit. Without it
+            # the artifact is one no framework wrote, which is now its own
+            # `unverifiable` finding and would mask what these tests are about.
+            "enforcer_sha": "0" * 40,
         }),
         encoding="utf-8",
     )
@@ -218,7 +226,7 @@ def test_the_patch_replaces_the_agents_number(tmp_path):
     (tmp_path / ".methodology" / "mutation_score.json").write_text(
         json.dumps({"score": 43.8, "killed": 240, "survived": 308,
                     "paths_to_mutate": "src/app", "paths_to_exclude": [],
-                    "mutated_files": 8}),
+                    "mutated_files": 8, "enforcer_sha": "0" * 40}),
         encoding="utf-8",
     )
     result = tmp_path / ".sessi-work" / "gate2_result.json"
@@ -300,7 +308,7 @@ def test_the_gate_actually_calls_the_drift_check(project):
         json.dumps({"score": 92.0, "killed": 46, "survived": 4,
                     "paths_to_mutate": "03-development/src/app/service",
                     "paths_to_exclude": [], "mutated_files": 3,
-                    "cache_sha256": "deadbeef"}),
+                    "cache_sha256": "deadbeef", "enforcer_sha": "0" * 40}),
         encoding="utf-8",
     )
     (project / ".methodology" / "SAB.json").write_text(

@@ -3152,3 +3152,23 @@
 - test: tests/test_advance_records_the_phase_it_gates_on.py::test_run_phase_still_refuses_a_phase_that_left_no_record
   bug: "Round 53 站5c exists because taskq-super reached Phase 9 with no entry for phase 5; exempting advance-phase's own call must not exempt cmd_run_phase, cmd_pre_commit_check or the re-verify branch, which ask about a phase that is already finished"
   fixed_in: "Round 72 站1"
+
+- test: tests/test_mutation_score_says_who_wrote_it.py::test_an_artifact_without_a_provenance_stamp_is_not_a_measurement
+  bug: "_mutation_artifact_violations read data['score'] and nothing else while its docstring said 'the framework's own artifact is the source' — taskq-new's Gate 4 took 72.1 from a file with no enforcer_sha, a generated_at of '2026-08-23T14:51:22.f+00:00' and a note excluding 685 untested mutants from the denominator (the full one gives 24.6 against a threshold of 70)"
+  fixed_in: "Round 72 站2"
+
+- test: tests/test_mutation_score_says_who_wrote_it.py::test_the_stamped_artifact_the_framework_writes_passes
+  bug: "the counter-direction: a provenance rule that rejected the framework's own payload would block every project, so the shape both writers emit is pinned as accepted"
+  fixed_in: "Round 72 站2"
+
+- test: tests/test_mutation_score_says_who_wrote_it.py::test_an_unavailable_git_still_produces_an_acceptable_stamp
+  bug: "enforcer_sha() returns 'unknown' when git is unavailable, so a rule on the VALUE's shape would fail a real run; this pins that the rule is the key's presence"
+  fixed_in: "Round 72 站2"
+
+- test: tests/test_mutation_score_says_who_wrote_it.py::test_both_writers_stamp_the_key_they_are_checked_on
+  bug: "writer and reader each spelling 'enforcer_sha' literally is one rename away from a check that silently stops checking; both sides now name one constant"
+  fixed_in: "Round 72 站2"
+
+- test: tests/test_mutation_score_says_who_wrote_it.py::test_the_evidence_line_does_not_claim_an_unstamped_number_is_measured
+  bug: "_patch_mutation_score wrote 'framework: compute_mutation_score → killed=… survived=… score=…' for any file carrying a score key; taskq-new's committed gate4_result.json has that sentence in front of a hand-rebuilt number with framework_override: true — a blocked verdict whose false evidence line survives it (Round 69, one field over)"
+  fixed_in: "Round 72 站2"

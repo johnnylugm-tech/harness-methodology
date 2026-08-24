@@ -675,7 +675,10 @@ def _mutation_artifact_violations(
       every other tool (harness says fail, agent says pass), with the artifact
       standing in for a re-run that would cost an hour.
     """
-    from core.quality_gate.mutation_enforcer import MUTATION_SCORE_ARTIFACT
+    from core.quality_gate.mutation_enforcer import (
+        MUTATION_SCORE_ARTIFACT,
+        MUTATION_SCORE_PROVENANCE_KEY,
+    )
 
     _how = (
         f"Run `python3 harness_cli.py mutation-test-score --project .` — it "
@@ -697,6 +700,31 @@ def _mutation_artifact_violations(
         return [], [
             f"{dim_name}: {MUTATION_SCORE_ARTIFACT} is unreadable ({exc}) — the "
             f"score it should carry cannot be established. {_how}"
+        ]
+
+    # Round 72 站2: and whether this framework wrote it. Both writers stamp
+    # `enforcer_sha` (Round 19 站3's provenance field) into the payload, and
+    # every reader ignored it — so a file with the right `score` key passed as
+    # "the framework's own artifact", which is what the docstring above claims
+    # this function establishes.
+    #
+    # Measured on taskq-new's Gate 4: no `enforcer_sha`, a `generated_at` of
+    # "2026-08-23T14:51:22.f+00:00" (a strftime placeholder this code cannot
+    # emit) and a `note` reading "reconstructed from .mutmut-cache … 685
+    # untested mutants are out-of-scope". 256/(256+99) = 72.1 cleared the
+    # threshold of 70; 256/(256+99+685) is 24.6. gate4_result.json records it
+    # as "framework: compute_mutation_score → …" with framework_override: true.
+    #
+    # Filed as `unverifiable`, the same bucket as an absent file, because it is
+    # the same fact: no score the framework produced is on record. It is not
+    # `tool_score_fabrication`, whose remediation reads "the score, not the
+    # run, is what failed — do NOT re-run"; here re-running is exactly right.
+    if MUTATION_SCORE_PROVENANCE_KEY not in data:
+        return [], [
+            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} carries no "
+            f"`{MUTATION_SCORE_PROVENANCE_KEY}`, so this framework did not "
+            f"write it — the number in it is whatever its author typed, not a "
+            f"measurement anything here performed. {_how}"
         ]
 
     # Round 31 站4: the score is only meaningful over the scope it was taken

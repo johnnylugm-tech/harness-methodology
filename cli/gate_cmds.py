@@ -45,7 +45,11 @@ from core.utils.script_loader import load_harness_script
 from core.utils.timefmt import utc_now_iso
 from harness import tool_checks
 from core.utils.project_layout import ProjectLayout
-from core.quality_gate.mutation_enforcer import compute_mutation_score
+from core.quality_gate.mutation_enforcer import (
+    MUTATION_SCORE_ARTIFACT,
+    MUTATION_SCORE_PROVENANCE_KEY,
+    compute_mutation_score,
+)
 
 
 def cmd_run_gate(args: argparse.Namespace) -> int:
@@ -1811,7 +1815,7 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
     applies" while `framework_override` was absent from that entry, because
     the override had never run.
     """
-    artifact = project_path / ".methodology" / "mutation_score.json"
+    artifact = project_path / MUTATION_SCORE_ARTIFACT
     result = project_path / ".sessi-work" / f"gate{gate}_result.json"
     if not artifact.is_file() or not result.is_file():
         return
@@ -1834,13 +1838,29 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
         )
     else:
         entry["score"] = score
-        entry["tool_evidence"] = (
-            f"framework: compute_mutation_score → killed={data.get('killed')} "
-            f"survived={data.get('survived')} score={score} "
-            f"[scope: {data.get('paths_to_mutate')}, "
-            f"{data.get('mutated_files')} files, "
-            f"excluded: {data.get('paths_to_exclude') or 'none'}]"
-        )
+        # Round 72 站2: the sentence names its own source. Without the
+        # provenance stamp both writers put in the payload, "framework:
+        # compute_mutation_score →" is a claim about who measured this that
+        # nothing here established — taskq-new's gate4_result.json carries that
+        # exact string in front of a number rebuilt by hand from a stale cache.
+        # The block itself is _mutation_artifact_violations'; this is the other
+        # half, because a verdict is stopped and its evidence line is kept.
+        if MUTATION_SCORE_PROVENANCE_KEY in data:
+            entry["tool_evidence"] = (
+                f"framework: compute_mutation_score → killed={data.get('killed')} "
+                f"survived={data.get('survived')} score={score} "
+                f"[scope: {data.get('paths_to_mutate')}, "
+                f"{data.get('mutated_files')} files, "
+                f"excluded: {data.get('paths_to_exclude') or 'none'}]"
+            )
+        else:
+            entry["tool_evidence"] = (
+                f"{MUTATION_SCORE_ARTIFACT} carries no "
+                f"`{MUTATION_SCORE_PROVENANCE_KEY}` — this framework did not "
+                f"write it, so {score} is a number read out of a file, not one "
+                f"it measured. Run `harness_cli.py mutation-test-score "
+                f"--project .`."
+            )
     entry["framework_override"] = True
     try:
         result.write_text(json.dumps(gr, indent=2, ensure_ascii=False),
