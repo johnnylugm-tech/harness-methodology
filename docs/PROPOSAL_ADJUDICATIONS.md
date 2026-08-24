@@ -3867,7 +3867,49 @@ taskq-new 的 TEST_SPEC 宣告 115 個測試,parser 只讀到 81,4b 報 100.0%,
 | 站3 加入單數 `layer` 作為 keyword | taskq-api 的 `single_auth_dependency_at_api_layer` 會誤命中 layers candidate,而該專案有 layers contract → 會被判 `enforced`。**把棄權換成假背書比棄權更壞**(R72 站4 同一句,方向相反) | 出現一條真的由 layers contract 決定、而措辭只含單數 `layer` 的約束,且能與 `single_auth_…` 那類區分 |
 | 站5 擋下 `dimensions_declared_absent` | gate 的維度清單是框架的設計決定(`architecture_constraints` 是 per-FR 維度),擋下去會擋住每一個專案;NFR-06 的實質判定由站3 在 Gate 4 的 `unconfigured_blocking_reason` 承擔 | gate config 與 manifest 對某個維度分歧,而**沒有任何其他機制**判它 —— 那才是「需求零執行者」 |
 | NFR-12 四步是否真的被串接 | 需要判斷自然語言列出的步驟是否出現在 recipe 裡,那是發明判準而非套用。站4 改為讓維度**不宣稱**它,站1 讓 `test_nfr12_*`(若被宣告)必須存在 | 有專案宣告了 NFR-12 的 AC 測試、測試存在、卻仍與 recipe 不符 |
-| `TEST_INVENTORY.yaml` 的 `test_inventory.tests` 用 `test_name` 而 NFR Layering Hard Rule 讀 `function_name` | 本輪發現的相鄰缺陷,不在五站範圍;`cli/checks/specs.py:104` 的 `tc.get("function_name","")` 對 taskq-new 恆為空,那條 Hard Rule 從沒執行過 | 下一輪盤點時處理,或有專案因此漏交 NFR 測試 |
+| ~~`TEST_INVENTORY.yaml` 的欄位名與 NFR Layering Hard Rule 不符~~ | **已於本輪站6 修復**(老闆追加指令),見下 | — |
+
+### 站6(追加)— 兩個方向相反的 bug,各自掩蓋對方
+
+老闆追加指令:把 TEST_INVENTORY.yaml 那個相鄰缺陷也修掉。查證後它比原先
+記錄的更大,而且是**兩個**缺陷。
+
+**缺陷1 — 母體永遠是空的。** 規則讀 `tc["function_name"]`,而
+`templates/TEST_INVENTORY.yaml` 沒有這個欄位,**也沒有 `test_inventory:` 這個
+key**。那個 key 是 `scripts/workflowgen/spec_phase1.py:735` 強制的,理由與
+schema 無關 —— YAML 沒有 H1,loader 靠它辨識檔案身分。**框架強制了 key 的存在
+卻從沒定義它底下放什麼**,七個專案寫出四種拼法:
+
+| 拼法 | 專案 |
+|---|---|
+| `test_function` | renew / advance / cc |
+| `test_function_name` | api |
+| `test_name` | super / new / run-all |
+
+沒有一個是 `function_name`。舊述詞對七個專案全部選出 **0 筆** —— 規則從沒執行過。
+
+**缺陷2 — 草堆永遠是空的。** 章節擷取用
+`re.search(..., re.MULTILINE | re.DOTALL)`,而 `re.M` 讓 `$` 匹配**每一行的
+行尾**,所以 `(.*?)` 在第一個換行就滿足 lookahead,group 捕獲空字串。實測三個
+有該章節的專案:**捕獲 0 字元**,17 / 0 / 11 個 `test_nfr` 留在章節外。
+
+**兩個 bug 互相掩蓋。只修欄位名,會把三個已交付專案裡「明明就坐在那個章節裡」
+的每一筆 unit/static NFR 測試報成缺席。** 兩個必須同一個 commit 修。
+
+正解:函式名用**內容定位**(站1 同形,不列拼法白名單 —— 白名單無對賬機制正是
+站3 的缺陷形狀);主體用單數欄位且整個值是 NFR id(`cross_ref_nfrs` 不算 ——
+把它算進去會讓五個專案共 63 筆 FR 測試變成 NFR target);章節擷取改成逐行的
+標題深度判斷。
+
+修復後九專案實測:章節擷取 0 → 763–5565 字元,api 17 / advance 6 /
+run-all 11 個 target,**零違規** —— 規則會執行,且不擋任何已交付專案。
+
+**反證第三次抓到我自己**:CP3(把 `cross_ref_nfrs` 加進主體欄位)沒有轉紅,
+因為我的 fixture 寫的是 list 而 `_entry_subject_nfr` 有 str 型別檢查 ——
+斷言通過的理由不是它要守的規則(R19 母體)。加上 bare-string 形式後才真的守住。
+
+被 `test_god_file_split_safety` 擋一次(R49 織網):被拆分過的函式改寫必須
+單獨 commit 並 `REGEN_SPLIT_GOLDEN=1`,本 commit 零搬移,照辦。
 
 ### 三個 repo 守衛擋下站5,全部照辦
 
@@ -3879,10 +3921,10 @@ taskq-new 的 TEST_SPEC 宣告 115 個測試,parser 只讀到 81,4b 報 100.0%,
 
 ### 終局
 
-pytest 7658 passed / 4 skipped、guards 792 → 822、ruff clean、
-`.claude/workflows/` 五站零改動、九個語料專案唯讀。
-反證 15 次(站1 兩次、站2 四次、站3 四次、站4 兩次、站5 兩次,另加站1 的
-單調性跨語料量測),每次都逐位元組還原(`cp` 備份 + `sha256sum` 比對)。
+pytest 7666 passed / 4 skipped、guards 792 → 828、ruff clean、
+`.claude/workflows/` 六站零改動、九個語料專案唯讀。
+反證 19 次(站1 兩次、站2 四次、站3 四次、站4 兩次、站5 兩次、站6 五次,
+另加站1 的單調性跨語料量測),每次都逐位元組還原(`cp` 備份 + `sha256sum` 比對)。
 
 ---
 

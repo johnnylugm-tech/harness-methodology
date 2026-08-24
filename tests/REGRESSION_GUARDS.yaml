@@ -3372,3 +3372,27 @@
 - test: tests/test_declared_dimension_absent_from_the_gate.py::test_the_scope_is_computed_with_the_projects_declaration
   bug: "a key computed and never passed is Round 43's defect; without `declared=` at the one call site the new list can only ever be empty, and the guard is pinned on the source because that call is where a refactor would drop it"
   fixed_in: "Round 73 站5"
+
+- test: tests/test_nfr_layering_rule_can_execute.py::test_the_function_name_is_found_whatever_the_field_is_called
+  bug: "the NFR Layering Hard Rule read tc['function_name'], and templates/TEST_INVENTORY.yaml defines no such field — it defines no `test_inventory:` key at all. That key is mandated by scripts/workflowgen/spec_phase1.py:735 so the LOADER can identify a YAML artifact with no H1, and nothing ever said what goes under it. Seven projects wrote four spellings: test_function (renew/advance/cc), test_function_name (api), test_name (super/new/run-all). The old predicate selected 0 entries in every one, so the rule had never executed against any project. The field is not guessed from a list of spellings — an exception list with nothing reconciling it is this round's station 3 defect — it is found by what a value IS, the same way station 1 finds a name in a TEST_SPEC row"
+  fixed_in: "Round 73 站6"
+
+- test: tests/test_nfr_layering_rule_can_execute.py::test_the_deferred_section_is_not_captured_as_the_empty_string
+  bug: "the second bug, pointing the other way and hidden by the first. The section capture ran `re.search(r'(?i)^#{1,4}\\s+[^\\n]*Deferred[^\\n]*\\n(.*?)(?=\\n#{1,4}\\s+|$)', text, re.MULTILINE | re.DOTALL)` — with re.MULTILINE in force `$` matches at every line end, so the lookahead is satisfied at the first newline and the group captures the empty string. Measured on the three corpus projects that have the section: 0 characters captured, 17 / 0 / 11 `test_nfr` occurrences left outside. Fixing the field names alone would have reported every unit/static NFR test in three delivered projects as missing from a section it is sitting in"
+  fixed_in: "Round 73 站6"
+
+- test: tests/test_nfr_layering_rule_can_execute.py::test_a_cross_reference_is_not_the_subject
+  bug: "cross_ref_nfrs is what an FR test mentions, not what it verifies; reading any NFR-shaped token in the row turns 63 FR tests across five projects into NFR targets, test_fr01_pydantic_validation_422 among them. The first version of this test only used the list form and stayed green when cross_ref_nfrs was added to the subject fields — the type check was doing the work, not the rule (Round 19's mother defect, caught by this station's counter-proof); it now also pins the bare-string form that no project writes today"
+  fixed_in: "Round 73 站6"
+
+- test: tests/test_nfr_layering_rule_can_execute.py::test_a_declared_unit_nfr_test_outside_the_section_is_reported
+  bug: "the direction the rule exists for and had never once exercised: a declared unit/static NFR test absent from the Deferred section must be named"
+  fixed_in: "Round 73 站6"
+
+- test: tests/test_nfr_layering_rule_can_execute.py::test_the_shape_three_delivered_projects_ship_passes
+  bug: "the counter-direction, and why both bugs had to be fixed in one commit: with the rule executing, taskq-api has 17 targets, taskq-advance 6 and run-all-by-workflow 11, and every one is present — the rule blocks nobody. Fixing either bug alone would have blocked all three"
+  fixed_in: "Round 73 站6"
+
+- test: tests/test_nfr_layering_rule_can_execute.py::test_an_entry_whose_name_cannot_be_read_is_not_silently_dropped
+  bug: "could-not-measure is a sentence, not a pass (Rounds 32/35). An entry with no identifier-shaped value names no test, and dropping it would shrink the population the same way `function_name` did for as long as it existed"
+  fixed_in: "Round 73 站6"

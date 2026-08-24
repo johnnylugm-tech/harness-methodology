@@ -513,7 +513,7 @@
     "cli.check_cmds::cmd_check_property_spec": "a70689f8d9e07862",
     "cli.check_cmds::cmd_check_spec_alignment": "f6823fb3114e7b66",
     "cli.check_cmds::cmd_check_test_mirrors_spec": "6791fac7f19c8d6a",
-    "cli.check_cmds::cmd_check_test_spec_consistency": "b0d38eda0acff0a9",
+    "cli.check_cmds::cmd_check_test_spec_consistency": "e1d1f5c94e3ba688",
     "cli.check_cmds::cmd_crg_arch_check": "c51797af4bb5a0c7",
     "cli.check_cmds::cmd_generate_verification_report": "29a22ee8c8814867",
     "cli.check_cmds::cmd_manifest": "9f3f036de12ef2d8",

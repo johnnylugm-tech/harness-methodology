@@ -12,10 +12,156 @@ compares is the only thing that stays the same across those three.
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 from core.state_io import load_state
 from core.utils.project_layout import ProjectLayout
+
+# ── NFR Layering Hard Rule (Round 73 站6) ──────────────────────────────────
+#
+# The rule requires every unit/static NFR test named in TEST_INVENTORY.yaml to
+# appear in TEST_SPEC.md's "Deferred to Downstream Phases" section. It had two
+# defects pointing opposite ways, and each hid the other:
+#
+#   1. the population was always empty — it read `tc["function_name"]`, and
+#      `templates/TEST_INVENTORY.yaml` defines no such field. It defines no
+#      `test_inventory:` key at all: that key is mandated by
+#      `scripts/workflowgen/spec_phase1.py:735` so the LOADER can identify a
+#      YAML artifact that has no H1, and nothing ever said what goes under it.
+#      Seven projects wrote four spellings — `test_function` (renew, advance,
+#      cc), `test_function_name` (api), `test_name` (super, new, run-all) —
+#      and the old predicate selected 0 entries in every one of them.
+#
+#   2. the haystack was always empty — the section capture ran with
+#      `re.MULTILINE | re.DOTALL`, where `$` matches at every line end, so the
+#      lookahead was satisfied at the first newline and the group captured "".
+#      Measured on the three projects that have the section: 0 characters,
+#      with 17 / 0 / 11 `test_nfr` occurrences left outside it.
+#
+# Fixing (1) alone would have reported every unit/static NFR test in three
+# delivered projects as missing from a section it is sitting in.
+#
+# The field name is not guessed from a list of spellings — an exception list
+# with nothing reconciling it is the defect shape of this round's station 3.
+# It is found the way station 1 finds a test name in a TEST_SPEC row: by what
+# a value IS. Exactly one value in a declaration entry is an identifier
+# beginning `test_`.
+_TEST_IDENT = re.compile(r"^test_[A-Za-z0-9_]+$")
+_NFR_ID = re.compile(r"^NFR-\d+$")
+
+# Fields that can carry the entry's SUBJECT. `cross_ref_nfrs` deliberately is
+# not one: reading any NFR-shaped token in the row turns 63 FR tests across
+# five projects into NFR tests — `test_fr01_pydantic_validation_422` among
+# them — and the rule would demand each be moved into a section for NFR tests.
+_SUBJECT_FIELDS = ("nfr", "nfr_id", "fr", "fr_id", "requirement", "req")
+
+_DEFERRED_LAYERS = ("unit", "static")
+
+
+def deferred_section_text(test_spec_text: str) -> str:
+    """The body of TEST_SPEC.md's "Deferred to Downstream Phases" section."""
+    lines = test_spec_text.splitlines()
+    out: list[str] = []
+    depth = 0
+    for line in lines:
+        heading = re.match(r"^(#{1,6})\s+(\S.*)$", line)
+        if heading:
+            level = len(heading.group(1))
+            if depth and level <= depth:
+                break          # a sibling or higher heading closes the section
+            if not depth and re.search(r"deferred", heading.group(2), re.IGNORECASE):
+                depth = level  # sub-headings below this one stay inside
+                continue
+        if depth:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _entry_test_fn(entry: dict) -> str:
+    """The one identifier-shaped value in an inventory entry, or ""."""
+    found = [v for v in entry.values()
+             if isinstance(v, str) and _TEST_IDENT.match(v.strip())]
+    return found[0].strip() if len(found) == 1 else ""
+
+
+def _entry_subject_nfr(entry: dict) -> str:
+    """The NFR this entry is ABOUT — a singular field whose whole value is an id."""
+    for key in _SUBJECT_FIELDS:
+        value = entry.get(key)
+        if isinstance(value, str) and _NFR_ID.match(value.strip()):
+            return value.strip()
+    return ""
+
+
+def nfr_layering_targets(project: "str | Path") -> list[dict]:
+    """The unit/static NFR tests this project's inventory declares.
+
+    ``[{"tc_id", "nfr", "layer", "test_fn"}, …]``; `test_fn` is "" when no
+    value in the entry is identifier-shaped, which the caller reports rather
+    than dropping — silently shrinking the population is what `function_name`
+    did for as long as it existed.
+    """
+    import yaml
+
+    inventory_path = Path(project) / "TEST_INVENTORY.yaml"
+    if not inventory_path.is_file():
+        return []
+    try:
+        inv = yaml.safe_load(inventory_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        print(f"[WARN] TEST_INVENTORY.yaml unreadable ({exc}) — the NFR "
+              f"Layering Hard Rule is NOT being checked this run")
+        return []
+    section = inv.get("test_inventory") if isinstance(inv, dict) else None
+    entries = (section or {}).get("tests") if isinstance(section, dict) else None
+    if not isinstance(entries, list):
+        return []
+
+    targets: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        nfr = _entry_subject_nfr(entry)
+        if not nfr or str(entry.get("layer", "")).lower() not in _DEFERRED_LAYERS:
+            continue
+        targets.append({
+            "tc_id": str(entry.get("tc_id") or "(no tc_id)"),
+            "nfr": nfr,
+            "layer": str(entry.get("layer")),
+            "test_fn": _entry_test_fn(entry),
+        })
+    return targets
+
+
+def nfr_layering_violations(project: "str | Path") -> list[str]:
+    """Declared unit/static NFR tests not found in the Deferred section.
+
+    Measured across the corpus with both defects fixed: taskq-api 17 targets,
+    taskq-advance 6, run-all-by-workflow 11, every one present — the rule
+    executes and blocks nobody. taskq-renew, taskq-super, taskq-cc and
+    taskq-new declare no unit/static NFR entry at all.
+    """
+    project = Path(project)
+    spec_path = ProjectLayout(project).test_spec_path
+    if not spec_path.is_file():
+        return []
+    deferred = deferred_section_text(
+        spec_path.read_text(encoding="utf-8", errors="replace"))
+
+    violations: list[str] = []
+    for target in nfr_layering_targets(project):
+        if not target["test_fn"]:
+            violations.append(
+                f"{target['nfr']} ({target['tc_id']}) - layer: "
+                f"{target['layer']} — the entry carries no test function name, "
+                f"so nothing here can check where it lives")
+            continue
+        if not re.search(rf"\b{re.escape(target['test_fn'])}\b", deferred):
+            violations.append(
+                f"{target['nfr']} ({target['test_fn']}) - layer: {target['layer']}")
+    return violations
+
 
 def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
     """P2 self-consistency gate — prove TEST_SPEC.md is not unsatisfiable.
@@ -89,33 +235,16 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
         return 1
 
     # NFR Layering Hard Rule
-    import yaml
-    import re
-    inventory_path = project / "TEST_INVENTORY.yaml"
-    if inventory_path.exists():
-        inv = yaml.safe_load(inventory_path.read_text(encoding="utf-8"))
-        test_spec_text = spec_path.read_text(encoding="utf-8")
-        
-        deferred_match = re.search(r"(?i)^#{1,4}\s+[^\n]*Deferred[^\n]*\n(.*?)(?=\n#{1,4}\s+|$)", test_spec_text, re.MULTILINE | re.DOTALL)
-        deferred_text = deferred_match.group(1) if deferred_match else ""
-
-        missing_nfrs = []
-        tests = inv.get("test_inventory", {}).get("tests", [])
-        for tc in tests:
-            if tc.get("nfr") and tc.get("layer") in ("unit", "static"):
-                fn_name = tc.get("function_name", "")
-                if fn_name and not re.search(fr'\b{re.escape(fn_name)}\b', deferred_text):
-                    missing_nfrs.append(f"{tc['nfr']} ({fn_name}) - layer: {tc['layer']}")
-                    
-        if missing_nfrs:
-            print("\n[FAIL] TEST_SPEC.md is missing Unit/Static NFRs in the 'Deferred to Downstream Phases' table:")
-            for m in missing_nfrs[:5]:
-                print(f"  • {m}")
-            if len(missing_nfrs) > 5:
-                print(f"  ... and {len(missing_nfrs) - 5} more.")
-            print("\n[BLOCKED] You MUST isolate all Unit/Static NFRs in a section titled 'Deferred to Downstream Phases'.")
-            print("          Do NOT place them in the Integration table. Create the Deferred table if it does not exist.")
-            return 1
+    missing_nfrs = nfr_layering_violations(project)
+    if missing_nfrs:
+        print("\n[FAIL] TEST_SPEC.md is missing Unit/Static NFRs in the 'Deferred to Downstream Phases' table:")
+        for m in missing_nfrs[:5]:
+            print(f"  • {m}")
+        if len(missing_nfrs) > 5:
+            print(f"  ... and {len(missing_nfrs) - 5} more.")
+        print("\n[BLOCKED] You MUST isolate all Unit/Static NFRs in a section titled 'Deferred to Downstream Phases'.")
+        print("          Do NOT place them in the Integration table. Create the Deferred table if it does not exist.")
+        return 1
 
     print("[check-test-spec-consistency] OK — 0 contradictions"
           + (f"; {total_review} needs-review (P2 Agent B sign-off)" if total_review else "") + ".")
