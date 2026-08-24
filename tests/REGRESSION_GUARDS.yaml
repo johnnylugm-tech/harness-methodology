@@ -3396,3 +3396,23 @@
 - test: tests/test_nfr_layering_rule_can_execute.py::test_an_entry_whose_name_cannot_be_read_is_not_silently_dropped
   bug: "could-not-measure is a sentence, not a pass (Rounds 32/35). An entry with no identifier-shaped value names no test, and dropping it would shrink the population the same way `function_name` did for as long as it existed"
   fixed_in: "Round 73 站6"
+
+- test: tests/test_table_header_is_structural_not_prose.py::test_a_row_whose_title_says_test_function_is_not_a_header
+  bug: "Round 73 站1 fixed which COLUMN _parse_test_spec reads a name from and left in place the question that decides whether a row is a header at all: `if '|' in stripped and re.search(r'Test Function', stripped, re.I)`. Every declaration row in a Deferred-NFR table carries a Title column describing what the test asserts, and taskq-new's line 746 reads `| 26 | NFR-09 | \\`test_nfr09_ac3_each_test_has_at_least_one_assert\\` | unit | every test function >= 1 assert (AC-N9.3) |`. Read as a header it restarted the table with header_skipped false, so that row and the nine after it were dropped in silence. Measured against the delivered tree AFTER Round 73 shipped: 115 rows declared, 105 read, 4b publishing 100.0%. Seven of the ten hidden names have no `def` anywhere in the tree, among them test_nfr09_ac4_no_ignore_deselect_collect_ignore_testpaths_removal — the project's own check for the collection-hook workaround an external audit reported as missing and Round 73's ledger recorded as closed. A header is now the row a separator row follows, which is what markdown says a header is, and a row naming a test function is a declaration, never a header"
+  fixed_in: "Round 74 站1 (_is_header_row in core/quality_gate/spec_coverage.py)"
+
+- test: tests/test_table_header_is_structural_not_prose.py::test_every_real_header_shape_reads_every_row_beside_a_prose_title
+  bug: "monotonicity over the six distinct `Test Function` header shapes the nine corpus projects actually ship, each with the prose Title that used to end the table. Round 73's first draft passed its own seven fixtures while dropping all 36 of taskq-renew's declarations, because those fixtures were written to the rule under test (Round 19's mother defect) — not one of them had a Title column, which is why the ten-row loss survived the round that was fixing this parser"
+  fixed_in: "Round 74 站1"
+
+- test: tests/test_table_header_is_structural_not_prose.py::test_a_table_naming_no_test_function_closes_the_previous_one
+  bug: "a header naming no test-function column must CLOSE the current table rather than leave it open. Six of the nine corpus projects put a sub-assertion table (`| rule_id | predicate | phase |`) or a totals table between two declaration tables; with the table left open its rows were read under the previous table's column indices"
+  fixed_in: "Round 74 站1"
+
+- test: tests/test_table_header_is_structural_not_prose.py::test_an_alignment_separator_is_a_separator
+  bug: "`|:---|---:|` is markdown's separator too, and the pre-Round-74 `^\\|[-| ]+\\|$` did not match it — a table whose separator used alignment colons would have had header_skipped stay false and every declaration row dropped. No corpus project writes one, which is exactly why the narrow pattern survived: the rule was never asked. One _SEPARATOR_ROW now answers both `is the next line a separator` and `skip this row`, so the two cannot drift apart"
+  fixed_in: "Round 74 站1"
+
+- test: tests/test_table_header_is_structural_not_prose.py::test_a_header_that_disagrees_with_its_own_rows_still_reads_them
+  bug: "the counter-direction for Round 73's content-location: taskq-renew writes `| # | NFR | Test Function | Layer | Title |` over rows that put the name in column 1, so a header-trusting reader drops all 36. Making the HEADER structural must not re-introduce trust in what it says about column order"
+  fixed_in: "Round 74 站1"

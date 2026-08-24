@@ -164,6 +164,42 @@ def _row_test_fn(cols: list, header_index: "int | None") -> str:
     return candidates[0][1]
 
 
+_SEPARATOR_ROW = re.compile(r"^\|[-:| ]+\|$")
+
+
+def _is_header_row(lines: list, i: int) -> bool:
+    """Is `lines[i]` a markdown table header?
+
+    Round 74 站1. A header is the row a separator row follows — that is what
+    markdown says a header is. Round 73 left a different question in place,
+    "does this row contain the words Test Function", and a Deferred-NFR table
+    whose Title column describes what each test asserts answers yes on its own
+    declaration rows. taskq-new's TEST_SPEC.md line 746:
+
+        | 26 | NFR-09 | `test_nfr09_ac3_each_test_has_at_least_one_assert`
+          | unit | every test function ≥ 1 assert (AC-N9.3) |
+
+    Read as a header, it restarted the table with `header_skipped` false, so
+    it and the nine rows after it were dropped in silence — among them
+    `test_nfr09_ac4_no_ignore_deselect_collect_ignore_testpaths_removal`, the
+    project's own check for the collection-hook workaround an external audit
+    reported as missing, and six more with no `def` in the delivered tree.
+    Measured: 115 rows declared, 105 read, and 4b published 100.0%.
+
+    The second condition says a row naming a test function is a declaration,
+    never a header: a column name is not an identifier. Both conditions are
+    structural. Neither reads prose.
+    """
+    row = lines[i].strip()
+    if not (row.startswith("|") and row.endswith("|")) or _SEPARATOR_ROW.match(row):
+        return False
+    nxt = next((s for s in (ln.strip() for ln in lines[i + 1:]) if s), "")
+    if not _SEPARATOR_ROW.match(nxt):
+        return False
+    cols = [c.strip() for c in row.split("|")[1:-1]]
+    return not _row_test_fn(cols, None)
+
+
 def _parse_test_spec(spec_path: Path) -> list[dict]:
     """Parse TEST_SPEC.md and return all named test cases.
 
@@ -175,9 +211,17 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
     and the five-column NFR shape the NFR Layering Hard Rule produces:
       | # | NFR | Test Function | Layer | Title |
 
-    Which column holds what is decided by `_header_columns` from the header
-    row, per table — resolving it once for the file would read a four-column
-    table following a five-column one out of the wrong column.
+    Which row is a header is decided by `_is_header_row` — structurally, not
+    by the words in it. Which column holds what is then decided by
+    `_header_columns` from that header, per table; resolving it once for the
+    file would read a four-column table following a five-column one out of
+    the wrong column.
+
+    A header naming no test-function column closes the current table rather
+    than continuing it: a sub-assertion table (`| rule_id | predicate |`) or
+    a totals table sits between two declaration tables in six of the nine
+    projects here, and rows read under the previous table's columns would be
+    parsed against the wrong header.
 
     Returns a list of dicts with keys: test_fn, type, derivation, fr_id.
     Backtick-wrapped function names (e.g. `test_foo`) are unwrapped automatically.
@@ -187,12 +231,13 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
         return results
 
     text = spec_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
     current_fr: str = ""
     in_table = False
     header_skipped = False
     columns: dict = {}
 
-    for line in text.splitlines():
+    for idx, line in enumerate(lines):
         stripped = line.strip()
 
         # Detect FR section headers: ## FR-XX: ... or ### FR-XX: ...
@@ -223,14 +268,14 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
             continue
 
         # Detect table header row (| # | Test Function | ...)
-        if "|" in stripped and re.search(r"Test Function", stripped, re.IGNORECASE):
+        if _is_header_row(lines, idx):
             columns = _header_columns(stripped)
             in_table = bool(columns)
             header_skipped = False
             continue
 
         # Skip the separator row (|---|---|...)
-        if in_table and re.match(r"^\|[-| ]+\|$", stripped):
+        if in_table and _SEPARATOR_ROW.match(stripped):
             header_skipped = True
             continue
 
