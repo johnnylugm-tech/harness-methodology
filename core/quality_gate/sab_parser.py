@@ -286,12 +286,17 @@ _SAB_BLOCK_RE = re.compile(
 _CODE_FENCE_RE = re.compile(r"```(?:yaml|json)?\s*(.*?)```", re.DOTALL)
 
 
-def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
-    """
-    Parse SAD.md and return a SABSpec from the <!-- SAB:START/END --> block.
+def _load_sab_mapping(sad_path) -> "Optional[dict]":
+    """The SAB block's YAML mapping AS WRITTEN, before SABSpec's defaults.
 
-    Returns None if no SAB block is found.
-    Raises RuntimeError if the block exists but cannot be parsed.
+    Round 72 站5 split this out of `extract_sab_from_sad` so one caller can ask
+    what the document DECLARES rather than what the parser ended up with. Every
+    optional field on `SABSpec` has a `default_factory`, so by the time a spec
+    exists "the project said []" and "the project said nothing" are the same
+    value — and for `required_artifacts` those are opposite statements.
+
+    Returns None for no block and for an empty one; raises RuntimeError when
+    the block exists and will not parse, exactly as before.
     """
     sad_path = Path(sad_path)
     content = sad_path.read_text(encoding="utf-8")
@@ -314,6 +319,20 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         return None
 
     sab_data = data.get("sab", data)
+    return sab_data if isinstance(sab_data, dict) else None
+
+
+def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
+    """
+    Parse SAD.md and return a SABSpec from the <!-- SAB:START/END --> block.
+
+    Returns None if no SAB block is found.
+    Raises RuntimeError if the block exists but cannot be parsed.
+    """
+    sad_path = Path(sad_path)
+    sab_data = _load_sab_mapping(sad_path)
+    if sab_data is None:
+        return None
 
     raw_phase = sab_data.get("phase", 0)
     if isinstance(raw_phase, str):
@@ -563,13 +582,15 @@ def validate_sab_block(sad_path) -> list[str]:
     Covers:
     - parse errors (bad YAML, bad phase type, missing markers)
     - unknown NFR type values (not in ALL_NFR_TYPES)
+    - `required_artifacts` omitted altogether (Round 72 站5)
 
-    Does NOT flag missing optional fields (parser fills them with defaults).
-    Use this from `generate_sab.py --validate` and CI hooks.
+    Does NOT otherwise flag missing optional fields (parser fills them with
+    defaults). Use this from `generate_sab.py --validate` and CI hooks.
     """
     sad_path = Path(sad_path)
     try:
         spec = extract_sab_from_sad(sad_path)
+        declared_keys = set(_load_sab_mapping(sad_path) or {})
     except RuntimeError as exc:
         return [f"PARSE ERROR: {exc}"]
 
@@ -577,6 +598,30 @@ def validate_sab_block(sad_path) -> list[str]:
         return [f"No <!-- SAB:START -->...<!-- SAB:END --> block found in {sad_path}"]
 
     errors: list[str] = []
+    # Round 72 站5. `required_artifacts` is the list Round 68 站1 checks against
+    # the delivered tree at every finalize, and `record_required_artifacts`
+    # already tells every project to write it: "nothing states which files this
+    # project must ship, so no check can tell a deliverable that was never
+    # written from one that was. Declare the spec's mandatory config files
+    # under `required_artifacts` in the SAB block of SAD.md". Measured on
+    # taskq-new: 186 ledger rows saying exactly that, and nothing anywhere
+    # requiring it. A framework that states an obligation and enforces nothing
+    # is Round 30's abstain-equals-pass and Round 46's absent witness.
+    #
+    # An empty list is accepted and an ABSENT key is not, because they are
+    # different statements: "this spec names no mandatory files" is a judgement
+    # somebody made, and `SABSpec`'s default_factory erases the difference the
+    # moment the document is parsed — which is why this reads the raw mapping.
+    if "required_artifacts" not in declared_keys:
+        errors.append(
+            "required_artifacts is absent from the SAB block. It is the list "
+            "every gate checks against the delivered tree; without it nothing "
+            "can tell a deliverable that was never written from one that was. "
+            "Write the spec's mandatory files (config, migrations, "
+            "`.env.example`, …) as repo-relative paths, or `required_artifacts: "
+            "[]` if the spec names none — the empty list is a decision and is "
+            "accepted; leaving the key out is not."
+        )
     # Round 29 Station 2a: collect valid layer names for scope_layers validation
     valid_layer_names: set[str] = {
         lyr.get("name", "")

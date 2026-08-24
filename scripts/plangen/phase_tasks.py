@@ -8,6 +8,7 @@ builders in blocks.py, and the dispatcher/CLI stay in the facade.
 
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 from typing import Dict, List
 
@@ -215,15 +216,19 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
                 lines.append("")
 
     try:
-        from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE
+        import dataclasses
+
+        from core.quality_gate.sab_parser import SAB_BLOCK_TEMPLATE, SABSpec
         _sab_block_md = "  ```yaml\n" + "\n".join(
             "  " + ln for ln in SAB_BLOCK_TEMPLATE.splitlines()
         ) + "\n  ```"
+        _SAB_FIELD_NAMES = [f.name for f in dataclasses.fields(SABSpec)]
     except ImportError:
         _sab_block_md = (
             "  _(run `from core.quality_gate.sab_parser import render_canonical_sab_template`"
             " to get the canonical template)_"
         )
+        _SAB_FIELD_NAMES = []
 
     lines.extend([
         "### SAB Generation (Machine-Readable Architecture Baseline)",
@@ -251,11 +256,17 @@ def generate_phase2_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         "  python3 harness/scripts/generate_sab.py --project .",
         "  ```",
         "  > **Note**: If `SAB.json` already exists and needs regeneration, pass `--overwrite`.",
-        "  - SAB.json contains all 14 fields from `SABSpec`:",
-        "    version, created_at, phase, project, layers, allowed_dependencies,",
-        "    quality_targets, nfr_dimension_mapping, nfr_traceability, advisory_only,",
-        "    gate_score_overrides, fr_module_traceability, architecture_constraints,",
-        "    high_risk_modules.",
+        # Round 72 站5: rendered from SABSpec, not typed. The hand-written
+        # list said "all 14 fields" and named fourteen; `required_artifacts`
+        # (Round 68 站1) had been the fifteenth for two days. A sentence that
+        # restates a value is a sentence that will one day disagree with it
+        # (Round 39 站3), and this one disagreed about the field whose absence
+        # the same round records 186 times in taskq-new's ledger.
+        f"  - SAB.json contains all {len(_SAB_FIELD_NAMES)} fields from `SABSpec`:",
+        *textwrap.wrap(
+            ", ".join(_SAB_FIELD_NAMES) + ".",
+            width=76, initial_indent="    ", subsequent_indent="    ",
+        ),
         "  - Used by: drift detector (M2), gate architecture dimension, constitution check",
         "  - Also embedded inline in `quality_manifest.json` via `harness_bridge`",
         "",

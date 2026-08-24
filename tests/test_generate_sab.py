@@ -35,6 +35,10 @@ sab:
   allowed_dependencies: []
   fr_module_traceability:
     FR-01: "app.api"
+  # Round 72 站5: `required_artifacts` must be stated. An empty list is the
+  # decision "this spec names no mandatory files"; leaving the key out is
+  # nobody having considered it, and `validate_sab_block` now says so.
+  required_artifacts: []
 """
 
 
@@ -232,6 +236,7 @@ sab:
   allowed_dependencies: []
   fr_module_traceability:
     FR-01: "app.interface.cli"
+  required_artifacts: []  # Round 72 站5 — see _VALID_SAB above
 """
 
     def test_dotted_implemented_in_does_not_crash_and_round_trips(self, tmp_path):

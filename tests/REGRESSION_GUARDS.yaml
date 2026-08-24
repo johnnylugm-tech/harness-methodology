@@ -3196,3 +3196,19 @@
 - test: tests/test_verify_target_integrity.py::test_a_server_runner_invokes_the_product_it_is_given
   bug: "_invokes_package only read the module after `-m`, so `-m uvicorn pkg.app:create_app --factory` — the ordinary way an ASGI app is started — read as 'never invokes the delivered entry point'. Found by removing the $(shell) refusal above: with the recipe finally readable, taskq-new went straight from abstention to false accusation"
   fixed_in: "Round 72 站4"
+
+- test: tests/test_sab_declares_what_must_ship.py::test_a_sab_that_never_mentions_required_artifacts_does_not_validate
+  bug: "Round 68 站1 built the reader and the block for `required_artifacts` but nothing required the declaration — SABSpec's default_factory turns 'the project said nothing' into [] the moment the document is parsed, so record_required_artifacts' own ledger row ('Declare the spec's mandatory config files under required_artifacts in the SAB block of SAD.md') is the entire mechanism: 186 rows in taskq-new, none blocking, and zero of the nine projects declare it"
+  fixed_in: "Round 72 站5"
+
+- test: tests/test_sab_declares_what_must_ship.py::test_an_explicit_empty_list_is_a_decision_and_validates
+  bug: "the counter-direction: a rule demanding a non-empty list would force projects whose spec names no mandatory files to invent one; the empty list is a judgement somebody made and an absent key is nobody having considered it"
+  fixed_in: "Round 72 站5"
+
+- test: tests/test_sab_declares_what_must_ship.py::test_the_canonical_template_satisfies_the_rule_it_is_pasted_under
+  bug: "a template that fails the validator it is offered alongside is Round 70's shape — an agent that obeys its instructions cannot satisfy the check"
+  fixed_in: "Round 72 站5"
+
+- test: tests/test_sab_declares_what_must_ship.py::test_the_p2_plan_counts_the_fields_sabspec_actually_has
+  bug: "the P2 plan's SAB-GENERATE note read 'all 14 fields from SABSpec' and named fourteen; required_artifacts had been the fifteenth since Round 68 站1 — a hand-typed restatement of a value disagreeing with it about the very field the rest of this station is about"
+  fixed_in: "Round 72 站5"

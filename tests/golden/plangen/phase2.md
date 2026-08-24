@@ -424,11 +424,11 @@ are not re-opened. This bounds backtracking to a single step.
   python3 harness/scripts/generate_sab.py --project .
   ```
   > **Note**: If `SAB.json` already exists and needs regeneration, pass `--overwrite`.
-  - SAB.json contains all 14 fields from `SABSpec`:
+  - SAB.json contains all 15 fields from `SABSpec`:
     version, created_at, phase, project, layers, allowed_dependencies,
     quality_targets, nfr_dimension_mapping, nfr_traceability, advisory_only,
     gate_score_overrides, fr_module_traceability, architecture_constraints,
-    high_risk_modules.
+    high_risk_modules, required_artifacts.
   - Used by: drift detector (M2), gate architecture dimension, constitution check
   - Also embedded inline in `quality_manifest.json` via `harness_bridge`
 
