@@ -252,10 +252,17 @@ class PhaseTruthVerifier:
         features = config.get("features", {}) if isinstance(config, dict) else {}
 
         flag_re = re.compile(r"features\.(\w+)\s*:\s*true")
-        skip_zero_re = re.compile(r"skipped count is \*\*0\*\*|report \*\*0 skipped\*\*")
 
         violations: list[str] = []
-        sections = re.split(r"(?=^###\s+NFR-\d+)", srs_text, flags=re.MULTILINE)
+        # Split at any H2/H3, keep the NFR ones. Splitting only at `### NFR-`
+        # gave the LAST NFR section everything to the end of the file, and
+        # every SRS in this corpus ends with an "Acceptance Criteria Summary"
+        # table whose first row is NFR-09's own zero-skip command — so the
+        # clause was read under NFR-12's heading and a violation would have
+        # been reported against the wrong requirement. `####` sub-headings
+        # (`#### AC-N9.1`) stay inside their section, which is where the
+        # criteria live in five of these projects.
+        sections = re.split(r"(?=^#{2,3}\s)", srs_text, flags=re.MULTILINE)
         for section in sections:
             m = re.match(r"###\s+(NFR-\d+)", section)
             if not m:
@@ -273,7 +280,7 @@ class PhaseTruthVerifier:
                         f"harness_config.json has {actual!r}"
                     )
 
-            if skip_zero_re.search(section):
+            if _demands_zero_skips(section):
                 from core.quality_gate.test_suite_run import run_suite
                 result = run_suite(self.project_root)
                 if result.ran and (result.skipped or 0) > 0:
@@ -750,6 +757,45 @@ class PhaseTruthVerifier:
         }
 
 
+# Round 73 站2. What replaced two literal phrases, markdown emphasis included:
+#
+#     r"skipped count is \*\*0\*\*|report \*\*0 skipped\*\*"
+#
+# Measured across the eight projects on this machine that wrote a zero-skip
+# NFR-09, exactly two matched — and all three fixtures in
+# tests/test_phase_truth_verifier.py wrote the phrase the rule wanted, so the
+# rule and its fixtures shared a source and the guard stayed green while six
+# projects went unenforced (Round 19's mother defect).
+#
+# The skeleton is narrow on purpose, and the narrowing is the whole design:
+# the count word has to belong to the SKIP. `bandit: 0 HIGH / 0 MEDIUM;
+# 不得 skip 任何 bandit 規則` is a real NFR-02 sentence in this corpus, and a
+# proximity rule would arm the zero-skip reconciliation against NFR-02 and
+# then report a violation there for a skip written somewhere else.
+_SKIP_ZERO_RE = re.compile(
+    r"\b0\s+skip(?:s|ped)?\b"                        # "0 skipped"
+    r"|skip(?:s|ped)?\s*(?:count|計數|數)?\s*"
+    r"(?:must\s+be|should\s+be|is|are|of|=|:|必須為|為)?\s*0\b",
+    re.IGNORECASE,
+)
+
+
+def _demands_zero_skips(section: str) -> bool:
+    """Does this SRS section literally require a skipped count of zero?
+
+    Emphasis and code spans are stripped and whitespace flattened per
+    paragraph before matching, because the clause is a sentence and projects
+    wrap it: taskq-super's reads ``**skipped count must\\nbe 0**``. Flattening
+    the whole section instead of each paragraph would let a skip word in one
+    bullet pair with a zero in the next.
+    """
+    for block in re.split(r"\n\s*\n", section):
+        flat = re.sub(r"\s+", " ", re.sub(r"[`*_]", "", block))
+        if _SKIP_ZERO_RE.search(flat):
+            return True
+    return False
+
+
 def _skip_sites(project_root) -> list[str]:
     """Every place a skip is WRITTEN in the project's test tree.
 
@@ -759,9 +805,20 @@ def _skip_sites(project_root) -> list[str]:
     provisioned machine and dirty everywhere else.
 
     Covers the call form (`pytest.skip(...)`, `skip(...)`) and the marker form
-    (`@pytest.mark.skip`, `@pytest.mark.skipif`, `@pytest.mark.xfail`). Parsed
+    (`pytest.mark.skip`, `pytest.mark.skipif`, `pytest.mark.xfail`). Parsed
     with ast rather than grepped, so the word appearing in a comment or a
     docstring — including the ones explaining this rule — is not a hit.
+
+    Round 73 站2 widened both halves, and taskq-new is why. Its ten FR-02
+    skips are injected from the PROJECT-ROOT `conftest.py`:
+    `pytest_collection_modifyitems` builds `pytest.mark.skip(reason=...)` into
+    a local and hands it to `item.add_marker(...)`. Neither half saw it — the
+    file is not `test_*.py`, and the marker is never in a decorator list. So
+    the file set is now every `test_*.py` plus every `conftest.py` pytest
+    would load (the test tree's, and each one from the project root down), and
+    the marker form is recognised wherever `pytest.mark.skip` is NAMED rather
+    than only where it decorates. A project that writes that expression has
+    written a skip, wherever it later attaches it.
 
     Returns "path:line" strings, empty when the tree is clean or unparseable
     (an unreadable test tree is not this check's failure to report).
@@ -788,25 +845,42 @@ def _skip_sites(project_root) -> list[str]:
     if not test_dir or not Path(test_dir).is_dir():
         return []
 
+    files = set(Path(test_dir).rglob("test_*.py")) | set(Path(test_dir).rglob("conftest.py"))
+    # Every conftest.py pytest would load on the way down to the test tree.
+    walk = Path(test_dir).resolve()
+    root = Path(project_root).resolve()
+    while walk == root or root in walk.parents:
+        candidate = walk / "conftest.py"
+        if candidate.is_file():
+            files.add(candidate)
+        if walk == root:
+            break
+        walk = walk.parent
+
     sites: list[str] = []
-    for path in sorted(Path(test_dir).rglob("test_*.py")):
+    for path in sorted(files):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except (OSError, SyntaxError):
             continue
-        rel = path.relative_to(Path(project_root)).as_posix()
+        try:
+            rel = path.resolve().relative_to(root).as_posix()
+        except ValueError:
+            rel = path.as_posix()
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 name = _dotted(node.func)
                 if name in ("pytest.skip", "skip", "pytest.xfail", "xfail"):
                     sites.append(f"{rel}:{node.lineno} ({name})")
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                for dec in node.decorator_list:
-                    target = dec.func if isinstance(dec, ast.Call) else dec
-                    name = _dotted(target)
-                    if name in ("pytest.mark.skip", "pytest.mark.skipif",
-                                "pytest.mark.xfail"):
-                        sites.append(f"{rel}:{dec.lineno} (@{name})")
+            elif isinstance(node, ast.Attribute):
+                # The Attribute, not the Call that may wrap it: `@pytest.mark.xfail`
+                # is a bare attribute and `pytest.mark.skip(reason=…)` assigned to a
+                # local is a Call — one node type reaches both, and every enclosing
+                # Call has already been visited above without matching these names.
+                name = _dotted(node)
+                if name in ("pytest.mark.skip", "pytest.mark.skipif",
+                            "pytest.mark.xfail"):
+                    sites.append(f"{rel}:{node.lineno} ({name})")
     return sites
 
 
