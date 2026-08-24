@@ -48,11 +48,14 @@ report a leading `-`, which make consumes before printing. That one is read
 from the Makefile text, over the closure of `verify-system` computed here.
 
 When either source is unreadable the answer is `unmeasured`, never clean:
-`$(shell …)` runs while make parses, so `make -n` on such a Makefile is a
-partial execution and not a dry run; `include` and a prerequisite built from a
-variable both put recipe lines outside the text closure. None of the six
-projects here has any of the three, which is an observation about this corpus
-and not a guarantee about the next one.
+`include` and a prerequisite built from a variable both put recipe lines
+outside the text closure.
+
+`$(shell …)` was a third such condition until Round 72 站4 and should not
+return. It refused on side effects, which the gate pays anyway — it RUNS
+`make verify-system` — and it fired on `ROOT := $(shell pwd)`. Measured on
+taskq-new: 127 ledger rows saying the recipe was not examined, against a
+target that starts the delivered FastAPI app and fails on a bad /healthz.
 """
 
 from __future__ import annotations
@@ -102,10 +105,31 @@ def verify_target_name() -> str:
 
 
 def _unreadable_reason(text: str) -> "str | None":
-    """Why this Makefile cannot be reasoned about, or None."""
-    if "$(shell" in text or "${shell" in text:
-        return ("Makefile uses $(shell …), which runs while make parses — "
-                "`make -n` on it is a partial execution, not a dry run")
+    """Why this Makefile cannot be reasoned about, or None.
+
+    Round 72 站4 removed the `$(shell …)` refusal. Its stated reason was that
+    `make -n` on such a Makefile is a partial execution rather than a dry run —
+    true, and not a reason not to run it here: the `system-verification`
+    ToolSpec RUNS `make verify-system` at gates 2, 3 and 4, so those side
+    effects are a cost the gate pays regardless, and `make -n`'s are a subset
+    of them.
+
+    What the refusal cost is measurable. taskq-new declares
+    `ROOT := $(shell pwd)` — one of the most ordinary lines a Makefile has —
+    and its `verify-system` starts uvicorn on the delivered FastAPI app, polls
+    /healthz and /readyz, and exits 1 on either. It is exactly the target
+    Round 52 built these checks to find. Instead it produced 127
+    `owner=harness` ledger rows reading "recipe not examined", and the whole
+    tautology / swallowed-product analysis never ran on it once. `unmeasured`
+    is also not caught downstream: `blocking_reason` returns None for it and
+    `make verify-system` itself passes, so unlike STATUS_MISSING there is no
+    second enforcer behind it.
+
+    `include` stays. That one is not about side effects: an included file puts
+    recipe lines outside the text closure this module computes, so the
+    leading-dash scan — which reads the Makefile text, not make's output —
+    would be reading half a program.
+    """
     for line in text.splitlines():
         if line.startswith(("include ", "-include ", "sinclude ")):
             return f"Makefile includes another file ({line.strip()!r})"
@@ -167,18 +191,44 @@ def _delivered_packages(project: Path) -> list[str]:
     )
 
 
+def _is_delivered_module(module: str, packages: list[str]) -> bool:
+    """Is this dotted name one of the delivered packages, or inside one?
+
+    `app:factory` is stripped first — an ASGI/WSGI target names its callable
+    after a colon, and the module in front of it is the thing being run.
+    """
+    module = module.split(":", 1)[0]
+    return any(module == p or module.startswith(p + ".") for p in packages)
+
+
 def _invokes_package(line: str, packages: list[str]) -> bool:
     """Does this expanded command run one of the delivered packages?
 
-    `-m pkg` is how all six projects spell it; an executable whose basename is
+    `-m pkg` is how most projects spell it; an executable whose basename is
     the package covers a console script installed under the same name.
+
+    A server runner is the third form and it is not a special case of either:
+    `-m uvicorn taskq.api.app:create_app --factory` runs the delivered app
+    through a program that is not the delivered package, so the module sits in
+    the runner's first POSITIONAL argument. Round 72 站4 measured the cost of
+    not reading it — with the `$(shell …)` refusal gone, taskq-new's target,
+    which starts its FastAPI app and fails on a bad /healthz, was reported as
+    "never invokes the delivered entry point". Trading an abstention for a
+    false accusation is not a fix.
+
+    Deliberately no runner list (uvicorn / gunicorn / hypercorn / celery …):
+    the position is the signal, and a list is one more thing to keep current.
+    Flags after `-m <runner>` are skipped; the first bare word decides.
     """
     tokens = line.split()
     for i, token in enumerate(tokens):
         if token == "-m" and i + 1 < len(tokens):
-            module = tokens[i + 1]
-            if any(module == p or module.startswith(p + ".") for p in packages):
+            if _is_delivered_module(tokens[i + 1], packages):
                 return True
+            for candidate in tokens[i + 2:]:
+                if candidate.startswith("-"):
+                    continue
+                return _is_delivered_module(candidate, packages)
     for token in tokens:
         if "=" in token and not token.startswith("-"):
             continue  # leading `FOO=bar` env assignment

@@ -13,8 +13,7 @@ records the consequence in its own docstring — taskq-advance's target "chains
 and that observation produced no check.
 
 Measured 2026-08-14 with `make -n verify-system` on the six projects on this
-machine (dry-run; none of the six Makefiles contains `$(shell …)`, so the
-expansion has no side effects):
+machine:
 
     project               swallows a verdict          invokes the product
     taskq                 —                           -m taskq --help + suite
@@ -33,6 +32,12 @@ CI template, and nothing has ever read a project's Makefile.
 The rule these tests encode: a verification target whose verdict cannot be
 reached is not a verdict, and a verification target that never invokes the
 delivered entry point is not end-to-end verification of anything.
+
+Round 72 站4 re-ran the same measurement on nine projects after removing the
+`$(shell …)` refusal, and it reproduces the table above exactly — taskq-renew
+and taskq-advance tautological, taskq-api's product line swallowed, the rest
+clean — with taskq-new joining it as clean. Before that round taskq-new was
+`unmeasured` and had 127 `owner=harness` ledger rows saying so.
 """
 
 from __future__ import annotations
@@ -88,13 +93,38 @@ smoke:
 \t.venv/bin/python -m demo status
 """
 
-# `$(shell …)` runs while make PARSES, so `make -n` is not a dry run of this
-# Makefile — it is a partial execution of it.
+# An `include` puts recipe lines outside the text closure this module computes,
+# so the leading-dash scan would be reading half a program.
 _UNEXPANDABLE_MAKEFILE = """\
-STAMP := $(shell date +%s)
+include other.mk
 
 verify-system:
-\t.venv/bin/python -m demo run --stamp $(STAMP)
+\t.venv/bin/python -m demo run
+"""
+
+# taskq-new's shape, reduced: `$(shell …)` in a variable assignment, and a
+# target that runs the delivered app through a server runner. Round 72 站4
+# removed the `$(shell)` refusal — it fired on `ROOT := $(shell pwd)` and cost
+# taskq-new 127 "recipe not examined" ledger rows against a target that starts
+# its FastAPI app and exits 1 on a bad /healthz.
+_SHELL_ASSIGNMENT_MAKEFILE = """\
+ROOT := $(shell pwd)
+PYTHON ?= $(ROOT)/.venv/bin/python
+
+verify-system:
+\t@$(PYTHON) -m uvicorn demo.app:create_app --factory --host 127.0.0.1 &
+\t@curl -fs http://127.0.0.1:8765/healthz
+"""
+
+# The same `$(shell)` Makefile with the product line swallowed. Before 站4 this
+# was reported `unmeasured` and `blocking_reason` returned None for it, so the
+# idiom the whole module exists to find went unexamined.
+_SHELL_AND_SWALLOWED_MAKEFILE = """\
+ROOT := $(shell pwd)
+PYTHON ?= $(ROOT)/.venv/bin/python
+
+verify-system:
+\t@$(PYTHON) -m demo --help >/dev/null 2>&1 || true
 """
 
 
@@ -147,10 +177,8 @@ def test_a_verify_target_that_never_invokes_the_product_is_tautological(tmp_path
 
 
 def test_a_recipe_make_cannot_expand_is_unmeasured_not_clean(tmp_path):
-    """`$(shell …)` makes `make -n` a partial execution, so we do not run it.
+    """An `include` puts recipe lines outside the closure, so we do not judge.
 
-    The six projects on this machine happen to have none, which is an
-    observation about the corpus and not a guarantee about the next project.
     Reporting such a Makefile as clean would be Round 46's defect: a scan whose
     input it could not read has abstained, not passed.
     """
@@ -159,6 +187,51 @@ def test_a_recipe_make_cannot_expand_is_unmeasured_not_clean(tmp_path):
     findings = verify_target_findings(_project(tmp_path, _UNEXPANDABLE_MAKEFILE))
 
     assert findings["status"] == "unmeasured"
-    assert "shell" in findings["reason"]
+    assert "include" in findings["reason"]
     assert findings["tautological"] is None
     assert findings["swallowed"] is None
+
+
+def test_a_shell_assignment_does_not_stop_the_recipe_being_read(tmp_path):
+    """Round 72 站4. The refusal was about side effects the gate pays anyway.
+
+    `system-verification`'s ToolSpec RUNS `make verify-system` at gates 2, 3
+    and 4, so `make -n`'s side effects are a subset of ones already incurred.
+    Refusing on them abstained from the only analysis of what that target does
+    — and `unmeasured` has no second enforcer behind it: `blocking_reason`
+    returns None for it and `make verify-system` itself passes.
+    """
+    from core.quality_gate.verify_target import (
+        blocking_reason, verify_target_findings,
+    )
+
+    project = _project(tmp_path, _SHELL_AND_SWALLOWED_MAKEFILE)
+    findings = verify_target_findings(project)
+
+    assert findings["status"] == "expanded", findings["reason"]
+    assert blocking_reason(project), (
+        "the product is invoked behind `|| true` and the whole recipe went "
+        "unexamined because a variable assignment used $(shell …)"
+    )
+
+
+def test_a_server_runner_invokes_the_product_it_is_given(tmp_path):
+    """`-m uvicorn pkg.app:factory` runs the delivered app, not uvicorn.
+
+    Measured while removing the `$(shell)` refusal: with the recipe finally
+    readable, taskq-new's target — which starts its FastAPI app, polls
+    /healthz and /readyz and exits 1 on either — was reported as "never
+    invokes the delivered entry point", because the module sits in the
+    runner's first positional argument rather than after `-m`. Trading an
+    abstention for a false accusation is not a fix.
+    """
+    from core.quality_gate.verify_target import verify_target_findings
+
+    findings = verify_target_findings(
+        _project(tmp_path, _SHELL_ASSIGNMENT_MAKEFILE)
+    )
+
+    assert findings["status"] == "expanded", findings["reason"]
+    assert findings["tautological"] is False
+    assert any("demo.app:create_app" in line
+               for line in findings["entrypoint_lines"]), findings

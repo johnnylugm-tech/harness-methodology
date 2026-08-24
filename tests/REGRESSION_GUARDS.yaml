@@ -3188,3 +3188,11 @@
 - test: tests/test_step_failure_names_its_owner.py::test_exit_25_carries_its_answer_in_the_number
   bug: "Round 70 站2 gave HARNESS_BUG its own exit code (70), leaving _abort_dispatch_infra_or_harness_bug as the sole producer of 25 and INFRA as its only meaning — but OWNER_BY_EXIT[25] stayed UNKNOWN with a HARNESS_BUG discriminator, so the same block still classified as unowned without its message"
   fixed_in: "Round 72 站3"
+
+- test: tests/test_verify_target_integrity.py::test_a_shell_assignment_does_not_stop_the_recipe_being_read
+  bug: "verify_target refused to read any Makefile containing `$(shell …)` — including `ROOT := $(shell pwd)` — on the grounds that `make -n` would be a partial execution, while the system-verification ToolSpec runs `make verify-system` for real at gates 2/3/4. taskq-new's fully honest target (uvicorn on the delivered FastAPI app, /healthz and /readyz, exit 1 on either) produced 127 owner=harness 'recipe not examined' rows and Round 52's whole analysis never ran on it; `unmeasured` has no second enforcer, unlike STATUS_MISSING"
+  fixed_in: "Round 72 站4"
+
+- test: tests/test_verify_target_integrity.py::test_a_server_runner_invokes_the_product_it_is_given
+  bug: "_invokes_package only read the module after `-m`, so `-m uvicorn pkg.app:create_app --factory` — the ordinary way an ASGI app is started — read as 'never invokes the delivered entry point'. Found by removing the $(shell) refusal above: with the recipe finally readable, taskq-new went straight from abstention to false accusation"
+  fixed_in: "Round 72 站4"
