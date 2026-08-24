@@ -3468,3 +3468,23 @@
 - test: tests/test_empty_population_says_why.py::test_the_reason_names_something_the_reader_can_act_on
   bug: "`could not read` with no object is the silence it replaced (Round 48: a halt with no owner is not a halt, applied to a reading). Each sentence names the container it did read and the count in it, or the top-level keys it found instead"
   fixed_in: "Round 74 站4"
+
+- test: tests/test_template_matches_the_prompt_schema.py::test_every_key_the_prompt_calls_required_is_in_the_template
+  bug: "the framework made three statements about TEST_INVENTORY.yaml and no two agreed. templates/TEST_INVENTORY.yaml — which cli/project_cmds.py::_init_copy_templates copies into every new project root on day one — shipped format_version / fr_tests / cross_cutting; scripts/workflowgen/spec_phase1.py's P1 prompt calls `test_inventory:` a REQUIRED TOP-LEVEL KEY whose absence `fails the load step`; cli/phase_cmds.py's P1->P2 validator requires fr_tests or cross_cutting and never looks at test_inventory. So every project began with a file its own prompt calls non-conforming and each agent invented the rest: seven projects, four spellings of the test-function field and three container shapes, and the rule reading that block could see three of nine. Round 17's prompt-to-gate drift class with an artifact schema in place of a threshold; the required key is read out of the generator so the binding is tested, not remembered"
+  fixed_in: "Round 74 站5 (templates/TEST_INVENTORY.yaml gains the test_inventory: block the prompt describes)"
+
+- test: tests/test_template_matches_the_prompt_schema.py::test_the_template_carries_the_fields_the_prompt_asks_entries_to_carry
+  bug: "the prompt requires each matrix tc_id to be its own entry, requires by_layer.<L>.count to equal the entries at that layer, and names cross_ref_frs / cross_ref_nfrs as how a cross-cut is signalled without deleting an entry — three statements about an entry's fields, none of which was ever shown. The unit/static NFR entry in particular is the ENTIRE input of the NFR Layering Hard Rule, and a template without one shows nothing about what that rule reads. The first version of this assertion accepted any unit/static entry and its counter-proof (demoting the NFR entry to integration) stayed green on the FR one; it now requires an NFR entry specifically"
+  fixed_in: "Round 74 站5"
+
+- test: tests/test_template_matches_the_prompt_schema.py::test_every_reader_in_the_tree_can_read_the_template
+  bug: "three readers, three container vocabularies, one file: spec_coverage._flatten_test_names reads fr_tests + cross_cutting, the P1->P2 validator checks those two exist, and cli/checks/specs.nfr_layering_targets reads test_inventory.tests. The shipped template satisfied the first two and was invisible to the third — the same defect one layer above the one Round 74 站4 fixed"
+  fixed_in: "Round 74 站5"
+
+- test: tests/test_template_matches_the_prompt_schema.py::test_the_templates_arithmetic_closes
+  bug: "the P1 prompt calls by_fr / by_layer / total_test_cases drift HIGH severity in every project's file; an example that does not close teaches the opposite. Caught the template's own first draft, which listed test_deployment_example under cross_cutting with no `tests:` entry behind it"
+  fixed_in: "Round 74 站5"
+
+- test: tests/test_template_matches_the_prompt_schema.py::test_the_two_views_name_the_same_tests
+  bug: "fr_tests / cross_cutting is a name-only VIEW of the tests: block, not a second independent list, and nothing in production reconciles them — _flatten_test_names reads one and nfr_layering_targets the other. A template showing two disagreeing lists teaches every project they are independent, which is how taskq-new's inventory came to name 50 tests while its TEST_SPEC declared 115"
+  fixed_in: "Round 74 站5"
