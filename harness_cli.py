@@ -61,8 +61,11 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     19  sync-harness: SubmoduleSyncError, OR advance-phase: mypy
         type-safety failure
     20  advance-phase: gitleaks secrets scan failed or timed out
-    21  Scope violation: untracked diagnostic script(s) at repo root; move to
-        .sessi-work/tmp or delete, then re-run advance-phase
+    21  WRITE_SCOPE violation: a file is in a place the pipeline will not keep
+        it — an untracked diagnostic script at the repo root (move to
+        .sessi-work/tmp or delete), or a delivered test reading evidence from a
+        directory advance-phase clears at every transition (move the evidence
+        under .methodology/). Fix and re-run advance-phase
     22  GHOST_DETECTED — agent claimed work but made no substantive code
         change (see .sessi-work/ghost_detected/)
     23  Sub-agent dispatch is structurally broken (e.g. claude.ai connectors

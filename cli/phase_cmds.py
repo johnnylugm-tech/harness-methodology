@@ -30,7 +30,11 @@ from core.atomic_io import (
     state_lock_path,
 )
 from core.canonical_form import canonical_form
-from core.evidence_retention import ADVANCE_CLEARED_DIRS
+from core.evidence_retention import (
+    ADVANCE_CLEARED_DIRS,
+    cited_evidence_dir,
+    evidence_in_cleared_dirs,
+)
 from core.quality_gate import agent_b_approvals, gate1_evidence
 from core.quality_gate.ghost_detector import scan_phase_ghost_trails
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
@@ -2535,9 +2539,51 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
       16 = Constitution postflight below phase threshold (all phases)
       17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
       18 = Submodule guard: harness/ has uncommitted edits that would be clobbered
+      21 = WRITE_SCOPE: a delivered test reads evidence from a cleared directory
       22 = Ghost paper-trail detected (agent claimed progress but made no code changes) (P3+)
       27 = quality_manifest.json structurally corrupt — refusing to commit it
     """
+    # ── WRITE_SCOPE: evidence in a directory this command is about to ──
+    # delete (Round 72 站6). Ahead of manifest integrity because it is the one
+    # check here that asks nothing about gates, phases or manifests — it reads
+    # the delivered tree (`git ls-files`) and the Python in it, so it can
+    # answer before any of this phase's work has been judged, and what it
+    # reports is a defect that will refuse the NEXT advance rather than this
+    # one. Cheapest question, earliest answer.
+    #
+    # taskq-new's NFR-07/NFR-11 tests read
+    # `.sessi-work/round_1/tools/pip_licenses.json` and `readability_v2.txt`
+    # and skip when they are absent. advance clears `.sessi-work`, so the next
+    # phase those tests skip, Round 46 站1 turns both NFRs PARTIAL,
+    # completeness drops under 90%, advance is refused, and the agent
+    # regenerates the artifacts by hand. `cd47fae` (leaving P5) and `8b9a309`
+    # (leaving P7) carry the same subject and the same body.
+    #
+    # Reported and refused, not repaired: whether an artifact should be
+    # retained or regenerated is the project's call, and moving its files would
+    # be this framework writing the tree it judges (Round 53). What the block
+    # owes the operator is the file, the line, and where evidence may live.
+    _cleared_reads = evidence_in_cleared_dirs(project)
+    if _cleared_reads:
+        _cited = cited_evidence_dir(project).relative_to(project)
+        print(
+            f"\n[BLOCKED] {len(_cleared_reads)} delivered test path(s) read from "
+            f"a directory advance-phase deletes at every transition "
+            f"({', '.join(ADVANCE_CLEARED_DIRS)}):"
+        )
+        for _row in _cleared_reads:
+            print(f"  - {_row['path']}:{_row['line']}  {_row['literal']}")
+        print(
+            f"  Those tests pass now and skip after this advance, which turns "
+            f"the requirements they witness PARTIAL and refuses the NEXT "
+            f"advance.\n"
+            f"  Fix: move the evidence a later phase must still read to "
+            f"{_cited}/ (or anywhere outside the cleared list) and update the "
+            f"path in each line above — .methodology/ is committed and "
+            f"survives the transition. Then re-run advance-phase."
+        )
+        return 21
+
     # ── Manifest integrity — FIRST, because every check below reads the ──
     # manifest, and because advance-phase commits .methodology/ wholesale.
     #

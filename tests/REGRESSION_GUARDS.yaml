@@ -3212,3 +3212,23 @@
 - test: tests/test_sab_declares_what_must_ship.py::test_the_p2_plan_counts_the_fields_sabspec_actually_has
   bug: "the P2 plan's SAB-GENERATE note read 'all 14 fields from SABSpec' and named fourteen; required_artifacts had been the fifteenth since Round 68 站1 — a hand-typed restatement of a value disagreeing with it about the very field the rest of this station is about"
   fixed_in: "Round 72 站5"
+
+- test: tests/test_evidence_outlives_the_phase.py::test_a_test_reading_a_cleared_directory_is_found_with_its_line
+  bug: "advance-phase clears .sessi-work at every transition and Round 46 站1 makes a skipped witness PARTIAL, so a delivered test that reads evidence from there passes now and skips after the advance — taskq-new's NFR-07/NFR-11 tests do exactly that, and cd47fae (leaving P5) and 8b9a309 (leaving P7) are the same repair commit with the phase number changed"
+  fixed_in: "Round 72 站6"
+
+- test: tests/test_evidence_outlives_the_phase.py::test_a_comment_about_the_path_is_not_a_dependency_on_it
+  bug: "of the nine grep hits for .sessi-work across the corpus only four are real reads; conftest.py's is a comment recording where a file used to be written, so the scan is over string literals via ast with docstrings excluded — prose about a path is not a use of it"
+  fixed_in: "Round 72 站6"
+
+- test: tests/test_evidence_outlives_the_phase.py::test_untracked_and_unparseable_files_are_not_findings
+  bug: "the delivered tree is what git has (Round 44 站2) and a file that will not parse is could-not-measure, not a finding (Rounds 32/35)"
+  fixed_in: "Round 72 站6"
+
+- test: tests/test_evidence_outlives_the_phase.py::test_the_advance_prechecks_refuse_and_name_the_place_evidence_may_live
+  bug: "the finding has to reach a refusal that carries its own remedy — a detector with no executor is Round 43's defect and a block that does not say what to do is half a block (Round 22). Pinned through the real _advance_prechecks on a bare repository, which is possible only because the check runs ahead of everything that reads a manifest"
+  fixed_in: "Round 72 站6"
+
+- test: tests/test_evidence_outlives_the_phase.py::test_a_project_with_no_such_reference_is_untouched
+  bug: "the counter-direction: eight of the nine projects here have zero hits, and a guard that fired on them would stop every one"
+  fixed_in: "Round 72 站6"

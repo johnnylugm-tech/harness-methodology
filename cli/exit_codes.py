@@ -90,7 +90,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_QUALITY_CHECK_FAIL: "advance-phase precondition block — ruff linting failure OR submodule safety violation (see printed message)",
     EX_SYNC_OR_TYPE_CHECK_FAIL: "sync-harness: SubmoduleSyncError, OR advance-phase: mypy type-safety failure (see printed message)",
     EX_SECRETS_SCAN_FAIL: "advance-phase: gitleaks secrets scan failed or timed out",
-    EX_SCOPE_VIOLATION: "Scope violation: untracked diagnostic script(s) at repo root; move to .sessi-work/tmp or delete, then re-run advance-phase",
+    EX_SCOPE_VIOLATION: "WRITE_SCOPE violation: a file is in a place the pipeline will not keep it. Either an untracked diagnostic script at the repo root (move to .sessi-work/tmp or delete), or a delivered test reading evidence from a directory advance-phase clears at every transition (move the evidence under .methodology/). Fix and re-run advance-phase",
     EX_GHOST_DETECTED: "GHOST_DETECTED — agent claimed work but made no substantive code change (see .sessi-work/ghost_detected/)",
     EX_DISPATCH_STRUCTURALLY_BROKEN: "Sub-agent dispatch is structurally broken (e.g. claude.ai connectors disabled) — not a retryable failure",
     EX_SUBSTRATE_PREFLIGHT_FAIL: "run-phase: spawn-substrate preflight probe FAILED — sub-agents cannot run pytest/git in this environment",
