@@ -56,6 +56,7 @@ from typing import Iterator
 from core.utils.lang_patterns import SKIP_DIRS
 
 __all__ = ["iter_delivered_files", "delivered_file_set", "delivered_tree_digest",
+           "backup_artifacts", "BACKUP_SUFFIXES",
            "committed_tree_digest", "is_git_repo", "is_harness_volatile",
            "HARNESS_VOLATILE_PATHS", "HARNESS_VOLATILE_PREFIXES"]
 
@@ -134,6 +135,48 @@ def iter_delivered_files(root: Path) -> Iterator[Path]:
 def delivered_file_set(root: Path) -> set[str]:
     """`iter_delivered_files` as resolved absolute path strings."""
     return {str(p.resolve()) for p in iter_delivered_files(root)}
+
+
+# Suffixes no tool writes on purpose and no project delivers on purpose: an
+# editor's or a mutation runner's leftover copy. `.bak` is mutmut's; `.orig`
+# and `.rej` are a failed patch's; a trailing `~` is emacs and friends.
+BACKUP_SUFFIXES: tuple[str, ...] = (".bak", ".orig", ".rej", "~")
+
+
+def backup_artifacts(root: Path) -> list[str]:
+    """Repo-relative paths in the delivered tree that are a tool's leftover.
+
+    Round 72 站7. `cli/phase_cmds.py::_scope_violation_scripts` has guarded
+    this ground since a workflow agent stranded `_diag_constitution.py` at a
+    repo root — but it asks `git status` for UNTRACKED files only, and the
+    gate/release path commits with `git add -A`. One commit later the same
+    file is tracked and that check can never see it again: the detector runs
+    at a moment strictly after the thing it detects has been made permanent.
+
+    Measured on taskq-new, which shipped two through P1-P8 and Gate 4:
+    `03-development/src/taskq/migrations/versions/v3_split_result_json_to_task_
+    results.py.bak`, added by `5b3db94`, and `file:does-not-exist.db`, added by
+    `bc5c519 test(P4): Gate3 PASS score=95.7`. A third, `repository/
+    results.py.bak`, came from the mutmut incident Round 71 站1 closed at the
+    source — `_custody_paths` has recorded `<file>.bak` siblings as absent and
+    deleted them on restore since Round 53 站1.
+
+    Scope is the whole delivered tree, not the repo root, and the reason is
+    different from the sibling check's: `_scope_violation_scripts` stays
+    top-level because recursing would flag legitimate new modules mid-phase.
+    A `.bak` is never a legitimate new module at any depth.
+
+    `file:does-not-exist.db` is deliberately NOT matched. Inventing a rule for
+    "the filename looks like a URI" is inventing a judgement, not applying one;
+    it is recorded in docs/PROPOSAL_ADJUDICATIONS.md instead.
+    """
+    root = Path(root)
+    out: list[str] = []
+    for path in iter_delivered_files(root):
+        name = path.name
+        if any(name.endswith(sfx) for sfx in BACKUP_SUFFIXES):
+            out.append(str(path.relative_to(root)))
+    return out
 
 
 # ── which files, versus which version of them (Round 44 站1) ────────────────

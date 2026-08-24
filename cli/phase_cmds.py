@@ -62,7 +62,11 @@ from core.harness_provenance import (
     enforcer_surface,
     phase_record_defects,
 )
-from core.utils.delivery_scope import committed_tree_digest
+from core.utils.delivery_scope import (
+    BACKUP_SUFFIXES,
+    backup_artifacts,
+    committed_tree_digest,
+)
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
 from core.utils.timefmt import utc_now_iso
@@ -2581,6 +2585,31 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             f"{_cited}/ (or anywhere outside the cleared list) and update the "
             f"path in each line above — .methodology/ is committed and "
             f"survives the transition. Then re-run advance-phase."
+        )
+        return 21
+
+    # ── WRITE_SCOPE, third direction: a tool's leftover copy in the tree ──
+    # (Round 72 站7). Same placement and the same reason as the check above —
+    # it reads the delivered tree and nothing else.
+    #
+    # `_scope_violation_scripts` further down has guarded this ground since a
+    # workflow agent stranded `_diag_constitution.py` at a repo root, but it
+    # asks `git status` for UNTRACKED files and the gate/release path commits
+    # with `git add -A`. One commit later the file is tracked and that check
+    # can never see it again. taskq-new shipped two through P1-P8 and Gate 4.
+    _backups = backup_artifacts(project)
+    if _backups:
+        print(
+            f"\n[BLOCKED] {len(_backups)} tool leftover(s) in the delivered "
+            f"tree — files ending {', '.join(BACKUP_SUFFIXES)} are an editor's "
+            f"or a mutation runner's copy, not a deliverable:"
+        )
+        for _b in _backups:
+            print(f"  - {_b}")
+        print(
+            "  They are scored, mutated and shipped as if they were source. "
+            "Fix: delete them (or gitignore them if a tool keeps rewriting "
+            "them), then re-run advance-phase."
         )
         return 21
 

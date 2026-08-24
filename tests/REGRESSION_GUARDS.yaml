@@ -3232,3 +3232,23 @@
 - test: tests/test_evidence_outlives_the_phase.py::test_a_project_with_no_such_reference_is_untouched
   bug: "the counter-direction: eight of the nine projects here have zero hits, and a guard that fired on them would stop every one"
   fixed_in: "Round 72 站6"
+
+- test: tests/test_backup_artifacts_in_the_delivered_tree.py::test_a_committed_backup_is_still_found
+  bug: "_scope_violation_scripts asks git status for UNTRACKED files while the gate/release path commits with `git add -A`, so one commit later the leftover is tracked and that check can never see it again — the detector runs at a moment strictly after the thing it detects has been made permanent. taskq-new shipped v3_split_result_json_to_task_results.py.bak (5b3db94) and file:does-not-exist.db (bc5c519 'test(P4): Gate3 PASS') through P1-P8 and a Gate 4 of 94.6"
+  fixed_in: "Round 72 站7"
+
+- test: tests/test_backup_artifacts_in_the_delivered_tree.py::test_every_backup_suffix_is_matched_at_any_depth
+  bug: "the suffix set is unrestricted by depth while the sibling debug-name check is top-level-only, and the difference has to be deliberate; the first version of this test built its fixture FROM BACKUP_SUFFIXES, so shrinking the constant shrank the fixture and the test stayed green — Round 19's mother defect, found by this station's own counter-proof"
+  fixed_in: "Round 72 站7"
+
+- test: tests/test_backup_artifacts_in_the_delivered_tree.py::test_ordinary_source_is_not_a_leftover
+  bug: "the counter-direction: eight of the nine projects here report zero leftovers, and a guard matching 'backup' in a NAME rather than a suffix would stop every one"
+  fixed_in: "Round 72 站7"
+
+- test: tests/test_backup_artifacts_in_the_delivered_tree.py::test_the_advance_prechecks_refuse_and_name_each_file
+  bug: "a detector with no executor is Round 43's defect; this drives the real _advance_prechecks and requires the block to name each file and carry a Fix:"
+  fixed_in: "Round 72 站7"
+
+- test: tests/test_backup_artifacts_in_the_delivered_tree.py::test_a_uri_shaped_filename_is_recorded_not_matched
+  bug: "taskq-new's file:does-not-exist.db reached the tree through the same blind spot, but matching it needs a rule about what a filename 'looks like' — a judgement invented rather than applied. Pinned so the omission is a decision on record, not an oversight a later round quietly widens"
+  fixed_in: "Round 72 站7"
