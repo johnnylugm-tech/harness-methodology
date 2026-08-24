@@ -2791,18 +2791,50 @@ def _extract_fr_section(srs_text: str, fr_id: str) -> str:
 def _parse_spec_names_for_fr(spec_text: str, fr_id: str) -> list[str]:
     """Extract test function names for *fr_id* from TEST_SPEC.md text.
 
-    Canonical parser used by both prepare_gate() and _parse_test_spec().
+    One of the two readers of TEST_SPEC.md's declaration tables — the other
+    is `core.quality_gate.spec_coverage._parse_test_spec`, which this one's
+    docstring used to claim it was called by. It never was. Round 73 fixed
+    that reader's hardcoded `cols[1]` and Round 74 replaced its keyword-based
+    header test, and both defects sat here untouched for the whole of it:
+    a sibling of a fixed defect, in a function whose own comment said it was
+    the fixed one (Rounds 20 and 39).
+
+    Round 74 站3. The row layer is now shared verbatim — `_is_header_row`,
+    `_header_columns`, `_row_test_fn` — so a project cannot be read one way
+    by the Gate 1 per-FR spec cap and another way by D4 spec-coverage.
+    `tests/test_test_spec_parser_parity.py` registers both readers and holds
+    them to the same answer.
+
+    What is NOT shared is the section layer, and deliberately: this function
+    treats `### NFR-01` as a section id its caller can ask for, while
+    `_parse_test_spec` slugifies every non-FR heading. Merging that would
+    change which rows the Gate 1 per-FR cap counts, which is a different
+    question from the one this station is answering.
+
     Terminates the current FR section on:
       - A new ### FR-XX / ### NFR-XX header
       - Any H2 heading (## …) — e.g. ## Cross-Cutting Integration Tests
       - A horizontal rule (---) — used as section divider in some spec styles
     Supports both old bullet-list format and the current Markdown-table format.
+
+    Measured across the nine projects on this machine before the change: zero
+    difference. Every `### FR-xx` table in all nine puts Test Function in
+    column 1, and the one row whose Title prose reads as a header sits under
+    an H2 that has already cleared `current_fr`. A latent sibling, not a live
+    wound, and recorded as such.
     """
     import re as _re
+
+    from core.quality_gate.spec_coverage import (
+        _SEPARATOR_ROW, _header_columns, _is_header_row, _row_test_fn,
+    )
+
     names: list[str] = []
     current_fr = ""
     in_table = False
-    for line in spec_text.splitlines():
+    columns: dict = {}
+    lines = spec_text.splitlines()
+    for idx, line in enumerate(lines):
         stripped = line.strip()
         # H3 FR/NFR header → switch section
         m = _re.match(r"^###\s+([A-Z]+-\d+)(?:[:\s]|$)", stripped)
@@ -2827,19 +2859,19 @@ def _parse_spec_names_for_fr(spec_text: str, fr_id: str) -> list[str]:
             names.append(fn_m.group(1))
             continue
         # Markdown table header row
-        if "|" in stripped and _re.search(r"Test Function", stripped, _re.IGNORECASE):
-            in_table = True
+        if _is_header_row(lines, idx):
+            columns = _header_columns(stripped)
+            in_table = bool(columns)
             continue
         # Table separator row
-        if in_table and _re.match(r"^\|[-| ]+\|$", stripped):
+        if in_table and _SEPARATOR_ROW.match(stripped):
             continue
         # Table data row
         if in_table and stripped.startswith("|") and stripped.endswith("|"):
-            cols = [c.strip() for c in stripped.split("|")[1:-1]]
-            if len(cols) >= 2:
-                raw_fn = cols[1].strip("`").strip()
-                if raw_fn.startswith("test_"):
-                    names.append(raw_fn)
+            raw_fn = _row_test_fn(
+                [c.strip() for c in stripped.split("|")[1:-1]], columns.get("fn"))
+            if raw_fn:
+                names.append(raw_fn)
         elif in_table and not stripped.startswith("|") and stripped:
             in_table = False
     return names
