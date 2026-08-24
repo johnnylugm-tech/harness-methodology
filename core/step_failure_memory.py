@@ -96,19 +96,30 @@ def tree_fingerprint(project: "str | Path") -> str:
 def record_step_failure(
     project: "str | Path", fr_id: str, step: str, result: dict, fingerprint: str,
 ) -> None:
-    """Write one step failure to the ledger, keyed for the reader below."""
+    """Write one step failure to the ledger, keyed for the reader below.
+
+    Round 72 站3: the owner comes from the class this row already carries.
+    `_classify_dispatch_error` decides it, `why` prints it and `data` stores
+    it — and this call passed `owner="unknown"` beside all three. Measured on
+    taskq-new: 37 rows own nobody, twenty-six of them reading "INFRA" in their
+    own `why`. The table is `core.fault_owner.OWNER_BY_ERROR_CLASS`, next to
+    the exit-code table it has to agree with.
+    """
+    from core.fault_owner import owner_of_error_class
+
+    error_class = result.get("error_class") or result.get("status") or ""
     record_degradation(
         project,
         component=f"run-fr-step:{step}",
         what=LEDGER_WHAT,
-        why=f"{fr_id} {step}: {(result.get('error_class') or result.get('status') or 'failure')}",
+        why=f"{fr_id} {step}: {error_class or 'failure'}",
         data={
             "fr_id": fr_id,
             "step": step,
             "signature": failure_signature(result),
             "tree": fingerprint,
-            "error_class": result.get("error_class") or result.get("status") or "",
-        }, owner="unknown"
+            "error_class": error_class,
+        }, owner=owner_of_error_class(error_class)
     )
 
 

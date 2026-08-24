@@ -49,8 +49,10 @@ __all__ = [
     "Owner",
     "FaultVerdict",
     "OWNER_BY_EXIT",
+    "OWNER_BY_ERROR_CLASS",
     "DISCRIMINATED_EXITS",
     "classify_fault",
+    "owner_of_error_class",
     "routes_to_harness_repair",
 ]
 
@@ -116,9 +118,10 @@ OWNER_BY_EXIT: dict[int, str] = {
     # file absent, a malformed SAB block. Overloaded, but not in owner.
     12: Owner.PROJECT,
     13: Owner.PROJECT,  # Agent B approvals incomplete
-    # 14/18/19/20/25 carry TWO owners; the message decides. The table lists
+    # 14/18/19/20 carry TWO owners; the message decides. The table lists
     # them as UNKNOWN because that is what the NUMBER ALONE is worth — asking
     # without the message gets exactly this answer. See _DISCRIMINATORS.
+    # (25 was the fifth until Round 72 站3; see its entry below.)
     14: Owner.UNKNOWN,
     15: Owner.PROJECT,  # next phase's plan file missing
     16: Owner.NONE,  # RETIRED tombstone (減法 T3) — never returned
@@ -135,7 +138,14 @@ OWNER_BY_EXIT: dict[int, str] = {
     22: Owner.PROJECT,
     23: Owner.INFRA,  # connectors disabled / ANTHROPIC_* overrides
     24: Owner.INFRA,  # spawn-substrate preflight probe failed
-    25: Owner.UNKNOWN,  # HARNESS_BUG OR INFRA — the class is printed, then discarded
+    # Round 72 站3: INFRA, and only INFRA. Round 70 站2 gave the two classes
+    # two codes — `cli/fr_cmds.py::_abort_dispatch_infra_or_harness_bug` is
+    # the ONLY producer of 25 and its last line reads
+    # `EX_HARNESS_BUG if cls == "HARNESS_BUG" else EX_FR_STEP_INFRA_ABORT`.
+    # The UNKNOWN here and the HARNESS_BUG rule in _DISCRIMINATORS were the
+    # part of that round that never landed: the number carries the answer now,
+    # and asking the message for it could only re-open the ambiguity.
+    25: Owner.INFRA,
     # REGISTRY says it outright: "project data corruption, NOT a
     # harness-methodology bug". The remedy is to restore the file.
     26: Owner.PROJECT,
@@ -161,6 +171,55 @@ OWNER_BY_EXIT: dict[int, str] = {
 
 
 # ---------------------------------------------------------------------------
+# The same question asked of a dispatch result rather than an exit code.
+#
+# Round 72 站3. `core.agent_spawner._classify_dispatch_error` already decides
+# which of five classes a failed `claude -p` is, and `_dispatch_error_entry`
+# stamps TIMEOUT for the wall-clock kill. `core/step_failure_memory.py` writes
+# that label into the ledger row's `why` and its `data.error_class` — and then
+# hardcodes `owner="unknown"` beside it.
+#
+# Measured on taskq-new: 37 ledger rows own nobody. Twenty-six of them read
+# "FR-NN GATE1-DELTA: INFRA" — eleven FRs in a row between 17:54 and 18:04 on
+# 2026-08-23 — and one reads TIMEOUT, on an FR whose escalation was recorded as
+# `owner=infra` by a different writer one line earlier. Round 48 站1 built the
+# vocabulary so a halt would name whose tree has to change; this writer had the
+# answer in hand and filed it as unanswered.
+#
+# EXECUTION_ERROR stays UNKNOWN on purpose. It is what
+# `_classify_dispatch_error` returns when none of its signatures matched, so
+# claiming an owner for it would be inventing one — the same reason exit code 1
+# is UNKNOWN above.
+OWNER_BY_ERROR_CLASS: dict[str, str] = {
+    # Deterministic breakage of the dispatch substrate itself (connectors
+    # disabled, ANTHROPIC_* overrides). Same fact as exit 23 above.
+    "STRUCTURAL": Owner.INFRA,
+    # The sub-agent reported a precondition blocker: its tools never ran. Same
+    # fact as the INFRA rule in _DISCRIMINATORS[25] below.
+    "INFRA": Owner.INFRA,
+    # Environment / API / model / network could not be reached or used.
+    "INFRA_ERROR": Owner.INFRA,
+    # Wall-clock kill (agent_spawner's own stamp) and the max-turns ceiling.
+    # Neither is a statement about the project's code; both are budgets.
+    "TIMEOUT": Owner.INFRA,
+    "TURN_BUDGET": Owner.INFRA,
+    # This framework's own defect, by whichever route it surfaced. Same fact as
+    # exit 70 above.
+    "HARNESS_BUG": Owner.HARNESS,
+}
+
+
+def owner_of_error_class(error_class: "str | None") -> str:
+    """Whose tree must change, given a dispatch failure's class.
+
+    `Owner.UNKNOWN` for an unrecognised or absent label — a class this table
+    does not list is one nobody has decided, and saying so is the honest
+    answer rather than a gap to be filled with a guess.
+    """
+    return OWNER_BY_ERROR_CLASS.get(str(error_class or ""), Owner.UNKNOWN)
+
+
+# ---------------------------------------------------------------------------
 # Codes whose owner the message decides.
 #
 # The REGISTRY docstring lists four "known inconsistencies" (12/17/18/19) where
@@ -170,10 +229,10 @@ OWNER_BY_EXIT: dict[int, str] = {
 #   12, 17  overloaded, both sub-cases project-side  -> plain entry above
 #   14, 20  NOT in the docstring's list, owners conflict
 #   18, 19  in the list, owners conflict
-#   25      NOT in the list, owners conflict — and it is the sharpest case:
-#           cli/fr_cmds.py::_abort_dispatch_infra_or_harness_bug RECEIVES the
-#           class ("HARNESS_BUG" or "INFRA"), prints it, and then returns one
-#           exit code for both. The answer was computed and thrown away.
+#   25      was the sharpest case of all — one code for HARNESS_BUG and INFRA
+#           both, from a function that RECEIVED the class and printed it before
+#           discarding it. Round 70 站2 split the codes and Round 72 站3 took
+#           25 out of this list: it is a plain INFRA entry above now.
 #
 # A code listed here and asked without its message answers UNKNOWN. That is the
 # point: the number genuinely does not carry the answer.
@@ -225,18 +284,6 @@ _DISCRIMINATORS: dict[int, tuple[tuple[re.Pattern[str], str, str], ...]] = {
             re.compile(r"Hardcoded secrets detected", re.I),
             Owner.PROJECT,
             "gitleaks found secrets in the project",
-        ),
-    ),
-    25: (
-        (
-            re.compile(r"\bHARNESS_BUG\b"),
-            Owner.HARNESS,
-            "the sub-agent's step output carried a HARNESS_BUG class",
-        ),
-        (
-            re.compile(r"\bINFRA(_FAIL|_BLOCKED)?\b"),
-            Owner.INFRA,
-            "the sub-agent's step output carried an INFRA class",
         ),
     ),
 }

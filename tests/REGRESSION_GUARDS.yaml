@@ -3172,3 +3172,19 @@
 - test: tests/test_mutation_score_says_who_wrote_it.py::test_the_evidence_line_does_not_claim_an_unstamped_number_is_measured
   bug: "_patch_mutation_score wrote 'framework: compute_mutation_score → killed=… survived=… score=…' for any file carrying a score key; taskq-new's committed gate4_result.json has that sentence in front of a hand-rebuilt number with framework_override: true — a blocked verdict whose false evidence line survives it (Round 69, one field over)"
   fixed_in: "Round 72 站2"
+
+- test: tests/test_step_failure_names_its_owner.py::test_the_row_owns_what_its_own_class_says
+  bug: "record_step_failure wrote the dispatch failure's class into the ledger row's `why` AND its `data.error_class`, then passed owner='unknown' beside both — 37 rows in taskq-new own nobody, twenty-six of them reading INFRA in their own why and one reading TIMEOUT on an FR another writer had already filed as owner=infra"
+  fixed_in: "Round 72 站3"
+
+- test: tests/test_step_failure_names_its_owner.py::test_an_unrecognised_class_still_owns_nobody
+  bug: "the counter-direction: EXECUTION_ERROR is what _classify_dispatch_error returns when nothing matched, and Round 48's rule is that UNKNOWN is never rounded down to PROJECT"
+  fixed_in: "Round 72 站3"
+
+- test: tests/test_step_failure_names_its_owner.py::test_every_class_the_dispatcher_can_produce_has_an_owner
+  bug: "an owner table maintained in parallel with the classifier that feeds it drifts the first time a class is added; this reads the literals out of _classify_dispatch_error and requires each to be decided"
+  fixed_in: "Round 72 站3"
+
+- test: tests/test_step_failure_names_its_owner.py::test_exit_25_carries_its_answer_in_the_number
+  bug: "Round 70 站2 gave HARNESS_BUG its own exit code (70), leaving _abort_dispatch_infra_or_harness_bug as the sole producer of 25 and INFRA as its only meaning — but OWNER_BY_EXIT[25] stayed UNKNOWN with a HARNESS_BUG discriminator, so the same block still classified as unowned without its message"
+  fixed_in: "Round 72 站3"

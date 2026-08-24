@@ -134,7 +134,10 @@ def test_the_discriminated_codes_are_exactly_the_ones_the_table_calls_unknown():
     unknown = {code for code, owner in OWNER_BY_EXIT.items() if owner == Owner.UNKNOWN}
     genuinely_unattributable = {1, 36}
     assert unknown - genuinely_unattributable == DISCRIMINATED_EXITS
-    assert DISCRIMINATED_EXITS == {14, 18, 19, 20, 25}
+    # 25 left this set in Round 72 站3: Round 70 站2 gave HARNESS_BUG its own
+    # code (70), leaving `cli/fr_cmds.py:_abort_dispatch_infra_or_harness_bug`
+    # as the sole producer of 25 and INFRA as its only meaning.
+    assert DISCRIMINATED_EXITS == {14, 18, 19, 20}
 
 
 # ---------------------------------------------------------------------------
