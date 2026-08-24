@@ -3778,6 +3778,111 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 72 — 框架算出了真值,判定讀的是別的東西
+
+老闆令:檢視 taskq-new 在 P1–P8 的執行過程與 git history、harness-methodology
+的 git history,回答 (1) 前幾 round 的修復是否到位、(2) 還有沒有根本性/結構性
+問題、(3) GitHub CI 的錯誤是否還有別的問題;並把所有發現展開成可執行的修復方案
+(確認根源、用正解、不用 workaround)。老闆裁示:七項全做。
+
+基線:`09637de4`,pytest 7591 passed / 4 skipped、guards 767。
+盤點對象:taskq-new 236 個 commit(2026-08-21 20:15 → 08-23 22:35,enforcer 從
+`91ba2fe6` 換到 `09637de4`)、`degradations.jsonl` 1016 筆、harness
+`11b182c..09637de4`、最近 15 次 CI run。九個語料專案全程唯讀。
+
+### 問題(1)的答案 —— 六個舊修復沒到位,其中一個是回歸
+
+| Round | 狀態 | 站 |
+|---|---|---|
+| R53 站5c | **引入回歸**,taskq-new 為它手工偽造 state 六次 | 1 |
+| R31/R32/R35 mutation | 數字仍無 provenance,而讀取端說它是框架算的 | 2 |
+| R48 站1 fault_owner | 詞彙建了,dispatch 失敗的寫入端沒接 | 3 |
+| R52 verify-system 三站 | 對含 `$(shell …)` 的 Makefile 100% 棄權 | 4 |
+| R68 站1 required_artifacts | 樣板有、驗證沒有 | 5 |
+| R46 站1 absent-witness | 與 `ADVANCE_CLEARED_DIRS` 互斥,專案付兩次代價 | 6 |
+| R53 站1 tree custody | **到位**(R71-站1 `d552fc35` 補上 twin) | 7 是它的另一半 |
+
+### 問題(3)的答案 —— CI 沒有第三種錯誤
+
+近 15 次 run 兩次紅:`8376fd94` 與 `d552fc35`,兩次都只有 `Framework
+Self-Tests` 的同一步,兩次都是 ratchet / patch-discipline 天花板沒在同一
+commit 提升(其中一次外加 `test_state_io_conventions`),兩次都由下一個 commit
+補上。`scripts/self_check.sh` 會抓到兩者,`scripts/hooks/pre-push` 也呼叫它 ——
+所以兩次都是 push 前沒跑,不是 CI 特有的問題,也不是碼的缺陷。**明列不做**。
+唯一的機制觀察記在下面的「不做」表。
+
+### 七站
+
+| 站 | 病因(一句) | 專案端證據 |
+|---|---|---|
+| 1 | advance-phase 的 entry gate 要求它自己還沒寫的那筆記錄 | taskq-new 六次手工偽造 `phase_completed`,最後一筆 `"sha": "PLACEHOLDER_WILL_BE_REPLACED_ON_ADVANCE"` |
+| 2 | 兩個寫入端都蓋了 `enforcer_sha`,每個讀取端都不看 | Gate 4 的 72.1 來自一份手工重建、自行排除 685 個 mutant 的檔案(全分母 24.6) |
+| 3 | `record_step_failure` 明知 class 卻寫 `owner="unknown"` | 37 筆 unknown,其中 26 筆的 `why` 自己寫著 INFRA |
+| 4 | `$(shell …)` 讓整份 Makefile 不被檢查 | 一個完全合格的 verify-system 換來 127 筆 `owner=harness` 降級 |
+| 5 | `required_artifacts` 樣板有、`validate_sab_block` 不提 | 186 筆「the SAB declares no required_artifacts」,零阻擋;九專案零宣告 |
+| 6 | 框架每個 phase 刪掉 `.sessi-work`,而交付測試在那裡讀證據 | `cd47fae`(離開 P5)與 `8b9a309`(離開 P7)subject 與 body 逐字相同 |
+| 7 | scope guard 只看 untracked,`git add -A` 之後就永遠看不到 | 兩個檔案通過 P1–P8 全部 gate 進入交付樹 |
+
+### 三處被自己的量測推翻(全部留在賬本)
+
+1. **站1 的第一版還檢查 ancestry**,結果 22 個既有測試轉紅——它們記的是形狀
+   合法的佔位 sha。那個量測就是「這條檢查不屬於這裡」的證據:ancestry 在
+   `_verify_entry_gate` 的 P2/P3 分支已有主人,且配著 R38 的 self-heal;
+   在這裡硬失敗而沒有 recovery 會困住任何 branch 被 reset 的專案。改為只驗形狀。
+2. **站4 移除 refusal 後,taskq-new 不是通過而是被誤判**為「never invokes the
+   delivered entry point」——`-m uvicorn taskq.api.app:create_app` 的產品模組
+   在 runner 的第一個位置參數,不在 `-m` 後面。用棄權換誤殺不是修復,所以同站
+   一併修 `_invokes_package`。修完重跑九專案,完全重現 R52 站0 的原始表。
+3. **站5 的第一版論據是「樣板送到 agent 面前卻被省略」——假的。** R68 的
+   `0fb3bafb` 落地於 2026-08-22 02:29,taskq-new 的 `phase2_plan.md` 生成於
+   同日 02:23。**沒有任何專案跑過含該樣板的 P2。** 缺陷仍成立(框架宣告了
+   義務卻零執法),但依據換成 186 筆自述 + 零執行者。
+
+### 明列不做(附 re-open 條件)
+
+| # | 事項 | 理由 | re-open |
+|---|---|---|---|
+| A | `file:does-not-exist.db` 這類「檔名像 URI」的垃圾 | 要發明一條關於檔名長相的規則,是發明判準不是套用正解。站7 已用一條測試把這個省略釘成「決定」而非疏漏 | 出現第二個專案、且有一條不靠外觀猜測的判準 |
+| B | `core.hooksPath=scripts/hooks` 沒有任何東西驗證它有設 | 本輪兩次 CI 紅的直接原因是「push 前沒跑 self_check」,但那是流程紀律;hook 安裝與否是 clone 端的本地 git config,框架無法從 repo 內強制 | 出現一個不需要本地 config 也能生效的機制(例如 CI 端拒絕未經 self_check 的 push) |
+| C | `gate:arch-constraints` 每次 gate 都寫一筆(taskq-new 191 筆) | R54 已裁決 "Recorded, never blocked",理由成立;191 筆是 ledger 噪音而非判定缺陷 | ledger 體積影響到可讀性或寫入成本時,做去重而非改判定 |
+| D | `_scope_violation_scripts` 本身仍只看 untracked + top-level | Surgical:站7 加的是**另一類**判準(工具備份後綴,全樹),既有那條的 top-level 限制有它自己的理由(遞迴會誤殺 mid-phase 的新模組) | 出現一個 tracked 的 debug-name 腳本進入交付樹 |
+
+### 驗證
+
+七條反證逐一 revert → 轉紅 → **從備份逐位元組還原** → sha256 相同:
+
+| 站 | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| 1 | `prev_record_pending=True` → `False` / 停用 sha 形狀分支 | 5 條中的 3 條 / placeholder 那條 |
+| 2 | 停用 provenance 檢查 / 強制 evidence 分支為真 | `test_an_artifact_without_a_provenance_stamp…` / `test_the_evidence_line_does_not_claim…` |
+| 3 | 還原 `owner="unknown"` | 9 條中的 6 條 |
+| 4 | 還原 `$(shell)` refusal / 還原 `-m`-only 判定 | 2 條 / 1 條 |
+| 5 | 停用 key 檢查 / 把欄位清單截成 14 | 各 1 條 |
+| 6 | 停用 refusal / 移除 docstring 排除 | 各 1 條 |
+| 7 | 停用 refusal / 把 `BACKUP_SUFFIXES` 縮成 `(".bak",)` | 1 條 / **第一次沒轉紅** |
+
+**站7 的第二半是本輪第三次撞到 R19 母體,而且是在我自己剛寫的測試裡**:那條
+測試用 `BACKUP_SUFFIXES` 建自己的 fixture,所以縮小常數時 fixture 跟著縮小。
+改成寫死預期集合 + 斷言常數等於它。(站1 也有一次同型:`"sha" in joined` 恆為
+真,因為 `"delivered_tree_sha256"` 這個字串本身含 `sha`。)
+
+專案端後驗(唯讀,九專案):
+
+| 站 | 結果 |
+|---|---|
+| 1 | taskq-new phase 1–7 記錄乾淨,phase 8 的 `PLACEHOLDER` 兩個欄位都被指名 |
+| 2 | taskq-new BLOCKED,其餘五個帶 `enforcer_sha` 的專案照常通過(81.6 / 79.8 / 79.0 / 77.6 / 73.3) |
+| 4 | 完全重現 R52 站0 的表:renew/advance tautological、api 的產品行被 `\|\| true` 吞掉、其餘乾淨,taskq-new 加入乾淨組 |
+| 5 | 九專案全部被指名(它們的 P2 都早於樣板) |
+| 6 | taskq-new 4 筆(全在 `test_nfr07_08_11_lint.py`),其餘八個 0 筆;註解與 markdown 皆未誤殺 |
+| 7 | taskq-new 2 筆 `.bak`,其餘八個 0 筆 |
+
+終局:pytest 7622 passed / 4 skipped、guards 767→792、ruff clean、
+`generate_workflows.py --check` 10/10、`node --test` 全過、
+`.claude/workflows/` 七個 commit 零改動。
+
+---
+
 ## Round 70 — 判準與它自己的指令反相
 
 老闆令：重新盤點 `11b182c..HEAD` 這一輪的十個 commit，從熱點看
