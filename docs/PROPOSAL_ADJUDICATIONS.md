@@ -3778,6 +3778,114 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 73 — 判準讀不到需求的可判定形式
+
+老闆令:檢視一份對 taskq-new 的外部審計報告,重新驗證每一項扣分的**真實性與
+根源性**,判定根源是 harness bug 還是 workflow JS bug,套用正解(不是
+workaround),不破壞共通性。老闆裁示:五站全做;站2 只補 skip 的寫入面。
+
+基線:`b03b9f75`(Round 72 的賬本 commit),pytest 7622 passed / 4 skipped、
+guards 792。盤點對象:taskq-new 的 SPEC.md / SRS.md / TEST_SPEC.md /
+TEST_PLAN.md / Makefile / `.importlinter` / conftest.py / `gate4_result.json`,
+以及九個語料專案的同名檔案。九個專案與 `run-all-by-workflow` 全程唯讀
+(唯一的 dirty 是各專案自己 harness run 留下的 `degradations.jsonl` /
+`.mutation_exclusive.lock`,mtime 早於本輪)。
+
+### 報告七項的真實性與歸屬 —— 七項全部屬實,零個 workflow JS bug
+
+| 報告項 | 真實性 | 擁有者 | 站 |
+|---|---|---|---|
+| A2a `.importlinter` 缺 forbidden contract | 屬實 | harness | 3(+1) |
+| A2b `verify-system` 縮水 | 屬實,且比報告更嚴重 | harness | 4(+1) |
+| B3 4 個 skip + FR-02 用 collection hook 規避 | 屬實,實際是 4+10 | harness | 2(+1) |
+| C2-1 宣稱零 skip vs 實測 4 skip | 屬實 | harness | 1、2 |
+| C2-2 宣稱 NFR-12 完整 vs Makefile 閹割 | 屬實 | harness | 4 |
+| C2-3 宣稱防 ORM 洩漏 vs 規則漏配 | 屬實 | harness | 3 |
+| 3.1 AsyncExecutor drain deadlock | 屬實,**但是專案的產品缺陷** | project | — |
+| 3.3 NFR-07/11 依賴 `.sessi-work` | 屬實,**R72 站6 已修** | harness | 已修 |
+
+**workflow JS bug 數:零。** 五個缺陷全在 Python 判準層
+(`spec_coverage.py` / `phase_truth_verifier.py` / `arch_constraints.py` /
+`gate_cmds.py` / `harness_bridge.py`);workflow JS 只 dispatch,不含判準。
+3.1 是專案的產品缺陷,harness 的責任只到「不讓它被 skip 掉」,由站1+站2 覆蓋。
+3.3 實測 `evidence_in_cleared_dirs('taskq-new')` 回 4 hits、`backup_artifacts`
+回 2 個 `.bak`,兩支上輪守衛都會在下次 advance 擋下。
+
+### 母體 —— 框架把需求切成了可判定的單位,判準卻去讀自然語言原文並猜
+
+`_srs_acceptance_criteria` 已經把 AC 逐條切好(taskq-new 22 個需求全數歸屬,
+`AC-N12.1` / `AC-N9.2` 都在),TEST_SPEC.md 已經把每條 AC 綁到一個具名測試,
+`CONSTRAINT_EXECUTOR_CANDIDATES` 的 `requires` 已經寫著 executor 自己的
+contract 型別 —— 五個判準沒有一個讀這些,它們各自去掃 markdown 找字面片語、
+寫死欄位索引、或用從舊語料歸納的關鍵字。
+
+### 五站
+
+| 站 | 病灶 | 正解 | commit |
+|---|---|---|---|
+| 1 | `_parse_test_spec` 用 header 判「表格開始了」卻寫死 `cols[1]` 是測試名 | 名字由**內容**定位(一列恰有一個 `test_` 識別符),header 定位 Type/Derivation 並仲裁平手 | `31ca1b7d` |
+| 2 | `skip_zero_re` 兩個字面片語,八專案命中兩個;`_skip_sites` 看不到 conftest 注入 | 骨架匹配(計數詞必須屬於 skip)+ fixture 用七種真實措辭 + 檔案集含 conftest + marker 認「被命名」 | `9b94f74e` |
+| 3 | `layers` / `forbidden` 是 import-linter 自己的 contract 型別名,卻不在 keywords | candidate 必須列出 `requires` 指名的型別,並有不變式守衛;**不加**單數 `layer` | `f566297b` |
+| 4 | `execute_verification_target` 的 `tool_evidence` 零寫入端,agent 寫「NFR-12 satisfied」 | 與 `_patch_mutation_score` 同形的 `_patch_verify_target_evidence`,只陳述框架判過的事 | `19b33e94` |
+| 5 | manifest 宣告的 dimension 不在 gate config 時,既不 scored 也不 unscored | `dimensions_declared_absent` + ledger row,**不擋** | `d96a4858` |
+
+### 站1 的量測(本輪最高價值)
+
+taskq-new 的 TEST_SPEC 宣告 115 個測試,parser 只讀到 81,4b 報 100.0%,
+`spec_undelivered: []`。34 個被丟的列裡 **25 個在交付樹沒有 `def`**,包括
+`test_nfr06_ac2_sqlalchemy_forbidden_outside_repository`、
+`test_nfr09_ac1_no_skip_skipif_xfail`、`test_nfr09_ac2_pytest_skipped_count_zero`、
+`test_nfr09_ac4_no_ignore_deselect_collect_ignore` —— **正是報告 A2a / B3 / C1
+說缺的那些判準**。專案自己逐條宣告過,框架的分母看不見它們。
+
+修復後(九專案,零 lost):
+
+| 專案 | declared | pct |
+|---|---|---|
+| taskq-super | 87 → 123 | 100.00 → 70.73 |
+| taskq-api | 86 → 113 | 100.00 → 100.00 |
+| taskq-new | 81 → 106 | 100.00 → 83.02 |
+| taskq-advance | 89 → 97 | 100.00 → 91.75 |
+| taskq-plus | 93 → 113 | 98.92 → 98.23 |
+| taskq-cc | 118 → 124 | 100.00 → 100.00 |
+| taskq / renew / run-all | 不變 | 不變 |
+
+### 一處自我推翻
+
+站1 的第一版**只信 header**。taskq-renew 的 deferred 表格寫著
+`| # | NFR | Test Function | Layer | Title |`,而它的資料列是
+`| 9 | \`test_nfr02_bandit…\` | NFR-02 | static | … |` —— **header 與它自己的
+資料列不一致**。那一版在一個專案恢復 25 列,在另一個專案丟掉全部 36 列
+(89 → 53)。單調性量測(舊 parser 讀到的必須也被新 parser 讀到)當場抓到。
+所以名字改由**內容**定位,header 只仲裁真正的平手。
+
+### 明列不做
+
+| 項目 | 理由 | re-open 條件 |
+|---|---|---|
+| 反造假旗標偵測(`--ignore` / `-k` / `--deselect` / `collect_ignore` / `testpaths` 移除) | 那是「排除」不是「skip」;taskq-new 的 `--ignore=harness` 是合法用法(排除 vendored submodule),偵測它需要例外清單,而例外清單沒有對賬機制 —— 會複製本輪站3 的缺陷形狀 | 一個專案用這五種形態之一把測試排除掉並拿到 gate PASS,且該形態無法用「合法排除 vendored 目錄」解釋 |
+| 站3 加入單數 `layer` 作為 keyword | taskq-api 的 `single_auth_dependency_at_api_layer` 會誤命中 layers candidate,而該專案有 layers contract → 會被判 `enforced`。**把棄權換成假背書比棄權更壞**(R72 站4 同一句,方向相反) | 出現一條真的由 layers contract 決定、而措辭只含單數 `layer` 的約束,且能與 `single_auth_…` 那類區分 |
+| 站5 擋下 `dimensions_declared_absent` | gate 的維度清單是框架的設計決定(`architecture_constraints` 是 per-FR 維度),擋下去會擋住每一個專案;NFR-06 的實質判定由站3 在 Gate 4 的 `unconfigured_blocking_reason` 承擔 | gate config 與 manifest 對某個維度分歧,而**沒有任何其他機制**判它 —— 那才是「需求零執行者」 |
+| NFR-12 四步是否真的被串接 | 需要判斷自然語言列出的步驟是否出現在 recipe 裡,那是發明判準而非套用。站4 改為讓維度**不宣稱**它,站1 讓 `test_nfr12_*`(若被宣告)必須存在 | 有專案宣告了 NFR-12 的 AC 測試、測試存在、卻仍與 recipe 不符 |
+| `TEST_INVENTORY.yaml` 的 `test_inventory.tests` 用 `test_name` 而 NFR Layering Hard Rule 讀 `function_name` | 本輪發現的相鄰缺陷,不在五站範圍;`cli/checks/specs.py:104` 的 `tc.get("function_name","")` 對 taskq-new 恆為空,那條 Hard Rule 從沒執行過 | 下一輪盤點時處理,或有專案因此漏交 NFR 測試 |
+
+### 三個 repo 守衛擋下站5,全部照辦
+
+`test_exception_swallow_ratchet`(manifest 讀取 fail-open 無診斷)、
+`test_measurement_sinks`(新 ledger component 沒宣告 sink)、
+`test_spec_contract` type-safety(新的 ctx 讀取需要與它旁邊的寫入同樣的
+`attr-defined` ignore)。ratchet 天花板三次都在**同一 commit** 內提升
+(R72 查出 CI 兩次紅都是漏了這一步)。
+
+### 終局
+
+pytest 7658 passed / 4 skipped、guards 792 → 822、ruff clean、
+`.claude/workflows/` 五站零改動、九個語料專案唯讀。
+反證 15 次(站1 兩次、站2 四次、站3 四次、站4 兩次、站5 兩次,另加站1 的
+單調性跨語料量測),每次都逐位元組還原(`cp` 備份 + `sha256sum` 比對)。
+
+---
+
 ## Round 72 — 框架算出了真值,判定讀的是別的東西
 
 老闆令:檢視 taskq-new 在 P1–P8 的執行過程與 git history、harness-methodology
