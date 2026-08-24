@@ -3328,3 +3328,27 @@
 - test: tests/test_constraint_keywords_speak_the_executor_vocabulary.py::test_every_import_linter_candidate_names_its_own_contract_type
   bug: "the invariant, so the next keyword list is not induced from a corpus either: an import-linter candidate declares in `requires` which contract type decides it, and that word is the executor's own vocabulary — the one a project writing the constraint reaches for. A candidate omitting it is matching on what some earlier project happened to call the thing"
   fixed_in: "Round 73 站3"
+
+- test: tests/test_verify_target_evidence_is_the_frameworks.py::test_the_agents_nfr_claim_is_replaced
+  bug: "execute_verification_target's score has been the framework's since the ToolSpec ran `make verify-system` itself; `tool_evidence` has no writer anywhere in this repository, so the agent's prose stood. taskq-new's committed Gate 4 records score 100.0 / score_source framework beside 'make verify-system exited 0 … migrate-roundtrip: PASS precedes. NFR-12 satisfied.' — over a Makefile whose migrate-roundtrip is a reset_db() call, with no `alembic upgrade head`, no downgrade/upgrade round-trip, and a `test:` target that verify-system does not depend on. AC-N12.1 asked for four steps and the recipe runs one and a half. Same shape as Round 72 站2 for mutation_testing"
+  fixed_in: "Round 73 站4"
+
+- test: tests/test_verify_target_evidence_is_the_frameworks.py::test_the_replacement_names_the_step_that_runs_the_product
+  bug: "the agent's line was specific ('healthz=200 readyz=200'); replacing it with something vaguer trades one imprecision for another. entrypoint_lines is the evidence the framework already computed for its own tautology check, so the replacement carries it (Round 45: a verdict's sentence carries its own proof)"
+  fixed_in: "Round 73 站4"
+
+- test: tests/test_verify_target_evidence_is_the_frameworks.py::test_a_recipe_that_could_not_be_read_says_so
+  bug: "expand_recipe abstains on an `include`, and the score beside it is still 100 because `make verify-system` still exits 0 — could-not-measure has to be a sentence, not an empty string (Rounds 32/35)"
+  fixed_in: "Round 73 站4"
+
+- test: tests/test_verify_target_evidence_is_the_frameworks.py::test_a_project_with_no_makefile_is_left_alone
+  bug: "the counter-direction: a JS project has no Makefile and its own runner scored this dimension, so rewriting that evidence into a claim about a Makefile would be this station's own defect"
+  fixed_in: "Round 73 站4"
+
+- test: tests/test_verify_target_evidence_is_the_frameworks.py::test_a_gate_without_the_dimension_gains_nothing
+  bug: "Round 53 站5a: only a gate whose config runs this dimension may speak for it; the patch must not create the breakdown entry"
+  fixed_in: "Round 73 站4"
+
+- test: tests/test_verify_target_evidence_is_the_frameworks.py::test_the_patch_is_called_from_the_cross_checks
+  bug: "a detector with no executor is Round 43's defect and a mechanism that ships half-built is Round 30's; pinned on the source beside the _patch_mutation_score call it mirrors, which is the only place a later refactor would drop it from"
+  fixed_in: "Round 73 站4"

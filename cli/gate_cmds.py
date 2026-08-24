@@ -1870,6 +1870,90 @@ def _patch_mutation_score(project_path: Path, gate: int) -> None:
               file=sys.stderr)
 
 
+def _patch_verify_target_evidence(project_path: Path, gate: int) -> None:
+    """Replace the agent's `execute_verification_target` sentence with the
+    framework's own findings.
+
+    Round 73 站4, and the same shape as `_patch_mutation_score` above: the
+    score was already the framework's and the sentence beside it was not.
+    `tool_evidence` for this dimension has no writer anywhere in this
+    repository — taskq-new's committed Gate 4 carries
+
+        "make verify-system exited 0 … migrate-roundtrip: PASS precedes.
+         NFR-12 satisfied."
+
+    written by the agent, and the last clause is false. AC-N12.1 requires the
+    recipe to chain `alembic upgrade head`, the full suite, a service smoke
+    and a `downgrade base` round-trip; the delivered Makefile runs a
+    `reset_db()` call and a uvicorn smoke, and `verify-system` does not depend
+    on the `test:` target that exists two lines above it.
+
+    Nothing here starts deciding that. The framework's two checks are whether
+    the recipe reaches the delivered entry point (`verify_target`) and whether
+    it executes the boundaries the suite stubs (`verify_system_reach`); which
+    steps a requirement asked for has no executor, and Round 43's rule is that
+    a check with no executor is written down rather than invented. What
+    changes is that the dimension states what it did decide and stops
+    certifying a requirement nobody measured.
+
+    Silent when the dimension is not in this gate's breakdown (Round 53 站5a:
+    only a gate that runs it may speak for it) and when the recipe cannot be
+    read — that is a sentence too, not an empty string (Rounds 32/35).
+    """
+    from core.quality_gate.verify_target import (
+        STATUS_EXPANDED, STATUS_MISSING, verify_target_findings,
+        verify_target_name,
+    )
+
+    result = project_path / ".sessi-work" / f"gate{gate}_result.json"
+    if not result.is_file():
+        return
+    try:
+        gr = json.loads(result.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"[WARN] could not read gate result to patch verify-target "
+              f"evidence: {exc}", file=sys.stderr)
+        return
+    entry = (gr.get("breakdown") or {}).get("execute_verification_target")
+    if not isinstance(entry, dict):
+        return
+
+    findings = verify_target_findings(project_path)
+    target = verify_target_name()
+    if findings["status"] == STATUS_MISSING:
+        # A JS project has no Makefile at all, and its runner scored this
+        # dimension; rewriting that evidence into a claim about a Makefile
+        # would be this station's own defect.
+        return
+    if findings["status"] != STATUS_EXPANDED:
+        entry["tool_evidence"] = (
+            f"framework: verify_target_findings could not read `make {target}` "
+            f"— {findings['reason'] or 'no reason recorded'}. The score beside "
+            f"this line is `make {target}`'s exit code and nothing about what "
+            f"it ran."
+        )
+    else:
+        swallowed = findings["swallowed_product"]
+        lines = findings["entrypoint_lines"]
+        entry["tool_evidence"] = (
+            f"framework: verify_target_findings → `make {target}` reaches the "
+            f"delivered package on {len(lines)} step(s): "
+            f"{'; '.join(lines) or 'none — the target is tautological'}. "
+            + ("no step swallows the product's verdict."
+               if not swallowed else
+               f"{len(swallowed)} step(s) swallow it: "
+               + "; ".join(f"{r['idiom']} in `{r['line']}`" for r in swallowed))
+            + " Which steps a requirement asked the recipe to chain is not "
+              "decided here and is not claimed."
+        )
+    try:
+        result.write_text(json.dumps(gr, indent=2, ensure_ascii=False),
+                          encoding="utf-8")
+    except OSError as exc:
+        print(f"[WARN] could not write patched verify-target evidence: {exc}",
+              file=sys.stderr)
+
+
 def build_persisted_gate_result(
     framework_view: "dict | None", agent_view: dict,
 ) -> dict:
@@ -2004,6 +2088,15 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
     # does not support — this is the other half: the recorded number.
     if args.gate >= 2:
         _patch_mutation_score(project_path, args.gate)
+
+    # ── Round 73 站4: this dimension's sentence is the framework's too ──
+    # The score has been the framework's since the ToolSpec ran `make
+    # verify-system` itself; `tool_evidence` had no writer at all, so the
+    # agent's prose stood — taskq-new's Gate 4 reads "NFR-12 satisfied" over a
+    # recipe that runs one and a half of that requirement's four steps.
+    # Which steps a requirement asked for still has no executor and is not
+    # claimed here; what the framework did decide is what the line now says.
+    _patch_verify_target_evidence(project_path, args.gate)
 
     # ── I-6: PR 4 closed-loop trace dimension (Gates 2-4) ───────────
     # Fuses 4a (FR→code→test, 100% over IN_PROGRESS+VERIFIED FRs) with
