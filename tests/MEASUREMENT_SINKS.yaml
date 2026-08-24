@@ -112,6 +112,29 @@ sinks:
       be a requirement with no executor at all rather than one judged
       elsewhere.
 
+  "spec-coverage:unread-row":
+    sink: report-only
+    why: >-
+      Round 74 站2. A TEST_SPEC row sitting inside a declaration table and
+      naming no test function is not in the spec-coverage denominator, and
+      until now it left no trace of having been skipped. Not a verdict, and
+      the why is not deferral: taskq-advance writes `(cross-cutting tooling)`
+      for the two NFRs whose verifiers are pip-licenses and mutmut, and
+      taskq-cc writes `(none declared for this round — single-version
+      service)`, both of which are a project stating the truth in the only
+      column it has. Blocking those would charge a project for obeying the
+      substance (Round 42). What the row buys is that a reader can tell them
+      apart from a parser that stopped reading: measured with Round 73's
+      header rule still in place, this same signal reports 81 rows across six
+      projects, 25 of them taskq-new's, starting at the row that swallowed
+      the rest of its table — the loss Round 74 站1 fixes.
+    reopen_when: >-
+      a project's unread rows carry an identifier-shaped name the parser
+      declined for a reason other than "this row declares no test" — that
+      would be the parser losing declarations again rather than the project
+      declining to make one, and it is decidable from the row text this
+      component already records.
+
   "spec:undelivered":
     sink: report-only
     why: >-

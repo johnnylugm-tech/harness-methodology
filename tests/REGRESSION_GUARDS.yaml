@@ -3416,3 +3416,23 @@
 - test: tests/test_table_header_is_structural_not_prose.py::test_a_header_that_disagrees_with_its_own_rows_still_reads_them
   bug: "the counter-direction for Round 73's content-location: taskq-renew writes `| # | NFR | Test Function | Layer | Title |` over rows that put the name in column 1, so a header-trusting reader drops all 36. Making the HEADER structural must not re-introduce trust in what it says about column order"
   fixed_in: "Round 74 站1"
+
+- test: tests/test_unread_spec_rows_are_named.py::test_a_row_that_names_no_test_is_reported_not_dropped
+  bug: "Round 73's approved plan asked, in station 1 item 2, for rows the parser cannot read to be recorded as `unparsed` and reported rather than dropped in silence (Rounds 32/35 — could-not-measure is a sentence). It was not built: `grep -r unparsed` across the tree finds it only in harness/crg_independent.py, where Rounds 39/40 did this same job for the delivered files the graph could not parse. `spec_coverage_report` now carries the list and `_run_spec_coverage_check` prints it and writes a `spec-coverage:unread-row` ledger row. Three live rows across the nine corpus projects, every one a project stating in the only column it has that no test is declared — taskq-advance's `(cross-cutting tooling)` for the two NFRs verified by pip-licenses and mutmut, taskq-cc's `(none declared for this round)`. Report-only: blocking those would charge a project for obeying the substance (Round 42)"
+  fixed_in: "Round 74 站2 (_report_unread_rows + the `unread` out-parameter)"
+
+- test: tests/test_unread_spec_rows_are_named.py::test_every_table_row_inside_a_table_is_a_result_or_a_report
+  bug: "the accounting identity — rows inside an open table equal results plus reports. Round 73's loss was a fall-through: a data row read as a header left `header_skipped` false and every row after it matched NO branch, so no reporting branch could have caught them either. That conjunct is removed from the only branch that reports, because `_is_header_row` requires a separator to follow a header and the flag could only be false in a window no table row can occupy. Honest scope: the removal is not observable through this parser's output while the shipped header rule holds — the counter-proof put the flag back and all tests stayed green — so it is a redundant conjunct removed, not a mechanism added"
+  fixed_in: "Round 74 站2"
+
+- test: tests/test_unread_spec_rows_are_named.py::test_a_row_consumed_as_a_header_is_the_one_loss_this_station_cannot_report
+  bug: "where station 2's reach ends, pinned rather than assumed. A row the parser turns into a header produced no result and is not a row it declined to read; no reporting branch sees it, and that loss is closed by station 1's second condition (a row naming a test function is never a header). This test exists because this file's first counter-proof asserted the opposite and was wrong — under Round 73's header rule the row is consumed and the rows AFTER it are read normally once the gate is gone, so Round 73's actual ten-row loss needed both defects together. Its second version swapped the header rule out with mock.patch and test_private_patch_ratchet refused it; the condition is called on the row directly instead, which is a better statement anyway — a rule swapped out under a test is a rule the test no longer describes"
+  fixed_in: "Round 74 站2 (scope correction found by counter-proof)"
+
+- test: tests/test_unread_spec_rows_are_named.py::test_a_sub_assertion_table_is_not_unread
+  bug: "noise control: predicates in a `| rule_id | predicate | phase |` table were never in the spec-coverage denominator and are not missing from it. `_header_columns` returns {} for a header naming no test function so the table never opens — reporting its rows would turn a correct exclusion into volume, which is how a report-only signal stops being read"
+  fixed_in: "Round 74 站2"
+
+- test: tests/test_unread_spec_rows_are_named.py::test_the_checker_writes_a_ledger_row
+  bug: "Round 67's rule: a measurement with no sink is not a measurement. The unread list reaches the degradation ledger as `spec-coverage:unread-row` with owner=project, registered report-only in tests/MEASUREMENT_SINKS.yaml with its reason and its re-open condition"
+  fixed_in: "Round 74 站2"

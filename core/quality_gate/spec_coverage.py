@@ -200,7 +200,7 @@ def _is_header_row(lines: list, i: int) -> bool:
     return not _row_test_fn(cols, None)
 
 
-def _parse_test_spec(spec_path: Path) -> list[dict]:
+def _parse_test_spec(spec_path: Path, unread: "list | None" = None) -> list[dict]:
     """Parse TEST_SPEC.md and return all named test cases.
 
     Handles the markdown table format produced by the derive_test_cases.md skill:
@@ -225,6 +225,22 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
 
     Returns a list of dicts with keys: test_fn, type, derivation, fr_id.
     Backtick-wrapped function names (e.g. `test_foo`) are unwrapped automatically.
+
+    When *unread* is supplied, every table-shaped line inside a declaration
+    table that this function does NOT turn into a row is appended to it as
+    ``{"line", "text"}`` — Round 74 站2, and the same out-parameter shape as
+    `_check_tool_evidence`'s `digests`. Round 73's approved plan asked for
+    this and it was not built; had it been, that round could not have shipped
+    the ten-row loss station 1 fixes. Measured on the nine corpus projects
+    with Round 73's header rule in place: 81 unread rows across six projects,
+    25 of them taskq-new's, starting at the line that swallowed the rest of
+    its table. With station 1's rule: three, in two projects, every one a row
+    that genuinely declares no test (`(cross-cutting tooling)`, `(none
+    declared for this round)`).
+
+    Silence is what this replaces. It is not a verdict: a table may carry a
+    caveat row, and Round 42's rule is that a project obeying the substance
+    must not be blocked for the letter.
     """
     results: list[dict] = []
     if not spec_path.exists():
@@ -234,7 +250,6 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
     lines = text.splitlines()
     current_fr: str = ""
     in_table = False
-    header_skipped = False
     columns: dict = {}
 
     for idx, line in enumerate(lines):
@@ -248,7 +263,6 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
         if fr_match:
             current_fr = fr_match.group(1)
             in_table = False
-            header_skipped = False
             continue
 
         # Detect any H2/H3 section that is NOT an FR header — prevents last FR
@@ -259,7 +273,6 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
             h_text = re.sub(r"^#{2,3}\s+", "", stripped).strip()
             current_fr = re.sub(r"\W+", "_", h_text.lower()).rstrip("_")[:30]
             in_table = False
-            header_skipped = False
             continue
 
         # Horizontal rule — close current table without changing FR context
@@ -271,16 +284,21 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
         if _is_header_row(lines, idx):
             columns = _header_columns(stripped)
             in_table = bool(columns)
-            header_skipped = False
             continue
 
         # Skip the separator row (|---|---|...)
         if in_table and _SEPARATOR_ROW.match(stripped):
-            header_skipped = True
             continue
 
-        # Parse data rows
-        if in_table and header_skipped and stripped.startswith("|") and stripped.endswith("|"):
+        # Parse data rows. Every table-shaped line inside an open table
+        # reaches here — the header and the separator have already been
+        # consumed by their own branches, and `header_skipped` (which used to
+        # gate this one) could only ever be false between a header and the
+        # separator that `_is_header_row` requires to follow it. Round 74 站2
+        # needs that to be true by construction: a row that falls through to
+        # no branch at all is exactly what Round 73's rule produced, and a
+        # fall-through cannot be reported by a branch that is not reached.
+        if in_table and stripped.startswith("|") and stripped.endswith("|"):
             cols = [c.strip() for c in stripped.split("|")[1:-1]]
 
             def _col(key: str) -> str:
@@ -295,6 +313,8 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
                     "derivation": _col("derivation"),
                     "fr_id": current_fr,
                 })
+            elif unread is not None:
+                unread.append({"line": idx + 1, "text": stripped})
             continue
 
         # A blank line or non-table line ends the table
@@ -327,10 +347,15 @@ def spec_coverage_report(
     three `nfr_pattern`, four `fault_injection`, one static scan, every one of
     them a p95 budget or a survives-SIGKILL case.
 
-    Returns ``{declared, implemented, covered, missing, pct}`` where `covered`
-    and `missing` are the parsed TEST_SPEC rows, each keeping its `type`,
-    `derivation` and `fr_id` — without those a name cannot say which
+    Returns ``{declared, implemented, covered, missing, unread, pct}`` where
+    `covered` and `missing` are the parsed TEST_SPEC rows, each keeping its
+    `type`, `derivation` and `fr_id` — without those a name cannot say which
     requirement lost its evidence.
+
+    `unread` is Round 74 站2: the table rows the parser saw inside a
+    declaration table and turned into nothing. It is empty when `_items` is
+    supplied, because the caller parsed and this function must not parse a
+    second time; `_run_spec_coverage_check` collects its own and reports it.
 
     `pct` is 100.0 for an empty declaration set. That is the same vacuous-pass
     answer `_run_spec_coverage_check` gives, and it is that function, not this
@@ -344,9 +369,10 @@ def spec_coverage_report(
     from core.utils.lang_patterns import project_language
 
     items = _items
+    unread: list[dict] = []
     if items is None:
         spec_path = ProjectLayout(project).test_spec_path
-        items = _parse_test_spec(spec_path) if spec_path.exists() else []
+        items = _parse_test_spec(spec_path, unread) if spec_path.exists() else []
         if fr_id:
             items = [i for i in items if i["fr_id"] == fr_id]
 
@@ -368,8 +394,49 @@ def spec_coverage_report(
         "implemented": len(covered),
         "covered": covered,
         "missing": missing,
+        "unread": unread,
         "pct": (len(covered) / len(items) * 100) if items else 100.0,
     }
+
+
+def _report_unread_rows(project: Path, spec_path: Path, unread: list,
+                        *, verbose: bool = True) -> None:
+    """Say which TEST_SPEC rows the denominator did not include.
+
+    Round 74 站2, the shape `harness/crg_independent.py` already uses for the
+    delivered files its graph could not parse (`_unparsed_files`, Rounds
+    39/40): a population the framework could not read is named, not rounded
+    down to nothing.
+
+    Round 73's approved plan asked for exactly this and it was not built.
+    Measured on the nine corpus projects with that round's header rule still
+    in place: 81 rows across six projects, 25 of them taskq-new's, beginning
+    at the row that had swallowed the rest of its table. The loss station 1
+    fixes could not have survived a round in which this existed.
+
+    Report-only. A declaration table may legitimately carry a row that names
+    no test — taskq-advance writes `(cross-cutting tooling)` for two NFRs
+    whose verifier is pip-licenses and mutmut, taskq-cc writes `(none
+    declared for this round …)` — and blocking on those would charge a
+    project for obeying the substance (Round 42). What the row buys is that
+    the next reader can tell those apart from a parser that stopped reading.
+    """
+    if verbose:
+        print(f"  [spec-coverage] {len(unread)} row(s) in a declaration table "
+              f"named no test function and are NOT in the denominator:")
+        for row in unread[:10]:
+            print(f"    - {spec_path.name}:{row['line']}  {row['text'][:100]}")
+        if len(unread) > 10:
+            print(f"    ... and {len(unread) - 10} more")
+    from core.degradation_ledger import record_degradation
+    record_degradation(
+        str(project), "spec-coverage:unread-row",
+        f"{len(unread)} TEST_SPEC.md row(s) inside a declaration table named "
+        f"no test function; first at line {unread[0]['line']}",
+        why="those rows are not in the spec-coverage denominator, and before "
+            "this they left no trace of having been skipped",
+        owner="project",
+    )
 
 
 def _run_spec_coverage_check(
@@ -415,7 +482,10 @@ def _run_spec_coverage_check(
             print("[spec-coverage] TEST_SPEC.md not found and SAD.md has no FRs — skipping.")
         return (0, 100.0)
 
-    items = _parse_test_spec(spec_path)
+    unread: list[dict] = []
+    items = _parse_test_spec(spec_path, unread)
+    if unread:
+        _report_unread_rows(project, spec_path, unread, verbose=verbose)
     if fr_id:
         items = [i for i in items if i["fr_id"] == fr_id]
 
