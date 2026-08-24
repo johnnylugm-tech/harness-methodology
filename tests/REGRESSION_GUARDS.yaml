@@ -3352,3 +3352,23 @@
 - test: tests/test_verify_target_evidence_is_the_frameworks.py::test_the_patch_is_called_from_the_cross_checks
   bug: "a detector with no executor is Round 43's defect and a mechanism that ships half-built is Round 30's; pinned on the source beside the _patch_mutation_score call it mirrors, which is the only place a later refactor would drop it from"
   fixed_in: "Round 73 站4"
+
+- test: tests/test_declared_dimension_absent_from_the_gate.py::test_a_dimension_the_manifest_pins_and_the_gate_omits_is_named
+  bug: "measurement_scope builds BOTH its lists from the dimensions the gate config produced, so a dimension the config never mentions is neither scored nor unscored — it is invisible. Six of the nine projects here pin an NFR to `architecture_constraints` (legal: SPEC's own rule is that the value must be a key DIMENSION_TOOLS has, and it is), that dimension appears in gate1_per_fr.yaml and no other gate config, and every one of their Gate 4s published `weight_covered: 1.0` with `dimensions_unscored: []` — taskq-new's beside composite 94.59, a number a reader takes for the whole quality surface. Round 37's rule (the denominator travels with the number) at the layer above Round 42 站4's"
+  fixed_in: "Round 73 站5"
+
+- test: tests/test_declared_dimension_absent_from_the_gate.py::test_a_dimension_in_the_gate_but_unscored_stays_where_it_was
+  bug: "in the config and not scored means the framework could not measure it (Round 35); never in the config means nobody was going to. The two facts must not be merged into one list"
+  fixed_in: "Round 73 站5"
+
+- test: tests/test_declared_dimension_absent_from_the_gate.py::test_a_manifest_that_agrees_with_the_gate_names_nothing
+  bug: "the counter-direction: three of the nine projects declare nothing absent, and a check that named a dimension for all of them would be noise"
+  fixed_in: "Round 73 站5"
+
+- test: tests/test_declared_dimension_absent_from_the_gate.py::test_no_manifest_is_an_empty_declaration_not_an_empty_gate
+  bug: "could-not-measure is not a finding (Rounds 32/35): a project with no manifest has declared nothing, and reporting every gate dimension as 'declared absent' would be the inversion of this check"
+  fixed_in: "Round 73 站5"
+
+- test: tests/test_declared_dimension_absent_from_the_gate.py::test_the_scope_is_computed_with_the_projects_declaration
+  bug: "a key computed and never passed is Round 43's defect; without `declared=` at the one call site the new list can only ever be empty, and the guard is pinned on the source because that call is where a refactor would drop it"
+  fixed_in: "Round 73 站5"

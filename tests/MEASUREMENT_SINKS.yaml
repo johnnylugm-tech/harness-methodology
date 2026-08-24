@@ -96,6 +96,22 @@ sinks:
       for the ones that did not.
 
   # ── report-only ────────────────────────────────────────────────────────
+  "gate:dimension-declared-absent":
+    sink: report-only
+    why: >-
+      Round 73 站5. Which dimensions a gate runs is a framework decision —
+      `architecture_constraints` lives only in gate1_per_fr.yaml because it is
+      a per-FR dimension — so blocking a project for a list it did not write
+      would stop every one of them. Six of the nine projects here pin an NFR
+      to that dimension and every one of their Gate 4s published
+      `weight_covered: 1.0` with `dimensions_unscored: []`, which is the
+      defect: a dimension left out of the average read as though it were in
+      it. NFR-06's substantive judgement is Round 73 站3's, which does block
+      through `unconfigured_blocking_reason`. Reopen if a gate config and the
+      manifest mapping diverge on a dimension NOTHING else judges — that would
+      be a requirement with no executor at all rather than one judged
+      elsewhere.
+
   "spec:undelivered":
     sink: report-only
     why: >-

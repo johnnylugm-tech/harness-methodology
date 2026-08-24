@@ -444,9 +444,33 @@ def composite_over(
     }
 
 
+def declared_dimensions(project: "str | Path") -> list[str]:
+    """The dimensions this project's quality manifest pins its NFRs to.
+
+    Round 73 站5. Empty when there is no manifest or it cannot be read —
+    could-not-measure is not a finding (Rounds 32/35), and reporting every
+    gate dimension as "declared absent" would be the inversion of the check
+    this feeds.
+    """
+    from core.state_io import load_quality_manifest
+    try:
+        manifest = load_quality_manifest(project, lenient=True)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] quality_manifest.json unreadable ({type(exc).__name__}: "
+              f"{exc}) — dimensions declared but absent from this gate are NOT "
+              f"being reported this run", file=sys.stderr)
+        return []
+    mapping = manifest.get("nfr_dimension_mapping") if isinstance(manifest, dict) else None
+    if not isinstance(mapping, dict):
+        return []
+    return sorted({str(v) for v in mapping.values() if v})
+
+
 def measurement_scope(
     dims: "list[DimResult]",
     weights: "dict[str, float]",
+    *,
+    declared: "list[str] | None" = None,
 ) -> dict:
     """What the composite was averaged over — the denominator, beside the number.
 
@@ -485,11 +509,32 @@ def measurement_scope(
     """
     scored = sorted(d.name for d in dims if framework_measured(d))
     unscored = sorted(d.name for d in dims if not framework_measured(d))
+    # Round 73 站5: the third list, one layer above the other two. Both of
+    # those are built from the dimensions THIS GATE'S CONFIG produced, so a
+    # dimension the config never mentions is neither — it is invisible.
+    # taskq-new's quality_manifest pins `"NFR-06": "architecture_constraints"`,
+    # which is legal (SPEC's own rule is that the value must be a key
+    # DIMENSION_TOOLS has, and it is); that dimension appears only in
+    # gate1_per_fr.yaml, so its Gate 4 published `weight_covered: 1.0` and
+    # `dimensions_unscored: []` beside composite 94.59, a number a reader
+    # takes for the whole quality surface.
+    #
+    # Non-blocking, deliberately: which dimensions a gate runs is a framework
+    # decision — `architecture_constraints` is per-FR and its absence from
+    # Gate 4 has a rationale — so blocking here would stop every project on a
+    # choice none of them made. NFR-06's substantive judgement is Round 73
+    # 站3's, which does block through `unconfigured_blocking_reason`. What is
+    # fixed here is only that a dimension left out of the average must not
+    # read as though it were in it (Round 37: the denominator travels with
+    # the number).
+    in_gate = {d.name for d in dims}
     return {
         "weight_covered": round(sum(weights.get(n, 0.0) for n in scored), 10),
         "weight_total": round(sum(weights.values()), 10),
         "dimensions_scored": scored,
         "dimensions_unscored": unscored,
+        "dimensions_declared_absent": sorted(
+            set(declared or []) - in_gate),
     }
 
 # Minimum byte size for a tool_output file to be considered non-stub.
@@ -4177,7 +4222,27 @@ class HarnessBridge:
         # denominator is a second denominator.
         ctx.measurement_scope = measurement_scope(  # type: ignore[attr-defined]
             dims, _dim_weights,
+            declared=declared_dimensions(ctx.project_root),
         )
+        # Round 73 站5: non-blocking must not mean free (Round 68 站1). The row
+        # is what a later round reads to ask whether a gate's dimension list
+        # and the manifest's NFR mapping were ever meant to differ; owner is
+        # `harness` because the project's value is legal by SPEC's own rule
+        # and the gate config is the framework's.
+        _declared_absent = ctx.measurement_scope[  # type: ignore[attr-defined]
+            "dimensions_declared_absent"]
+        if _declared_absent:
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                ctx.project_root, "gate:dimension-declared-absent",
+                f"{len(_declared_absent)} dimension(s) the quality manifest "
+                f"pins an NFR to are not in gate {ctx.gate_num}'s config",
+                why=("the composite is an average over the gate's dimensions, "
+                     "and these were never among them: "
+                     + ", ".join(_declared_absent)),
+                data={"dimensions": _declared_absent, "gate": ctx.gate_num},
+                owner="harness",
+            )
 
         # Round 67 站1: the corrected result, for whoever persists it. Every
         # write into `raw` above — S4's framework score, `_mark_framework_na`,
