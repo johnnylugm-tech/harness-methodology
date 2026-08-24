@@ -3252,3 +3252,31 @@
 - test: tests/test_backup_artifacts_in_the_delivered_tree.py::test_a_uri_shaped_filename_is_recorded_not_matched
   bug: "taskq-new's file:does-not-exist.db reached the tree through the same blind spot, but matching it needs a rule about what a filename 'looks like' — a judgement invented rather than applied. Pinned so the omission is a decision on record, not an oversight a later round quietly widens"
   fixed_in: "Round 72 站7"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_the_nfr_table_reaches_the_denominator
+  bug: "_parse_test_spec decides a table has started by searching its header row for 'Test Function' and then reads the name out of cols[1] regardless of where that header put it. templates/TEST_SPEC.md writes `| # | Test Function | Type | Derivation |`, but cli/checks/specs.py:91's NFR Layering Hard Rule REQUIRES every unit/static NFR test to sit in a 'Deferred to Downstream Phases' section and every project writes that table as `| # | NFR | Test Function | Layer | Title |` — cols[1] is the NFR id, startswith('test_') is False, and the row is dropped without a word. Measured: taskq-new parsed 81 of 115 declarations and reported 4b = 100.0%, while 25 of the 34 dropped rows have no def in the delivered tree — among them test_nfr06_ac2_sqlalchemy_forbidden_outside_repository, test_nfr09_ac1_no_skip_skipif_xfail, test_nfr09_ac2_pytest_skipped_count_zero and test_nfr09_ac4_no_ignore_deselect_collect_ignore, i.e. exactly the checks an external audit later reported missing. taskq-super dropped 36, taskq-advance 8, taskq-api 27, taskq-plus 20, taskq-cc 6"
+  fixed_in: "Round 73 站1"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_a_header_that_disagrees_with_its_own_rows_still_yields_the_name
+  bug: "the first draft of the fix trusted the header alone. taskq-renew's deferred table writes the header `| # | NFR | Test Function | Layer | Title |` above rows shaped `| 9 | `test_nfr02_bandit…` | NFR-02 | static | … |` — the header and its own rows disagree about column order — so that draft recovered 25 rows in one project by losing all 36 of another's (89 -> 53). The name is now found by what a cell IS, not where the header says it sits; the corpus monotonicity run reports nine projects, zero lost"
+  fixed_in: "Round 73 站1"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_the_type_column_is_the_one_the_header_named
+  bug: "type and derivation were read from cols[2]/cols[3], one column off on the five-column FR table every project actually writes (`| # | Test Function | Inputs | Type | Derivation |`) — `type` carried the inputs. Both values travel: cli/gate_cmds.py::_record_spec_undelivered copies them into the spec:undelivered ledger row, so a reader asking which layer lost its evidence was being told the inputs"
+  fixed_in: "Round 73 站1"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_a_column_index_does_not_leak_between_tables
+  bug: "the column index is resolved per table rather than once per file; a four-column table following a five-column one would otherwise read its names out of the wrong column"
+  fixed_in: "Round 73 站1"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_a_prose_cell_beginning_with_test_is_not_a_function_name
+  bug: "a Title column reading `test_x fails when the key is absent` is prose, not an identifier; without the no-space floor an ambiguity would be manufactured in every row whose title starts with the test's own name, and the header — the thing that just proved unreliable — would arbitrate it"
+  fixed_in: "Round 73 站1"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_a_table_with_no_test_function_header_is_still_ignored
+  bug: "the counter-direction: TEST_SPEC.md carries sub-assertion tables (`| rule_id | predicate | phase |`) naming no test function, and a header-driven index that fired on any table would put predicates into the D4 denominator"
+  fixed_in: "Round 73 站1"
+
+- test: tests/test_test_spec_nfr_rows_reach_the_denominator.py::test_the_declared_name_with_no_def_is_reported_missing
+  bug: "end to end through spec_coverage_report, which is what cli/gate_cmds.py::_record_spec_undelivered turns into gate{N}_result.json's spec_undelivered and a ledger row; taskq-new published `\"spec_undelivered\": []` beside a Gate 4 of 94.59"
+  fixed_in: "Round 73 站1"

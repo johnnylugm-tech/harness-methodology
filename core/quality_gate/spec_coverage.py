@@ -94,6 +94,76 @@ def _flatten_test_names(inventory: dict | None) -> set[str]:
     return names
 
 
+def _header_columns(header: str) -> dict:
+    """Which column holds `Test Function`, `Type` and `Derivation`.
+
+    Round 73 站1. The header row was already being read — searching it for
+    "Test Function" is what decides a table has started — and then the name
+    was taken from `cols[1]` no matter which column that header named.
+
+    `templates/TEST_SPEC.md` writes `| # | Test Function | Type | Derivation |`,
+    so the assumption held for the shape this framework ships. It does not hold
+    for the shape this framework's own rules produce: `cli/checks/specs.py`'s
+    NFR Layering Hard Rule requires every unit/static NFR test to live in a
+    "Deferred to Downstream Phases" section, and every project on this machine
+    writes that table as `| # | NFR | Test Function | Layer | Title |`. `cols[1]`
+    is then the NFR id, and the row was dropped in silence — 34 of taskq-new's
+    115 declarations, 36 of taskq-super's, 8 of taskq-advance's.
+
+    `Type` and `Derivation` move with it. Read from `cols[2]`/`cols[3]`, they
+    were one column off on the five-column FR table the projects actually write
+    (`| # | Test Function | Inputs | Type | Derivation |`) — `type` carried the
+    inputs, and `_record_spec_undelivered` copies both into the ledger.
+
+    Returns `{}` when no column names a test function: a sub-assertion table
+    (`| rule_id | predicate | phase |`) names none, and a header-driven index
+    that fired on any table would put predicates into the denominator.
+    """
+    cols = [c.strip() for c in header.split("|")[1:-1]]
+    out: dict = {}
+    for i, col in enumerate(cols):
+        for key, pattern in (("fn", r"Test Function"),
+                             ("type", r"^Type$"),
+                             ("derivation", r"^Derivation$")):
+            if key not in out and re.search(pattern, col, re.IGNORECASE):
+                out[key] = i
+    return out if "fn" in out else {}
+
+
+def _row_test_fn(cols: list, header_index: "int | None") -> str:
+    """The test function named by one table row, or "".
+
+    The header locates `Type` and `Derivation`, which have no decidable
+    content, and it arbitrates ties here. It does NOT locate the name on its
+    own, and the reason is measured: taskq-renew's deferred-NFR table writes
+    the header `| # | NFR | Test Function | Layer | Title |` above rows shaped
+    `| 9 | \\`test_nfr02_bandit…\\` | NFR-02 | static | … |` — the header and its
+    own rows disagree about column order. A first draft of this station trusted
+    the header alone and dropped all 36 of that project's declarations; the
+    monotonicity guard beside this function is what caught it.
+
+    So the name is found by what a cell IS, not where it sits: exactly one cell
+    in a declaration row is an identifier beginning `test_`. Zero means the row
+    declares no test (a separator, a totals line, a sub-assertion). More than
+    one is genuine ambiguity — a Title column repeating the name — and there
+    the header decides, because with two candidates the position is the only
+    thing left that can.
+    """
+    candidates = []
+    for i, cell in enumerate(cols):
+        name = re.sub(r"\[.*\]$", "", cell.strip("`").strip())
+        if name.startswith("test_") and len(name) > 6 and " " not in name:
+            candidates.append((i, name))
+    if not candidates:
+        return ""
+    if len(candidates) == 1:
+        return candidates[0][1]
+    for i, name in candidates:
+        if i == header_index:
+            return name
+    return candidates[0][1]
+
+
 def _parse_test_spec(spec_path: Path) -> list[dict]:
     """Parse TEST_SPEC.md and return all named test cases.
 
@@ -101,6 +171,13 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
       | # | Test Function | Type | Derivation |
       |---|---|---|---|
       | 1 | `test_frXX_...` | happy_path | Q1 |
+
+    and the five-column NFR shape the NFR Layering Hard Rule produces:
+      | # | NFR | Test Function | Layer | Title |
+
+    Which column holds what is decided by `_header_columns` from the header
+    row, per table — resolving it once for the file would read a four-column
+    table following a five-column one out of the wrong column.
 
     Returns a list of dicts with keys: test_fn, type, derivation, fr_id.
     Backtick-wrapped function names (e.g. `test_foo`) are unwrapped automatically.
@@ -113,6 +190,7 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
     current_fr: str = ""
     in_table = False
     header_skipped = False
+    columns: dict = {}
 
     for line in text.splitlines():
         stripped = line.strip()
@@ -146,7 +224,8 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
 
         # Detect table header row (| # | Test Function | ...)
         if "|" in stripped and re.search(r"Test Function", stripped, re.IGNORECASE):
-            in_table = True
+            columns = _header_columns(stripped)
+            in_table = bool(columns)
             header_skipped = False
             continue
 
@@ -158,17 +237,19 @@ def _parse_test_spec(spec_path: Path) -> list[dict]:
         # Parse data rows
         if in_table and header_skipped and stripped.startswith("|") and stripped.endswith("|"):
             cols = [c.strip() for c in stripped.split("|")[1:-1]]
-            if len(cols) >= 3:
-                # cols[0] = #, cols[1] = test fn, cols[2] = type, cols[3] = derivation
-                raw_fn = cols[1].strip("`").strip()
-                raw_fn = re.sub(r"\[.*\]$", "", raw_fn)  # strip parametrize IDs
-                if raw_fn.startswith("test_") and len(raw_fn) > 6:
-                    results.append({
-                        "test_fn": raw_fn,
-                        "type": cols[2] if len(cols) > 2 else "",
-                        "derivation": cols[3] if len(cols) > 3 else "",
-                        "fr_id": current_fr,
-                    })
+
+            def _col(key: str) -> str:
+                i = columns.get(key)
+                return cols[i] if i is not None and i < len(cols) else ""
+
+            raw_fn = _row_test_fn(cols, columns.get("fn"))
+            if raw_fn:
+                results.append({
+                    "test_fn": raw_fn,
+                    "type": _col("type"),
+                    "derivation": _col("derivation"),
+                    "fr_id": current_fr,
+                })
             continue
 
         # A blank line or non-table line ends the table
