@@ -585,8 +585,12 @@ def test_advance_phase_source_pins_entry_gate_before_git_add():
 
     src = inspect.getsource(phase_cmds.cmd_advance_phase)
     prechecks_pos = src.index("_advance_prechecks(project, args.completed_phase)")
-    # Normal advance's entry-gate call uses `next_phase` (defined at L479).
-    gate_pos = src.index("_verify_entry_gate(project, next_phase)")
+    # Normal advance's entry-gate call is the only one passing
+    # `prev_record_pending=True` (Round 72 站1) — it is the caller that writes
+    # phase_completed[completed_phase] itself, after the commit. Anchored on
+    # that keyword rather than on the call's whole text, which wrapped across
+    # lines the moment the keyword was added and took this guard red with it.
+    gate_pos = src.index("prev_record_pending=True")
     add_pos = src.index('"git", "-C", str(project), "add"')
     assert prechecks_pos < gate_pos < add_pos, (
         f"entry gate ordering violated: prechecks={prechecks_pos}, "

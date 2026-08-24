@@ -28,6 +28,7 @@ gate behaviour changes most often.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -35,9 +36,16 @@ from pathlib import Path
 __all__ = [
     "harness_root", "enforcer_sha", "enforcer_surface",
     "ENFORCER_SURFACE_PATHS", "phase_verdict_staleness",
+    "phase_record_defects",
 ]
 
 _UNKNOWN = "unknown"
+
+# What a git object id looks like written down. A `phase_completed` entry whose
+# `sha` is not one of these is not a commit anybody failed to find — it is not a
+# commit at all, and that distinction is the whole of Round 72 站1.
+_SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Round 29 Station 4: the three paths whose code is the producer of every gate
 # verdict.  Recording their git object IDs (tree or blob hash) alongside
@@ -196,3 +204,70 @@ def phase_verdict_staleness(
         return None
     return {"moved": sorted(moved), "recorded": dict(recorded),
             "current": dict(current)}
+
+
+def phase_record_defects(project: "str | Path", entry: object) -> list[str]:
+    """What is wrong with one `phase_completed[N]` entry, as sentences.
+
+    Round 72 站1. `_verify_entry_gate` asked whether the entry EXISTS, which a
+    project can satisfy by writing anything at all. taskq-new's phase 8 record
+    is, verbatim:
+
+        {"sha": "PLACEHOLDER_WILL_BE_REPLACED_ON_ADVANCE",
+         "delivered_tree_sha256": "PLACEHOLDER"}
+
+    and every check in this repository accepted it. `doctor`'s
+    `_check_milestone_tree_matches_verdict` came closest and still passed it:
+    `committed_tree_digest(project, "PLACEHOLDER…")` returns "" because git
+    cannot resolve that string, and an empty digest is treated as
+    could-not-measure, which Rounds 32/35 established is not a finding. That
+    rule is right for a sha git has lost. It is not about a value that was
+    never a sha.
+
+    So this asks the question that rule cannot reach: is each recorded value
+    the SHAPE of the thing it claims to be, and does the commit it names exist
+    in this history.
+
+    SHAPE ONLY, and the boundary is deliberate. Three neighbouring questions
+    each already have an owner, and asking them a second time here would be
+    Round 38's one-fact-three-enforcers defect:
+
+    * does `delivered_tree_sha256` MATCH the tree of `sha` — `doctor`'s
+      `_check_milestone_tree_matches_verdict`;
+    * is `sha` an ancestor of HEAD — `_verify_entry_gate`'s P2/P3 branch, which
+      pairs the question with `try_recover_dangling_phase_completed` (Round 38).
+      A hard failure on ancestry with no self-heal beside it would strand a
+      project whose branch was reset, and the first draft of this function did
+      exactly that: it turned 22 existing tests red, all of them recording a
+      placeholder sha of the right shape, which is the measurement that this
+      check does not belong here;
+    * is a field absent — records predating Round 44 站2 do not carry
+      `delivered_tree_sha256`, and a record predating a field is not a
+      violation (Round 39/40).
+
+    Returns [] for a clean record. Never raises.
+    """
+    _ = Path(project)  # signature parity with the rest of this module
+    if not isinstance(entry, dict):
+        return [f"the record is a {type(entry).__name__}, not a mapping"]
+
+    defects: list[str] = []
+    sha = entry.get("sha")
+    if not isinstance(sha, str) or not _SHA1_RE.match(sha):
+        defects.append(
+            f"sha={sha!r} is not a 40-character git object id — the entry names "
+            f"no commit, so `git merge-base --is-ancestor`, `doctor`'s verdict "
+            f"re-derivation and `_fr_step_lineage_boundary` all read a value "
+            f"that cannot answer them"
+        )
+
+    digest = entry.get("delivered_tree_sha256")
+    if digest is not None and (
+        not isinstance(digest, str) or not _SHA256_RE.match(digest)
+    ):
+        defects.append(
+            f"delivered_tree_sha256={digest!r} is not a 64-character sha256 — "
+            f"Round 44 站2 records WHICH TREE the phase's checks read, and this "
+            f"value names no tree"
+        )
+    return defects

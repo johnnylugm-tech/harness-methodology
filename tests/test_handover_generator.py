@@ -1113,8 +1113,8 @@ class TestCmdAdvancePhase:
         # not gate logic. Gate coverage lives in test_phase_completed_authority.
         monkeypatch.setattr(
             "cli.phase_cmds._verify_entry_gate",
-            lambda project, phase: {"passed": True, "gate": "stub",
-                                    "reason": "test stub (handover fixture)"},
+            lambda project, phase, **kw: {"passed": True, "gate": "stub",
+                                          "reason": "test stub (handover fixture)"},
         )
         monkeypatch.setattr(
             "harness.handover_generator.HandoverGenerator.write",

@@ -3132,3 +3132,23 @@
 - test: tests/test_file_size_ratchet.py::test_the_duplicate_check_reads_source_not_the_built_dict
   bug: "the obvious implementation of the guard above — comparing len(dict) to len(set(dict)) — is unfalsifiable, since a dict literal's duplicates are already collapsed by the time the module imports; this pins that the check parses the source"
   fixed_in: "Round 70 站4"
+
+- test: tests/test_advance_records_the_phase_it_gates_on.py::test_the_first_advance_out_of_a_phase_is_not_blocked_by_its_own_record
+  bug: "cmd_advance_phase calls _verify_entry_gate(project, completed_phase + 1), and that gate requires state.json.phase_completed[completed_phase] — the record the same function writes AFTER its handover commit. From `--completed 3` on, every FIRST advance out of a phase exited 10. taskq-new, the only project to run P4+ after Round 53 站5c landed, shipped six hand-written state.json entries to get past it (c15966f, 236591b, 2e47de6, 5e2dee8, 7c3542b, 8187dd4)"
+  fixed_in: "Round 72 站1"
+
+- test: tests/test_advance_records_the_phase_it_gates_on.py::test_the_record_it_writes_names_the_commit_and_the_tree
+  bug: "the entry advance-phase writes must carry the handover commit's own SHA (Round 24 站4a) and that commit's tree digest (Round 44 站2); nothing exercised both through a real cmd_advance_phase call, because every suite that reaches this path stubs the entry gate"
+  fixed_in: "Round 72 站1"
+
+- test: tests/test_advance_records_the_phase_it_gates_on.py::test_a_placeholder_record_is_named_as_a_defect
+  bug: "the gate asked whether phase_completed[N] EXISTS, so {'sha': 'PLACEHOLDER_WILL_BE_REPLACED_ON_ADVANCE', 'delivered_tree_sha256': 'PLACEHOLDER'} satisfied it and every downstream reader — doctor's milestone-tree check came closest and still passed it, because committed_tree_digest returns '' for an unresolvable sha and an empty digest is could-not-measure, which Rounds 32/35 established is not a finding"
+  fixed_in: "Round 72 站1"
+
+- test: tests/test_advance_records_the_phase_it_gates_on.py::test_a_genuine_record_has_no_defects
+  bug: "the counter-direction: a shape check that fired on the framework's own output would stop every project, so the entry cmd_advance_phase itself writes is pinned clean"
+  fixed_in: "Round 72 站1"
+
+- test: tests/test_advance_records_the_phase_it_gates_on.py::test_run_phase_still_refuses_a_phase_that_left_no_record
+  bug: "Round 53 站5c exists because taskq-super reached Phase 9 with no entry for phase 5; exempting advance-phase's own call must not exempt cmd_run_phase, cmd_pre_commit_check or the re-verify branch, which ask about a phase that is already finished"
+  fixed_in: "Round 72 站1"

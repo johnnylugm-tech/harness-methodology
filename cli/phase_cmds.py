@@ -53,7 +53,11 @@ from core.phase_topology import (
 )
 from core.degradation_ledger import record_degradation
 from core.doctor import run_doctor
-from core.harness_provenance import enforcer_sha, enforcer_surface
+from core.harness_provenance import (
+    enforcer_sha,
+    enforcer_surface,
+    phase_record_defects,
+)
 from core.utils.delivery_scope import committed_tree_digest
 from core.utils.project_layout import ProjectLayout
 from core.utils.script_loader import load_harness_script
@@ -739,7 +743,14 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # effective. _advance_fsm at L583 holds state_lock; this call sits
     # BEFORE _advance_fsm so the lock-reentrancy hazard the comment at
     # L833-836 warns about does not apply. Mirror of cmd_run_phase:1695.
-    entry_gate = _verify_entry_gate(project, next_phase)
+    #
+    # Round 72 站1: `prev_record_pending=True`. This call is the one place the
+    # phase_completed[completed_phase] record does not exist yet BY DESIGN —
+    # the write is at the end of this same function, after the commit whose
+    # SHA it has to carry.
+    entry_gate = _verify_entry_gate(
+        project, next_phase, prev_record_pending=True,
+    )
     if not entry_gate["passed"]:
         print(
             f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — "
@@ -2243,7 +2254,9 @@ def _cmd_run_phase_impl(args: argparse.Namespace) -> int:
             print("        (quality_manifest.json not found — run 'plan-phase' first to populate FR IDs)")
     return 0
 
-def _verify_entry_gate(project: Path, phase: int) -> dict:
+def _verify_entry_gate(
+    project: Path, phase: int, *, prev_record_pending: bool = False,
+) -> dict:
     """Automatically verify entry gate conditions before phase execution.
 
     CONSTITUTION.md SS2.3 defines:
@@ -2251,6 +2264,11 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     - P2: Agent B¹ (P1) — git log APPROVE
     - P3: Agent B¹ (P2) — git log APPROVE
     - P4-P8: quality_manifest.json gate PASS
+
+    `prev_record_pending` — Round 72 站1. The one caller that is ITSELF the
+    writer of `phase_completed[phase - 1]` passes True. See the comment on that
+    check below for why the alternative — writing the record earlier — is not
+    available.
     """
     # SG-6: reject out-of-range phase early. Previously `phase <= 1` accepted
     # phase=0 and phase=-1, which is meaningless (only 1..9 exist).
@@ -2390,24 +2408,56 @@ def _verify_entry_gate(project: Path, phase: int) -> dict:
     # loss one phase later instead of preventing it — later than ideal, and
     # still the difference between a project that stops and a project that
     # reaches Phase 9 missing a record.
+    #
+    # Round 72 站1: and it must not catch it ZERO phases later. cmd_advance_phase
+    # calls this function with `phase = completed_phase + 1` BEFORE its own
+    # write at the top of this file, so from `--completed 3` on it was asking
+    # for a record only that same call produces — absent on every FIRST advance
+    # out of a phase, and the command exited 10. taskq-new, the only project to
+    # run P4+ after this check landed, shipped six hand-written entries to get
+    # past it, the last of them `{"sha": "PLACEHOLDER_WILL_BE_REPLACED_ON_
+    # ADVANCE", "delivered_tree_sha256": "PLACEHOLDER"}`. That is why the check
+    # below now reads the record's CONTENT and not merely its presence: this
+    # gate is what a project routes around, so what it accepts is what it gets.
+    #
+    # The other three callers (cmd_run_phase, cmd_pre_commit_check, and this
+    # command's re-verify branch) ask about a phase that is already finished,
+    # so for them the absence is a real finding and Round 53 站5c's purpose —
+    # taskq-super reached Phase 9 with no entry for phase 5 — survives intact.
     prev_phase = phase - 1
     try:
         _entry_state = load_state(project, lenient=True)
     except StateCorruptError as exc:
         return {"passed": False, "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",
                 "reason": f"state.json unreadable: {exc}"}
-    if not (_entry_state.get("phase_completed") or {}).get(str(prev_phase)):
-        return {
-            "passed": False,
-            "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",
-            "reason": (
-                f"state.json.phase_completed[{prev_phase}] is absent — phase "
-                f"{prev_phase} left no record of which tree it was judged on, "
-                f"so nothing downstream can re-derive its verdict. Run "
-                f"`harness_cli.py doctor` to see whether the handover commit "
-                f"for phase {prev_phase} exists and can be reconciled."
-            ),
-        }
+    _prev_record = (_entry_state.get("phase_completed") or {}).get(str(prev_phase))
+    if not prev_record_pending:
+        if not _prev_record:
+            return {
+                "passed": False,
+                "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",
+                "reason": (
+                    f"state.json.phase_completed[{prev_phase}] is absent — phase "
+                    f"{prev_phase} left no record of which tree it was judged on, "
+                    f"so nothing downstream can re-derive its verdict. Run "
+                    f"`harness_cli.py doctor` to see whether the handover commit "
+                    f"for phase {prev_phase} exists and can be reconciled."
+                ),
+            }
+        _record_defects = phase_record_defects(project, _prev_record)
+        if _record_defects:
+            return {
+                "passed": False,
+                "gate": f"Gate {ENTRY_GATE_MAP.get(phase)}",
+                "reason": (
+                    f"state.json.phase_completed[{prev_phase}] is present but "
+                    f"not a record of anything: "
+                    + "; ".join(_record_defects)
+                    + f". Re-run `advance-phase --completed {prev_phase}` so "
+                    f"the framework writes it, or `harness_cli.py doctor` to "
+                    f"see what the handover commit for phase {prev_phase} was."
+                ),
+            }
 
     manifest_path = project / ".methodology" / "quality_manifest.json"
     if not manifest_path.exists():
