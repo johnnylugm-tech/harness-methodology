@@ -3778,6 +3778,120 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 74 — 修好之後只量會動的,不動的當成沒有
+
+老闆令:從 git history 重新完整盤點 Round 73 這一輪的修復,從熱點探討
+(1) 是否有改動反覆修改、甚至沒套用正解,(2) harness-methodology 是否有其他
+根本性或結構性問題;所有發現用既有專案驗證真實性與根源性,展開成可執行的
+修復方案(確認根源,正解,不是 workaround)。
+
+基線 `ccb5c842`,pytest 7666 passed / 4 skipped、guards 828。九個語料專案與
+`run-all-by-workflow` 全程唯讀(唯一 dirty 是各專案自己 harness run 留下的
+ledger / lock / state,mtime 全部早於本輪第一個 commit 22:33)。
+
+### 熱點盤點的結論:反覆修改不在熱點,在 Round 73 自己
+
+`Round NN` 註記按函式聚合的前四名 —— `finalize_gate`(20 輪)、`run_doctor`
+(15)、`cmd_advance_phase`(14)、`_run_harness_cross_validation`(13)——
+是**累積點**,逐輪加不同的檢查,不是同一個缺陷被反覆修。`block_reason` 已有
+SSOT(R24)且有 `test_block_reason_registry.py`;`re.M | re.S` + `$` lookahead
+全樹掃描只有 R73 站6 那一處且已修。兩者都查過,不另立站。
+
+真正的反覆修改在上一輪:三個站的修法都停在同一個位置。
+
+### 母體 —— 零不是結果,零是一個需要解釋的讀數
+
+R32/R35 立過「量不出來不是零分」,那條規則寫在**單次量測**上。本輪三個實例
+說的是同一句話在**母體**上:一個述詞選出 0 筆,可能是「這個專案真的沒有」,
+也可能是「它寫在我讀不到的地方」,而框架三次都選了前者且沒有留下證據。
+
+### 五項發現(全部語料實測)
+
+| # | 發現 | 擁有者 | 活傷口 | 站 |
+|---|---|---|---|---|
+| 1 | R73 站1 修了欄位索引,沒修「這是不是表頭」;taskq-new **修完之後**仍掉 10 列 | harness | **是** | 1 |
+| 2 | R73 站1 計畫第 2 項(讀不到的列要記為 `unparsed`)核准了沒做 | harness | 是(silence) | 2 |
+| 3 | 兩個 TEST_SPEC parser,R73 只修一個;沒修的 docstring 說自己是 canonical | harness | 否(潛伏) | 3 |
+| 4 | R73 站6 的規則 9 專案有 6 個母體是空的,6 個全報 clean | harness | 是 | 4 |
+| 5 | TEST_INVENTORY.yaml 有兩套 schema、三個 reader,模板不含 prompt 宣告為 REQUIRED 的 key | harness | 是 | 5 |
+
+**workflow JS bug 數:零。** 五項全在 Python 判準層與模板/prompt 層。
+
+### 發現 1 —— 本輪最高價值,而且是上一輪剛修過的那個函式
+
+`_parse_test_spec` 判定表頭的條件是 `re.search(r"Test Function", stripped)`。
+taskq-new 第 746 列是**資料列**,它的 Title 欄寫著 "every test function ≥ 1
+assert" → 被當成新表頭 → 它自己和後面 9 列全部靜默丟棄。
+
+| | 值 |
+|---|---|
+| ground truth 宣告(unique) | **115** |
+| R73 修復後 parser 讀到 | **105** |
+| 仍然遺失 | **10** |
+
+十個裡 **7 個交付樹沒有 `def`**,含 `test_nfr09_ac3/ac4/ac6/ac7` 與
+`test_nfr10_ac1/ac2/ac3`。其中
+`test_nfr09_ac4_no_ignore_deselect_collect_ignore_testpaths_removal`
+**正是原審計報告 B3 指控的 workaround(`pytest_collection_modifyitems` + `-k`
+deselect)的判準** —— R73 賬本記為「站1 已關閉 B3」,**沒有關閉**。
+
+R73 賬本自己也載著這個矛盾:散文寫「宣告 115」,表格寫「81 → 106」,
+**106 ≠ 115 沒有人問為什麼**(該行已就地標註)。
+
+### 五站
+
+| 站 | 病灶 | 正解 | commit |
+|---|---|---|---|
+| 1 | 表頭用散文關鍵字猜 | 表頭 = 其下一個非空行是分隔列(markdown 自己的定義);命名了測試的列永遠是資料列 | `86b745bc` |
+| 2 | 讀不到的列不留痕跡 | `unread` 出參 + ledger row + MEASUREMENT_SINKS(沿用 R39/R40 的 `_unparsed_files` 形狀) | `20abd207` |
+| 3 | 兩個 parser 一修一漏 | row 層共用述詞 + parity registry(沿用 R8 站1 的 registry 形狀) | `558734d6` |
+| 4 | 空母體報成 clean | `nfr_layering_population` 四態 + `nfr_layering_not_checked`,**不擋** | `d74b2ce7` |
+| 5 | 模板 ≠ prompt ≠ validator | 模板補上 prompt 宣告 REQUIRED 的 `test_inventory:` 區塊 + parity 守衛(沿用 R17 形狀) | `d9cc440b` |
+
+站1 修後九專案:taskq-new 105 → **115**,其餘八個逐字不變,零遺失零誤收。
+spec-coverage 83.02 → 78.45(declared 106→116,implemented 88→91)——
+正確判定,那 7 個測試確實不存在。
+
+站4 修後九專案:5 個跑得動(3 個有 target、renew/super 真的沒有 unit/static
+NFR),4 個現在會說出**為什麼**沒跑(taskq / cc / new 的 NFR 測試在
+`cross_cutting`,那裡沒有 layer 欄;plus 沒有 entry 清單),零個被擋。
+
+### 四次自我糾錯(全部由反證抓到,不是事後補記)
+
+1. **站2 的 `header_skipped` 移除不可觀測。** 反證把它裝回去,8 支測試全綠。
+   所以它被記為「移除一個冗餘合取項」,不是「加了一個機制」。
+2. **站2 的邊界主張是錯的。** 第一版斷言這個機制本來會抓到站1;不會 ——
+   被當成表頭的那一列是**被消費**的,不是 fall-through,而它後面的列在
+   `header_skipped` 拿掉後本來就讀得到。R73 的十列遺失需要**兩個缺陷同時
+   存在**。測試改成陳述這件事。
+3. **站3 的完備性掃描量錯東西。** 第一版找函式碼裡的 `Test Function` 字串
+   —— 而那正是站3 從 bridge **移除**的字串,所以它只找得到沒被修的 reader;
+   反證把 bridge 從 registry 拿掉,測試仍綠。改成掃「會切 markdown 表格
+   儲存格」的函式(修不修都會有),全樹 11 個,4 個是 declaration reader。
+4. **站5 的 unit/static 斷言被 FR 列頂住。** 反證把唯一的 NFR entry 降成
+   integration,斷言仍綠(因為還有一個 unit 層的 FR entry)。改成要求
+   **NFR entry** 在 unit/static。
+
+另有兩處被 repo 自己的守衛擋下:`test_private_patch_ratchet` 拒絕站2 用
+`mock.patch` 抽換私有述詞(改成直接呼叫該述詞,是更好的陳述);
+`test_god_file_split_safety` 擋站4(本 commit 零搬移,regen golden)。
+
+### 明列不做
+
+| 項目 | 理由 | re-open 條件 |
+|---|---|---|
+| 站4 擋下 `[not checked]` | 框架的模板從沒定義過那個 schema(`cross_cutting` / `fr_tests` 都沒有 layer),拿專案沒被要求寫的形狀去擋是 R42「合規的成本由被判定方承擔」 | 站5 的模板出貨後,一個**新**專案(拿到新模板)仍把 NFR 測試寫進無 layer 的區段 |
+| 對既有九專案強制新 schema | `_init_copy_templates` 對已編輯檔案是 PROTECTED;`_entry_test_fn` 仍用內容定位認得四種舊拼法 | 某專案的舊拼法造成判定錯誤而非僅僅少讀 |
+| 合併兩個 parser 的 section 語意 | bridge 認 `### NFR-xx` 為可查詢的 section id,`_parse_test_spec` 把非 FR 標題 slug 化;合併會改變 Gate 1 per-FR cap 計入哪些列 | 有專案的 per-FR cap 因兩者 section 語意不同而算錯 |
+| `_flatten_test_names` 與 `tests:` 的雙向對賬 | 模板現在把 `fr_tests`/`cross_cutting` 定為 `tests:` 的**視圖**並用測試鎖住;生產端要求既有專案兩邊一致會擋住全部九個(taskq-new inventory 50 vs TEST_SPEC 115,而模板明說 inventory 可以是子集) | 一個專案的 `fr_tests` 名字不在 `tests:` 裡,且該名字沒有交付 |
+
+同型參考:[[Round 73]](本輪複核的對象)、Round 8 站1(parity registry)、
+Round 17(prompt↔gate drift)、Round 19(fixture 與規則同源)、
+Round 32/35(讀不到要說出來)、Round 39/40(`_unparsed_files`)、
+Round 42(合規的成本)、Round 43(沒有執行者的檢查是被寫下的)。
+
+---
+
 ## Round 73 — 判準讀不到需求的可判定形式
 
 老闆令:檢視一份對 taskq-new 的外部審計報告,重新驗證每一項扣分的**真實性與
@@ -3844,7 +3958,7 @@ taskq-new 的 TEST_SPEC 宣告 115 個測試,parser 只讀到 81,4b 報 100.0%,
 |---|---|---|
 | taskq-super | 87 → 123 | 100.00 → 70.73 |
 | taskq-api | 86 → 113 | 100.00 → 100.00 |
-| taskq-new | 81 → 106 | 100.00 → 83.02 |
+| taskq-new | 81 → 106 | 100.00 → 83.02 |  ← **106 ≠ 115,見 Round 74 站1**
 | taskq-advance | 89 → 97 | 100.00 → 91.75 |
 | taskq-plus | 93 → 113 | 98.92 → 98.23 |
 | taskq-cc | 118 → 124 | 100.00 → 100.00 |
