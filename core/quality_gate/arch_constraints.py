@@ -90,6 +90,38 @@ STATUS_DECLARED_ONLY = "declared_only"
 #   bandit         runs every test unless the project opts out, so an absent
 #                  config means everything is checked
 #
+# Round 73 站3 — an import-linter candidate must list the contract type its
+# own `requires` names, and there is a guard on it
+# (tests/test_constraint_keywords_speak_the_executor_vocabulary.py). These
+# lists were induced from the strings this corpus happened to use, and the
+# comment above already says why that cannot hold: the strings are
+# project-invented. import-linter has three contract types — `layers`,
+# `forbidden`, `independence` — and only the third was ever a keyword, while
+# SPEC §4 NFR-06 in this corpus says "forbidden contract" and "layers
+# contract" in exactly those words.
+#
+# What that cost, measured on one real constraint declared by five projects
+# ("sqlalchemy may only be imported from the repository layer"):
+#
+#   taskq-api      sqlalchemy_only_in_repository                  enforced
+#   taskq-advance  sqlalchemy_imports_only_in_repository_layer    enforced
+#   taskq-super    sqlalchemy_only_in_repository                  unconfigured
+#   taskq-cc       sqlalchemy imports allowed only in repository  declared_only
+#   taskq-new      sqlalchemy import forbidden outside repository declared_only
+#
+# The last two are wrong in opposite directions — taskq-cc HAS the contract,
+# taskq-new has none and shipped Gate 4 PASS at 94.59 with the ban unenforced.
+# Round 54's own comment cites taskq-super's spelling as the case
+# `unconfigured` exists for; taskq-new wrote the same constraint in different
+# words and was never asked.
+#
+# Singular `layer` is deliberately absent, and that is the harder half.
+# taskq-api declares `single_auth_dependency_at_api_layer`, which no
+# import-linter contract can decide; with `layer` listed it would match this
+# candidate, and taskq-api HAS a layers contract — so the row would read
+# `enforced`. Trading an abstention for a false endorsement is worse than the
+# abstention (Round 72 站4 settled the same trade the other way round).
+#
 # `limits` is not decoration. Station 0 measured bandit on a fixture holding
 # both the direct and the indirect form of each violation: it flags
 # `subprocess(cmd, shell=True)` as B602 but reads `subprocess(cmd, **opts)` as
@@ -100,7 +132,7 @@ STATUS_DECLARED_ONLY = "declared_only"
 CONSTRAINT_EXECUTOR_CANDIDATES: tuple[dict, ...] = (
     {
         "about": "no import cycles between layers",
-        "keywords": ("circular", "cycle", "layering", "layered"),
+        "keywords": ("circular", "cycle", "layering", "layered", "layers"),
         "executor": "import-linter",
         "requires": ("contract", "layers"),
         "limits": "only the modules the contract names",
@@ -109,7 +141,8 @@ CONSTRAINT_EXECUTOR_CANDIDATES: tuple[dict, ...] = (
     },
     {
         "about": "a package may only be imported from one layer",
-        "keywords": ("only_in", "imports_only", "isolation", "restricted_to"),
+        "keywords": ("only_in", "only in", "imports_only", "isolation",
+                     "restricted_to", "forbidden"),
         "executor": "import-linter",
         "requires": ("contract", "forbidden"),
         "limits": "only the modules the contract names",

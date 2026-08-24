@@ -3308,3 +3308,23 @@
 - test: tests/test_zero_skip_rule_reads_the_requirement.py::test_the_rule_reaches_the_verdict_with_a_real_wording
   bug: "end to end through check_srs_mandatory_reconciliation with taskq-new's own sentence: before this station that wording armed nothing, so a suite reporting skips reconciled clean at 100.0"
   fixed_in: "Round 73 站2"
+
+- test: tests/test_constraint_keywords_speak_the_executor_vocabulary.py::test_taskq_new_declared_a_forbidden_contract_and_shipped_none
+  bug: "CONSTRAINT_EXECUTOR_CANDIDATES matched SAB constraint strings against keyword lists induced from the strings this corpus happened to use — and its own comment already says why that cannot hold ('the two trees built from the same SPEC.md share one string out of twelve'). import-linter has three contract types (layers / forbidden / independence) and only `independence` was ever a keyword. taskq-new's `sqlalchemy import forbidden outside repository and models (NFR-06 forbidden contract)` matched nothing, read `declared_only` (the state that is never blocked), and shipped Gate 4 PASS at 94.59 with `.importlinter` carrying no forbidden contract at all — while taskq-super's `sqlalchemy_only_in_repository` for the SAME constraint over the SAME missing config was blocked. Round 54's comment cites taskq-super's spelling as the case `unconfigured` exists for"
+  fixed_in: "Round 73 站3"
+
+- test: tests/test_constraint_keywords_speak_the_executor_vocabulary.py::test_the_same_constraint_with_the_contract_present_is_enforced
+  bug: "`only_in` carries an underscore, so taskq-cc's `sqlalchemy imports allowed only in repository layer` missed the candidate and read `declared_only` while that project DOES ship a forbidden contract — the same keyword gap failing in the opposite direction"
+  fixed_in: "Round 73 站3"
+
+- test: tests/test_constraint_keywords_speak_the_executor_vocabulary.py::test_a_layers_constraint_is_read_as_a_layers_constraint
+  bug: "the layers family missed all ten of its declarations across the corpus: the keywords were `layering` and `layered`, never `layers`, while SPEC §4 NFR-06 says 'layers contract' in exactly those words"
+  fixed_in: "Round 73 站3"
+
+- test: tests/test_constraint_keywords_speak_the_executor_vocabulary.py::test_a_constraint_about_one_layer_is_not_a_layering_contract
+  bug: "the line this station does not cross. Adding singular `layer` recovers a few more matches and makes taskq-api's `single_auth_dependency_at_api_layer` match the layers candidate — and that project HAS a layers contract, which has nothing to say about auth dependencies, so the row would read `enforced`. Trading an abstention for a false endorsement is worse than the abstention. Counter-proved: adding `layer` turns this test red on its own"
+  fixed_in: "Round 73 站3"
+
+- test: tests/test_constraint_keywords_speak_the_executor_vocabulary.py::test_every_import_linter_candidate_names_its_own_contract_type
+  bug: "the invariant, so the next keyword list is not induced from a corpus either: an import-linter candidate declares in `requires` which contract type decides it, and that word is the executor's own vocabulary — the one a project writing the constraint reaches for. A candidate omitting it is matching on what some earlier project happened to call the thing"
+  fixed_in: "Round 73 站3"
