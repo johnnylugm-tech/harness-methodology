@@ -31,6 +31,26 @@ from cli.fr_prompts._shared import (
     _extract_test_spec_names,
 )
 
+# What `tests_failed` means, said once. Both places this prompt mentions the
+# field render from this string.
+#
+# Round 77 站3. Round 76 rewrote the prose block near the bottom of the prompt
+# and left the JSON schema comment above it untouched, so the SAME rendered
+# GATE1 prompt carried both rules twelve lines apart — verified byte-level in
+# tests/golden/fr_prompts/gate1.txt, line 64 against line 76:
+#
+#   "tests_failed": <int>,  // REQUIRED: must be 0 — any failed test blocks…
+#   …sibling-only failures are logged + skipped (their owning FR catches them)
+#
+# An agent reading top-down obeys the first, writes the sibling-inflated
+# summary count, and enters a fix loop on other FRs' tests — the behaviour the
+# commit existed to remove, and one the run's own SCOPE RULES forbid. Round
+# 17's prompt-to-gate drift with both statements inside one prompt.
+TESTS_FAILED_RULE = (
+    "count ONLY this FR's own failing tests (`test_fr<NN>.py`, or a "
+    "`test_fr<NN>_…` name); other FRs' failures are not yours to fix"
+)
+
 # The three things about a dimension that are prose, not config: how to run its
 # tool, what its tool_evidence is a snippet of, and how its output becomes a
 # number. One entry per dimension, so adding a dimension is one edit here and
@@ -57,7 +77,7 @@ GATE1_DIMENSION_PROSE: dict[str, dict[str, str]] = {
         "scoring": "score = min(coverage_pct, spec_cov_pct).",
         "schema_extra": (
             '           "tests_passed": <int>,   // REQUIRED: count from pytest summary line\n'
-            '           "tests_failed": <int>,   // REQUIRED: must be 0 — any failed test blocks the gate\n'
+            f'           "tests_failed": <int>,   // REQUIRED: {TESTS_FAILED_RULE}\n'
             '           "tests_skipped": <int>,  // REQUIRED: count skipped tests\n'
         ),
     },
@@ -258,15 +278,9 @@ def build_gate1_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, te
         f"   CRITICAL: `tool_evidence` is REQUIRED for every dimension.\n"
         f"   If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.\n"
         f"   Score fabrication (writing a score without running the tool) also causes S3 block.\n"
-        f"   CRITICAL: `tests_failed` is THIS FR's failure count — failures in\n"
-        f"   sibling tests (run for shared-source coverage) belong to their\n"
-        f"   owning FR's gate, not this one. Set `tests_failed` = count of FAILED\n"
-        f"   paths whose test file matches `test_fr<NN>*.py` for THIS FR —\n"
-        f"   do NOT use the raw pytest summary count (which includes siblings).\n"
-        f"   Include the FAILED path lines (one per failed test) in tool_evidence\n"
-        f"   before the summary line, so the harness can verify the per-FR scope.\n"
-        f"   finalize-gate blocks when ANY failure is in THIS FR's scope, but\n"
-        f"   sibling-only failures are logged + skipped (their owning FR catches them).\n\n"
+        f"   CRITICAL: `tests_failed` — {TESTS_FAILED_RULE}.\n"
+        f"   finalize-gate runs the suite itself and blocks on what IT measures\n"
+        f"   for this FR, so do not restate the raw pytest summary count here.\n\n"
         f"   Scoring formulas:\n"
         f"{_scoring_lines}\n"
         f"4. Run: `python3 harness_cli.py finalize-gate --gate 1 --phase {phase} "

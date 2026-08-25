@@ -3561,3 +3561,10 @@
   bug: "the ledger row's `source` field and _parse_skip_counts must not disagree about which run answered — readable_run_output is the single predicate both read"
   fixed_in: "Round 77 站6"
 
+- test: tests/test_gate1_prompt_states_one_rule.py::test_every_statement_about_the_field_comes_from_the_one_rule
+  bug: "one rendered GATE1 prompt stated two contradictory rules for tests_failed twelve lines apart — golden gate1.txt line 64 'must be 0 — any failed test blocks the gate' against line 76 'sibling-only failures are logged + skipped'. An agent reading top-down obeys the first and enters a fix loop on other FRs' tests"
+  fixed_in: "Round 77 站3 (both render from cli/fr_prompts/gate.py::TESTS_FAILED_RULE)"
+
+- test: tests/test_gate1_prompt_states_one_rule.py::test_the_prompt_no_longer_tells_the_agent_to_paste_failed_lines
+  bug: "1d111daa told the agent to put the FAILED path lines in tool_evidence, a field the same prompt caps at 500 chars. 20 FAILED lines are 1430 chars, so an obedient agent's evidence fails _validate_tool_content and is reported as tool_evidence_missing, which cli/fr_cmds.py classifies as score fabrication — and the eviction also takes the summary line the gate:test-skips ledger row is parsed from"
+  fixed_in: "Round 77 站3 (S4-B no longer needs the agent's FAILED lines)"
