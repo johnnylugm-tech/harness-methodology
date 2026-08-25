@@ -3778,6 +3778,112 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 77 — 框架自己跑了 pytest,判定去讀 agent 貼的摘錄
+
+老闆令:code review `1d111da`(Round 76)—— 判斷是否為正解、是否引入副作用;
+把值得修復的展開成可執行方案,確認根源(harness bug 還是 workflow JS bug),
+用正解不用 workaround。基線 `0db74f4d`,語料十個專案全程唯讀。
+
+Round 76 **在本賬本裡沒有任何紀錄**,這一節同時補上它的裁決。
+
+### 根源(一句話)
+
+**S4 讓框架自己跑了一次完整 pytest,把輸出寫進
+`.methodology/gate_evidence/test_coverage_harness.txt`;四十行之後的 S4-B
+決定「測試有沒有紅」,讀的是 agent 貼的 500 字摘錄。**
+
+`_run_harness_cross_validation` 對 `test_coverage` 執行 `run_tool("pytest-cov")`
+(gate1_per_fr.yaml 宣告 `requires_tool_execution: true`),而
+`_score_pytest(coverage=True)` 只取 `TOTAL … N%`、**完全不看有幾個 failed**
+—— 所以 S4-B 才需要存在,而它需要的答案就在四十行之上的那個變數裡。
+**R67 / R72 母體:框架算出真值,判定讀別的。** Round 76 沒有製造這個母體,
+它繼承了;它製造的是把繼承來的 regex 從 **fail-closed 變成 fail-open**。
+
+### Round 76 的裁決:診斷成立,實作被本輪取代
+
+診斷對 —— sibling 失敗不該擋健康的 FR(R42;run-all 的 SCOPE RULES 明文禁止
+agent 動別的 FR)。實作不對:`if failed_paths: … return []` 在 `N failed`
+summary 檢查之前,且沒有任何東西對賬兩者。
+
+### 十四項發現,逐項實跑複現,無一被推翻
+
+| # | 發現 | 實測 | 判定 |
+|---|---|---|---|
+| 1 | 一行 FAILED 解出來 → summary 的 20 failed 永遠不檢查 | fr=FR-08 → `[]`(PASS);fr=None → 擋 | 屬實·最嚴重 |
+| 2 | `test_fr7.py` 被判成別人的 | FR-07 自己的紅測試被豁免 | 屬實 |
+| 3 | collection error(`ERROR path`,無 `::`)看不見 | 模組沒 import 成功仍 PASS | 屬實(本 commit 造成的回歸) |
+| 4 | sibling 判定是 denylist,不是框架自己算出的名單 | `tests/integration/…`、`tests/test_nfr09_ac3.py` 被豁免給不存在的 owner | 屬實 |
+| 5 | `fr_pattern in p` 無錨點 | FR-10 被 `test_fr100.py` 擋住並被告知「自己的測試在紅」 | 屬實 |
+| 6 | 框架早有機器可讀的答案 | `test_suite_run.fr_test_outcomes` / `fr_suite_verdict` | 屬實·結構性 |
+| 7 | ratchet 沒抬,main 是紅的 | 4961 > 4914 | 屬實(本輪開始後由 `f893c7ae` 另行修復) |
+| 8 | ANSI / `-v` / `--no-summary` 靜默退回 legacy | 三種全部回到 commit 說修掉的那個誤擋 | 屬實 |
+| 9 | `^FR-(\d+)\s*$` 拒絕非正規拼法 → 靜默退回 | `FR_08`/`FR08`/`FR-08: Login` 全部複現原 bug | 屬實 |
+| 10 | 同一份 prompt 12 行內兩句相反 | `gate1.txt:64` vs `:76` | 屬實·活矛盾 |
+| 11 | 照新 prompt 做的 agent 會被 S3 指控造假 | 20 行 FAILED = 1430 字元;`evidence[:500]` → 2 violations → `tool_evidence_missing` → 「fabricated scores」 | 屬實 |
+| 12 | 豁免只有 `print()`;docstring 說「verify log」是假的;count/sample 不同單位;混合情形零輸出 | `if scoped: return` 在 WARN 之前 | 屬實 |
+| 13 | FAILED 行擠掉 summary → R46 的 `gate:test-skips` 帳本消失 | 完整 `(20, 50)` + 40% WARN;first-500 `None`/`None` | 屬實 |
+| 14 | 「owning FR's GATE1 will catch」前提不成立 | FR 迴圈單向 + `alreadyDone`;S4-B 只在 gate 1 | 屬實 |
+
+另外自己量到兩項 review 未提:Round 76 的兩支新測試**殺不掉 mutant**
+(`test_per_fr_scope_three_digit_fr` 造了唯一一組 summary≠scoped 的輸入,
+兩條斷言哪一條都不看那個數字);十支新測試沒有一支用 `capsys`,
+所以刪掉整個 `if other:` 區塊十支全綠。
+
+### 擁有者:100% harness bug,零 workflow JS bug
+
+`grep -rn "tests_failed" scripts/workflowgen/ .claude/workflows/` 零命中。
+本輪 `.claude/workflows/*.js` 零改動。
+
+### 三個 commit
+
+`646328ac` 站1/2/5/6 —— S4-B 改讀 S4 自己那次 run;`select_fr_outcomes` 抽成
+唯一的歸屬述詞;`failing_nodeids` 與 pytest 自己的 counts 行**對賬**,對不上
+回 `None`(讀不完整 ≠ 沒有失敗);決策搬到 `core/quality_gate/fr_test_scope.py`;
+豁免寫 `gate:out-of-scope-test-failures` 並指名真正的執行者
+`_advance_prechecks`;`tests_failed` 第一次有 reader;skip 數字與 coverage 數字
+第一次來自同一次執行。
+`46e71040` 站3 —— `TESTS_FAILED_RULE` 單源 render;刪掉「把 FAILED 行塞進
+tool_evidence」的指令,發現 11 與 13 在病因層消失。
+`5264ffff` 站4 —— FR→測試檔對照 registry(22 個插值點、10 個檔案、4 種推導)
++ 行為式完備性掃描。
+
+### 明列不做,與 re-open 條件
+
+- **JS/TS 沒有 per-FR scope。** `PER_TEST_OUTCOME_TOOLS` 逐名列出可讀的 runner,
+  vitest/jest 刻意不在其中:框架自己的 JS run 是整套的,拿它去擋等於把本輪
+  正在移除的缺陷原封不動搬給 JS 專案。條件寫在 MEASUREMENT_SINKS 的
+  `reopen_when`。
+- **`cov_utils` / `gate_cmds` / `red_assertion_check` / `property_check` 的
+  四種數字推導不合併。** 實測:對框架自己產得出來的每一個 FR id 全部一致,
+  唯一分歧是 `FR-008`,而 `canonical_form("FR-008")` = `FR-08`,十個語料專案
+  零個這種檔名。改了會動到不存在的檔案,是沒有量測支撐的行為變更 ——
+  登記為潛伏兄弟(R74 慣例),不改。
+- **站5 情形 (a) 不擋。** 「少報 + 真的有紅」全部已被站1 的判定擋掉,(a) 若也擋
+  只會擋到「多報」—— 而多報正是站3 之前的 prompt 教它寫的。同一輪剛拿掉歧義
+  就用它扣分是 R42。re-open:站3 的 prompt 用過幾輪之後這種 row 還在出現。
+
+### 未解問題(誠實記錄)
+
+Round 76 觀察到的那次 FR-08 失敗,**我沒有那次的 artifact**。
+`shared_owner_test_files` 自己的 docstring 說常見情形回 `[]`,所以「20 個
+sibling 失敗」要嘛是 traceability 真有共享模組,要嘛 agent 根本沒照 scoped
+指令跑。本輪的修法對兩種情形都判得對(框架自己量),但那個問題沒有答案。
+
+### 被否決的替代方案
+
+在 S4-B 直接叫 `run_suite()` —— 最乾淨(junitxml、零 regex),但 finalize-gate
+的 memo 是冷的(`cmd_finalize_gate` → `_cmd_finalize_gate_impl` 全路徑無
+`run_suite`),等於每個 FR 的 Gate 1 多跑一次完整 pytest —— 正是 R25 花一整輪
+拿掉的成本(P1–P8 187s→78s)。
+
+### 終局
+
+pytest **7783 passed / 4 skipped**(基線 7749 + ratchet 紅),ruff clean,
+guards 851 → **876**,`.claude/workflows/` 零改動,十個語料專案全程唯讀。
+六次反證逐一轉紅,每個檔案 `cp` 還原後 sha256 逐位元組相同。
+
+---
+
 ## Round 74 — 修好之後只量會動的,不動的當成沒有
 
 老闆令:從 git history 重新完整盤點 Round 73 這一輪的修復,從熱點探討
