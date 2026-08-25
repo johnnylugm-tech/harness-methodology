@@ -57,10 +57,34 @@ if echo "$COMMIT_MSG" | grep -qE '^chore\(harness\):'; then
     exit 0
 fi
 
+# Advance-phase handover commits: state.json::current_phase has already been
+# mutated to the NEXT phase by cmd_advance_phase before the commit lands,
+# so reading PHASE from state.json here would target the entry gate for the
+# phase being entered — which demands phase_completed[N-1] that the SAME
+# cmd_advance_phase call is about to write after the commit lands (the
+# record carries the commit's own SHA, so it must be written post-commit).
+# That chicken-and-egg is the bug Round 72 站1 fixed for cmd_advance_phase
+# internally but never propagated onto this hook path. Detect the commit
+# message pattern (matches the producer at cli/phase_cmds.py:1112 and the
+# other sites that read it: scripts/hooks/pre-push:48,
+# core/doctor_checks/git_state.py:24) and re-route the gate to the phase
+# being entered with `--prev-record-pending` so _verify_entry_gate skips
+# the in-flight phase_completed[N-1] check while still validating the
+# authoritative gate_results.gate{ENTRY_GATE_MAP[N]}.quality_complete.
+NEXT_PHASE=""
+if echo "$COMMIT_MSG" | grep -qE '^handover: advance to Phase [0-9]+$'; then
+    NEXT_PHASE=$(echo "$COMMIT_MSG" | grep -oE '[0-9]+$')
+fi
+
 # Run Quality Gate check
 echo "Running Phase $PHASE Quality Gate check..."
 
-"$PYTHON" "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
+if [ -n "$NEXT_PHASE" ]; then
+    echo "  (advance-phase handover commit for Phase $NEXT_PHASE — phase_completed[$((NEXT_PHASE-1))] is in-flight)"
+    "$PYTHON" "$HARNESS_CLI" pre-commit-check --phase "$NEXT_PHASE" --prev-record-pending --project "$PROJECT_ROOT"
+else
+    "$PYTHON" "$HARNESS_CLI" pre-commit-check --phase "$PHASE" --project "$PROJECT_ROOT"
+fi
 
 RESULT=$?
 

@@ -256,7 +256,17 @@ def cmd_pre_commit_check(args: argparse.Namespace) -> int:
 
     print(f"\n{'='*60}\npre-commit-check: Phase {args.phase}\n{'='*60}")
 
-    entry_gate = _verify_entry_gate(project, args.phase)
+    # Round 73 站1 (mirrors Round 72 站1 cmd_advance_phase fix): when the
+    # prepare-commit-msg hook detected an advance-phase handover commit, it
+    # passed --prev-record-pending. Forward that flag so _verify_entry_gate
+    # skips the phase_completed[N-1] absence/defects check (the record is
+    # being written by the SAME cmd_advance_phase call, post-commit). The
+    # authoritative manifest gate check still runs and still fails if the
+    # underlying gate did not actually pass.
+    entry_gate = _verify_entry_gate(
+        project, args.phase,
+        prev_record_pending=getattr(args, "prev_record_pending", False),
+    )
     if not entry_gate["passed"]:
         print(f"\n[ENTRY GATE FAILED] {entry_gate['gate']} — {entry_gate['reason']}")
         return 10
@@ -4154,6 +4164,15 @@ def register(sub) -> None:
     )
     pcc.add_argument("--phase",   type=int, required=True, help="Phase number (1-8)")
     pcc.add_argument("--project", default=".", help="Project root (default: .)")
+    # Round 73 站1 (mirrors the Round 72 站1 cmd_advance_phase fix): when the
+    # prepare-commit-msg hook detects an advance-phase handover commit
+    # (commit message "handover: advance to Phase N"), pass
+    # --prev-record-pending so _verify_entry_gate skips the
+    # phase_completed[N-1] absence/defects check (the record is written by
+    # cmd_advance_phase AFTER the commit lands, so it carries the commit's
+    # own SHA). The authoritative manifest gate check still runs.
+    pcc.add_argument("--prev-record-pending", action="store_true",
+                     help="Skip phase_completed[phase-1] absence/defects check (advance-phase handover commits only).")
     pcc.set_defaults(func=cmd_pre_commit_check)
 
     # preview-next-phase (Round 15 §2 — read-only, no state/HANDOVER/commit writes)
