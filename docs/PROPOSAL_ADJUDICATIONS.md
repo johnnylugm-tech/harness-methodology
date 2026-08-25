@@ -3778,6 +3778,134 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 78 — 相對路徑、四個原因的 exit code、和量錯樹的守衛
+
+老闆令:複核 Round 76 → Round 77 之間全部 11 個 commit,是否都是正解、
+是否有副作用。基線 `70e95c9b`,語料十專案唯讀。
+
+我自己的 4 個(Round 77)複核無新問題;平行 session 的 7 個查出 **5 個問題,
+1 個活的高風險**。
+
+### 11 個 commit 逐一裁決
+
+| commit | 判定 | 附註 |
+|---|---|---|
+| `0db74f4d` golden 重生 | ✅ 走文件化機制 | 已被 R77 `fd9d5970` 取代 |
+| `f893c7ae` ratchet 4914→4961 | ✅ 該抬 | 獨立 commit,不是同一個(見 F4) |
+| `d5549c3a` Plan E pragma 審計 | ✅ **正解** | 絕對路徑、綁 SSOT、位置對;CI 紅(ratchet);commit message 一句不實 |
+| `c66402d1` ratchet 4130→4200 | ✅ 該抬 | 獨立 commit;留 headroom(見 F3) |
+| `da8e70fd` Plan F phantom 三態 | ⚠️ **診斷與 `ModuleScope` 正解,呼叫點有活 bug** | F1 / F3 |
+| `860b5d32` Plan F 測試 | ❌ **四支呼叫點測試全是字串比對** | CI 紅(ruff E741);F5 |
+| `e35b66b8` `l`→`layer` | ✅ | — |
+| R77 的 4 個 | ✅ | 反證六次全紅、CI 5/5 綠 |
+
+### F1(活,最高)— phantom 檢查讀 CWD 相對路徑
+
+`_discover_modules_at(Path(_src_dir_rel))`,`_src_dir_rel` 是
+`src_dir.relative_to(project)` → 對行程 CWD 解析。九專案雙 CWD 實測:
+
+```
+                cwd==project   cwd!=project        修完
+taskq                 0 pass    9 BLOCK exit 9      0
+taskq-plus            0 pass   23 BLOCK exit 9      0
+taskq-renew           0 pass   23 BLOCK exit 9      0
+taskq-api             0 pass   28 BLOCK exit 9      0
+taskq-advance         0 pass   29 BLOCK exit 9      0
+taskq-super           0 pass   28 BLOCK exit 9      0
+taskq-cc              0 pass   31 BLOCK exit 9      0
+taskq-new             0 pass   45 BLOCK exit 9      0
+run-all-by-workflow   0 pass    9 BLOCK exit 9      0
+```
+
+**根源不是那一行,是一個名字扛了兩個意思**:`discover_modules_at` 要檔案系統
+路徑,`phantom_modules` 要相對前綴。`cli/gate_cmds.py:1053` 有同樣的
+`_src_dir_rel`、註解逐字寫了相對前綴的理由,但它傳給
+`amend_sab(Path(project), src_dir=…)` —— **root 是另一個參數**。
+Plan F 把規則從「root 分開傳」的呼叫點搬到「root 不分開傳」的呼叫點。
+
+**正解已經在 repo 裡**:`sab_amender.discover_modules(project_root, src_dir)`,
+三個生產呼叫點在用。Round 22 / R25 / R20 站2 同類第四次;
+`test_no_hardcoded_paths.py` 抓 `root / "tests"`,抓不到「把絕對路徑
+`.relative_to()` 掉」的反向形狀(全樹 86 處,多數正當,不做 AST lint)。
+
+**liveness 誠實標註**:是否**當下**在誤擋,取決於 sub-agent 執行那個 Bash
+步驟時的實際 CWD,我從這裡觀測不到。已知的是程式碼依賴一個沒有東西保證的前提,
+同函式的兄弟都明寫 `cwd=`,而前提不成立時九個專案全倒。
+
+### F2 — exit 9 有三個 return site,四句陳述說得少
+
+`EX_COVERAGE_100_REQUIRED`(名字)、REGISTRY 描述、`harness_cli.py` docstring
+三句都只描述 coverage;`ERROR_HANDLING.md` 說「two causes」。
+`test_exit_code_registry.py` 只驗「回傳的 code 有登記」,看不見長出新原因。
+
+**不拆 code**:`fault_owner.py:108` 三個原因 owner 都是 PROJECT、remediation
+channel 相同,正是 R25 定的共用條件。要修的是四句陳述,並用「doc 列幾條 ==
+`return 9` 幾處」綁住。
+
+不做:63 個 bare-int exit return(vs 17 個用常數)。獨立一輪。
+
+### F3 — ratchet 數值與它自己的說明不符
+
+`cli/phase_cmds.py` 4320 而註解寫「4130 + 70 = 4200」(101 行未賺 headroom);
+`gate1_evidence.py` 1186→1300 **完全沒加註解**(29 行)。全表 19 entry 實測:
+13 對、2 錯、4 舊格式。守衛 = `Previous + N == ceiling`。
+
+**parser 被自己寫的註解打敗兩次**,兩次都留在守衛的註解裡:新註解在散文裡
+引用了 `"Previous: 1128"`,lazy regex 抓錯;改用 `#` 分段後又發現
+`spec_phase1.py` 的舊條目是用 `. <date>:` 分隔、沒有 `#`,整段被吞。
+最後的規則:**最新條目從自己的日期到下一個日期,取窗內最後一個 `Previous:`**。
+
+### F4 — pre-push hook 量工作樹,CI 量被推的 commit
+
+`scripts/hooks/pre-push:155` 呼叫 `self_check.sh`,**整行沒有 `$_local_sha`**。
+1d111daa→70e95c9b 八個 commit **四個 CI 紅**,每一個的修法都是下一個 commit
+(三次 ratchet、一次 ruff E741),而這些檢查都在 `self_check.sh` 裡 —— 它跑了,
+只是量了另一棵樹。**R44 母體。** 老闆裁示硬擋:工作樹不乾淨就拒絕 push
+(untracked 也算 —— 新的 `tests/test_*.py` 會改變 pytest 收集到的東西)。
+
+不做:`verify-ci`(R37 建的 push 後回饋迴路)**零呼叫者**,workflow JS 與 hook
+全樹零命中。R43 形狀,獨立一站。**re-open 條件**:下一次有人問「為什麼
+push 完才知道 CI 紅」。
+
+### F5 — 四支呼叫點測試全是字串比對
+
+其中一支斷言的是**一句註解**,在 F1 擋住九個專案的整段期間都是綠的;另一支在
+**修好** F1 的那次改名上轉紅。反證直接演示:一個只在註解裡提到那個 audit 的
+函式,**通過** Plan E 兩支舊斷言、**擋掉**兩支新斷言。
+
+`test_unscoreable_is_not_zero.py` 檔頭已經寫過這句話,R64 也吃過一次
+(靠刪註解打敗守衛)。老闆裁示加 ratchet:**AST 計數 47,只減不增**
+(文字掃描會讀成 51 —— 這個模組自己的 docstring 就提了十幾次
+`inspect.getsource`,`test_no_hardcoded_paths.py` 記過同一課)。
+天花板取實測值不留 headroom —— 那正是 F3 的病。
+
+### 六站 + 賬本
+
+`254cc6bd` 站1、`0875a916` 站2、`847f3361` 站3、`bdfde6aa` 站4、
+`8e026aba` 站5/站6。
+
+### 順帶記下,不修
+
+- **Plan F 自己的 fixture 寫 `{"sab": {"layers": …}}`**,`sab_parser.py:321`
+  用 `data.get("sab", data)` 接受這個形狀,`sab_amender._flatten_registered`
+  只讀扁平的。九個語料 SAB 全是扁平、樹裡沒有東西產出巢狀形狀 → 潛伏。
+  **re-open**:任何 producer 開始寫巢狀形狀。
+- **Plan E 的 commit message 說「previously ran only at P4 entry」不實** ——
+  `cli/fr_cmds.py:690` 早就在每次 GATE1 跑,而且會把 PASS 覆寫成 FAIL。
+  範圍從 P4 擴到每次 phase 轉換,語料實測只有 `taskq-mm`(6 處)會被新擋下。
+- **`validate_fr_coverage_immediate` 的 phantom 分支零活影響**:九專案 67 個
+  FR 全部 concrete(phantom 0、no_scope 0)。潛伏修復,不是活傷口。
+- **`cli/phase_cmds.py` 現在正好貼在天花板上**(4204=4204)。下一個動它的人
+  必須在同一個 commit 抬並寫算術 —— 那是規則,也是 F3 的兩個條目被寫下時的規則。
+
+### 終局
+
+pytest 7790 → **7809 passed / 4 skipped**,ruff clean,guards 876 → **899**,
+`.claude/workflows/` 零改動,十個語料專案全程唯讀。
+六次反證逐一轉紅,每個檔案 `cp` 還原後 sha256 逐位元組相同。
+
+---
+
 ## Round 77 — 框架自己跑了 pytest,判定去讀 agent 貼的摘錄
 
 老闆令:code review `1d111da`(Round 76)—— 判斷是否為正解、是否引入副作用;
