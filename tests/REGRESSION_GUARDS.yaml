@@ -3568,3 +3568,23 @@
 - test: tests/test_gate1_prompt_states_one_rule.py::test_the_prompt_no_longer_tells_the_agent_to_paste_failed_lines
   bug: "1d111daa told the agent to put the FAILED path lines in tool_evidence, a field the same prompt caps at 500 chars. 20 FAILED lines are 1430 chars, so an obedient agent's evidence fails _validate_tool_content and is reported as tool_evidence_missing, which cli/fr_cmds.py classifies as score fabrication — and the eviction also takes the summary line the gate:test-skips ledger row is parsed from"
   fixed_in: "Round 77 站3 (S4-B no longer needs the agent's FAILED lines)"
+
+- test: tests/test_fr_test_filename_parity.py::test_every_derivation_agrees_on_every_id_the_framework_can_produce
+  bug: "four different derivations of an FR's test-file number live in the production tree (canonical_form.fr_num_str; an FR-anchored inline zfill in gate_cmds/cov_utils/gate1_evidence; an N?FR- variant in red_assertion_check; a first-digits-anywhere search in property_check) across 22 interpolation sites in 10 files. 1d111daa added a fifth and got three real shapes wrong with it"
+  fixed_in: "Round 77 站4 (registry + parity; the fifth copy was removed by 站1)"
+
+- test: tests/test_fr_test_filename_parity.py::test_the_registry_names_every_site_that_builds_a_test_filename
+  bug: "a sixth copy of the FR->test-file convention could be added with nothing noticing. The scan looks for the BEHAVIOUR (an FR number interpolated straight after the literal test_fr), not for a string one implementation happens to contain — Round 74 站3's third self-correction was a completeness scan that searched for the string it had just removed"
+  fixed_in: "Round 77 站4"
+
+- test: tests/test_fr_test_filename_parity.py::test_the_one_input_they_disagree_on_is_the_one_recorded
+  bug: "the four derivations disagree only on FR-008 (SSOT and property_check say 08; the other two say 008), an id canonical_form never emits — pinned so the 'latent, not live' label cannot rot into a claim nobody checks"
+  fixed_in: "Round 77 站4"
+
+- test: tests/test_fr_test_filename_parity.py::test_the_ssot_filename_and_the_ownership_predicate_agree
+  bug: "S4-B's verdict depends on the file the framework tells a project to create being the same file it recognises as that FR's — fr_id_to_test_filename against select_fr_outcomes, for every FR id canonical_form can produce"
+  fixed_in: "Round 77 站4"
+
+- test: tests/test_fr_test_filename_parity.py::test_the_tdd_precheck_finds_both_spellings_it_documents
+  bug: "cli/gate_cmds.py promises 'Accepts test_fr07.py or test_fr7.py naming'; the padded-only pattern 1d111daa wrote for S4-B waived FR-07's own red test as somebody else's"
+  fixed_in: "Round 77 站4"
