@@ -280,6 +280,7 @@
     "pre-commit-check": [
       "--help",
       "--phase",
+      "--prev-record-pending",
       "--project",
       "-h"
     ],
