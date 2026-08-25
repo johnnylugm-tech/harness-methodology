@@ -151,6 +151,44 @@ if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/sc
     # because a consuming project has neither this suite nor a reason to run
     # it. Of the last 25 CI runs here 12 were red, and 6 of the 9 with
     # retrievable logs failed a deterministic check this would have caught.
+    # Round 78 站4: self_check measures the WORKING TREE. CI measures the
+    # commit being pushed. When those differ, a green verdict here says
+    # nothing about what the build will compile — commit A red, fix it on
+    # disk without committing, push A: this hook passes and CI fails.
+    #
+    # Not hypothetical. Of the eight commits pushed between 1d111daa and
+    # 70e95c9b, four were red on CI and every one was repaired by the NEXT
+    # commit: 1d111daa and 0db74f4d on the file-size ratchet (fixed by
+    # f893c7ae), d5549c3a on the same ratchet (fixed by c66402d1), 860b5d32
+    # on ruff E741 (fixed by e35b66b8). Every one of those checks runs in
+    # seconds and is in self_check.sh — which this hook had already run and
+    # passed, against a tree that was not the one going out.
+    #
+    # Round 44's shape: the judged tree is not the recorded tree. The
+    # cheapest true statement is that they must be the same tree, so a dirty
+    # working tree is refused rather than measured. Untracked files count:
+    # a new tests/test_*.py changes what the suite collects.
+    _DIRTY=$(git status --porcelain 2>/dev/null)
+    if [ -n "$_DIRTY" ]; then
+        echo ""
+        echo "=============================================="
+        echo "PRE-PUSH BLOCKED: working tree is not the tree being pushed"
+        echo "=============================================="
+        echo "self-check measures what is on disk; CI measures the commit you"
+        echo "are pushing. They differ right now, so a green self-check here"
+        echo "would not describe the build CI is about to run:"
+        echo ""
+        echo "$_DIRTY" | head -10 | sed 's/^/  /'
+        _DIRTY_N=$(echo "$_DIRTY" | wc -l | tr -d ' ')
+        if [ "$_DIRTY_N" -gt 10 ]; then
+            echo "  ... and $((_DIRTY_N - 10)) more"
+        fi
+        echo ""
+        echo "Commit the work (git add <paths> && git commit), or set it aside"
+        echo "(git stash -u), then push again."
+        exit 1
+    fi
+
     if [ -x "$PROJECT_ROOT/scripts/self_check.sh" ]; then
         "$PROJECT_ROOT/scripts/self_check.sh" || {
             echo ""

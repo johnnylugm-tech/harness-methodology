@@ -3644,3 +3644,19 @@
 - test: tests/test_file_size_ratchet.py::test_the_arithmetic_check_would_have_caught_the_two_it_was_written_for
   bug: "negative space for the note parser: it must reject the two shapes measured on da8e70fd, read only the NEWEST entry, and tolerate a note quoting an older `Previous:` in its prose — the entry this station added does exactly that, and the parser's first draft misread it"
   fixed_in: "Round 78 站3"
+
+- test: tests/test_pre_push_measures_the_pushed_tree.py::test_an_uncommitted_edit_to_a_tracked_file_blocks_the_push
+  bug: "scripts/hooks/pre-push ran scripts/self_check.sh against the WORKING TREE while CI measures the commit being pushed — the invocation contained no reference to $_local_sha. Commit A red, fix it on disk without committing, push A: the hook passes and CI fails. Four of the eight commits between 1d111daa and 70e95c9b were red on CI and every repair was the NEXT commit (1d111daa/0db74f4d/d5549c3a on the ratchet, 860b5d32 on ruff E741), all checks self_check.sh already runs"
+  fixed_in: "Round 78 站4"
+
+- test: tests/test_pre_push_measures_the_pushed_tree.py::test_an_untracked_test_file_blocks_the_push_too
+  bug: "`git diff HEAD` would call an untracked tests/test_*.py clean, but it changes what pytest collects — so self_check's verdict on the working tree is still not a verdict on the commit"
+  fixed_in: "Round 78 站4"
+
+- test: tests/test_pre_push_measures_the_pushed_tree.py::test_a_clean_tree_reaches_the_self_check
+  bug: "positive control — without it a hook that blocks every push would satisfy the other tests and stop all work"
+  fixed_in: "Round 78 站4"
+
+- test: tests/test_pre_push_measures_the_pushed_tree.py::test_the_block_tells_the_operator_both_ways_out
+  bug: "Round 48: a halt names its owner and its remedy. A push refused with no way forward is a guard that gets disabled instead of satisfied"
+  fixed_in: "Round 78 站4"
