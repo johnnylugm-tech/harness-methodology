@@ -44,7 +44,8 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     5   Gate 4 prerequisites block (A2/A3/A5 schema, B2 score files)
     6   finalize-gate: gate passed but git commit did not land (manifest rolled back) — fix and re-run
     8   Missing deliverables block — required artifacts not found on disk or not git-tracked
-    9   advance-phase: 100% coverage required on 03-development/src not met
+    9   advance-phase source gate: red suite / coverage < 100%, non-allowlist
+        pragma, or a SAB module missing from disk — the [BLOCKED] line says which
     10  PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline
     11  Phase Truth < 90% (HR-11); fix and re-run with --phase-from N
     12  advance-phase precondition block — phase_truth_passed missing OR SAB

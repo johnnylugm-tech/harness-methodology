@@ -34,7 +34,15 @@ EX_GAP_ANALYSIS_CRITICAL = 2
 EX_GATE4_PREREQ_BLOCK = 5
 EX_FINALIZE_COMMIT_NOT_LANDED = 6
 EX_MISSING_DELIVERABLES = 8
-EX_COVERAGE_100_REQUIRED = 9
+# Round 78 站2: was EX_COVERAGE_100_REQUIRED. Plan E and Plan F each added a
+# `return 9` for a failure that is not a coverage shortfall — a non-allowlist
+# `# pragma: no cover`, and a SAB module declared but absent from the tree —
+# and the name kept describing only the first of the three. The code is not
+# split: `core/fault_owner.py` gives all three the same owner (PROJECT) and
+# the remediation channel is the same (the project changes its own tree),
+# which is the condition Round 25 set for sharing a number. What was wrong
+# was every sentence about it.
+EX_ADVANCE_SOURCE_GATE = 9
 EX_PAUSE_AWAIT_EVAL = 10
 EX_PHASE_TRUTH_LOW = 11
 EX_ADVANCE_PRECONDITION_BLOCK = 12
@@ -78,7 +86,7 @@ REGISTRY: dict[int, str] = {
     EX_GATE4_PREREQ_BLOCK: "Gate 4 prerequisites block (A2/A3/A5 schema, B2 score files)",
     EX_FINALIZE_COMMIT_NOT_LANDED: "finalize-gate: gate passed but git commit did not land (manifest rolled back) — fix and re-run",
     EX_MISSING_DELIVERABLES: "Missing deliverables block — required artifacts not found on disk or not git-tracked",
-    EX_COVERAGE_100_REQUIRED: "advance-phase: 100% coverage required on 03-development/src not met (TDD-governed source)",
+    EX_ADVANCE_SOURCE_GATE: "advance-phase: the delivered source failed one of three gates, and the [BLOCKED] first line says which — 'TDD test/coverage failure' (a red suite, or coverage below 100% on TDD-governed source), 'Non-allowlist `# pragma: no cover` found' (Plan E), or 'Phantom modules declared in SAB but missing from disk' (Plan F). Same owner and same remediation channel in all three: change the project's own tree",
     EX_PAUSE_AWAIT_EVAL: "PAUSE — Claude must evaluate gate; run finalize-gate then re-run pipeline",
     EX_PHASE_TRUTH_LOW: "Phase Truth < 90% (HR-11); fix and re-run with --phase-from N",
     EX_ADVANCE_PRECONDITION_BLOCK: "advance-phase precondition block — phase_truth_passed missing OR SAB architecture violation (see printed message)",

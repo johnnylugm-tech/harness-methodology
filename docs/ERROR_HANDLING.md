@@ -242,14 +242,31 @@ raise — it renders with a "no remediation registered, file with crash-triage"
 banner, because turning a gate block into a harness crash on the one path
 where the agent most needs information is strictly worse.
 
-## Exit 9 has two causes, and the message says which (Round 25)
+## Exit 9 has three causes, and the message says which (Round 25, Round 78)
 
-`_advance_prechecks` returns 9 for a test/coverage shortfall. Until Round 25
-that verdict was rendered by pytest itself (`--cov-fail-under=100`), so a red
-suite and a green suite at 99.9% produced the same nonzero exit and the same
-message. The comparison is now explicit, against the exact coverage percentage
-from the shared suite run, and the `[BLOCKED] TDD test/coverage failure` block
-names which of the two happened:
+`_advance_prechecks` returns 9 when the delivered source fails one of three
+gates. Each one prints a different `[BLOCKED]` first line, and that line is
+how a reader tells them apart:
+
+<!-- exit-9-causes: one line per `return 9` site in cli/. Bound to the code by
+     tests/test_exit_9_causes_are_all_written_down.py — adding a fourth site
+     without a line here fails that test. -->
+```
+[BLOCKED] TDD test/coverage failure.
+[BLOCKED] Non-allowlist `# pragma: no cover` found
+[BLOCKED] Phantom modules declared in SAB but missing from disk
+```
+
+**Why they share a number.** `core/fault_owner.py` gives all three the same
+owner (`PROJECT`) and the remediation channel is the same — the project
+changes its own tree. That is the condition for sharing a code; the message
+carries the difference.
+
+**Round 25, the first cause's own two sub-cases.** Until Round 25 that verdict
+was rendered by pytest itself (`--cov-fail-under=100`), so a red suite and a
+green suite at 99.9% produced the same nonzero exit and the same message. The
+comparison is now explicit, against the exact coverage percentage from the
+shared suite run, and the block names which of the two happened:
 
 ```
 [BLOCKED] TDD test/coverage failure.
@@ -258,9 +275,17 @@ names which of the two happened:
 ```
 
 The pytest output itself is printed immediately above, so the failing test
-names are in front of the agent either way. Same exit code, because the
-remediation channel is the same (fix the project's tests); different first
-line, because the two are not the same problem.
+names are in front of the agent either way.
+
+**Round 78, why this section is dated twice.** Plan E (`d5549c3a`) and Plan F
+(`da8e70fd`) each added a `return 9` for a failure that is not a coverage
+shortfall, and neither touched a sentence about it: this heading still read
+"two causes", the registry entry still read "100% coverage required … not
+met", and the constant was still called `EX_COVERAGE_100_REQUIRED`. Three
+statements about one number, all describing a third of it. The number is not
+split — the owner and the channel really are shared — but the sentences are
+now bound to the code by a test, because remembering to update them is what
+failed.
 
 ## A dispatch's error_class, and what each one routes to (Round 26)
 
@@ -443,13 +468,14 @@ exactly. Read the registry directly rather than trusting a copy here — a
 hand-duplicated list is exactly the kind of drift this round exists to
 close.
 
-Four numbers are deliberately overloaded — `12`, `17`, `18`, `19` each mean
-two unrelated preconditions depending on which one fired. This is
-documented as a known inconsistency in the registry module's own
-docstring rather than renumbered: renumbering is a larger
-compatibility-risk change than a documentation pass, and every site also
-prints an identifying `[BLOCKED]`/`[FATAL]` message, so the exit code alone
-was never the only signal a caller has.
+Five numbers are deliberately overloaded — `12`, `17`, `18`, `19` each mean
+two unrelated preconditions depending on which one fired, and `9` means three
+(see §"Exit 9 has three causes" above, which is where its enumeration lives —
+one statement, not a second copy here). This is documented as a known
+inconsistency in the registry module's own docstring rather than renumbered:
+renumbering is a larger compatibility-risk change than a documentation pass,
+and every site also prints an identifying `[BLOCKED]`/`[FATAL]` message, so
+the exit code alone was never the only signal a caller has.
 
 ### Round 44: exit 38, and a one-time re-verify
 

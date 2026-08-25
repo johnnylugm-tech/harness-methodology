@@ -3612,3 +3612,23 @@
 - test: tests/test_advance_phase_phantom_module_audit.py::test_advance_prechecks_runs_the_phantom_audit_before_the_slow_stages
   bug: "the call-site test asserted `\"phantom_modules\" in src` and `\"Plan F (Round 50+): early phantom module check\" in src` — a substring and a COMMENT. The comment assertion stayed green through the entire period the check was blocking all nine corpus projects, and the substring one went red on a rename that FIXED the behaviour. Replaced with an ast.Call lookup plus a position check anchored on the ruff stage's argv"
   fixed_in: "Round 78 站1/站5"
+
+- test: tests/test_exit_9_causes_are_all_written_down.py::test_the_documented_causes_are_as_many_as_the_return_sites
+  bug: "Plan E (d5549c3a) and Plan F (da8e70fd) each added a `return 9` for a failure that is not a coverage shortfall, and neither touched any sentence about the number. docs/ERROR_HANDLING.md still read 'Exit 9 has two causes' when there were three"
+  fixed_in: "Round 78 站2"
+
+- test: tests/test_exit_9_causes_are_all_written_down.py::test_each_documented_cause_is_a_message_the_code_actually_prints
+  bug: "enumerating causes is worth nothing if the strings are invented — each documented [BLOCKED] first line must be a literal cli/phase_cmds.py actually prints (read off the AST, because the messages are f-strings split over three source lines and a grep finds only the first fragment)"
+  fixed_in: "Round 78 站2"
+
+- test: tests/test_exit_9_causes_are_all_written_down.py::test_the_registry_description_no_longer_names_only_coverage
+  bug: "cli/exit_codes.py's REGISTRY description for 9 read '100% coverage required ... not met' while the code returned 9 for three unrelated gates. That string renders into harness_cli.py's docstring AND docs/ERROR_HANDLING.md's exit-code table (the module header says so), so one stale sentence was wrong in three places"
+  fixed_in: "Round 78 站2"
+
+- test: tests/test_exit_9_causes_are_all_written_down.py::test_the_constant_is_not_named_after_one_of_its_three_causes
+  bug: "EX_COVERAGE_100_REQUIRED had been a false name since Plan E — a name is a statement, and this one described a third of the number"
+  fixed_in: "Round 78 站2 (renamed EX_ADVANCE_SOURCE_GATE)"
+
+- test: tests/test_exit_9_causes_are_all_written_down.py::test_the_overloaded_list_in_the_doc_includes_this_code
+  bug: "docs/ERROR_HANDLING.md's exit-code section listed 12/17/18/19 as the deliberately overloaded numbers; 9 became a fifth and the list still said four"
+  fixed_in: "Round 78 站2"
