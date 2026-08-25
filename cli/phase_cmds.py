@@ -3050,11 +3050,50 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             sc_thresh = 60.0
 
         # 1. pytest + 100% coverage on TDD-governed source
-        from core.phase_hooks import PRAGMA_NO_COVER_ALLOWLIST, PRAGMA_NO_COVER_GUIDANCE
+        from core.phase_hooks import (
+            PRAGMA_NO_COVER_ALLOWLIST,
+            PRAGMA_NO_COVER_GUIDANCE,
+            _audit_pragma_no_cover,  # Plan E: early pragma audit before coverage gate
+        )
         from core.quality_gate.test_suite_run import run_suite
         _layout = ProjectLayout(project)
         src_dir = _layout.active_src_dir
         if src_dir.is_dir():
+            # ── Plan E (Round 50+): early pragma audit ───────────────────
+            # Detect non-allowlist `# pragma: no cover` BEFORE coverage/lint/
+            # type. Closes the d0b3b9a → 476427d oscillation deterministically
+            # (a commit that adds non-allowlist pragma can no longer pass the
+            # coverage gate with synthetic coverage; it fails here first).
+            # Why audit not a dispatch loop: auto_fix 13 strategies retired in
+            # Round 48 because LLM-written tests silently passed. A
+            # deterministic grep-based reject preserves the
+            # human-in-the-loop contract and avoids the retry-LLM surface.
+            _pragma_findings = _audit_pragma_no_cover([str(src_dir)])
+            if _pragma_findings:
+                _proj_root = str(project)
+                for _pf in _pragma_findings:
+                    _raw = _pf["file"]
+                    if _raw.startswith(_proj_root):
+                        _pf["file"] = _raw[len(_proj_root):].lstrip("/")
+                print(
+                    f"\n[BLOCKED] Non-allowlist `# pragma: no cover` found "
+                    f"({len(_pragma_findings)} occurrence(s)) before "
+                    f"advance-phase commit."
+                )
+                for _pf in _pragma_findings[:10]:
+                    print(f"  - {_pf['file']}:{_pf['line']}")
+                if len(_pragma_findings) > 10:
+                    print(f"  ... and {len(_pragma_findings) - 10} more")
+                print(f"  {PRAGMA_NO_COVER_GUIDANCE}")
+                print(
+                    "  Allowed pragma exemptions: "
+                    + ", ".join(PRAGMA_NO_COVER_ALLOWLIST)
+                )
+                # exit 9 reserved for the coverage-gate series
+                # (test / coverage / pragma) — keeps ops routing consistent
+                # with the existing 100% coverage BLOCK.
+                return 9
+
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):
                 _rf_r = subprocess.run(["ruff", "check", ".", "--extend-ignore", "RUF001,RUF002,RUF003"], cwd=str(project))
