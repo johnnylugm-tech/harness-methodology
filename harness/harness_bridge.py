@@ -1500,66 +1500,75 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
 # S4-B: Failed-tests assertion
 # ---------------------------------------------------------------------------
 
-def _check_tests_failed(raw: dict, fr_id: "str | None" = None) -> list[str]:
-    """S4-B: Verify no tests failed in THIS FR's scope (per-FR gate scoping).
+def _check_tests_failed(
+    raw: dict, fr_id: "str | None" = None,
+    *, framework_run: "tuple[str, str, int] | None" = None,
+) -> list[str]:
+    """S4-B: Verify none of THIS FR's own tests are red.
 
-    S4 cross-validates coverage *percentage* but does not check whether any
-    tests actually failed. A gate cannot pass when *this FR's own* tests are
-    red — even if coverage stays above threshold (e.g. 432 pass + 5 fail,
-    coverage 91%).
+    S4 cross-validates the coverage *percentage* — `_score_pytest(coverage=True)`
+    reads `TOTAL … N%` and never looks at how many tests failed — so a gate
+    could pass at 91% coverage with 5 red tests. That is what this check is for.
 
-    The per-FR scoped pytest run (see ``cli/gate_cmds.py:_print_fr_scoped_overrides_python``)
-    intentionally includes sibling tests for shared source files via
-    ``shared_owner_test_files``. Failures in those sibling tests are the
-    OWNING FR's gate concern, not this FR's — they will be caught when that
-    owning FR runs its own GATE1. Counting them here would block healthy
-    FRs on other FRs' bugs, which is what this round's bug fix removes.
+    Round 77 站1: it asks the run S4 just performed. S4 executes `pytest-cov`
+    itself (gate1_per_fr.yaml declares `requires_tool_execution: true` for
+    test_coverage) and holds the full output; until this round S4-B decided the
+    same question by regex over the agent's 500-character `tool_evidence`
+    excerpt forty lines later. Round 67 / Round 72's mother pattern: the
+    framework computed the truth and the verdict read somewhere else.
 
-    When ``fr_id`` is provided, this check parses the pytest ``FAILED``
-    paths from ``tool_evidence`` and counts only failures whose test path
-    matches this FR's test file convention (``test_frNN*``). Sibling failures
-    are noted in the verify log so an operator can find them, but do not
-    block this gate. When ``fr_id`` is None (legacy callers without FR
-    context, or evidence without parseable ``FAILED`` paths), the previous
-    behaviour is preserved: any failed test blocks.
+    Three cases, and none of them treats unreadable output as clean:
+
+    (a) the harness ran a pytest-family tool and its short summary reconciles
+        with its own counts line — the verdict is the framework's, scoped by
+        `test_suite_run.select_fr_outcomes` (the same predicate `fr_suite_verdict`
+        uses for TDD-GREEN, so the convention has one implementation). The
+        agent's `tool_evidence` does not enter into it.
+    (b) the harness ran a test tool whose per-test outcomes it cannot read —
+        a JS runner, or pytest output it could not reconcile.
+    (c) the harness did not run the tool (the agent self-reported below
+        threshold, so S4 skipped it).
+
+    (b) and (c) keep the pre-Round-76 rule unchanged: any `N failed` in the
+    agent's evidence blocks. That rule is fail-closed, and deliberately not
+    replaced with the framework's own whole-suite output for JS — a JS run is
+    not per-FR scoped, so blocking on it would hand JS projects the exact
+    defect this round removes from Python ones. Round 77 站5 adds the agent's
+    own `tests_failed` to that branch: where the framework cannot see, a
+    self-declared failure is an admission, and until this round the one field
+    the prompt calls REQUIRED had no reader anywhere in the tree.
 
     Returns list of violation messages (empty = all clear).
     """
+    from core.quality_gate.fr_test_scope import (
+        declared_tests_failed,
+        scoped_test_failures,
+    )
+
+    scoped = scoped_test_failures(fr_id, framework_run)
+    if scoped is not None:
+        mine = scoped[0]
+        if mine:
+            return [
+                f"test_coverage: {len(mine)} of {str(fr_id).strip()}'s own "
+                f"test(s) FAILED in the harness's own run — gate cannot pass "
+                f"while they are red: {', '.join(sorted(mine))}"
+            ]
+        return []
+
+    _declared = declared_tests_failed(raw)
+    if _declared:
+        return [
+            f"test_coverage: the result declares tests_failed={_declared} and "
+            f"the harness could not measure this FR's tests itself — a gate "
+            f"cannot pass on a self-reported red suite. Fix the failures, or "
+            f"cite a run the harness can read."
+        ]
+
     breakdown = raw.get("breakdown", {})
     evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
     if not evidence:
         return []  # S3 already blocks on missing evidence
-
-    if fr_id:
-        m = re.match(r"^FR-(\d+)\s*$", str(fr_id).strip(), re.IGNORECASE)
-        if m:
-            fr_num = m.group(1)
-            fr_pattern = f"test_fr{int(fr_num):02d}"
-            # pytest format: "FAILED tests/test_fr08.py::test_name - error"
-            failed_paths = re.findall(r"FAILED\s+(\S+?)::", evidence)
-            if failed_paths:
-                scoped = [p for p in failed_paths if fr_pattern in p]
-                other = [p for p in failed_paths if fr_pattern not in p]
-                if scoped:
-                    return [
-                        f"test_coverage: {len(scoped)} {fr_pattern}* test(s) FAILED — "
-                        f"gate cannot pass with {fr_id}'s own tests failing. "
-                        f"Fix the failures before re-submitting."
-                    ]
-                # Sibling failures: visible in the verify log so an operator can
-                # trace them, but NOT blocking this FR's gate. The owning FR's
-                # GATE1 will catch the real failure on its own pass.
-                if other:
-                    sample = ", ".join(sorted(set(other))[:3])
-                    print(
-                        f"[WARN] {fr_id} GATE1: {len(other)} sibling test(s) "
-                        f"failed ({sample}) — owning FRs' gates will catch; "
-                        f"not blocking this FR."
-                    )
-                return []
-            # No parseable FAILED paths in evidence — fall through to legacy
-            # behaviour. (Happens when tool_evidence is the truncated summary
-            # line only; the agent should include FAILED paths per the prompt.)
 
     m = re.search(r"(\d+)\s+failed", evidence)
     if m and int(m.group(1)) > 0:
@@ -1571,16 +1580,39 @@ def _check_tests_failed(raw: dict, fr_id: "str | None" = None) -> list[str]:
     return []
 
 
-def _parse_skip_counts(raw: dict) -> "tuple[int, int] | None":
-    """`(skipped, total)` from the test_coverage evidence, or None.
+def _parse_skip_counts(
+    raw: dict, framework_run: "tuple[str, str, int] | None" = None,
+) -> "tuple[int, int] | None":
+    """`(skipped, total)` from the framework's own run, else from the evidence.
 
     One parse, two readers: the ratio WARN below and the ledger row at the
     finalize call site. Round 46 站2 split them apart because they answer
     different questions — "is coverage computed from a subset?" has a ratio
     threshold, "did any test not run?" does not.
+
+    Round 77 站6: when S4 ran a test tool itself, that run is the source. The
+    coverage number this ratio qualifies already comes from it —
+    `_score_pytest` reads `TOTAL … N%` out of the same stdout — so numerator
+    and denominator now come from one execution rather than two (Round 37 /
+    Round 42: the denominator travels with the number). The scope changes
+    with the source: the framework's run is the whole suite, the agent's
+    excerpt was its per-FR scoped run, and the ledger row records which one
+    it read.
+
+    It also removes a way the row could vanish. Round 76 told the agent to put
+    the FAILED lines in `tool_evidence` "before the summary line", inside a
+    field the same prompt caps at 500 characters; measured, that evicts
+    `N passed / N skipped` entirely and this function returns None — so the
+    `gate:test-skips` row disappeared for exactly the FRs that had failing
+    tests. Round 77 站3 removed the instruction; this removes the dependency.
     """
-    breakdown = raw.get("breakdown", {})
-    evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
+    from core.quality_gate.fr_test_scope import readable_run_output
+
+    evidence = readable_run_output(framework_run)
+    if not evidence:
+        breakdown = raw.get("breakdown", {})
+        evidence = str(
+            breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
     if not evidence:
         return None
     passed_m = re.search(r"(\d+)\s+passed", evidence)
@@ -1593,7 +1625,10 @@ def _parse_skip_counts(raw: dict) -> "tuple[int, int] | None":
     return (skipped, total) if total else None
 
 
-def _check_test_skip_ratio(raw: dict, threshold: float = 0.10) -> str | None:
+def _check_test_skip_ratio(
+    raw: dict, threshold: float = 0.10,
+    framework_run: "tuple[str, str, int] | None" = None,
+) -> str | None:
     """W1: Warn when a high fraction of tests are skipped.
 
     Skipped tests contribute 0 coverage lines.  A skip ratio above *threshold*
@@ -1613,7 +1648,7 @@ def _check_test_skip_ratio(raw: dict, threshold: float = 0.10) -> str | None:
 
     Returns a warning string, or ``None`` if the skip ratio is within threshold.
     """
-    counts = _parse_skip_counts(raw)
+    counts = _parse_skip_counts(raw, framework_run)
     if counts is None:
         return None
     skipped, total = counts
@@ -1884,8 +1919,20 @@ def _verify_system_reach_block(ctx: "GateContext") -> list[str]:
 
 def _run_harness_cross_validation(
     ctx: "GateContext", raw: dict,
+    tool_runs: "dict[str, tuple[str, str, int]] | None" = None,
 ) -> "tuple[list[str], list[str]]":
     """S4: Run tools independently and cross-validate agent-reported scores.
+
+    `tool_runs` is an out-parameter (same shape as Round 74 站2's
+    `_parse_test_spec(spec_path, unread=None)`): when given, each dimension
+    the harness actually executed is recorded as
+    ``dim_name -> (tool, output, returncode)``. Nothing here reads it. It
+    exists so that a later check in the same finalize can be decided from the
+    run THIS function performed, instead of from the excerpt the agent pasted
+    — see `_check_tests_failed` (Round 77 站1), which was deciding "are this
+    FR's tests red?" by regex over `tool_evidence` while the answer sat in
+    `output` forty lines above it.
+
 
     For each Tier 1/2 dimension with requires_tool_execution:true, the harness
     executes the tool itself (via harness.tool_runners), computes a score, and
@@ -2045,6 +2092,8 @@ def _run_harness_cross_validation(
             continue
 
         output, returncode = run_tool(tool, ctx.project_root)
+        if tool_runs is not None:
+            tool_runs[dim_name] = (tool, output, returncode)
 
         # Write audit trail regardless of outcome
         audit_file = verification_dir / f"{dim_name}_harness.txt"
@@ -3620,7 +3669,11 @@ class HarnessBridge:
         # blocked with a fabrication violation.
         # Slow tools (mutmut, scancode) are skipped here; S3-A covers them.
         print("\n[S4] Running harness cross-validation...")
-        _s4_fabrication, _s4_unverifiable = _run_harness_cross_validation(ctx, raw)
+        # Round 77 站1: the runs S4 performs are kept so S4-B below can be
+        # decided from them rather than from the agent's pasted excerpt.
+        _s4_tool_runs: "dict[str, tuple[str, str, int]]" = {}
+        _s4_fabrication, _s4_unverifiable = _run_harness_cross_validation(
+            ctx, raw, _s4_tool_runs)
         if _s4_fabrication or _s4_unverifiable:
             _s4_details = s4_block_details(_s4_fabrication, _s4_unverifiable)
             raise GateBlockedError(
@@ -3676,14 +3729,42 @@ class HarnessBridge:
             )
 
         # ── S4-B: Failed-tests assertion (Gate 1 only) ───────────────────────
-        # S4 validates coverage % but not whether tests are red.  Parse
-        # tool_evidence for "N failed" and block immediately — a passing
+        # S4 validates coverage % but not whether tests are red — a passing
         # coverage score with failing tests is always a fabrication signal.
-        # Per-FR scoped (Round 76): only failures in this FR's own test file
-        # block; sibling failures from shared-source co-owners are the
-        # owning FR's gate concern, not this one.
+        # Round 77 站1: the subject is the run S4 just made (`_s4_tool_runs`),
+        # scoped to this FR by the framework's own per-test-ownership
+        # predicate. Round 76 scoped it too, but by regex over the agent's
+        # `tool_evidence`, where one recognisable FAILED line waived every
+        # failure the regex could not see.
         if ctx.gate_num == 1:
-            _s4b_violations = _check_tests_failed(raw, fr_id=ctx.fr_id)
+            _s4b_run = _s4_tool_runs.get("test_coverage")
+
+            # ── Round 77 站2: the waiver leaves a record ─────────────────────
+            # Called BEFORE the block below, so the mixed case (this FR red
+            # AND others red) still names the others — Round 76's `if scoped:
+            # return` returned first and they left no trace at all. The
+            # decision, and why it is a record rather than a block, is
+            # core/quality_gate/fr_test_scope.py.
+            from core.quality_gate.fr_test_scope import (
+                readable_run_output,
+                record_measured_tests_failed,
+                record_waived_test_failures,
+            )
+            record_waived_test_failures(
+                ctx.project_root, ctx.fr_id, ctx.phase, _s4b_run)
+
+            # ── Round 77 站5: the declared field gets a reader ────────────────
+            # `tests_failed` has been REQUIRED in the GATE1 prompt since it was
+            # written, and nothing in the tree read it. The framework's own
+            # count is written into `raw` here, which
+            # `build_persisted_gate_result` merges into the committed
+            # artifact; where it cannot measure, `_check_tests_failed` blocks
+            # on the agent's own declaration instead.
+            record_measured_tests_failed(
+                raw, ctx.fr_id, ctx.phase, _s4b_run, ctx.project_root)
+
+            _s4b_violations = _check_tests_failed(
+                raw, fr_id=ctx.fr_id, framework_run=_s4b_run)
             if _s4b_violations:
                 raise GateBlockedError(
                     ctx.gate_num,
@@ -3702,7 +3783,7 @@ class HarnessBridge:
             # ── W1: High skip-ratio warning (non-blocking) ───────────────────
             # Skipped tests contribute 0 coverage lines.  High skip ratio means
             # coverage is measured on a subset of the suite — flag for review.
-            _skip_warn = _check_test_skip_ratio(raw)
+            _skip_warn = _check_test_skip_ratio(raw, framework_run=_s4b_run)
             if _skip_warn:
                 print(_skip_warn)
             # Round 46 站2: the WARN above is printed and gone. Every skip gets
@@ -3711,7 +3792,13 @@ class HarnessBridge:
             # traceability dimension), but so that "how many tests did not run
             # at this gate" is answerable after the run without a person
             # having watched the console.
-            _skip_counts = _parse_skip_counts(raw)
+            #
+            # Round 77 站6: both readers take the numbers from the run S4 made
+            # when there was one, and `source` records which run answered —
+            # the framework's is the whole suite, the agent's excerpt was its
+            # per-FR scoped run, and a row that does not say which cannot be
+            # compared against the row beside it.
+            _skip_counts = _parse_skip_counts(raw, _s4b_run)
             if _skip_counts and _skip_counts[0] > 0:
                 from core.degradation_ledger import record_degradation
                 _skipped, _total = _skip_counts
@@ -3720,7 +3807,10 @@ class HarnessBridge:
                     f"{_skipped} of {_total} tests did not run",
                     why="skipped tests contribute no coverage and no evidence",
                     data={"skipped": _skipped, "total": _total,
-                          "gate": ctx.gate_num, "fr_id": ctx.fr_id}, owner="project"
+                          "gate": ctx.gate_num, "fr_id": ctx.fr_id,
+                          "source": ("harness-run"
+                                     if readable_run_output(_s4b_run)
+                                     else "agent-evidence")}, owner="project"
                 )
 
             # ── W2: Sub-100% coverage advisory (non-blocking) ─────────────────

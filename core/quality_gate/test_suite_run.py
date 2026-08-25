@@ -49,6 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -66,6 +67,8 @@ __all__ = [
     "run_suite",
     "reset_suite_cache",
     "fr_test_outcomes",
+    "select_fr_outcomes",
+    "failing_nodeids",
     "fr_suite_verdict",
     "GREEN",
     "RED",
@@ -488,8 +491,8 @@ RED = "red"
 UNKNOWN = "unknown"
 
 
-def fr_test_outcomes(result: SuiteResult, fr_id: str) -> dict[str, str]:
-    """The subset of *result*'s per-test outcomes belonging to *fr_id*.
+def select_fr_outcomes(outcomes: "dict[str, str]", fr_id: str) -> dict[str, str]:
+    """The subset of *outcomes* belonging to *fr_id*, keyed ``"file::name"``.
 
     A test belongs to an FR when it lives in that FR's test file
     (``test_fr04.py`` / ``test_fr4.py``) or when its own name carries the FR
@@ -497,13 +500,21 @@ def fr_test_outcomes(result: SuiteResult, fr_id: str) -> dict[str, str]:
     enforces elsewhere: `spec_coverage._git_test_patterns` builds the same file
     names, and the project instructions require `test_frNN_xxx` test names.
 
-    Returns {} when the run produced no outcome data at all; callers must read
-    that together with `result.ran` / `result.passed` rather than as "this FR
-    has no failing tests" (see `fr_suite_verdict`).
+    Round 77 站1 lifted this out of `fr_test_outcomes` so that the ONE answer
+    to "is this nodeid this FR's?" has one implementation. The other caller is
+    harness_bridge's S4-B, which until this round asked the question with a
+    sixth hand-rolled copy of the convention (``f"test_fr{int(n):02d}" in
+    path``) and got three of the corpus shapes wrong: ``test_fr7.py`` read as
+    another FR's, ``test_fr100.py`` read as FR-10's, and
+    ``src/test_fr08_util.py`` read as FR-08's own test.
+
+    The number goes through `canonical_form.fr_num_str`, so ``FR-7``,
+    ``fr07`` and ``FR_07`` all select the same tests; a spelling that
+    function cannot parse selects nothing, which callers must read as
+    "could not scope", never as "this FR has no failing tests".
     """
     from core.canonical_form import fr_num_str
 
-    outcomes = result.test_outcomes or {}
     num = fr_num_str(fr_id)
     try:
         raw = str(int(num))
@@ -512,11 +523,78 @@ def fr_test_outcomes(result: SuiteResult, fr_id: str) -> dict[str, str]:
     filenames = {f"test_fr{num}.py", f"test_fr{raw}.py"}
     prefixes = (f"test_fr{num}", f"test_fr{raw}")
     selected: dict[str, str] = {}
-    for key, outcome in outcomes.items():
+    for key, outcome in (outcomes or {}).items():
         path, _, name = key.partition("::")
         if Path(path).name in filenames or name.startswith(prefixes):
             selected[key] = outcome
     return selected
+
+
+def fr_test_outcomes(result: SuiteResult, fr_id: str) -> dict[str, str]:
+    """The subset of *result*'s per-test outcomes belonging to *fr_id*.
+
+    Returns {} when the run produced no outcome data at all; callers must read
+    that together with `result.ran` / `result.passed` rather than as "this FR
+    has no failing tests" (see `fr_suite_verdict`).
+    """
+    return select_fr_outcomes(result.test_outcomes or {}, fr_id)
+
+
+# pytest's short summary: `FAILED <nodeid> - <reason>` / `ERROR <nodeid>`.
+# `-r` defaults to `fE`, so both appear under `-q --tb=no --no-header` — the
+# flags harness/toolchains/registry.py's `pytest-cov` ToolSpec uses. The
+# nodeid is never truncated: _pytest/terminal.py builds the line as
+# `f"{word} {node}"` and only elides the reason to fit the terminal width.
+_SHORT_SUMMARY_LINE = re.compile(r"^(?:FAILED|ERROR)\s+(\S+)", re.M)
+# The counts pytest itself printed, read off the counts line only. Reading
+# them from anywhere in the output would also count the digits inside a
+# failure's own message ("AssertionError: 3 failed").
+_COUNTS_ANY = re.compile(
+    r"(\d+)\s+(?:failed|errors?|passed|skipped|xfailed|xpassed|deselected)\b")
+_COUNTS_BAD = re.compile(r"(\d+)\s+(?:failed|errors?)\b")
+_COUNTS_DURATION = re.compile(r"\bin\s+[\d.]+\s*s\b")
+
+
+def _counts_line(output: str) -> "str | None":
+    """pytest's own counts line (`1 failed, 5 passed in 0.05s`), or None.
+
+    The last such line wins: a run that prints one per xdist worker ends with
+    the total, and a caller pasting two runs into one string gets the second.
+    """
+    found = None
+    for line in output.splitlines():
+        if _COUNTS_ANY.search(line) and _COUNTS_DURATION.search(line):
+            found = line
+    return found
+
+
+def failing_nodeids(output: str) -> "list[str] | None":
+    """Every nodeid pytest's short summary reports as FAILED or ERROR.
+
+    Returns ``None`` when that list cannot be reconciled against pytest's own
+    counts line — a colourised run, `-v` (which prints outcomes inline and no
+    short summary), `--no-summary`, `-rN`, a non-pytest runner, or an excerpt
+    that was truncated mid-list. None means "I could not read all of this
+    output", which is not the same fact as "nothing failed" and must never be
+    read as one.
+
+    Round 77 站1. The check this feeds used to parse the agent's pasted
+    500-character excerpt, where every one of those shapes is normal — and it
+    returned the parsed subset with no reconciliation, so one recognisable
+    FAILED line waived the other nineteen the summary declared.
+
+    An ERROR nodeid may be a bare file (a collection error has no ``::``);
+    that is returned as-is, and the caller's file-level ownership test still
+    reaches it. That case is why this returns nodeids rather than a
+    ``{nodeid: outcome}`` map: an import that never collected has no test
+    name to key on, and inventing one would make the two shapes look alike.
+    """
+    counts = _counts_line(output or "")
+    if counts is None:
+        return None
+    declared = sum(int(m.group(1)) for m in _COUNTS_BAD.finditer(counts))
+    nodeids = [m.group(1) for m in _SHORT_SUMMARY_LINE.finditer(output)]
+    return nodeids if len(nodeids) == declared else None
 
 
 def fr_suite_verdict(project: "str | Path", fr_id: str) -> str:

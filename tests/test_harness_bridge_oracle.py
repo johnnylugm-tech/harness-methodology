@@ -143,53 +143,82 @@ def test_check_tests_failed_no_evidence_passes():
     assert _check_tests_failed({"breakdown": {"test_coverage": {}}}) == []
 
 
-# ─── _check_tests_failed — Round 76 per-FR scope ──────────────────────────────
+# ─── _check_tests_failed — per-FR scope (Round 76, re-based Round 77 站1) ─────
+#
+# The subject is the run S4 itself performed, passed in as
+# `framework_run=(tool, output, returncode)`. Round 76 scoped the agent's
+# `tool_evidence` instead; these oracle cases are the same questions asked of
+# the framework's own output.
+
+def _fw(output: str, tool: str = "pytest-cov", rc: int = 1):
+    return (tool, output, rc)
+
 
 def test_check_tests_failed_per_fr_sibling_only_passes():
-    """FR-08 with only sibling (FR-01/02) failures in FAILED paths → no block.
-    Sibling failures belong to the owning FR's gate, not this one.
-    Kills the 'block on any FAILED path' over-broad regression."""
-    raw = {"breakdown": {"test_coverage": {"tool_evidence": (
+    """FR-08 with only other FRs' tests red → no block.
+    A per-FR gate answers for its own FR (Round 42).
+    Kills the 'block on any failing test' over-broad regression."""
+    run = _fw(
         "FAILED tests/test_fr01.py::test_x - AssertionError\n"
         "FAILED tests/test_fr02.py::test_y - AssertionError\n"
-        "20 failed, 59 passed in 6.17s"
-    )}}}
-    assert _check_tests_failed(raw, fr_id="FR-08") == []
+        "2 failed, 59 passed in 6.17s"
+    )
+    assert _check_tests_failed({}, fr_id="FR-08", framework_run=run) == []
 
 
 def test_check_tests_failed_per_fr_only_scoped_fails_block():
-    """FR-08 with one of its own tests failing → block on that count only.
-    Kills the regression that ignores fr_id scoping."""
-    raw = {"breakdown": {"test_coverage": {"tool_evidence": (
+    """FR-08 with one of its own tests failing → block on THAT count.
+    The summary says 2; the scoped count is 1. Asserting the exact prefix
+    kills a `len(mine)` → summary-count mutation, which the Round 76 version
+    of this test could not (it asserted only that '1' appeared somewhere)."""
+    run = _fw(
         "FAILED tests/test_fr08.py::test_z - AssertionError\n"
         "FAILED tests/test_fr01.py::test_x - AssertionError\n"
         "2 failed, 60 passed in 1.5s"
-    )}}}
-    violations = _check_tests_failed(raw, fr_id="FR-08")
+    )
+    violations = _check_tests_failed({}, fr_id="FR-08", framework_run=run)
     assert len(violations) == 1
-    assert "test_fr08" in violations[0]
-    assert "1" in violations[0]
+    assert violations[0].startswith(
+        "test_coverage: 1 of FR-08's own test(s) FAILED"), violations[0]
+    assert "tests/test_fr08.py::test_z" in violations[0]
+    assert "tests/test_fr01.py" not in violations[0]
 
 
-def test_check_tests_failed_per_fr_legacy_fallback_when_no_paths():
-    """fr_id given but evidence lacks parseable FAILED paths → legacy behavior.
-    Kills regressions where fr_id alone disables the legacy summary-line parse."""
+def test_check_tests_failed_falls_back_when_the_framework_did_not_run():
+    """fr_id given but no framework run → legacy behaviour, fail-closed.
+    Kills regressions where fr_id alone disables the summary-line parse."""
     raw = {"breakdown": {"test_coverage": {"tool_evidence": "5 failed, 100 passed in 2.0s"}}}
     violations = _check_tests_failed(raw, fr_id="FR-08")
     assert len(violations) == 1
-    assert "5" in violations[0]
+    assert "5 test(s) FAILED" in violations[0]
+
+
+def test_check_tests_failed_never_waives_what_it_could_not_read():
+    """An enumerated list that disagrees with pytest's own counts is unreadable.
+
+    This is the Round 76 defect stated as an oracle: one recognisable FAILED
+    line beside a summary declaring twenty. The scoped path must decline, and
+    declining must land on the fail-closed rule, not on a pass."""
+    run = _fw("FAILED tests/test_fr01.py::test_x - e\n20 failed, 59 passed in 6.17s")
+    raw = {"breakdown": {"test_coverage": {"tool_evidence": "20 failed, 59 passed in 6.17s"}}}
+    violations = _check_tests_failed(raw, fr_id="FR-08", framework_run=run)
+    assert len(violations) == 1
+    assert "20 test(s) FAILED" in violations[0]
 
 
 def test_check_tests_failed_per_fr_fr_number_padding():
-    """FR-01 (single-digit) zero-pads to test_fr01.
-    Kills fr_num regex group→format regressions (test_fr1 vs test_fr01)."""
-    raw = {"breakdown": {"test_coverage": {"tool_evidence": (
+    """FR-1 / FR-01 / fr01 all scope to the same tests.
+    Kills fr_num regex group→format regressions (test_fr1 vs test_fr01) and
+    the `^FR-(\\d+)$` gate that made every other spelling fall back silently."""
+    run = _fw(
         "FAILED tests/test_fr01.py::test_x - AssertionError\n"
-        "1 failed, 5 passed in 0.5s"
-    )}}}
-    violations = _check_tests_failed(raw, fr_id="FR-01")
-    assert len(violations) == 1
-    assert "test_fr01" in violations[0]
+        "FAILED tests/test_fr1.py::test_y - AssertionError\n"
+        "2 failed, 5 passed in 0.5s"
+    )
+    for spelling in ("FR-01", "FR-1", "fr01", "FR_01"):
+        violations = _check_tests_failed({}, fr_id=spelling, framework_run=run)
+        assert len(violations) == 1, spelling
+        assert violations[0].startswith("test_coverage: 2 of"), (spelling, violations[0])
 
 
 # ─── _check_test_skip_ratio ───────────────────────────────────────────────────

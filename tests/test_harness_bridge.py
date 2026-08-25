@@ -1376,64 +1376,88 @@ class TestCheckTestsFailed:
         raw = self._raw("443 passed in 1.2s")
         assert _check_tests_failed(raw) == []
 
-    # ── Per-FR scope (Round 76): sibling failures must not block ──────────
+    # ── Per-FR scope: sibling failures must not block ─────────────────────
+    #
+    # Round 76 read the scope out of `tool_evidence` — prose the agent pastes,
+    # capped by its own prompt at 500 characters. Round 77 站1 reads it out of
+    # the run S4 itself performed, handed in as `framework_run`. The cases
+    # below are the same cases; what changed is whose measurement answers them.
+    #
+    # Every assertion here names the NUMBER. The two tests Round 76 added did
+    # not: `test_per_fr_scope_three_digit_fr` built the one input where the
+    # summary count (2) and the scoped count (1) differ and asserted neither,
+    # so replacing `len(scoped)` with the summary count left it green.
+
+    def _run(self, output: str, tool: str = "pytest-cov", rc: int = 1):
+        return (tool, output, rc)
 
     def test_per_fr_scope_blocks_only_this_fr_failures(self):
-        # FR-08 evaluating; FAILED paths span FR-01/02/08.
-        # Only test_fr08.py failures should count toward FR-08's gate.
-        evidence = (
+        # FR-08 evaluating; the framework's run failed across FR-01/02/08.
+        # Only test_fr08.py's failure counts toward FR-08's gate.
+        run = self._run(
             "FAILED tests/test_fr01.py::test_x - AssertionError\n"
             "FAILED tests/test_fr02.py::test_y - AssertionError\n"
             "FAILED tests/test_fr08.py::test_z - AssertionError\n"
-            "20 failed, 59 passed in 6.17s"
+            "3 failed, 59 passed in 6.17s"
         )
-        raw = self._raw(evidence)
-        violations = _check_tests_failed(raw, fr_id="FR-08")
+        violations = _check_tests_failed(
+            self._raw("59 passed"), fr_id="FR-08", framework_run=run)
         assert len(violations) == 1
-        assert "test_fr08" in violations[0]
-        assert "1" in violations[0]
+        assert violations[0].startswith(
+            "test_coverage: 1 of FR-08's own test(s) FAILED"), violations[0]
+        assert "tests/test_fr08.py::test_z" in violations[0]
 
     def test_per_fr_scope_passes_when_only_siblings_fail(self):
-        # FR-08 evaluating; ALL failures in sibling tests (FR-01/02).
-        # FR-08's gate must NOT block — those are the owning FRs' problem.
-        evidence = (
+        # ALL failures belong to other FRs' test files. FR-08's gate must NOT
+        # block — its own SCOPE RULES forbid it to touch their code.
+        run = self._run(
             "FAILED tests/test_fr01.py::test_x - AssertionError\n"
             "FAILED tests/test_fr02.py::test_y - AssertionError\n"
-            "20 failed, 59 passed in 6.17s"
+            "2 failed, 59 passed in 6.17s"
         )
-        raw = self._raw(evidence)
-        violations = _check_tests_failed(raw, fr_id="FR-08")
-        assert violations == []
+        assert _check_tests_failed(
+            self._raw("2 failed, 59 passed"), fr_id="FR-08",
+            framework_run=run) == []
 
-    def test_per_fr_scope_legacy_when_no_failed_paths(self):
-        # If evidence has no FAILED paths (just summary line), fall back to
-        # legacy behavior so the agent's deviations still get caught.
+    def test_per_fr_scope_legacy_when_the_framework_did_not_run(self):
+        # No framework run (the agent self-reported below threshold, so S4
+        # skipped the tool): the pre-Round-76 rule stands, fail-closed.
         evidence = "20 failed, 59 passed in 6.17s"
         raw = self._raw(evidence)
         violations = _check_tests_failed(raw, fr_id="FR-08")
         assert len(violations) == 1
-        assert "20" in violations[0]
+        assert "20 test(s) FAILED" in violations[0]
 
     def test_per_fr_scope_passes_when_no_failures(self):
-        evidence = "59 passed in 1.2s"
-        raw = self._raw(evidence)
-        violations = _check_tests_failed(raw, fr_id="FR-08")
-        assert violations == []
+        assert _check_tests_failed(
+            self._raw("59 passed in 1.2s"), fr_id="FR-08",
+            framework_run=self._run("59 passed in 1.2s", rc=0)) == []
 
     def test_per_fr_scope_three_digit_fr(self):
-        # FR-100 (3-digit) — test_fr100* convention.
-        evidence = "FAILED tests/test_fr100.py::test_x - error\n2 failed, 10 passed in 1.0s"
-        raw = self._raw(evidence)
-        violations = _check_tests_failed(raw, fr_id="FR-100")
+        # FR-100, and the scoped count (1) differs from the summary count (2).
+        # Both assertions below fail if the message carries the summary count.
+        run = self._run(
+            "FAILED tests/test_fr100.py::test_x - error\n"
+            "FAILED tests/test_fr01.py::test_y - error\n"
+            "2 failed, 10 passed in 1.0s")
+        violations = _check_tests_failed({}, fr_id="FR-100", framework_run=run)
         assert len(violations) == 1
-        assert "test_fr100" in violations[0]
+        assert violations[0].startswith(
+            "test_coverage: 1 of FR-100's own test(s) FAILED"), violations[0]
+        assert "tests/test_fr01.py" not in violations[0]
 
     def test_per_fr_scope_fr_with_whitespace(self):
-        # Defensive: whitespace tolerance.
-        evidence = "FAILED tests/test_fr08.py::test_x - error\n1 failed, 5 passed in 0.5s"
-        raw = self._raw(evidence)
-        violations = _check_tests_failed(raw, fr_id="  FR-08  ")
+        # A non-canonical spelling must SCOPE, not fall back. The legacy
+        # branch also returns exactly one message, so asserting only
+        # `len(violations) == 1` here would pass either way.
+        run = self._run(
+            "FAILED tests/test_fr08.py::test_x - error\n"
+            "FAILED tests/test_fr01.py::test_y - error\n"
+            "2 failed, 5 passed in 0.5s")
+        violations = _check_tests_failed({}, fr_id="  FR-08  ", framework_run=run)
         assert len(violations) == 1
+        assert violations[0].startswith(
+            "test_coverage: 1 of FR-08's own test(s) FAILED"), violations[0]
 
 
 # ===========================================================================

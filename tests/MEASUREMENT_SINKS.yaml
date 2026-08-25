@@ -112,6 +112,59 @@ sinks:
       be a requirement with no executor at all rather than one judged
       elsewhere.
 
+  "gate:tests-failed-declared":
+    sink: report-only
+    why: >-
+      Round 77 站5. `tests_failed` has been REQUIRED in the GATE1 prompt since
+      it was written and nothing in the tree read it — one grep, zero
+      production readers — so the number a project was made to declare was
+      never honoured or contradicted. The framework now writes its own count
+      into the committed result (the same rule `s4_score_verdict` applies to
+      `score`: the framework ran the tool, so the framework's number is the
+      one that ships), and this row is what a disagreement leaves behind.
+      Deliberately not a block: every case where an under-report hides a real
+      failure is already blocked by S4-B's own verdict, so a block here could
+      only catch an OVER-report — an agent pasting the whole suite's summary
+      count, which is exactly what the prompt asked for until Round 77 站3
+      removed the ambiguity, and charging a project for obeying yesterday's
+      instruction is Round 42's defect. Where the framework cannot measure at
+      all (a JS runner, or output it could not reconcile) the field IS read as
+      a verdict — `_check_tests_failed` blocks on a self-declared non-zero,
+      because an admission needs no cross-check.
+    reopen_when: >-
+      these rows keep appearing for Python FRs after a few rounds with the
+      Round 77 站3 prompt in place. That would mean the single rule the prompt
+      now states is not the one agents follow, and the field should either
+      block or stop being called REQUIRED — a field that is neither read nor
+      honoured is a declaration the project pays to write.
+
+  "gate:out-of-scope-test-failures":
+    sink: report-only
+    why: >-
+      Round 77 站2. A per-FR Gate 1 answers for its own FR: blocking FR-08
+      because FR-01's test is red asks it to fix code the run's own SCOPE
+      RULES forbid it to touch (Round 42), so these do not block. What this
+      row replaces is a promise that was not true — Round 76 printed
+      "owning FRs' gates will catch" and returned, while the FR loop is
+      forward-only (`for (const frId of frIds)` with an `alreadyDone` skip)
+      and S4-B runs only at `gate_num == 1`, so an FR already behind never
+      re-runs, and a failing test in a file no FR owns has no owning gate at
+      all. The executor is `cli/phase_cmds.py::_advance_prechecks`, which
+      runs the whole suite at every phase transition and refuses to advance
+      while any test is red; this row is what makes the failure attributable
+      when it gets there, instead of an un-owned "[BLOCKED] TDD
+      test/coverage failure" one phase later.
+    reopen_when: >-
+      `_advance_prechecks` stops being the executor for a project — it is
+      guarded by `src_dir.is_dir()` and `_suite.ran`, so a non-Python project
+      or one whose suite `run_suite` declines to measure has nothing behind
+      this waiver and these rows are the only record. The same applies to
+      JS/TS at this gate for a different reason: `_scoped_test_failures`
+      returns None for vitest/jest, so those projects never reach this row
+      and keep the whole-run rule, which is Round 76's original defect left
+      standing for them deliberately (a JS run is not per-FR scoped, so
+      blocking on the framework's own copy of it would be strictly worse).
+
   "spec-coverage:unread-row":
     sink: report-only
     why: >-

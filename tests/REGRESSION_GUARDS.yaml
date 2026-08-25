@@ -3488,3 +3488,76 @@
 - test: tests/test_template_matches_the_prompt_schema.py::test_the_two_views_name_the_same_tests
   bug: "fr_tests / cross_cutting is a name-only VIEW of the tests: block, not a second independent list, and nothing in production reconciles them — _flatten_test_names reads one and nfr_layering_targets the other. A template showing two disagreeing lists teaches every project they are independent, which is how taskq-new's inventory came to name 50 tests while its TEST_SPEC declared 115"
   fixed_in: "Round 74 站5"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_a_partial_failed_list_no_longer_waives_the_rest
+  bug: "1d111daa: `if failed_paths: ... return []` sat ahead of the `N failed` summary check, so ONE parseable FAILED line waived every failure the regex could not see. Measured at that commit: 'FAILED tests/test_fr01.py::test_x\\n20 failed, 59 passed' with fr_id=FR-08 returned [] (PASS); the identical evidence with fr_id=None blocked. tool_evidence is agent-authored and the same prompt caps it at 500 chars, so a partial FAILED list is the normal case"
+  fixed_in: "Round 77 站1 (S4-B reads the pytest-cov run S4 itself performed)"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_an_unreconcilable_run_is_not_a_clean_one
+  bug: "an enumerated failure list that disagrees with pytest's own counts line is output the framework could not read, not a run with nothing wrong. failing_nodeids returns None and the caller falls back to the fail-closed rule"
+  fixed_in: "Round 77 站1"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_ownership_matches_the_frameworks_own_convention
+  bug: "1d111daa's `f'test_fr{int(n):02d}' in path` was a sixth hand-rolled copy of the FR->test-file convention and an unanchored substring test: test_fr7.py read as another FR's, test_fr100.py read as FR-10's (blocking a healthy FR for FR-100's bug — the exact defect the commit existed to remove), src/test_fr08_util.py read as FR-08's own test"
+  fixed_in: "Round 77 站1 (routes through test_suite_run.select_fr_outcomes)"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_a_collection_error_is_this_frs_problem
+  bug: "1d111daa regression: `FAILED\\s+(\\S+?)::` cannot match `ERROR tests/test_fr08.py` (a collection error has no ::), so an FR whose own test module failed to import passed Gate 1 whenever one sibling FAILED line was present. Zero of that FR's tests ran"
+  fixed_in: "Round 77 站1"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_every_spelling_canonical_form_accepts_scopes_the_same_way
+  bug: "1d111daa's `^FR-(\\d+)\\s*$` rejected FR_08 / FR08 / 'FR-08: Login' and silently reverted to whole-run blocking — reproducing the bug it fixed, with no diagnostic. --fr-id is a free string that reaches GateContext.fr_id unnormalised"
+  fixed_in: "Round 77 站1 (scoping goes through canonical_form.fr_num_str)"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_output_the_framework_cannot_read_falls_back_fail_closed
+  bug: "ANSI-coloured output, pytest -v, -rN and --no-summary all yield zero parseable FAILED paths, so 1d111daa silently reverted to the whole-run rule with no signal that the per-FR scope had been skipped"
+  fixed_in: "Round 77 站1 (the fall-back stays, and can no longer be mistaken for a scoped verdict)"
+
+- test: tests/test_s4b_reads_the_frameworks_own_run.py::test_a_js_runner_is_left_on_the_whole_run_rule_deliberately
+  bug: "a JS run is not per-FR scoped, so blocking a JS gate on the framework's own whole-suite copy would hand JS projects the defect Round 77 removed from Python ones. PER_TEST_OUTCOME_TOOLS says which tools are readable by name instead of leaving it to whether a pytest regex happens to miss"
+  fixed_in: "Round 77 站1"
+
+- test: tests/test_waived_test_failures_leave_a_record.py::test_the_record_names_every_waived_test_not_a_sample
+  bug: "1d111daa's waiver was one print() whose count was per-test while its sample was per-file: '20 sibling test(s) failed (test_fr01.py, test_fr02.py, test_fr03.py)' with no ellipsis, FR-04/FR-05 never named, and nothing stored"
+  fixed_in: "Round 77 站2 (gate:out-of-scope-test-failures ledger row)"
+
+- test: tests/test_waived_test_failures_leave_a_record.py::test_the_record_is_written_when_this_fr_is_red_too
+  bug: "`if scoped: return [...]` returned before the WARN, so an FR with its own failure published nothing at all about the others — the run where the information matters most was the one that threw it away"
+  fixed_in: "Round 77 站2"
+
+- test: tests/test_waived_test_failures_leave_a_record.py::test_the_record_names_the_executor_not_a_promise_it_cannot_keep
+  bug: "1d111daa justified the waiver with 'the owning FR's GATE1 will catch it'. The Phase 3 FR loop is forward-only (for..of + alreadyDone skip) and S4-B runs only at gate_num==1, so an FR already behind never re-runs; a failing test in a file no FR owns has no owning gate at all. The real executor is cli/phase_cmds.py::_advance_prechecks"
+  fixed_in: "Round 77 站2"
+
+- test: tests/test_waived_test_failures_leave_a_record.py::test_nothing_is_recorded_when_the_framework_could_not_scope
+  bug: "'I could not read this run' must not be filed as 'I read it and waived nothing' — a row there would claim a decision that was never made, while the verdict falls back to the fail-closed rule"
+  fixed_in: "Round 77 站2"
+
+- test: tests/test_waived_test_failures_leave_a_record.py::test_the_warning_still_reaches_the_console
+  bug: "none of 1d111daa's ten new tests used capsys, so deleting the whole `if other:` block — the waiver's only artifact — left every one of them green"
+  fixed_in: "Round 77 站2"
+
+- test: tests/test_declared_tests_failed_gets_a_reader.py::test_the_frameworks_count_is_the_one_that_ships
+  bug: "tests_failed has been REQUIRED in the GATE1 prompt since it was written and had zero production readers — a number the project was made to declare that was never honoured or contradicted"
+  fixed_in: "Round 77 站5"
+
+- test: tests/test_declared_tests_failed_gets_a_reader.py::test_a_self_declared_failure_blocks_where_the_framework_is_blind
+  bug: "where the harness cannot measure this FR's tests itself, an agent declaring tests_failed>0 alongside evidence with no parseable summary passed the gate — the admission was in the file and nothing read it"
+  fixed_in: "Round 77 站5"
+
+- test: tests/test_declared_tests_failed_gets_a_reader.py::test_nothing_is_written_when_the_framework_could_not_measure
+  bug: "the agent's number must stand where the framework has none of its own; overwriting it with a guess is worse than leaving it (Round 32: a measurement that could not be taken is not a measurement of zero)"
+  fixed_in: "Round 77 站5"
+
+- test: tests/test_declared_tests_failed_gets_a_reader.py::test_the_skip_counts_come_from_the_run_the_coverage_number_came_from
+  bug: "W1's skip ratio qualifies a coverage number taken from the framework's own pytest-cov run while reading its own numerator out of the agent's excerpt — two executions, one ratio (Round 37/42: the denominator travels with the number)"
+  fixed_in: "Round 77 站6"
+
+- test: tests/test_declared_tests_failed_gets_a_reader.py::test_an_evidence_only_summary_still_answers
+  bug: "the prompt-mandated first-500-chars-of-FAILED-lines form evicts 'N passed / N skipped' entirely, so _parse_skip_counts returned None and Round 46's gate:test-skips row vanished for exactly the FRs that had failing tests"
+  fixed_in: "Round 77 站6 (reads the framework's run; 站3 removed the instruction)"
+
+- test: tests/test_declared_tests_failed_gets_a_reader.py::test_a_js_run_leaves_the_skip_counts_on_the_agents_evidence
+  bug: "the ledger row's `source` field and _parse_skip_counts must not disagree about which run answered — readable_run_output is the single predicate both read"
+  fixed_in: "Round 77 站6"
+
