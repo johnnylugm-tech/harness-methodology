@@ -3094,6 +3094,56 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
                 # with the existing 100% coverage BLOCK.
                 return 9
 
+            # ── Plan F (Round 50+): early phantom module check ────────────
+            # Detect FR-scope modules declared in SAB but missing from
+            # disk BEFORE coverage/lint/type. Closes the silent-fall-through
+            # shape that `validate_fr_coverage_immediate` had with the old
+            # `Optional[list[str]]` return — a phantom FR scope used to
+            # report a whole-project number and silently OK a non-existent
+            # deliverable. Same shape as Plan E above; deterministic
+            # rejection instead of a dispatch loop (auto_fix retired the
+            # fabrication strategies in Round 48 for the same reason).
+            from core.quality_gate.sab_amender import (
+                phantom_modules as _phantom_modules,
+                discover_modules_at as _discover_modules_at,
+            )
+            _sab_path = project / ".methodology" / "SAB.json"
+            _sab_data: dict = {}
+            if _sab_path.exists():
+                try:
+                    import json as _json_phantom
+                    _sab_data = _json_phantom.loads(
+                        _sab_path.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValueError):
+                    _sab_data = {}
+            if _sab_data:
+                # phantom_modules / discover_modules_at treat `src_dir` as
+                # a relative prefix for path-form SAB normalisation
+                # (Round 26 caller noted it must NOT be absolute).
+                try:
+                    _src_dir_rel = str(src_dir.relative_to(project))
+                except ValueError:
+                    _src_dir_rel = str(src_dir)
+                _discovered = set(_discover_modules_at(Path(_src_dir_rel)))
+                _phantoms = _phantom_modules(_sab_data, _discovered, _src_dir_rel)
+                if _phantoms:
+                    print(
+                        f"\n[BLOCKED] Phantom modules declared in SAB but "
+                        f"missing from disk ({len(_phantoms)} module(s)) "
+                        f"before advance-phase commit:"
+                    )
+                    for _pm in _phantoms[:10]:
+                        print(f"  - {_pm}")
+                    if len(_phantoms) > 10:
+                        print(f"  ... and {len(_phantoms) - 10} more")
+                    print(
+                        "  Fix: implement the missing module, or amend SAB "
+                        "via `harness_cli.py amend-sab --resolve-phantom "
+                        "--fr-id <FR-ID> --reason <why>`."
+                    )
+                    return 9
+
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):
                 _rf_r = subprocess.run(["ruff", "check", ".", "--extend-ignore", "RUF001,RUF002,RUF003"], cwd=str(project))

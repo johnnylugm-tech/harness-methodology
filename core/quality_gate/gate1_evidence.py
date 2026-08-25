@@ -966,10 +966,20 @@ def validate_fr_coverage_immediate(
     if fr_id is not None:
         _scope = _fr_module_paths(project, fr_id)
         if _scope is None:
-            # SAB miss or no modules for this FR — fall through to
-            # whole-project so the caller still gets a number.
+            # manifest / SAB unreadable — fall through to whole-project.
             return result.coverage
-        return _coverage_for_paths(project, _scope, fallback=result.coverage)
+        if _scope.is_phantom:
+            # Plan F (Round 50+): FR declared a scope but its source file
+            # is missing on disk. Reporting the whole-project number here
+            # would silently OK a phantom deliverable, so refuse to measure
+            # instead — ``None`` propagates to `_gate1_per_fr_coverage_verdict`
+            # as a BLOCK. Pre-Plan-F this branch silently fell through.
+            return None
+        if _scope.is_no_scope:
+            # FR has no `fr_module_traceability` entry — legitimate fall-through
+            # to whole-project coverage (preserves pre-Plan-F behaviour).
+            return result.coverage
+        return _coverage_for_paths(project, list(_scope.paths), fallback=result.coverage)
     return result.coverage
 
 
@@ -1001,6 +1011,48 @@ def fr_coverage_from_last_run(project: "Path | str", fr_id: str) -> Optional[flo
 
 
 @dataclass(frozen=True)
+class ModuleScope:
+    """Three-state FR-scope resolution result. Plan F (Round 50+).
+
+    Before Plan F, `_fr_module_paths` returned ``Optional[list[str]]`` — a
+    single ``None`` collapsed "no scope declared" with "scope declared but
+    file missing on disk". `validate_fr_coverage_immediate` then silently
+    fell through to whole-project coverage in both cases — a phantom FR
+    scope would pass Gate 1 with a number that had nothing to do with its
+    declared deliverable.
+
+    ModuleScope separates the three cases:
+      * ``is_no_scope=True`` — FR declared no ``fr_module_traceability``
+        entry. Legitimate; the gate falls through to whole-project coverage
+        (pre-Plan-F behaviour preserved).
+      * ``is_phantom=True`` — FR declared a module but the file is missing
+        on disk (and no package fallback resolved). The gate must BLOCK,
+        because reporting any coverage number would silently OK a phantom
+        deliverable.
+      * ``has_paths=True`` — declared scope resolved to concrete files on
+        disk; pass to coverage measurement.
+
+    Both fields are tuples (immutable) so callers cannot mutate the
+    resolver's result. Empty ``paths`` + non-empty ``declared`` is the
+    only phantom shape; everything else is concrete or no-scope.
+    """
+    paths: tuple[str, ...]
+    declared: tuple[str, ...]
+
+    @property
+    def is_no_scope(self) -> bool:
+        return not self.declared and not self.paths
+
+    @property
+    def is_phantom(self) -> bool:
+        return bool(self.declared) and not self.paths
+
+    @property
+    def has_paths(self) -> bool:
+        return bool(self.paths)
+
+
+@dataclass(frozen=True)
 class FrCoverage:
     """One FR's coverage with both sides of the ratio and the files behind it.
 
@@ -1028,19 +1080,25 @@ class FrCoverage:
 def fr_coverage_record(project: "Path | str", fr_id: str) -> "Optional[FrCoverage]":
     """`fr_coverage_from_last_run` with its denominator and its file list.
 
-    ``None`` when the FR's scope cannot be computed at all (no manifest, no
-    declared modules, nothing resolvable) — the caller has nothing to report
-    and nothing to cite.
+    ``None`` when the FR's scope cannot be computed at all — no manifest,
+    no declared modules, or declared modules missing from disk. The
+    Plan-F (Round 50+) three-state ``ModuleScope`` collapses to ``None``
+    here because the public contract still commits to "could not measure"
+    for both "no scope declared" (legitimate) and "scope declared but
+    missing" (phantom) — the latter is the gate's problem, not this
+    record's. The caller (``fr_coverage_from_last_run``) reports ``None``
+    as a measurement gap; the caller of ``validate_fr_coverage_immediate``
+    distinguishes Phantom from NoScope and BLOCKs on phantom.
     """
     project = Path(project)
     scope = _fr_module_paths(project, fr_id)
-    if scope is None:
+    if scope is None or scope.is_no_scope or scope.is_phantom:
         return None
-    return _coverage_record_for_paths(project, scope)
+    return _coverage_record_for_paths(project, list(scope.paths))
 
 
-def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
-    """The project-relative source paths this FR owns, or None.
+def _fr_module_paths(project: "Path | str", fr_id: str) -> "ModuleScope | None":
+    """The project-relative source paths this FR owns, as a ModuleScope.
 
     Round 57 站2: one call to `core.quality_gate.cov_utils`. That module has
     answered "which files does this FR own" since before Round 18 — two
@@ -1057,9 +1115,18 @@ def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
     Entries may be coverage-style globs (`pkg/executor/**/*.py`) — the
     package fallback emits those, and `_coverage_for_paths` expands them.
 
-    ``None`` when the scope cannot be computed at all (no manifest, no
-    declared modules, nothing resolvable): "could not measure", which the
-    caller keeps apart from "measured and failed" (Round 32 站4).
+    Plan F (Round 50+) — return type changed from ``Optional[list[str]]``
+    to ``Optional[ModuleScope]`` so the three states (no scope, phantom,
+    concrete) are distinguishable at the caller. The phantom branch is the
+    shape that previously slipped through as a silent fall-through to
+    whole-project coverage; without this distinction a phantom FR would
+    report a Gate-1 number unrelated to its declared deliverable.
+
+    Returns ``None`` only when the project state itself is unreadable
+    (manifest missing or corrupt): "could not measure". When the manifest
+    is readable but the FR has declared scope, the result is a ModuleScope
+    whose ``is_phantom`` / ``is_no_scope`` / ``has_paths`` flags tell the
+    caller what to do.
 
     `test_file` is deliberately empty. `resolve_fr_scoped_src_files`'s
     Priority 2 infers scope from a test file's imports, which is right for a
@@ -1083,6 +1150,21 @@ def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
         return None
     if not isinstance(manifest, dict):
         return None
+
+    # Plan F: read `fr_module_traceability` so we can tell "FR has no scope"
+    # (ModuleScope.is_no_scope) from "FR scope declared but file missing on
+    # disk" (ModuleScope.is_phantom). Both shapes previously collapsed to
+    # the same `None` return — see the ModuleScope dataclass for the
+    # pre/post-Plan-F failure-mode description.
+    fr_trace = manifest.get("fr_module_traceability", {}).get(fr_id)
+    declared: tuple[str, ...]
+    if isinstance(fr_trace, str):
+        declared = (fr_trace,)
+    elif isinstance(fr_trace, list):
+        declared = tuple(t for t in fr_trace if isinstance(t, str))
+    else:
+        declared = ()
+
     layout = ProjectLayout(project)
     try:
         src_dir = str(layout.active_src_dir.relative_to(layout.root))
@@ -1092,7 +1174,10 @@ def _fr_module_paths(project: "Path | str", fr_id: str) -> "list[str] | None":
         # silently point elsewhere. Refuse rather than guess.
         return None
     paths = resolve_fr_scoped_src_files(str(project), fr_id, "", src_dir, manifest)
-    return paths or None
+    return ModuleScope(
+        paths=tuple(paths),
+        declared=declared,
+    )
 
 
 def _coverage_for_paths(
