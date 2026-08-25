@@ -3660,3 +3660,23 @@
 - test: tests/test_pre_push_measures_the_pushed_tree.py::test_the_block_tells_the_operator_both_ways_out
   bug: "Round 48: a halt names its owner and its remedy. A push refused with no way forward is a guard that gets disabled instead of satisfied"
   fixed_in: "Round 78 站4"
+
+- test: tests/test_source_reading_discipline.py::test_source_reading_only_ratchets_down
+  bug: "four Plan E / Plan F call-site tests asserted a string appears in inspect.getsource(...) — one of them a COMMENT, which stayed green through the entire period its check was blocking all nine corpus projects, while another went RED on a rename that FIXED the code. A test that reads how the code is spelled cannot see a change in what it means (tests/test_unscoreable_is_not_zero.py's own header, written after its first draft was defeated the same way; Round 64 saw a guard disabled by trimming the comment it read)"
+  fixed_in: "Round 78 站6 (ratchet at 47, down only)"
+
+- test: tests/test_source_reading_discipline.py::test_the_ceiling_is_not_slack
+  bug: "a ratchet with headroom authorises the growth it exists to surface — the defect Round 78 站3 found in the file-size table, which carried 101 unused lines under a justification for a different number"
+  fixed_in: "Round 78 站6"
+
+- test: tests/test_source_reading_discipline.py::test_the_scan_reads_call_nodes_not_prose
+  bug: "a text scan counts every mention of inspect.getsource in a docstring or comment — including this module's own, and the files that now explain what they replaced. tests/test_no_hardcoded_paths.py records the same lesson: prose ABOUT the pattern reads identically to the pattern, so a rule about code shape has to look at code shape"
+  fixed_in: "Round 78 站6"
+
+- test: tests/test_advance_phase_pragma_early_audit.py::test_advance_prechecks_calls_audit_pragma_no_cover
+  bug: "asserted `\"_audit_pragma_no_cover\" in inspect.getsource(...)`, which a comment satisfies — demonstrated: a function whose only mention of the audit is a comment passes the old form and fails the new ast.Call form. Now also pins the position against the ruff stage's own argv, which is what Plan E's early-fail claim actually says"
+  fixed_in: "Round 78 站5"
+
+- test: tests/test_advance_phase_pragma_early_audit.py::test_advance_prechecks_renders_ssot_allowlist_in_early_block
+  bug: "asserted `src.count(\"PRAGMA_NO_COVER_ALLOWLIST\") >= 2` over source TEXT — an import line and two comments satisfy it. The binding actually means the allowlist is joined into a printed message, so that is what is asserted: two `\", \".join(PRAGMA_NO_COVER_ALLOWLIST)` call nodes"
+  fixed_in: "Round 78 站5"
