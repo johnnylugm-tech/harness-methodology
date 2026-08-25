@@ -73,8 +73,15 @@ SPEC COVERAGE: 2/3 (67%) — 1 missing
    CRITICAL: `tool_evidence` is REQUIRED for every dimension.
    If you omit it, finalize-gate will BLOCK with S3 error regardless of scores.
    Score fabrication (writing a score without running the tool) also causes S3 block.
-   CRITICAL: `tests_failed` MUST be 0. finalize-gate parses tool_evidence for
-   '{N} failed' and blocks immediately if any test is red — even at 96% coverage.
+   CRITICAL: `tests_failed` is THIS FR's failure count — failures in
+   sibling tests (run for shared-source coverage) belong to their
+   owning FR's gate, not this one. Set `tests_failed` = count of FAILED
+   paths whose test file matches `test_fr<NN>*.py` for THIS FR —
+   do NOT use the raw pytest summary count (which includes siblings).
+   Include the FAILED path lines (one per failed test) in tool_evidence
+   before the summary line, so the harness can verify the per-FR scope.
+   finalize-gate blocks when ANY failure is in THIS FR's scope, but
+   sibling-only failures are logged + skipped (their owning FR catches them).
 
    Scoring formulas:
    - linting: ruff exit 0 → 100; else count violations: max(0, 100 - violations×5)
