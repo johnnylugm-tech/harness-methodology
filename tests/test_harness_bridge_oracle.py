@@ -143,6 +143,55 @@ def test_check_tests_failed_no_evidence_passes():
     assert _check_tests_failed({"breakdown": {"test_coverage": {}}}) == []
 
 
+# ─── _check_tests_failed — Round 76 per-FR scope ──────────────────────────────
+
+def test_check_tests_failed_per_fr_sibling_only_passes():
+    """FR-08 with only sibling (FR-01/02) failures in FAILED paths → no block.
+    Sibling failures belong to the owning FR's gate, not this one.
+    Kills the 'block on any FAILED path' over-broad regression."""
+    raw = {"breakdown": {"test_coverage": {"tool_evidence": (
+        "FAILED tests/test_fr01.py::test_x - AssertionError\n"
+        "FAILED tests/test_fr02.py::test_y - AssertionError\n"
+        "20 failed, 59 passed in 6.17s"
+    )}}}
+    assert _check_tests_failed(raw, fr_id="FR-08") == []
+
+
+def test_check_tests_failed_per_fr_only_scoped_fails_block():
+    """FR-08 with one of its own tests failing → block on that count only.
+    Kills the regression that ignores fr_id scoping."""
+    raw = {"breakdown": {"test_coverage": {"tool_evidence": (
+        "FAILED tests/test_fr08.py::test_z - AssertionError\n"
+        "FAILED tests/test_fr01.py::test_x - AssertionError\n"
+        "2 failed, 60 passed in 1.5s"
+    )}}}
+    violations = _check_tests_failed(raw, fr_id="FR-08")
+    assert len(violations) == 1
+    assert "test_fr08" in violations[0]
+    assert "1" in violations[0]
+
+
+def test_check_tests_failed_per_fr_legacy_fallback_when_no_paths():
+    """fr_id given but evidence lacks parseable FAILED paths → legacy behavior.
+    Kills regressions where fr_id alone disables the legacy summary-line parse."""
+    raw = {"breakdown": {"test_coverage": {"tool_evidence": "5 failed, 100 passed in 2.0s"}}}
+    violations = _check_tests_failed(raw, fr_id="FR-08")
+    assert len(violations) == 1
+    assert "5" in violations[0]
+
+
+def test_check_tests_failed_per_fr_fr_number_padding():
+    """FR-01 (single-digit) zero-pads to test_fr01.
+    Kills fr_num regex group→format regressions (test_fr1 vs test_fr01)."""
+    raw = {"breakdown": {"test_coverage": {"tool_evidence": (
+        "FAILED tests/test_fr01.py::test_x - AssertionError\n"
+        "1 failed, 5 passed in 0.5s"
+    )}}}
+    violations = _check_tests_failed(raw, fr_id="FR-01")
+    assert len(violations) == 1
+    assert "test_fr01" in violations[0]
+
+
 # ─── _check_test_skip_ratio ───────────────────────────────────────────────────
 
 def test_skip_ratio_exact_at_threshold_passes():

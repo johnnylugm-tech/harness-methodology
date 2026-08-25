@@ -1500,15 +1500,28 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
 # S4-B: Failed-tests assertion
 # ---------------------------------------------------------------------------
 
-def _check_tests_failed(raw: dict) -> list[str]:
-    """S4-B: Verify no tests failed according to test_coverage tool_evidence.
+def _check_tests_failed(raw: dict, fr_id: "str | None" = None) -> list[str]:
+    """S4-B: Verify no tests failed in THIS FR's scope (per-FR gate scoping).
 
     S4 cross-validates coverage *percentage* but does not check whether any
-    tests actually failed.  A gate cannot pass when tests are red — even if
-    coverage stays above threshold (e.g. 432 pass + 5 fail, coverage 91%).
+    tests actually failed. A gate cannot pass when *this FR's own* tests are
+    red — even if coverage stays above threshold (e.g. 432 pass + 5 fail,
+    coverage 91%).
 
-    Parse the pytest summary line from ``breakdown.test_coverage.tool_evidence``
-    and block when *failed > 0*.
+    The per-FR scoped pytest run (see ``cli/gate_cmds.py:_print_fr_scoped_overrides_python``)
+    intentionally includes sibling tests for shared source files via
+    ``shared_owner_test_files``. Failures in those sibling tests are the
+    OWNING FR's gate concern, not this FR's — they will be caught when that
+    owning FR runs its own GATE1. Counting them here would block healthy
+    FRs on other FRs' bugs, which is what this round's bug fix removes.
+
+    When ``fr_id`` is provided, this check parses the pytest ``FAILED``
+    paths from ``tool_evidence`` and counts only failures whose test path
+    matches this FR's test file convention (``test_frNN*``). Sibling failures
+    are noted in the verify log so an operator can find them, but do not
+    block this gate. When ``fr_id`` is None (legacy callers without FR
+    context, or evidence without parseable ``FAILED`` paths), the previous
+    behaviour is preserved: any failed test blocks.
 
     Returns list of violation messages (empty = all clear).
     """
@@ -1516,6 +1529,37 @@ def _check_tests_failed(raw: dict) -> list[str]:
     evidence = str(breakdown.get("test_coverage", {}).get("tool_evidence", "") or "")
     if not evidence:
         return []  # S3 already blocks on missing evidence
+
+    if fr_id:
+        m = re.match(r"^FR-(\d+)\s*$", str(fr_id).strip(), re.IGNORECASE)
+        if m:
+            fr_num = m.group(1)
+            fr_pattern = f"test_fr{int(fr_num):02d}"
+            # pytest format: "FAILED tests/test_fr08.py::test_name - error"
+            failed_paths = re.findall(r"FAILED\s+(\S+?)::", evidence)
+            if failed_paths:
+                scoped = [p for p in failed_paths if fr_pattern in p]
+                other = [p for p in failed_paths if fr_pattern not in p]
+                if scoped:
+                    return [
+                        f"test_coverage: {len(scoped)} {fr_pattern}* test(s) FAILED — "
+                        f"gate cannot pass with {fr_id}'s own tests failing. "
+                        f"Fix the failures before re-submitting."
+                    ]
+                # Sibling failures: visible in the verify log so an operator can
+                # trace them, but NOT blocking this FR's gate. The owning FR's
+                # GATE1 will catch the real failure on its own pass.
+                if other:
+                    sample = ", ".join(sorted(set(other))[:3])
+                    print(
+                        f"[WARN] {fr_id} GATE1: {len(other)} sibling test(s) "
+                        f"failed ({sample}) — owning FRs' gates will catch; "
+                        f"not blocking this FR."
+                    )
+                return []
+            # No parseable FAILED paths in evidence — fall through to legacy
+            # behaviour. (Happens when tool_evidence is the truncated summary
+            # line only; the agent should include FAILED paths per the prompt.)
 
     m = re.search(r"(\d+)\s+failed", evidence)
     if m and int(m.group(1)) > 0:
@@ -3635,8 +3679,11 @@ class HarnessBridge:
         # S4 validates coverage % but not whether tests are red.  Parse
         # tool_evidence for "N failed" and block immediately — a passing
         # coverage score with failing tests is always a fabrication signal.
+        # Per-FR scoped (Round 76): only failures in this FR's own test file
+        # block; sibling failures from shared-source co-owners are the
+        # owning FR's gate concern, not this one.
         if ctx.gate_num == 1:
-            _s4b_violations = _check_tests_failed(raw)
+            _s4b_violations = _check_tests_failed(raw, fr_id=ctx.fr_id)
             if _s4b_violations:
                 raise GateBlockedError(
                     ctx.gate_num,

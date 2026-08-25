@@ -1376,6 +1376,65 @@ class TestCheckTestsFailed:
         raw = self._raw("443 passed in 1.2s")
         assert _check_tests_failed(raw) == []
 
+    # ── Per-FR scope (Round 76): sibling failures must not block ──────────
+
+    def test_per_fr_scope_blocks_only_this_fr_failures(self):
+        # FR-08 evaluating; FAILED paths span FR-01/02/08.
+        # Only test_fr08.py failures should count toward FR-08's gate.
+        evidence = (
+            "FAILED tests/test_fr01.py::test_x - AssertionError\n"
+            "FAILED tests/test_fr02.py::test_y - AssertionError\n"
+            "FAILED tests/test_fr08.py::test_z - AssertionError\n"
+            "20 failed, 59 passed in 6.17s"
+        )
+        raw = self._raw(evidence)
+        violations = _check_tests_failed(raw, fr_id="FR-08")
+        assert len(violations) == 1
+        assert "test_fr08" in violations[0]
+        assert "1" in violations[0]
+
+    def test_per_fr_scope_passes_when_only_siblings_fail(self):
+        # FR-08 evaluating; ALL failures in sibling tests (FR-01/02).
+        # FR-08's gate must NOT block — those are the owning FRs' problem.
+        evidence = (
+            "FAILED tests/test_fr01.py::test_x - AssertionError\n"
+            "FAILED tests/test_fr02.py::test_y - AssertionError\n"
+            "20 failed, 59 passed in 6.17s"
+        )
+        raw = self._raw(evidence)
+        violations = _check_tests_failed(raw, fr_id="FR-08")
+        assert violations == []
+
+    def test_per_fr_scope_legacy_when_no_failed_paths(self):
+        # If evidence has no FAILED paths (just summary line), fall back to
+        # legacy behavior so the agent's deviations still get caught.
+        evidence = "20 failed, 59 passed in 6.17s"
+        raw = self._raw(evidence)
+        violations = _check_tests_failed(raw, fr_id="FR-08")
+        assert len(violations) == 1
+        assert "20" in violations[0]
+
+    def test_per_fr_scope_passes_when_no_failures(self):
+        evidence = "59 passed in 1.2s"
+        raw = self._raw(evidence)
+        violations = _check_tests_failed(raw, fr_id="FR-08")
+        assert violations == []
+
+    def test_per_fr_scope_three_digit_fr(self):
+        # FR-100 (3-digit) — test_fr100* convention.
+        evidence = "FAILED tests/test_fr100.py::test_x - error\n2 failed, 10 passed in 1.0s"
+        raw = self._raw(evidence)
+        violations = _check_tests_failed(raw, fr_id="FR-100")
+        assert len(violations) == 1
+        assert "test_fr100" in violations[0]
+
+    def test_per_fr_scope_fr_with_whitespace(self):
+        # Defensive: whitespace tolerance.
+        evidence = "FAILED tests/test_fr08.py::test_x - error\n1 failed, 5 passed in 0.5s"
+        raw = self._raw(evidence)
+        violations = _check_tests_failed(raw, fr_id="  FR-08  ")
+        assert len(violations) == 1
+
 
 # ===========================================================================
 # _check_test_skip_ratio (W1)
