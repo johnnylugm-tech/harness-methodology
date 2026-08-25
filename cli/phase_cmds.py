@@ -3113,46 +3113,31 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             # deliverable. Same shape as Plan E above; deterministic
             # rejection instead of a dispatch loop (auto_fix retired the
             # fabrication strategies in Round 48 for the same reason).
-            from core.quality_gate.sab_amender import (
-                phantom_modules as _phantom_modules,
-                discover_modules_at as _discover_modules_at,
-            )
-            _sab_path = project / ".methodology" / "SAB.json"
-            _sab_data: dict = {}
-            if _sab_path.exists():
-                try:
-                    import json as _json_phantom
-                    _sab_data = _json_phantom.loads(
-                        _sab_path.read_text(encoding="utf-8")
-                    )
-                except (OSError, ValueError):
-                    _sab_data = {}
-            if _sab_data:
-                # phantom_modules / discover_modules_at treat `src_dir` as
-                # a relative prefix for path-form SAB normalisation
-                # (Round 26 caller noted it must NOT be absolute).
-                try:
-                    _src_dir_rel = str(src_dir.relative_to(project))
-                except ValueError:
-                    _src_dir_rel = str(src_dir)
-                _discovered = set(_discover_modules_at(Path(_src_dir_rel)))
-                _phantoms = _phantom_modules(_sab_data, _discovered, _src_dir_rel)
-                if _phantoms:
-                    print(
-                        f"\n[BLOCKED] Phantom modules declared in SAB but "
-                        f"missing from disk ({len(_phantoms)} module(s)) "
-                        f"before advance-phase commit:"
-                    )
-                    for _pm in _phantoms[:10]:
-                        print(f"  - {_pm}")
-                    if len(_phantoms) > 10:
-                        print(f"  ... and {len(_phantoms) - 10} more")
-                    print(
-                        "  Fix: implement the missing module, or amend SAB "
-                        "via `harness_cli.py amend-sab --resolve-phantom "
-                        "--fr-id <FR-ID> --reason <why>`."
-                    )
-                    return 9
+            #
+            # Round 78 站1: the decision is sab_amender.phantom_module_block,
+            # which resolves the source directory from `project` alone. The
+            # inline version here read it relative to the process's working
+            # directory, and from anywhere but the project root reported every
+            # registered module as phantom — measured, all nine corpus
+            # projects. What is left here is the call and the message.
+            from core.quality_gate.sab_amender import phantom_module_block
+            _phantoms = phantom_module_block(project)
+            if _phantoms:
+                print(
+                    f"\n[BLOCKED] Phantom modules declared in SAB but "
+                    f"missing from disk ({len(_phantoms)} module(s)) "
+                    f"before advance-phase commit:"
+                )
+                for _pm in _phantoms[:10]:
+                    print(f"  - {_pm}")
+                if len(_phantoms) > 10:
+                    print(f"  ... and {len(_phantoms) - 10} more")
+                print(
+                    "  Fix: implement the missing module, or amend SAB "
+                    "via `harness_cli.py amend-sab --resolve-phantom "
+                    "--fr-id <FR-ID> --reason <why>`."
+                )
+                return 9
 
             # 0.2 Linting (ruff)
             if shutil.which("ruff"):

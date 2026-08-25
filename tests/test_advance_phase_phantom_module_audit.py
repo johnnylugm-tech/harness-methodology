@@ -22,7 +22,6 @@ The central test in this file (``test_fr_module_paths_phantom_when_declared_-
 but_missing``) exercises that exact failure shape.
 """
 
-import inspect
 import json
 from pathlib import Path
 
@@ -144,21 +143,6 @@ def test_fr_module_paths_concrete_when_declared_and_present(tmp_path: Path):
     assert any("session.py" in p for p in scope.paths)
 
 
-def test_fr_coverage_record_returns_none_for_phantom(tmp_path: Path):
-    """Phantom FR scope reaches ``fr_coverage_record -> None``.
-
-    The gate uses ``fr_coverage_record`` (or its predecessor); ``None``
-    propagates to ``_check_gate1_live_coverage`` as a BLOCK signal.
-    """
-    project = _write_project(
-        tmp_path,
-        sab_modules=["taskq_api.repository.session"],
-        manifest_modules="taskq_api.repository.session",
-        fr_id="FR-06",
-    )
-    assert fr_coverage_record(project, "FR-06") is None
-
-
 def test_fr_coverage_record_returns_none_for_no_scope(tmp_path: Path):
     """FR with no declared scope: ``fr_coverage_record`` returns ``None``.
 
@@ -172,33 +156,132 @@ def test_fr_coverage_record_returns_none_for_no_scope(tmp_path: Path):
     assert fr_coverage_record(project, "FR-99") is None
 
 
-def test_validate_fr_coverage_immediate_distinguishes_phantom():
-    """Static delegation check: ``validate_fr_coverage_immediate`` must
-    inspect ``_scope.is_phantom`` and refuse to return a coverage number
-    for a phantom FR. Same style as ``test_advance_phase_pragma_guidance.py``.
-    """
-    from core.quality_gate import gate1_evidence as _ev
-    src = inspect.getsource(_ev.validate_fr_coverage_immediate)
-    assert "_scope.is_phantom" in src, (
-        "validate_fr_coverage_immediate must distinguish phantom FR "
-        "scope and refuse to return a coverage number. Without this "
-        "guard the gate silently OKs a phantom deliverable (pre-Plan-F "
-        "shape)."
-    )
-    assert "_coverage_for_paths" in src
+# ── the behaviour Plan F actually changed ────────────────────────────────────
+#
+# Round 78 站5. Plan F's only behaviour change is here: a phantom FR used to
+# receive the whole-project coverage number and now receives None. It was
+# pinned by `assert "_scope.is_phantom" in inspect.getsource(...)`, which
+# survives any rewrite that keeps the spelling and any behaviour that loses
+# the meaning.
+#
+# Its sibling `test_fr_coverage_record_returns_none_for_phantom` was deleted
+# rather than kept: measured, pre-Plan-F `_fr_module_paths` returned
+# `paths or None`, so a phantom gave None there too and
+# `fr_coverage_record` returned None. That test passes identically on the
+# code before the change it claimed to pin. `..._for_no_scope` above is kept
+# because its docstring says exactly that — it asserts a preserved contract.
 
 
-def test_advance_prechecks_invoke_phantom_modules_for_early_block():
-    """Plan F (Round 50+): ``_advance_prechecks`` must invoke
-    ``phantom_modules`` BEFORE linting/typing/coverage — same early-fail
-    pattern as Plan E for pragma.
+def _suite(**kwargs):
+    """A SuiteResult with the fields `validate_fr_coverage_immediate` reads.
+
+    `run_suite` is public, so patching it is not implementation-detail
+    mocking (tests/test_patch_discipline.py) — and it is the seam
+    tests/test_gate1_live_coverage.py already uses for this function.
     """
-    from cli.phase_cmds import _advance_prechecks as _apc
-    src = inspect.getsource(_apc)
-    assert "phantom_modules" in src, (
-        "Plan F: _advance_prechecks must call phantom_modules to BLOCK "
-        "before linting/typing/coverage run — same early-fail pattern "
-        "as Plan E for pragma."
+    from core.quality_gate.test_suite_run import SuiteResult
+
+    base = dict(
+        passed=True, coverage=62.5, test_target="03-development/tests",
+        cov_target="03-development/src", returncode=0, output="", ran=True,
     )
-    # Marker comment anchors the audit's intent in source.
-    assert "Plan F (Round 50+): early phantom module check" in src
+    base.update(kwargs)
+    return SuiteResult(**base)  # type: ignore[arg-type]
+
+
+def test_a_phantom_fr_gets_no_coverage_number_at_all(tmp_path: Path):
+    """The gate must not report a number for a deliverable that is not there.
+
+    Pre-Plan-F this returned 62.5 — the whole project's figure, which has
+    nothing to do with the module FR-06 declared and did not write.
+    """
+    from unittest import mock
+
+    from core.quality_gate.gate1_evidence import validate_fr_coverage_immediate
+
+    project = _write_project(
+        tmp_path,
+        sab_modules=["taskq_api.repository.session"],
+        manifest_modules="taskq_api.repository.session",
+        fr_id="FR-06",
+    )
+    with mock.patch("core.quality_gate.test_suite_run.run_suite",
+                    return_value=_suite()):
+        assert validate_fr_coverage_immediate(project, fr_id="FR-06") is None, (
+            "a declared-but-missing module must yield 'could not measure', "
+            "not the whole-project percentage")
+
+
+def test_an_fr_that_declares_no_scope_still_gets_the_whole_project_number(tmp_path: Path):
+    """The other side of the same branch, and the reason Plan F is narrow.
+
+    An FR with no `fr_module_traceability` entry is not a phantom — it made
+    no claim. Its pre-Plan-F fall-through is preserved deliberately, and
+    without this test nothing distinguishes "Plan F scoped the block
+    correctly" from "Plan F blocks everything that resolves to no paths".
+    """
+    from unittest import mock
+
+    from core.quality_gate.gate1_evidence import validate_fr_coverage_immediate
+
+    project = _write_project(
+        tmp_path, sab_modules=[], manifest_modules=None, fr_id="FR-99",
+    )
+    with mock.patch("core.quality_gate.test_suite_run.run_suite",
+                    return_value=_suite()):
+        assert validate_fr_coverage_immediate(project, fr_id="FR-99") == 62.5
+
+
+def test_advance_prechecks_runs_the_phantom_audit_before_the_slow_stages():
+    """The wiring and its position, read off the AST rather than the text.
+
+    What this replaces asserted `"phantom_modules" in inspect.getsource(...)`
+    and `"Plan F (Round 50+): early phantom module check" in src` — a
+    substring and a COMMENT. Round 78 站1 renamed nothing but the callee and
+    the first went red while the behaviour improved; the second stayed green
+    the whole time the check was blocking all nine corpus projects.
+
+    An `ast.Call` to a name is a structural fact: a comment cannot satisfy it
+    and a rename cannot smuggle past it. The DECISION itself is covered by
+    behaviour in tests/test_phantom_audit_is_cwd_invariant.py; what is left
+    for this test is that advance-phase invokes it, and invokes it before the
+    stages it is meant to save (ruff / mypy / the suite all run through
+    `subprocess.run`).
+    """
+    import ast
+
+    source = (Path(__file__).resolve().parents[1]
+              / "cli" / "phase_cmds.py").read_text(encoding="utf-8")
+    fn = next(
+        n for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.FunctionDef) and n.name == "_advance_prechecks"
+    )
+
+    audit_lines = [
+        n.lineno for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == "phantom_module_block"
+    ]
+    assert audit_lines, (
+        "_advance_prechecks no longer calls phantom_module_block — a SAB "
+        "declaring a module the tree does not contain would advance")
+
+    # The claim is "before linting/typing/coverage", not "first thing in the
+    # function" — `_advance_prechecks` shells out to git and gitleaks well
+    # before this. Anchor on the ruff stage by its argv, which is the first
+    # of the three.
+    ruff_lines = [
+        n.lineno for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "run" and n.args
+        and isinstance(n.args[0], ast.List) and n.args[0].elts
+        and isinstance(n.args[0].elts[0], ast.Constant)
+        and n.args[0].elts[0].value == "ruff"
+    ]
+    assert ruff_lines, (
+        "expected the ruff stage inside _advance_prechecks — this test "
+        "anchors the audit's position on it")
+    assert min(audit_lines) < min(ruff_lines), (
+        f"the phantom audit runs at line {min(audit_lines)}, after the ruff "
+        f"stage at {min(ruff_lines)} — Plan F's whole point is failing "
+        f"before lint/type/coverage, not after them")

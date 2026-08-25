@@ -220,6 +220,59 @@ def phantom_modules(sab: dict, discovered: Iterable[str], src_dir: str = _DEFAUL
     return sorted(set(phantoms))
 
 
+def phantom_module_block(project_root: Path) -> list[str]:
+    """This project's phantom modules, resolved against `project_root` alone.
+
+    Round 78 站1. `cli/phase_cmds.py::_advance_prechecks` refuses to advance
+    when the SAB declares a module the tree does not contain, and Plan F wrote
+    that check inline. It resolved the source directory relative to the
+    process's working directory:
+
+        _src_dir_rel = str(src_dir.relative_to(project))
+        _discovered = set(discover_modules_at(Path(_src_dir_rel)))
+
+    `discover_modules_at` opens that path. From any directory but the project
+    root it opens nothing, every registered module reads as missing, and the
+    BLOCK sends the project to `amend-sab --resolve-phantom` for modules that
+    are on disk. Measured across the nine corpus projects with a SAB: 0
+    phantom from inside, 9–45 from outside — all nine.
+
+    The defect is not the line, it is one name carrying two meanings.
+    `discover_modules_at` wants a filesystem path; `phantom_modules` wants a
+    RELATIVE prefix for stripping path-form SAB entries. `cli/gate_cmds.py`
+    computes the same `_src_dir_rel` and states that rule in a comment, but
+    hands it to `amend_sab(Path(project), src_dir=…)`, where the root travels
+    as its own argument. Plan F carried the rule across to a call where it
+    did not.
+
+    So this uses `discover_modules(project_root, src_dir)` — the root and the
+    prefix, named apart, the function `amend_sab` and `cli/project_cmds.py`
+    already call. Nothing here reads `os.getcwd()`.
+
+    A project with no `SAB.json` declares nothing and therefore has nothing
+    declared-but-missing: `[]`, silently (pre-P2 projects have no SAB and this
+    runs at every phase transition). A SAB that exists but will not parse gets
+    `_safe_load`'s WARN, because an unreadable declaration is a fact worth
+    saying rather than an empty one.
+    """
+    from core.utils.project_layout import ProjectLayout
+
+    sab_path = Path(project_root) / ".methodology" / "SAB.json"
+    if not sab_path.is_file():
+        return []
+    sab = _safe_load(sab_path)
+    if not sab:
+        return []
+
+    src_dir = ProjectLayout(project_root).active_src_dir
+    try:
+        src_rel = str(src_dir.relative_to(Path(project_root)))
+    except ValueError:
+        src_rel = _DEFAULT_SRC_DIR
+    discovered = discover_modules(Path(project_root), src_rel)
+    return phantom_modules(sab, discovered, src_rel)
+
+
 class PhantomResolutionError(ValueError):
     """`resolve_phantom` refused the amendment. The message says why."""
 
