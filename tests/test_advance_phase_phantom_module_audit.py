@@ -51,7 +51,7 @@ def _write_project(
     for m in sab_modules:
         group = m.split(".", 1)[0]
         # Replace existing layer if same group; otherwise append.
-        existing = next((l for l in layers if l["name"] == group), None)
+        existing = next((layer for layer in layers if layer["name"] == group), None)
         module_entry = {"name": m}
         if existing is not None:
             existing["modules"].append(module_entry)
