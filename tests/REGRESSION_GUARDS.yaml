@@ -3632,3 +3632,15 @@
 - test: tests/test_exit_9_causes_are_all_written_down.py::test_the_overloaded_list_in_the_doc_includes_this_code
   bug: "docs/ERROR_HANDLING.md's exit-code section listed 12/17/18/19 as the deliberately overloaded numbers; 9 became a fifth and the list still said four"
   fixed_in: "Round 78 站2"
+
+- test: tests/test_file_size_ratchet.py::test_each_ceiling_equals_the_arithmetic_of_its_own_newest_note
+  bug: "da8e70fd moved two ceilings and left both notes alone: cli/phase_cmds.py read 4320 above a note saying '4130 + 70 = 4200', and core/quality_gate/gate1_evidence.py read 1300 above a note dated 2026-08-18 that never mentions Plan F. 101 and 29 lines of headroom — growth this table exists to make visible, pre-authorised by a number nobody justified. Nothing could see it: the ratchet compares a real count against a real limit either way, and Round 70 站4's duplicate-key guard is a different mistake"
+  fixed_in: "Round 78 站3"
+
+- test: tests/test_file_size_ratchet.py::test_no_new_path_may_join_the_grandfathered_list
+  bug: "four entries predate the `+N ... Previous: M` convention and are exempt from the arithmetic check; the exemption is a debt, not a door — it only shrinks, and every name in it must still be a live entry"
+  fixed_in: "Round 78 站3"
+
+- test: tests/test_file_size_ratchet.py::test_the_arithmetic_check_would_have_caught_the_two_it_was_written_for
+  bug: "negative space for the note parser: it must reject the two shapes measured on da8e70fd, read only the NEWEST entry, and tolerate a note quoting an older `Previous:` in its prose — the entry this station added does exactly that, and the parser's first draft misread it"
+  fixed_in: "Round 78 站3"
