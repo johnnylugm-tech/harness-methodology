@@ -51,15 +51,58 @@ else
     PHASE="$CUR_PHASE"
 fi
 
+# Round 79 站5 — is this the framework repo, according to the repo?
+#
+# Everything below has a "the tool is not here, carry on" branch, which is
+# right in a consuming project (it has no self-check suite and no reason to
+# run one) and wrong here (this repo's push is the only thing between a red
+# tree and main). The two were told apart by asking the FILESYSTEM whether a
+# script existed and was executable — so a tracked self_check.sh with its
+# executable bit stripped, or a checkout missing tests/REGRESSION_GUARDS.yaml,
+# read as "consuming project" and every check below was skipped in silence.
+#
+# `git ls-files` asks the REPO instead. A file git tracks is a file this repo
+# has committed to having; a chmod cannot change that answer, and neither can
+# a half-finished checkout. Round 46's rule: an absent witness is not a
+# passing testimony.
+_IS_FRAMEWORK_REPO=false
+if git ls-files --error-unmatch scripts/self_check.sh >/dev/null 2>&1; then
+    _IS_FRAMEWORK_REPO=true
+fi
+
+# Names a check the framework repo cannot skip. In a consuming project the
+# same condition is a legitimate "not applicable" and says so out loud.
+_require_or_skip() {
+    # $1 = what is missing, $2 = how to fix it
+    if [ "$_IS_FRAMEWORK_REPO" = true ]; then
+        echo ""
+        echo "=============================================="
+        echo "PRE-PUSH BLOCKED: $1"
+        echo "=============================================="
+        echo "This repo tracks scripts/self_check.sh, so it is the framework"
+        echo "repo and its own self-check is not optional — a push that skips"
+        echo "it is indistinguishable from a push that passed it, and CI is"
+        echo "then the first thing to notice (Round 79: 4c24cf37 landed on main"
+        echo "red on five checks this hook runs, and a project consuming the"
+        echo "pin scored three FRs against it before the next commit fixed it)."
+        echo ""
+        echo "$2"
+        exit 1
+    fi
+    echo "  [skip] $1 — not applicable outside the framework repo"
+}
+
 # Check if Python is available
 if ! "$PYTHON" --version &>/dev/null 2>&1; then
-    echo "Warning: python not found ($PYTHON), skipping quality gate check"
+    _require_or_skip "python not found ($PYTHON)" \
+        "Create the venv (python3 -m venv .venv && .venv/bin/pip install -e '.[dev]')."
     exit 0
 fi
 
 # Check if harness CLI exists
 if [ ! -f "$HARNESS_CLI" ]; then
-    echo "Warning: harness_cli.py not found, skipping quality gate check"
+    _require_or_skip "harness_cli.py not found under $PROJECT_ROOT" \
+        "Push from the repo root, or restore the file."
     exit 0
 fi
 
@@ -102,6 +145,17 @@ fi
 # Regression-guard registry: block the push if any guard test was deleted
 # without a matching registry update in the same commit. Framework repo only —
 # target projects have no tests/REGRESSION_GUARDS.yaml, so this is a no-op there.
+#
+# Round 79 站5: this `if` had no `else`. When either file was absent the whole
+# block — the registry check, the added-guard check, the dirty-tree gate and
+# self_check.sh itself — was skipped with no output at all, so the hook's
+# loudest possible failure looked exactly like its quietest success.
+if [ "$_IS_FRAMEWORK_REPO" = true ] \
+   && { [ ! -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] \
+        || [ ! -f "$PROJECT_ROOT/scripts/verify_regression_guards.py" ]; }; then
+    _require_or_skip "the guard registry is missing (tests/REGRESSION_GUARDS.yaml or scripts/verify_regression_guards.py)" \
+        "Restore both files, then push again."
+fi
 if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/scripts/verify_regression_guards.py" ]; then
     echo ""
     echo "Checking regression-guard registry..."
@@ -189,8 +243,17 @@ if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/sc
         exit 1
     fi
 
-    if [ -x "$PROJECT_ROOT/scripts/self_check.sh" ]; then
-        "$PROJECT_ROOT/scripts/self_check.sh" || {
+    # Round 79 站5: `[ -x ]` asks the filesystem. A tracked self_check.sh whose
+    # executable bit was stripped answered "no" and the most expensive check
+    # this hook runs vanished without a line of output. The repo's own answer
+    # (_IS_FRAMEWORK_REPO, from git ls-files) decides whether it is required;
+    # `bash <script>` runs it either way, so the mode bit stops being load-
+    # bearing at all.
+    if [ "$_IS_FRAMEWORK_REPO" = true ] || [ -f "$PROJECT_ROOT/scripts/self_check.sh" ]; then
+        # `bash <script>` rather than executing it: if the framework repo's
+        # tracked self_check.sh is unreadable or gone, bash fails and the
+        # block below fires. There is no branch that can decide not to run it.
+        bash "$PROJECT_ROOT/scripts/self_check.sh" || {
             echo ""
             echo "=============================================="
             echo "PRE-PUSH BLOCKED: self-check failed"
@@ -199,6 +262,9 @@ if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/sc
             echo "turn the build red for the same reason."
             exit 1
         }
+        _SELF_CHECK=ran
+    else
+        echo "  [skip] no scripts/self_check.sh — not applicable outside the framework repo"
     fi
 fi
 
@@ -222,5 +288,8 @@ if [ $RESULT -ne 0 ]; then
     exit 1
 fi
 
-echo "Pre-push check passed!"
+# Round 79 站5: say which checks produced this verdict. "Pre-push check
+# passed!" reads the same whether self_check ran or was skipped, and the
+# operator has no other way to tell — the skip printed nothing.
+echo "Pre-push check passed! (framework-repo: $_IS_FRAMEWORK_REPO, self-check: ${_SELF_CHECK:-skipped}, preflight: phase $PHASE)"
 exit 0
