@@ -1191,3 +1191,54 @@ test('round79: the tag rides on run-all too, and costs no extra dispatch', async
   assert.ok(events.agents.every((a) => a.prompt.startsWith('[run r1] ')),
     'every dispatch in run-all carries the tag, including the first')
 })
+
+// ---- 16. Round 79 站4: the launch form the documentation actually gives ----
+// CLAUDE.md's operator line is `Workflow({ scriptPath: '…/run-all.js' })` — no
+// args at all — and docs/WORKFLOW_PLAYBOOK.md §7 makes the walk-up resolver a
+// first-class path ("沒有 args.repo 時改派一個 agent 用 walk-up"). sim_runner.mjs
+// defaults `opts.args ?? { repo: '/sim/project' }`, so before this section
+// every scenario in this file supplied args.repo and NOTHING here had ever
+// executed that path.
+//
+// That is how 4c24cf37 shipped green: getEnvFingerprint() read REPO from
+// inside `let REPO = await resolveRepo()`'s own initializer, resolveRepo()
+// dispatches only when args.repo is absent, and the TDZ ReferenceError was
+// swallowed by the helper's own catch — so on the documented launch the
+// fingerprint was a constant and its dispatch never happened. 116 tests, 301
+// counting the Python side, all green on a mechanism inert in the delivered
+// tree.
+//
+// The statement below is the cheapest true one: apart from the extra dispatch
+// that resolves the repo, the two launch forms must do the same thing. Anything
+// that fires under one and not the other — a swallowed exception, a binding
+// read before its initializer, a branch on args — turns this red.
+
+const RESOLVER = { match: /^resolve-repo$/, respond: 'REPO=/sim/project' }
+// harness-repair refuses to start without args.ticket (round48 test above), so
+// its "no args.repo" form still carries the ticket.
+const REPAIR_ARGS_NO_REPO = { ticket: REPAIR_ARGS.ticket }
+
+for (const name of [...PHASE_FILES, 'run-all.js', 'harness-repair.js']) {
+  test(`round79: ${name} runs the same way without args.repo`, async () => {
+    const overrides = name === 'run-all.js'
+      ? [cursorAt(1), ...happyOverrides()]
+      : (name === 'harness-repair.js' ? [] : happyOverrides())
+    const noArgs = await runWorkflow(WF(name), makeHappyResponder([RESOLVER, ...overrides]),
+                                     { args: name === 'harness-repair.js' ? REPAIR_ARGS_NO_REPO : {} })
+    const withRepo = await runWorkflow(WF(name), makeHappyResponder([RESOLVER, ...overrides]),
+                                       { args: name === 'harness-repair.js' ? REPAIR_ARGS : { repo: '/sim/project' } })
+
+    const a = noArgs.events.agents.map((x) => x.label)
+    const b = withRepo.events.agents.map((x) => x.label)
+    assert.equal(a[0], 'resolve-repo',
+      `${name} did not dispatch the walk-up resolver on the documented launch `
+      + `form — it started with ${a[0]}`)
+    assert.notEqual(b[0], 'resolve-repo',
+      'the control must NOT resolve, or the comparison below proves nothing')
+    assert.deepEqual(a.slice(1), b,
+      `${name} behaves differently with and without args.repo. Apart from the `
+      + 'resolver itself the two launches must be the same run; a difference '
+      + 'here means something reads a binding, or a branch, that only one of '
+      + 'them has')
+  })
+}

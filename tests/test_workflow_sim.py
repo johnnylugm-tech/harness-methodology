@@ -122,4 +122,11 @@ def test_sim_testbed_passes():
     # and run-all's dispatch count is identical with and without it. The
     # mechanism this replaces (4c24cf37's env-fp fingerprint) shipped with
     # zero tests and all 116 here stayed green while it was inert.
-    assert int(m.group(1)) >= 120, f"sim suite shrank: only {m.group(1)} passing tests (floor 120)"
+    # 120 -> 130 by Round 79 站4. Section 16 runs every generated workflow with
+    # `args: {}` — CLAUDE.md's documented operator form, and playbook §7's
+    # first-class walk-up path — and asserts it does the same thing as the
+    # args.repo form apart from the resolver dispatch itself. sim_runner.mjs
+    # defaults `opts.args ?? { repo: '/sim/project' }`, so until this section
+    # NOTHING here had ever executed that path, which is how a binding read
+    # inside its own initializer shipped green.
+    assert int(m.group(1)) >= 130, f"sim suite shrank: only {m.group(1)} passing tests (floor 130)"

@@ -560,3 +560,71 @@ def test_the_delta_fastpath_does_not_fan_out_over_the_frs(filename):
         f"test database and one source_tree_lock — the probe walks the FRs one "
         f"at a time, and the prompt has to say so"
     )
+
+
+# Round 79 站4 — a dispatch's phase label must be a box the file declares.
+#
+# `opts.phase` groups a dispatch into a progress box, and the same string is
+# written to .methodology/sessions_spawn.log as `phase_label`. The vocabulary
+# is each file's own `meta.phases[].title`, and nothing checked that a
+# dispatch used one of them: core/spawn_log_schema.validate_row checks which
+# KEYS a row carries, not which VALUES.
+#
+# Measured on 4c24cf37: its env-fp-init dispatch declared `phase: 'Phase
+# Cursor'` in all ten generated files, and only run-all.js has that box —
+# phase1-8 and harness-repair carry no such title. Nine files therefore
+# stamped a phase_label outside their own vocabulary into the log, with no
+# box in the progress view to group it under and nothing to say so.
+#
+# `harness-repair.js` is generated but is not in GENERATED_FILES (it is not
+# one of the eight phase files and carries no size ratchet); it is added here
+# because it was one of the nine.
+_PHASE_TITLE = re.compile(r"^\s*\{\s*title:\s*'([^']*)'\s*\}", re.M)
+# Only a phase label that IS the whole expression. run-all builds most of its
+# labels by concatenation (`phase: 'P1 · ' + cfg.phaseName`), where the literal
+# is a prefix and the box is decided at runtime; the negative lookahead drops
+# those rather than reporting eight prefixes as unknown boxes. Found by writing
+# the check without it and reading what it accused — same lesson as
+# tests/test_no_hardcoded_paths.py, one level down.
+_DISPATCH_PHASE = re.compile(r"\bphase:\s*'([^']*)'(?!\s*\+)")
+
+# Two labels predate this guard, in phase1 / phase2 and their inlined copies in
+# run-all: the B-review and approval-persist dispatches inside the shared
+# sub-task loop. Measured at 0978364c, before Round 79 touched anything, so
+# they are not this round's to fix — and picking a box for them is a change to
+# the progress view, not a lint. DOWN ONLY: a third name here needs the reason
+# in the same commit.
+#
+# run-all inlines each phase body and prefixes every label with `P<n> · `
+# (its own meta.phases reads 'P1 · Preflight', …), so the same two arrive here
+# as 'P1 · B Review' and friends. The prefix is stripped before the lookup
+# rather than listed four more times.
+_UNDECLARED_GRANDFATHERED = frozenset({"B Review", "Persist Approval"})
+_RUNALL_PREFIX = re.compile(r"^P\d+ · ")
+
+
+@pytest.mark.parametrize("filename", [*GENERATED_FILES, "harness-repair.js"])
+def test_every_dispatch_phase_is_a_box_the_file_declares(filename):
+    source = _read(filename)
+    declared = set(_PHASE_TITLE.findall(source))
+    assert declared, f"{filename}: no meta.phases titles found — the regex broke"
+
+    commented = comment_line_numbers(source)
+    lines = source.splitlines()
+    used = {
+        m.group(1)
+        for n, line in enumerate(lines, start=1)
+        if n not in commented
+        for m in _DISPATCH_PHASE.finditer(line)
+    }
+    unknown = sorted(
+        label for label in used - declared
+        if _RUNALL_PREFIX.sub("", label) not in _UNDECLARED_GRANDFATHERED
+    )
+    assert not unknown, (
+        f"{filename}: dispatch(es) declare a phase label this file never puts "
+        f"in meta.phases: {unknown}. The label groups the progress box AND is "
+        f"written to sessions_spawn.log as phase_label, so a value outside the "
+        f"file's own vocabulary has no box and no meaning. Declared here: "
+        f"{sorted(declared)}"
+    )
