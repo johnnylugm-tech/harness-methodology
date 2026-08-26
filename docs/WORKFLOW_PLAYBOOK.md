@@ -404,6 +404,35 @@ async function resolveRepo() {
 }
 ```
 
+### 5.7b `args.run_tag` —— 唯一能打破 agent cache 的鑰匙(Round 79)
+
+`agent()` 的結果被 cache 在 `(prompt, opts)` 上(§6.3)。當一次 run 停在專案
+狀態上(RC=25,`amend-sab` 可修),修復只動專案樹、**不動任何 prompt** ——
+所以重新啟動可能被 replay 同一個已經被修好的判定。
+
+```javascript
+Workflow({ scriptPath: '/abs/path/run-all.js',
+           args: { repo: '/abs/path', run_tag: 'attempt-2' } })
+```
+
+`render_dispatch_wrapper()` 把 `[run <tag>] ` 折進**每一個** prompt 的第 1 行:
+
+- **給不同的 tag** → 每一個 prompt 都不同 → 全部 cache miss。
+- **給同一個 tag** → 每一個 prompt 逐字相同 → 真正的 resume 照常命中。
+  這就是為什麼鑰匙由操作者給,不由腳本自己算:會自己變的鑰匙(時鐘、或
+  run 自己會推進的 git HEAD)在每次 resume 都 miss,把已完成的前綴整段重跑。
+- **不給** → 渲染成 `''`,prompt 與沒有這個機制時逐位元組相同。
+
+> **為什麼不是自動算指紋**:`4c24cf37` 試過 —— 派一個 agent 去讀
+> `git hash-object .methodology/SAB.json` 與 `git rev-parse HEAD`。那個 dispatch
+> 的 `(prompt, opts)` 跨啟動不變,所以**它自己**在第二次啟動就是 cache hit,
+> 拿回上一次的指紋。**鑰匙不能走它要打破的那個 cache。** 這個沙盒裡不經過
+> `agent()` 的值只有 `args`(每支生成檔的檔頭自己列著:no fs / no
+> `Date.now()` / no `Math.random()`)。裁決見
+> `docs/PROPOSAL_ADJUDICATIONS.md` Round 79。
+
+RC=25 的中止訊息會直接把上面那行重啟指令印出來。
+
 ### 5.8 `budget` 物件(token budget tracking)
 
 ```javascript

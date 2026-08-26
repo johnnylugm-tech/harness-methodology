@@ -3778,6 +3778,112 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 79 — 打不破自己的 cache,和一個沒有擋下來的 hook
+
+老闆令:複核 `0978364c` 之後 main 上的所有 commit,是否為正解、是否有副作用;
+把發現的問題展開成可執行的修復方案(確認根源,用正解,不是 workaround)。
+基線 `36d8c1d6`(pytest 7815 passed / 4 skipped,guards 899),語料十專案唯讀。
+
+Code review 提 **15 項**。逐項實跑複現:**11 項屬實、2 項被我自己的量測推翻、
+2 項降級**;另查出 1 項 review 沒看到、**代價已經發生**的事。
+
+### 三個 commit 逐一裁決
+
+| commit | CI | 判定 | 附註 |
+|---|---|---|---|
+| `4c24cf37` env-fp cache-buster | ❌ failure | ❌ **機制無法運作**,兩個獨立死因 | 站1 移除 |
+| `d01adf0e` parity/ratchets/sim 對齊 | ✅ | ⚠️ **是 `4c24cf37` 的修補 commit**;算術誠實,但把三個守衛改弱 | 站1 還原 |
+| `36d8c1d6` submodule-pin 指名 green SHA | ✅ | ✅ **正解** | 見下方「不在本輪動」 |
+
+### 根源:打破 cache 的鑰匙,是透過那個 cache 拿到的
+
+`getEnvFingerprint()` 用 `dispatch()` 去問指紋,而 `dispatch()` 正是被 cache
+的那件事。指紋的 prompt 是 `REPO` 的純函數(`git -C <repo> hash-object
+<repo>/.methodology/SAB.json …`)、opts 是固定字面值,兩者跨啟動都不變。在
+commit 自己陳述的前提下(cache key = `(prompt, opts)` 且跨啟動存活),第二次
+啟動時 `env-fp-init` 自己就是 cache hit,拿回第一次的指紋,下游 118 個 prompt
+的 tag 一模一樣,replay 照舊。**這個機制最多只能生效一次** —— 上線後的第一次
+啟動,也就是 commit message 引用的那一次量測(那時它還沒有 cache entry)。
+
+**而且在文件記載的啟動形式下,它連一次都沒有。** `getEnvFingerprint()` 在
+`let REPO = await resolveRepo()` 的 initializer 內部讀 `REPO`,而
+`resolveRepo()` 只在沒有 `args.repo` 時 dispatch —— 那正是 CLAUDE.md 記載的
+`Workflow({ scriptPath: … })` 與 playbook §7 的一等公民 walk-up 路徑。TDZ
+`ReferenceError` 被它自己的 `catch` 吞掉,`ENV_FP` 釘死在 `none/none`,
+memoized 且永不重試。用 repo 自己的 sim 驅動 shipped `phase1-requirements.js`,
+`args: {}`:
+
+```
+first labels : [ 'resolve-repo', 'preflight-a1', 'preflight-a2', 'preflight-a3' ]
+env-fp-init dispatched?  false
+tagged       : 4 / 4      distinct tags: [ '[env-fp SAB=none HEAD=none]' ]
+```
+
+兩個缺陷同一個根:**修復所依賴的那個觀測,是用 dispatch 取得的,而 dispatch
+正是要被修的東西。**
+
+### 15 項發現的處置
+
+**屬實(11)**:TDZ 惰性 / 鑰匙走同一個 cache / `catch` 把 TDZ、rate-limit、
+schema 拒絕全部變成合法讀數 `none/none`(R24/R35 母體,出現在修 cache bug 的
+修復裡)/ 高度錯了(playbook:196 已裁決過這一類,run-all.js 自己的檔頭就是
+那個裁決的實作)/ 測床把缺陷設定掉了 / 零測試 guards 899→899 / SHA 零形狀
+驗證 / 兩段註解互相矛盾且都與程式碼不符 / parity filter 讓 env-fp-init 零約束 /
+9 檔 stamp 未宣告的 `phase: 'Phase Cursor'` / 訊息寫死 `- 7`。
+
+**被我自己的量測推翻(2)**
+
+| # | 主張 | 為什麼不成立 |
+|---|---|---|
+| #4 | 「折進 git HEAD 會摧毀 resume 的 cache 命中」 | `ENV_FP` 是 per-run memoized,而 `env-fp-init` 的 prompt/opts 跨啟動不變,所以 resume 時那一呼叫本身就是 cache hit,拿回同一個指紋 → tag 相同 → resume 保住。**正是 #2 那個缺陷在保護 resume。** 反過來若 cache 不跨啟動存活,本來就沒有 resume cache 可失去 —— 兩種讀法下都不成立 |
+| #10 | 「破壞 Zero extra dispatches 不變式」 | 該性質陳述的是 *bookkeeping* 機制(「per-call wrapper agent 會讓 dispatch 數翻倍」),env-fp-init 是每 run 一次不是每 call 一次。真正的問題是位置:`spec_shared.py:224` 的「no extra dispatch is spent」坐在一個花掉一次 dispatch 的區塊正上方 —— 降級為註解衛生,併入 #9 |
+
+**降級(2)**:#11 刪掉 `assert "async function dispatch(" in wrapped` —— 實測
+`generate(8)` 仍含該字串,刪除非被迫,但 `sim_runner.test.mjs:975` 與同檔
+`count("await agent(") == 1` 已覆蓋同一件事,損失小於 review 的說法;仍屬
+bug-fix commit 裡的無關改動,站1 還原。#15 併入 #14。
+
+### review 沒看到:紅 commit 的實測代價
+
+`4c24cf37` 帶著 **5 個 self_check 守衛全紅**被推上 main(DISPATCH_REGISTRY
+未分類、RUNALL_MAX_BYTES、ratchet-note 量測值、sim testbed exit 1、dispatch
+計數)。代價寫在 `36d8c1d6` 自己的 commit message 裡:taskq-cc-new 的 run-all
+preflight 看到紅 pin,退回 `0978364c`,**FR-01~FR-03 的 Gate1 分數是對著一個
+env-fp 已被還原的 harness 打的**。時間窗 10 分鐘(01:42 推 → 01:48 CI 紅 →
+01:52 專案消費)。
+
+**hook 為什麼沒擋,我判定不出來。** 查過並排除三個假設:`core.hooksPath`
+相對路徑(實測 `git rev-parse --git-path hooks/pre-push` 從 `cli/` 與
+`scripts/workflowgen/` 都解析正確)、兩支腳本的 exec bit(index 100755、
+磁碟都有)、shipped↔generator parity 無守衛(`test_workflowgen_shipped_parity.py`
+存在且有跑)。commit 到 CI run 只隔 **8 秒**,短於一次 self_check。
+
+能證明的是 hook 自己有四條可以 exit 0 而什麼都沒檢查的路徑,其中兩條**一行
+輸出都沒有**(見站5)。R46 的形狀:**證人缺席不算作證失敗**。
+
+### 六站
+
+| 站 | 內容 | commit |
+|---|---|---|
+| 站1 | 移除 env-fp;10 支 workflow + 10 支 golden **與 `0978364c` 逐位元組相同**;ratchet 下修 379658;還原 d01adf0e 改弱的三個守衛 | `dd7cb3f0` |
+| 站2 | `args.run_tag` —— `args` 是這個 sandbox 唯一不經過 `agent()` 的值(每支生成檔的檔頭自己列了其餘皆無:no fs / no clock / no `Math.random`)。不給就是 `''`,prompt 與 Round 79 之前逐位元組相同 | `56385b20` |
+| 站3 | RC=25 中止點指名重啟形式(R48) | `32b75e06` |
+| 站4 | 用 `args: {}` 驅動 10 支 shipped workflow;dispatch 的 `phase:` 必須是自己宣告的 box | `449744da` |
+| 站5 | hook 的四條靜默通過路徑改成指名原因的 BLOCK;判定改問 `git ls-files` 而不是檔案系統 | `8872b8c4` |
+| 站6 | 本賬本 | — |
+
+### 不做,與 re-open 條件
+
+| 項目 | 為什麼不做 | re-open |
+|---|---|---|
+| 重新診斷 runtime cache 跨 fresh launch 到底存不存在 | 我觀測不到。playbook §6.3 說範圍是同 session + `resumeFromRunId` + script 位元組不變;`4c24cf37` 說跨啟動存活;taskq-cc-new 的 spawn log **無法區分**(wrapper 不論 cache hit 與否都會寫記錄)。**本輪在兩種讀法下都正確**:站1 的移除兩種讀法下都對,站2 的 tag 不用就等同今天 | 有人能在 runtime 端實測 cache 範圍 |
+| `4c24cf37` 為什麼沒被 hook 擋 | 三個假設已排除,原因不明。站5 修的是我**能**證明的四條靜默路徑,不是一個未確認的原因 | 老闆確認當時是否用了 `--no-verify` |
+| `git push --no-verify` | git 根本不叫 hook,機制關不掉。branch protection 是唯一能關的,老闆禁止我動 | — |
+| `test_amend_sab_appears_once_per_generated_workflow` 數字串不數 dispatch | 別人的守衛,而且它已經為同樣理由帶了一個豁免(infra_abort return payload)。為自己的方便去放寬它正是 R64 的形狀 —— 站2 改的是自己的註解措辭 | 有第三個正當 mention 出現時 |
+| `'B Review'` / `'Persist Approval'` 兩個未宣告的 phase label | 0978364c 就在了,不是本輪造的。替它們選一個 box 是改 progress view,不是 lint 該做的決定。站4 的守衛把它們列為**只減不增**的豁免 | 有人決定這兩個 dispatch 該歸在哪個 box |
+| `core/ci_verdict.py` 的 `repo_slug(project) if runner is None else "o/r"` | `36d8c1d6` 沿用的是 `fetch_ci_verdict:128` 就有的既有形狀,不是新缺陷。代價是注入 runner 的測試永遠不會走到 `repo_slug` | 有人要處理 runner 注入 seam 的整體形狀 |
+| `spec_shared.py:156` `_render_meta` 的 pyright「未使用」警告 | HEAD 就有,與本輪無關 | — |
+
 ## Round 78 — 相對路徑、四個原因的 exit code、和量錯樹的守衛
 
 老闆令:複核 Round 76 → Round 77 之間全部 11 個 commit,是否都是正解、
