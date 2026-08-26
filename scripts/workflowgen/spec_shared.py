@@ -243,7 +243,7 @@ async function dispatch(prompt, opts) {
   const label = (opts && opts.label) || 'agent'
   const phaseLabel = (opts && opts.phase) || ''
   // Round 79: env-fp cache-buster — fold the live project fingerprint into the
-  // prompt so a fresh run after amend-sab / git commit forces cache invalidation
+  // prompt so a fresh run after AAP amendment / git commit forces cache invalidation
   // for every agent that consults project state (delta-*, gate1-verify-*, …).
   // The tag is prepended OUTSIDE the bookkeeping preamble so the bookkeeping
   // command itself stays at line 1 and the agent sees a one-line header it can
@@ -272,7 +272,7 @@ async function dispatch(prompt, opts) {
 }
 // Round 79: env-fp — workflow-level cache-buster. The runtime cache keys on
 // (prompt, opts) and persists across `Workflow({scriptPath, resumeFromRunId})`
-// calls, so an `infra_abort` followed by `amend-sab` (which only mutates the
+// calls, so an `infra_abort` followed by AAP amendment (which only mutates the
 // project tree, never the prompt text) replays the stale RC=25 from cache and
 // loops the same halt. Tagging every dispatch with `[env-fp SAB=… HEAD=…]`
 // folds the live environment state into the cache key without changing any

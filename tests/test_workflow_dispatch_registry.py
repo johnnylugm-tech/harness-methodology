@@ -57,6 +57,9 @@ PHASE_FILES = sorted(
 # (label-literal regex, cls, verdict, note) — first match wins.
 DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     # ── carriers: fixed command + canonical-string / schema transport ──
+    (r"^env-fp-init$", "carrier", "schema",
+     "Round 79: live SAB.json SHA and git HEAD SHA read via Bash and transcribed "
+     "into ENV_FP_SCHEMA for cache-busting"),
     (r"^resolve-repo$", "carrier", "js-regex",
      "fixed walk-up one-liner; JS regex-parses REPO=<abs path>"),
     (r"^phase-cursor$", "carrier", "schema",

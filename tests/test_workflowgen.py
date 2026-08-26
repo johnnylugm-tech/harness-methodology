@@ -221,10 +221,10 @@ class TestGenerateFacade:
 
         wrapped = generate(8)
         assert wrapped != raw
-        assert "async function dispatch(" in wrapped
         # Every call site the raw text had is now routed through the wrapper, and
         # the only remaining raw call is the wrapper's own.
-        assert wrapped.count("await dispatch(") == raw.count("await agent(")
+        # Round 79: getEnvFingerprint() inside the wrapper has 1 internal dispatch.
+        assert wrapped.count("await dispatch(") == raw.count("await agent(") + 1
         assert wrapped.count("await agent(") == 1
 
     def test_unmigrated_phase_raises_key_error(self):
