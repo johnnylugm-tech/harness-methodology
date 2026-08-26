@@ -495,7 +495,7 @@ for (const frId of deltaTodo) {
   // agent aimed at code. Separate from 70 since 站2, because the remedy is.
   if (frRc === 25) {
     log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-    return { infra_abort: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run this phase.' }
+    return { infra_abort: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
   }
   // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness
   // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A

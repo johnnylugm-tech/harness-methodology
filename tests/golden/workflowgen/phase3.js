@@ -540,7 +540,7 @@ for (const frId of frIds) {
     // agent aimed at code. Separate from 70 since 站2, because the remedy is.
     if (frRc === 25) {
       log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-      return { infra_abort: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run this phase.' }
+      return { infra_abort: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
     }
     // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes
     // gate_results.gate1[fr].quality_complete on every finalize-gate, pass OR fail) —

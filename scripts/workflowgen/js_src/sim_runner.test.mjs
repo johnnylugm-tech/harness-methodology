@@ -280,6 +280,16 @@ test('phase3 TDD loop: an INFRA abort is rc 25 and is not a harness bug', async 
   const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
   assert.equal(result.infra_abort, true, JSON.stringify(result).slice(0, 200))
   assert.notEqual(result.harness_bug_detected, true, 'INFRA is project state, not a harness defect')
+  // Round 79 站3. This is the one halt whose remedy leaves every prompt in the
+  // next launch byte-identical to this one's — the repair mutates the project
+  // tree and nothing else — which is exactly when the runtime can serve the
+  // halt back from cache. The operator is holding that problem here and
+  // nowhere else, so this is where run_tag has to be named (Round 48: a halt
+  // names its own remedy). The message is the deliverable, not a proxy for it.
+  assert.match(result.message, /run_tag/,
+    'the INFRA halt tells the operator to repair project state but not how to '
+    + 'relaunch without being replayed the verdict they just repaired')
+  assert.match(result.message, /amend-sab/)
 })
 
 test('phase3 TDD loop: an ordinary Gate 1 failure (rc 1) is not an abort', async () => {

@@ -695,6 +695,12 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
     25 = EX_FR_STEP_INFRA_ABORT — three classes, three codes since 站2, and
     three exits here rather than two, because INFRA has a repair route the
     other two do not (`amend-sab`, then re-run).
+
+    Round 79 站3: 25's message names the relaunch form too. The repair mutates
+    the project tree and nothing else, so the next launch's prompts are
+    byte-identical to this one's — exactly when the runtime can serve this
+    halt back from cache. `args.run_tag` (spec_shared) is the key that breaks
+    it, and this is the only place an operator holds the problem it solves.
     """
     i = indent
     return (
@@ -730,7 +736,9 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"{i}  return {{ infra_abort: true, phase: {phase}, fr_id: frId, gate1Pass, "
         f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: an INFRA precondition failed "
         f"(exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project "
-        f"state with `harness_cli.py amend-sab`, then re-run this phase.' }}\n"
+        f"state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: "
+        f"Workflow({{scriptPath, args: {{repo, run_tag}}}}). amend-sab changes no prompt, "
+        f"so without one the cache can replay this halt.' }}\n"
         f"{i}}}\n"
     )
 
