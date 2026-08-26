@@ -186,7 +186,7 @@ def submodule_pin_verdict(
             ),
         }
 
-    from core.ci_verdict import fetch_ci_verdict
+    from core.ci_verdict import fetch_ci_verdict, find_latest_green_sha
 
     verdict = fetch_ci_verdict(Path(project) / _SUBMODULE_DIRNAME,
                               pinned_sha, runner=runner)
@@ -196,18 +196,47 @@ def submodule_pin_verdict(
                 "message": f"harness pin {short}: {verdict.detail}"}
 
     if verdict.status == "red":
-        return {
-            "passed": False, "pinned_sha": pinned_sha,
-            "failed_jobs": list(verdict.failed),
-            "message": (
+        # Round 79: red used to tell the operator "move to a green commit"
+        # without telling them HOW to find one. Measured on taskq-cc-new
+        # 2026-08-26: pin 4c24cf37 red → operator (or an LLM agent) walked
+        # `git log` by hand and landed on 0978364c, which IS green but is
+        # two commits behind d01adf0e (the commit that actually fixed the
+        # failure). Rewinding loses the fix and re-introduces the regression
+        # on the next bump. find_latest_green_sha walks origin/main from the
+        # tip and returns the first commit whose Framework Self-Tests is
+        # green, so the verdict points at the right SHA instead of leaving
+        # "<green-sha>" as a placeholder the operator has to fill in.
+        suggested = find_latest_green_sha(
+            Path(project) / _SUBMODULE_DIRNAME, runner=runner,
+        )
+        if suggested:
+            message = (
+                f"harness pin {short} has failing CI: "
+                f"{', '.join(verdict.failed) or 'unnamed job(s)'}. The newest "
+                f"commit on origin/main with a green Framework Self-Tests is "
+                f"{suggested[:8]}. Move the submodule to it "
+                f"(`git -C {_SUBMODULE_DIRNAME} fetch && git -C "
+                f"{_SUBMODULE_DIRNAME} checkout {suggested}`) and commit the "
+                f"new pointer."
+            )
+        else:
+            message = (
                 f"harness pin {short} has failing CI: "
                 f"{', '.join(verdict.failed) or 'unnamed job(s)'}. Every gate "
                 f"this project runs is executed by that code. Move the "
                 f"submodule to a commit whose Framework Self-Tests are green "
                 f"(`git -C {_SUBMODULE_DIRNAME} fetch && git -C "
                 f"{_SUBMODULE_DIRNAME} checkout <green-sha>`) and commit the "
-                f"new pointer."
-            ),
+                f"new pointer. `core.ci_verdict.find_latest_green_sha` could "
+                f"not find one on origin/main within the default 20-commit "
+                f"window — check that the harness repo's main branch is "
+                f"reachable from this checkout's origin."
+            )
+        return {
+            "passed": False, "pinned_sha": pinned_sha,
+            "failed_jobs": list(verdict.failed),
+            "suggested_sha": suggested,
+            "message": message,
         }
 
     return {

@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
 
-__all__ = ["CiVerdict", "fetch_ci_verdict", "await_ci_verdict", "Runner",
+__all__ = ["CiVerdict", "fetch_ci_verdict", "await_ci_verdict",
+           "find_latest_green_sha", "Runner",
            "DEFAULT_WAIT_SECONDS", "repo_slug", "render_block_message"]
 
 # (returncode, stdout, stderr)
@@ -162,6 +163,75 @@ def _gh_cmd_for(slug: str, sha: str) -> list[str]:
         "gh", "run", "list", "-R", slug, "--commit", sha, "--limit", "50",
         "--json", "name,conclusion,databaseId,url",
     ]
+
+
+def find_latest_green_sha(
+    project: "Path | str",
+    *,
+    runner: "Runner | None" = None,
+    max_walk: int = 20,
+    branch: str = "main",
+    check_name: str = "Framework Self-Tests",
+) -> "str | None":
+    """Newest commit on *branch* whose *check_name* CI is green, or None.
+
+    Walks `gh api repos/<slug>/commits?sha=<branch>&per_page=<max_walk>` (newest
+    first), asks `gh api .../check-runs` for each, and returns the first SHA
+    whose *check_name* conclusion is in `_SUCCESSFUL`. None when no commit in
+    the window has the expected green check (network error, all-red window,
+    no `gh`, no origin remote).
+
+    Bounded by *max_walk* (default 20) so preflight cost stays bounded; the
+    default covers the typical fix-and-retry distance — a misfire is fixed
+    within a handful of commits in practice. Pass a smaller window to keep
+    cost lower when only a near-term scan is meaningful.
+
+    *runner* is the same injection point `fetch_ci_verdict` uses; tests
+    inject a callable that returns canned payloads based on the command
+    (detectable by `gh api .../commits?...sha=` vs `...check-runs`).
+
+    Round 79: the preflight's red verdict pointed the operator at "<green-sha>"
+    without telling them how to find it. Measured 2026-08-26 on taskq-cc-new:
+    pin 4c24cf37 had failing Framework Self-Tests; d01adf0e (one commit later)
+    fixed it. Without this helper the operator's only options were (a) read
+    `gh api .../check-runs` by hand for every candidate or (b) rewind to a
+    stale-but-green commit (0978364c) that had been superseded — the latter
+    loses the fix and re-introduces the regression on the next submodule bump.
+    This helper makes (a) cheap and the wrong choice (b) unnecessary.
+    """
+    project = Path(project)
+    slug = repo_slug(project) if runner is None else "o/r"
+    if not slug:
+        return None
+    run = runner or _default_runner
+
+    # 1. Walk commit history (newest first) on `branch`.
+    rc, out, err = run([
+        "gh", "api", f"repos/{slug}/commits",
+        "-f", f"sha={branch}", "-f", f"per_page={max_walk}",
+        "--jq", ".[].sha",
+    ])
+    if rc != 0:
+        return None
+    shas = [s.strip() for s in (out or "").splitlines() if s.strip()]
+    if not shas:
+        return None
+
+    # 2. For each SHA, ask GitHub which checks ran and pick the one named
+    #    `check_name`. Conclude the walk on the first green; skipping on
+    #    transient errors keeps a flaky network from blackholing the helper.
+    for sha in shas:
+        rc, out, err = run([
+            "gh", "api", f"repos/{slug}/commits/{sha}/check-runs",
+            "-f", "per_page=20",
+            "--jq", f'[.[] | select(.name == "{check_name}") | .conclusion] | .[0]',
+        ])
+        if rc != 0:
+            continue
+        conclusion = (out or "").strip().strip('"')
+        if conclusion in _SUCCESSFUL:
+            return sha
+    return None
 
 
 def render_block_message(verdict: CiVerdict, sha: str) -> Sequence[str]:

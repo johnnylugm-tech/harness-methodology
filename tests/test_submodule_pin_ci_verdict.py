@@ -303,3 +303,177 @@ def test_a_non_success_conclusion_is_not_success(tmp_path, conclusion):
     assert res["passed"] is False, (
         f"conclusion={conclusion} was read as green"
     )
+
+
+# ---------------------------------------------------------------------------
+# Round 79: a red pin must point at a concrete green SHA, not "<green-sha>".
+# ---------------------------------------------------------------------------
+
+
+def _split_runner(*, verdict_jobs, history_shas, check_results):
+    """A runner that serves three gh-command shapes for a single test:
+
+    * `gh run list`   → verdict_jobs (list of (name, conclusion) tuples)
+    * `gh api .../commits?sha=main&per_page=...`  → history_shas (newline text)
+    * `gh api .../commits/<sha>/check-runs`       → check_results[sha] (conclusion)
+
+    The three shapes are mutually distinguishable by command-position, so a
+    single callable answers all three without state.
+    """
+    import json as _json
+
+    def _run(cmd):
+        if cmd[:2] == ["gh", "run"]:
+            payload = _json.dumps(
+                [{"name": n, "conclusion": c} for n, c in verdict_jobs]
+            )
+            return 0, payload, ""
+        if cmd[:2] == ["gh", "api"]:
+            joined = " ".join(cmd)
+            if "/check-runs" in joined:
+                # Find the SHA between /commits/ and /check-runs.
+                for a in cmd:
+                    if "/commits/" in a and "/check-runs" in a:
+                        sha = a.split("/commits/")[1].split("/check-runs")[0]
+                        return 0, _json.dumps(check_results.get(sha, "failure")), ""
+                return 1, "", "no sha in /commits/<sha>/check-runs"
+            # The list-commits call: returns newline-separated SHAs.
+            return 0, history_shas, ""
+        return 1, "", f"unknown gh invocation: {cmd}"
+
+    return _run
+
+
+def test_find_latest_green_returns_first_green_in_walk_order():
+    """Newest-first: a red tip with a green one commit back is the answer."""
+    from core.ci_verdict import find_latest_green_sha
+
+    # history_shas is newline-separated, newest first.
+    history = "\n".join(["redsha" + "a" * 36, "greensha" + "b" * 36,
+                          "oldgreen" + "c" * 36])
+    checks = {
+        "redsha" + "a" * 36: "failure",
+        "greensha" + "b" * 36: "success",
+        "oldgreen" + "c" * 36: "success",
+    }
+    runner = _split_runner(verdict_jobs=[], history_shas=history,
+                            check_results=checks)
+    sha = find_latest_green_sha("ignored-because-runner", runner=runner)
+    assert sha == "greensha" + "b" * 36, (
+        "walk must return the newest green, not the older one"
+    )
+
+
+def test_find_latest_green_returns_none_when_no_green_in_window():
+    """An all-red window is a real outcome — the helper reports it as None."""
+    from core.ci_verdict import find_latest_green_sha
+
+    history = "\n".join(["r1" + "a" * 38, "r2" + "b" * 38, "r3" + "c" * 38])
+    checks = {s: "failure" for s in [s + z * 38 for s, z in
+                                       [("r1", "a"), ("r2", "b"), ("r3", "c")]]}
+    runner = _split_runner(verdict_jobs=[], history_shas=history,
+                            check_results=checks)
+    assert find_latest_green_sha("ignored-because-runner", runner=runner) is None
+
+
+def test_find_latest_green_returns_none_when_runner_unavailable():
+    """No gh / no network → None, never a fabricated green."""
+    from core.ci_verdict import find_latest_green_sha
+
+    def _unav(_cmd):
+        return 1, "", "gh: command not found"
+
+    assert find_latest_green_sha("ignored-because-runner", runner=_unav) is None
+
+
+def test_red_verdict_suggests_concrete_green_sha(tmp_path):
+    """End-to-end: the red verdict message names the green SHA it found,
+    not the literal placeholder `<green-sha>`. Measured on taskq-cc-new
+    2026-08-26: this is the missing operator hint that made the previous
+    message useless — a hand walk of `git log` led to a stale-but-green
+    commit that re-introduced the regression the next time the submodule
+    moved."""
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    pin = "f6d984bc" + "421b502ed104d9a328f053159e44f504"[8:]  # 40 chars
+    green = "d01adf0e" + "c3538068a73ddc0b710510b2e311e32b"[8:]
+    red_tip = "4c24cf37" + "02a84ec33d610d6d3e98703ec9df8f0f"[8:]
+
+    history = "\n".join([red_tip, green, "oldgreen" + "1" * 32])
+    checks = {
+        red_tip: "failure",
+        green: "success",
+        "oldgreen" + "1" * 32: "success",
+    }
+    runner = _split_runner(
+        verdict_jobs=[("Framework Self-Tests", "failure"),
+                       ("Validate Cross-References", "success")],
+        history_shas=history,
+        check_results=checks,
+    )
+    res = submodule_pin_verdict(tmp_path, pinned_sha=pin, runner=runner)
+
+    assert res["passed"] is False
+    assert res.get("suggested_sha") == green, (
+        f"the verdict must surface the green SHA it found: {res}"
+    )
+    assert green in res["message"], (
+        f"the message must include the concrete checkout command, not the "
+        f"`<green-sha>` placeholder: {res['message']}"
+    )
+    assert "<green-sha>" not in res["message"], (
+        "the placeholder must be replaced by the discovered SHA"
+    )
+    assert "checkout " + green in res["message"], (
+        f"the message must hand the operator a runnable command: {res['message']}"
+    )
+
+
+def test_red_verdict_falls_back_when_no_green_in_window(tmp_path):
+    """If `find_latest_green_sha` finds nothing (all-red window / no gh),
+    the verdict still blocks but the message uses the legacy wording plus
+    a note about why no concrete SHA was offered — never silently leaves
+    `<green-sha>` and never fabricates a SHA."""
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    pin = "f" * 40
+    history = "\n".join(["r1" + "a" * 38, "r2" + "b" * 38])
+    checks = {s: "failure" for s in [s + z * 38 for s, z in
+                                       [("r1", "a"), ("r2", "b")]]}
+    runner = _split_runner(
+        verdict_jobs=[("Framework Self-Tests", "failure")],
+        history_shas=history,
+        check_results=checks,
+    )
+    res = submodule_pin_verdict(tmp_path, pinned_sha=pin, runner=runner)
+
+    assert res["passed"] is False
+    assert res.get("suggested_sha") is None, (
+        f"with no green found, suggested_sha must be None, never fabricated: "
+        f"{res}"
+    )
+    assert "find_latest_green_sha" in res["message"], (
+        f"the fallback message must tell the operator WHY no SHA was "
+        f"offered (so they know to widen the window or check connectivity): "
+        f"{res['message']}"
+    )
+
+
+def test_red_verdict_keeps_old_message_shape_when_gh_unavailable(tmp_path):
+    """If gh itself is missing, both fetch_ci_verdict (infra=True) AND
+    find_latest_green_sha (None) fail — but infra=True from fetch wins,
+    so this case is the INFRA path, not the red path. Pin this so a
+    future refactor that downgrades infra to red does not silently
+    regress the message wording."""
+    from core.quality_gate.submodule_pin import submodule_pin_verdict
+
+    res = submodule_pin_verdict(
+        tmp_path, pinned_sha="a" * 40, runner=_unavailable_runner,
+    )
+    assert res["passed"] is False
+    assert res.get("infra") is True, (
+        f"gh missing must stay INFRA, not fall into the red branch: {res}"
+    )
+    assert "suggested_sha" not in res, (
+        f"the INFRA path must not invent a suggested_sha key: {res}"
+    )
