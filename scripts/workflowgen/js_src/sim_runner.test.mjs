@@ -1106,3 +1106,78 @@ test('round50: the recorded step is the one the halt site named', async () => {
     'the ledger row must name the step, not `phase-error` for all 55 sites')
   assert.doesNotMatch(recorded[0].prompt, /--step 'phase-error'/)
 })
+
+// ---- 15. Round 79 站2: the cache-buster key, and where it may come from ----
+// `4c24cf37` tagged every prompt with a project fingerprint so a relaunch
+// after `amend-sab` would miss the runtime's (prompt, opts) cache. It could
+// not work: the fingerprint was fetched by dispatch(), the very call being
+// cached, so the second launch got its own stale value back. Zero tests were
+// added with it, and all 116 here stayed green on a mechanism that was inert
+// in the delivered tree.
+//
+// `args.run_tag` is the replacement, and these are its behaviour — asserted by
+// running the shipped file twice and comparing prompts, not by reading the
+// generated source for a string (Round 78 站6: a check that reads how the code
+// is SPELLED cannot see a change in what it MEANS).
+
+const _promptsWith = async (file, extraArgs) => {
+  const { events } = await runWorkflow(
+    WF(file), makeHappyResponder([cursorAt(1), ...happyOverrides()]),
+    { args: { repo: '/sim/project', ...extraArgs } },
+  )
+  return events.agents.map((a) => a.prompt)
+}
+
+test('round79: a different run_tag changes every prompt', async () => {
+  const a = await _promptsWith('phase1-requirements.js', { run_tag: 'attempt-1' })
+  const b = await _promptsWith('phase1-requirements.js', { run_tag: 'attempt-2' })
+  assert.ok(a.length > 1 && a.length === b.length, `${a.length} vs ${b.length}`)
+  for (let i = 0; i < a.length; i += 1) {
+    assert.notEqual(a[i], b[i],
+      `dispatch ${i} carries the same prompt under two different run_tags — `
+      + 'the runtime would serve the cached reply, which is the whole defect')
+  }
+})
+
+test('round79: the same run_tag leaves every prompt untouched', async () => {
+  // The other half, and the reason the tag is operator-supplied rather than
+  // derived from the tree: a genuine resume must still hit the cache. A key
+  // that changed on its own (a clock, a git HEAD the run itself moves) would
+  // miss on every resume and re-execute the completed prefix live.
+  const a = await _promptsWith('phase1-requirements.js', { run_tag: 'same' })
+  const b = await _promptsWith('phase1-requirements.js', { run_tag: 'same' })
+  assert.deepEqual(a, b)
+})
+
+test('round79: no run_tag means no tag at all', async () => {
+  // Byte-identical to a tree without this mechanism. Opt-in, so it cannot
+  // regress a launch that does not ask for it.
+  const plain = await _promptsWith('phase1-requirements.js', {})
+  const tagged = await _promptsWith('phase1-requirements.js', { run_tag: 'x' })
+  for (const p of plain) {
+    assert.doesNotMatch(p, /^\[run /, 'an absent run_tag must render nothing')
+  }
+  assert.match(tagged[0], /^\[run x\] /,
+    'the tag is at line 1, before the bookkeeping preamble and outside it')
+  // A blank string is an absent tag, not a tag of length zero.
+  for (const p of await _promptsWith('phase1-requirements.js', { run_tag: '   ' })) {
+    assert.doesNotMatch(p, /^\[run /)
+  }
+})
+
+test('round79: the tag rides on run-all too, and costs no extra dispatch', async () => {
+  // The mechanism it replaces spent one agent round-trip per run to fetch its
+  // key; docs/OBSERVABILITY.md's "Zero extra dispatches" is true again.
+  const { events } = await runWorkflow(
+    RUNALL, makeHappyResponder([cursorAt(1), ...happyOverrides()]),
+    { args: { repo: '/sim/project', run_tag: 'r1' } },
+  )
+  const { events: plain } = await runWorkflow(
+    RUNALL, makeHappyResponder([cursorAt(1), ...happyOverrides()]),
+    { args: { repo: '/sim/project' } },
+  )
+  assert.equal(events.agents.length, plain.agents.length,
+    'tagging must not add or remove a dispatch')
+  assert.ok(events.agents.every((a) => a.prompt.startsWith('[run r1] ')),
+    'every dispatch in run-all carries the tag, including the first')
+})

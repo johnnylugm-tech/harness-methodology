@@ -242,10 +242,18 @@ def render_dispatch_wrapper() -> str:
         `args: {}`: `env-fp-init` never dispatched, 4/4 prompts carried one
         constant tag.
 
-    The constraint any replacement has to satisfy: the busting key may not
-    travel through `agent()`. `args` is the only value this sandbox receives
-    that does not — every generated file's own header lists what else is
-    missing (no fs, no clock, no `Math.random`).
+    **Round 79 站2 — `__RUN_TAG`, the replacement.** The constraint the
+    mechanism above failed is that the busting key may not travel through
+    `agent()`. `args` is the only value this sandbox receives that does not,
+    so the key is `args.run_tag`: an operator-supplied string, folded into
+    every prompt, evaluated once at script start from a parameter that cannot
+    be in a TDZ. No dispatch, no schema, no `catch`, and an absent or blank
+    value renders `''` — prompts byte-identical to a run without it.
+
+    That it is the operator who supplies it is the point, not a compromise:
+    the operator is who knows the project state changed. `js_blocks`'
+    RC=25 halt names the relaunch form so it is discoverable at the moment it
+    is needed.
     """
     return """
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
@@ -253,6 +261,17 @@ def render_dispatch_wrapper() -> str:
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
 // outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
 const __dispatchLog = []
+
+// Round 79 站2: cache-buster key. The runtime caches agent() on (prompt, opts),
+// so a relaunch after an SAB repair can replay a stale RC=25. `args` is the only
+// value here that does not travel through agent(), so the key comes from it —
+// operator-supplied, evaluated at script start (a parameter cannot be in TDZ),
+// no dispatch. Blank/absent => '' => prompts byte-identical to no mechanism.
+// See render_dispatch_wrapper's docstring for why a fingerprint cannot work.
+if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+const __RUN_TAG = (args && typeof args === 'object'
+  && typeof args.run_tag === 'string' && args.run_tag.trim())
+  ? '[run ' + args.run_tag.trim().slice(0, 32) + '] ' : ''
 
 function __dispatchFlushPreamble() {
   if (__dispatchLog.length === 0) return ''
@@ -269,7 +288,8 @@ async function dispatch(prompt, opts) {
   const phaseLabel = (opts && opts.phase) || ''
   let res
   try {
-    res = await agent(__dispatchFlushPreamble() + prompt, opts)
+    // __RUN_TAG is at line 1, before the preamble and outside it.
+    res = await agent(__RUN_TAG + __dispatchFlushPreamble() + prompt, opts)
   } catch (err) {
     __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
                          substrate: 'workflow', error_output: String(err).slice(0, 300) })

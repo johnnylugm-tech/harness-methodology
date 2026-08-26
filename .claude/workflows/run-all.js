@@ -138,6 +138,17 @@ function halt(step, shape) {
 // outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
 const __dispatchLog = []
 
+// Round 79 站2: cache-buster key. The runtime caches agent() on (prompt, opts),
+// so a relaunch after an SAB repair can replay a stale RC=25. `args` is the only
+// value here that does not travel through agent(), so the key comes from it —
+// operator-supplied, evaluated at script start (a parameter cannot be in TDZ),
+// no dispatch. Blank/absent => '' => prompts byte-identical to no mechanism.
+// See render_dispatch_wrapper's docstring for why a fingerprint cannot work.
+if (typeof args === 'string') { try { args = JSON.parse(args) } catch {} }
+const __RUN_TAG = (args && typeof args === 'object'
+  && typeof args.run_tag === 'string' && args.run_tag.trim())
+  ? '[run ' + args.run_tag.trim().slice(0, 32) + '] ' : ''
+
 function __dispatchFlushPreamble() {
   if (__dispatchLog.length === 0) return ''
   const batch = JSON.stringify(__dispatchLog.splice(0, __dispatchLog.length))
@@ -153,7 +164,8 @@ async function dispatch(prompt, opts) {
   const phaseLabel = (opts && opts.phase) || ''
   let res
   try {
-    res = await agent(__dispatchFlushPreamble() + prompt, opts)
+    // __RUN_TAG is at line 1, before the preamble and outside it.
+    res = await agent(__RUN_TAG + __dispatchFlushPreamble() + prompt, opts)
   } catch (err) {
     __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
                          substrate: 'workflow', error_output: String(err).slice(0, 300) })

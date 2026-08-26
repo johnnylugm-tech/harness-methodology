@@ -115,4 +115,11 @@ def test_sim_testbed_passes():
     # and its reverse, a passing run whose summary quotes the banner. The
     # second of those is the shape that actually shipped as a false positive
     # (taskq-api FR-04) and had no test at all.
-    assert int(m.group(1)) >= 116, f"sim suite shrank: only {m.group(1)} passing tests (floor 116)"
+    # 116 -> 120 by Round 79 站2. Section 15 states `args.run_tag`'s behaviour
+    # by running a shipped file twice and comparing prompts: a different tag
+    # changes every one, the same tag changes none (so a genuine resume still
+    # hits the runtime cache), an absent or blank tag renders nothing at all,
+    # and run-all's dispatch count is identical with and without it. The
+    # mechanism this replaces (4c24cf37's env-fp fingerprint) shipped with
+    # zero tests and all 116 here stayed green while it was inert.
+    assert int(m.group(1)) >= 120, f"sim suite shrank: only {m.group(1)} passing tests (floor 120)"
