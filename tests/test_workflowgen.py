@@ -221,10 +221,13 @@ class TestGenerateFacade:
 
         wrapped = generate(8)
         assert wrapped != raw
+        assert "async function dispatch(" in wrapped
         # Every call site the raw text had is now routed through the wrapper, and
-        # the only remaining raw call is the wrapper's own.
-        # Round 79: getEnvFingerprint() inside the wrapper has 1 internal dispatch.
-        assert wrapped.count("await dispatch(") == raw.count("await agent(") + 1
+        # the only remaining raw call is the wrapper's own. Round 79 站1: the
+        # `+ 1` d01adf0e added here was room for getEnvFingerprint()'s own
+        # internal dispatch. That helper is gone, and with it the exception —
+        # the wrapper spends no dispatch of its own again.
+        assert wrapped.count("await dispatch(") == raw.count("await agent(")
         assert wrapped.count("await agent(") == 1
 
     def test_unmigrated_phase_raises_key_error(self):

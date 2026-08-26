@@ -216,6 +216,36 @@ def render_dispatch_wrapper() -> str:
     suppress-verification clause 6e7942e removed from recordBlock's prompt
     and was right to remove. A failed bookkeeping write is now reportable in
     one line; it is still not the agent's task.
+
+    **Round 79 站1 — the env-fp cache-buster is removed, and must not come
+    back in that shape.** `4c24cf37` added `ENV_FP` / `ENV_FP_SCHEMA` /
+    `getEnvFingerprint()` and tagged every prompt with
+    `[env-fp SAB=… HEAD=…]`, to force a cache miss after `amend-sab` repaired
+    the project state an RC=25 halt had complained about. It could not work,
+    for two independent reasons, both measured on the shipped tree:
+
+      * **The key travelled through the cache it was busting.** The
+        fingerprint was fetched by `dispatch()` — the very call being cached.
+        Its prompt was a pure function of `REPO` and its opts a fixed
+        literal, so on the second launch `env-fp-init` was itself a cache hit
+        returning launch one's fingerprint, every downstream tag was
+        identical, and the replay happened anyway. The mechanism could fire
+        exactly once: the first launch after it shipped, which is the launch
+        its commit message cites as proof.
+      * **On the documented launch it never fired at all.**
+        `getEnvFingerprint()` read `REPO` from inside `let REPO = await
+        resolveRepo()`'s own initializer, and `resolveRepo()` dispatches when
+        `args.repo` is absent — which is CLAUDE.md's documented form and
+        playbook §7's first-class walk-up path. The TDZ `ReferenceError` was
+        swallowed by the helper's own `catch`, pinning the tag to a constant
+        `none/none` for the whole run. Driven through `sim_runner.mjs` with
+        `args: {}`: `env-fp-init` never dispatched, 4/4 prompts carried one
+        constant tag.
+
+    The constraint any replacement has to satisfy: the busting key may not
+    travel through `agent()`. `args` is the only value this sandbox receives
+    that does not — every generated file's own header lists what else is
+    missing (no fs, no clock, no `Math.random`).
     """
     return """
 // ── Round 26: workflow-substrate dispatch observability ────────────────────
@@ -223,11 +253,6 @@ def render_dispatch_wrapper() -> str:
 // records ride along on the NEXT dispatch's prompt, so no agent reports its own
 // outcome and no extra dispatch is spent. See docs/OBSERVABILITY.md.
 const __dispatchLog = []
-
-// Round 79: env-fp cache state. Declared ABOVE dispatch() so the first call from
-// resolveRepo() sees an initialised binding; `let` does not hoist, and `var` is
-// not allowed in this module's strict-ish lint profile.
-let ENV_FP = null
 
 function __dispatchFlushPreamble() {
   if (__dispatchLog.length === 0) return ''
@@ -242,23 +267,9 @@ function __dispatchFlushPreamble() {
 async function dispatch(prompt, opts) {
   const label = (opts && opts.label) || 'agent'
   const phaseLabel = (opts && opts.phase) || ''
-  // Round 79: env-fp cache-buster — fold the live project fingerprint into the
-  // prompt so a fresh run after AAP amendment / git commit forces cache invalidation
-  // for every agent that consults project state (delta-*, gate1-verify-*, …).
-  // The tag is prepended OUTSIDE the bookkeeping preamble so the bookkeeping
-  // command itself stays at line 1 and the agent sees a one-line header it can
-  // safely ignore; env-fp-init (the only label that does not depend on the
-  // fingerprint) skips the tag to avoid a chicken-and-egg loop.
-  let fpTag = ''
-  if (label !== 'env-fp-init') {
-    const fp = await getEnvFingerprint()
-    const sab = (fp && fp.sab_sha) || 'none'
-    const head = (fp && fp.git_head) || 'none'
-    fpTag = '[env-fp SAB=' + sab.slice(0, 12) + ' HEAD=' + head.slice(0, 12) + '] '
-  }
   let res
   try {
-    res = await agent(fpTag + __dispatchFlushPreamble() + prompt, opts)
+    res = await agent(__dispatchFlushPreamble() + prompt, opts)
   } catch (err) {
     __dispatchLog.push({ role: label, phase_label: phaseLabel, status: 'ERROR',
                          substrate: 'workflow', error_output: String(err).slice(0, 300) })
@@ -269,46 +280,6 @@ async function dispatch(prompt, opts) {
                        status: text.length === 0 ? 'EMPTY' : 'complete',
                        substrate: 'workflow', reply_chars: text.length })
   return res
-}
-// Round 79: env-fp — workflow-level cache-buster. The runtime cache keys on
-// (prompt, opts) and persists across `Workflow({scriptPath, resumeFromRunId})`
-// calls, so an `infra_abort` followed by AAP amendment (which only mutates the
-// project tree, never the prompt text) replays the stale RC=25 from cache and
-// loops the same halt. Tagging every dispatch with `[env-fp SAB=… HEAD=…]`
-// folds the live environment state into the cache key without changing any
-// phase template, INFRA-abort behaviour, or scope rule — the tag is invisible
-// to the agent (it lives in the bookkeeping preamble) and to the workflow
-// routing (it doesn't match any VERDICT_SCHEMA field). One env-fp-init
-// dispatch computes the fingerprint on first use and caches it module-local,
-// so subsequent dispatches in the same run take no extra agent call.
-const ENV_FP_SCHEMA = {
-  type: 'object',
-  properties: {
-    sab_sha: { type: 'string', description: 'git hash-object of .methodology/SAB.json, or "none" if missing/unreadable' },
-    git_head: { type: 'string', description: 'git rev-parse HEAD short sha, or "none" if missing' },
-  },
-  required: ['sab_sha', 'git_head'],
-}
-// `let ENV_FP = null` is declared above dispatch() (search `let ENV_FP`) so the
-// first call from resolveRepo() sees an initialised binding instead of TDZ.
-async function getEnvFingerprint() {
-  if (ENV_FP !== null) return ENV_FP
-  try {
-    const r = await dispatch(
-      'You MUST use the Bash tool. Run EXACTLY these two commands in order, each on its own line:\\n'
-      + '  git -C ' + REPO + ' hash-object ' + REPO + '/.methodology/SAB.json 2>/dev/null || echo none\\n'
-      + '  git -C ' + REPO + ' rev-parse HEAD 2>/dev/null || echo none\\n'
-      + 'Report via the StructuredOutput tool exactly: { sab_sha: <line1 stripped>, git_head: <line2 stripped> }. Use "none" verbatim if a command printed "none".',
-      { label: 'env-fp-init', phase: 'Phase Cursor', agentType: 'general-purpose', schema: ENV_FP_SCHEMA }
-    )
-    ENV_FP = {
-      sab_sha: (r && typeof r.sab_sha === 'string' && r.sab_sha.length > 0) ? r.sab_sha : 'none',
-      git_head: (r && typeof r.git_head === 'string' && r.git_head.length > 0) ? r.git_head : 'none',
-    }
-  } catch (e) {
-    ENV_FP = { sab_sha: 'none', git_head: 'none' }
-  }
-  return ENV_FP
 }
 """
 

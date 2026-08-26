@@ -728,7 +728,7 @@ for (let n = 1; n <= 8; n += 1) {
     // one label from those six and NOTHING else, anywhere.
     const expected = solo.events.agents
       .map((a) => a.label)
-      .filter((label) => label !== 'env-fp-init' && !(SYNC_FOLDED.includes(n) && label.startsWith('sync-')))
+      .filter((label) => !(SYNC_FOLDED.includes(n) && label.startsWith('sync-')))
     assert.deepEqual(phaseLabels(events, n), expected,
       `run-all's P${n} dispatch sequence drifted from phase${n}'s`)
   })
@@ -750,9 +750,9 @@ test('run-all drops exactly the six foldable Sync dispatches, and nothing else',
   }
   const soloTotal = solo.reduce((n, r) => n + r.events.agents.length, 0)
   const runAllTotal = events.agents.length
-  // -6 sync dispatches, +1 phase-cursor read, -(8-1) env-fp-init reads (run-all computes once vs 8 solo files).
-  assert.equal(runAllTotal, soloTotal - SYNC_FOLDED.length + 1 - (PHASE_FILES.length - 1),
-    `expected ${soloTotal} - 6 + 1 - 7 dispatches, got ${runAllTotal}`)
+  // -6 sync dispatches, +1 phase-cursor read.
+  assert.equal(runAllTotal, soloTotal - SYNC_FOLDED.length + 1,
+    `expected ${soloTotal} - ${SYNC_FOLDED.length} + 1 dispatches, got ${runAllTotal}`)
 
   for (let n = 1; n <= 8; n += 1) {
     const syncCalls = phaseLabels(events, n).filter((l) => l.startsWith('sync-')).length
@@ -793,9 +793,9 @@ test('run-all fails closed when the cursor cannot be read', async () => {
   // Round 48 站2: the cursor read, then ONE dispatch to write the halt down,
   // and nothing else. Before that second dispatch existed this asserted a bare
   // length of 1; the run still stopped in the same place, it just left no
-  // record that it had. Round 79: env-fp-init runs before the first dispatch.
+  // record that it had.
   assert.deepEqual(
-    events.agents.map((a) => a.label), ['env-fp-init', 'phase-cursor', 'record-block'],
+    events.agents.map((a) => a.label), ['phase-cursor', 'record-block'],
     'nothing beyond the cursor read and its halt record may run',
   )
 })
