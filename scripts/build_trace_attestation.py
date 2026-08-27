@@ -94,15 +94,40 @@ def build_attestation(
     }
 
 
+#: Fields that record how or where the file was written rather than what it
+#: attests. Neither is derived from the matrix, so neither may decide whether a
+#: stored attestation is still current.
+_PROVENANCE_FIELDS = ("git_sha", "overlay_used")
+
+
 def _attested_content(attestation: dict) -> dict:
     """The part of an attestation that says something about the matrix.
 
-    Everything except `git_sha`. `git_sha` records WHEN the file was written,
-    not WHAT was attested, and it necessarily differs from the commit that
-    carries it (writing the file is what creates the next commit) — so
-    including it in a freshness comparison guarantees a永 mismatch.
+    `git_sha` records WHEN the file was written, not WHAT was attested, and it
+    necessarily differs from the commit that carries it (writing the file is
+    what creates the next commit) — so including it in a freshness comparison
+    guarantees a permanent mismatch.
+
+    `overlay_used` (Round 80 站5) is the same category, found the same way it
+    was predicted to be found. It is `str(overlay_path)`, and `overlay_path`
+    defaults to `project / "TRACEABILITY_MATRIX.overlay.yaml"` — so its value
+    is a function of how the CALLER spelled the project path, absolute or
+    relative, and says nothing about the matrix. Measured on this repo at
+    a77e1875: the committed attestation carried
+    `/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml`
+    from an earlier checkout location while a fresh build produced the relative
+    spelling; `content_sha256` was identical and `overlay_used` was the ONLY
+    differing field. So `attestation_is_current` was permanently False,
+    `cli.phase_cmds._attestation_content_still_current` could never return
+    True, and the loop Round 18 站3 ended — six `chore: refresh attestation
+    post-pull` commits all carrying one content_sha256 — was live again, with a
+    path where the git_sha used to be.
+
+    `overlay_errors` is NOT excluded: it changes what was merged into the
+    matrix, so it is content. Pinned by
+    test_an_overlay_that_failed_to_validate_is_still_part_of_the_attestation.
     """
-    return {k: v for k, v in attestation.items() if k != "git_sha"}
+    return {k: v for k, v in attestation.items() if k not in _PROVENANCE_FIELDS}
 
 
 def attestation_is_current(project: Path, attestation: dict,

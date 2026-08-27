@@ -1617,9 +1617,19 @@ def _trace_dirty_state(project_path: Path) -> Dict[str, Any]:
     """PR 6: mtime-based trace staleness probe — <50ms, no rglob.
 
     Compares `attestation.json` mtime against `SAD.md` mtime and the
-    newest `tests/test_fr*.py` mtime. Returns the *first* staleness
+    newest test file's mtime. Returns the *first* staleness
     cause found, in this order: missing attestation, SAD newer,
-    tests newer. Catches the common case where a developer edited
+    tests newer.
+
+    Round 80 站5: the second comparand used to be documented as "the newest
+    `tests/test_fr*.py`" and has not been that since the scan became
+    language-aware — `iter_test_files` walks every test file the project's
+    language declares, which is why adding any new test to this repo trips the
+    probe. The sentence is corrected rather than the code: the wider scan is
+    the intended one, and a docstring that names a narrower population than the
+    code reads is the defect Round 78 站6 measured.
+
+    Catches the common case where a developer edited
     code or spec but forgot to re-derive `attestation.json`. False
     negatives (edits to `core/foo.py` without FR tag changes) are
     caught by the full preflight at `run-phase` time.
