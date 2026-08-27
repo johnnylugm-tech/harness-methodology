@@ -3704,3 +3704,11 @@
 - test: tests/test_pre_push_cannot_pass_by_skipping.py::test_the_closing_line_says_which_checks_produced_the_verdict
   bug: "\"Pre-push check passed!\" read identically whether self_check ran or was skipped (Round 79 站5), and both skip paths printed nothing at all, so the operator's only signal for the difference was how long the push took. The line now names the predicate, whether the self-check ran, and which phase preflight was used"
   fixed_in: "Round 79 站5"
+
+- test: tests/test_node_test_reporter_is_pinned.py::test_every_node_test_invocation_pins_its_reporter
+  bug: "`node --test`'s output format was whatever the installed node defaulted to (Round 80 站1). tests/test_workflow_sim.py enforces the sim testbed's coverage floor by matching `^# pass (\\d+)$` — node's TAP reporter — out of stdout. Node's default reporter changed, and on node v26 the same 130-passing run prints `ℹ pass 130`, so the regex found nothing and the guard died on `assert None` while every node test passed. Measured at dff609e6: scripts/self_check.sh red locally on node v26.0.0, the same commit's CI green because the GitHub runner ships an older node — the guard's correctness depended on which node the machine happened to have. Three call sites had the unpinned form and only the one that parsed output broke; the other two were the same latent defect one consumer away"
+  fixed_in: "Round 80 站1. `--test-reporter=tap` added to all three argv lists (tests/test_workflow_sim.py, tests/test_workflowgen_js_units.py, core/harness_repair.py). Measured: both reporters exit 0 on the same suite, so pinning changes the exit status of nothing"
+
+- test: tests/test_node_test_reporter_is_pinned.py::test_the_scan_can_see_an_unpinned_argv
+  bug: "a scan that cannot fail is not a guard — this is the detector's own witness, asserting it reacts to the unpinned shape without reading any source text (Round 78 站6's rule applied to the new scan)"
+  fixed_in: "Round 80 站1"

@@ -50,7 +50,12 @@ pytestmark = pytest.mark.skipif(
 def test_sim_testbed_passes():
     assert SIM_TEST.exists(), f"missing {SIM_TEST}"
     result = subprocess.run(
-        ["node", "--test", str(SIM_TEST)],
+        # Round 80 站1: the reporter is named, not defaulted. The pass-count
+        # line below is TAP's `# pass N`; node's default reporter prints
+        # `ℹ pass N`, which made this guard fail with `assert None` on node
+        # v26 while all 130 node tests passed. Pinned by
+        # tests/test_node_test_reporter_is_pinned.py.
+        ["node", "--test", "--test-reporter=tap", str(SIM_TEST)],
         capture_output=True, text=True, timeout=120,
     )
     assert result.returncode == 0, (

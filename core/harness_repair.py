@@ -87,7 +87,11 @@ _SELF_GATE_ARGV: dict[str, list[str]] = {
     # spelled here rather than inventing a script to point at.
     "node": ["bash", "-c",
              'for f in .claude/workflows/*.js; do node --check "$f" || exit 1; done'],
-    "sim": ["node", "--test", "scripts/workflowgen/js_src/sim_runner.test.mjs"],
+    # Round 80 站1: reporter named rather than defaulted, same as the two
+    # pytest bridges. This gate reads the exit code only, but a self-gate whose
+    # output shape moves under it is the shape being closed.
+    "sim": ["node", "--test", "--test-reporter=tap",
+            "scripts/workflowgen/js_src/sim_runner.test.mjs"],
 }
 
 _GENERATED_WORKFLOW_RE = re.compile(r"^\.claude/workflows/.+\.js$")

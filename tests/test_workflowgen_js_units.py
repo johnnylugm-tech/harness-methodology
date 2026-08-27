@@ -33,7 +33,10 @@ def test_node_test_suite_passes():
     )
     assert test_files, f"no *.test.mjs files found under {JS_SRC_DIR}"
     result = subprocess.run(
-        ["node", "--test", *test_files],
+        # Round 80 站1: reporter named rather than defaulted. This site reads
+        # only the exit code today, so it is the sibling of the sim bridge's
+        # defect one consumer away — swept with it.
+        ["node", "--test", "--test-reporter=tap", *test_files],
         capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, (
