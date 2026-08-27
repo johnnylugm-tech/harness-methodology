@@ -3675,6 +3675,50 @@ taskq-plus 三筆 `mutation_testing` 在 `features.mutation_testing: false` 後�
 `scope:` 在本輪之前沒有任何消費者，所以它從沒被檢驗過。下一輪的題目會是
 「`scope:` 自己對不對」，本輪誠實記下，不假裝解決了它。
 
+## Round 58(2026-08-18)— 說了要評哪些,沒說不要評哪些
+
+> 本節由 **Round 80 站9** 補寫。Round 58 出貨了兩個 commit(`f4be095c`、`e37151ee`)
+> 卻沒有留下裁決條目 —— 全庫 72 個有 commit 的 round 裡唯一的一個(Round 1–13 早於
+> 本賬本,它從 Round 14 開始)。內容全部取自那兩個 commit 自己的 message 與 diff;
+> **當時是否還有其他發現、是否有明列不做,已不可考,不予編造**。
+
+### 母體
+
+G2/G3/G4 的 orchestrator prompt 告訴 agent「用 `run-gate` 印出來的維度清單」,
+並且「對任何不及格的維度修根因」。第一條規則說的是**要評什麼**;當 feature-flag
+層把一個維度從那份清單裡拿掉時,**沒有任何一條規則說不要評什麼**。
+
+### 實測(取自 `f4be095c` 的 commit message)
+
+taskq-cc Gate 2 第 1 輪(2026-08-18):agent 正確看到印出的清單已排除
+`mutation_testing`(`harness_config` `features.mutation_testing=false`),在自己的
+thinking 裡確認了這個排除,然後**花掉該輪其餘約 50 分鐘、333 筆記錄**去追
+`core/quality_gate/mutation_enforcer.py` 裡的一個 `test_fr06` baseline 失敗 ——
+因為 mutmut 的 baseline 剛好打到它。該維度是在 `1b4c3d8` 被刻意停用的,gate 評分
+本來就已經排除它,而 Gate 2 的職責是清單上的維度。
+
+### 修法
+
+`scripts/workflowgen/spec_shared.py` 新增 `render_excluded_dims_rule()`,與
+`render_mutation_flag_note()`(Round 36)、`render_framework_owned_note()`
+(Round 39)同一個 surface 的姊妹 renderer;`spec_phase3.py` / `spec_phase4.py` /
+`spec_phase6.py` 分別把它 inline 進 Gate 2 / 3 / 4 的 prompt。規則本身**不指名任何
+特定維度、也不指名任何特定 flag**,所以未來新增的旗標不需要再改一次 prompt ——
+這是 R17 母體(prompt↔gate 漂移)的既定修法形狀。
+
+`e37151ee` 是同一輪的 ratchet:三份 prompt 被 `run-all.js` 全部 inline,檔案長了
+1,833 bytes 到 347,147,`RUNALL_MAX_BYTES` 由 345,400 抬到 347,300。**該數字留了
+153 bytes headroom**,這正是 Round 78 站3 後來明文反對的形狀(天花板高於量測值 =
+沒人審過的預先授權)。列為觀察,不在本輪回頭改。
+
+### 驗證(當時)
+
+`pytest tests/test_workflowgen.py tests/test_workflowgen_js_units.py
+tests/test_workflowgen_equivalence.py tests/test_workflowgen_shipped_parity.py
+tests/test_workflowgen_golden.py` → 83 passed / 0 failed。
+
+---
+
 ## Round 60 — 沒有任何維度可以缺席
 
 老闆令：`d0a9bec..e37151e`（`f4be095` EXCLUDED-DIMS 規則、`c939bbf` 撇號修復、
@@ -3775,6 +3819,137 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 `node --check` 八支全過、sim 127/127、九個語料專案未提交檔案 mtime 全部早於本輪
 第一個 commit。
 
+
+---
+
+## Round 80 — 框架寫下規則、對專案執法,卻不對自己執行
+
+老闆令:盤點開始至今(Round 79,`dff609e6`,1480 commits / 79 輪)的修復,從熱點看
+(1) 有沒有反覆修改甚至沒套正解、(2) 還有沒有根本性/結構性問題;驗證真實性與根源性後
+展開成可執行的修復方案(正解,不是 workaround)。老闆追加令:**重新驗證是否都是正解、
+是否引入副作用;重構必須安全地進行**。老闆三項裁示:範圍含結構重構;findings 逐項標
+驗證等級,未能驗證者不排入修復;CI 兩個空轉 job 走「誁明不適用」。
+
+基線(本機實測):`scripts/self_check.sh` → **3 failed / 7830 passed / 1 skipped**,
+而同一 SHA 的 GitHub CI 五個 job 全綠。**那個差異本身就是本輪前兩站**。語料十專案
+本機只剩 `taskq-cc-new`,歷輪「九/十專案唯讀驗證」不可用。
+
+### 母體
+
+> **框架把規則寫下來、對消費專案執法,卻不對自己執行同一條規則。**
+
+| 規則 | 對專案 | 對自己 |
+|---|---|---|
+| 「沒跑的檢查不得讀起來像跑過」(R79 站5 `8872b8c4` 的 commit subject) | pre-push hook 四條靜默路徑已改成指名 BLOCK | CI 兩個 job 每次都綠、真檢查一步沒跑(站4) |
+| 「量不出來不是零分」(R32 站4 / R35 站2) | `_score_pytest` 等三支已改回 `None` | mutmut 0 mutants 仍回 `ok=True, score=0.0` **並寫下一份帶 provenance 戳記的分數產物**(站2) |
+| `readability` 是被評分的維度(gate3/gate4) | 交付樹被 S4 重算 | 全庫零函式長度守衛,`finalize_gate` 1150 行(站6) |
+| pre-push hook 是把關的機制 | — | 守衛在散文裡宣稱它「IS active」,而本 clone 的 `core.hooksPath` 未設、`.git/hooks/pre-push` 不存在(站3) |
+
+### 九項確診(逐項附等級)
+
+| # | 發現 | 等級 | 站 |
+|---|---|---|---|
+| F3 | `node --test` 的 reporter 未釘;node v26 的預設 reporter 印 `ℹ pass N`,守衛的 `^# pass (\d+)$` 找不到,130 支全過卻 `assert None`。CI 綠是因為 runner 的 node 較舊 —— 守衛的正確性取決於機器碰巧裝了哪個 node | 已實跑重現 | 1 |
+| F4 | mutmut `total==0` 回 `True, 0.0` 並寫分數產物,與同函式 docstring 及其上方 15 行的 sqlite 分支自相矛盾;Stryker 同形;全檔零版本檢查而 Stryker 有 | 已實跑重現 | 2 |
+| F2 | pre-push hook 未接線,守衛的散文宣稱它啟用。R72 明列不做項 B 就是這條 | 已實測確診 | 3 |
+| F1 | CI `Phase Quality Gate` 綠燈 9/13 步,跳過的 4 步正是全部 4 個真檢查;`P8 Archive` 綠燈 5/7。`.gitignore:79` 排除 state.json → `current_phase=0` → 永遠如此 | 已實測確診 | 4 |
+| F11 | `attestation_is_current` 永遠 False:`content_sha256` 相同,唯一差異欄位 `overlay_used` 是**另一個 checkout 位置的絕對路徑**。R18 站3 為終結「六次 no-op refresh commit」而建的逃生門因此打不開,那個迴圈是活的 | 已實測確診 | 5 |
+| F6 | 全庫零函式長度/複雜度守衛。2187 支函式中 24 支 >200 行,churn 完全重合(`cmd_advance_phase` 94 hunks、`_run_harness_cross_validation` 81、`_advance_prechecks` 51) | 已實測 | 6 |
+| F5 | file ratchet 全史 **298 升 : 5 降**;`harness_bridge.py` 單檔 56 升。而 R49-B 的拆分正解早已驗證可行(`check_cmds.py` 1682→81、`doctor.py` 923→260) | 已實測 | 6-8 |
+| F12 | `_trace_dirty_state` docstring 寫「newest `tests/test_fr*.py`」,實際用 `iter_test_files` 掃全部測試檔 | 已實測確診 | 5 |
+| F9 | Round 58 出貨兩個 commit 卻無裁決條目 —— 72 個有 commit 的 round 裡唯一的一個 | 已實測確診 | 9 |
+
+### 四項被我自己的量測推翻(全部留在賬本,理由不只結論)
+
+| # | 原主張 | 為什麼不成立 |
+|---|---|---|
+| F7 | 「TEST_SPEC parser 同一天三修,R74 用 parity 測試凍結重複而非合一」 | **前半屬實,後半是我看錯**。R74 站3 確實套了 SSOT:`_is_header_row`/`_header_columns`/`_row_test_fn` 只定義在 `spec_coverage.py`,而 `harness_bridge.py:2921-2922` **實際 import 它們**。歷史上分歧的那一層已經單一來源,殘餘只有外層走訪迴圈,無可證缺陷 |
+| F8 | 「FR→test 檔名 4 種推導應合一」 | R77 站4 已**量測**四種推導在 `canonical_form` 可產生的所有 id 上零分歧,僅 `FR-008` 分歧而無 producer 會產出該拼法。合一無可量測收益,卻要動 22 處/10 檔 |
+| F10 | 「302 個斷言/93 檔的期望值來自被測模組的常數(R19 母體)」 | **粗口徑高估**。精確形狀(同一測試函式內,常數既用於建 input 又出現在 assert)只剩 **23 處/17 檔**,抽樣多為正當用法(SSOT 互比、registry 完備性 meta-test、不可變性斷言) |
+| F9 前半 | 「Round 42/43/58/76 四輪有 commit 無裁決」 | 我的 grep 用 `^## Round`,而 42/43 寫在單井號 `# Round` 下,76 判在 Round 77 的章節裡(該 commit subject 自己就寫了)。**真洞只有 Round 58 一個**。站9 的守衛因此明文讀兩種標題深度,並把這次誤判寫進 docstring |
+
+**這四項的共同教訓,而且代價由本輪自己付**:賬本序言寫著「執行前先查此賬本…引用條目
+編號駁回,不重複查證」。F7/F8/F10 都是**已經裁決過**的問題被我從零重新推導再撤回。
+協議是對的,沒有任何機制讓人真的去讀。
+
+### 九站
+
+| 站 | 內容 | commit |
+|---|---|---|
+| 1 | 三個 `node --test` 呼叫點釘 `--test-reporter=tap` + AST 守衛防第四個 | `c54e9d27` |
+| 2 | mutmut 版本前置檢查(問 binary 不問 metadata)、`total==0` 與 Stryker 同形兄弟改回 unscoreable | `6e3abf17` |
+| 3 | `scripts/check_hook_wiring.sh` 成為 self_check 第一步;刪掉守衛裡未經驗證的「it IS active」 | `a77e1875` |
+| 4 | 兩個 CI job 誁明不適用並指名原因;守衛要求每個 job 或有無條件斷言步驟、或宣告不適用 | `021ab1b5` |
+| 5 | `overlay_used` 併入 `_PROVENANCE_FIELDS`;`overlay_errors` 明確不併(它是內容) | `88814462` |
+| 6 | 函式長度 ratchet:24 支具名、其餘天花板 200、天花板必須**等於**量測值 | `2e7666be` |
+| 7 | `cli/phase_cmds.py` **4233 → 3268**,三個 family byte-equal 搬出,安全網先於動作 | `0cbcbdfa`..`4c1f973f` |
+| 8 | `harness/harness_bridge.py` **5051 → 4190**,Gate 證據檢查群 byte-equal 搬出 | `718ea2d2`,`8c451d23` |
+| 9 | 補寫 Round 58 裁決;`tests/test_ledger_has_no_holes.py` | 本 commit |
+
+### 本輪自己撞上的三件事
+
+1. **站2 的第一版引入回歸**:`total==0` 的早退跳過了 stale cache 清理,會讓下游讀到
+   前一次的分數。`test_stale_cache_removed_when_workdir_cache_absent` 抓到,cache
+   publish/cleanup 因此移到計分之前。
+2. **站2 的兩個新斷言在機制被拿掉後仍是綠的**:版本測試比對 `"3" in msg` 而
+   `"03-development"` 含 3;`ok is False` 也描述 fall-through 的 ZeroDivisionError。
+   **是反證抓到的,不是讀程式碼抓到的** —— R19 母體,發生在我自己剛寫的測試裡。
+3. **站7c 有一支測試對搬移發火**:`test_spec_tracking_wired_into_view_regen` grep
+   `phase_cmds.py` 找字串,byte-identical 的搬移讓它轉紅 —— R78 站6 的形狀。改成讀
+   AST;第一版轉法用了 `inspect.getsource`,被 source-reading ratchet 擋下(48 對
+   天花板 47),那正是它在數的東西。
+
+### 明列不做(附 re-open 條件)
+
+| 項目 | 為什麼不做 | re-open |
+|---|---|---|
+| `finalize_gate`(1150)/`cmd_run_fr_step`(940)/`cmd_advance_phase`(845)/`_advance_prechecks`(818) 的**分解** | 區塊抽取會改動函式自身文字,byte-equal 規則不適用;實測 `harness_bridge.py` 全套件行為覆蓋 **81%**(1490 stmts / 282 未達),不足以證明抽取等價。站6 的 ratchet 已把它們凍結在現值只降不升 —— 與 `test_patch_discipline.py` 對 400 個 private patch 的處置同一理由 | 有一支能釘住 `finalize_gate` 在 gate 矩陣上的 verdict / exit code / BLOCK 文字的行為 golden,且其覆蓋被實測 |
+| `_crg_enrich_gate_findings` 搬出 harness_bridge | 它的閉包會拉進 `_atomic_write_gate_result`(8 個呼叫點的共用寫入器)。搬那個是重構不是搬移,會造成 `gate_crg` ↔ `harness_bridge` 循環 | 共用寫入器先被移到中立模組 |
+| 「明列不做」抽成機讀索引 | 23+ 條散在 5500 行散文裡,提取有把話塞進前幾輪嘴裡的實際風險。**代價已經發生**:本輪的 F7/F8/F10 就是因此被重新推導 | 有人願意逐條與原文對照地做一次提取,或賬本改為結構化寫入 |
+| `overlay_used` 仍是別台機器的絕對路徑 | 它現在不被任何東西比對、也不被任何東西讀。改寫是一次沒有可量測收益的位元變更 | 出現一個讀者 |
+| `RUNALL_MAX_BYTES` 的 153 bytes headroom(Round 58 留下) | 不是本輪造的,且屬另一個 ratchet 家族 | 該 ratchet 被系統性檢視時 |
+| 支援 mutmut 3.x | 新功能不是修復;本輪只要求「版本不對就說不知道」 | 老闆要求升級工具鏈 |
+| branch protection | 老闆全域禁止。**站3 的限制因此誠實記錄:它縮小視窗但不封閉它** | — |
+| 為框架建立真實 `.methodology/state.json` | 老闆已裁示走「誁明不適用」 | 老闆改變裁示 |
+
+### 驗證
+
+每站:revert → 指定守衛轉紅 → 從備份逐位元組還原 → sha256 相同。
+
+| 站 | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| 1 | 拿掉一個呼叫點的 `--test-reporter` | 新 AST 掃描 + `test_sim_testbed_passes` |
+| 2 | 三個 refusal 全部還原 | Stryker / 版本 / stale-cache 三條 |
+| 3 | 兩個 refusal 改 `if false` + 移除 self_check 的 step | 五條中的三條 |
+| 4 | 適用性宣告改成 `"skipped"` | `test_every_job_that_can_skip_all_its_checks_says_so` |
+| 5 | `_PROVENANCE_FIELDS` 縮回 `("git_sha",)` | `test_where_the_overlay_was_read_from…` |
+| 6 | 加一支 251 行函式 / 把 `run_doctor` 天花板抬到 400 | 兩個方向各一條 |
+| 7、8 | 不適用(搬移由 golden 的逐位元組相同證明) | — |
+
+**站7 讓 file ratchet 的算術守衛學會減法**:R78 站3 的 `_ENTRY_START` 只認 `+N`,
+因為這張表的**最新一筆**從來沒有是下修過(298 升 : 5 降,唯一的 `-28` 一直躲在後來的
+升幅後面)。若不改,本輪的第一次收成只能被塞進 `_UNPARSEABLE_JUSTIFICATION`。
+
+### 終局
+
+`scripts/self_check.sh` **3 failed / 7830 passed → 0 failed / 7852 passed /
+3 skipped**(兩支新的 skip 是 mutmut 整合測試在不受支援的 3.x 上誠實跳過並指名版本);
+ruff clean;guards **905 → 927**;`.claude/workflows/` 十支零改動;
+`cli/phase_cmds.py` **4223 → 3268**、`harness/harness_bridge.py` **5051 → 4190** ——
+**79 輪來 file ratchet 的第一次有意義下修**。
+
+### 如果這個結論是錯的,最可能錯在哪
+
+1. **母體可能只是我把四件不相干的事編成一個故事。** 反面證據是四件事各自的修法都不
+   依賴那個敘述,而且四件都能單獨反證。但「框架不對自己執法」也可能只是「框架不是
+   ASPICE 專案」的自然後果,而不是缺陷 —— 站4 的裁示形狀(誁明不適用而非讓它跑)正是
+   接受了這一點。
+2. **F3 的因果鏈是推斷不是證明。** 「self_check 本機紅 → 開發者不再跑 → 紅 commit 上
+   main」與 R72/R79 的記錄一致,但我無法證明當時那台機器的 node 版本。
+3. **站3 只是 R79 未解問題的根因「候選」。** 本 clone 無 hook 是事實,推 `4c24cf37`
+   的 clone 當時狀態不可考。
+4. **語料只剩一個。** 站2 的行為變更只在 repo fixture 與 `taskq-cc-new` 上證明過;
+   歷輪九專案對照不可得,一個 mutmut 2.x 上的真實 0-mutant 情境沒有實地對照組。
 
 ---
 

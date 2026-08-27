@@ -3792,3 +3792,15 @@
 - test: tests/test_function_size_ratchet.py::test_the_ratchet_can_see_a_function_that_is_too_long
   bug: "the detector's own witness — a ratchet that cannot fail is not a ratchet"
   fixed_in: "Round 80 站6"
+
+- test: tests/test_ledger_has_no_holes.py::test_every_round_that_shipped_commits_was_adjudicated
+  bug: "Round 58 shipped f4be095c and e37151ee and left no adjudication section — the only such round of the 72 that have commits (Rounds 1-13 predate the ledger, which starts at Round 14). docs/PROPOSAL_ADJUDICATIONS.md opens by stating its own protocol: consult it before re-opening a question, and reject a claim by entry number when its re-open condition is unmet. That protocol has exactly one prerequisite — the entry has to exist. Round 80 is its own counterexample and is recorded as one: three of that round's opening findings (spec_coverage's row layer, the four FR-test-filename derivations, the expectation-provenance population) had already been adjudicated by R74 站3 and R77 站4, were re-derived from scratch, and were withdrawn"
+  fixed_in: "Round 80 站9. Round 58's section backfilled from its two commit messages, with what is no longer recoverable said rather than invented"
+
+- test: tests/test_ledger_has_no_holes.py::test_the_ledger_is_not_running_ahead_of_the_work
+  bug: "a section for a round no commit names is the same defect mirrored — a record describing work that does not exist, the shape Rounds 36, 39 and 64 each measured in a different layer"
+  fixed_in: "Round 80 站9"
+
+- test: tests/test_ledger_has_no_holes.py::test_the_scan_reads_both_heading_depths
+  bug: "Round 80's first pass grepped `^## Round` and reported FOUR unadjudicated rounds. Three of them were adjudicated under a single `#` (42, 43) or inside a later round's section (76, judged in Round 77 — whose commit subject says so). A guard that reads one spelling of the heading would have made three false holes permanent and hidden the one real one"
+  fixed_in: "Round 80 站9"
