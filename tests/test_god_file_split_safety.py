@@ -67,6 +67,33 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_generate_sab_json", "_resolve_deliverable_ids", "_run_gap_analysis",
         "_print_constitution_result",
     ),
+    # Round 80 站8. 5051 lines, touched in 28 of this repo's 80 rounds, ratchet
+    # raised 56 times and lowered never — the largest hotspot here. Only the 32
+    # MODULE-LEVEL functions are tracked: `_source_of` resolves a name through
+    # the module and then looks for a top-level `def`, so the 18 methods on
+    # HarnessBridge are outside its reach, and 站8 moves none of them. There is
+    # no argparse surface for this module; the wiring check is `_source_of`'s
+    # own assertion that every tracked name is still importable from
+    # `harness.harness_bridge` after the move.
+    "harness.harness_bridge": (
+        "_first_non_null", "path_escapes_root",
+        "_atomic_write_gate_result", "na_is_framework_verified",
+        "_mark_framework_na", "absent_declared_dimensions",
+        "framework_measured", "composite_over", "declared_dimensions",
+        "measurement_scope", "_override_traceability_dim_score",
+        "_override_adversarial_review_dim_score",
+        "_mutation_artifact_violations", "_validate_tool_content",
+        "_crg_enrich_gate_findings", "_check_infra_fail_pollution",
+        "_check_tool_evidence", "_check_tests_failed",
+        "_parse_skip_counts", "_check_test_skip_ratio",
+        "_architecture_regression_reason",
+        "_mark_stubbed_boundary_dimensions",
+        "_record_coverage_denominator", "_gate_dimension_names",
+        "_verify_system_reach_block", "_run_harness_cross_validation",
+        "s4_rescopes_to_fr", "per_fr_coverage_evidence",
+        "s4_score_verdict", "s4_block_details", "_extract_fr_section",
+        "_parse_spec_names_for_fr",
+    ),
     # Round 80 站7. Added BEFORE the split, for the reason the module docstring
     # gives: a net woven after the fall proves nothing about the fall. 4233
     # lines, 47 top-level defs, ceiling raised 44 times across the history and
