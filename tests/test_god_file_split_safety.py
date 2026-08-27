@@ -67,6 +67,34 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_generate_sab_json", "_resolve_deliverable_ids", "_run_gap_analysis",
         "_print_constitution_result",
     ),
+    # Round 80 站7. Added BEFORE the split, for the reason the module docstring
+    # gives: a net woven after the fall proves nothing about the fall. 4233
+    # lines, 47 top-level defs, ceiling raised 44 times across the history and
+    # never lowered.
+    "cli.phase_cmds": (
+        "cmd_plan_phase", "cmd_plan_all", "_phase_gate_tools",
+        "cmd_run_phase", "cmd_pre_commit_check", "cmd_preview_next_phase",
+        "_regenerate_mutmut_scope", "_run_doctor_after_advance",
+        "cmd_advance_phase", "cmd_generate_next_plan",
+        "cmd_validate_handoff", "cmd_sync_harness",
+        "_attestation_content_still_current", "_trace_dirty_state",
+        "_run_fast_preflight", "_advance_commit_targets",
+        "_git_head_short", "_uncommitted_deliverables",
+        "_porcelain_paths", "_enforcer_moved_note", "_advance_fsm",
+        "_run_substrate_probe", "_cmd_run_phase_impl",
+        "_verify_entry_gate", "_check_ghost_paper_trail",
+        "_advance_prechecks", "_validate_handoff_p1_to_p2",
+        "_validate_handoff_p2_to_p3", "_validate_handoff_p3_to_p4",
+        "_validate_handoff_p4_to_p5", "_validate_handoff_p5_to_p6",
+        "_validate_handoff_p6_to_p7", "_validate_handoff_p7_to_p8",
+        "_validate_handoff_p8_to_p9", "_validate_handoff",
+        "_resolve_fr_ids_from_manifest", "_check_deferred_fixes_resolved",
+        "_check_gate1_live_coverage", "_gate1_per_fr_coverage_verdict",
+        "_check_gate_score_variance", "_regen_traceability_views",
+        "_regen_and_stage_view", "_broken_deliverable_anchors",
+        "_warn_if_view_lost_its_anchor", "_scope_violation_scripts",
+        "_scope_debug_name_match", "register",
+    ),
     "core.doctor": (
         "run_doctor", "_check_ci_template_drift",
         "_check_submodule_behind", "_check_enforcer_provenance",
