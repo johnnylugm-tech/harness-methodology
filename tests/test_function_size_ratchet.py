@@ -97,7 +97,7 @@ _CEILINGS: dict[str, int] = {
     "cli/phase_cmds.py::_verify_entry_gate": 230,
     "cli/project_cmds.py::cmd_audit_structure": 216,
     "harness/harness_bridge.py::HarnessBridge.prepare_gate": 215,
-    "harness/harness_bridge.py::_check_tool_evidence": 206,
+    "harness/gate_checks.py::_check_tool_evidence": 206,
     "harness/ssi/scripts/crg_analysis.py::compute_community_cohesion_score": 206,
     "scripts/plangen/blocks.py::_gate_exit_checkpoint": 204,
     "core/doctor.py::run_doctor": 202,
