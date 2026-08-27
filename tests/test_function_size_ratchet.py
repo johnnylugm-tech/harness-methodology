@@ -86,10 +86,11 @@ _CEILINGS: dict[str, int] = {
     "core/agent_spawner.py::AgentSpawner.spawn": 316,
     "detection/drift_detector.py::DriftDetector.detect_sab_drift": 310,
     "core/quality_gate/constitution/profile.py::_build_defaults": 304,
-    # 302 at Round 80 站2, up from 261: the mutmut version precondition and the
-    # zero-mutant refusal, both of which are comment-heavy because they record
-    # what the branch used to return and why that was wrong.
-    "core/quality_gate/mutation_enforcer.py::_compute_mutation_score": 302,
+    # 310 at Round 80 站11, from 302 at 站2 and 261 before that: the mutmut
+    # version precondition, the zero-mutant refusal, and 站11's correction that
+    # an UNKNOWN version is not an unsupported one. Comment-heavy on purpose —
+    # each records what the branch used to return and why that was wrong.
+    "core/quality_gate/mutation_enforcer.py::_compute_mutation_score": 310,
     "core/auto_fix/__init__.py::AutoFixEngine.fix": 248,
     "cli/push_cmds.py::cmd_push_milestone": 241,
     "harness/harness_bridge.py::_crg_enrich_gate_findings": 234,

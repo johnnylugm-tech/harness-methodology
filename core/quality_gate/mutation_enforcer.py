@@ -1112,39 +1112,79 @@ _MUTMUT_PINNED = "2.5.1"
 
 
 def mutmut_major_version(mutmut_path: str) -> "int | None":
-    """The major version of the mutmut binary at *mutmut_path*, or None.
+    """The major version of the install behind the console script, or None.
 
-    Asked of the BINARY, not of ``importlib.metadata`` — measured on the
-    machine this was written on, ``mutmut --version`` reported 3.3.1 while
-    ``importlib.metadata.version("mutmut")`` reported 3.5.0, because they are
-    different installs. This module runs the binary, so the binary is the one
-    whose version decides whether its output can be read.
+    NOT a CLI flag. Round 80 站2's first version ran ``mutmut --version``, and
+    that flag does not exist in mutmut 2.x — the only major this module can
+    read. Measured against a real 2.5.1:
 
-    None means the question could not be answered (non-zero exit, no parseable
-    version, or the binary would not run). Callers refuse on None rather than
-    assuming the pinned version — assuming is what produced a 0.0 score out of
-    a run that measured nothing.
+        $ mutmut --version        # 2.5.1
+        Error: No such option '--version'                          exit 2
+        $ mutmut --version        # 3.3.1
+        mutmut, version 3.3.1                                      exit 0
+
+    so the probe answered None for the supported version and the precondition
+    built on it refused the pinned tool. mutmut 2.x has a ``version``
+    SUBCOMMAND and 3.x does not, so picking between the two spellings would be
+    sniffing which one happens to work — a proxy for the question rather than
+    the question.
+
+    A pip console script's shebang names the interpreter that will import the
+    package, so that interpreter's distribution metadata is the version that
+    will actually run. This is still asked of the BINARY rather than of this
+    process: measured on the machine this was written on, the binary on PATH
+    was 3.3.1 while ``importlib.metadata.version("mutmut")`` in the harness's
+    own interpreter said 3.5.0 — different installs, and the framework runs the
+    binary.
+
+    None means the question could not be answered. Callers must NOT read that
+    as "unsupported" — see `_compute_mutation_score`.
     """
+    try:
+        with open(mutmut_path, encoding="utf-8", errors="replace") as handle:
+            shebang = handle.readline()
+    except OSError as exc:
+        print(f"  [mutation] could not read {mutmut_path}: {exc}", file=sys.stderr)
+        return None
+    if not shebang.startswith("#!"):
+        print(
+            f"  [mutation] {mutmut_path} is not a console script (no shebang), "
+            f"so the interpreter behind it cannot be asked",
+            file=sys.stderr,
+        )
+        return None
+    words = shebang[2:].strip().split()
+    if not words:
+        return None
+    # `#!/usr/bin/env python3` names the finder, not the interpreter.
+    interpreter = words[0]
+    if os.path.basename(interpreter) == "env" and len(words) > 1:
+        interpreter = shutil.which(words[1]) or words[1]
+
     try:
         # `run_isolated`, not `subprocess.run`: `timeout=` says this call will
         # kill the command, and killing has to mean killing the group
         # (Round 65 站0, pinned by tests/test_subprocess_group.py's ratchet —
         # which caught the first draft of this function).
-        result = run_isolated([mutmut_path, "--version"], timeout=30)
+        result = run_isolated(
+            [interpreter, "-c",
+             "import importlib.metadata as m; print(m.version('mutmut'))"],
+            timeout=30,
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         print(f"  [mutation] could not read mutmut version: {exc}", file=sys.stderr)
         return None
     if result.returncode != 0:
         print(
-            f"  [mutation] `{mutmut_path} --version` exited "
-            f"{result.returncode}: {result.stderr.strip()!r}",
+            f"  [mutation] {interpreter} has no readable mutmut distribution "
+            f"(exit {result.returncode}): {result.stderr.strip()[:200]!r}",
             file=sys.stderr,
         )
         return None
-    match = re.search(r"(\d+)\.\d+", f"{result.stdout} {result.stderr}")
+    match = re.match(r"\s*(\d+)\.", result.stdout)
     if not match:
         print(
-            f"  [mutation] no version in `{mutmut_path} --version` output: "
+            f"  [mutation] unparseable mutmut version from {interpreter}: "
             f"{result.stdout.strip()!r}",
             file=sys.stderr,
         )
@@ -1221,10 +1261,18 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
     # no such cache, so a 3.x run counts (0, 0) and used to arrive at the gate
     # as a mutation score of 0.0. The JS path has asked
     # `npx stryker --version` since it was written — this is its sibling.
-    # An unreadable version is refused rather than guessed: continuing on
-    # "probably fine" is what produced the 0.0 in the first place.
+    #
+    # Round 80 站11: an UNKNOWN version is not an unsupported one. This refused
+    # on None as well, reasoning that assuming is what produced the 0.0 — and
+    # that reasoning was already obsolete in the commit that wrote it, because
+    # the other half of 站2 turns a zero-mutant run into `unscoreable`
+    # regardless of what the probe says. So the run catches an unsupported
+    # mutmut by its OUTPUT either way, and this check only buys a more precise
+    # diagnosis. A check that can only improve a message must never be able to
+    # stop a working setup, and this one did exactly that to the pinned 2.5.1
+    # for the length of a round (mutmut 2.x has no `--version` flag).
     major = mutmut_major_version(mutmut_path)
-    if major != _MUTMUT_SUPPORTED_MAJOR:
+    if major is not None and major != _MUTMUT_SUPPORTED_MAJOR:
         return False, None, (
             f"mutmut major version {major if major is not None else 'unreadable'} "
             f"at {mutmut_path}; this framework reads mutmut "

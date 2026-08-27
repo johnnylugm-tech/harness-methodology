@@ -3721,20 +3721,12 @@
   bug: "positive control for the above — the refusal must not turn a real measurement away"
   fixed_in: "Round 80 站2"
 
-- test: tests/test_zero_mutants_is_not_zero_percent.py::test_an_unreadable_mutmut_major_is_refused_rather_than_scored
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_an_unsupported_mutmut_major_is_refused_rather_than_scored
   bug: "nothing checked which mutmut was on PATH. requirements.txt pins mutmut==2.5.1 and this module reads mutmut 2.x's sqlite `Mutant` table; 3.x has no such cache, so every 3.x run counted (0, 0) and — before the sibling fix in this station — reported a mutation score of 0.0. Reproduced on this machine with mutmut 3.5.0: tests/test_mutation_integration.py's two end-to-end tests failed with `mutmut produced 0 mutants. Score = 0.`. The JS path has asked `npx stryker --version` since it was written"
   fixed_in: "Round 80 站2"
 
 - test: tests/test_zero_mutants_is_not_zero_percent.py::test_a_supported_mutmut_major_is_not_refused_by_the_version_check
   bug: "positive control — a 2.x install must get past the precondition, so the check cannot degenerate into refusing everything"
-  fixed_in: "Round 80 站2"
-
-- test: tests/test_zero_mutants_is_not_zero_percent.py::test_the_version_is_read_from_the_binary_that_will_be_invoked
-  bug: "asking `importlib.metadata` would answer about a different install than the one that runs — measured on this machine, the binary said 3.3.1 and the metadata said 3.5.0"
-  fixed_in: "Round 80 站2"
-
-- test: tests/test_zero_mutants_is_not_zero_percent.py::test_a_version_that_cannot_be_read_is_none_not_a_guess
-  bug: "an unanswerable version question must not be assumed to be the pinned one — assuming is what produced a 0.0 out of a run that measured nothing"
   fixed_in: "Round 80 站2"
 
 - test: tests/test_hook_wiring_is_verified.py::test_a_clone_with_no_hook_installed_is_refused
@@ -3820,3 +3812,29 @@
 - test: tests/test_submodule_pin_ci_verdict.py::test_a_sha_whose_named_check_never_ran_is_not_green
   bug: "a commit on which the named check never ran must not be offered as a green SHA to pin — Round 46's rule that an absent witness is not a passing one"
   fixed_in: "Round 80 站10"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_the_probe_agrees_with_the_mutmut_actually_installed
+  bug: "Round 80 站2's version precondition refused mutmut 2.5.1 — the version requirements.txt pins and the only one this module can read. It probed with `mutmut --version`, a flag mutmut 2.x DOES NOT HAVE: measured against a real 2.5.1 install, `Error: No such option '--version'`, exit 2, so the probe answered None and `if major != _MUTMUT_SUPPORTED_MAJOR` refused. Every unit test stayed green because they all stub `mutmut_major_version`, and the one that exercised it fed canned stdout ('mutmut, version 2.5.1') that 2.5.1 never produces — the same shape of lie the _split_runner double told in 站10, one round later, from the same author. This is the test that was missing: it asks the probe about the REAL binary on PATH and cross-checks the answer against that install's metadata by a different route, so a probe that works only for the version the author happened to have installed cannot stay green"
+  fixed_in: "Round 80 站11. The probe now reads the console script's shebang and asks that interpreter for the mutmut distribution version — the question itself rather than a proxy for it. 2.x has a `version` subcommand and 3.x does not, so choosing a spelling would be sniffing which flag happens to work. Verified against both installs on this machine: 2.5.1 -> 2, 3.3.1 -> 3, and tests/test_mutation_integration.py's two end-to-end tests RUN (not skip) and pass under 2.5.1"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_an_unknown_version_is_not_treated_as_unsupported
+  bug: "the precondition refused on None as well as on a known-wrong major, reasoning that assuming is what produced a 0.0 score out of a run that measured nothing. That reasoning was already obsolete in the commit that wrote it: 站2's other half turns a zero-mutant run into `unscoreable` regardless of what the probe says, so an unsupported mutmut is caught by its OUTPUT either way and the version check only buys a more precise diagnosis. A check that can only improve a message must never be able to stop a working setup — and this one stopped the pinned 2.5.1 for the length of a round"
+  fixed_in: "Round 80 站11. Refuses only on a KNOWN unsupported major"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_the_version_is_read_from_the_install_behind_the_binary
+  bug: "the two ways shebang resolution can fail and must answer 'unknown' rather than crash or guess: a file with no shebang (names no interpreter), and a shebang naming an interpreter that will not run"
+  fixed_in: "Round 80 站11"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_a_version_that_cannot_be_read_does_not_block_the_run
+  bug: "a path that is not a binary at all must answer None, and None must not block"
+  fixed_in: "Round 80 站11"
+
+# Round 80 站11 renamed three 站2 guards in this file rather than deleting
+# cover: `test_an_unreadable_mutmut_major_is_refused_rather_than_scored` became
+# `..._an_unsupported_...` because refusing on UNREADABLE was the defect 站11
+# fixed, and `test_the_version_is_read_from_the_binary_that_will_be_invoked` /
+# `test_a_version_that_cannot_be_read_is_none_not_a_guess` were replaced by
+# `..._from_the_install_behind_the_binary` / `..._does_not_block_the_run`, whose
+# entries are above. The behaviour each pinned is still pinned; what changed is
+# that the old pair asserted a mechanism (`mutmut --version`) that never worked
+# for mutmut 2.x.

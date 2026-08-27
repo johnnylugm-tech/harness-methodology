@@ -4667,6 +4667,56 @@ commit 提升(其中一次外加 `test_state_io_conventions`),兩次都由下一
    同日 02:23。**沒有任何專案跑過含該樣板的 P2。** 缺陷仍成立(框架宣告了
    義務卻零執法),但依據換成 186 筆自述 + 零執行者。
 
+### 站11 —— 站2 的版本前置檢查拒絕了框架自己釘定的版本
+
+老闆令:把「仍然開著的八項」裡的 1、2、4 做掉。第 1 項是本輪唯一「修了但沒在該跑的
+環境驗過」的東西 —— 站2 的所有實測都在 **mutmut 3.5.0/3.3.1** 上做的,而
+`requirements.txt` 釘的是 **2.5.1**。把 2.5.1 裝進隔離 venv 之後,第一件事就撞上:
+
+```
+$ /tmp/mutmut25/bin/mutmut --version     # 2.5.1
+Error: No such option '--version'                              exit 2
+$ mutmut --version                       # 3.3.1
+mutmut, version 3.3.1                                          exit 0
+```
+
+**mutmut 2.x 沒有 `--version` 這個旗標。** 所以站2 的探針對唯一受支援的版本回 `None`,
+而 `if major != _MUTMUT_SUPPORTED_MAJOR` 把它拒掉 —— **框架拒絕執行自己釘定的工具**。
+我要防的失敗模式,被我自己反過來造了一次。
+
+**為什麼所有測試都是綠的**:七支單元測試全部 stub 掉 `mutmut_major_version`;唯一實際
+呼叫它的那支,餵的是 `"mutmut, version 2.5.1"` 這個 **2.5.1 從來不會產生的字串**。與站10
+抓到的 `_split_runner` **同一種謊**,相隔一站,同一個作者。
+
+**修法(兩處,都是正解不是繞路)**
+
+1. **探針改問正確的問題**。`mutmut --version` 只有 3.x 有,`mutmut version` 子指令只有
+   2.x 有 —— 在兩個拼法之間挑一個,是在嗅探「哪個旗標剛好能動」,那是問題的代理而不是
+   問題本身。pip console script 的 shebang 指名了會 import 該套件的 interpreter,那個
+   interpreter 的 distribution metadata 就是真正會跑的版本。實測:2.5.1 → 2、3.3.1 → 3。
+   仍然是問 **binary** 而非 harness 自己的行程(本機兩者分別是 3.3.1 與 3.5.0,不同安裝)。
+2. **「不知道」不等於「不支援」**。站2 對 `None` 也拒絕,理由是「用猜的正是 0.0 的成因」。
+   **那個理由在寫下它的同一個 commit 裡就已經過時了** —— 站2 的另一半把 0-mutant 變成
+   unscoreable,所以不受支援的 mutmut 無論探針說什麼都會被**執行結果**接住。版本檢查買到
+   的是更精準的診斷,不是安全性;而一個只能改善訊息的檢查,永遠不該有能力擋下一個能用的
+   環境。現在只對**已知**不支援的 major 拒絕。
+
+**新增的那支測試就是先前缺的那一支**:
+`test_the_probe_agrees_with_the_mutmut_actually_installed` 問**真實** binary,再用另一條
+路徑(讀 shebang → 問該 interpreter 的 metadata)交叉核對。以站2 的實作跑它、把 2.5.1
+放上 PATH → **紅**,訊息逐字是「the probe could not read the version of the mutmut it
+will actually run」。
+
+**終局(兩個環境都實跑)**
+
+| PATH | 結果 |
+|---|---|
+| 預設(mutmut 3.3.1) | 7861 passed / 3 skipped |
+| **真實 mutmut 2.5.1** | **7863 passed / 1 skipped** —— 兩支整合測試**執行**而非 skip |
+
+站2 的計畫裡寫著「`mutmut==2.5.1` 與 `3.5.0` 兩種環境下 self_check 皆綠」。**那句話當時
+是沒有被驗證的**,現在是。
+
 ### 明列不做(附 re-open 條件)
 
 | # | 事項 | 理由 | re-open |

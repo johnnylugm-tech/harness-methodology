@@ -92,10 +92,28 @@ def test_stryker_still_scores_a_run_that_did_produce_mutants(tmp_path):
 
 # ── mutmut: the version of the binary that will actually run ─────────────────
 
-def test_an_unreadable_mutmut_major_is_refused_rather_than_scored(tmp_path, monkeypatch):
+def test_an_unknown_version_is_not_treated_as_unsupported(tmp_path, monkeypatch):
+    """The precondition refuses what it KNOWS is wrong, and nothing else.
+
+    Round 80 站11. See test_a_version_that_cannot_be_read_does_not_block_the_run
+    for why: refusing on None broke the pinned 2.5.1, and the zero-mutant
+    refusal already catches an unsupported tool by its output.
+    """
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut"
                         if name == "mutmut" else None)
-    monkeypatch.setattr(me, "mutmut_major_version", lambda _path: 3)
+    monkeypatch.setattr(me, "mutmut_major_version", lambda *_a, **_k: None)
+
+    _ok, _score, msg = me.compute_mutation_score(tmp_path)
+
+    assert "major version" not in msg, (
+        f"an unreadable version refused the run instead of letting it speak: {msg!r}"
+    )
+
+
+def test_an_unsupported_mutmut_major_is_refused_rather_than_scored(tmp_path, monkeypatch):
+    monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut"
+                        if name == "mutmut" else None)
+    monkeypatch.setattr(me, "mutmut_major_version", lambda *_a, **_k: 3)
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
 
@@ -124,7 +142,7 @@ def test_a_supported_mutmut_major_is_not_refused_by_the_version_check(tmp_path, 
     """
     monkeypatch.setattr(me.shutil, "which", lambda name: "/usr/bin/mutmut"
                         if name == "mutmut" else None)
-    monkeypatch.setattr(me, "mutmut_major_version", lambda _path: 2)
+    monkeypatch.setattr(me, "mutmut_major_version", lambda *_a, **_k: 2)
 
     _ok, _score, msg = me.compute_mutation_score(tmp_path)
 
@@ -133,38 +151,99 @@ def test_a_supported_mutmut_major_is_not_refused_by_the_version_check(tmp_path, 
     )
 
 
-def test_the_version_is_read_from_the_binary_that_will_be_invoked(monkeypatch):
-    """`mutmut --version`, not the importable package's metadata.
+def test_the_version_is_read_from_the_install_behind_the_binary(tmp_path):
+    """Not from a CLI flag, and not from this process's own metadata.
 
-    Measured on this machine at the time of writing: the binary on PATH says
-    3.3.1 and `importlib.metadata.version("mutmut")` says 3.5.0. They are
-    different installs, and the framework runs the binary.
+    Round 80 站11 — the first draft of this ran `mutmut --version`, and that is
+    a flag mutmut 2.x DOES NOT HAVE. Measured against a real 2.5.1 install:
+
+        $ /tmp/mutmut25/bin/mutmut --version
+        Error: No such option '--version'                        exit 2
+        $ mutmut --version            # 3.3.1
+        mutmut, version 3.3.1                                    exit 0
+
+    So the probe answered None for the only version this framework supports,
+    and the precondition built on it refused the pinned tool. Every unit test
+    stayed green because they all stub `mutmut_major_version`, and the one that
+    exercised it fed canned stdout that 2.5.1 never produces — the same shape
+    of lie the `_split_runner` double told in 站10.
+
+    Choosing between `mutmut --version` (3.x only) and the `mutmut version`
+    subcommand (2.x only) would be sniffing which flag happens to work, which
+    is a proxy for the question rather than the question. A console script's
+    shebang names the interpreter that will import the package, and that
+    interpreter's distribution metadata is the version that will run.
+
+    The two resolution failures are exercised here; the positive direction is
+    pinned by test_the_probe_agrees_with_the_mutmut_actually_installed, which
+    runs against whatever is really on PATH. (An earlier draft of this test
+    asserted None for a shebang pointing at THIS interpreter — which has a
+    mutmut installed, so the probe correctly answered 3 and the test's premise
+    was the thing that was wrong.)
     """
-    seen: list[list[str]] = []
+    not_a_script = tmp_path / "mutmut-binary"
+    not_a_script.write_bytes(b"\x7fELF not a console script\n")
+    assert me.mutmut_major_version(str(not_a_script)) is None, (
+        "a file with no shebang names no interpreter, so there is nothing to ask"
+    )
 
-    class _Res:
-        returncode = 0
-        stdout = "mutmut, version 2.5.1\n"
-        stderr = ""
-
-    def _fake_run(cmd, *a, **kw):
-        seen.append(list(cmd))
-        return _Res()
-
-    monkeypatch.setattr(me, "run_isolated", _fake_run)
-
-    assert me.mutmut_major_version("/usr/bin/mutmut") == 2
-    assert seen and seen[0][0] == "/usr/bin/mutmut", (
-        f"the version must be asked of the resolved binary path, got {seen!r}"
+    dangling = tmp_path / "mutmut-dangling"
+    dangling.write_text(f"#!{tmp_path}/no-such-python\n", encoding="utf-8")
+    assert me.mutmut_major_version(str(dangling)) is None, (
+        "an interpreter that will not run answers nothing, and nothing is not "
+        "a version"
     )
 
 
-def test_a_version_that_cannot_be_read_is_none_not_a_guess(monkeypatch):
-    class _Res:
-        returncode = 1
-        stdout = ""
-        stderr = "boom"
+@pytest.mark.integration
+def test_the_probe_agrees_with_the_mutmut_actually_installed():
+    """The test that was missing, and whose absence let 站2 ship broken.
 
-    monkeypatch.setattr(me, "run_isolated", lambda *a, **kw: _Res())
+    Every other test here stubs the probe. This one asks it about the real
+    binary and cross-checks the answer against that install's own metadata by
+    a different route, so a probe that works only for the version the author
+    happened to have installed cannot stay green.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
 
-    assert me.mutmut_major_version("/usr/bin/mutmut") is None
+    path = _shutil.which("mutmut")
+    if path is None:
+        pytest.skip("no mutmut on PATH — the probe has nothing to be asked about")
+
+    major = me.mutmut_major_version(path)
+    assert major is not None, (
+        f"the probe could not read the version of the mutmut it will actually "
+        f"run ({path}) — this is the exact failure that refused the pinned "
+        f"2.5.1 for a round"
+    )
+
+    shebang = open(path, encoding="utf-8", errors="replace").readline()
+    assert shebang.startswith("#!"), f"not a console script: {shebang!r}"
+    interpreter = shebang[2:].strip().split()[0]
+    reported = _subprocess.run(  # nosec B603
+        [interpreter, "-c",
+         "import importlib.metadata as m; print(m.version('mutmut'))"],
+        capture_output=True, text=True, timeout=60,
+    ).stdout.strip()
+    assert reported, f"{interpreter} has no mutmut distribution"
+    assert major == int(reported.split(".")[0]), (
+        f"probe said major {major}, the install behind {path} is {reported}"
+    )
+
+
+def test_a_version_that_cannot_be_read_does_not_block_the_run(tmp_path):
+    """Unknown is not the same as unsupported, and must not refuse.
+
+    Round 80 站11's correction to 站2. The first version of this refused on
+    None, on the reasoning that assuming is what produced a 0.0 score out of a
+    run that measured nothing. That reasoning was already obsolete in the same
+    commit: 站2's other half turns a zero-mutant run into `unscoreable`, so an
+    unsupported mutmut is caught by the RUN whether or not the probe answers.
+    The version check buys a better diagnosis, not the safety property — and a
+    check that can only improve a message must never be able to stop a working
+    setup. It did exactly that to the pinned 2.5.1 for the length of one round.
+    """
+    missing = tmp_path / "not-a-real-binary"
+
+    assert me.mutmut_major_version(str(missing)) is None
