@@ -3712,3 +3712,27 @@
 - test: tests/test_node_test_reporter_is_pinned.py::test_the_scan_can_see_an_unpinned_argv
   bug: "a scan that cannot fail is not a guard — this is the detector's own witness, asserting it reacts to the unpinned shape without reading any source text (Round 78 站6's rule applied to the new scan)"
   fixed_in: "Round 80 站1"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_stryker_producing_no_mutants_is_not_a_score_of_zero
+  bug: "`_compute_stryker_score` returned `True, 0.0, 'Stryker produced 0 mutants. Score = 0.'` — a run that mutated nothing arrived at the gate as the number a suite which killed nothing scores. The two have opposite remedies (write assertions vs fix the mutate globs). Round 32 站4 / Round 35 站2's rule, at a site those rounds did not reach"
+  fixed_in: "Round 80 站2"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_stryker_still_scores_a_run_that_did_produce_mutants
+  bug: "positive control for the above — the refusal must not turn a real measurement away"
+  fixed_in: "Round 80 站2"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_an_unreadable_mutmut_major_is_refused_rather_than_scored
+  bug: "nothing checked which mutmut was on PATH. requirements.txt pins mutmut==2.5.1 and this module reads mutmut 2.x's sqlite `Mutant` table; 3.x has no such cache, so every 3.x run counted (0, 0) and — before the sibling fix in this station — reported a mutation score of 0.0. Reproduced on this machine with mutmut 3.5.0: tests/test_mutation_integration.py's two end-to-end tests failed with `mutmut produced 0 mutants. Score = 0.`. The JS path has asked `npx stryker --version` since it was written"
+  fixed_in: "Round 80 站2"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_a_supported_mutmut_major_is_not_refused_by_the_version_check
+  bug: "positive control — a 2.x install must get past the precondition, so the check cannot degenerate into refusing everything"
+  fixed_in: "Round 80 站2"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_the_version_is_read_from_the_binary_that_will_be_invoked
+  bug: "asking `importlib.metadata` would answer about a different install than the one that runs — measured on this machine, the binary said 3.3.1 and the metadata said 3.5.0"
+  fixed_in: "Round 80 站2"
+
+- test: tests/test_zero_mutants_is_not_zero_percent.py::test_a_version_that_cannot_be_read_is_none_not_a_guess
+  bug: "an unanswerable version question must not be assumed to be the pinned one — assuming is what produced a 0.0 out of a run that measured nothing"
+  fixed_in: "Round 80 站2"

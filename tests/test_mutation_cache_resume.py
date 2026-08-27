@@ -37,6 +37,18 @@ import core.quality_gate.mutation_enforcer as me  # noqa: E402
 pytestmark = [pytest.mark.core]
 
 
+@pytest.fixture(autouse=True)
+def _faked_mutmut_is_a_supported_one(monkeypatch):
+    """Same reason as tests/test_mutation_enforcer.py's fixture of this name.
+
+    These tests fake `shutil.which("mutmut")` with a path that does not exist,
+    so Round 80 站2's version precondition would answer "unreadable" and refuse
+    before the resume behaviour under test runs. The precondition has its own
+    tests in tests/test_zero_mutants_is_not_zero_percent.py.
+    """
+    monkeypatch.setattr(me, "mutmut_major_version", lambda _path: 2)
+
+
 def _real_mutmut_cache(path: Path, killed: int = 4, survived: int = 1) -> bytes:
     """Write a genuine mutmut-2.x-shaped sqlite cache and return its bytes.
 

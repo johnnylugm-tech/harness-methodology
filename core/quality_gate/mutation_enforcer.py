@@ -1104,6 +1104,54 @@ def run_mutation_precheck(project: Path) -> tuple[bool, str]:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+#: The only mutmut whose result cache this module can read. Round 80 站2.
+_MUTMUT_SUPPORTED_MAJOR = 2
+#: What requirements.txt pins, quoted in the refusal so the operator has the
+#: exact install to run. Kept beside the major it must agree with.
+_MUTMUT_PINNED = "2.5.1"
+
+
+def mutmut_major_version(mutmut_path: str) -> "int | None":
+    """The major version of the mutmut binary at *mutmut_path*, or None.
+
+    Asked of the BINARY, not of ``importlib.metadata`` — measured on the
+    machine this was written on, ``mutmut --version`` reported 3.3.1 while
+    ``importlib.metadata.version("mutmut")`` reported 3.5.0, because they are
+    different installs. This module runs the binary, so the binary is the one
+    whose version decides whether its output can be read.
+
+    None means the question could not be answered (non-zero exit, no parseable
+    version, or the binary would not run). Callers refuse on None rather than
+    assuming the pinned version — assuming is what produced a 0.0 score out of
+    a run that measured nothing.
+    """
+    try:
+        # `run_isolated`, not `subprocess.run`: `timeout=` says this call will
+        # kill the command, and killing has to mean killing the group
+        # (Round 65 站0, pinned by tests/test_subprocess_group.py's ratchet —
+        # which caught the first draft of this function).
+        result = run_isolated([mutmut_path, "--version"], timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"  [mutation] could not read mutmut version: {exc}", file=sys.stderr)
+        return None
+    if result.returncode != 0:
+        print(
+            f"  [mutation] `{mutmut_path} --version` exited "
+            f"{result.returncode}: {result.stderr.strip()!r}",
+            file=sys.stderr,
+        )
+        return None
+    match = re.search(r"(\d+)\.\d+", f"{result.stdout} {result.stderr}")
+    if not match:
+        print(
+            f"  [mutation] no version in `{mutmut_path} --version` output: "
+            f"{result.stdout.strip()!r}",
+            file=sys.stderr,
+        )
+        return None
+    return int(match.group(1))
+
+
 def compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
     """Compute the mutation score, and record the outcome either way.
 
@@ -1161,10 +1209,28 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
     if project_language(project) in ("javascript", "typescript"):
         return _compute_stryker_score(project)
 
-    if not shutil.which("mutmut"):
+    mutmut_path = shutil.which("mutmut")
+    if not mutmut_path:
         return False, None, (
             "mutmut not installed. Required for mutation_testing dimension. "
             "Install: pip install 'mutmut<3'"
+        )
+
+    # Round 80 站2: the requirement was stated and never checked. This module
+    # reads mutmut 2.x's sqlite `Mutant` table (_count_mutmut_results); 3.x has
+    # no such cache, so a 3.x run counts (0, 0) and used to arrive at the gate
+    # as a mutation score of 0.0. The JS path has asked
+    # `npx stryker --version` since it was written — this is its sibling.
+    # An unreadable version is refused rather than guessed: continuing on
+    # "probably fine" is what produced the 0.0 in the first place.
+    major = mutmut_major_version(mutmut_path)
+    if major != _MUTMUT_SUPPORTED_MAJOR:
+        return False, None, (
+            f"mutmut major version {major if major is not None else 'unreadable'} "
+            f"at {mutmut_path}; this framework reads mutmut "
+            f"{_MUTMUT_SUPPORTED_MAJOR}.x's result cache and cannot measure "
+            f"against any other. requirements.txt pins mutmut=="
+            f"{_MUTMUT_PINNED}. Install: pip install 'mutmut<3'"
         )
 
     cwd, paths_to_mutate = _resolve_mutmut_workdir(project)
@@ -1300,6 +1366,48 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
                 f"Cache may be corrupt or unreadable."
             )
 
+        # Bug #105: PUBLISH the workdir cache to project root. The LLM agent
+        # evaluating mutation_testing reads `mutmut results` from this path.
+        # On failure we leave the project-root cache untouched so callers
+        # can distinguish "we ran mutmut and it crashed" from "we have
+        # valid prior results".
+        #
+        # Round 80 站2 moved this block ABOVE the scoring it used to sit under.
+        # The zero-mutant outcome now returns instead of scoring, and returning
+        # before this block skipped the `else` branch below, leaving a prior
+        # run's score readable at project root — caught by
+        # test_stale_cache_removed_when_workdir_cache_absent. Nothing here
+        # depends on the score, and the artifact written further down still
+        # fingerprints a cache that is already in place, which is the ordering
+        # Round 31 站2 asked for.
+        if workdir_cache.exists():
+            shutil.copy2(workdir_cache, cache_file)
+        else:
+            # workdir cache never created (all source excluded). Remove any
+            # stale project-root cache so downstream sees a clean zero, not
+            # a stale score from a prior run.
+            if cache_file.exists():
+                cache_file.unlink()
+
+        # Round 80 站2: zero mutants is not zero percent. This used to set
+        # score = 0.0 and fall through to `return True, score, msg`, and on the
+        # way out it wrote a mutation-score artifact carrying that 0.0 under
+        # Round 31 站2's provenance stamp — a run that measured nothing arrived
+        # at the gate as a framework-measured number. 0% means the tests killed
+        # nothing and the remedy is assertions; zero mutants means nothing was
+        # mutated and the remedy is the scope or the tool. Same rule as Round
+        # 35 站2 and Round 32 站4. No score artifact is written: its absence
+        # plus the `_write_unmeasured_artifact` the caller writes is the
+        # protocol this module already describes — "the artifact's absence now
+        # means one thing again: nobody ran the command".
+        if total == 0:
+            return False, None, (
+                f"mutmut produced 0 mutants — nothing was measured, so there "
+                f"is no score. [scope: {paths_to_mutate}] Check "
+                f"[mutmut] paths_to_mutate in setup.cfg and that the mutmut "
+                f"on PATH is {_MUTMUT_SUPPORTED_MAJOR}.x."
+            )
+
         # Round 30 站2: the SCOPE travels with the score. taskq-advance's Gate 2
         # recorded mutation_testing=0 three times with no artifact anywhere
         # stating that 3384 lines were mutated against a SPEC that limited the
@@ -1309,30 +1417,11 @@ def _compute_mutation_score(project: Path) -> "tuple[bool, float | None, str]":
         # Round 31 站1: spelled by mutmut_report.format_score_message, whose
         # parser sits beside it — the gate's own cross-check could not read the
         # f-string that used to live here.
-        if total == 0:
-            score = 0.0
-            msg = (f"mutmut produced 0 mutants. Score = 0. "
-                   f"[scope: {paths_to_mutate}]")
-        else:
-            score = round(100.0 * killed / total, 1)
-            msg = format_score_message(
-                killed=killed, survived=survived, score=score,
-                scope=paths_to_mutate,
-            )
-
-        # Bug #105: PUBLISH the workdir cache to project root. The LLM agent
-        # evaluating mutation_testing reads `mutmut results` from this path.
-        # On failure we leave the project-root cache untouched so callers
-        # can distinguish "we ran mutmut and it crashed" from "we have
-        # valid prior results".
-        if workdir_cache.exists():
-            shutil.copy2(workdir_cache, cache_file)
-        else:
-            # workdir cache never created (all source excluded). Remove any
-            # stale project-root cache so downstream sees a clean zero, not
-            # a stale score from a prior run.
-            if cache_file.exists():
-                cache_file.unlink()
+        score = round(100.0 * killed / total, 1)
+        msg = format_score_message(
+            killed=killed, survived=survived, score=score,
+            scope=paths_to_mutate,
+        )
 
         # Round 31 站2: the framework records its own number. Written after the
         # cache is published so cache_sha256 fingerprints the artifact the gate
@@ -1405,7 +1494,14 @@ def _compute_stryker_score(project: Path) -> "tuple[bool, float | None, str]":
     # took too long, not that they proved the mutation wrong.
     killed = sum(1 for m in mutants if m.get("status") == "Killed")
     total = len(mutants)
+    # Round 80 站2: the mutmut branch's sibling, swept with it. A report with
+    # no mutants measured nothing; 0.0 is what a suite that killed none of them
+    # scores, and the two remedies point in opposite directions.
     if total == 0:
-        return True, 0.0, "Stryker produced 0 mutants. Score = 0."
+        return False, None, (
+            f"Stryker produced 0 mutants — nothing was measured, so there is "
+            f"no score. Check the mutate globs in stryker.conf; the report is "
+            f"at {report_path}."
+        )
     score = round(100.0 * killed / total, 1)
     return True, score, f"killed={killed} total={total} score={score}"

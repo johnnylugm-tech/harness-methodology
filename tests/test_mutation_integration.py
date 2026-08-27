@@ -14,21 +14,48 @@ from pathlib import Path
 import pytest
 
 from core.quality_gate.mutation_enforcer import (
+    _MUTMUT_SUPPORTED_MAJOR,
     _count_mutmut_results,
     compute_mutation_score,
+    mutmut_major_version,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mutmut_smoke"
 BARE_CFG_FIXTURE = Path(__file__).parent / "fixtures" / "mutmut_bare_cfg"
 
+
+def _unsupported_mutmut() -> "str | None":
+    """Why this suite cannot run here, or None when it can.
+
+    Round 80 站2. This used to ask only `shutil.which("mutmut") is None`, so on
+    a machine with mutmut 3.x installed the tests ran, mutmut produced a cache
+    this framework cannot read, and they failed with `mutmut produced 0
+    mutants` — reproduced at dff609e6, and it is what made
+    `scripts/self_check.sh` red locally while CI was green. The question
+    "can this framework measure with the mutmut on PATH?" now has one answer
+    and this asks it, rather than keeping a second, weaker copy.
+    """
+    path = shutil.which("mutmut")
+    if path is None:
+        return ("mutmut not on PATH — pip install 'mutmut<3' "
+                "(requirements.txt pins 2.5.1; activate .venv locally)")
+    major = mutmut_major_version(path)
+    if major != _MUTMUT_SUPPORTED_MAJOR:
+        return (
+            f"mutmut at {path} reports major version "
+            f"{major if major is not None else 'unreadable'}; this pipeline "
+            f"reads mutmut {_MUTMUT_SUPPORTED_MAJOR}.x's result cache. "
+            f"pip install 'mutmut<3'"
+        )
+    return None
+
+
+_SKIP_REASON = _unsupported_mutmut()
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.slow,
-    pytest.mark.skipif(
-        shutil.which("mutmut") is None,
-        reason="mutmut not on PATH — pip install 'mutmut<3' "
-               "(requirements.txt pins 2.5.1; activate .venv locally)",
-    ),
+    pytest.mark.skipif(_SKIP_REASON is not None, reason=_SKIP_REASON or ""),
 ]
 
 
@@ -43,6 +70,7 @@ def test_real_mutmut_end_to_end(tmp_path):
     # real run must report BOTH kills and at least one survivor. Exact
     # mutant counts are mutmut-version-dependent — pinning them would test
     # the tool, not the pipeline.
+    assert score is not None, message
     assert 0.0 < score < 100.0, (score, message)
 
     cache = project / ".mutmut-cache"

@@ -32,6 +32,26 @@ from core.quality_gate.mutation_enforcer import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _faked_mutmut_is_a_supported_one(monkeypatch):
+    """Tests here fake `shutil.which("mutmut")`; say which mutmut it is.
+
+    Round 80 站2 gave `_compute_mutation_score` a version precondition — this
+    module reads mutmut 2.x's sqlite result cache, and 3.x has none, which is
+    how a run that mutated nothing used to arrive at the gate as a score of
+    0.0. Every test below that fakes an install points `which` at a path that
+    does not exist, so asking the real binary its version answers "unreadable"
+    and the precondition refuses before the behaviour under test is reached.
+
+    The precondition itself is exercised for real in
+    tests/test_zero_mutants_is_not_zero_percent.py — both the refusal and the
+    positive control — so faking it here masks nothing that is untested.
+    """
+    import core.quality_gate.mutation_enforcer as _me
+
+    monkeypatch.setattr(_me, "mutmut_major_version", lambda _path: 2)
+
+
 # ---------------------------------------------------------------------------
 # _resolve_mutmut_workdir
 # ---------------------------------------------------------------------------
@@ -1446,9 +1466,28 @@ def test_stale_cache_removed_when_workdir_cache_absent(tmp_path, monkeypatch):
 
     ok, score, msg = me.compute_mutation_score(tmp_path)
 
-    assert ok, f"compute_mutation_score returned not-ok: {msg}"
+    # This test's subject is the stale cache, and it stays the subject: a run
+    # that produced no workdir cache must not leave a prior run's score
+    # readable at project root.
     assert not stale_cache.exists(), (
         f"Stale cache should be deleted, but still exists at {stale_cache}"
+    )
+    # Round 80 站2 changed the verdict this fixture produces. It fakes a run
+    # with `TotalMutants = 0` and no workdir cache, which is the zero-mutant
+    # path — previously `ok=True, score=0.0`, now unscoreable, because nothing
+    # was mutated and 0.0 is what a suite that killed nothing scores. The
+    # `assert ok` that used to be the first line here was incidental to the
+    # cache question; asserting the contract is the honest replacement.
+    assert ok is False, f"expected unscoreable for a zero-mutant run, got {msg!r}"
+    assert score is None, (
+        f"a run that mutated nothing must not hand the gate a number; got {score!r}"
+    )
+    # Pinned to the refusal's own words. `ok is False` alone was green with the
+    # refusal removed, because the fall-through then divides by a zero total
+    # and the broad handler returns "Error running mutmut: division by zero" —
+    # also (False, None). The counter-proof found that, not a code read.
+    assert "0 mutants" in msg, (
+        f"the verdict has to say nothing was mutated, not merely fail; got {msg!r}"
     )
 
 
