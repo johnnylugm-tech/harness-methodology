@@ -11,6 +11,7 @@ from __future__ import annotations
 # tests reaches them by these names, and a split that drops the wiring still
 # imports and still passes unit tests (tests/test_god_file_split_safety.py).
 from harness.gate_checks import (  # noqa: F401,E402  re-export after Round 80 站8 split
+    _mutation_artifact_violations,
     DIMENSION_EXCLUSION_FILES,
     _INFRA_FAIL_EVIDENCE_SIGNATURES,
     _TOOL_CONTENT_PATTERNS,
@@ -507,133 +508,6 @@ def _override_adversarial_review_dim_score(
     return _new_dims, _changed
 
 
-# ---------------------------------------------------------------------------
-def _mutation_artifact_violations(
-    ctx: "GateContext", dim_name: str, agent_score: "float | None",
-    threshold: float,
-) -> "tuple[list[str], list[str]]":
-    """S4 for mutation_testing: the score is the framework's, or the gate blocks.
-
-    Round 31 站2. mutmut is the one tool the framework runs end-to-end itself —
-    temp workdir, setup.cfg rewrite, interpreter pinning, scope from the SAB —
-    and `compute_mutation_score` is where the authoritative number comes out of
-    the sqlite cache. It had zero production callers. What reached a live
-    Gate 2 instead was an agent-written prose file that passed content
-    validation because the mutmut pattern list contains the bare word "mutmut",
-    carrying a number nothing could check.
-
-    So the framework's own artifact is the source. Returns
-    ``(fabrication, unverifiable)`` — Round 35 站3 split them, because the
-    outcomes carry opposite instructions and all of them used to be filed as
-    `tool_score_fabrication`, whose registered remediation reads "the score,
-    not the run, is what failed — do NOT re-run". For a missing artifact the
-    correct action is precisely to run the command.
-
-    * absent / unreadable / malformed → `infra_fail`, naming the command that
-      writes it. Abstaining is not passing (Round 30): "we could not establish
-      the score" must never resolve to "the claimed score stands".
-    * present with `score: null` → `infra_fail`, carrying the reason the
-      framework recorded. It ran and could not measure; nothing about the
-      project's tests has been established (Round 35 站2).
-    * present, and the framework's score clears the threshold → fine, whatever
-      the agent wrote; the caller patches the real number into the breakdown.
-    * present, framework's score BELOW threshold while the agent claimed a
-      pass → `tool_score_fabrication`. That is the same rule S4 applies to
-      every other tool (harness says fail, agent says pass), with the artifact
-      standing in for a re-run that would cost an hour.
-    """
-    from core.quality_gate.mutation_enforcer import (
-        MUTATION_SCORE_ARTIFACT,
-        MUTATION_SCORE_PROVENANCE_KEY,
-    )
-
-    _how = (
-        f"Run `python3 harness_cli.py mutation-test-score --project .` — it "
-        f"runs mutmut with the framework's workdir isolation and writes "
-        f"{MUTATION_SCORE_ARTIFACT}. Do not run `mutmut run` yourself."
-    )
-    path = Path(ctx.project_root) / MUTATION_SCORE_ARTIFACT
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        raw_score = data["score"]
-        framework_score = None if raw_score is None else float(raw_score)
-    except FileNotFoundError:
-        return [], [
-            f"{dim_name}: no framework-computed score — {MUTATION_SCORE_ARTIFACT} "
-            f"is missing, so the recorded score is whatever the agent wrote. "
-            f"{_how}"
-        ]
-    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-        return [], [
-            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} is unreadable ({exc}) — the "
-            f"score it should carry cannot be established. {_how}"
-        ]
-
-    # Round 72 站2: and whether this framework wrote it. Both writers stamp
-    # `enforcer_sha` (Round 19 站3's provenance field) into the payload, and
-    # every reader ignored it — so a file with the right `score` key passed as
-    # "the framework's own artifact", which is what the docstring above claims
-    # this function establishes.
-    #
-    # Measured on taskq-new's Gate 4: no `enforcer_sha`, a `generated_at` of
-    # "2026-08-23T14:51:22.f+00:00" (a strftime placeholder this code cannot
-    # emit) and a `note` reading "reconstructed from .mutmut-cache … 685
-    # untested mutants are out-of-scope". 256/(256+99) = 72.1 cleared the
-    # threshold of 70; 256/(256+99+685) is 24.6. gate4_result.json records it
-    # as "framework: compute_mutation_score → …" with framework_override: true.
-    #
-    # Filed as `unverifiable`, the same bucket as an absent file, because it is
-    # the same fact: no score the framework produced is on record. It is not
-    # `tool_score_fabrication`, whose remediation reads "the score, not the
-    # run, is what failed — do NOT re-run"; here re-running is exactly right.
-    if MUTATION_SCORE_PROVENANCE_KEY not in data:
-        return [], [
-            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} carries no "
-            f"`{MUTATION_SCORE_PROVENANCE_KEY}`, so this framework did not "
-            f"write it — the number in it is whatever its author typed, not a "
-            f"measurement anything here performed. {_how}"
-        ]
-
-    # Round 31 站4: the score is only meaningful over the scope it was taken
-    # on. The generator runs once at the P2→P3 handoff, so a SAB corrected
-    # mid-P3 — the normal way a missing scope_layers gets noticed, since Gate 2
-    # is where the cost shows up — leaves setup.cfg saying something else.
-    #
-    # Round 35 站3: this used to sit below the null check, so on the one
-    # occasion the scope is the likeliest cause — a run that could not measure
-    # — it was never evaluated. Measured on taskq-renew, where setup.cfg
-    # declares no scope while the SAB names two layers, and nothing said so.
-    from core.quality_gate.mutmut_scope import scope_drift
-    drift = scope_drift(ctx.project_root)
-    if drift:
-        return [], [f"{dim_name}: mutation scope disagrees with the SAB — {drift}"]
-
-    if framework_score is None:
-        return [], [
-            f"{dim_name}: the framework ran mutmut and could not measure — "
-            f"{data.get('could_not_measure') or 'no reason recorded'}. Nothing "
-            f"has been established about this project's tests, so do not touch "
-            f"the score: repair the run. {_how}"
-        ]
-
-    if framework_score < threshold and (
-        agent_score is None or agent_score >= threshold
-    ):
-        _claim = "N/A (agent)" if agent_score is None else f"{agent_score:.1f}"
-        return [
-            f"{dim_name}: framework-computed score {framework_score:.1f} is "
-            f"below threshold {threshold:.0f}, but the gate result claims "
-            f"{_claim}. The framework's own run is the score for this "
-            f"dimension; write {framework_score:.1f} and fix the tests that "
-            f"let those mutants live."
-        ], []
-
-    print(
-        f"  [S4] {dim_name}: framework-computed score {framework_score:.1f} "
-        f"[scope: {data.get('paths_to_mutate', '?')}, "
-        f"{data.get('mutated_files', '?')} files] ✓"
-    )
-    return [], []
 
 
 

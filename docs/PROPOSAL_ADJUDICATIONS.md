@@ -4717,6 +4717,34 @@ will actually run」。
 站2 的計畫裡寫著「`mutmut==2.5.1` 與 `3.5.0` 兩種環境下 self_check 皆綠」。**那句話當時
 是沒有被驗證的**,現在是。
 
+### 站12 —— 兩個必須一起做的搬移(老闆令的第 2、4 項)
+
+**第 2 項**:站8 造出的 `harness/gate_checks.py` 是 945 行,超過 900 的 god-file 門檻,
+當天我給了它一份具名天花板,理由是「這是從一個 5051 行的檔案裡拿出來的 861 行」。理由
+成立,**而那個天花板仍然是沒人審過的預留空間**。
+
+**第 4 項**:`_mutation_artifact_violations`(126 行,閉包為自己,零依賴)在站8 被我留在
+`harness_bridge` 裡。讀它的 docstring 就知道它問的是 **`gate_checks.py` 自己的那個問題**
+—— 「agent 為這個維度提交的東西算不算證據」—— 只是對象是框架唯一從頭到尾自己量的那個維度。
+
+兩件事互相牽動:把它搬進去會讓 `gate_checks` 變成 1071 行。所以順序是先出後進。
+
+**出**:五張 per-dimension 表 → `harness/gate_evidence_tables.py`。表與檢查**變動的理由
+不同** —— 表因為維度或工具改變而改(新維度、工具輸出不再含某字串、某檔案不再算證據),
+檢查因為規則改變而改。而這個檔案 945 行裡有 172 行是單一張 regex 表。五張表全部是字面值、
+零引用,所以 import 單向且不可能回頭。
+
+**進**:`_mutation_artifact_violations`,byte-identical。
+
+| 檔案 | 前 | 後 |
+|---|---|---|
+| `harness/gate_checks.py` | 945 | **823**(門檻之下,不再需要例外) |
+| `harness/harness_bridge.py` | 4190 | **4064** |
+| `harness/gate_evidence_tables.py` | — | 301(新) |
+
+兩個搬移都由 `tests/test_god_file_split_safety.py` 的 AST 逐位元組指紋證明是**搬移**而非
+改寫。`harness_bridge.py` 本輪合計 **5051 → 4064**。
+
 ### 明列不做(附 re-open 條件)
 
 | # | 事項 | 理由 | re-open |

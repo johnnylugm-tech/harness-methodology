@@ -23,8 +23,22 @@ the import goes one way only.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
+
+# Round 80 站12: the five per-dimension tables these checks read now live
+# in harness/gate_evidence_tables.py — data and logic change for different
+# reasons. Imported here rather than referenced through the module so every
+# existing name in this file, and every re-export harness_bridge makes from
+# it, keeps working unchanged.
+from harness.gate_evidence_tables import (  # noqa: F401  re-export, Round 80 站12
+    DIMENSION_EXCLUSION_FILES,
+    _INFRA_FAIL_EVIDENCE_SIGNATURES,
+    _TOOL_CONTENT_PATTERNS,
+    _TOOL_OUTPUT_MIN_BYTES,
+    _TOOL_REQUIRED_PATTERNS,
+)
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only
@@ -48,228 +62,10 @@ def path_escapes_root(candidate: Path, root: Path) -> bool:
     return not candidate.resolve().is_relative_to(root.resolve())
 
 
-# ---------------------------------------------------------------------------
-# S3-A: Tool-output content patterns (Solution A)
-# ---------------------------------------------------------------------------
-# For each tool name, at least one pattern must match the file/inline content.
-# Patterns use re.IGNORECASE | re.MULTILINE.
-_TOOL_CONTENT_PATTERNS: dict[str, list[str]] = {
-    "ruff": [
-        r"All checks passed",          # clean run
-        r"\S+\.pyi?:\d+:\d+:",         # file:line:col violation line
-        r"Found \d+ error",            # summary
-        r"\[[\w-]+\]",                 # rule code like [E501] or [ruff]
-    ],
-    "mypy": [
-        r"Success: no issues found",
-        r"Found \d+ error",
-        r"\.pyi?:\d+: (error|note):",
-    ],
-    "pytest-cov": [
-        r"\d+ passed",
-        r"TOTAL\s+\d+",
-        r"coverage:",
-        r"Coverage report",
-    ],
-    "pytest": [
-        r"\d+ passed",
-        r"\d+ failed",
-        r"no tests ran",
-        r"={3,}",                      # pytest separator bars
-    ],
-    "gitleaks": [
-        r"No leaks found",
-        r"Secret",
-        r"leaks?\s+found",
-        r"gitleaks",
-        r"WRN\[",                      # gitleaks warning format
-        r"INF\[",                      # gitleaks info format
-    ],
-    "mutmut": [
-        r"Killed",
-        r"Survived",
-        r"mutation score",
-        r"mutmut",
-    ],
-    "scancode": [
-        r"license",
-        r"SPDX",
-        r"copyright",
-        r"scan:",
-    ],
-    # ── JS/TS toolchain (resolved tool ids) ─────────────────────────────────
-    "eslint": [
-        r'"filePath"',                 # -f json per-file result objects
-        r'"errorCount"',
-        r'"messages"',
-    ],
-    # Clean tsc compiles emit nothing — evaluate_dimension.md instructs agents
-    # to append `echo "tsc exit=$?"` so clean evidence still carries a marker.
-    "tsc": [
-        r"error TS\d+:",               # diagnostic lines
-        r"tsc exit=\d",
-    ],
-    "tsc-checkjs": [
-        r"error TS\d+:",
-        r"tsc exit=\d",
-    ],
-    "semgrep-js": [
-        r'"results"',                  # --json envelope
-        r'"check_id"',
-        r"semgrep",
-    ],
-    "vitest-cov": [
-        r'"total"',                    # coverage-summary.json artifact
-        r"%\s*(Stmts|Lines)",          # text reporter table header
-        r"Coverage report",
-        r"\d+ passed",
-    ],
-    "jest-cov": [
-        r'"total"',
-        r"%\s*(Stmts|Lines)",
-        r"Tests:\s+\d+",
-    ],
-    "vitest-cov-integration": [
-        r'"total"',
-        r"%\s*(Stmts|Lines)",
-        r"\d+ passed",
-    ],
-    "jest-cov-integration": [
-        r'"total"',
-        r"%\s*(Stmts|Lines)",
-        r"Tests:\s+\d+",
-    ],
-    "js-bench": [
-        r'"benchmarks"',               # normalized run.mjs JSON
-        r'"mean_ms"',
-    ],
-    "stryker": [
-        r"mutation score",
-        r'"mutationScore"',            # mutation.json report
-        r"Killed",
-        r"Survived",
-        r"stryker",
-    ],
-    # ── Round 27 站1: the 15 tools that had no pattern at all ────────────────
-    # Without an entry here _validate_tool_content skips check 3 entirely, so any
-    # prose ≥ _TOOL_OUTPUT_MIN_BYTES that does not start with '#' passed as tool
-    # evidence. taskq-plus's Gate 4 shipped "NFR-08 satisfied contractually
-    # (harness surface exists)" and "dimension N/A per protocol" as the evidence
-    # for two dimensions on exactly this gap. `code-review-graph` is deliberately
-    # NOT listed: architecture is framework-owned (crg_independent computes it in
-    # finalize_gate), so a framework sentence IS its legitimate evidence.
-    "bandit": [
-        r'"results"',                  # -f json envelope
-        r'"issue_severity"',
-        r'"metrics"',
-        r"No issues identified",
-    ],
-    "pyright": [
-        r'"generalDiagnostics"',       # --outputjson envelope
-        r'"summary"',
-        r'"errorCount"',
-        r"\d+ errors?, \d+ warnings?",
-    ],
-    "pytest-benchmark": [
-        r"Name\s+\(time in ",          # benchmark table header
-        r"-{3,}\s*benchmark:",         # "----------- benchmark: 2 tests -----------"
-        r"no tests ran",
-        r"\d+ passed",
-        # Two drafts were rejected here by test_prose_is_not_tool_evidence, both
-        # against taskq-plus's actual N/A sentence: a bare r"benchmark" (the word
-        # appears in "pytest-benchmark" and "--benchmark-only") and then
-        # r"-+\s*benchmark[:\s]", which still matched the "-benchmark " inside
-        # "pytest-benchmark tests". Only the real separator rule — three or more
-        # dashes AND the colon — describes output the tool alone produces.
-        #
-        # tool_runners.py::_score_pytest_benchmark (Round 50 站1) reads ONLY the
-        # --benchmark-json report ("There is deliberately no table fallback") —
-        # the four patterns above describe the console rendering that scorer
-        # stopped parsing. Evidence captured the way the registry actually
-        # invokes this tool (--benchmark-json + output_artifact,
-        # tests/test_benchmark_scoring.py) is therefore the JSON envelope, and
-        # it matched none of the four patterns above, so genuine evidence for
-        # every project using the scorer's own expected format failed S3-A.
-        # These three describe the JSON shape _score_pytest_benchmark parses
-        # (`json.loads(report)["benchmarks"][i]["stats"]["mean"]`).
-        r'"benchmarks"\s*:',
-        r'"machine_info"',
-        r'"stats"\s*:\s*\{',
-    ],
-    "pytest-cov-integration": [
-        r"\d+ passed",
-        r"TOTAL\s+\d+",
-        r"coverage:",
-        r"no tests ran",
-    ],
-    "import-linter": [
-        r"Contracts?:",                # "Contracts: 3 kept, 0 broken."
-        r"\d+ (kept|broken)",
-        r"lint-imports",
-        r"not found in project root",  # tool_runners' required_config_file message
-    ],
-    "system-verification": [
-        r"verify-system",              # the target's own name in make output
-        r"make(\[\d+\])?:",
-        r"exit=?\s*\d",
-    ],
-    # In-process AST/tree-sitter scanners (harness/lang_scanners/) emit a JSON
-    # object per dimension — same schema across languages, hence one pattern list
-    # shared by the python and js tool ids.
-    "ast-assertions": [r'"total"', r'"asserted"', r'"zero_assert"'],
-    "js-assertions": [r'"total"', r'"asserted"', r'"zero_assert"'],
-    "ast-error-handling": [r'"with_handler"', r'"no_handler"', r'"anti_patterns"'],
-    "js-error-handling": [r'"with_handler"', r'"no_handler"', r'"anti_patterns"'],
-    "ast-docstrings": [r'"documented"', r'"total"', r'"missing"', r"^\{\}$"],
-    "js-doc-coverage": [r'"documented"', r'"total"', r'"missing"', r"^\{\}$"],
-    "readability-v2": [r'"project_score"', r'"files"', r'"lloc"'],
-    "js-mi": [r'"project_score"', r'"files"', r'"lloc"'],
-}
 
 
-# Minimum byte size for a tool_output file to be considered non-stub.
-# Real tool output is always larger than this; pure comment lines are typically
-# under 80 bytes.
-#
-# Round 27 站1 considered raising this and did NOT: the shortest real output a
-# registered tool produces is `{}` / `[]` (2 bytes) — ast-docstrings with nothing
-# to document, ruff on a clean run — so any floor high enough to reject a prose
-# stub also rejects those. The check that actually rejects a stub is check 3, the
-# per-tool content pattern, which this round extended from 17 tools to 31 (every
-# tool except framework-owned code-review-graph).
-_TOOL_OUTPUT_MIN_BYTES: int = 5
 
 
-# Round 67 站3. The patterns above answer "is this output from that tool?"
-# — an OR, deliberately, so a clean run and a failing run both satisfy it.
-# For a dimension whose SCORE IS READ OUT OF THE OUTPUT, that is not enough:
-# it also has to answer "is the quantity in here?".
-#
-# Measured on taskq-cc's committed Gate 4:
-# .methodology/gate_evidence/gate4/test_coverage.txt is 205 bytes —
-#
-#     Outliers: 1 Standard Deviation from Mean; 1.5 IQR ...
-#     OPS: Operations Per Second, computed as 1 / Mean
-#     287 passed, 12 warnings in 88.80s (0:01:28)
-#
-# the tail of a pytest-benchmark run, cited as the evidence for
-# test_coverage = 100.0. It satisfied `\d+ passed` and nothing else was
-# required. Round 45 closed "the cited file is gone"; Round 32 closed "the
-# cited file is a stub"; this is the third shape — a real file, real tool
-# output, and the output of a different run than the number beside it.
-#
-# Only the two coverage dimensions are listed. The rule that a score must be
-# derivable from its evidence is general, but these are the dimensions whose
-# score is a number lifted out of the text; ruff's `All checks passed!`
-# already proves everything ruff's score needs, and requiring more of thirty
-# tools is how a guard starts manufacturing the fabrication it exists to
-# prevent (Round 27's note, ten lines below).
-_TOOL_REQUIRED_PATTERNS: dict[str, "tuple[str, list[str]]"] = {
-    "pytest-cov": ("a coverage measurement", [r"TOTAL\s+\d+", r"\d+%", r"coverage:"]),
-    "pytest-cov-integration": (
-        "a coverage measurement", [r"TOTAL\s+\d+", r"\d+%", r"coverage:"],
-    ),
-}
 
 
 def _validate_tool_content(
@@ -342,33 +138,6 @@ def _validate_tool_content(
     return violations
 
 
-# Round 12 站3b — infra-failure signatures inside a dimension's evidence.
-# When run-gate's PRECONDITIONS block (SAB phantom/unregistered modules,
-# manifest corruption), the gate evaluator agent used to follow its STOP
-# Round N (2026-07): tighten the INFRA-fail signature registry. The old
-# list contained `[BLOCKED] run-gate` — a generic run-gate prefix that
-# appears not only on real INFRA failures (SAB phantom blocks) but also
-# in any context where a sub-agent mentions or quotes gate1 output that
-# contained that string. The classic false positive (taskq-plus FR-05 P3
-# 2026-07): a workflow sub-agent reading its own GATE1 log and quoting
-# the `[BLOCKED] run-gate` line in its report caused
-# `_classify_infra_or_harness_bug` to mark the dispatch as INFRA and
-# `_abort_dispatch_infra_or_harness_bug` to escalate to human — discarding
-# a real Gate 1 PASS verdict (8/8 dimensions had evaluated and PASSed
-# via the direct CLI). The remaining four signatures are specific to the
-# Architecture Amendment Protocol pathway — they cannot appear in
-# incidental context because the wording is framework-internal to
-# harness-methodology. The original 2026-07-16 incident (three dimensions
-# uniformly zeroed by a taskq.storage.store phantom block) is still
-# caught: the dimensions' evidence carried both
-# "Architecture Amendment Protocol violation" AND
-# "Unregistered modules detected" — both retained signatures.
-_INFRA_FAIL_EVIDENCE_SIGNATURES = (
-    "Architecture Amendment Protocol violation",
-    "Unregistered modules detected",
-    "phantom module",
-    "Phantom modules",
-)
 
 
 def _check_infra_fail_pollution(raw: dict) -> list[str]:
@@ -448,34 +217,6 @@ def _check_infra_fail_pollution(raw: dict) -> list[str]:
     return violations
 
 
-# Round 30 站6 — dimensions whose score can be moved by an exclusion file, and
-# the file that moves it. `None` means "this dimension has no exclusion channel"
-# and is a POSITIVE statement, not an omission: scancode (license_compliance)
-# takes its exclusions on the command line, so there is no file to fingerprint,
-# and recording that here is what stops the next reader assuming it was
-# forgotten. A new scored dimension belongs in this table with one or the other.
-DIMENSION_EXCLUSION_FILES: "dict[str, str | tuple[str, ...] | None]" = {
-    "secrets_scanning": ".gitleaksignore",
-    "license_compliance": None,
-    # Round 31 站4: setup.cfg's [mutmut] section carries BOTH halves of the
-    # mutation denominator — paths_to_mutate (what is in scope) and
-    # paths_to_exclude (basenames dropped from the mutant pool, written by the
-    # party being scored). Digesting the whole file covers both, which is the
-    # right granularity: a verdict has to be readable back to the scope it was
-    # taken on. Not a dot-file, so the entry is a project-root-relative path
-    # rather than a hidden one — the registry's contract is "which file can
-    # move this dimension's score", not "which dotfile".
-    "mutation_testing": "setup.cfg",
-    # Round 32 站5: the file that declares which tests count moves
-    # test_coverage the same way an ignore-list moves secrets_scanning.
-    # Measured: a project whose [tool:pytest] testpaths named nine entries
-    # while the directory held sixteen test files — two of them the FR tests
-    # for FR-02 and FR-07. The agent's bare `pytest` measured nine, the
-    # framework's explicit path measured sixteen, and neither denominator was
-    # recorded. Three files can carry the declaration, so this entry is a
-    # tuple: whichever ones exist are digested.
-    "test_coverage": ("pytest.ini", "pyproject.toml", "setup.cfg"),
-}
 
 
 def _check_tool_evidence(ctx: "GateContext", raw: dict,
@@ -943,3 +684,140 @@ def _verify_system_reach_block(ctx: "GateContext") -> list[str]:
         f"the test suite and is never executed by `make verify-system`"
         for row in verdict.get("unmet") or []
     ]
+
+
+# ── mutation_testing: the score is the framework's, or the gate blocks ──
+# Round 80 站13. Moved from harness_bridge byte-identical. It asks this
+# file's question — is what the agent supplied for this dimension actually
+# evidence? — of the one dimension the framework measures end to end
+# itself, so it belongs with the other six rather than beside the gate
+# loop that calls it.
+
+
+# ---------------------------------------------------------------------------
+def _mutation_artifact_violations(
+    ctx: "GateContext", dim_name: str, agent_score: "float | None",
+    threshold: float,
+) -> "tuple[list[str], list[str]]":
+    """S4 for mutation_testing: the score is the framework's, or the gate blocks.
+
+    Round 31 站2. mutmut is the one tool the framework runs end-to-end itself —
+    temp workdir, setup.cfg rewrite, interpreter pinning, scope from the SAB —
+    and `compute_mutation_score` is where the authoritative number comes out of
+    the sqlite cache. It had zero production callers. What reached a live
+    Gate 2 instead was an agent-written prose file that passed content
+    validation because the mutmut pattern list contains the bare word "mutmut",
+    carrying a number nothing could check.
+
+    So the framework's own artifact is the source. Returns
+    ``(fabrication, unverifiable)`` — Round 35 站3 split them, because the
+    outcomes carry opposite instructions and all of them used to be filed as
+    `tool_score_fabrication`, whose registered remediation reads "the score,
+    not the run, is what failed — do NOT re-run". For a missing artifact the
+    correct action is precisely to run the command.
+
+    * absent / unreadable / malformed → `infra_fail`, naming the command that
+      writes it. Abstaining is not passing (Round 30): "we could not establish
+      the score" must never resolve to "the claimed score stands".
+    * present with `score: null` → `infra_fail`, carrying the reason the
+      framework recorded. It ran and could not measure; nothing about the
+      project's tests has been established (Round 35 站2).
+    * present, and the framework's score clears the threshold → fine, whatever
+      the agent wrote; the caller patches the real number into the breakdown.
+    * present, framework's score BELOW threshold while the agent claimed a
+      pass → `tool_score_fabrication`. That is the same rule S4 applies to
+      every other tool (harness says fail, agent says pass), with the artifact
+      standing in for a re-run that would cost an hour.
+    """
+    from core.quality_gate.mutation_enforcer import (
+        MUTATION_SCORE_ARTIFACT,
+        MUTATION_SCORE_PROVENANCE_KEY,
+    )
+
+    _how = (
+        f"Run `python3 harness_cli.py mutation-test-score --project .` — it "
+        f"runs mutmut with the framework's workdir isolation and writes "
+        f"{MUTATION_SCORE_ARTIFACT}. Do not run `mutmut run` yourself."
+    )
+    path = Path(ctx.project_root) / MUTATION_SCORE_ARTIFACT
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        raw_score = data["score"]
+        framework_score = None if raw_score is None else float(raw_score)
+    except FileNotFoundError:
+        return [], [
+            f"{dim_name}: no framework-computed score — {MUTATION_SCORE_ARTIFACT} "
+            f"is missing, so the recorded score is whatever the agent wrote. "
+            f"{_how}"
+        ]
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        return [], [
+            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} is unreadable ({exc}) — the "
+            f"score it should carry cannot be established. {_how}"
+        ]
+
+    # Round 72 站2: and whether this framework wrote it. Both writers stamp
+    # `enforcer_sha` (Round 19 站3's provenance field) into the payload, and
+    # every reader ignored it — so a file with the right `score` key passed as
+    # "the framework's own artifact", which is what the docstring above claims
+    # this function establishes.
+    #
+    # Measured on taskq-new's Gate 4: no `enforcer_sha`, a `generated_at` of
+    # "2026-08-23T14:51:22.f+00:00" (a strftime placeholder this code cannot
+    # emit) and a `note` reading "reconstructed from .mutmut-cache … 685
+    # untested mutants are out-of-scope". 256/(256+99) = 72.1 cleared the
+    # threshold of 70; 256/(256+99+685) is 24.6. gate4_result.json records it
+    # as "framework: compute_mutation_score → …" with framework_override: true.
+    #
+    # Filed as `unverifiable`, the same bucket as an absent file, because it is
+    # the same fact: no score the framework produced is on record. It is not
+    # `tool_score_fabrication`, whose remediation reads "the score, not the
+    # run, is what failed — do NOT re-run"; here re-running is exactly right.
+    if MUTATION_SCORE_PROVENANCE_KEY not in data:
+        return [], [
+            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} carries no "
+            f"`{MUTATION_SCORE_PROVENANCE_KEY}`, so this framework did not "
+            f"write it — the number in it is whatever its author typed, not a "
+            f"measurement anything here performed. {_how}"
+        ]
+
+    # Round 31 站4: the score is only meaningful over the scope it was taken
+    # on. The generator runs once at the P2→P3 handoff, so a SAB corrected
+    # mid-P3 — the normal way a missing scope_layers gets noticed, since Gate 2
+    # is where the cost shows up — leaves setup.cfg saying something else.
+    #
+    # Round 35 站3: this used to sit below the null check, so on the one
+    # occasion the scope is the likeliest cause — a run that could not measure
+    # — it was never evaluated. Measured on taskq-renew, where setup.cfg
+    # declares no scope while the SAB names two layers, and nothing said so.
+    from core.quality_gate.mutmut_scope import scope_drift
+    drift = scope_drift(ctx.project_root)
+    if drift:
+        return [], [f"{dim_name}: mutation scope disagrees with the SAB — {drift}"]
+
+    if framework_score is None:
+        return [], [
+            f"{dim_name}: the framework ran mutmut and could not measure — "
+            f"{data.get('could_not_measure') or 'no reason recorded'}. Nothing "
+            f"has been established about this project's tests, so do not touch "
+            f"the score: repair the run. {_how}"
+        ]
+
+    if framework_score < threshold and (
+        agent_score is None or agent_score >= threshold
+    ):
+        _claim = "N/A (agent)" if agent_score is None else f"{agent_score:.1f}"
+        return [
+            f"{dim_name}: framework-computed score {framework_score:.1f} is "
+            f"below threshold {threshold:.0f}, but the gate result claims "
+            f"{_claim}. The framework's own run is the score for this "
+            f"dimension; write {framework_score:.1f} and fix the tests that "
+            f"let those mutants live."
+        ], []
+
+    print(
+        f"  [S4] {dim_name}: framework-computed score {framework_score:.1f} "
+        f"[scope: {data.get('paths_to_mutate', '?')}, "
+        f"{data.get('mutated_files', '?')} files] ✓"
+    )
+    return [], []
