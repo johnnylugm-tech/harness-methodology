@@ -17,7 +17,6 @@ from core.traceability.spec_tracking_render import (
 )
 from core.utils.project_layout import ProjectLayout
 
-_REPO = Path(__file__).resolve().parent.parent
 
 _HDR = (
     "## Specification Status\n\n"
@@ -91,7 +90,41 @@ def test_write_is_noop_when_file_absent(tmp_path: Path) -> None:
 
 
 def test_spec_tracking_wired_into_view_regen() -> None:
-    src = (_REPO / "cli" / "phase_cmds.py").read_text(encoding="utf-8")
-    assert "write_spec_tracking" in src, (
-        "SPEC_TRACKING Status refresh unwired from advance-phase view regen"
+    """The regen calls the refresh — asked of the AST, not of the text.
+
+    Round 80 站7c. This used to read `cli/phase_cmds.py` and assert the string
+    `write_spec_tracking` appeared somewhere in it. That went red when the
+    function was MOVED to cli/advance_checks.py with its body byte-identical:
+    a test that fires on a repair and not on a break, which is precisely the
+    shape tests/test_source_reading_discipline.py's ratchet exists to shrink,
+    and one of the legitimate conversions that file names — "pinning the
+    existence of a call inside a function too expensive to drive, read off the
+    AST (ast.Call, ast.Name), not the text. A comment cannot forge a call
+    node."
+
+    Asking for the call by name inside the function that must make it is also
+    the stronger statement: the old grep stayed green if the call were deleted
+    while the name survived in a comment or an import.
+    """
+    import ast
+    import importlib
+
+    module = importlib.import_module("cli.advance_checks")
+    assert module.__file__
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    regen = next(
+        (node for node in tree.body
+         if isinstance(node, ast.FunctionDef)
+         and node.name == "_regen_traceability_views"),
+        None,
+    )
+    assert regen is not None, "_regen_traceability_views is gone from cli.advance_checks"
+    called = {
+        node.func.id
+        for node in ast.walk(regen)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "write_spec_tracking" in called, (
+        "SPEC_TRACKING Status refresh unwired from advance-phase view regen — "
+        f"_regen_traceability_views calls {sorted(called)}"
     )
