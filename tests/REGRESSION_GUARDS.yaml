@@ -3772,3 +3772,23 @@
 - test: tests/test_attestation_idempotence.py::test_where_the_overlay_was_read_from_is_not_part_of_what_was_attested
   bug: "the loop this file was written to end had come back, through a path. `overlay_used` is `str(overlay_path)`, and `overlay_path` defaults to `project / 'TRACEABILITY_MATRIX.overlay.yaml'` — so its value is a function of how the CALLER spelled the project path, absolute or relative, and says nothing about the matrix. It was nevertheless compared by `_attested_content`, whose docstring read 'git_sha is the ONLY field excluded'. Measured on this repo at a77e1875: the committed attestation carried `/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml` from an earlier checkout location while a fresh build produced the relative spelling; `content_sha256` was IDENTICAL (43a6d437…) and `overlay_used` was the ONLY differing field. So `attestation_is_current` was permanently False, `cli.phase_cmds._attestation_content_still_current` could never return True, and the mtime probe blocked every commit with no way out but the no-op rewrite Round 18 站3 removed — six `chore: refresh attestation post-pull` commits all carrying one content_sha256"
   fixed_in: "Round 80 站5. `overlay_used` joins `git_sha` in `_PROVENANCE_FIELDS`. `overlay_errors` deliberately does NOT — it changes what was merged into the matrix, so it is content, and test_any_non_git_sha_field_change_counts_as_new_content keeps that case precisely so the narrowing cannot widen into 'ignore anything overlay-shaped'"
+
+- test: tests/test_function_size_ratchet.py::test_no_function_exceeds_its_ceiling
+  bug: "nothing in this repo could see a function. It guards file growth (test_file_size_ratchet), private-seam mocking (test_patch_discipline), unlogged broad excepts (test_exception_swallow_ratchet), source-reading tests (test_source_reading_discipline) and unreaped spawns (test_subprocess_group) — and ruff's select is E,F,W,I,N,UP with no C90, while a repo-wide scan of tests/ finds zero `end_lineno - lineno` measurements. Measured at dff609e6: HarnessBridge.finalize_gate 1150 lines, cmd_run_fr_step 940, cmd_advance_phase 845, _advance_prechecks 818, _cmd_finalize_gate_impl 606 — and the churn sits exactly there (94 hunks in cmd_advance_phase, 81 in _run_harness_cross_validation, 51 in _advance_prechecks across the whole history). Meanwhile the FILE ratchet's ceilings were raised 298 times and lowered 5, harness_bridge.py alone 56 times: raising a ceiling is what you do when the thing that grew is a function and nothing is asking about functions"
+  fixed_in: "Round 80 站6. 24 of 2187 functions exceed 200 lines and are named with their measured length; everything else has a ceiling of 200 and no allowlist (test_patch_discipline's shape). Deliberately NOT a decomposition: extracting blocks changes a function's own text, so the byte-equality rule that made the Round 49-B god-file splits safe does not apply, and harness_bridge.py's measured behavioural coverage is 81% (1490 stmts, 282 unreached) — not enough to prove an extraction equivalent"
+
+- test: tests/test_function_size_ratchet.py::test_no_ceiling_sits_above_the_function_it_covers
+  bug: "a ceiling above the count is headroom nobody reviewed, pre-authorising the growth the ratchet exists to make visible. Round 78 站3 had to rewrite a file-ratchet entry for exactly that — two commits moved the integer and left the note, and the file sat 101 lines below its own limit. Here the convention is mechanical rather than remembered"
+  fixed_in: "Round 80 站6"
+
+- test: tests/test_function_size_ratchet.py::test_no_ceiling_names_a_function_that_is_gone
+  bug: "a split, rename or move leaves its ceiling entry behind and the next reader inherits a number that guards air"
+  fixed_in: "Round 80 站6"
+
+- test: tests/test_function_size_ratchet.py::test_the_scan_sees_methods_not_only_module_level_functions
+  bug: "the longest function in this repository is a method (HarnessBridge.finalize_gate, 1150 lines); a module-level-only scan would have reported the worst case as 940 and left the actual worst case unguarded"
+  fixed_in: "Round 80 站6"
+
+- test: tests/test_function_size_ratchet.py::test_the_ratchet_can_see_a_function_that_is_too_long
+  bug: "the detector's own witness — a ratchet that cannot fail is not a ratchet"
+  fixed_in: "Round 80 站6"
