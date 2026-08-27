@@ -104,6 +104,33 @@ jobs:
             echo "is_red=false" >> $GITHUB_OUTPUT
           fi
 
+      # Round 80 站4. Unconditional on purpose: every check below is gated on
+      # the phase read above, and .gitignore excludes .methodology/state.json,
+      # so a CI checkout never has one and `current_phase` is always 0. Before
+      # this step the job reported success having run 4 of its 13 steps — the
+      # four it skipped being its only four checks — with nothing in the log
+      # saying so. A check that did not run must not read like one that passed
+      # (Round 79 站5's rule, applied here rather than only to the pre-push
+      # hook). harness-methodology keeps no phase state deliberately; that is a
+      # sentence the log has to contain, not a silence.
+      - name: Applicability of the phase checks
+        run: |
+          PHASE="${{ steps.phase.outputs.phase }}"
+          if [ "$PHASE" -ge 1 ]; then
+            echo "phase $PHASE — the checks below run against this tree."
+          else
+            echo "not applicable: no .methodology/state.json in this checkout"
+            echo "  (it is gitignored — harness-methodology is the framework,"
+            echo "   not an ASPICE project, and keeps no phase state), so"
+            echo "   current_phase is 0 and every check in this job is skipped:"
+            echo "     - Phase artifact audit (audit-phase)"
+            echo "     - TDD test execution + coverage"
+            echo "     - D4 trace link (spec-coverage-check)"
+            echo "     - Trace attestation verify"
+            echo "   This job passing means those did NOT run. The framework's"
+            echo "   own checks are the Framework Self-Tests job."
+          fi
+
       - name: Phase artifact audit — deliverables / constitution / gate scores (P1+)
         if: steps.phase.outputs.phase >= 1
         run: |
@@ -167,6 +194,24 @@ jobs:
           # read failure (missing/corrupted/empty file) so CI continues.
           IS_P8=$(python3 scripts/ci_state_helper.py is-p8 --state-file "$STATE_FILE")
           echo "is_p8=$IS_P8" >> $GITHUB_OUTPUT
+
+      # Round 80 站4, the sibling of the same statement in phase-quality-gate.
+      # `ci_state_helper.py is-p8` answers "false" on any read failure and says
+      # so in the step above's comment, and there is no .methodology/state.json
+      # to read, so both validations below are skipped on every run — measured
+      # 5 of 7 steps executed at dff609e6, the two skipped being the only two
+      # validations.
+      - name: Applicability of the P8 validations
+        run: |
+          if [ "${{ steps.check_p8.outputs.is_p8 }}" = "true" ]; then
+            echo "P8 complete — the validations below run against this tree."
+          else
+            echo "not applicable: no .methodology/state.json in this checkout"
+            echo "  (gitignored; this repo is the framework and keeps no phase"
+            echo "   state), so is-p8 is false and both validations are"
+            echo "   skipped: .methodology-archive presence, and HANDOVER.md"
+            echo "   Phase-9 references. This job passing means neither ran."
+          fi
 
       - name: Validate .methodology-archive exists (P8 only)
         if: steps.check_p8.outputs.is_p8 == 'true'

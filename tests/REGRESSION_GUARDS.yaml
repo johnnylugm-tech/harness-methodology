@@ -3756,3 +3756,15 @@
 - test: tests/test_hook_wiring_is_verified.py::test_self_check_runs_the_wiring_check_before_anything_else
   bug: "the wiring check has to be self_check's FIRST step: it is the precondition for every other step ever being reached at push time"
   fixed_in: "Round 80 站3"
+
+- test: tests/test_ci_jobs_do_not_silently_pass.py::test_every_job_that_can_skip_all_its_checks_says_so
+  bug: "two CI jobs reported success on every run having executed none of the checks their names claim. Measured at dff609e6 via `gh run view --json jobs`: `Phase Quality Gate (C1/C2/C4/C5/C9 + TDD links + coverage)` success with 9 of 13 steps run — the four skipped being its only four checks (audit-phase, pytest --cov-fail-under=100, spec-coverage-check, verify-trace) — and `P8 Archive & HANDOVER Validation` success with 5 of 7, the two skipped being its only two validations. Permanent and by construction: .gitignore:79 excludes .methodology/state.json, so a CI checkout never has one, `ci_state_helper.py get current_phase --default 0` answers 0, and every `if: steps.phase.outputs.phase >= 1` is false forever. This is Round 79 站5's own rule — 'a check that did not run must not read like one that passed' — at the layer that station did not sweep"
+  fixed_in: "Round 80 站4. Not by making the checks run (this repo is the framework, not an ASPICE project, and keeps no phase state deliberately) but by making each job state, unconditionally and in the log, whether its checks applied and why not"
+
+- test: tests/test_ci_jobs_do_not_silently_pass.py::test_the_applicability_statement_names_why_not_just_that
+  bug: "'not applicable' with no cause is a shrug — the statement has to name what is absent, the way a [BLOCKED] carries its remediation rather than a pointer to it (R24 站1)"
+  fixed_in: "Round 80 站4"
+
+- test: tests/test_ci_jobs_do_not_silently_pass.py::test_the_guard_can_see_a_job_that_would_offend
+  bug: "the detector's own witness — a scan that cannot fail is not a scan"
+  fixed_in: "Round 80 站4"
