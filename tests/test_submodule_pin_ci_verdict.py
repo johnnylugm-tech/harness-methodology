@@ -310,19 +310,51 @@ def test_a_non_success_conclusion_is_not_success(tmp_path, conclusion):
 # ---------------------------------------------------------------------------
 
 
-def _split_runner(*, verdict_jobs, history_shas, check_results):
-    """A runner that serves three gh-command shapes for a single test:
+def _split_runner(*, verdict_jobs, history_shas, check_results,
+                  check_runs_by_sha=None, seen_commands=None):
+    """A runner that serves three gh-command shapes for a single test.
 
-    * `gh run list`   → verdict_jobs (list of (name, conclusion) tuples)
-    * `gh api .../commits?sha=main&per_page=...`  → history_shas (newline text)
-    * `gh api .../commits/<sha>/check-runs`       → check_results[sha] (conclusion)
+    Round 80: this double used to answer the two `gh api` calls with what the
+    production `--jq` filter was EXPECTED to leave behind — newline-separated
+    SHAs for the commit walk, and a bare JSON string like `"success"` for the
+    check lookup. It modelled neither GitHub's response nor the transport, so
+    two defects that make `find_latest_green_sha` fail 100% of the time against
+    the real API were invisible to it:
 
-    The three shapes are mutually distinguishable by command-position, so a
-    single callable answers all three without state.
+      * `gh api ... -f per_page=20` sends a POST (any `-f` makes gh switch
+        method), and both endpoints are GET-only -> HTTP 404. MEASURED with
+        `GH_DEBUG=api`: `> POST /repos/.../check-runs`.
+      * `--jq '[.[] | ...]'` iterated an OBJECT. The real payload is
+        `{"total_count": N, "check_runs": [...]}`, so `.[]` yields a number and
+        an array, and `.name` on the number aborts jq:
+        `Cannot index number with string "name"` (exit 5).
+
+    It now answers with the payload shapes GitHub actually returns, verified
+    against `repos/johnnylugm-tech/harness-methodology` on 2026-08-28, and the
+    production code parses them in Python — the same way `fetch_ci_verdict`
+    already handles `gh run list`.
+
+    * `gh run list`  -> verdict_jobs (list of (name, conclusion) tuples)
+    * `gh api .../commits?sha=..&per_page=..`  -> `[{"sha": ...}, ...]`
+    * `gh api .../commits/<sha>/check-runs`    -> `{"total_count": n,
+                                                   "check_runs": [...]}`
+
+    `check_results` maps sha -> a single conclusion for the framework check.
+    `check_runs_by_sha` maps sha -> an explicit list of check-run dicts, for
+    tests that need several runs of one name (GitHub returns one entry per
+    dispatch: `dff609e6` really carries two "Framework Self-Tests" rows, one
+    second apart).
+
+    `seen_commands`, when given a list, collects every argv the code issued so
+    a test can assert on the request itself.
     """
     import json as _json
 
+    _CHECK = "Framework Self-Tests"
+
     def _run(cmd):
+        if seen_commands is not None:
+            seen_commands.append(list(cmd))
         if cmd[:2] == ["gh", "run"]:
             payload = _json.dumps(
                 [{"name": n, "conclusion": c} for n, c in verdict_jobs]
@@ -331,14 +363,21 @@ def _split_runner(*, verdict_jobs, history_shas, check_results):
         if cmd[:2] == ["gh", "api"]:
             joined = " ".join(cmd)
             if "/check-runs" in joined:
-                # Find the SHA between /commits/ and /check-runs.
                 for a in cmd:
                     if "/commits/" in a and "/check-runs" in a:
                         sha = a.split("/commits/")[1].split("/check-runs")[0]
-                        return 0, _json.dumps(check_results.get(sha, "failure")), ""
+                        sha = sha.split("?")[0]
+                        runs = (check_runs_by_sha or {}).get(sha)
+                        if runs is None:
+                            runs = [{
+                                "name": _CHECK,
+                                "conclusion": check_results.get(sha, "failure"),
+                            }]
+                        return 0, _json.dumps(
+                            {"total_count": len(runs), "check_runs": runs}), ""
                 return 1, "", "no sha in /commits/<sha>/check-runs"
-            # The list-commits call: returns newline-separated SHAs.
-            return 0, history_shas, ""
+            shas = [s.strip() for s in history_shas.splitlines() if s.strip()]
+            return 0, _json.dumps([{"sha": s} for s in shas]), ""
         return 1, "", f"unknown gh invocation: {cmd}"
 
     return _run
@@ -362,6 +401,112 @@ def test_find_latest_green_returns_first_green_in_walk_order():
     assert sha == "greensha" + "b" * 36, (
         "walk must return the newest green, not the older one"
     )
+
+
+def test_the_walk_asks_github_with_a_request_gh_will_send_as_a_get():
+    """Query parameters travel in the URL, because `-f` makes gh POST.
+
+    Round 80. `gh api` switches the method to POST as soon as any parameter is
+    added with `-f`/`-F`, and both endpoints this helper uses are GET-only, so
+    the shipped form returned HTTP 404 on every call. MEASURED 2026-08-28
+    against repos/johnnylugm-tech/harness-methodology:
+
+        $ gh api "repos/$slug/commits" -f sha=main -f per_page=20 --jq '.[].sha'
+        gh: Not Found (HTTP 404)                                   exit 1
+        $ GH_DEBUG=api gh api ".../check-runs" -f per_page=20 ...
+        > POST /repos/.../check-runs HTTP/1.1
+        $ gh api "repos/$slug/commits?sha=main&per_page=3" --jq '.[].sha'
+        dff609e6791186531f9b31106cb3d0ddfb6294d1 ...                exit 0
+
+    The runner is the transport seam, so this asserts the request the code
+    hands it: the parameters are in the URL and nothing on the line changes the
+    method. Pinning the absence of `-f` rather than the presence of
+    `--method GET` keeps the footgun out instead of working around it.
+    """
+    from core.ci_verdict import find_latest_green_sha
+
+    seen: list = []
+    green = "greensha" + "b" * 32
+    runner = _split_runner(verdict_jobs=[], history_shas=green,
+                           check_results={green: "success"}, seen_commands=seen)
+
+    assert find_latest_green_sha("ignored-because-runner", runner=runner) == green
+
+    api_calls = [c for c in seen if c[:2] == ["gh", "api"]]
+    assert len(api_calls) == 2, f"expected the walk and one check lookup: {seen}"
+    for call in api_calls:
+        assert "-f" not in call and "-F" not in call, (
+            "a parameter added with -f makes `gh api` send POST, and both of "
+            f"these endpoints are GET-only: {call}"
+        )
+    walk, checks = api_calls
+    assert "sha=" in walk[2] and "per_page=" in walk[2], (
+        f"the walk's parameters have to reach GitHub in the URL: {walk}"
+    )
+    assert "per_page=" in checks[2], (
+        f"the check lookup's parameters have to reach GitHub in the URL: {checks}"
+    )
+
+
+def test_a_check_that_ran_twice_is_green_only_when_both_runs_are():
+    """GitHub returns one row per dispatch, and a re-run adds another.
+
+    MEASURED 2026-08-28: dff609e6 carries TWO "Framework Self-Tests" rows, one
+    second apart, both success. The shipped filter ended in `| .[0]`, which
+    picked an arbitrary one of them. This applies `fetch_ci_verdict`'s existing
+    rule to the single named check instead of inventing a second one for the
+    same module: still pending means not yet green, and any non-success
+    conclusion means not green.
+    """
+    from core.ci_verdict import find_latest_green_sha
+
+    mixed = "mixedsha" + "a" * 32
+    clean = "cleansha" + "b" * 32
+    history = "\n".join([mixed, clean])
+    runs = {
+        mixed: [{"name": "Framework Self-Tests", "conclusion": "failure"},
+                {"name": "Framework Self-Tests", "conclusion": "success"}],
+        clean: [{"name": "Framework Self-Tests", "conclusion": "success"},
+                {"name": "Framework Self-Tests", "conclusion": "success"}],
+    }
+    runner = _split_runner(verdict_jobs=[], history_shas=history,
+                           check_results={}, check_runs_by_sha=runs)
+
+    assert find_latest_green_sha("ignored-because-runner", runner=runner) == clean, (
+        "a SHA with one failed run of the named check is not a green SHA to pin"
+    )
+
+
+def test_a_check_still_running_is_not_a_green_sha():
+    """No conclusion yet is not the same fact as a successful conclusion."""
+    from core.ci_verdict import find_latest_green_sha
+
+    pending = "pendsha" + "a" * 33
+    done = "donesha" + "b" * 33
+    runs = {
+        pending: [{"name": "Framework Self-Tests", "conclusion": None}],
+        done: [{"name": "Framework Self-Tests", "conclusion": "success"}],
+    }
+    runner = _split_runner(verdict_jobs=[], history_shas="\n".join([pending, done]),
+                           check_results={}, check_runs_by_sha=runs)
+
+    assert find_latest_green_sha("ignored-because-runner", runner=runner) == done
+
+
+def test_a_sha_whose_named_check_never_ran_is_not_green():
+    """An absent witness is not a passing one (Round 46's rule)."""
+    from core.ci_verdict import find_latest_green_sha
+
+    other = "othersha" + "a" * 32
+    done = "donesha2" + "b" * 32
+    runs = {
+        other: [{"name": "Validate Cross-References", "conclusion": "success"}],
+        done: [{"name": "Framework Self-Tests", "conclusion": "success"}],
+    }
+    runner = _split_runner(verdict_jobs=[], history_shas="\n".join([other, done]),
+                           check_results={}, check_runs_by_sha=runs)
+
+    assert find_latest_green_sha("ignored-because-runner", runner=runner) == done
 
 
 def test_find_latest_green_returns_none_when_no_green_in_window():

@@ -3804,3 +3804,19 @@
 - test: tests/test_ledger_has_no_holes.py::test_the_scan_reads_both_heading_depths
   bug: "Round 80's first pass grepped `^## Round` and reported FOUR unadjudicated rounds. Three of them were adjudicated under a single `#` (42, 43) or inside a later round's section (76, judged in Round 77 — whose commit subject says so). A guard that reads one spelling of the heading would have made three false holes permanent and hidden the one real one"
   fixed_in: "Round 80 站9"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_the_walk_asks_github_with_a_request_gh_will_send_as_a_get
+  bug: "`find_latest_green_sha` returned None 100% of the time against the real GitHub API, for two independent reasons, and the first one fired before the second was ever reached. (1) `gh api` switches the HTTP method to POST as soon as any parameter is added with `-f`, and both endpoints used here are GET-only. MEASURED 2026-08-28 on repos/johnnylugm-tech/harness-methodology: `gh api repos/$slug/commits -f sha=main -f per_page=20 --jq '.[].sha'` -> `gh: Not Found (HTTP 404)`, exit 1, so the walk returned at `if rc != 0: return None` with no SHA list at all; `GH_DEBUG=api` on the check-runs call prints `> POST /repos/.../check-runs`. The same request with the parameters in the URL returns the SHAs and exits 0. Live counter-proof: the implementation at dff609e6 answers None, the fixed one answers dff609e6791186531f9b31106cb3d0ddfb6294d1"
+  fixed_in: "Round 80 站10. Parameters moved into the URL rather than adding `--method GET`, which keeps the footgun out instead of working around it"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_a_check_that_ran_twice_is_green_only_when_both_runs_are
+  bug: "(2) the second defect, invisible behind the first: `--jq '[.[] | select(.name == ...) | .conclusion] | .[0]'` iterated an OBJECT. `GET /repos/{slug}/commits/{sha}/check-runs` answers `{\"total_count\": n, \"check_runs\": [...]}`, so `.[]` yields the integer first and jq aborts with `Cannot index number with string \"name\"` (exit 5), which the caller's `if rc != 0: continue` swallowed for every commit in the window. Separately, `| .[0]` picked an arbitrary row when a check has several: GitHub returns one row per dispatch and dff609e6 really carries two 'Framework Self-Tests' rows one second apart (measured)"
+  fixed_in: "Round 80 站10. The payload is parsed in Python — the choice fetch_ci_verdict already makes for `gh run list` — and the verdict for the named check follows that function's existing rule rather than a second one invented for the same module"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_a_check_still_running_is_not_a_green_sha
+  bug: "a check-run with no conclusion yet is not a successful one; the replaced filter could not tell the two apart because a null conclusion and an absent row both left the jq output empty"
+  fixed_in: "Round 80 站10"
+
+- test: tests/test_submodule_pin_ci_verdict.py::test_a_sha_whose_named_check_never_ran_is_not_green
+  bug: "a commit on which the named check never ran must not be offered as a green SHA to pin — Round 46's rule that an absent witness is not a passing one"
+  fixed_in: "Round 80 站10"

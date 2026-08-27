@@ -207,31 +207,81 @@ def find_latest_green_sha(
 
     # 1. Walk commit history (newest first) on `branch`.
     rc, out, err = run([
-        "gh", "api", f"repos/{slug}/commits",
-        "-f", f"sha={branch}", "-f", f"per_page={max_walk}",
-        "--jq", ".[].sha",
+        "gh", "api", f"repos/{slug}/commits?sha={branch}&per_page={max_walk}",
     ])
     if rc != 0:
         return None
-    shas = [s.strip() for s in (out or "").splitlines() if s.strip()]
+    shas = _shas_from_commits_payload(out)
     if not shas:
         return None
 
-    # 2. For each SHA, ask GitHub which checks ran and pick the one named
+    # 2. For each SHA, ask GitHub which checks ran and read the ones named
     #    `check_name`. Conclude the walk on the first green; skipping on
     #    transient errors keeps a flaky network from blackholing the helper.
     for sha in shas:
         rc, out, err = run([
-            "gh", "api", f"repos/{slug}/commits/{sha}/check-runs",
-            "-f", "per_page=20",
-            "--jq", f'[.[] | select(.name == "{check_name}") | .conclusion] | .[0]',
+            "gh", "api", f"repos/{slug}/commits/{sha}/check-runs?per_page=100",
         ])
         if rc != 0:
             continue
-        conclusion = (out or "").strip().strip('"')
-        if conclusion in _SUCCESSFUL:
+        if _named_check_is_green(out, check_name):
             return sha
     return None
+
+
+def _shas_from_commits_payload(out: "str | None") -> list[str]:
+    """SHAs out of `GET /repos/{slug}/commits`, newest first.
+
+    Round 80: this used to be `--jq .[].sha` and the SHAs arrived as lines.
+    Parsing here rather than in the shell is the same choice `fetch_ci_verdict`
+    already makes for `gh run list` — it puts the shape the code depends on
+    where a test can hand it a real payload, instead of in a quoted filter
+    string that no test in this repo evaluated.
+    """
+    try:
+        payload = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [c["sha"] for c in payload
+            if isinstance(c, dict) and isinstance(c.get("sha"), str)]
+
+
+def _named_check_is_green(out: "str | None", check_name: str) -> bool:
+    """True when every run of *check_name* on this commit concluded green.
+
+    `GET /repos/{slug}/commits/{sha}/check-runs` answers with an OBJECT —
+    `{"total_count": n, "check_runs": [...]}` — not an array. The filter this
+    replaces was `[.[] | select(.name == …) | .conclusion] | .[0]`, which
+    iterated that object: `.[]` yielded the integer `total_count` first and jq
+    aborted with `Cannot index number with string "name"` (exit 5), so the
+    caller's `if rc != 0: continue` skipped every commit and the helper
+    returned None every time it was asked. Verified 2026-08-28 against
+    repos/johnnylugm-tech/harness-methodology.
+
+    GitHub returns one row per dispatch, so a re-run adds another: dff609e6
+    really carries two "Framework Self-Tests" rows a second apart. `| .[0]`
+    took an arbitrary one of them. The rule here is `fetch_ci_verdict`'s,
+    applied to the single named check rather than invented a second time for
+    the same module — no conclusion yet is not green, any non-success
+    conclusion is not green, and a check that never ran is not green either
+    (Round 46: an absent witness is not a passing one).
+    """
+    try:
+        payload = json.loads(out or "{}")
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    runs = payload.get("check_runs")
+    if not isinstance(runs, list):
+        return False
+    named = [r for r in runs
+             if isinstance(r, dict) and r.get("name") == check_name]
+    if not named:
+        return False
+    return all((r.get("conclusion") or "") in _SUCCESSFUL for r in named)
 
 
 def render_block_message(verdict: CiVerdict, sha: str) -> Sequence[str]:

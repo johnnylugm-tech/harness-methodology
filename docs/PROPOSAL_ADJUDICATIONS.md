@@ -3899,6 +3899,56 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
    AST;第一版轉法用了 `inspect.getsource`,被 source-reading ratchet 擋下(48 對
    天花板 47),那正是它在數的東西。
 
+### 站10 —— 老闆送審的外部發現:`find_latest_green_sha` 在真實 API 下 100% 失效
+
+老闆帶來一份外部審查報告,指 `36d8c1d6` 的 `find_latest_green_sha()` 的 `--jq`
+過濾器讀錯 API 形狀。**查證屬實,而且不只一個缺陷,順序也比報告推導的更前面。**
+
+| # | 位置 | 缺陷 | 後果 |
+|---|---|---|---|
+| D1 | `ci_verdict.py:209-213` | `gh api` 只要用 `-f` 加參數就改送 **POST**,而這兩個端點只接受 GET | 步驟1 直接 404 → `return None`。**jq 那段在生產環境根本走不到** |
+| D2 | `ci_verdict.py:224-228` | 同樣的 `-f` → POST | 404 |
+| D3 | `ci_verdict.py:227` | `.[]` 迭代物件 `{total_count, check_runs}` | 先撞到整數 `total_count`,jq 中止 |
+
+實測(2026-08-28,`repos/johnnylugm-tech/harness-methodology`):
+
+```
+$ gh api "repos/$slug/commits" -f sha=main -f per_page=20 --jq '.[].sha'
+gh: Not Found (HTTP 404)                                          exit 1
+$ GH_DEBUG=api gh api ".../check-runs" -f per_page=20 ...
+> POST /repos/.../check-runs HTTP/1.1
+$ echo '{"total_count":1,"check_runs":[…]}' | jq '[.[] | select(.name==…)…]'
+jq: error: Cannot index number with string "name"                 exit 5
+```
+
+**報告的推導有一處與事實不符,記在這裡**:它說「遍歷所有 SHA 時皆觸發例外」。實際上
+函式在**取得 SHA 清單之前**就因 D1 回傳 None,那個迴圈一次都沒跑過。報告指認的
+`--jq` 缺陷屬實,但它是第二順位的死因,不是第一順位。
+
+**報告沒看到的第三件事**:GitHub 每次派發都新增一列,所以同名 check 會有重複條目 ——
+`dff609e6` 實際帶著兩列 `Framework Self-Tests`,相隔一秒。原本的 `| .[0]` 是任取一筆。
+
+**測試盲點**(報告指出,查證屬實且比描述更嚴重):`_split_runner` 回傳的是
+`json.dumps("success")` —— 也就是**假設 `--jq` 已經執行完的結果**。它既不模擬 API 回應
+也不模擬傳輸,所以三個缺陷它一個都看不見。R19 母體:fixture 照程式的期待建,不照工具的
+產出建。
+
+**修法(正解,非 workaround)**:參數移進 URL(而不是加 `--method GET` 去繞過 `-f`,
+那是留著地雷再蓋塊布);移除 `--jq`,改在 Python 裡 `json.loads` —— 這正是同模組的
+`fetch_ci_verdict` 對 `gh run list` 早就在做的選擇,把程式所依賴的形狀放在測試餵得進
+真實 payload 的地方,而不是一條沒有任何測試會求值的引號字串裡。具名 check 的判定沿用
+`fetch_ci_verdict` 既有規則(未結束不算綠、任一非成功不算綠、沒跑過也不算綠 ——
+R46 的證人缺席),而不是為同一個模組發明第二套。
+
+**反證(實測,非推論)**:把 `core/ci_verdict.py` 還原成 `dff609e6` 的版本,對真實
+GitHub API 呼叫 `find_latest_green_sha('.', max_walk=5)` → **None**;還原修復後 →
+`dff609e6791186531f9b31106cb3d0ddfb6294d1`(origin/main HEAD,實測其兩列
+Framework Self-Tests 皆 success)。檔案還原後 sha256 相同。測試替身改成回傳真實
+API 形狀後,原程式碼有 **6 支測試轉紅**;修復後 21/21 綠。
+
+`c781ba46` 的 commit 說「一個 round 的最後一個 commit 在賬本寫好之前不會綠」——
+本站是那條規則第一次被實際套用:賬本必須跟著站10 一起改。
+
 ### 明列不做(附 re-open 條件)
 
 | 項目 | 為什麼不做 | re-open |
