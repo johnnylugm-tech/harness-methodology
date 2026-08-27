@@ -3736,3 +3736,23 @@
 - test: tests/test_zero_mutants_is_not_zero_percent.py::test_a_version_that_cannot_be_read_is_none_not_a_guess
   bug: "an unanswerable version question must not be assumed to be the pinned one — assuming is what produced a 0.0 out of a run that measured nothing"
   fixed_in: "Round 80 站2"
+
+- test: tests/test_hook_wiring_is_verified.py::test_a_clone_with_no_hook_installed_is_refused
+  bug: "nothing verified that the pre-push hook was WIRED. Measured in the clone Round 80 was written in, at dff609e6: `git config --get core.hooksPath` exited 1 and `git rev-parse --git-path hooks/pre-push` resolved to `.git/hooks/pre-push`, which did not exist — so every check Round 79 站5 added to that hook (four silent-pass paths converted into named BLOCKs) could not fire, and tests/test_selfcheck_single_source.py opened by STATING 'There IS a pre-push hook, and it IS active' while asserting only that the script exists, is executable and is named by both callers. Round 72 recorded the same gap as deferred item B and it stayed open"
+  fixed_in: "Round 80 站3 (scripts/check_hook_wiring.sh, first step of self_check.sh). Honest limit recorded rather than papered over: this narrows the window and does not close it — someone who does not run self_check does not see it either, and `git push --no-verify` never invokes a hook. Closing it needs a required status check, which the boss forbids touching"
+
+- test: tests/test_hook_wiring_is_verified.py::test_a_wired_clone_passes
+  bug: "positive control — the check must accept both shapes setup-git-hooks.sh produces (core.hooksPath, and the .git/hooks/* symlinks it mirrors), not just the one the author had"
+  fixed_in: "Round 80 站3"
+
+- test: tests/test_hook_wiring_is_verified.py::test_a_hook_present_but_not_executable_is_refused
+  bug: "git will not run a hook it cannot execute, so a present-but-unexecutable hook is the same absence with a file in the way"
+  fixed_in: "Round 80 站3"
+
+- test: tests/test_hook_wiring_is_verified.py::test_ci_is_not_applicable_and_says_so_rather_than_passing_quietly
+  bug: "CI clones never push, so the check does not apply there — and a check that did not run must not read like one that passed (Round 79 站5's rule, second application). The CI path prints `not applicable` with the reason rather than exiting 0 in silence"
+  fixed_in: "Round 80 站3"
+
+- test: tests/test_hook_wiring_is_verified.py::test_self_check_runs_the_wiring_check_before_anything_else
+  bug: "the wiring check has to be self_check's FIRST step: it is the precondition for every other step ever being reached at push time"
+  fixed_in: "Round 80 站3"

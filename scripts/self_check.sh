@@ -57,6 +57,9 @@ _step() {
     fi
 }
 
+# First, because it is the precondition for every step below ever running at
+# push time: a hook git does not invoke checks nothing (Round 80 站3).
+_step "Git hook wiring"                 bash "$REPO_ROOT/scripts/check_hook_wiring.sh" "$REPO_ROOT"
 _step "Lint (ruff)"                     "$PYTHON" -m ruff check .
 _step "Regression-guard registry check" "$PYTHON" scripts/verify_regression_guards.py
 _step "Unit tests"                      "$PYTHON" -m pytest tests/ -q

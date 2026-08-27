@@ -13,11 +13,19 @@ seconds locally:
 None of these needs a runner, a network, or luck. Every one of them was
 knowable before the push.
 
-There IS a pre-push hook, and it IS active (`core.hooksPath = scripts/hooks`).
-It runs the regression-guard registry and `run-phase` preflight. It does not
-run ruff and it does not run pytest — so two places each hold their own answer
-to "what must be green before this lands", and only one of them is the one
-that turns the build red.
+There IS a pre-push hook. It runs the regression-guard registry and `run-phase`
+preflight. It does not run ruff and it does not run pytest — so two places each
+hold their own answer to "what must be green before this lands", and only one
+of them is the one that turns the build red.
+
+Round 80 站3 removed a sentence that used to sit here: "and it IS active
+(`core.hooksPath = scripts/hooks`)". Nothing in this file asserted it, and in
+the clone Round 80 was written in it was false — core.hooksPath was unset and
+`.git/hooks/pre-push` did not exist, so none of the hook's checks could fire.
+Whether the hook is wired is now asked by `scripts/check_hook_wiring.sh`, the
+first step of self_check.sh, and pinned by
+tests/test_hook_wiring_is_verified.py. A premise stated in a guard's docstring
+is not a guard.
 
 This is the same defect shape as the rest of Round 67, in the process layer:
 two derivations of one rule. The fix is one script both call.
