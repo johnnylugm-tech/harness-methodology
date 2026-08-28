@@ -183,11 +183,14 @@ class TestAdvancePrechecksMilestoneGate:
         p3-pre-gate2, p3-post-gate2 exist for P3; P4 only has p4-mid,
         p4-pre-gate3), so generalizing this check to them would invent a
         requirement harness's own design doesn't define."""
-        import inspect
 
-        import cli.phase_cmds as phase_cmds
 
-        src = inspect.getsource(phase_cmds._advance_prechecks)
+        # Round 81 站6: the precheck pipeline is `_advance_prechecks` plus the
+        # `_precheck_*` helpers extracted from it. Reading only the caller now
+        # answers a question this test never meant to ask.
+        from tests.support.pipeline import pipeline_source
+        src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                              helper_prefix="_precheck_")
         marker = "_validate_p3_post_gate2_precondition"
         assert marker in src
         call_idx = src.index(marker)

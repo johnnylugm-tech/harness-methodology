@@ -136,6 +136,37 @@ def test_an_exception_alias_counts_as_a_binding():
     assert live_out(func.body[:1], func.body[1:]) == {"exc"}
 
 
+def test_a_comprehension_variable_is_not_bound_in_the_enclosing_function():
+    """Found by ruff on the first generated call site, not by reading.
+
+    `_bound` originally walked straight through comprehensions, so an `m` in an
+    earlier statement's comprehension counted as "the caller has an `m`" and the
+    extraction passed it as a parameter that does not exist — `F821 Undefined
+    name 'm'`. A `for` target is deliberately still counted: `for` is not a
+    scope and its target does leak.
+    """
+    from tests.support.dataflow import _bound
+
+    comp = _func("""
+        def f(rows):
+            hits = [m for m in rows if m]
+    """).body
+    assert "m" not in _bound(comp), (
+        "a comprehension variable was reported as bound in the enclosing "
+        "function; extraction will pass it as a parameter that does not exist"
+    )
+    assert "hits" in _bound(comp)
+
+    loop = _func("""
+        def f(rows):
+            for row in rows:
+                pass
+    """).body
+    assert "row" in _bound(loop), (
+        "a `for` target DOES leak into the function scope and must keep counting"
+    )
+
+
 def test_an_import_inside_the_run_counts_as_a_binding():
     func = _func("""
         def f():

@@ -3934,3 +3934,19 @@
 - test: tests/test_dataflow_rule.py::test_the_partition_is_deterministic
   bug: "the guard that pins each extracted helper has to be able to re-derive the same runs from the same source; a partition that varied between invocations could not be checked"
   fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_a_comprehension_variable_is_not_bound_in_the_enclosing_function
+  bug: "the first version of `_bound` walked straight through comprehension and lambda scopes, so an `m` bound in an earlier statement's comprehension counted as 'the caller has an m' and the generated extraction passed it as a parameter that does not exist. ruff said `F821 Undefined name 'm'` on the very first call site the extractor emitted. A `for` target is deliberately still counted — `for` is not a scope and its target does leak into the function"
+  fixed_in: "Round 81 站6"
+
+- test: tests/test_extraction_moved_not_rewrote.py::test_every_extracted_body_is_byte_identical_to_what_it_replaced
+  bug: "Round 80 froze the four largest functions rather than split them, reasoning that '區塊抽取會改動函式自身文字,byte-equal 規則不適用'. Half true: extraction changes the FUNCTION's text but not the RUN's, and because a module-level helper's body and a run inside another module-level function both sit at one indent level, the moved lines need no reindentation at all — 605 of them byte-identical. Checked against tests/golden/extraction/phase_cmds.py.before, a recording of the source at the moment of the move, because nothing else can answer 'was this a move?' afterwards. Deliberately NOT regenerable: once an extracted body is edited on purpose its entry leaves _EXTRACTED, since re-recording would delete the only evidence the move happened"
+  fixed_in: "Round 81 站6"
+
+- test: tests/test_extraction_moved_not_rewrote.py::test_no_helper_reads_a_name_nobody_gives_it
+  bug: "the plan gated extraction on every extracted run being covered by the suite, because a miscomputed parameter list surfaces as a NameError and a NameError is only loud where something runs. That gate was unreachable honestly: the runs inside _advance_prechecks sit behind its manifest-integrity check and getting a fixture past it means hand-writing finalize receipts, which tests/test_evidence_outlives_the_phase.py already adjudicated as 'writing fake gate evidence to test a guard is the thing the guard exists to stop'. This asks the same question exhaustively and statically instead — ruff F821 is the primary net and is what actually fired; this is scoped to the helpers this round created so a later free name in one of them is attributed to the extraction"
+  fixed_in: "Round 81 站6"
+
+- test: tests/test_extraction_moved_not_rewrote.py::test_the_caller_still_propagates_every_early_return
+  bug: "a helper that can return an exit code, called without checking it, is a silently disabled check — Round 43's shape (detected, no executor) reintroduced by a refactor. Counter-proof: deleting the two-line `if _pre_rc is not None: return _pre_rc` after one call site turns this red"
+  fixed_in: "Round 81 站6"

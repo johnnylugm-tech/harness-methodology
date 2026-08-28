@@ -19,7 +19,6 @@ consumer.
 
 from __future__ import annotations
 
-import inspect
 import shutil
 import subprocess
 import sys
@@ -36,9 +35,13 @@ def test_advance_prechecks_pins_the_mypy_exclude_args():
     mypy invocation must reference the named, testable constant, not a
     hand-written `--exclude` literal that could silently drift or be
     dropped."""
-    from cli.phase_cmds import _advance_prechecks
 
-    src = inspect.getsource(_advance_prechecks)
+    # Round 81 站6: the precheck pipeline is `_advance_prechecks` plus the
+    # `_precheck_*` helpers extracted from it. Reading only the caller now
+    # answers a question this test never meant to ask.
+    from tests.support.pipeline import pipeline_source
+    src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                          helper_prefix="_precheck_")
     assert "_MYPY_EXCLUDE_ARGS" in src, (
         "_advance_prechecks's mypy subprocess.run call must splat "
         "_MYPY_EXCLUDE_ARGS — a hand-written --exclude literal here can "

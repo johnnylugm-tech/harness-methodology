@@ -40,10 +40,16 @@ _PHASE_CMDS = Path(__file__).resolve().parents[1] / "cli" / "phase_cmds.py"
 
 
 def _advance_prechecks_ast() -> ast.FunctionDef:
-    return next(
-        node for node in ast.walk(ast.parse(_PHASE_CMDS.read_text(encoding="utf-8")))
-        if isinstance(node, ast.FunctionDef) and node.name == "_advance_prechecks"
-    )
+    """The precheck pipeline, not just its entry point.
+
+    Round 81 站6 moved these calls into `_precheck_*` helpers. `inlined` puts
+    them back where they run, renumbered in execution order, so the ORDER half
+    of the assertions below still asks what it always asked.
+    """
+    from tests.support.pipeline import inlined
+
+    return inlined("cli/phase_cmds.py", "_advance_prechecks",
+                   helper_prefix="_precheck_")
 
 
 def test_advance_prechecks_calls_audit_pragma_no_cover():

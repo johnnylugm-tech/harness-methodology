@@ -232,6 +232,14 @@ def test_an_fr_that_declares_no_scope_still_gets_the_whole_project_number(tmp_pa
         assert validate_fr_coverage_immediate(project, fr_id="FR-99") == 62.5
 
 
+def _inlined_prechecks():
+    """The pipeline as one function — Round 81 站6 moved these into helpers."""
+    from tests.support.pipeline import inlined
+
+    return inlined("cli/phase_cmds.py", "_advance_prechecks",
+                   helper_prefix="_precheck_")
+
+
 def test_advance_prechecks_runs_the_phantom_audit_before_the_slow_stages():
     """The wiring and its position, read off the AST rather than the text.
 
@@ -250,10 +258,8 @@ def test_advance_prechecks_runs_the_phantom_audit_before_the_slow_stages():
     """
     import ast
 
-    source = (Path(__file__).resolve().parents[1]
-              / "cli" / "phase_cmds.py").read_text(encoding="utf-8")
     fn = next(
-        n for n in ast.walk(ast.parse(source))
+        n for n in [_inlined_prechecks()]
         if isinstance(n, ast.FunctionDef) and n.name == "_advance_prechecks"
     )
 

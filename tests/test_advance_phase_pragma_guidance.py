@@ -12,9 +12,7 @@ push time — see taskq Phase 4 workflow wf_8b3a3f79-12b, SYNC: FAIL on
 breaker.py's two `except OSError` pragmas.
 """
 
-import inspect
 
-from cli.phase_cmds import _advance_prechecks
 
 
 def test_advance_prechecks_blocked_message_binds_pragma_allowlist_ssot():
@@ -23,7 +21,12 @@ def test_advance_prechecks_blocked_message_binds_pragma_allowlist_ssot():
     symbols, not a hand-copied string that can independently drift from
     what preflight_reliability_lint actually enforces.
     """
-    src = inspect.getsource(_advance_prechecks)
+    # Round 81 站6: the precheck pipeline is `_advance_prechecks` plus the
+    # `_precheck_*` helpers extracted from it. Reading only the caller now
+    # answers a question this test never meant to ask.
+    from tests.support.pipeline import pipeline_source
+    src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                          helper_prefix="_precheck_")
     assert "PRAGMA_NO_COVER_GUIDANCE" in src, (
         "_advance_prechecks's TDD test/coverage [BLOCKED] message must render "
         "core.phase_hooks.PRAGMA_NO_COVER_GUIDANCE, not a hand-written pragma "

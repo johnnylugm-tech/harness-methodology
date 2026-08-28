@@ -45,7 +45,10 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
-__all__ = ["Run", "extractable_runs", "live_out", "rejection_reason"]
+__all__ = [
+    "Run", "extractable_runs", "free_variables", "live_out",
+    "parameters_for", "rejection_reason",
+]
 
 
 @dataclass(frozen=True)
@@ -64,19 +67,42 @@ class Run:
         return self.last_line - self.first_line + 1
 
 
+#: Nodes that open a scope of their own. A name bound inside one of these is
+#: NOT bound in the enclosing function, so `_bound` must not descend into them.
+#: Found by ruff rather than by reading: the first version walked straight
+#: through, so a comprehension variable `m` in an earlier statement counted as
+#: "the caller has an `m`", and the extraction passed it as a parameter that
+#: does not exist — `F821 Undefined name 'm'` on the very first generated call
+#: site. A `for` target is deliberately still counted: a `for` is not a scope
+#: and its target does leak into the function.
+_SCOPES = (
+    ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
+    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+)
+
+
 def _bound(nodes: "list[ast.stmt]") -> "set[str]":
+    """Names bound in the ENCLOSING function's scope by these statements."""
     names: set[str] = set()
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                names.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)  # the NAME binds here; the body is another scope
+            return
+        if isinstance(node, _SCOPES):
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
     for node in nodes:
-        for child in ast.walk(node):
-            if isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
-                names.add(child.id)
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(child.name)
-            elif isinstance(child, (ast.Import, ast.ImportFrom)):
-                for alias in child.names:
-                    names.add((alias.asname or alias.name).split(".")[0])
-            elif isinstance(child, ast.ExceptHandler) and child.name:
-                names.add(child.name)
+        visit(node)
     return names
 
 
@@ -92,6 +118,77 @@ def _loaded(nodes: "list[ast.stmt]") -> "set[str]":
 def live_out(segment: "list[ast.stmt]", after: "list[ast.stmt]") -> "set[str]":
     """Names the segment binds that something after it reads."""
     return _bound(segment) & _loaded(after)
+
+
+def _first_use_lines(segment: "list[ast.stmt]") -> "tuple[dict[str, int], dict[str, int]]":
+    """First line each name is read on, and first line it is bound on."""
+    loads: dict[str, int] = {}
+    stores: dict[str, int] = {}
+    for node in segment:
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name):
+                table = loads if isinstance(child.ctx, ast.Load) else stores
+                table.setdefault(child.id, child.lineno)
+                if child.lineno < table[child.id]:
+                    table[child.id] = child.lineno
+            elif isinstance(child, (ast.Import, ast.ImportFrom)):
+                for alias in child.names:
+                    name = (alias.asname or alias.name).split(".")[0]
+                    stores[name] = min(stores.get(name, child.lineno), child.lineno)
+            elif isinstance(child, ast.ExceptHandler) and child.name:
+                stores[child.name] = min(stores.get(child.name, child.lineno), child.lineno)
+    return loads, stores
+
+
+def parameters_for(segment: "list[ast.stmt]", available: "set[str]") -> "set[str]":
+    """The names an extracted helper must take from its caller.
+
+    Both naive answers are wrong, and each was wrong in production:
+
+    * "every name it reads that the caller had" passes names the run binds
+      itself. `_advance_prechecks` reads `_fs` only inside its own `for` loop,
+      and the caller's `_fs` is bound inside a loop that may never run — the
+      generated call site raised `UnboundLocalError` on the first test.
+    * "loaded minus bound" (flow-insensitive) drops a name the run reads BEFORE
+      rebinding, which the caller does have to supply.
+
+    So a name is a parameter when the run reads it before it binds it — or
+    never binds it at all. Textual order is sound here: within a statement run
+    it is execution order, and a loop back-edge can only make a binding happen
+    earlier for later iterations, never later.
+    """
+    loads, stores = _first_use_lines(segment)
+    return {
+        name for name, load_line in loads.items()
+        if name in available and (
+            name not in stores or load_line < stores[name]
+        )
+    }
+
+
+def free_variables(segment: "list[ast.stmt]") -> "set[str]":
+    """Names the segment reads without binding them first.
+
+    This is what makes coverage unnecessary as an extraction gate. The plan for
+    these stations required every extracted run to be executed by the suite,
+    on the reasoning that a miscomputed parameter list shows up as a `NameError`
+    and a `NameError` is only loud on a path something runs.
+
+    That precondition turned out to be unreachable honestly. The runs inside
+    `_advance_prechecks` sit behind its manifest-integrity gate, and reaching
+    them from a fixture means hand-writing finalize receipts — which
+    tests/test_evidence_outlives_the_phase.py already adjudicated:
+
+        writing fake gate evidence to test a guard is the thing the guard
+        exists to stop
+
+    Comparing this set against the helper's parameters answers the same
+    question EXHAUSTIVELY and statically, with no fixture at all. It also
+    catches the case coverage never could: a free variable that happens to
+    share a name with a module-level global is not a NameError, it is a silent
+    read of the wrong object, and no amount of executing the path reveals it.
+    """
+    return _loaded(segment) - _bound(segment)
 
 
 def rejection_reason(segment: "list[ast.stmt]") -> "str | None":
@@ -183,7 +280,7 @@ def extractable_runs(
                 stop=best,
                 first_line=segment[0].lineno,
                 last_line=last_line,
-                inputs=frozenset(_loaded(segment) & before),
+                inputs=frozenset(parameters_for(segment, before)),
                 returns=any(isinstance(c, ast.Return)
                             for n in segment for c in ast.walk(n)),
             ))

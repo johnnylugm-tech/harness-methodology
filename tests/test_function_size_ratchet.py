@@ -107,7 +107,17 @@ _CEILINGS: dict[str, int] = {
     "harness/harness_bridge.py::HarnessBridge.finalize_gate": 1150,
     "cli/fr_cmds.py::cmd_run_fr_step": 940,
     "cli/phase_cmds.py::cmd_advance_phase": 845,
-    "cli/phase_cmds.py::_advance_prechecks": 818,
+    # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
+    # forced rather than remembered — test_no_ceiling_sits_above_the_
+    # function_it_covers fails until this number is lowered in the same
+    # commit as the shrink, which is exactly what Round 78 站3 rewrote a
+    # file-ratchet entry for.
+    "cli/phase_cmds.py::_advance_prechecks": 244,
+    # The one run with NO safe cut point under the extraction rule: every
+    # prefix of it binds something the rest reads, so it comes out whole or
+    # not at all. 276 lines in a helper beats 276 lines inside an 818-line
+    # function, and naming it here is how the next round finds it.
+    "cli/phase_cmds.py::_precheck_p3_security_and_quality": 279,
     "cli/gate_cmds.py::_cmd_finalize_gate_impl": 606,
     "harness/harness_bridge.py::_run_harness_cross_validation": 475,
 

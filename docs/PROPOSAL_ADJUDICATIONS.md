@@ -3981,6 +3981,77 @@ bullet),輸出為 `kind: unstructured` 帶行號區間、**不填任何欄位** 
 是另一次全庫審查,列入本輪明列不做。**空的鍵代表「沒人查過」,不代表「沒有東西在量」**
 —— 又一次 R46。
 
+### 站6 — `_advance_prechecks` 818 → 244,而擋住它的理由只對了一半
+
+Round 80 的凍結理由:「區塊抽取會改動函式自身文字,byte-equal 規則不適用;實測
+`harness_bridge.py` 全套件行為覆蓋 81%,不足以證明抽取等價」。
+
+**兩句話都不是判準。** 抽取確實改動「函式」的文字 —— 那一段離開、一個呼叫點到來 ——
+但它不改動「那一段」的文字。而且模組層函式的 body 與另一個模組層函式裡的一段,
+**同樣在一層縮排**:搬動不需要重排縮排,**605 行逐位元組相同**,R49-B 的規則原封適用。
+
+決定抽取是否等價的不是覆蓋率,是資料流。**Tier B 規則**:一段連續語句可安全抽出,
+當且僅當它 bind 的名字沒有一個在它之後被讀。此時它對呼叫端的全部影響,就是它自己做的事
+(同樣的語句、同樣的順序、同樣的位置)加上一個回傳值,由呼叫點顯式傳遞:
+
+```
+_pre_rc = _precheck_x(...)
+if _pre_rc is not None:
+    return _pre_rc
+```
+
+**沒有任何狀態被穿針引線,所以沒有任何狀態能被穿錯** —— 那正是 R80 有理由拒絕的失敗。
+
+`_advance_prechecks` **818 → 244**,九個 `_precheck_*`。檔案 3268 → 3426(+158):
+**函式縮短 574 行而檔案增長**,這正是重點 —— file ratchet 被抬 298 次、下修 5 次,
+就是因為長大的是函式而沒有人在問函式(R80 站6)。現在有人問了,而且
+`test_no_ceiling_sits_above_the_function_it_covers` 在同一個 commit 裡**強制**了
+818 → 244 的收成。
+
+#### 「先補 106 個測試」這個前提是不可能誠實達成的
+
+計畫要求每個被抽取的區段都先被測試執行過,理由是參數算漏會是 `NameError`,而 `NameError`
+只在有人走過的路徑上才響。**實測後這個前提無法誠實滿足**:`_advance_prechecks` 的那些區段
+坐在它自己的 manifest-integrity 閘門之後,要讓 fixture 走過去就得手寫 finalize 收據 ——
+而 `tests/test_evidence_outlives_the_phase.py` 早已裁決過這件事:
+
+> writing fake gate evidence to test a guard is the thing the guard exists to stop
+
+改用**靜態且窮盡**的問法:helper 讀到的每一個名字,必須是它自己的參數、它自己 bind 的、
+或模組層的名字。沒有剩餘 = 沒有任何路徑能拋 `NameError`,**與有沒有測試走過無關**。
+而且它抓得到覆蓋率永遠抓不到的一種:一個自由變數剛好與模組層全域同名時,那不是 `NameError`,
+是**靜默讀到錯的物件**。
+
+#### 兩個更簡單的參數規則,各自在幾分鐘內出貨了一個 bug
+
+- 「把呼叫端 bind 過的名字全部傳進去」→ `F821 Undefined name 'm'`。comprehension 變數
+  不在外層函式的作用域裡,而第一版的 `_bound` 直接穿過 comprehension。**ruff 在第一個
+  產生出來的呼叫點上就說了。**
+- 「loaded 減 bound」(流不敏感)→ `UnboundLocalError: _fs`。它會漏掉「先讀後重新 bind」
+  的名字。
+
+正解:**一個名字是參數,當它在被這一段 bind 之前就被讀**。段內的文字順序就是執行順序,
+而迴圈的回邊只會讓 bind 更早發生,不會更晚。
+
+#### 七支測試因此改了問法 —— 那不是遷就,是它們本來就在問別的
+
+七支斷言 `_advance_prechecks` 接線性質的測試(pragma 稽核要在 coverage/lint/type 之前、
+mypy exclude 參數要來自常數、milestone gate 只適用 P3⋯)是走 `_advance_prechecks` 的 AST
+或原始碼。呼叫移進 helper 之後它們就看不到了。**把問題縮小成「在 `_advance_prechecks`
+自己的 body 裡嗎」會是在回答一個它們從來沒問過的問題**;放大成「在檔案裡任何地方嗎」
+則會丟掉其中幾支斷言的「順序」那一半。
+
+`tests/support/pipeline.py` 把 helper **就地展開**(並依執行順序重新編號),
+還原成那些測試當初寫的那個函式。五個 `inspect.getsource` 因此消失,
+source-reading ratchet 47 → **43**,同一個 commit 收成。
+
+**反證**:改動任一 helper body 裡的一個字元 → 逐位元組比對轉紅;
+拿掉任一呼叫點的 `if _pre_rc is not None: return _pre_rc` → 傳遞守衛轉紅。
+
+**唯一一段沒有安全切點的 run** 是 279 行的 `_precheck_p3_security_and_quality`:
+它的每個前綴都 bind 了後面要讀的東西,所以整段出來或都不出來。列進 `_CEILINGS` 並寫明,
+下一輪才找得到它。
+
 
 ---
 

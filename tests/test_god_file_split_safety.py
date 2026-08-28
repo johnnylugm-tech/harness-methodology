@@ -121,6 +121,17 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_regen_and_stage_view", "_broken_deliverable_anchors",
         "_warn_if_view_lost_its_anchor", "_scope_violation_scripts",
         "_scope_debug_name_match", "register",
+        # Round 81 站6: the nine runs extracted out of `_advance_prechecks`.
+        # Tracked here so a later split moves them with their wiring; their
+        # bodies are pinned against the pre-extraction file by
+        # tests/test_extraction_moved_not_rewrote.py, which is the evidence
+        # this golden cannot carry (it fingerprints, it does not compare).
+        "_precheck_cleared_dir_evidence", "_precheck_backup_artifacts",
+        "_precheck_manifest_and_p1_baselines",
+        "_precheck_per_fr_gate1_and_phase_truth",
+        "_precheck_early_stage_pass", "_precheck_deliverable_anchors",
+        "_precheck_scope_violations", "_precheck_p3_security_and_quality",
+        "_precheck_stage_pass_staging",
     ),
     "core.doctor": (
         "run_doctor", "_check_ci_template_drift",

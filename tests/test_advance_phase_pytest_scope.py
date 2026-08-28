@@ -20,11 +20,9 @@ this closes it using the same ProjectLayout.active_test_dir SSOT the
 function already uses for active_src_dir two lines above.
 """
 
-import inspect
 import subprocess
 import sys
 
-from cli.phase_cmds import _advance_prechecks
 
 
 def _make_project_with_harness_sibling(tmp_path, *, harness_test_passes: bool):
@@ -120,7 +118,12 @@ def test_the_scoping_ssot_never_falls_back_to_the_project_root():
 
 def test_advance_prechecks_delegates_its_suite_run_to_the_ssot():
     """_advance_prechecks must not hand-roll a pytest argv again."""
-    src = inspect.getsource(_advance_prechecks)
+    # Round 81 站6: the precheck pipeline is `_advance_prechecks` plus the
+    # `_precheck_*` helpers extracted from it. Reading only the caller now
+    # answers a question this test never meant to ask.
+    from tests.support.pipeline import pipeline_source
+    src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                          helper_prefix="_precheck_")
     assert "run_suite" in src, (
         "_advance_prechecks must obtain its test/coverage measurement from "
         "core.quality_gate.test_suite_run.run_suite"

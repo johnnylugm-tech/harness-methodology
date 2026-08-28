@@ -2303,47 +2303,46 @@ def _check_ghost_paper_trail(project: Path, completed_phase: int) -> int:
     return 22
 
 
-# ── The nine `_precheck_*` helpers below (Round 81 站6) ──────────────────────
-#
-# `_advance_prechecks` was 818 lines. Round 80 froze it rather than split it,
-# because "extracting blocks changes the function's own text, so the
-# byte-equality rule that made the Round 49-B splits safe does not apply".
-# Half of that is true and the half that matters is not.
-#
-# Each helper below is one contiguous statement run that tests/support/
-# dataflow.py identified as binding NOTHING its caller reads afterwards. Under
-# that condition the whole of a run's effect on `_advance_prechecks` is what it
-# does itself — the same statements, in the same order, in the same place —
-# plus the value it returns, which the call site propagates explicitly:
-#
-#     _pre_rc = _precheck_x(...)
-#     if _pre_rc is not None:
-#         return _pre_rc
-#
-# Nothing is threaded, so nothing can be threaded wrongly. And because both the
-# original run and a module-level helper's body sit at one indent level, the
-# lines moved with NO reindentation: every body here is byte-identical to the
-# text it replaced, which tests/test_extraction_moved_not_rewrote.py checks
-# against the pre-extraction file rather than taking on trust.
-#
-# Parameters are the names a run reads BEFORE it binds them. Both simpler rules
-# were tried and both shipped a bug in minutes: passing everything the caller
-# had bound produced `F821 Undefined name 'm'` (a comprehension variable is not
-# in the enclosing scope) and then `UnboundLocalError: _fs` (the caller binds it
-# only inside a loop that may not run).
-#
-# The order of the calls in `_advance_prechecks` is the order of the runs. It
-# has not changed, and it is load-bearing: the manifest-integrity check is
-# deliberately first because every check below it reads what it validates.
-# ─────────────────────────────────────────────────────────────────────────────
+def _advance_prechecks(project: Path, completed_phase: int) -> int:
+    """Run pre-advance checks: Agent B approvals, gate variance, Phase Truth,
+    PhaseAuditor C1-C12, TDD.
 
-
-def _precheck_cleared_dir_evidence(_cleared_reads, project) -> "int | None":
-    """Cleared dir evidence — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
+    Returns 0 if all checks pass, non-zero exit code on first failure:
+      8  = C1 CRITICAL (deliverables missing / untracked)
+      9  = pytest / coverage failure (P3+)
+      10 = spec-coverage below phase threshold (P3+) [unified D4]
+      11 = Phase Truth < 90% (P3+) or Mutation Testing failure (P3+)
+      13 = Agent B approvals missing / rejected (P1/P2)
+      14 = Gate 1 per-FR coverage incomplete (P3+)
+      15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
+      16 = Constitution postflight below phase threshold (all phases)
+      17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
+      18 = Submodule guard: harness/ has uncommitted edits that would be clobbered
+      21 = WRITE_SCOPE: a delivered test reads evidence from a cleared directory
+      22 = Ghost paper-trail detected (agent claimed progress but made no code changes) (P3+)
+      27 = quality_manifest.json structurally corrupt — refusing to commit it
     """
+    # ── WRITE_SCOPE: evidence in a directory this command is about to ──
+    # delete (Round 72 站6). Ahead of manifest integrity because it is the one
+    # check here that asks nothing about gates, phases or manifests — it reads
+    # the delivered tree (`git ls-files`) and the Python in it, so it can
+    # answer before any of this phase's work has been judged, and what it
+    # reports is a defect that will refuse the NEXT advance rather than this
+    # one. Cheapest question, earliest answer.
+    #
+    # taskq-new's NFR-07/NFR-11 tests read
+    # `.sessi-work/round_1/tools/pip_licenses.json` and `readability_v2.txt`
+    # and skip when they are absent. advance clears `.sessi-work`, so the next
+    # phase those tests skip, Round 46 站1 turns both NFRs PARTIAL,
+    # completeness drops under 90%, advance is refused, and the agent
+    # regenerates the artifacts by hand. `cd47fae` (leaving P5) and `8b9a309`
+    # (leaving P7) carry the same subject and the same body.
+    #
+    # Reported and refused, not repaired: whether an artifact should be
+    # retained or regenerated is the project's call, and moving its files would
+    # be this framework writing the tree it judges (Round 53). What the block
+    # owes the operator is the file, the line, and where evidence may live.
+    _cleared_reads = evidence_in_cleared_dirs(project)
     if _cleared_reads:
         _cited = cited_evidence_dir(project).relative_to(project)
         print(
@@ -2363,17 +2362,17 @@ def _precheck_cleared_dir_evidence(_cleared_reads, project) -> "int | None":
             f"survives the transition. Then re-run advance-phase."
         )
         return 21
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
 
-
-def _precheck_backup_artifacts(_backups) -> "int | None":
-    """Backup artifacts — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    # ── WRITE_SCOPE, third direction: a tool's leftover copy in the tree ──
+    # (Round 72 站7). Same placement and the same reason as the check above —
+    # it reads the delivered tree and nothing else.
+    #
+    # `_scope_violation_scripts` further down has guarded this ground since a
+    # workflow agent stranded `_diag_constitution.py` at a repo root, but it
+    # asks `git status` for UNTRACKED files and the gate/release path commits
+    # with `git add -A`. One commit later the file is tracked and that check
+    # can never see it again. taskq-new shipped two through P1-P8 and Gate 4.
+    _backups = backup_artifacts(project)
     if _backups:
         print(
             f"\n[BLOCKED] {len(_backups)} tool leftover(s) in the delivered "
@@ -2388,17 +2387,25 @@ def _precheck_backup_artifacts(_backups) -> "int | None":
             "them), then re-run advance-phase."
         )
         return 21
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
 
+    # ── Manifest integrity — FIRST, because every check below reads the ──
+    # manifest, and because advance-phase commits .methodology/ wholesale.
+    #
+    # Round 22 站2: this check lived only in workflow JS, which spent one
+    # sub-agent dispatch per advance round calling `check-manifest-integrity`
+    # (itself a thin wrapper around this very method). Two consequences: the
+    # dispatch was pure overhead on the workflow path, and every OTHER path
+    # into advance-phase — a human running it by hand, a resumed session, CI —
+    # had no protection at all. tests/test_workflow_plan_alignment.py's own
+    # registry recorded that hole in prose ("A human running the plan by hand
+    # has no equivalent step"). Running it here closes both.
+    from core.phase_hooks import PhaseHooks
 
-def _precheck_manifest_and_p1_baselines(_mi, completed_phase, project) -> "int | None":
-    """Manifest and p1 baselines — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    _mi_hooks = PhaseHooks(
+        str(project), phase=completed_phase, enable_kill_switch=False,
+        drift_threshold=get_value(project, "drift_threshold"),
+    )
+    _mi = _mi_hooks.preflight_manifest_integrity()
     if not _mi.get("passed"):
         print(
             "\n[BLOCKED] advance-phase: quality_manifest.json is structurally "
@@ -2453,17 +2460,54 @@ def _precheck_manifest_and_p1_baselines(_mi, completed_phase, project) -> "int |
                     print(f"  [D4] TEST_INVENTORY.yaml checksum: {_cksum[:12]}...")
             except OSError as _e:
                 print(f"  [WARN] Could not write test_inventory_checksum: {_e}")
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
 
+    # ── Gate score variance check ─────────────────────────────────────
+    if completed_phase >= 3:
+        _rc = _check_gate_score_variance(project, completed_phase)
+        if _rc != 0:
+            return _rc
 
-def _precheck_per_fr_gate1_and_phase_truth(_fr_ids_for_finalize, _invalid_finalize, _missing_finalize, completed_phase, project) -> "int | None":
-    """Per fr gate1 and phase truth — extracted verbatim from `_advance_prechecks`.
+    # ── Deferred-fix closure (P3+) — close the quality loop ────────────
+    if completed_phase >= 3:
+        _rc = _check_deferred_fixes_resolved(project)
+        if _rc != 0:
+            return _rc
 
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    # ── Ghost paper-trail check (P3+) — detect agent self-reports with   ──
+    # zero substantive code changes. Aggregate per-FR ghost detections from
+    # this phase; block advance until each flagged step is re-run.
+    if completed_phase >= 3:
+        _rc = _check_ghost_paper_trail(project, completed_phase)
+        if _rc != 0:
+            return _rc
+
+    # ── Finalize-gate receipt check ────────────────────────────────────
+    # Verify finalize-gate was actually called — prevents the agent from
+    # fabricating gate{N}_result.json + quality_manifest.json directly
+    # without the harness running S3/S4 cross-validation.
+    #
+    # Round 32 站2: this used to ask `.exists()` of a file whose whole content
+    # was a timestamp. It now reads the receipt and cross-checks it against the
+    # two registries finalize-gate writes alongside it, through the same
+    # function core/doctor.py calls — one rule, two consumers.
+    _missing_finalize: list[str] = []
+    _invalid_finalize: list[str] = []
+    # Exit gate check (phase-level): Gate 2 for P3, Gate 3 for P4, Gate 4 for P6
+    if completed_phase in EXIT_GATE_MAP:
+        _exit_gate = EXIT_GATE_MAP[completed_phase]
+        # v2.13: pass completed_phase so the path matches what finalize-gate
+        # wrote (Bug #121 — no cross-phase sentinel reuse).
+        _fs = _shared._finalize_sentinel_path(project, _exit_gate, None, phase=completed_phase)
+        if not _fs.exists():
+            _missing_finalize.append(
+                f"Gate {_exit_gate} (phase-exit) — expected {_fs.name}"
+            )
+        else:
+            _invalid_finalize.extend(gate1_evidence.verify_finalize_evidence(
+                project, _exit_gate, completed_phase, None,
+            ))
+    # Gate 1 per-FR check: every FR must have a finalized Gate 1 sentinel
+    _fr_ids_for_finalize: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
     if completed_phase >= 3 and _fr_ids_for_finalize:
         _missing_fr_finalize: list[str] = []
         for _frid in _fr_ids_for_finalize:
@@ -2580,17 +2624,17 @@ def _precheck_per_fr_gate1_and_phase_truth(_fr_ids_for_finalize, _invalid_finali
                 f"{completed_phase} --project {project}"
             )
             return 11
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
 
 
-def _precheck_early_stage_pass(_early_sp_path, completed_phase, project) -> None:
-    """Early stage pass — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    # ── Ensure Phase{N}_STAGE_PASS.md exists before the internal Phase
+    # Auditor call below — its own C2 check CRITICAL-fails when the file is
+    # entirely missing (first-ever advance for this phase). This early pass
+    # may write a stale quality_complete value (state.json.phase_truth_passed
+    # hasn't been finalized yet) — that's fine, it only needs to exist here.
+    # The authoritative content is written by the final regeneration pass
+    # near the end of this function (see truth_override=True below), after
+    # every blocking check (including this same Phase Auditor call) passes.
+    _early_sp_path = project / "00-summary" / f"Phase{completed_phase}_STAGE_PASS.md"
     if not _early_sp_path.exists():
         _shared._generate_stage_pass(project, 4 if completed_phase >= 6 else 1, completed_phase)
         if _early_sp_path.exists():
@@ -2614,13 +2658,12 @@ def _precheck_early_stage_pass(_early_sp_path, completed_phase, project) -> None
     if completed_phase >= 3:
         _regen_traceability_views(project)
 
-
-def _precheck_deliverable_anchors(_anchor_breaks, completed_phase, project) -> "int | None":
-    """Deliverable anchors — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    # ── Anchors are an invariant of the deliverable, not of one load ──
+    # Placement is the design: this runs AFTER the regen above, so the
+    # render-only views the framework owns have already been repaired and
+    # anything still failing is a file the framework has no right to rewrite.
+    # See _broken_deliverable_anchors for the measurement.
+    _anchor_breaks = _broken_deliverable_anchors(project)
     if _anchor_breaks:
         from cli.exit_codes import EX_ADVANCE_DELIVERABLE_ANCHOR_BROKEN
 
@@ -2668,17 +2711,17 @@ def _precheck_deliverable_anchors(_anchor_breaks, completed_phase, project) -> "
                 f" --completed-phase {completed_phase} --project ."
             )
             return 15
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
 
+    # ── Phase Auditor: full C1-C12 for all phases ────────────────────
+    audit_rc = _shared._run_phase_auditor(project, completed_phase)
+    if audit_rc != 0:
+        return audit_rc
 
-def _precheck_scope_violations(_orphans, completed_phase, project) -> "int | None":
-    """Scope violations — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    # ── WRITE_SCOPE guard: no orphan diagnostic scripts at the repo root ──
+    # Mechanism (not agent self-discipline) that keeps debug artifacts out of the
+    # source tree. A workflow advance agent once stranded _diag_constitution.py here
+    # while diagnosing a constitution BLOCK; BLOCK the advance until it is cleaned.
+    _orphans = _scope_violation_scripts(project)
     if _orphans:
         print(
             f"\n[BLOCKED] Scope violation: {len(_orphans)} untracked diagnostic "
@@ -2720,17 +2763,13 @@ def _precheck_scope_violations(_orphans, completed_phase, project) -> "int | Non
                 )
                 return 13
             print(f"  [Agent B] Phase {completed_phase} approvals verified ✓")
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
 
-
-def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
-    """P3 security and quality — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
+    # ── TDD checks: pytest + coverage, spec-coverage (P3+) ──────
+    # Return code map for this block (pre-existing codes occupy 1-17):
+    #   17 → finalize-gate sentinel missing (see check above)
+    #   18 → ruff: lint errors in src
+    #   19 → mypy: type errors in src
+    #   20 → gitleaks: hardcoded secrets detected
     if completed_phase >= 3:
         # 0.1 Secrets Scanning (gitleaks)
         # Runs outside src_dir.is_dir() intentionally: gitleaks scans the whole
@@ -3001,216 +3040,6 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
                 print("  [WARN] PhaseHooks unavailable — skipping SAB structural pre-advance check")
             except Exception as _sab_pre_err:  # pylint: disable=broad-exception-caught
                 print(f"  [WARN] SAB structural pre-advance check error: {_sab_pre_err}")
-    # Generated by the extraction, not moved with the run: mypy
-    # requires the fall-through path to be explicit.
-    return None
-
-
-def _precheck_stage_pass_staging(_existing_bytes_hash, _sp_gate, _stage_pass_path, completed_phase, project) -> "int | None":
-    """Stage pass staging — extracted verbatim from `_advance_prechecks`.
-
-    Round 81 站6. See the note above the first `_precheck_*` for what
-    makes this a move rather than a rewrite.
-    """
-    print(
-        f"  [advance-phase] Regenerating Phase{completed_phase}_STAGE_PASS.md "
-        f"from quality_manifest (gate {_sp_gate})"
-    )
-    _shared._generate_stage_pass(project, _sp_gate, completed_phase, truth_override=True)
-    # Stage only if content changed — avoids touching git index when nothing
-    # actually differs from what is already committed.
-    if _stage_pass_path.exists():
-        try:
-            _new_bytes_hash = hash(_stage_pass_path.read_bytes())
-        except OSError:
-            _new_bytes_hash = None
-        if _new_bytes_hash != _existing_bytes_hash:
-            subprocess.run(
-                ["git", "add", str(_stage_pass_path)],
-                cwd=str(project), capture_output=True,
-            )
-            print(
-                f"  [STAGE_PASS] content changed → staged {completed_phase} advance commit"
-            )
-
-    return 0
-
-def _advance_prechecks(project: Path, completed_phase: int) -> int:
-    """Run pre-advance checks: Agent B approvals, gate variance, Phase Truth,
-    PhaseAuditor C1-C12, TDD.
-
-    Returns 0 if all checks pass, non-zero exit code on first failure:
-      8  = C1 CRITICAL (deliverables missing / untracked)
-      9  = pytest / coverage failure (P3+)
-      10 = spec-coverage below phase threshold (P3+) [unified D4]
-      11 = Phase Truth < 90% (P3+) or Mutation Testing failure (P3+)
-      13 = Agent B approvals missing / rejected (P1/P2)
-      14 = Gate 1 per-FR coverage incomplete (P3+)
-      15 = Phase{N+1}_plan.md not found (generate-next-plan not run)
-      16 = Constitution postflight below phase threshold (all phases)
-      17 = Unresolved deferred fixes in deferred_fixes.md (P3+)
-      18 = Submodule guard: harness/ has uncommitted edits that would be clobbered
-      21 = WRITE_SCOPE: a delivered test reads evidence from a cleared directory
-      22 = Ghost paper-trail detected (agent claimed progress but made no code changes) (P3+)
-      27 = quality_manifest.json structurally corrupt — refusing to commit it
-    """
-    # ── WRITE_SCOPE: evidence in a directory this command is about to ──
-    # delete (Round 72 站6). Ahead of manifest integrity because it is the one
-    # check here that asks nothing about gates, phases or manifests — it reads
-    # the delivered tree (`git ls-files`) and the Python in it, so it can
-    # answer before any of this phase's work has been judged, and what it
-    # reports is a defect that will refuse the NEXT advance rather than this
-    # one. Cheapest question, earliest answer.
-    #
-    # taskq-new's NFR-07/NFR-11 tests read
-    # `.sessi-work/round_1/tools/pip_licenses.json` and `readability_v2.txt`
-    # and skip when they are absent. advance clears `.sessi-work`, so the next
-    # phase those tests skip, Round 46 站1 turns both NFRs PARTIAL,
-    # completeness drops under 90%, advance is refused, and the agent
-    # regenerates the artifacts by hand. `cd47fae` (leaving P5) and `8b9a309`
-    # (leaving P7) carry the same subject and the same body.
-    #
-    # Reported and refused, not repaired: whether an artifact should be
-    # retained or regenerated is the project's call, and moving its files would
-    # be this framework writing the tree it judges (Round 53). What the block
-    # owes the operator is the file, the line, and where evidence may live.
-    _cleared_reads = evidence_in_cleared_dirs(project)
-    _pre_rc = _precheck_cleared_dir_evidence(_cleared_reads, project)
-    if _pre_rc is not None:
-        return _pre_rc
-
-    # ── WRITE_SCOPE, third direction: a tool's leftover copy in the tree ──
-    # (Round 72 站7). Same placement and the same reason as the check above —
-    # it reads the delivered tree and nothing else.
-    #
-    # `_scope_violation_scripts` further down has guarded this ground since a
-    # workflow agent stranded `_diag_constitution.py` at a repo root, but it
-    # asks `git status` for UNTRACKED files and the gate/release path commits
-    # with `git add -A`. One commit later the file is tracked and that check
-    # can never see it again. taskq-new shipped two through P1-P8 and Gate 4.
-    _backups = backup_artifacts(project)
-    _pre_rc = _precheck_backup_artifacts(_backups)
-    if _pre_rc is not None:
-        return _pre_rc
-
-    # ── Manifest integrity — FIRST, because every check below reads the ──
-    # manifest, and because advance-phase commits .methodology/ wholesale.
-    #
-    # Round 22 站2: this check lived only in workflow JS, which spent one
-    # sub-agent dispatch per advance round calling `check-manifest-integrity`
-    # (itself a thin wrapper around this very method). Two consequences: the
-    # dispatch was pure overhead on the workflow path, and every OTHER path
-    # into advance-phase — a human running it by hand, a resumed session, CI —
-    # had no protection at all. tests/test_workflow_plan_alignment.py's own
-    # registry recorded that hole in prose ("A human running the plan by hand
-    # has no equivalent step"). Running it here closes both.
-    from core.phase_hooks import PhaseHooks
-
-    _mi_hooks = PhaseHooks(
-        str(project), phase=completed_phase, enable_kill_switch=False,
-        drift_threshold=get_value(project, "drift_threshold"),
-    )
-    _mi = _mi_hooks.preflight_manifest_integrity()
-    _pre_rc = _precheck_manifest_and_p1_baselines(_mi, completed_phase, project)
-    if _pre_rc is not None:
-        return _pre_rc
-
-    # ── Gate score variance check ─────────────────────────────────────
-    if completed_phase >= 3:
-        _rc = _check_gate_score_variance(project, completed_phase)
-        if _rc != 0:
-            return _rc
-
-    # ── Deferred-fix closure (P3+) — close the quality loop ────────────
-    if completed_phase >= 3:
-        _rc = _check_deferred_fixes_resolved(project)
-        if _rc != 0:
-            return _rc
-
-    # ── Ghost paper-trail check (P3+) — detect agent self-reports with   ──
-    # zero substantive code changes. Aggregate per-FR ghost detections from
-    # this phase; block advance until each flagged step is re-run.
-    if completed_phase >= 3:
-        _rc = _check_ghost_paper_trail(project, completed_phase)
-        if _rc != 0:
-            return _rc
-
-    # ── Finalize-gate receipt check ────────────────────────────────────
-    # Verify finalize-gate was actually called — prevents the agent from
-    # fabricating gate{N}_result.json + quality_manifest.json directly
-    # without the harness running S3/S4 cross-validation.
-    #
-    # Round 32 站2: this used to ask `.exists()` of a file whose whole content
-    # was a timestamp. It now reads the receipt and cross-checks it against the
-    # two registries finalize-gate writes alongside it, through the same
-    # function core/doctor.py calls — one rule, two consumers.
-    _missing_finalize: list[str] = []
-    _invalid_finalize: list[str] = []
-    # Exit gate check (phase-level): Gate 2 for P3, Gate 3 for P4, Gate 4 for P6
-    if completed_phase in EXIT_GATE_MAP:
-        _exit_gate = EXIT_GATE_MAP[completed_phase]
-        # v2.13: pass completed_phase so the path matches what finalize-gate
-        # wrote (Bug #121 — no cross-phase sentinel reuse).
-        _fs = _shared._finalize_sentinel_path(project, _exit_gate, None, phase=completed_phase)
-        if not _fs.exists():
-            _missing_finalize.append(
-                f"Gate {_exit_gate} (phase-exit) — expected {_fs.name}"
-            )
-        else:
-            _invalid_finalize.extend(gate1_evidence.verify_finalize_evidence(
-                project, _exit_gate, completed_phase, None,
-            ))
-    # Gate 1 per-FR check: every FR must have a finalized Gate 1 sentinel
-    _fr_ids_for_finalize: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
-    _pre_rc = _precheck_per_fr_gate1_and_phase_truth(_fr_ids_for_finalize, _invalid_finalize, _missing_finalize, completed_phase, project)
-    if _pre_rc is not None:
-        return _pre_rc
-
-
-    # ── Ensure Phase{N}_STAGE_PASS.md exists before the internal Phase
-    # Auditor call below — its own C2 check CRITICAL-fails when the file is
-    # entirely missing (first-ever advance for this phase). This early pass
-    # may write a stale quality_complete value (state.json.phase_truth_passed
-    # hasn't been finalized yet) — that's fine, it only needs to exist here.
-    # The authoritative content is written by the final regeneration pass
-    # near the end of this function (see truth_override=True below), after
-    # every blocking check (including this same Phase Auditor call) passes.
-    _early_sp_path = project / "00-summary" / f"Phase{completed_phase}_STAGE_PASS.md"
-    _precheck_early_stage_pass(_early_sp_path, completed_phase, project)
-
-    # ── Anchors are an invariant of the deliverable, not of one load ──
-    # Placement is the design: this runs AFTER the regen above, so the
-    # render-only views the framework owns have already been repaired and
-    # anything still failing is a file the framework has no right to rewrite.
-    # See _broken_deliverable_anchors for the measurement.
-    _anchor_breaks = _broken_deliverable_anchors(project)
-    _pre_rc = _precheck_deliverable_anchors(_anchor_breaks, completed_phase, project)
-    if _pre_rc is not None:
-        return _pre_rc
-
-    # ── Phase Auditor: full C1-C12 for all phases ────────────────────
-    audit_rc = _shared._run_phase_auditor(project, completed_phase)
-    if audit_rc != 0:
-        return audit_rc
-
-    # ── WRITE_SCOPE guard: no orphan diagnostic scripts at the repo root ──
-    # Mechanism (not agent self-discipline) that keeps debug artifacts out of the
-    # source tree. A workflow advance agent once stranded _diag_constitution.py here
-    # while diagnosing a constitution BLOCK; BLOCK the advance until it is cleaned.
-    _orphans = _scope_violation_scripts(project)
-    _pre_rc = _precheck_scope_violations(_orphans, completed_phase, project)
-    if _pre_rc is not None:
-        return _pre_rc
-
-    # ── TDD checks: pytest + coverage, spec-coverage (P3+) ──────
-    # Return code map for this block (pre-existing codes occupy 1-17):
-    #   17 → finalize-gate sentinel missing (see check above)
-    #   18 → ruff: lint errors in src
-    #   19 → mypy: type errors in src
-    #   20 → gitleaks: hardcoded secrets detected
-    _pre_rc = _precheck_p3_security_and_quality(completed_phase, project)
-    if _pre_rc is not None:
-        return _pre_rc
 
     # Round 25 站3a: the fastapi/httpx "integration packages not installed"
     # advisory used to sit here. It fired unconditionally for every P3+ advance,
@@ -3270,14 +3099,27 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
             _existing_bytes_hash = hash(_stage_pass_path.read_bytes())
         except OSError:
             pass
-    _pre_rc = _precheck_stage_pass_staging(_existing_bytes_hash, _sp_gate, _stage_pass_path, completed_phase, project)
-    if _pre_rc is not None:
-        return _pre_rc
+    print(
+        f"  [advance-phase] Regenerating Phase{completed_phase}_STAGE_PASS.md "
+        f"from quality_manifest (gate {_sp_gate})"
+    )
+    _shared._generate_stage_pass(project, _sp_gate, completed_phase, truth_override=True)
+    # Stage only if content changed — avoids touching git index when nothing
+    # actually differs from what is already committed.
+    if _stage_pass_path.exists():
+        try:
+            _new_bytes_hash = hash(_stage_pass_path.read_bytes())
+        except OSError:
+            _new_bytes_hash = None
+        if _new_bytes_hash != _existing_bytes_hash:
+            subprocess.run(
+                ["git", "add", str(_stage_pass_path)],
+                cwd=str(project), capture_output=True,
+            )
+            print(
+                f"  [STAGE_PASS] content changed → staged {completed_phase} advance commit"
+            )
 
-    # The contract's fall-through. Unreachable today — the last helper
-    # carries this function's original terminal `return 0` and always
-    # returns — but `-> int` has to be true of the annotation, not only
-    # of today's implementation.
     return 0
 
 
