@@ -14,12 +14,42 @@ MEASURED at dff609e6, over the same five directories the file ratchet scans:
     cli/phase_cmds.py::_advance_prechecks                       818
     cli/gate_cmds.py::_cmd_finalize_gate_impl                   606
 
-and the churn sits exactly there. Counting hunk headers across the whole
-history: 94 hunks landed in `cmd_advance_phase`, 81 in
-`_run_harness_cross_validation`, 51 in `_advance_prechecks`. Meanwhile the file
-ratchet's ceilings were raised 298 times and lowered 5 — `harness_bridge.py`
-alone 56 times — because raising a ceiling is what you do when the thing that
-grew is a function and nothing is asking about functions.
+and the churn sits exactly there. Meanwhile the file ratchet's ceilings were
+raised 298 times and lowered 5 — `harness_bridge.py` alone 56 times — because
+raising a ceiling is what you do when the thing that grew is a function and
+nothing is asking about functions.
+
+THE CHURN NUMBERS THIS PARAGRAPH USED TO CARRY WERE MEASURED WITH A BLIND RULER
+
+Round 80 wrote "94 hunks landed in `cmd_advance_phase`, 81 in
+`_run_harness_cross_validation`, 51 in `_advance_prechecks`" and stopped there,
+because those were the three largest counts a hunk-header scan could produce.
+It could not produce a fourth: without `.gitattributes`, git's default diff
+driver matches a definition starting in column 0, so all 11442 hunk headers in
+this repo's history named a top-level `def` or a `class` and **not one of them
+named a method** — 626 methods in 175 classes, invisible. Round 81 站1 set
+`*.py diff=python`; re-measured over the same five directories:
+
+    155  harness/harness_bridge.py::finalize_gate      <- rank 1, previously 0
+    102  scripts/generate_full_plan.py::generate_phase4_tasks
+     94  cli/phase_cmds.py::cmd_advance_phase
+     87  core/agent_spawner.py::AgentSpawner.spawn     <- previously 0
+     ...
+     52  cli/phase_cmds.py::_advance_prechecks
+
+The entry at the top of the size list above is also the most-edited function in
+the repository, and the old ruler scored it zero. The claim was not wrong; it
+was three names short of its own strongest case. Eight of the corrected top 40
+are methods that could not previously appear at all.
+
+Neither ruler is exact — the corrected one attributes a hunk to the NEAREST
+preceding definition, so `finalize_gate`'s 155 excludes the 11 in its nested
+`_effective_threshold` / `_dim_passes`, and `cmd_run_fr_step`'s count is split
+across its four nested defs. The decision this file encodes does not rest on
+these numbers: the ceilings come from the AST size scan in `_functions_in`,
+which has always seen methods, which is why `HarnessBridge.finalize_gate` is
+first in `_CEILINGS` and why `test_the_scan_sees_methods_not_only_module_level_
+functions` exists.
 
 Of 2187 functions in scope, 24 are over 200 lines (1.1%). Those 24 are named
 below with the length they had when this file was written; every other function

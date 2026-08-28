@@ -1,0 +1,34 @@
+# =============================================================================
+# Round 81 站1 — make `git diff` able to name a method.
+# =============================================================================
+# Without this file git uses its built-in DEFAULT diff driver, whose funcname
+# pattern only matches a definition starting in column 0. Every hunk header in
+# a class body therefore names the CLASS, never the method that was edited.
+#
+# Measured over `cli core harness scripts detection` at 122ea009, before this
+# file existed:
+#
+#     11442  hunk headers in the whole history
+#      5725  whose context is a top-level `def`
+#         0  whose context is an indented `def`
+#
+# Not one hunk header in this repository's history had ever named one of the
+# 626 methods in its 175 classes. `HarnessBridge.finalize_gate` — the largest
+# function here at 1150 lines, edited in 28 of the 80 rounds — scored zero by
+# every churn measurement anyone ran, and the 32 hunks it produced across the
+# last 20 commits to harness/harness_bridge.py were all filed under
+# `class HarnessBridge:`.
+#
+# `diff=python` selects git's built-in python driver, whose funcname pattern
+# accepts leading whitespace. Verified on this repo: the same 20 commits then
+# name `def finalize_gate(...)` 17 times. The attribute applies at diff time,
+# not commit time, so it corrects the whole history, not just new work.
+#
+# KNOWN LIMIT: the header names the NEAREST preceding definition, so a nested
+# helper absorbs the churn of the block below it — `cmd_run_fr_step`'s count is
+# split across itself and its four nested defs, and `finalize_gate`'s 155 does
+# not include the 11 in `_effective_threshold` / `_dim_passes`. Neither ruler is
+# exact. This one can at least see the subject.
+# =============================================================================
+
+*.py diff=python
