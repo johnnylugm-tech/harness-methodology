@@ -3846,3 +3846,31 @@
 - test: tests/test_diff_driver_sees_methods.py::test_the_driver_is_what_makes_a_method_visible
   bug: "asserting `git check-attr` reports `python` proves the attribute is SET, not that setting it does anything. The witness builds a throwaway repo, edits a method body and reads the header git actually emits — twice, with the attribute and without — so that if the two agree, the guard says so instead of passing"
   fixed_in: "Round 81 站1"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_a_project_whose_hooks_a_clone_dropped_is_reported
+  bug: "cli/project_cmds.py cmd_init_project installs two things — step 2 the CI workflow, step 3 the git hooks — and of core/doctor.py's sixteen checks exactly one went back to ask about either. _check_ci_template_drift (Round 40 站1) asks about the workflow, which is a COMMITTED file and travels with the repository. Nothing asked about the hooks, which are .git/hooks/* plus core.hooksPath in .git/config, neither of which `git clone` copies. Every consumer project cloned since init-project ran has four dead hooks (pre-push, pre-commit, post-merge, prepare-commit-msg) and the framework had no way to notice. Round 80 站3 filed this under its own 'closing it needs branch protection' limit, but that limit is about `git push --no-verify` and about people who never run self_check — not about hooks that are simply absent, which only needed someone to ask"
+  fixed_in: "Round 81 站4. core/git_hooks.pre_push_hook_status is the one predicate; core/doctor_checks/git_state._check_hook_wiring is check 14b, beside the CI-template check because it is the same question asked of the other half of the same command. ERROR rather than WARN — an out-of-date CI file is an old verdict, a hook that does not run is no verdict — but it changes no exit code, only the degradation ledger _run_doctor_after_advance writes"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_a_wired_project_is_silent
+  bug: "without the positive control the suite proves only that doctor can complain, not that it can stop"
+  fixed_in: "Round 81 站4"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_a_hook_git_cannot_execute_is_reported
+  bug: "git will not run a hook it cannot execute, and a present-but-unexecutable hook reads as installed to anything that only checks existence"
+  fixed_in: "Round 81 站4"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_a_tree_git_does_not_manage_is_silent
+  bug: "fail-soft on git itself, the rule core/doctor_checks/git_state.py states in its own docstring. Also why the cases beside it run `git init`: every other doctor fixture in this suite is a bare tmp_path where this check is correctly quiet, and a guard that only ever exercises the quiet path is the absent witness Round 46 is named after"
+  fixed_in: "Round 81 站4"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_doctor_asks_through_the_shared_predicate
+  bug: "a doctor check that reached for git itself would agree with the shell script by coincidence rather than by construction, and would drift the first time either was edited (Round 17)"
+  fixed_in: "Round 81 站4"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_the_script_prints_exactly_what_the_predicate_says
+  bug: "scripts/check_hook_wiring.sh is supposed to hold no copy of the question and no copy of the answers. Asserted as a behaviour rather than a source read: both are run against the same repository in every reachable state and their output compared, so a script that kept a copy shows up as a disagreement"
+  fixed_in: "Round 81 站4"
+
+- test: tests/test_hook_wiring_is_asked_of_projects.py::test_the_operator_report_is_byte_for_byte_what_the_script_used_to_print
+  bug: "moving the answers out of shell into Python is a REWRITE, and a rewrite cannot offer the sha256 a move offers. Its safety property is the observable surface, which here is finite and reproducible — wired, missing, not-executable, not-a-repo, CI. All five recorded from the shell script at bb15023d before it was touched; verified byte-identical after. Counter-proof: one trailing space added to one message turns this red"
+  fixed_in: "Round 81 站4"

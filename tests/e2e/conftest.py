@@ -115,6 +115,18 @@ def e2e_project(tmp_path):
     _git(proj, "config", "user.email", "e2e@example.com")
     _git(proj, "config", "user.name", "e2e")
     _git(proj, "config", "core.hooksPath", ".git/hooks")
+    # Round 81 站4: a real project gets a pre-push hook from `init-project`
+    # step 3 (scripts/setup-git-hooks.sh); this fixture set hooksPath and then
+    # installed nothing, so it delivered a tree no init-project ever produces —
+    # the same unfaithfulness the _GITIGNORE_ENTRIES note below is about, found
+    # by doctor's new hook-wiring check rather than by reading. A no-op on
+    # purpose: the journeys measure what the CLI commands do, not what the
+    # canonical hooks do, and pointing hooksPath at the harness's real
+    # scripts/hooks would change what every commit in every journey runs.
+    _hook = proj / ".git" / "hooks" / "pre-push"
+    _hook.parent.mkdir(parents=True, exist_ok=True)
+    _hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    _hook.chmod(0o755)
     # Round 44 站2: a real project gets these from `harness_cli.py init`
     # (harness/git_strategy.py::_GITIGNORE_ENTRIES). Without them the fixture
     # delivers files a real project never delivers — `attestation.latest.json`

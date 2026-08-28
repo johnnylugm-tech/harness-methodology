@@ -1,0 +1,47 @@
+[
+  {
+    "wiring": {
+      "status": "ok",
+      "hook_rel": "scripts/hooks/pre-push",
+      "hooks_path": "scripts/hooks",
+      "na_reason": ""
+    },
+    "report": "  pre-push hook wired: scripts/hooks/pre-push (core.hooksPath='scripts/hooks')"
+  },
+  {
+    "wiring": {
+      "status": "missing",
+      "hook_rel": ".git/hooks/pre-push",
+      "hooks_path": "",
+      "na_reason": ""
+    },
+    "report": "\n  git would run '.git/hooks/pre-push' as the pre-push hook, and that file does\n  not exist. core.hooksPath is '<unset>'.\n\n  Nothing you push from this clone is checked by the hook, so every\n  check it performs is unreached — including the self-check this\n  script is the first step of.\n\n  Fix:  scripts/setup-git-hooks.sh"
+  },
+  {
+    "wiring": {
+      "status": "not_executable",
+      "hook_rel": "scripts/hooks/pre-push",
+      "hooks_path": "scripts/hooks",
+      "na_reason": ""
+    },
+    "report": "\n  'scripts/hooks/pre-push' exists but is not executable, and git will not run a\n  hook it cannot execute. core.hooksPath is 'scripts/hooks'.\n\n  Fix:  chmod +x 'scripts/hooks/pre-push'   (or re-run scripts/setup-git-hooks.sh)"
+  },
+  {
+    "wiring": {
+      "status": "n/a",
+      "hook_rel": "",
+      "hooks_path": "",
+      "na_reason": "/var/folders/px/thyvvmkj0q920zszkvbssyxm0000gn/T/tmp.0H9Ifi0tYw/notrepo is not a git repository"
+    },
+    "report": "  not applicable: /var/folders/px/thyvvmkj0q920zszkvbssyxm0000gn/T/tmp.0H9Ifi0tYw/notrepo is not a git repository"
+  },
+  {
+    "wiring": {
+      "status": "n/a",
+      "hook_rel": "",
+      "hooks_path": "",
+      "na_reason": "CI does not push, so no pre-push hook is installed here"
+    },
+    "report": "  not applicable: CI does not push, so no pre-push hook is installed here"
+  }
+]

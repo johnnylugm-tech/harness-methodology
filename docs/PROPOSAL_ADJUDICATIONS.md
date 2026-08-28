@@ -3903,6 +3903,47 @@ re-export 使其續存 —— 反證:拿掉 re-export,那四支加 golden 兩支
 
 `harness/harness_bridge.py` **4064 → 3828**。
 
+### 站4 — 框架裝了兩樣東西,只回頭問過其中一樣
+
+`cmd_init_project` 步驟 2 寫 CI workflow、步驟 3 跑 `setup-git-hooks.sh`。
+`run_doctor` 的 16 項檢查裡,第 14 項 `_check_ci_template_drift`(R40 站1)回頭問了
+**前者**,沒有任何一項問後者。而兩者的持久性相反:CI workflow 是被 commit 的檔案;
+hooks 是 `.git/hooks/*` 與 `.git/config` 的 `core.hooksPath`,**`git clone` 兩者都不複製**。
+任何消費專案被 clone 之後四個 hook 全部失效,框架沒有一處能察覺。
+
+**這不是 R80 站3 宣告不可封閉的那個限制。** 那句「完全封閉需要 branch protection」
+講的是 `git push --no-verify` 和不跑 self_check 的人。它不適用於「hooks 根本不在」——
+那個只需要有人去問,而問是免費的。站3 把兩件事寫成了一個限制。
+
+述詞收進 `core/git_hooks.py`(老闆裁示),doctor 直接呼叫,
+`scripts/check_hook_wiring.sh` 改為薄包裝。**這是本輪唯一的改寫,不是搬移**,
+所以它的安全性靠可枚舉的觀察面:五個可達狀態(已接線 / 缺檔 / 不可執行 / 非 git repo /
+CI)在改寫**前**全部錄下,改寫後 `diff` **五個狀態逐位元組相同**。
+反證:在一則訊息末尾加一個空白 → 錄音比對轉紅。
+
+#### 我把 severity 寫錯了,是測試套件糾正的
+
+計畫寫 ERROR,理由是「過期的 CI 檔是舊的判定,不跑的 hook 是沒有判定」。
+那句話讀起來好,但**不是這個模組實際劃的線**:此處其他每一個 ERROR 都是「被記錄下來的
+事實是錯的」(過期判定、偽造的 spawn 紀錄、超前 state 的 manifest)。缺 hook 是環境,
+一道指令可修 —— 那正是 `_check_ci_template_drift` 給自己 WARN 的理由,逐字。
+
+**推翻它的是量測不是論證**:`tests/e2e/conftest.py` 的 fixture 沒有 hook,
+`cmd_doctor` 遇到任何 ERROR 就 exit 1,於是兩支 e2e journey 轉紅。而**任何專案的
+fresh clone 都正好是這個狀態** —— 一個在新 checkout 的正常狀態下就會響的訊號,
+大家只會學會滑過去。改 WARN,理由與 re-open 條件寫進 `_check_hook_wiring` 的 docstring。
+
+**同時 e2e fixture 也被修正而不是被遷就**:它設了 `core.hooksPath` 卻一個 hook 都沒裝,
+交付出一棵 `init-project` 從不產生的樹 —— 與它上面那條 R44 站2 的 `_GITIGNORE_ENTRIES`
+註解同一種不忠實,只是這次是被新檢查發現而不是被讀出來。裝一個 no-op pre-push:
+journey 量的是 CLI 指令做什麼,不是 canonical hook 做什麼。
+
+站4 自己踩到三個 ratchet,全部照規則處理:`core/doctor.py` 262→269、
+`run_doctor` 202→210(**是抬升,並且指名它是抬升**)、`test_god_file_split_safety`
+在同一 commit 以 `REGEN_SPLIT_GOLDEN` 重新產生(該 commit 無任何搬移,正是規則允許的情形)。
+第四個是我自己造的缺陷:`core/git_hooks._git` 第一版寫 `subprocess.run(timeout=…)`,
+被 subprocess-group ratchet 抓到 —— **與 R80 站11 同一個錯,相隔一輪,同一個作者**。
+
 
 ---
 

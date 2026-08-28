@@ -591,7 +591,7 @@
     "core.doctor::_check_testpaths_drift": "020b9d1e53eda76e",
     "core.doctor::_enforcer_shas_in": "91c22f1b7bc95364",
     "core.doctor::_phase_from_sentinel_name": "822801208daa956b",
-    "core.doctor::run_doctor": "43b0d7aed20a21a6",
+    "core.doctor::run_doctor": "ea7441647a424775",
     "harness.harness_bridge::_architecture_regression_reason": "ed9b980b6828fd82",
     "harness.harness_bridge::_atomic_write_gate_result": "f82b6a33e6f1c75d",
     "harness.harness_bridge::_check_infra_fail_pollution": "81176f288e7e457d",

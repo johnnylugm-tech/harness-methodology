@@ -2,35 +2,23 @@
 # =============================================================================
 # check_hook_wiring.sh — will `git push` from this clone check anything?
 # =============================================================================
-# Round 80 站3. Every check the pre-push hook performs is worth exactly as much
-# as the odds that git invokes the hook at all, and nothing asked. Measured in
-# the clone this was written in, at dff609e6:
+# Round 80 站3 asked this question here, in shell. Round 81 站4 moved the
+# question itself to core/git_hooks.py so that core/doctor_checks/git_state.py
+# could ask it of CONSUMER projects too — where it matters more, because
+# `git clone` copies neither `.git/hooks/*` nor `core.hooksPath`, so every
+# project cloned since `init-project` ran has four dead hooks.
 #
-#     $ git config --get core.hooksPath        # nothing, exit 1
-#     $ git rev-parse --git-path hooks/pre-push
-#     .git/hooks/pre-push                      # does not exist
+# This file is now a wrapper. It holds no copy of the question and no copy of
+# the answers: `core.git_hooks.operator_report` renders the same text this
+# script used to print, and tests/test_hook_wiring_is_asked_of_projects.py
+# pins it byte-for-byte against a recording made before the move. Two
+# statements of one rule is what Round 17 is named after.
 #
-# So Round 79 站5's work — four silent-pass paths inside the hook converted
-# into named BLOCKs — could not fire here. Round 72 recorded the same gap as
-# deferred item B and it stayed open. tests/test_selfcheck_single_source.py
-# opened by stating "There IS a pre-push hook, and it IS active", which was a
-# premise, not an assertion.
-#
-# THE QUESTION ASKED
-#
-# `git rev-parse --git-path hooks/pre-push` is git's own answer to "which file
-# would I run", and it resolves through core.hooksPath when that is set. That
-# accepts both shapes scripts/setup-git-hooks.sh produces (the config, and the
-# .git/hooks/* symlinks it mirrors for older tooling) without this script
-# having to know which is in play.
-#
-# NOT asked: whether the resolved hook is canonical rather than a stale
-# physical copy. setup-git-hooks.sh already replaces legacy physical hooks with
-# symlinks, and no incident here has been a drifted copy.
-#
-# HONEST LIMIT: this narrows the window, it does not close it. Someone who does
-# not run self_check.sh does not see this either, and `git push --no-verify`
-# never invokes a hook. Closing it needs a required status check on the branch.
+# HONEST LIMIT (unchanged from 站3): this narrows the window, it does not close
+# it. Someone who does not run self_check.sh does not see this either, and
+# `git push --no-verify` never invokes a hook. Closing THAT needs a required
+# status check on the branch. The doctor check added in 站4 closes a different
+# hole — a project whose hooks are simply not there — and needs no such thing.
 #
 # Usage:  scripts/check_hook_wiring.sh [repo-root]
 # Exits 0 when a pre-push hook would run (or when not applicable, saying so).
@@ -38,50 +26,23 @@
 
 set -uo pipefail
 
-REPO_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="${1:-$HERE}"
 
-# CI clones never push, so there is nothing to wire. Say it rather than
-# skipping quietly — a check that did not run must not read like one that
-# passed (Round 79 站5, the rule this station is the second application of).
-if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-    echo "  not applicable: CI does not push, so no pre-push hook is installed here"
-    exit 0
+# Same preference scripts/self_check.sh applies, and for the same reason: the
+# `python3` on this machine may be an interpreter without the project on its
+# path, and a check that cannot run must fail rather than report a false green.
+if [ -x "$HERE/.venv/bin/python" ]; then
+    PYTHON="$HERE/.venv/bin/python"
+else
+    PYTHON="${PYTHON:-python3}"
 fi
 
-if ! git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-    echo "  not applicable: $REPO_ROOT is not a git repository"
-    exit 0
-fi
-
-HOOK_REL="$(git -C "$REPO_ROOT" rev-parse --git-path hooks/pre-push 2>/dev/null)"
-case "$HOOK_REL" in
-    /*) HOOK_PATH="$HOOK_REL" ;;
-    *)  HOOK_PATH="$REPO_ROOT/$HOOK_REL" ;;
-esac
-
-CONFIGURED="$(git -C "$REPO_ROOT" config --get core.hooksPath 2>/dev/null || true)"
-
-if [ ! -f "$HOOK_PATH" ]; then
+if ! command -v "$PYTHON" >/dev/null 2>&1 && [ ! -x "$PYTHON" ]; then
     echo ""
-    echo "  git would run '$HOOK_REL' as the pre-push hook, and that file does"
-    echo "  not exist. core.hooksPath is '${CONFIGURED:-<unset>}'."
-    echo ""
-    echo "  Nothing you push from this clone is checked by the hook, so every"
-    echo "  check it performs is unreached — including the self-check this"
-    echo "  script is the first step of."
-    echo ""
-    echo "  Fix:  scripts/setup-git-hooks.sh"
+    echo "  no usable Python interpreter ('$PYTHON'), so the hook-wiring check"
+    echo "  could not run. It is not passing; it did not happen."
     exit 1
 fi
 
-if [ ! -x "$HOOK_PATH" ]; then
-    echo ""
-    echo "  '$HOOK_REL' exists but is not executable, and git will not run a"
-    echo "  hook it cannot execute. core.hooksPath is '${CONFIGURED:-<unset>}'."
-    echo ""
-    echo "  Fix:  chmod +x '$HOOK_REL'   (or re-run scripts/setup-git-hooks.sh)"
-    exit 1
-fi
-
-echo "  pre-push hook wired: $HOOK_REL (core.hooksPath='${CONFIGURED:-<unset>}')"
-exit 0
+PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" exec "$PYTHON" -m core.git_hooks "$REPO_ROOT"

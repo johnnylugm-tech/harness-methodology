@@ -134,7 +134,13 @@ _CEILINGS: dict[str, int] = {
     "harness/gate_checks.py::_check_tool_evidence": 206,
     "harness/ssi/scripts/crg_analysis.py::compute_community_cohesion_score": 206,
     "scripts/plangen/blocks.py::_gate_exit_checkpoint": 204,
-    "core/doctor.py::run_doctor": 202,
+    # 210 at Round 81 站4, from 202: check 14b (`_check_hook_wiring`) and the
+    # comment recording why it sits beside check 14 rather than at the end —
+    # `init-project` installs a CI workflow and git hooks, and until now this
+    # function asked about only one of them. A raise, and named as one: this
+    # function is a registry of sixteen extends and every round that adds a
+    # check adds to it.
+    "core/doctor.py::run_doctor": 210,
     "core/quality_gate/spec_tracking_checker.py::compute_trace_dimension": 201,
 }
 

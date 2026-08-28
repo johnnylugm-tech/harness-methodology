@@ -26,6 +26,7 @@ from core.doctor_checks.config_drift import (
 from core.doctor_checks.git_state import (
     _check_ci_template_drift,
     _check_git_sync,
+    _check_hook_wiring,
     _check_submodule_behind,
 )
 from core.doctor_checks.ledgers import (
@@ -230,6 +231,14 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # inside a consumer repo with the harness beside it, so it can see both
     # files at once.
     findings.extend(_check_ci_template_drift(project))
+
+    # 14b. The OTHER thing init-project installs (Round 81 站4). Check 14 goes
+    # back to the CI workflow that command's step 2 wrote; nothing went back to
+    # the git hooks its step 3 installed, and those are the ones a `git clone`
+    # silently drops — .git/hooks/ and core.hooksPath both live outside the
+    # object store. Numbered beside 14 rather than appended, because it is the
+    # same check asked of the other half of the same command.
+    findings.extend(_check_hook_wiring(project))
 
     # 15. what `make verify-system` will actually run (Round 52 站1). The one
     # gate dimension that executes the delivered system runs a recipe the

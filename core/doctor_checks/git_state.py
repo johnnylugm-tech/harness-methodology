@@ -43,6 +43,65 @@ def _check_ci_template_drift(project: Path) -> list[Finding]:
     return [Finding("ci-template", "WARN", drift)] if drift else []
 
 
+def _check_hook_wiring(project: Path) -> list[Finding]:
+    """WARN when git would run no pre-push hook in this project.
+
+    Round 81 站4. `init-project` installs two things and this file already asks
+    about one of them: `_check_ci_template_drift` goes back to the CI workflow
+    step 2 wrote. Nothing went back to the hooks step 3 installed, and the two
+    decay differently — the workflow is a committed file, while the hooks are
+    `.git/hooks/*` plus `core.hooksPath` in `.git/config`, and **`git clone`
+    copies neither**. A project someone cloned after init has four dead hooks
+    and nothing here could see it.
+
+    WHY WARN, AFTER THIS WAS WRITTEN AS ERROR
+
+    The plan for this station argued ERROR: an out-of-date CI file is an old
+    verdict, a hook that does not run is no verdict at all. That reads well and
+    it is not the line this module actually draws. Every other ERROR here is a
+    RECORDED FACT that is wrong — a stale verdict, a forged spawn entry, a
+    manifest ahead of the state. Missing hooks are environment, repaired by one
+    command the operator runs when they choose to, which is verbatim the reason
+    `_check_ci_template_drift` gives for being WARN.
+
+    The evidence that settled it arrived from the suite rather than from the
+    argument: `tests/e2e/conftest.py`'s project — faithful enough to read
+    `_GITIGNORE_ENTRIES` from the harness SSOT so it delivers what a real
+    project delivers — has no hooks, so `doctor` began exiting 1 on two e2e
+    journeys. `cmd_doctor` returns 1 when any finding is an ERROR, and a FRESH
+    CLONE of any project is in exactly this state. A signal that fires on the
+    normal condition of a new checkout is one everybody learns to scroll past.
+
+    Re-open as ERROR if a project is ever measured losing work because this
+    line went unread.
+
+    Silent on a tree git does not manage, per this module's fail-soft rule:
+    "git could not answer" is not evidence about the project. That is also why
+    the guard for this check has to build a real repository — every doctor
+    fixture in tests/ is a bare tmp_path, where this is correctly quiet, and a
+    guard that only ever exercises the quiet path is an absent witness.
+    """
+    from core.git_hooks import pre_push_hook_status
+
+    wiring = pre_push_hook_status(project)
+    if wiring.status in ("ok", "n/a"):
+        return []
+
+    configured = wiring.hooks_path or "<unset>"
+    if wiring.status == "missing":
+        detail = (f"git would run '{wiring.hook_rel}' and that file does not "
+                  f"exist (core.hooksPath={configured})")
+    else:
+        detail = (f"'{wiring.hook_rel}' is not executable, and git will not run "
+                  f"a hook it cannot execute (core.hooksPath={configured})")
+
+    return [Finding("git-hooks", "WARN",
+                    f"no pre-push hook would run in this project — {detail}. "
+                    f"`git clone` copies neither .git/hooks/ nor core.hooksPath, "
+                    f"so a fresh clone loses every hook init-project installed. "
+                    f"Reinstall: `bash harness/scripts/setup-git-hooks.sh`")]
+
+
 def _check_submodule_behind(project: Path) -> list[Finding]:
     """WARN when harness/ is behind origin/main. Silent when offline or current.
 
