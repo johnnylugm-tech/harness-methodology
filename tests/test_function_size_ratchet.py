@@ -123,7 +123,10 @@ _CEILINGS: dict[str, int] = {
     "core/quality_gate/mutation_enforcer.py::_compute_mutation_score": 310,
     "core/auto_fix/__init__.py::AutoFixEngine.fix": 248,
     "cli/push_cmds.py::cmd_push_milestone": 241,
-    "harness/harness_bridge.py::_crg_enrich_gate_findings": 234,
+    # Moved to harness/gate_crg.py by Round 81 站3, byte-identical — the number
+    # is unchanged because the function is. Round 80 could not move it: its
+    # closure pulled in `_atomic_write_gate_result`, and 站2 moved that first.
+    "harness/gate_crg.py::_crg_enrich_gate_findings": 234,
     "cli/gate_cmds.py::_check_gate4_prerequisites": 232,
     "cli/phase_cmds.py::_verify_entry_gate": 230,
     "cli/project_cmds.py::cmd_audit_structure": 216,

@@ -3822,6 +3822,90 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 81 — 擋住那五項的是量測,不是工程
+
+老闆令:把 Round 80 結束時仍開放的五項(本檔 Round 80「明列不做」表)展開成可執行的
+修復方案,**確認根源、用正解、不是 workaround**。老闆複核令:**重新驗證是否都是正解、
+是否引入副作用;重構必須安全地進行**。老闆三項裁示:巨型函式四支全做;賬本索引走
+**逐字提取 + 位元組同一性斷言**;hook 述詞收進 Python、shell 改薄包裝。
+
+基線 `122ea009`。**本節隨每一站增長** —— Round 80 站9 的守衛要求一個 round 的第一個
+commit 落地時這一節就必須存在,而不是最後才補。這一輪是那條規則第一次被實際套用。
+
+### 本輪母體
+
+> **五項各自的攔路石,驗證後都不是工程難處,而是一個看不見自己主題的量測。**
+
+| 項 | 賬本記的攔路石 | 實測後的真相 |
+|---|---|---|
+| 7 函式貼近天花板 | 「操作面後果,不是缺陷」 | 該結論建立在一把看不見 method 的尺上(站1) |
+| 5 `_crg_enrich` 搬出 | 「閉包會拉進共用寫入器,造成循環」 | 屬實,但那個寫入器是葉節點,解除代價是 12 行(站2/站3) |
+| 8 hook 接線 | 「完全封閉需要 branch protection」 | 真正的洞與 branch protection 無關(站4) |
+| 6 賬本機讀索引 | 「提取會把話塞進前幾輪嘴裡」 | 只存在於改寫式提取;逐字 + 位元組斷言使之機制上不可能(站5) |
+| 3 巨型函式分解 | 「覆蓋不足以證明抽取等價」(引 81% 檔案級) | 檔案級數字答不了這題。界線是資料流,實測 **39%**(站6-9) |
+
+### 站1 — churn 的尺看不見 method
+
+`tests/test_function_size_ratchet.py` 用 hunk header 計數論證「churn 與大函式完全重合」。
+實測 `cli core harness scripts detection` 全史:**11442 個 hunk header,5725 個 context
+是 top-level `def`,指到縮排 `def` 的是 0 個** —— 175 個 class 的 626 個 method,全repo
+每一次 churn 量測都看不見。repo 無 `.gitattributes`,git 用內建 default driver,
+其 funcname 只認第 0 欄起始的定義,所以 class body 內的每一次編輯都被歸給 class:
+最近 20 個 `harness_bridge.py` commit 產生 32 個 header 全部寫 `class HarnessBridge:`。
+
+**那張表自己排第一的 `HarnessBridge.finalize_gate`(1150 行、28 輪動過),在它用來
+自證的那把尺上是 0 分。**
+
+`*.py diff=python` 選 git 內建 python driver(funcname 認前導空白)。**實測它在 diff
+時而非 commit 時生效,所以整段歷史一起被修正**:同樣那 20 個 commit 改為出現
+`def finalize_gate(...)` 17 次。修正後全 repo 重新量測:
+
+```
+155  harness/harness_bridge.py::finalize_gate          <- rank 1,原本 0
+102  scripts/generate_full_plan.py::generate_phase4_tasks
+ 94  cli/phase_cmds.py::cmd_advance_phase
+ 87  core/agent_spawner.py::AgentSpawner.spawn         <- 原本 0
+ 52  cli/phase_cmds.py::_advance_prechecks
+```
+
+**原主張不是錯的,是少講了三個名字,包含它自己最強的那個例證。** 修正後 top 40 有 8 個
+是原本不可能出現的 method。docstring 與 REGRESSION_GUARDS.yaml 的**同一句話兩處都改** ——
+只改一處正是 R36 的形狀。
+
+**計畫裡我原本要刪掉那句話**,理由是重建 method 級 churn 要逐 commit AST 歸屬、太貴。
+`.gitattributes` 對歷史生效這件事一經實測,那個成本就消失了,所以改為量測後照實寫。
+**兩把尺都不精確**:修正後的這把歸給「最近的前一個定義」,所以 `finalize_gate` 的 155
+不含它兩個巢狀 helper 的 11,`cmd_run_fr_step` 的數字被拆到四個巢狀 def 上。
+寫進 `.gitattributes` 的檔頭,不留給下一個讀者自己發現。ratchet 的**決策**不依賴這些
+數字 —— 天花板來自 `_functions_in` 的 AST 掃描,那把尺一直看得見 method。
+
+### 站2、站3 — 項5:攔路石是真的,對它的估算不是
+
+Round 80 記的理由是「`_crg_enrich_gate_findings` 的閉包會拉進 `_atomic_write_gate_result`
+(8 個呼叫點的共用寫入器),搬那個是重構不是搬移,會造成循環」,re-open 條件是
+「共用寫入器先被移到中立模組」。
+
+實測那個寫入器自己的閉包是 `json` 與一個 guarded 的 `core.atomic_io` —— **它是葉節點,
+12 行**。站2 把它搬到 `harness/gate_io.py`,站3 把 234 行的 enricher 搬到
+`harness/gate_crg.py`。兩次都逐位元組:AST source segment 的 sha256
+(`f82b6a33e6f1c75d` / `f2d8611eca62f945`)與 `tests/golden/god_file_split/surface.json`
+**原本就記著的值相同,golden 未重新產生**。
+
+`DimResult` 與 `CRGBridge` 只出現在字串註記裡(每一次重建都走 `dataclasses.replace`,
+它拿實例、從不指名型別),所以走 TYPE_CHECKING import —— 與 R80 站8 對 `GateContext`
+同一處置,依賴單向,無循環。
+
+**複核補上的查證(計畫第一版沒查)**:全 repo 沒有任何測試 patch
+`harness_bridge._atomic_write_gate_result`;唯一相關的
+`tests/test_harness_bridge_mediums.py` patch 的是全域 `Path.write_text`,對搬移透明。
+而 `_crg_enrich_gate_findings` **有** 四支測試 patch 它的 harness_bridge 名字,
+re-export 使其續存 —— 反證:拿掉 re-export,那四支加 golden 兩支共 4 個 node 轉紅。
+
+`harness/harness_bridge.py` **4064 → 3828**。
+
+
+---
+
 ## Round 80 — 框架寫下規則、對專案執法,卻不對自己執行
 
 老闆令:盤點開始至今(Round 79,`dff609e6`,1480 commits / 79 輪)的修復,從熱點看
