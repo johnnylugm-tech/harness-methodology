@@ -1,0 +1,73 @@
+# =============================================================================
+# What already measures a deferred decision's re-open condition — hand-written.
+# =============================================================================
+# docs/deferred_index.yaml is a COPY of the ledger and nothing else. This file
+# is the judgement that copy deliberately excludes: for a given "not doing"
+# decision, which test would notice if its re-open condition came true, or —
+# when it already has — which round acted on it.
+#
+# Round 81 站5. Round 80's cost is what this is for: three of that round's
+# opening findings had been adjudicated by R74 站3 and R77 站4, and BOTH of
+# those adjudications had left working guards behind
+# (tests/test_test_spec_parser_parity.py, tests/test_fr_test_filename_parity.py,
+# green the whole time). The ledger had the answers and the guards were running;
+# nothing connected a proposal to either. An index alone would not have fixed
+# that — this mapping is the part that would.
+#
+# DELIBERATELY SPARSE. An entry is added only when someone has actually looked
+# and can name the test. Going through all 162 index entries is a separate
+# repo-wide audit, recorded as not-doing in Round 81 with that as its re-open
+# condition. An absent key here means "nobody has checked", which is different
+# from "nothing measures it" — Round 46, again.
+#
+# KEYED BY (round, item), NOT BY LINE. The first draft keyed on the ledger line
+# number, which every subsequent ledger edit invalidates — Round 81's own
+# section, inserted above Round 80's, moved all eight of its rows. `item` is
+# verbatim ledger text, so it is stable exactly as long as the decision is.
+#
+# Fields:
+#   round        the ledger round the decision belongs to
+#   item         the entry's first cell / first line, verbatim from the index
+#   guard        pytest node id that measures the re-open condition, or `manual`
+#   resolved_in  set when the condition has since been met and acted on
+#   note         why this mapping is what it is
+# =============================================================================
+
+entries:
+  - round: 80
+    item: "`_crg_enrich_gate_findings` 搬出 harness_bridge"
+    guard: "tests/test_god_file_split_safety.py::test_every_split_function_moved_without_being_rewritten"
+    resolved_in: "Round 81 站2/站3"
+    note: >-
+      The re-open condition was 共用寫入器先被移到中立模組. 站2 moved
+      _atomic_write_gate_result to harness/gate_io.py — it turned out to be a
+      leaf, twelve lines — and 站3 moved this. The named guard is what proves
+      both were moves rather than rewrites, by AST source-segment sha256.
+
+  - round: 80
+    item: "「明列不做」抽成機讀索引"
+    guard: "tests/test_deferred_index.py::test_every_field_is_a_byte_exact_slice_of_the_ledger"
+    resolved_in: "Round 81 站5"
+    note: >-
+      The re-open condition was 有人願意逐條與原文對照地做一次提取. The extraction
+      is mechanical and the comparison is the guard: every field must be a
+      byte-exact slice of the ledger, which removes the stated risk (putting
+      words in past rounds' mouths) rather than accepting it.
+
+  - round: 80
+    item: "branch protection"
+    guard: manual
+    note: >-
+      Forbidden by the operator, globally. Round 81 站4 closed a DIFFERENT hole
+      that 站3 had filed under this one — a project whose hooks are simply
+      absent, which needs someone to ask rather than a required status check.
+      This entry is unchanged and stays manual.
+
+  - round: 80
+    item: "`overlay_used` 仍是別台機器的絕對路徑"
+    guard: manual
+    note: >-
+      Re-open condition is 出現一個讀者 — the appearance of a consumer, which no
+      test can assert the absence of without enumerating every future reader.
+      Genuinely manual, recorded as such so the next reader does not go looking
+      for a guard that was never possible.

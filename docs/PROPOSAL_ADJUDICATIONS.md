@@ -3944,6 +3944,43 @@ journey 量的是 CLI 指令做什麼,不是 canonical hook 做什麼。
 第四個是我自己造的缺陷:`core/git_hooks._git` 第一版寫 `subprocess.run(timeout=…)`,
 被 subprocess-group ratchet 抓到 —— **與 R80 站11 同一個錯,相隔一輪,同一個作者**。
 
+### 站5 — 逐字提取讓「把話塞進前幾輪嘴裡」變成機制上不可能
+
+Round 80 的不做理由是「23+ 條散在 5500 行散文裡,提取有把話塞進前幾輪嘴裡的實際風險」,
+re-open 條件是「有人願意逐條與原文對照地做一次提取」。
+
+**那個風險屬於「改寫式」提取。** `scripts/extract_deferred_index.py` 只複製,而
+`test_every_field_is_a_byte_exact_slice_of_the_ledger` 把「只複製」從意圖變成性質:
+索引裡每一個 `item`/`reason`/`reopen`/`text` 必須逐位元組出現在賬本裡。
+**反證:改一個字元(`branch protection` → `branch protections`)同時打紅三條斷言。**
+
+實測產出:**162 條、涵蓋 34 個 round**(40 個表格列、120 個 bullet)、
+**0 個欄位不是賬本的位元組切片**。36 個 `不做` section 裡有 **2 個**是純敘事(無表無
+bullet),輸出為 `kind: unstructured` 帶行號區間、**不填任何欄位** —— 明寫的洞。
+把 parser 調到每個 section 都吐得出東西正是 R55 的形狀,那條斷言擋的就是這個。
+
+`不做` 標題在 80 輪裡至少有八種拼法、四個標題深度,所以 section 掃描比對**標題文字**
+而不是列舉拼法 —— R80 站9 的第一版 grep `^## Round` 製造出三個假洞,同一課。
+
+#### 手寫的那一半,與我第一版設計的自相矛盾
+
+`guard:`(哪支測試會注意到 re-open 條件成立)是判斷,不是複製,所以它**不能**住在產生檔裡:
+第一次手填就會被下一次重新產生洗掉,或者讓位元組同一性斷言轉紅。**這兩條規則互斥,
+而我計畫的第一版把它們寫在同一個檔上。** 拆成 `docs/deferred_guards.yaml`。
+
+**鍵不能用行號。** 第一版用 `round:line`,而 Round 81 這一節插在 Round 80 之上,
+就把它那八列全部推移了。改用 `(round, item 逐字文字)`。
+
+**這個機制買到什麼,以及沒買到什麼**:R80 重新推導 F7/F8 時,
+`tests/test_test_spec_parser_parity.py` 與 `tests/test_fr_test_filename_parity.py`
+**都已存在且全程是綠的**。索引擋不住「沒去查」—— 它讓「查了」有地方落地,而
+`deferred_guards.yaml` 才是把決定連到守衛的那一半。寫進測試的 docstring,
+因為誇大一個機制買到什麼,正是下一輪拿它去擋它擋不住的事情的原因。
+
+`deferred_guards.yaml` **刻意稀疏**:只在有人真的看過、能指名時才填。逐條走完 162 條
+是另一次全庫審查,列入本輪明列不做。**空的鍵代表「沒人查過」,不代表「沒有東西在量」**
+—— 又一次 R46。
+
 
 ---
 

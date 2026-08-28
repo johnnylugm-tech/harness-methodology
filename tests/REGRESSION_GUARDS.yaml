@@ -3874,3 +3874,27 @@
 - test: tests/test_hook_wiring_is_asked_of_projects.py::test_the_operator_report_is_byte_for_byte_what_the_script_used_to_print
   bug: "moving the answers out of shell into Python is a REWRITE, and a rewrite cannot offer the sha256 a move offers. Its safety property is the observable surface, which here is finite and reproducible — wired, missing, not-executable, not-a-repo, CI. All five recorded from the shell script at bb15023d before it was touched; verified byte-identical after. Counter-proof: one trailing space added to one message turns this red"
   fixed_in: "Round 81 站4"
+
+- test: tests/test_deferred_index.py::test_every_field_is_a_byte_exact_slice_of_the_ledger
+  bug: "docs/PROPOSAL_ADJUDICATIONS.md states its own protocol — consult it before re-opening a question, reject by entry number when the re-open condition is unmet — and Round 80 was its counterexample: three of that round's opening findings had been adjudicated by R74 站3 and R77 站4, were re-derived from scratch, and were withdrawn. Round 80 declined to build a machine-readable index because '提取有把話塞進前幾輪嘴裡的實際風險'. That risk belongs to an extraction that REWRITES; this assertion is what turns 'this one only copies' from an intention into a property — paraphrase one character of any of the 162 entries and it goes red"
+  fixed_in: "Round 81 站5"
+
+- test: tests/test_deferred_index.py::test_the_index_is_regenerable_and_current
+  bug: "a generated file that has drifted from its generator is a hand-edited one, and the hand-written half is supposed to be docs/deferred_guards.yaml. Also catches a ledger that gained a 不做 section nobody re-extracted"
+  fixed_in: "Round 81 站5"
+
+- test: tests/test_deferred_index.py::test_the_extractor_admits_the_sections_it_cannot_read
+  bug: "two of the ledger's 36 不做 sections are running prose with no table and no bullets. They are emitted as `unstructured` with a line range and NO fields — a hole the file admits to rather than hides. A parser reshaped until every section yields something is Round 55's shape (fitting the parser to the corpus), and dropping the unstructured branch would silently lose two rounds' decisions"
+  fixed_in: "Round 81 站5"
+
+- test: tests/test_deferred_index.py::test_the_index_covers_every_round_that_recorded_a_decision
+  bug: "the 不做 headings are spelled at least eight ways across 80 rounds, at four heading depths. tests/test_ledger_has_no_holes.py learned this the hard way — its first pass grepped `^## Round` and manufactured three false holes — so this extractor matches on heading TEXT rather than enumerating spellings, and this pins that it keeps working"
+  fixed_in: "Round 81 站5"
+
+- test: tests/test_deferred_index.py::test_every_guard_entry_names_a_decision_the_ledger_actually_records
+  bug: "the first draft keyed the guard mapping on the ledger LINE NUMBER, which every subsequent ledger edit invalidates — Round 81's own section, inserted above Round 80's, moved all eight of its rows. Keyed on (round, verbatim item) instead, and this asserts the key still resolves"
+  fixed_in: "Round 81 站5"
+
+- test: tests/test_deferred_index.py::test_every_named_guard_resolves_to_a_test_that_exists
+  bug: "a deleted or renamed guard leaves a deferred decision whose re-open condition nobody can check any more — the same failure scripts/verify_regression_guards.py was built for, applied to the other ledger. BOTH guards that already answered Round 80's re-derived questions (test_test_spec_parser_parity, test_fr_test_filename_parity) existed and were green throughout that round; nothing connected a proposal to either"
+  fixed_in: "Round 81 站5"
