@@ -48,7 +48,18 @@ def _symmetry_violations(commands) -> list[str]:
     """Factored out so the negative test can prove the check fires."""
     violations = []
     for module, func_name in commands:
-        source = inspect.getsource(getattr(module, func_name))
+        # Round 81 站7: `cmd_advance_phase` delegates its push to an
+        # `_advance_*` helper, so its ritual is one level down and reading the
+        # caller alone would report a violation that is not one. The fallback
+        # is for the synthetic module the negative control below builds, which
+        # has no file to read.
+        from tests.support.pipeline import pipeline_source
+        try:
+            source = pipeline_source(
+                "cli/" + module.__name__.rsplit(".", 1)[-1] + ".py", func_name,
+                helper_prefix="_advance_")
+        except (FileNotFoundError, AssertionError):
+            source = inspect.getsource(getattr(module, func_name))
         if "refresh_attestation" not in source:
             violations.append(
                 f"{module.__name__}.{func_name} never references "

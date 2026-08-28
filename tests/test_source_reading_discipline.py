@@ -70,13 +70,15 @@ REPO = Path(__file__).resolve().parent.parent
 # 48th needs the ceiling raised in the same commit with the reason — and the
 # reason has to be one of the three legitimate shapes in this module's
 # docstring, not "the seam was awkward to call".
-# 43 at Round 81 站6, from 47: the five `inspect.getsource(_advance_prechecks)`
+# 39 at Round 81 站7, from 43 at 站6 and 47 before it: the five `inspect.getsource(_advance_prechecks)`
 # readers became `tests.support.pipeline.pipeline_source`, which reads the file
 # rather than a cached module and — the reason they had to change at all —
 # follows the extraction into the `_precheck_*` helpers. Four asked whether a
 # constant or SSOT call appears in the precheck path; scoping them to the
 # caller's own body after 站6 would have answered a question none of them meant.
-_GETSOURCE_CEILING = 43
+# 站7 repeats it for `cmd_advance_phase`: four more readers followed the
+# extraction into the `_advance_*` helpers rather than being narrowed.
+_GETSOURCE_CEILING = 39
 
 
 def _getsource_calls() -> "dict[str, int]":

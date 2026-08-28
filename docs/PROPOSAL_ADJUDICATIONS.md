@@ -4052,6 +4052,28 @@ source-reading ratchet 47 → **43**,同一個 commit 收成。
 它的每個前綴都 bind 了後面要讀的東西,所以整段出來或都不出來。列進 `_CEILINGS` 並寫明,
 下一輪才找得到它。
 
+### 站7 — `cmd_advance_phase` 845 → 413,同一套機制,零新規則
+
+七個 run 抽出為 `_advance_*`。**站7 沒有為自己發明任何東西**:同一個 Tier B 規則、
+同一個產生器、同一組守衛,只多了一份自己的錄音 ——
+`tests/golden/extraction/phase_cmds.py.before-station7` 是**站6 留下的那個檔案**,
+不是站6 開始時的那個。拿站6 的錄音去問站7 的 body,是在問一個不同而且假的問題,
+所以 `_EXTRACTED` 從「每個模組一筆」改成「每次抽取事件一筆」。
+
+又有五支讀取器要跟著抽取走(rollback 的鎖內順序、mutmut scope 接線、
+`phase_completed` 的寫入位置、entry gate 在 `git add` 之前、push 路徑的 attestation 對稱性)。
+`tests/support/pipeline.py` 原封適用。source-reading ratchet 43 → **39**。
+
+**其中一支的負向控制被我改壞又改回**:`test_push_path_symmetry` 用一個合成模組證明它的檢查
+會響,而合成模組沒有檔案可讀。`pipeline_source` 加 fallback,而不是把那支負向控制刪掉 ——
+刪掉它,這個檔案就只剩「檢查能通過」而沒有「檢查會失敗」。
+
+`cmd_advance_phase` 與 `_advance_prechecks` 同樣把自己的終端 `return 0` 帶進了最後一個
+helper,所以兩者都補上一行**契約的 fall-through**:今天不可達(最後那個 helper 必定回傳),
+但 `-> int` 必須對註記為真,不能只對今天的實作為真。
+
+`cli/phase_cmds.py` 檔案 3268 → 3511。**四支巨型函式裡的兩支,合計 1663 → 657 行。**
+
 
 ---
 

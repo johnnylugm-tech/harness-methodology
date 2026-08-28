@@ -202,9 +202,14 @@ class TestRollbackLockAndResetDiagnostic:
         before it, rather than on "the last lock in the function": that
         positional assumption broke the moment a third lock was added below.
         """
-        import inspect
 
-        src = inspect.getsource(phase_cmds.cmd_advance_phase)
+        # Round 81 站7: the advance pipeline is `cmd_advance_phase` plus the
+        # `_advance_*` helpers extracted from it; these ordering pins live one
+        # level down now. `pipeline_source` reads the file rather than a cached
+        # module, and follows the delegation.
+        from tests.support.pipeline import pipeline_source
+        src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
+                                                  helper_prefix="_advance_")
         restore_pos_probe = src.rindex("_advance_snap.restore()")
         lock_pos = src.rindex(
             "with file_lock(state_lock_path(project)):", 0, restore_pos_probe

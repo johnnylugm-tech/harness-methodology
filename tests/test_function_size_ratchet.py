@@ -106,7 +106,15 @@ _CEILINGS: dict[str, int] = {
     # docstring for why Round 80 did not attempt the decomposition.
     "harness/harness_bridge.py::HarnessBridge.finalize_gate": 1150,
     "cli/fr_cmds.py::cmd_run_fr_step": 940,
-    "cli/phase_cmds.py::cmd_advance_phase": 845,
+    # 413 at Round 81 站7, from 845: seven runs extracted. Harvested in the
+    # same commit because test_no_ceiling_sits_above_the_function_it_covers
+    # does not allow otherwise.
+    "cli/phase_cmds.py::cmd_advance_phase": 413,
+    # The tail of the advance: git commit, submodule bump, push, and the
+    # rollback each of those needs. One run, because every prefix of it
+    # binds something the rest reads — the same shape as
+    # `_precheck_p3_security_and_quality`, and the same decision.
+    "cli/phase_cmds.py::_advance_commit_and_push": 257,
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same

@@ -208,9 +208,14 @@ def test_advance_phase_actually_calls_the_generator():
     """
     import inspect
 
-    from cli.phase_cmds import _advance_commit_targets, cmd_advance_phase
+    from cli.phase_cmds import _advance_commit_targets
 
-    src = inspect.getsource(cmd_advance_phase)
+    # Round 81 站7: the advance pipeline is `cmd_advance_phase` plus the
+    # `_advance_*` helpers extracted from it. Reading only the caller now
+    # answers a question this test never meant to ask.
+    from tests.support.pipeline import pipeline_source
+    src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
+                          helper_prefix="_advance_")
     assert "_regenerate_mutmut_scope(project)" in src, (
         "cmd_advance_phase no longer renders the mutation scope — setup.cfg "
         "goes stale and _resolve_mutmut_workdir silently mutates the whole tree"

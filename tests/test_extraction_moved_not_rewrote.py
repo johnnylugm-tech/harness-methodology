@@ -41,20 +41,46 @@ pytestmark = [pytest.mark.core]
 REPO = Path(__file__).resolve().parents[1]
 GOLDEN = REPO / "tests" / "golden" / "extraction"
 
-#: module path -> helpers extracted out of it, and the function they came from.
-#: An entry leaves this dict the moment its body is deliberately edited.
-_EXTRACTED: "dict[str, tuple[str, tuple[str, ...]]]" = {
-    "cli/phase_cmds.py": ("_advance_prechecks", (
-        "_precheck_cleared_dir_evidence",
-        "_precheck_backup_artifacts",
-        "_precheck_manifest_and_p1_baselines",
-        "_precheck_per_fr_gate1_and_phase_truth",
-        "_precheck_early_stage_pass",
-        "_precheck_deliverable_anchors",
-        "_precheck_scope_violations",
-        "_precheck_p3_security_and_quality",
-        "_precheck_stage_pass_staging",
-    )),
+#: label -> what was extracted, where from, and against which recording.
+#: One entry per extraction EVENT, not per module: `cli/phase_cmds.py` is
+#: extracted twice in this round, and 站7's helpers are byte-present in the
+#: file as 站6 left it, not in the file 站6 started from.
+#: An entry leaves this dict the moment one of its bodies is deliberately
+#: edited — with the reason in that commit.
+_EXTRACTED: "dict[str, dict]" = {
+    "phase_cmds._advance_prechecks": {
+        "module": "cli/phase_cmds.py",
+        "before": "phase_cmds.py.before",
+        "caller": "_advance_prechecks",
+        "helpers": (
+            "_precheck_cleared_dir_evidence",
+            "_precheck_backup_artifacts",
+            "_precheck_manifest_and_p1_baselines",
+            "_precheck_per_fr_gate1_and_phase_truth",
+            "_precheck_early_stage_pass",
+            "_precheck_deliverable_anchors",
+            "_precheck_scope_violations",
+            "_precheck_p3_security_and_quality",
+            "_precheck_stage_pass_staging",
+        ),
+    },
+    "phase_cmds.cmd_advance_phase": {
+        "module": "cli/phase_cmds.py",
+        # 站7's recording is the file as 站6 LEFT it. Using 站6's recording
+        # would ask whether these bodies existed before an extraction they were
+        # not part of, which is a different and false question.
+        "before": "phase_cmds.py.before-station7",
+        "caller": "cmd_advance_phase",
+        "helpers": (
+            "_advance_refuse_phase_9",
+            "_advance_refuse_uncommitted",
+            "_advance_refuse_open_obligations",
+            "_advance_run_fsm_transition",
+            "_advance_seed_p8_archive",
+            "_advance_write_next_plan_header",
+            "_advance_commit_and_push",
+        ),
+    },
 }
 
 
@@ -92,21 +118,22 @@ def _body_text(source: str, func: "ast.FunctionDef") -> str:
     return "".join(lines[start - 1:end])
 
 
-@pytest.mark.parametrize("module", sorted(_EXTRACTED))
-def test_every_extracted_body_is_byte_identical_to_what_it_replaced(module):
-    before = (GOLDEN / (Path(module).name + ".before")).read_text(encoding="utf-8")
-    after = (REPO / module).read_text(encoding="utf-8")
+@pytest.mark.parametrize("label", sorted(_EXTRACTED))
+def test_every_extracted_body_is_byte_identical_to_what_it_replaced(label):
+    spec = _EXTRACTED[label]
+    before = (GOLDEN / spec["before"]).read_text(encoding="utf-8")
+    after = (REPO / spec["module"]).read_text(encoding="utf-8")
     tree = ast.parse(after)
 
     rewritten = []
-    for name in _EXTRACTED[module][1]:
+    for name in spec["helpers"]:
         body = _body_text(after, _function(tree, name))
         if body not in before:
             rewritten.append(name)
 
     assert not rewritten, (
         f"these helpers are not the code that was extracted — their bodies do "
-        f"not appear verbatim in {module} as it stood before the move:\n  "
+        f"not appear verbatim in {spec['before']}:\n  "
         + "\n  ".join(rewritten)
         + "\n\nAn extraction is a MOVE. If one of these was deliberately "
           "changed, remove it from _EXTRACTED in that commit and say why; do "
@@ -115,8 +142,8 @@ def test_every_extracted_body_is_byte_identical_to_what_it_replaced(module):
     )
 
 
-@pytest.mark.parametrize("module", sorted(_EXTRACTED))
-def test_no_helper_reads_a_name_nobody_gives_it(module):
+@pytest.mark.parametrize("label", sorted(_EXTRACTED))
+def test_no_helper_reads_a_name_nobody_gives_it(label):
     """The static replacement for "every extracted run must be covered".
 
     The plan gated extraction on the suite executing each run, because a
@@ -142,7 +169,8 @@ def test_no_helper_reads_a_name_nobody_gives_it(module):
     """
     import builtins
 
-    source = (REPO / module).read_text(encoding="utf-8")
+    spec = _EXTRACTED[label]
+    source = (REPO / spec["module"]).read_text(encoding="utf-8")
     tree = ast.parse(source)
     module_scope = _bound(list(tree.body)) | set(dir(builtins))
 
@@ -169,7 +197,7 @@ def test_no_helper_reads_a_name_nobody_gives_it(module):
         return names
 
     unresolved: "list[str]" = []
-    for name in _EXTRACTED[module][1]:
+    for name in spec["helpers"]:
         func = _function(tree, name)
         params = {a.arg for a in func.args.args + func.args.kwonlyargs}
         loose = _loaded(func.body) - bound_at_any_depth(func.body) - params - module_scope
@@ -183,15 +211,16 @@ def test_no_helper_reads_a_name_nobody_gives_it(module):
     )
 
 
-@pytest.mark.parametrize("module", sorted(_EXTRACTED))
-def test_the_caller_still_propagates_every_early_return(module):
+@pytest.mark.parametrize("label", sorted(_EXTRACTED))
+def test_the_caller_still_propagates_every_early_return(label):
     """A helper that can return a code, called without checking it, is a
     silently disabled check — the shape Round 43 named (detected, no executor).
     """
-    source = (REPO / module).read_text(encoding="utf-8")
+    spec = _EXTRACTED[label]
+    source = (REPO / spec["module"]).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    caller = _function(tree, _EXTRACTED[module][0])
-    helpers = set(_EXTRACTED[module][1])
+    caller = _function(tree, spec["caller"])
+    helpers = set(spec["helpers"])
 
     can_return = {
         name for name in helpers
@@ -214,6 +243,6 @@ def test_the_caller_still_propagates_every_early_return(module):
 
     assert can_return <= checked, (
         f"these helpers can return an exit code that "
-        f"{_EXTRACTED[module][0]} never looks at, so the check they perform "
+        f"{spec['caller']} never looks at, so the check they perform "
         f"cannot block anything: {sorted(can_return - checked)}"
     )

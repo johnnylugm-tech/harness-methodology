@@ -165,11 +165,15 @@ def test_advance_phase_source_records_phase_completed():
     """Source-level pin: the write must live in cmd_advance_phase, after the
     commit block. A phase_completed written by push-checkpoint alone is what
     produced the {1, 2}-only maps."""
-    import inspect
 
-    from cli.phase_cmds import cmd_advance_phase
 
-    src = inspect.getsource(cmd_advance_phase)
+    # Round 81 站7: the advance pipeline is `cmd_advance_phase` plus the
+    # `_advance_*` helpers extracted from it; these ordering pins live one
+    # level down now. `pipeline_source` reads the file rather than a cached
+    # module, and follows the delegation.
+    from tests.support.pipeline import pipeline_source
+    src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
+                          helper_prefix="_advance_")
     assert 'setdefault("phase_completed", {})' in src, (
         "cmd_advance_phase must record phase_completed[N] — it is the command "
         "that verifies the exit gate and writes the handover commit"
@@ -580,10 +584,14 @@ def test_advance_phase_source_pins_entry_gate_before_git_add():
     appear in cmd_advance_phase BEFORE the `git add` invocation, and AFTER
     _advance_prechecks. A regression that moves the call after staging
     would reproduce the 2026-08-05 dangling-SHA-in-commit bug."""
-    import inspect
-    from cli import phase_cmds
 
-    src = inspect.getsource(phase_cmds.cmd_advance_phase)
+    # Round 81 站7: the advance pipeline is `cmd_advance_phase` plus the
+    # `_advance_*` helpers extracted from it; these ordering pins live one
+    # level down now. `pipeline_source` reads the file rather than a cached
+    # module, and follows the delegation.
+    from tests.support.pipeline import pipeline_source
+    src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
+                          helper_prefix="_advance_")
     prechecks_pos = src.index("_advance_prechecks(project, args.completed_phase)")
     # Normal advance's entry-gate call is the only one passing
     # `prev_record_pending=True` (Round 72 站1) — it is the caller that writes
