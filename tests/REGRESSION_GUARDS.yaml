@@ -3898,3 +3898,39 @@
 - test: tests/test_deferred_index.py::test_every_named_guard_resolves_to_a_test_that_exists
   bug: "a deleted or renamed guard leaves a deferred decision whose re-open condition nobody can check any more — the same failure scripts/verify_regression_guards.py was built for, applied to the other ledger. BOTH guards that already answered Round 80's re-derived questions (test_test_spec_parser_parity, test_fr_test_filename_parity) existed and were green throughout that round; nothing connected a proposal to either"
   fixed_in: "Round 81 站5"
+
+- test: tests/test_dataflow_rule.py::test_a_binding_read_afterwards_is_refused
+  bug: "everything the Round 81 mega-function extractions claim about their own safety rests on tests/support/dataflow.py computing live-out correctly. An analyser nobody checks is the same shape as the 81% coverage figure Round 80 reached for and the hunk counts Round 80 站6 argued from — a measurement trusted because it was quoted rather than because it was tested. This is the rule in one case: a run binding `total` that something later reads must be refused"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_a_return_of_none_is_refused
+  bug: "`return None` and a bare `return` are exactly what the extracted call site uses to mean 'the helper did not return' (`r = helper(); if r is not None: return r`), so a run containing one could not be told apart from falling through and the caller would return None from a function whose contract is an int. None of the four target functions contains one — checked before relying on it, not assumed — and this rule is what stops the next edit introducing one quietly"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_nonlocal_is_refused
+  bug: "an extracted helper is not nested in its caller, so a `nonlocal` inside a moved run would bind somewhere else or fail to compile"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_a_name_read_only_inside_a_nested_def_still_counts
+  bug: "the analyser walks nested scopes deliberately: over-reporting a read costs extractable lines, under-reporting one costs correctness silently. cmd_run_fr_step has four nested defs, one of which (_max_turns) absorbs 88 hunks of its parent's churn"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_an_exception_alias_counts_as_a_binding
+  bug: "`except ValueError as exc` binds exc; a run ending inside the handler with exc read afterwards must be refused"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_an_import_inside_the_run_counts_as_a_binding
+  bug: "these functions are full of function-local imports; a moved `import json` leaves the caller without the name"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_a_self_contained_guard_block_is_accepted_with_its_inputs
+  bug: "the positive control — without it the rule could refuse everything and still look correct. Also pins that a helper's parameters are exactly the free variables of the run"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_a_run_shorter_than_the_floor_is_not_offered
+  bug: "extracting three lines buys indirection and nothing else"
+  fixed_in: "Round 81 站6 (shared machinery)"
+
+- test: tests/test_dataflow_rule.py::test_the_partition_is_deterministic
+  bug: "the guard that pins each extracted helper has to be able to re-derive the same runs from the same source; a partition that varied between invocations could not be checked"
+  fixed_in: "Round 81 站6 (shared machinery)"

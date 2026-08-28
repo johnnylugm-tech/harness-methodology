@@ -232,6 +232,11 @@ _TABLE_CELL_SPLITTERS = {
         "unified-diff hunk headers, not markdown",
     ("scripts/plangen/artifact_parsers.py", "parse_srs_fr_nfr_xref"):
         "SRS NFR→FR cross-reference rows",
+    ("scripts/extract_deferred_index.py", "_cells"):
+        "the 明列不做 tables in docs/PROPOSAL_ADJUDICATIONS.md. Never a spec: "
+        "it reads adjudication decisions, and it only ever `.strip()`s, so "
+        "every cell it emits stays a substring of the ledger line it came from "
+        "— which is the property tests/test_deferred_index.py asserts",
 }
 
 
