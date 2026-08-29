@@ -68,13 +68,18 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_print_constitution_result",
     ),
     # Round 80 站8. 5051 lines, touched in 28 of this repo's 80 rounds, ratchet
-    # raised 56 times and lowered never — the largest hotspot here. Only the 32
-    # MODULE-LEVEL functions are tracked: `_source_of` resolves a name through
-    # the module and then looks for a top-level `def`, so the 18 methods on
-    # HarnessBridge are outside its reach, and 站8 moves none of them. There is
+    # raised 56 times and lowered never — the largest hotspot here. There is
     # no argparse surface for this module; the wiring check is `_source_of`'s
     # own assertion that every tracked name is still importable from
     # `harness.harness_bridge` after the move.
+    #
+    # Round 80 站8 tracked only the MODULE-LEVEL functions, and said why:
+    # `_source_of` looked for a top-level `def`, so the 18 methods on
+    # HarnessBridge were outside its reach, and 站8 moved none of them.
+    # Round 82 站0 removed that limit and 站6 moves sixteen of them into a
+    # mixin, so they are tracked here too, as `HarnessBridge._stage_*`. The
+    # class is reached through this module either way; the body is read from
+    # wherever the function itself lives.
     "harness.harness_bridge": (
         "_first_non_null", "path_escapes_root",
         "_atomic_write_gate_result", "na_is_framework_verified",
@@ -93,6 +98,37 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "s4_rescopes_to_fr", "per_fr_coverage_evidence",
         "s4_score_verdict", "s4_block_details", "_extract_fr_section",
         "_parse_spec_names_for_fr",
+        # Round 81 站8: the sixteen runs extracted out of `finalize_gate`.
+        # Round 82 站6 moves them to harness/gate_stages.py as a mixin, which
+        # is the only shape that keeps them byte-identical — a method's body
+        # sits at two indent levels under any class, and dedenting it to a
+        # module-level function would be a rewrite.
+        "HarnessBridge._stage_shape_contract",
+        "HarnessBridge._stage_infra_fail_pollution",
+        "HarnessBridge._stage_persist_cited_evidence",
+        "HarnessBridge._stage_tool_evidence",
+        "HarnessBridge._stage_declared_constraints",
+        "HarnessBridge._stage_coverage_denominator",
+        "HarnessBridge._stage_required_artifacts",
+        "HarnessBridge._stage_verify_target",
+        "HarnessBridge._stage_s4_cross_validation",
+        "HarnessBridge._stage_system_reach",
+        "HarnessBridge._stage_spec_coverage_cap",
+        "HarnessBridge._stage_absent_dimensions",
+        "HarnessBridge._stage_stubbed_boundaries",
+        "HarnessBridge._stage_dimension_thresholds",
+        "HarnessBridge._stage_declared_absent",
+        "HarnessBridge._stage_record_verdict",
+        # Round 82 站5 moves the shared vocabulary the stages read into
+        # harness/gate_result.py ahead of them, so the mixin's module never
+        # has to import back into harness_bridge. Its four functions
+        # (`framework_measured`, `declared_dimensions`, `measurement_scope`,
+        # `s4_block_details`) are already tracked above — added by Round 80
+        # 站8, and their fingerprints are what will prove that move too.
+        # `DimResult`, `GateResult`, `GateBlockedError` and the
+        # `SCORE_SOURCE_*` constants travel with them and are NOT fingerprinted
+        # here: this mechanism reads `def`s only, so a class moved by hand is
+        # covered by the ratchets and the import checks, not by this.
     ),
     # Round 80 站7. Added BEFORE the split, for the reason the module docstring
     # gives: a net woven after the fall proves nothing about the fall. 4233
@@ -138,6 +174,25 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_advance_step_seed_p8_archive", "_advance_step_write_next_plan_header",
         "_advance_step_commit_and_push",
     ),
+    # Round 82 站0. Added BEFORE 站4 moves anything out, for the reason the
+    # module docstring gives. Not every top-level def in the file — only the
+    # thirteen names 站4 moves: the four `_frstep_*` runs Round 81 站9
+    # extracted, and the two families they read, which have to travel with
+    # them because the alternative is a new module importing back into
+    # `cli.fr_cmds` and a cycle that resolves only by line order.
+    #
+    # `DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE` moves with them and is not
+    # here: it is an assignment, and this mechanism fingerprints `def`s.
+    # tests/test_exit_code_registry.py scans `cli/*.py` and keeps watching it.
+    "cli.fr_cmds": (
+        "_frstep_skip_if_already_done", "_frstep_route_dispatch_error",
+        "_frstep_gate1_paper_trail", "_frstep_push_checkpoint",
+        # read by `_frstep_route_dispatch_error`
+        "_abort_dispatch_structurally_broken", "_is_connector_disabled_failure",
+        "_reports_precondition_block", "_resolve_precondition_block",
+        # read by `_frstep_skip_if_already_done` and `_frstep_gate1_paper_trail`
+        "_fr_step_already_done", "_fr_step_lineage_boundary", "_fr_tests_say",
+    ),
     "core.doctor": (
         "run_doctor", "_check_ci_template_drift",
         "_check_submodule_behind", "_check_enforcer_provenance",
@@ -157,11 +212,31 @@ def _source_of(module_name: str, func_name: str) -> str:
     line numbers against a cached file read, which has produced stale answers
     in this repo before. Going through `__module__` -> file -> AST asks the
     filesystem the same question the reviewer would.
+
+    `func_name` may be `Class.method`. Round 82 站0 added that. Before it, this
+    resolved a name through the module and then looked for a TOP-LEVEL `def`,
+    so every method was outside its reach — the note above the
+    `harness.harness_bridge` entry said exactly that, in the same breath as
+    "站8 moves none of them". Round 82 moves sixteen of them, and a byte guard
+    that cannot see its subject is not a guard. The class is looked up on the
+    façade module (the class stays put); the BODY is read from wherever the
+    function itself now lives, which is the whole point.
     """
     import importlib
 
     mod = importlib.import_module(module_name)
-    obj = getattr(mod, func_name, None)
+    owner, _, attr = func_name.rpartition(".")
+
+    container: object = mod
+    if owner:
+        container = getattr(mod, owner, None)
+        assert container is not None, (
+            f"{owner} is no longer importable from {module_name} — a split "
+            f"moved the class itself, which is a different move than this "
+            f"guard was written for"
+        )
+
+    obj = getattr(container, attr, None)
     assert obj is not None, (
         f"{func_name} is no longer importable from {module_name} — a split "
         f"moved it without leaving a re-export behind"
@@ -170,12 +245,29 @@ def _source_of(module_name: str, func_name: str) -> str:
     home_file = getattr(home, "__file__", None)
     assert home_file, f"{obj.__module__} has no file on disk"
     src = Path(home_file).read_text(encoding="utf-8")
-    for node in ast.parse(src).body:
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+
+    # Where to look inside the home file. For a method that is the class the
+    # function was DEFINED in — `__qualname__`, not the class it was reached
+    # through — because a mixin's method is reached through the subclass and
+    # defined in the base.
+    body: "list[ast.stmt]" = ast.parse(src).body
+    if owner:
+        defining = getattr(obj, "__qualname__", "").split(".")[0]
+        body = next(
+            (n.body for n in body
+             if isinstance(n, ast.ClassDef) and n.name == defining),
+            [],
+        )
+
+    for node in body:
+        if isinstance(node, ast.FunctionDef) and node.name == attr:
             segment = ast.get_source_segment(src, node)
             assert segment is not None
             return segment
-    raise AssertionError(f"{func_name} not found as a top-level def in {home.__file__}")
+    raise AssertionError(
+        f"{func_name} not found as a def in {home.__file__} — it is importable "
+        f"but its source is not where its own __module__/__qualname__ say"
+    )
 
 
 def _fingerprints() -> dict[str, str]:
@@ -260,6 +352,66 @@ def test_the_cli_surface_survives_the_split():
         "Every module that owns commands owns their register() too; the "
         "façade must call each one."
     )
+
+
+@pytest.fixture()
+def synthetic_module(tmp_path, monkeypatch):
+    """A real module on disk, importable under a throwaway name.
+
+    Round 82 站0. `_source_of`'s method support is the only thing standing
+    between the sixteen `_stage_*` methods and no byte guard at all, so it
+    needs cases where it must FAIL — a silent "not found, skip" would
+    fingerprint nothing and stay green forever.
+    """
+    import importlib.util
+    import sys
+
+    path = tmp_path / "synthetic_split_probe.py"
+    path.write_text(
+        "def loose():\n"
+        "    return 0\n"
+        "\n"
+        "\n"
+        "class Widget:\n"
+        "    @staticmethod\n"
+        "    def alpha():\n"
+        "        return 1\n"
+        "\n"
+        "\n"
+        "Widget.beta = loose\n",
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location("synthetic_split_probe", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "synthetic_split_probe", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_method_body_is_read_from_the_class_that_defines_it(synthetic_module):
+    """Positive control: the extension finds a method at all."""
+    assert _source_of("synthetic_split_probe", "Widget.alpha") == (
+        "def alpha():\n        return 1"
+    )
+
+
+def test_a_misspelled_method_is_an_error_not_a_silent_skip(synthetic_module):
+    with pytest.raises(AssertionError, match="no longer importable"):
+        _source_of("synthetic_split_probe", "Widget.alphaZ")
+
+
+def test_a_method_whose_source_is_not_where_its_qualname_says_is_an_error(
+    synthetic_module,
+):
+    """`Widget.beta` is importable and its `__qualname__` names no class.
+
+    This is the shape a wiring mistake takes: the attribute resolves, so a
+    guard that only checked `getattr` would fingerprint the wrong text or
+    quietly pass. It must be loud instead.
+    """
+    with pytest.raises(AssertionError, match="not found as a def"):
+        _source_of("synthetic_split_probe", "Widget.beta")
 
 
 if __name__ == "__main__":  # pragma: no cover
