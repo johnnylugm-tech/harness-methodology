@@ -85,7 +85,16 @@ REPO = Path(__file__).resolve().parent.parent
 # and the reader became `pipeline_source`, which asks the precheck PIPELINE and
 # follows it wherever it lives. Pointing it at the new module instead would
 # have kept the getsource and put the same defect one move further down.
-_GETSOURCE_CEILING = 38
+# 36 at Round 82 站3: `test_advance_phase_records_the_stamp` and
+# `test_both_writers_also_record_the_enforcer_surface` read
+# `inspect.getsource(cli.phase_cmds)` whole to ask whether advance-phase still
+# stamps `enforcer_sha` / `enforcer_surface` into phase_completed. The writer
+# is `_advance_step_commit_and_push`, which moved to cli/advance_steps.py;
+# both became `pipeline_source(cmd_advance_phase)`, which reads the command
+# with its steps. The gate_cmds half of the pair keeps its getsource — that
+# writer did not move, and converting it would be a change this round did not
+# measure.
+_GETSOURCE_CEILING = 36
 
 
 def _getsource_calls() -> "dict[str, int]":

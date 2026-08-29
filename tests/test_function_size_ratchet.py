@@ -123,7 +123,10 @@ _CEILINGS: dict[str, int] = {
     # rollback each of those needs. One run, because every prefix of it
     # binds something the rest reads — the same shape as
     # `_precheck_p3_security_and_quality`, and the same decision.
-    "cli/phase_cmds.py::_advance_step_commit_and_push": 257,
+    # Round 82 站3 moved it to cli/advance_steps.py with the other six and
+    # `_run_doctor_after_advance`. Same 257: the move was a move, and its
+    # god-file fingerprint did not change.
+    "cli/advance_steps.py::_advance_step_commit_and_push": 257,
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same

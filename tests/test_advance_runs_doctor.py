@@ -39,7 +39,11 @@ from pathlib import Path
 
 import pytest
 
-from cli import phase_cmds
+# Round 82 站3: `_run_doctor_after_advance` moved to cli/advance_steps.py, so
+# that is where `run_doctor` is resolved. Patching phase_cmds' own copy
+# would still succeed and would no longer reach the caller — a green test
+# measuring nothing, which is worse than the AttributeError that caught it.
+from cli import advance_steps, phase_cmds
 from core.doctor import Finding
 from core.phase_hooks import PhaseHooks
 
@@ -108,7 +112,7 @@ def _ledger(proj: Path) -> list[dict]:
 
 def test_an_error_finding_reaches_the_ledger(advance_project, monkeypatch):
     monkeypatch.setattr(
-        phase_cmds, "run_doctor",
+        advance_steps, "run_doctor",
         lambda _p: [Finding("gate1-evidence", "ERROR", "FR-03 evidence is gone")],
     )
 
@@ -125,7 +129,7 @@ def test_an_error_finding_reaches_the_ledger(advance_project, monkeypatch):
 def test_the_advance_still_turns_the_phase_over(advance_project, monkeypatch):
     """Not a new blocking point. The phase advanced; the finding is a record."""
     monkeypatch.setattr(
-        phase_cmds, "run_doctor",
+        advance_steps, "run_doctor",
         lambda _p: [Finding("provenance", "ERROR", "enforcer moved")],
     )
 
@@ -140,7 +144,7 @@ def test_warnings_are_not_ledger_rows(advance_project, monkeypatch):
     submodule WARN. Writing those to the ledger every advance would bury the
     ERRORs this wiring exists to surface."""
     monkeypatch.setattr(
-        phase_cmds, "run_doctor",
+        advance_steps, "run_doctor",
         lambda _p: [Finding("provenance", "WARN", "measured under another enforcer"),
                     Finding("submodule", "WARN", "harness/ is 1 behind")],
     )
@@ -159,7 +163,7 @@ def test_a_doctor_crash_does_not_take_the_advance_with_it(
     so out loud rather than being swallowed (docs/ERROR_HANDLING.md)."""
     def _boom(_p):
         raise RuntimeError("doctor exploded")
-    monkeypatch.setattr(phase_cmds, "run_doctor", _boom)
+    monkeypatch.setattr(advance_steps, "run_doctor", _boom)
 
     assert _advance(advance_project) == 0
     assert "doctor" in capsys.readouterr().out.lower()

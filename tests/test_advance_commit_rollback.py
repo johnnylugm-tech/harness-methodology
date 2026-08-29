@@ -241,7 +241,11 @@ class TestRollbackLockAndResetDiagnostic:
                 )
             return real_run(cmd, *args, **kwargs)
 
-        monkeypatch.setattr(phase_cmds.subprocess, "run", spying_run)
+        # Round 82 站3: the rollback lives in `_advance_step_commit_and_push`,
+        # which moved to cli/advance_steps.py. `phase_cmds.subprocess` was
+        # always the subprocess MODULE — patching it here is the same object
+        # and no longer depends on which file the code sits in.
+        monkeypatch.setattr(subprocess, "run", spying_run)
 
         rc = _advance(proj)
 

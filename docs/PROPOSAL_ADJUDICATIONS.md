@@ -3907,6 +3907,32 @@ import 門面模組 → 解析屬性(re-export 因此仍然有效)→ 從 `__mod
 
 四個因為搬移而變成孤兒的 import 一併刪掉。
 
+### 站3 — 七支 `_advance_step_*` 出門,而 re-export 保不住的東西露出來了
+
+`cli/phase_cmds.py` **2816 → 2257**,七支加 `_run_doctor_after_advance`(實測零反向依賴)
+搬到 `cli/advance_steps.py`(625 行)。八個指紋不變,golden 沒有重錄。
+十五個孤兒 import 跟著走。
+
+#### `re-export 保住 patch 能力` 這句話只對一半
+
+計畫引 Round 81 站3 寫下「re-export 保住 patch 能力」。實測:
+**它保住的是被搬走的那個名字,保不住那段程式碼所讀的名字。**
+
+四支測試打 `monkeypatch.setattr(phase_cmds, "run_doctor", ...)`。`run_doctor` 不是我搬的
+helper,是被搬走的程式碼讀的依賴 —— 而 `_run_doctor_after_advance` 現在從
+`cli.advance_steps` 的命名空間解析它。若我為了「讓測試繼續綠」把 `run_doctor` 也留在
+phase_cmds 裡 re-export,那四支 `setattr` **會成功、而且完全打不到呼叫端** ——
+綠的、而且什麼都沒量。
+
+**是 `AttributeError` 抓到的,不是我推理出來的。** 改成打 `cli.advance_steps.run_doctor`,
+也就是那段程式碼真正解析它的地方。
+
+另外兩支 `inspect.getsource(cli.phase_cmds)`(`enforcer_sha` / `enforcer_surface` 的
+stamp 檢查)改走 `pipeline_source(cmd_advance_phase)`;
+`monkeypatch.setattr(phase_cmds.subprocess, ...)` 改成直接打 `subprocess` 模組 ——
+本來就是同一個物件,現在不再依賴程式碼住在哪個檔。
+source-reading ratchet **38 → 36**。
+
 ---
 
 ## Round 81 — 擋住那五項的是量測,不是工程

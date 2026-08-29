@@ -146,10 +146,14 @@ class TestEnforcerSkewIsVisible:
         the point is that `enforcer_sha` reaches phase_completed at all, which is
         the half Round 19 站3 did for gate results and skipped for phases.
         """
-        import inspect
+        # Round 82 站3: the stamp is written by `_advance_step_commit_and_push`,
+        # which moved to cli/advance_steps.py. The subject is advance-phase's
+        # writer, not the file it sits in — `pipeline_source` reads the command
+        # together with its steps and follows them wherever they go.
+        from tests.support.pipeline import pipeline_source
 
-        import cli.phase_cmds as pc
-        src = inspect.getsource(pc)
+        src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
+                              helper_prefix="_advance_step_")
         assert '"enforcer_sha": enforcer_sha()' in src, (
             "advance-phase stopped stamping phase_completed with the enforcer that "
             "produced the phase, so the skew check above has nothing to compare"
@@ -168,12 +172,15 @@ class TestEnforcerSkewIsVisible:
         import inspect
 
         import cli.gate_cmds as gc
-        import cli.phase_cmds as pc
+        from tests.support.pipeline import pipeline_source
 
         assert 'data["enforcer_surface"] = enforcer_surface()' in inspect.getsource(gc), (
             "gate results stopped carrying enforcer_surface — a rebase now erases "
             "every trace of which code produced the verdict"
         )
-        assert '"enforcer_surface": enforcer_surface()' in inspect.getsource(pc), (
+        # Round 82 站3, as above: phase_cmds' half of this pair is one step down.
+        assert '"enforcer_surface": enforcer_surface()' in pipeline_source(
+            "cli/phase_cmds.py", "cmd_advance_phase",
+            helper_prefix="_advance_step_"), (
             "state.json.phase_completed stopped carrying enforcer_surface"
         )
