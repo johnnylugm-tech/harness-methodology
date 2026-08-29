@@ -3954,3 +3954,15 @@
 - test: tests/test_extraction_moved_not_rewrote.py::test_undoing_the_extraction_gives_back_the_original_function
   bug: "byte-identity proves no extracted body was rewritten and the data-flow rule proves no binding escapes, but NEITHER says the call sites are in the order the runs were — a reordering would be invisible to both. This puts the helpers back where they are called, strips the propagation scaffolding, and asserts the result is the original function statement for statement. It is also the honest answer to Round 80's re-open condition for finalize_gate ('a behavioural golden pinning verdict / exit code / BLOCK text, with its coverage measured'): that condition assumed decomposition meant rewriting, and a behavioural golden is how you check a rewrite. An AST identity holds for every input, including the ones nobody wrote a fixture for. This assertion is also what caught the `_advance_` prefix collision — cmd_advance_phase's helpers were named against a prefix the file already used for `_advance_prechecks`, `_advance_fsm` and `_advance_commit_targets`, so the pipeline view silently pulled in three functions that were never extracted"
   fixed_in: "Round 81 站8"
+
+- test: tests/test_god_file_split_safety.py::test_a_misspelled_method_is_an_error_not_a_silent_skip
+  bug: "Round 82 站0 taught `_source_of` to resolve `Class.method`, because until then it looked for a TOP-LEVEL def only — its own docstring said the 18 methods on HarnessBridge were 'outside its reach', and 站6 moves sixteen of them. The extension is the ONLY thing fingerprinting those sixteen, so it needs a case where it must fail: a name that does not resolve has to raise, not be skipped. A silent skip would fingerprint nothing and stay green forever"
+  fixed_in: "Round 82 站0"
+
+- test: tests/test_god_file_split_safety.py::test_a_method_whose_source_is_not_where_its_qualname_says_is_an_error
+  bug: "the shape a wiring mistake actually takes: the attribute resolves through getattr but its __qualname__ names no class in the home file (e.g. a function assigned onto a class). A guard that only checked getattr would fingerprint the wrong text or quietly pass. Round 82 站0"
+  fixed_in: "Round 82 站0"
+
+- test: tests/test_block_reason_registry.py::test_the_scan_reaches_past_harness_bridge_into_its_siblings
+  bug: "Round 82 站6 moved twelve of the eighteen GateBlockedError raise sites into harness/gate_stages.py with the `_stage_*` mixin. The scan read harness/harness_bridge.py alone, so it would have seen 6 sites and 3 detail-carrying ones — and the tempting repair (lower `total >= 9` to match) is Round 55's shape: fitting the ruler to the corpus. The subject is where the FRAMEWORK raises a gate block, so the scan reads harness/ and this control asserts it genuinely reaches a sibling file rather than having been widened on paper"
+  fixed_in: "Round 82 站6"

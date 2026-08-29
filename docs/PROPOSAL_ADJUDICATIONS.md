@@ -4025,6 +4025,87 @@ dedent 成模組層函式會改寫 386 行,而改寫需要一份本輪沒有、�
 (實測 cli/ core/ scripts/ detection/ 各為零)。加一支負向控制,
 斷言掃描確實看得到 `harness_bridge.py` 以外的 raise site —— 否則這次放寬只是把斷言變寬。
 
+### 計畫說七把尺,實測是九把
+
+| # | 尺 | 它以為主題是 | 是哪一站抓到的 |
+|---|---|---|---|
+| 1 | `tests/support/pipeline.py`(11 支測試的地基) | 呼叫者所在的檔 | 計畫預測 |
+| 2 | `test_god_file_split_safety._source_of` | top-level `def` | 計畫預測 |
+| 3 | `test_block_reason_registry.BRIDGE` | `harness_bridge.py` 一個檔 | 計畫預測 |
+| 4 | `test_traceability_view_regen` | 同上 | 計畫預測 |
+| 5 | `test_evidence_survives_advance` | 同上 | 計畫預測 |
+| 6 | `test_exit_9_causes_are_all_written_down` | 同上 | 計畫預測 |
+| 7 | `test_advance_phase_pragma_early_audit`(裸讀那一半) | 同上 | 計畫預測 |
+| **8** | `test_denominator_protection`(gitleaks 呼叫) | 同上 | **站2 實跑** |
+| **9** | `test_declared_dimension_absent_from_the_gate` | 同上 | **站6 實跑** |
+
+我的預測清單是用「字串常數只出現在搬移區塊」近似出來的,第 8 支的搜尋字串帶引號、
+第 9 支落在 mixin 之後才成立。**計畫寫下的停手條件 1 ——「不預設我那份清單是完整的」——
+是唯一抓到這兩支的東西。** 這件事本身比那兩支重要:
+把「我可能漏了」寫成流程,勝過把它寫成免責聲明。
+
+### 反證
+
+| 站 | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| 0 | `_stage_shape_contract` body 改一個區域變數(檔案仍合法) | god-file 指紋 |
+| 1 | `_lookup` 的 `AssertionError` 換成 `RuntimeError` | `test_symmetry_check_fires_on_a_missing_ritual` |
+| 2 | 新家的 `_precheck_backup_artifacts` 改一個字串 | 位元組同一性 + byte-identity 兩支 |
+| 3 | 新家的 `_advance_step_seed_p8_archive` 改一個字串 | 同上 |
+| 4 | 新家的 `_frstep_push_checkpoint` 改一個字串 | 同上 |
+| 5 | 拿掉整個 `gate_result` re-export block | `test_harness_bridge_highs2` 收集期 ERROR |
+| 6 | 新家的 `_stage_verify_target` 改一個字串 / 拿掉 `(_FinalizeStages)` base | 位元組守衛 / `test_harness_bridge.py` 19 支 |
+
+七次還原後 sha256 逐檔相同。
+
+### 終局
+
+| 檔案 | 前 | 後 |
+|---|---|---|
+| `cli/phase_cmds.py` | 3511 | **2245** |
+| `cli/fr_cmds.py` | 2449 | **1887** |
+| `harness/harness_bridge.py` | 3994 | **3366** |
+| 三檔合計 | 9954 | **7498** |
+| `cli/advance_prechecks.py` | — | 753 |
+| `cli/advance_steps.py` | — | 625 |
+| `cli/fr_step_stages.py` | — | 647 |
+| `harness/gate_result.py` | — | 285 |
+| `harness/gate_stages.py` | — | 493 |
+| pytest | 7904 passed / 3 skipped | **7908 passed / 3 skipped** |
+| guards | 965 | **968** |
+| source-reading ratchet | 39 | **35** |
+
+三個原檔少了 **2456 行**;五個新模組全部低於 god-file 門檻(900)。
+36 個 helper 加上必須同行的 19 個名字,**每一個都與它取代的文字逐位元組相同**,
+而且 golden **一次都沒有重錄** —— 指紋沒變就是搬移的全部證明。
+`.claude/workflows/` 十支與 `57dcc2c1` 零改動。ruff / mypy clean。
+
+### 明列不做(附 re-open 條件)
+
+| 項目 | 為什麼不做 | re-open |
+|---|---|---|
+| `GateContext`(170 行)搬進 `gate_result` | 零個 stage 讀它。把沒人需要的東西搬進中立模組,正是中立模組長成第二個 god file 的方式 | 有第二個模組需要它 |
+| 把 `_FinalizeStages` 變成真正的型別(Protocol / ABC) | 它是命名空間。今天唯一的子類是 `HarnessBridge`,而 `if TYPE_CHECKING` 的宿主宣告已經把契約寫下來 | 出現第二個宿主 |
+| `cli/gate_cmds.py`(4000+ 行)與其他巨型檔 | 本輪的主題是「把 R81 抽出的 helper 搬出去」,不是全庫拆分。擴大範圍是廚房水槽 | 該檔進入下一輪清單 |
+| `monkeypatch` 雙命名空間的 helper 推廣到其他測試檔 | 站4 只在它實際咬人的那一個檔建了 helper。全庫掃描「哪些 patch 目標已經打不到呼叫端」是另一次審查 —— 而且是一次值得做的審查 | 有人做那次審查 |
+| 賬本每一條的 `guard:` 逐條補齊 | 承 R81 | 承 R81 |
+| `test_test_spec_parser_parity` 的 `git ls-files` 時序 | 承 R81 | 承 R81 |
+| branch protection / `overlay_used` / mutmut 3.x / `RUNALL_MAX_BYTES` | 承 R80、R81 | 承 R80、R81 |
+
+### 如果這個結論是錯的,最可能錯在哪
+
+1. **「哪些測試會紅」我預測了七支,實際是九支。** 兩支都是實跑抓到的,而不是推理。
+   剩下的風險是一支**沒有任何測試覆蓋、卻依賴檔案位置**的讀者 ——
+   對此我沒有量測,只有「全套件綠」這一個間接證據。
+2. **mixin 的宿主契約是我寫的,不是量出來的。** `if TYPE_CHECKING` 底下那四個宣告
+   照抄了 `HarnessBridge` 今天的簽章;如果那邊改了而這邊沒改,mypy 會沉默地
+   對一個過期的契約檢查。這是新機制,而它沒有自己的反證。
+3. **站4 的雙命名空間 helper 只解決了它咬到的那一個檔。** 全庫可能還有
+   「patch 目標已經打不到呼叫端」的測試,綠著什麼都不量。列入明列不做。
+4. **`_lookup` 現在用物件身分解歧義。** 對繼承是對的;對「兩個 class 各有同名但不同的
+   method」它會大聲失敗,那也是對的。沒想到的第三種形狀仍然可能存在。
+5. **語料只剩 `taskq-cc-new` 一個。** 承 R80、R81。
+
 ---
 
 ## Round 81 — 擋住那五項的是量測,不是工程

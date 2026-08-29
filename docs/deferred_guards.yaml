@@ -43,6 +43,22 @@
 # =============================================================================
 
 entries:
+  - round: 81
+    item: "把抽出的 36 個 helper 搬去新模組"
+    guard: "tests/test_god_file_split_safety.py::test_every_split_function_moved_without_being_rewritten"
+    resolved_in: "Round 82 站2-站6"
+    note: >-
+      The re-open condition was 抽取全部在 main 上綠過一輪, met at 57dcc2c1.
+      All 36 moved, into five modules, together with the 19 names that had to
+      travel with them — each group because leaving it behind meant the new
+      module importing back into the old one, a cycle that resolves only by
+      line order. The named guard is what proves every one was a move: its
+      golden was NOT regenerated in any of those five commits, and an
+      unchanged fingerprint is the whole claim. The sixteen `_stage_*` are
+      covered by it only because Round 82 站0 first taught `_source_of` to
+      resolve `Class.method` — before that, no byte guard could see a method
+      at all.
+
   - round: 80
     item: "`finalize_gate`(1150)/`cmd_run_fr_step`(940)/`cmd_advance_phase`(845)/`_advance_prechecks`(818) 的**分解**"
     guard: "tests/test_extraction_moved_not_rewrote.py::test_undoing_the_extraction_gives_back_the_original_function"
