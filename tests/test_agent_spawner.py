@@ -958,15 +958,23 @@ class TestStructuralSignatureSingleSource:
         # pycache was warm — 3 subsequent full runs + a pycache-cleared run all
         # green). A direct file read is deterministic and cannot order-depend
         # on which test warmed linecache first.
+        # Round 82 站4: the wrapper moved to cli/fr_step_stages.py with
+        # `_frstep_route_dispatch_error`, its only reason to exist. The subject
+        # is "no second copy of the signature anywhere in the fr-step CLI", so
+        # read both files rather than re-pointing at one of them.
         import cli.fr_cmds as fr_cmds
+        import cli.fr_step_stages as fr_step_stages
 
-        fr_source = Path(fr_cmds.__file__).read_text(encoding="utf-8")
+        fr_source = "\n".join(
+            Path(m.__file__).read_text(encoding="utf-8")
+            for m in (fr_cmds, fr_step_stages)
+        )
         assert "_CONNECTOR_DISABLED_SIGNATURE" not in fr_source, (
-            "cli/fr_cmds.py re-grew its own signature constant — the "
+            "the fr-step CLI re-grew its own signature constant — the "
             "detection registry is core.agent_spawner._STRUCTURAL_FAILURE_SIGNATURES"
         )
         _idx = fr_source.find("def _is_connector_disabled_failure")
-        assert _idx != -1, "_is_connector_disabled_failure missing from cli/fr_cmds.py"
+        assert _idx != -1, "_is_connector_disabled_failure missing from the fr-step CLI"
         _body = fr_source[_idx:].split("\ndef ", 1)[0]
         assert "is_structurally_broken" in _body, (
             "_is_connector_disabled_failure must delegate to is_structurally_"

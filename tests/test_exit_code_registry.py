@@ -22,7 +22,8 @@ _SCAN_FILES = sorted((REPO / "cli").glob("*.py")) + [REPO / "harness_cli.py"]
 
 def _module_int_constants(tree: ast.Module) -> dict[str, int]:
     """Module-level ``NAME = <int literal>`` assignments (e.g.
-    ``DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE = 23`` in cli/fr_cmds.py) —
+    ``DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE = 23``, in cli/fr_step_stages.py
+    since Round 82 站4 and re-exported from cli/fr_cmds.py) —
     a ``return NAME`` site resolves through this table."""
     consts: dict[str, int] = {}
     for node in tree.body:

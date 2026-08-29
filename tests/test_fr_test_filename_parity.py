@@ -90,6 +90,11 @@ DERIVATIONS = {
 FR_TEST_FILENAME_SITES: dict[str, str] = {
     "cli/fr_cmds.py": "canonical_form.fr_num_str",
     "cli/fr_prompts/__init__.py": "canonical_form.fr_num_str",
+    # Round 82 站4: `_fr_step_already_done` and the rest of the idempotence
+    # family moved here out of cli/fr_cmds.py. Same derivation, because the
+    # move was byte-identical — this entry exists so the scan is not silently
+    # narrower than the code it covers.
+    "cli/fr_step_stages.py": "canonical_form.fr_num_str",
     "cli/gate_cmds.py": "gate_cmds/cov_utils/gate1_evidence inline zfill",
     "core/canonical_form.py": "canonical_form.fr_num_str",
     "core/quality_gate/cov_utils.py": "gate_cmds/cov_utils/gate1_evidence inline zfill",

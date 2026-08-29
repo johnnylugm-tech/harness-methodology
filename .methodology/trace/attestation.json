@@ -1,9 +1,9 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "100b16cb17ca1546d9d5a6d22db2b00235c8c8ca",
-  "content_sha256": "43a6d437faf1b7e9c421c99edbb9d3c1e3d60cba0ce22cef351b4ca4b3ab18a9",
+  "git_sha": "65b137bc5905c3d6d87fb8b2aa8f0cb055d84348",
+  "content_sha256": "f2d62bb1dda139be9d93320fd7de973912f2a4d1b2c949c62ae3ea740af21ee7",
   "tool": "scripts/build_trace_attestation.py",
-  "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
+  "overlay_used": "/Users/johnny/workspace/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
   "matrix": {
     "schema_version": "harness/traceability/overlay/v1",
@@ -109,7 +109,7 @@
         "status": "verified",
         "srs_section": "SAD.md",
         "code_files": [
-          "cli/fr_cmds.py",
+          "cli/fr_step_stages.py",
           "tests/cli/test_fr_cmds_cli.py",
           "tests/cli/test_project_cmds_cli.py",
           "tests/test_attestation_verify.py",

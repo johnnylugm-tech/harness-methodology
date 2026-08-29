@@ -3933,6 +3933,34 @@ stamp 檢查)改走 `pipeline_source(cmd_advance_phase)`;
 本來就是同一個物件,現在不再依賴程式碼住在哪個檔。
 source-reading ratchet **38 → 36**。
 
+### 站4 — 四支 `_frstep_*` 出門,而貨物大於酬載
+
+`cli/fr_cmds.py` **2449 → 1887**,四支(218 行)加兩個家族(357 行)搬到
+`cli/fr_step_stages.py`(647 行)。**貨物大於酬載,寫在檯面上**:
+
+| 家族 | 內容 | 為什麼非走不可 |
+|---|---|---|
+| dispatch-error 讀者 | 4 支函式 + 2 個常數,84 行 | `_frstep_route_dispatch_error` 讀它們 |
+| idempotence | `_fr_step_already_done`(191)+ 2 支 + 1 張表,235 行 | 另外兩支 `_frstep_*` 讀它們 |
+
+兩組各自連貫(一組回答「這次 dispatch 失敗是什麼意思」,另一組回答「這一步做過了嗎」),
+所以是一個模組而不是兩個發明出來的邊界。十一個指紋不變。
+
+#### 站3 那一課的第二次,而這次更難看
+
+`monkeypatch.setattr("cli.fr_cmds._fr_step_already_done", ...)` 有 **14 個**呼叫點。
+搬移之後:兩支 `_frstep_*` 從 `cli.fr_step_stages` 解析它,而 `cmd_resume_fr_phase`
+留在原地、從 `cli.fr_cmds` 解析它 —— **同一個述詞,兩個命名空間,而每個呼叫點該打哪一個
+取決於它驅動的是哪一條路徑。**
+
+我第一次全部改指 `fr_step_stages`,`resume` 那兩支立刻轉紅;若我改指得剛好相反,
+**紅的會是另外兩支,而其餘十二支會綠著什麼都不量。** 正解是一個 helper 同時打兩個
+命名空間,並在它的 docstring 裡寫明為什麼 —— 讓「該打哪一個」不再是每個呼叫點各自的判斷。
+
+另外兩把尺:`test_agent_spawner` 的「fr_cmds 不得自己長出第二份簽章」改成同時讀兩個檔
+(主題是 fr-step CLI,不是某一個檔);`test_fr_test_filename_parity` 的站點註冊表補上新模組 ——
+**空的註冊等於掃描比它涵蓋的程式碼窄,而那正是那張表存在的理由。**
+
 ---
 
 ## Round 81 — 擋住那五項的是量測,不是工程
