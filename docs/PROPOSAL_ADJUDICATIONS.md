@@ -3961,6 +3961,27 @@ source-reading ratchet **38 → 36**。
 (主題是 fr-step CLI,不是某一個檔);`test_fr_test_filename_parity` 的站點註冊表補上新模組 ——
 **空的註冊等於掃描比它涵蓋的程式碼窄,而那正是那張表存在的理由。**
 
+### 站5 — C 組前置:中立模組,而它存在的理由不是整潔
+
+`harness/harness_bridge.py` **3994 → 3777**,gate 產出的兩份紀錄、它丟的例外、
+score-source 詞彙、以及四支讀它們的函式(`framework_measured`、`declared_dimensions`、
+`measurement_scope`、`s4_block_details`)搬到 `harness/gate_result.py`(285 行)。
+
+**這不是整理,是站6 的前置條件。** 十三支 stage 丟 `GateBlockedError`、
+另外三支讀 `DimResult` / `SCORE_SOURCE_STUBBED_BOUNDARY` / `measurement_scope` /
+`s4_block_details`。mixin base 必須在 `class HarnessBridge(...)` 執行前 import 完成,
+所以那個模組不能反向 import 回來 —— 而「剛好能動」的版本能動,
+**是因為這些定義正好全部坐在 class 之上,靠的是行號而不是結構**。
+Round 80 對 `_crg_enrich_gate_findings` 寫的 re-open 條件就是這個形狀:
+「共用寫入器先被移到中立模組」。
+
+`GateContext`(170 行)**刻意不搬** —— 零個 stage 讀它,
+而把沒人需要的東西搬進「中立模組」正是中立模組長成第二個 god file 的方式。
+
+複核時漏掉的第八個名字在這裡補上:`_SOURCES_NOT_FRAMEWORK_MEASURED`(`framework_measured`
+讀它),連同計畫已抓到的 `framework_measured` 自己。**這一站全套件零測試改動就綠了** ——
+沒有任何一把尺 grep 這些定義,re-export 接住其餘全部。
+
 ---
 
 ## Round 81 — 擋住那五項的是量測,不是工程
