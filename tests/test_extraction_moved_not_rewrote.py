@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.dataflow import _bound, _loaded
-from tests.support.pipeline import original_statements, reconstructed
+from tests.support.pipeline import _lookup, original_statements, reconstructed
 
 pytestmark = [pytest.mark.core]
 
@@ -132,11 +132,17 @@ _EXTRACTED: "dict[str, dict]" = {
 }
 
 
-def _function(tree: ast.Module, name: str) -> "ast.FunctionDef":
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return node
-    raise AssertionError(f"{name} is not defined any more")
+def _function(module: str, name: str) -> "tuple[ast.FunctionDef, str]":
+    """The def and the text of the file that now defines it.
+
+    Round 82 站1. This used to search the caller's own tree, which stopped
+    being true the moment 站2-站6 moved the helpers into modules of their own.
+    `_lookup` follows the object instead of the path — and it matters for more
+    than finding the def: `test_no_helper_reads_a_name_nobody_gives_it`
+    resolves free names against module scope, and after the move that is the
+    HELPER's module, not the caller's.
+    """
+    return _lookup(module, name)
 
 
 def _body_text(source: str, func: "ast.FunctionDef") -> str:
@@ -170,12 +176,11 @@ def _body_text(source: str, func: "ast.FunctionDef") -> str:
 def test_every_extracted_body_is_byte_identical_to_what_it_replaced(label):
     spec = _EXTRACTED[label]
     before = (GOLDEN / spec["before"]).read_text(encoding="utf-8")
-    after = (REPO / spec["module"]).read_text(encoding="utf-8")
-    tree = ast.parse(after)
 
     rewritten = []
     for name in spec["helpers"]:
-        body = _body_text(after, _function(tree, name))
+        func, home = _function(spec["module"], name)
+        body = _body_text(home, func)
         if body not in before:
             rewritten.append(name)
 
@@ -218,9 +223,6 @@ def test_no_helper_reads_a_name_nobody_gives_it(label):
     import builtins
 
     spec = _EXTRACTED[label]
-    source = (REPO / spec["module"]).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    module_scope = _bound(list(tree.body)) | set(dir(builtins))
 
     def bound_at_any_depth(nodes: "list[ast.stmt]") -> "set[str]":
         """Unlike `_bound`, descends into nested scopes: for the NameError
@@ -246,7 +248,11 @@ def test_no_helper_reads_a_name_nobody_gives_it(label):
 
     unresolved: "list[str]" = []
     for name in spec["helpers"]:
-        func = _function(tree, name)
+        func, home = _function(spec["module"], name)
+        # Module scope is the HELPER's own, read fresh per helper: after 站2-站6
+        # they no longer all live in one file, and asking the caller's module
+        # whether a name resolves would answer about the wrong namespace.
+        module_scope = _bound(list(ast.parse(home).body)) | set(dir(builtins))
         params = {a.arg for a in func.args.args + func.args.kwonlyargs}
         loose = _loaded(func.body) - bound_at_any_depth(func.body) - params - module_scope
         if loose:
@@ -301,15 +307,13 @@ def test_the_caller_still_propagates_every_early_return(label):
     silently disabled check — the shape Round 43 named (detected, no executor).
     """
     spec = _EXTRACTED[label]
-    source = (REPO / spec["module"]).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    caller = _function(tree, spec["caller"])
+    caller, _ = _function(spec["module"], spec["caller"])
     helpers = set(spec["helpers"])
 
     can_return = {
         name for name in helpers
         if any(isinstance(n, ast.Return) and n.value is not None
-               for n in ast.walk(_function(tree, name)))
+               for n in ast.walk(_function(spec["module"], name)[0]))
     }
 
     checked: "set[str]" = set()

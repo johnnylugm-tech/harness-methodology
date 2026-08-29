@@ -19,9 +19,86 @@ exactly the claim the extraction makes about itself.
 from __future__ import annotations
 
 import ast
+import importlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+
+
+def _lookup(module: str, name: str) -> "tuple[ast.FunctionDef, str]":
+    """`name`'s def and the text of the file that NOW defines it.
+
+    Round 82 站1. Everything below used to parse `REPO / module` and look for
+    the name in that one tree — the same-file assumption. Round 82 moves the
+    helpers out, so eleven suites that reach them through this module would
+    have stopped finding them.
+
+    Resolution follows the object, not the path: import the façade module the
+    caller names, resolve the attribute (re-exports keep working), then read
+    the body out of `__module__`'s file at the position `__qualname__` gives.
+    This is `tests/test_god_file_split_safety.py::_source_of`'s answer, not a
+    new one — "locating them is the test's job, and the point is that the
+    location is allowed to change".
+
+    A name that cannot be resolved raises `AssertionError`, deliberately:
+    `tests/test_push_path_symmetry.py` builds a synthetic module with no file
+    on disk and falls back on `(FileNotFoundError, AssertionError)`. Letting a
+    `ModuleNotFoundError` out would walk past that fallback and change what
+    that negative control tests without touching it.
+    """
+    dotted = module.removesuffix(".py").replace("/", ".")
+    try:
+        facade = importlib.import_module(dotted)
+    except ImportError as exc:
+        raise AssertionError(f"{dotted} cannot be imported: {exc}") from exc
+
+    obj = getattr(facade, name, None)
+    if obj is None:
+        # A method: reached through the class, not the module.
+        owners = [
+            value for value in vars(facade).values()
+            if isinstance(value, type) and getattr(value, name, None) is not None
+        ]
+        assert len(owners) == 1, (
+            f"{name} is not reachable from {dotted} — as a module attribute or "
+            f"as a method of exactly one class defined there (found "
+            f"{len(owners)} candidate classes)"
+        )
+        obj = getattr(owners[0], name)
+
+    home = importlib.import_module(obj.__module__)
+    home_file = getattr(home, "__file__", None)
+    assert home_file, f"{obj.__module__} has no file on disk"
+    src = Path(home_file).read_text(encoding="utf-8")
+
+    qualname = getattr(obj, "__qualname__", name)
+    found = _by_qualname(ast.parse(src), qualname)
+    assert found is not None, (
+        f"{name} is importable from {dotted} but its source is not at "
+        f"{obj.__module__}::{qualname}"
+    )
+    return found, src
+
+
+def _by_qualname(tree: ast.Module, qualname: str) -> "ast.FunctionDef | None":
+    """The def whose dotted position in `tree` is `qualname`.
+
+    Matching the position rather than the bare name is what keeps a method
+    apart from a module-level function of the same name — and after 站6 the
+    stages live one class deep in a file that also has module-level defs.
+    """
+    def walk(node: ast.AST, prefix: str) -> "ast.FunctionDef | None":
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                hit = walk(child, f"{prefix}{child.name}.")
+                if hit is not None:
+                    return hit
+            elif isinstance(child, ast.FunctionDef):
+                if f"{prefix}{child.name}" == qualname:
+                    return child
+        return None
+
+    return walk(tree, "")
 
 
 def moved_statements(func: "ast.FunctionDef") -> "list[ast.stmt]":
@@ -59,8 +136,7 @@ def reconstructed(module: str, name: str, *, helper_prefix: str,
     where the extraction added one, for the two functions whose terminal return
     travelled into their last helper.
     """
-    tree = ast.parse((REPO / module).read_text(encoding="utf-8"))
-    target = _function(tree, name)
+    target, _ = _lookup(module, name)
 
     def helper_of(stmt: ast.stmt) -> "str | None":
         call: "ast.Call | None" = None
@@ -91,7 +167,7 @@ def reconstructed(module: str, name: str, *, helper_prefix: str,
         if helper is None:
             body.append(stmt)
             continue
-        body.extend(moved_statements(_function(tree, helper)))
+        body.extend(moved_statements(_lookup(module, helper)[0]))
         skip_next_propagate = isinstance(stmt, ast.Assign)
 
     # A `Raise` as well as a `Return`: finalize_gate's generated fall-through
@@ -119,19 +195,17 @@ def pipeline_source(module: str, name: str, *, helper_prefix: str) -> str:
     against a cached read and has given stale answers in this repo before
     (tests/test_god_file_split_safety.py says so at its `_source_of`).
     """
-    text = (REPO / module).read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    tree = ast.parse(text)
-    target = _function(tree, name)
-
-    def span(func: "ast.FunctionDef") -> str:
+    def span(pair: "tuple[ast.FunctionDef, str]") -> str:
+        func, text = pair
+        lines = text.splitlines(keepends=True)
         return "".join(lines[func.lineno - 1:func.end_lineno])
 
-    out = [span(target)]
+    target, _ = (found := _lookup(module, name))
+    out = [span(found)]
     for node in ast.walk(target):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
                 and node.func.id.startswith(helper_prefix):
-            out.append(span(_function(tree, node.func.id)))
+            out.append(span(_lookup(module, node.func.id)))
     return "".join(out)
 
 
@@ -150,8 +224,7 @@ def inlined(module: str, name: str, *, helper_prefix: str) -> "ast.FunctionDef":
     shape the extraction emits, and anything else is left alone rather than
     guessed at.
     """
-    tree = ast.parse((REPO / module).read_text(encoding="utf-8"))
-    target = _function(tree, name)
+    target, _ = _lookup(module, name)
 
     def called_helper(stmt: ast.stmt) -> "str | None":
         call: "ast.Call | None" = None
@@ -169,7 +242,8 @@ def inlined(module: str, name: str, *, helper_prefix: str) -> "ast.FunctionDef":
         if helper is None:
             body.append(stmt)
             continue
-        body.extend(_function(tree, helper).body[1:])  # drop the docstring
+        # drop the docstring
+        body.extend(_lookup(module, helper)[0].body[1:])
 
     # Renumber. Several of these tests compare `lineno`s to assert ORDER, and
     # the helpers are defined ABOVE the caller, so the original numbers would

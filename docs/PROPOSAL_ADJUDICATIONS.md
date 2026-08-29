@@ -3822,6 +3822,63 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 82 — 擋住那 36 支的是七把只認一個檔案的尺
+
+老闆令:把 Round 81 抽出的 36 個 helper 搬去新模組。老闆兩項裁示:**全做 36 支**,
+C 組(16 支 method)先搬中立模組;`pipeline` 的 helper 解析**跟著 `__module__` 走**。
+老闆複核令(與 Round 81 同一句):**重新驗證是否都是正解、是否引入副作用;
+重構必須安全地進行**。
+
+基線 `57dcc2c1`。**本節隨每一站增長** —— Round 80 站9 的守衛要求一個 round 的第一個
+commit 就要有它的賬本節,而不是最後一個。Round 81 踩過一次,這裡是第二次:
+**這條規則本身值得寫進協議,而不是每輪靠記憶重新發現。**
+
+### 母體
+
+> **擋住這 36 支的不是耦合,是把「一個檔案」誤當成主題的量尺。**
+
+耦合實測小得出乎意料:9 支 `_precheck_*`(680 行)只需要原檔 **1** 個名字,
+7 支 `_advance_step_*`(504 行)也只需要 **1** 個。真正會轉紅的是七把尺。
+
+### 站0 — 位元組守衛看不見任何一個 method
+
+`test_god_file_split_safety._source_of` 只找 top-level `def`,而它的 docstring 自己
+寫著「the 18 methods on HarnessBridge are outside its reach」,並補一句
+「站8 moves none of them」。站6 要搬其中 16 支 —— **一個看不見自己主題的守衛不是守衛,
+而且它今天就看不見,不是搬移之後才看不見。**
+
+擴充在任何一行搬移之前,這是這個檔自己的規則:*a net woven after the fall proves
+nothing about the fall*。`_source_of` 接受 `Class.method`,class 從門面模組解析
+(class 不動),body 從 `__module__` 的檔案讀,而**定位用 `__qualname__` 的第一段而不是
+「reach 到它的那個 class」** —— mixin 的 method 正好是透過子類 reach、在基類定義。
+
+第二個洞:`cli.fr_cmds` **完全不在 `_TRACKED` 裡**,站4 要從它搬走 13 個名字。
+
+golden 重錄:**27 個 `+` 行、0 個 `-` 行** —— 沒有任何既有指紋改變,
+這是「擴充沒有動到它原本在量的東西」的證據,不是我說了算。
+
+### 站1 — 十一支測試的地基,改在零搬移的情況下
+
+`pipeline_source` / `inlined` / `reconstructed` 都做
+`_function(ast.parse(REPO / module), name)` —— 同檔假設。換成跟著物件走:
+import 門面模組 → 解析屬性(re-export 因此仍然有效)→ 從 `__module__` 的檔案、
+`__qualname__` 的位置讀出 body。**11 個呼叫端零改動。**
+
+**複核才發現的硬性約束**:解析失敗必須丟 `AssertionError`。
+`tests/test_push_path_symmetry.py:60` 的 fallback 只 catch
+`(FileNotFoundError, AssertionError)`,若新解析器丟 `ModuleNotFoundError`,
+那支合成模組的負向控制會**靜默改變行為** —— 而 Round 81 站7 正是在這支上把負向控制
+改壞過一次。實測確認:`cli.fake_push_cmds` 走的是 `AssertionError`。
+
+**第二件跟著搬的東西,不是 def 而是命名空間**:
+`test_no_helper_reads_a_name_nobody_gives_it` 拿 helper 的自由名字去比對「模組層名字」。
+搬移之後那個模組是 **helper 自己的**,不是呼叫者的 —— 繼續問呼叫者的命名空間,
+是在對一個不再相關的 namespace 問問題。改成逐 helper 從它的家讀。
+
+**這一站不搬任何程式碼,全套件必須在零搬移下綠** —— 否則就是我改壞了尺而不是修好它。
+
+---
+
 ## Round 81 — 擋住那五項的是量測,不是工程
 
 老闆令:把 Round 80 結束時仍開放的五項(本檔 Round 80「明列不做」表)展開成可執行的
