@@ -111,6 +111,24 @@ _EXTRACTED: "dict[str, dict]" = {
             "_stage_declared_absent", "_stage_record_verdict",
         ),
     },
+    "fr_cmds.cmd_run_fr_step": {
+        "module": "cli/fr_cmds.py",
+        "before": "fr_cmds.py.before",
+        "caller": "cmd_run_fr_step",
+        # `_frstep_`, chosen against the file's existing `_fr_step_already_done`
+        # and `_fr_prompt_*`: 站7 shipped a prefix that collided with three
+        # untouched functions and only the reconstruction assertion noticed.
+        "prefix": "_frstep_",
+        # This function's tail is not one of its extractable runs, so nothing
+        # generated a fall-through for it.
+        "generated_tail": False,
+        "helpers": (
+            "_frstep_skip_if_already_done",
+            "_frstep_route_dispatch_error",
+            "_frstep_gate1_paper_trail",
+            "_frstep_push_checkpoint",
+        ),
+    },
 }
 
 

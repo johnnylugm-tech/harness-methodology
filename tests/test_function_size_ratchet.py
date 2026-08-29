@@ -111,7 +111,10 @@ _CEILINGS: dict[str, int] = {
     # test_no_ceiling_sits_above_the_function_it_covers does not allow
     # otherwise.
     "harness/harness_bridge.py::HarnessBridge.finalize_gate": 899,
-    "cli/fr_cmds.py::cmd_run_fr_step": 940,
+    # 770 at Round 81 站9, from 940: four runs extracted. The smallest
+    # harvest of the four, because only 182 of its lines are extractable
+    # under the rule — the rest threads state through the dispatch loop.
+    "cli/fr_cmds.py::cmd_run_fr_step": 770,
     # 413 at Round 81 站7, from 845: seven runs extracted. Harvested in the
     # same commit because test_no_ceiling_sits_above_the_function_it_covers
     # does not allow otherwise.

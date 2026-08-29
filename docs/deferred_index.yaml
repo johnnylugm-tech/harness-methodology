@@ -684,97 +684,97 @@ entries:
     kind: bullet
     text: "- 不改 mutmut 預算機制。**再開條件**：受影響專案移除鍵後實測跑不完。"
   - round: 80
-    line: 4243
+    line: 4264
     kind: table_row
     item: "`finalize_gate`(1150)/`cmd_run_fr_step`(940)/`cmd_advance_phase`(845)/`_advance_prechecks`(818) 的**分解**"
     reason: "區塊抽取會改動函式自身文字,byte-equal 規則不適用;實測 `harness_bridge.py` 全套件行為覆蓋 **81%**(1490 stmts / 282 未達),不足以證明抽取等價。站6 的 ratchet 已把它們凍結在現值只降不升 —— 與 `test_patch_discipline.py` 對 400 個 private patch 的處置同一理由"
     reopen: "有一支能釘住 `finalize_gate` 在 gate 矩陣上的 verdict / exit code / BLOCK 文字的行為 golden,且其覆蓋被實測"
   - round: 80
-    line: 4244
+    line: 4265
     kind: table_row
     item: "`_crg_enrich_gate_findings` 搬出 harness_bridge"
     reason: "它的閉包會拉進 `_atomic_write_gate_result`(8 個呼叫點的共用寫入器)。搬那個是重構不是搬移,會造成 `gate_crg` ↔ `harness_bridge` 循環"
     reopen: "共用寫入器先被移到中立模組"
   - round: 80
-    line: 4245
+    line: 4266
     kind: table_row
     item: "「明列不做」抽成機讀索引"
     reason: "23+ 條散在 5500 行散文裡,提取有把話塞進前幾輪嘴裡的實際風險。**代價已經發生**:本輪的 F7/F8/F10 就是因此被重新推導"
     reopen: "有人願意逐條與原文對照地做一次提取,或賬本改為結構化寫入"
   - round: 80
-    line: 4246
+    line: 4267
     kind: table_row
     item: "`overlay_used` 仍是別台機器的絕對路徑"
     reason: "它現在不被任何東西比對、也不被任何東西讀。改寫是一次沒有可量測收益的位元變更"
     reopen: "出現一個讀者"
   - round: 80
-    line: 4247
+    line: 4268
     kind: table_row
     item: "`RUNALL_MAX_BYTES` 的 153 bytes headroom(Round 58 留下)"
     reason: "不是本輪造的,且屬另一個 ratchet 家族"
     reopen: "該 ratchet 被系統性檢視時"
   - round: 80
-    line: 4248
+    line: 4269
     kind: table_row
     item: "支援 mutmut 3.x"
     reason: "新功能不是修復;本輪只要求「版本不對就說不知道」"
     reopen: "老闆要求升級工具鏈"
   - round: 80
-    line: 4249
+    line: 4270
     kind: table_row
     item: "branch protection"
     reason: "老闆全域禁止。**站3 的限制因此誠實記錄:它縮小視窗但不封閉它**"
     reopen: "—"
   - round: 80
-    line: 4250
+    line: 4271
     kind: table_row
     item: "為框架建立真實 `.methodology/state.json`"
     reason: "老闆已裁示走「誁明不適用」"
     reopen: "老闆改變裁示"
   - round: 79
-    line: 4391
+    line: 4412
     kind: table_row
     item: "重新診斷 runtime cache 跨 fresh launch 到底存不存在"
     reason: "我觀測不到。playbook §6.3 說範圍是同 session + `resumeFromRunId` + script 位元組不變;`4c24cf37` 說跨啟動存活;taskq-cc-new 的 spawn log **無法區分**(wrapper 不論 cache hit 與否都會寫記錄)。**本輪在兩種讀法下都正確**:站1 的移除兩種讀法下都對,站2 的 tag 不用就等同今天"
     reopen: "有人能在 runtime 端實測 cache 範圍"
   - round: 79
-    line: 4392
+    line: 4413
     kind: table_row
     item: "`4c24cf37` 為什麼沒被 hook 擋"
     reason: "三個假設已排除,原因不明。站5 修的是我**能**證明的四條靜默路徑,不是一個未確認的原因"
     reopen: "老闆確認當時是否用了 `--no-verify`"
   - round: 79
-    line: 4393
+    line: 4414
     kind: table_row
     item: "`git push --no-verify`"
     reason: "git 根本不叫 hook,機制關不掉。branch protection 是唯一能關的,老闆禁止我動"
     reopen: "—"
   - round: 79
-    line: 4394
+    line: 4415
     kind: table_row
     item: "`test_amend_sab_appears_once_per_generated_workflow` 數字串不數 dispatch"
     reason: "別人的守衛,而且它已經為同樣理由帶了一個豁免(infra_abort return payload)。為自己的方便去放寬它正是 R64 的形狀 —— 站2 改的是自己的註解措辭"
     reopen: "有第三個正當 mention 出現時"
   - round: 79
-    line: 4395
+    line: 4416
     kind: table_row
     item: "`'B Review'` / `'Persist Approval'` 兩個未宣告的 phase label"
     reason: "0978364c 就在了,不是本輪造的。替它們選一個 box 是改 progress view,不是 lint 該做的決定。站4 的守衛把它們列為**只減不增**的豁免"
     reopen: "有人決定這兩個 dispatch 該歸在哪個 box"
   - round: 79
-    line: 4396
+    line: 4417
     kind: table_row
     item: "`core/ci_verdict.py` 的 `repo_slug(project) if runner is None else \"o/r\"`"
     reason: "`36d8c1d6` 沿用的是 `fetch_ci_verdict:128` 就有的既有形狀,不是新缺陷。代價是注入 runner 的測試永遠不會走到 `repo_slug`"
     reopen: "有人要處理 runner 注入 seam 的整體形狀"
   - round: 79
-    line: 4397
+    line: 4418
     kind: table_row
     item: "`spec_shared.py:156` `_render_meta` 的 pyright「未使用」警告"
     reason: "HEAD 就有,與本輪無關"
     reopen: "—"
   - round: 76
-    line: 4598
+    line: 4619
     kind: bullet
     text: |-
       - **JS/TS 沒有 per-FR scope。** `PER_TEST_OUTCOME_TOOLS` 逐名列出可讀的 runner,
@@ -782,7 +782,7 @@ entries:
         正在移除的缺陷原封不動搬給 JS 專案。條件寫在 MEASUREMENT_SINKS 的
         `reopen_when`。
   - round: 76
-    line: 4602
+    line: 4623
     kind: bullet
     text: |-
       - **`cov_utils` / `gate_cmds` / `red_assertion_check` / `property_check` 的
@@ -791,99 +791,99 @@ entries:
         零個這種檔名。改了會動到不存在的檔案,是沒有量測支撐的行為變更 ——
         登記為潛伏兄弟(R74 慣例),不改。
   - round: 76
-    line: 4607
+    line: 4628
     kind: bullet
     text: |-
       - **站5 情形 (a) 不擋。** 「少報 + 真的有紅」全部已被站1 的判定擋掉,(a) 若也擋
         只會擋到「多報」—— 而多報正是站3 之前的 prompt 教它寫的。同一輪剛拿掉歧義
         就用它扣分是 R42。re-open:站3 的 prompt 用過幾輪之後這種 row 還在出現。
   - round: 74
-    line: 4735
+    line: 4756
     kind: table_row
     item: "站4 擋下 `[not checked]`"
     reason: "框架的模板從沒定義過那個 schema(`cross_cutting` / `fr_tests` 都沒有 layer),拿專案沒被要求寫的形狀去擋是 R42「合規的成本由被判定方承擔」"
     reopen: "站5 的模板出貨後,一個**新**專案(拿到新模板)仍把 NFR 測試寫進無 layer 的區段"
   - round: 74
-    line: 4736
+    line: 4757
     kind: table_row
     item: "對既有九專案強制新 schema"
     reason: "`_init_copy_templates` 對已編輯檔案是 PROTECTED;`_entry_test_fn` 仍用內容定位認得四種舊拼法"
     reopen: "某專案的舊拼法造成判定錯誤而非僅僅少讀"
   - round: 74
-    line: 4737
+    line: 4758
     kind: table_row
     item: "合併兩個 parser 的 section 語意"
     reason: "bridge 認 `### NFR-xx` 為可查詢的 section id,`_parse_test_spec` 把非 FR 標題 slug 化;合併會改變 Gate 1 per-FR cap 計入哪些列"
     reopen: "有專案的 per-FR cap 因兩者 section 語意不同而算錯"
   - round: 74
-    line: 4738
+    line: 4759
     kind: table_row
     item: "`_flatten_test_names` 與 `tests:` 的雙向對賬"
     reason: "模板現在把 `fr_tests`/`cross_cutting` 定為 `tests:` 的**視圖**並用測試鎖住;生產端要求既有專案兩邊一致會擋住全部九個(taskq-new inventory 50 vs TEST_SPEC 115,而模板明說 inventory 可以是子集)"
     reopen: "一個專案的 `fr_tests` 名字不在 `tests:` 裡,且該名字沒有交付"
   - round: 73
-    line: 4832
+    line: 4853
     kind: table_row
     item: "反造假旗標偵測(`--ignore` / `-k` / `--deselect` / `collect_ignore` / `testpaths` 移除)"
     reason: "那是「排除」不是「skip」;taskq-new 的 `--ignore=harness` 是合法用法(排除 vendored submodule),偵測它需要例外清單,而例外清單沒有對賬機制 —— 會複製本輪站3 的缺陷形狀"
     reopen: "一個專案用這五種形態之一把測試排除掉並拿到 gate PASS,且該形態無法用「合法排除 vendored 目錄」解釋"
   - round: 73
-    line: 4833
+    line: 4854
     kind: table_row
     item: "站3 加入單數 `layer` 作為 keyword"
     reason: "taskq-api 的 `single_auth_dependency_at_api_layer` 會誤命中 layers candidate,而該專案有 layers contract → 會被判 `enforced`。**把棄權換成假背書比棄權更壞**(R72 站4 同一句,方向相反)"
     reopen: "出現一條真的由 layers contract 決定、而措辭只含單數 `layer` 的約束,且能與 `single_auth_…` 那類區分"
   - round: 73
-    line: 4834
+    line: 4855
     kind: table_row
     item: "站5 擋下 `dimensions_declared_absent`"
     reason: "gate 的維度清單是框架的設計決定(`architecture_constraints` 是 per-FR 維度),擋下去會擋住每一個專案;NFR-06 的實質判定由站3 在 Gate 4 的 `unconfigured_blocking_reason` 承擔"
     reopen: "gate config 與 manifest 對某個維度分歧,而**沒有任何其他機制**判它 —— 那才是「需求零執行者」"
   - round: 73
-    line: 4835
+    line: 4856
     kind: table_row
     item: "NFR-12 四步是否真的被串接"
     reason: "需要判斷自然語言列出的步驟是否出現在 recipe 裡,那是發明判準而非套用。站4 改為讓維度**不宣稱**它,站1 讓 `test_nfr12_*`(若被宣告)必須存在"
     reopen: "有專案宣告了 NFR-12 的 AC 測試、測試存在、卻仍與 recipe 不符"
   - round: 73
-    line: 4836
+    line: 4857
     kind: table_row
     item: "~~`TEST_INVENTORY.yaml` 的欄位名與 NFR Layering Hard Rule 不符~~"
     reason: "**已於本輪站6 修復**(老闆追加指令),見下"
     reopen: "—"
   - round: 72
-    line: 5039
+    line: 5060
     kind: table_row
     item: "A"
     reason: "`file:does-not-exist.db` 這類「檔名像 URI」的垃圾"
     reopen: "要發明一條關於檔名長相的規則,是發明判準不是套用正解。站7 已用一條測試把這個省略釘成「決定」而非疏漏"
   - round: 72
-    line: 5040
+    line: 5061
     kind: table_row
     item: "B"
     reason: "`core.hooksPath=scripts/hooks` 沒有任何東西驗證它有設"
     reopen: "本輪兩次 CI 紅的直接原因是「push 前沒跑 self_check」,但那是流程紀律;hook 安裝與否是 clone 端的本地 git config,框架無法從 repo 內強制"
   - round: 72
-    line: 5041
+    line: 5062
     kind: table_row
     item: "C"
     reason: "`gate:arch-constraints` 每次 gate 都寫一筆(taskq-new 191 筆)"
     reopen: "R54 已裁決 \"Recorded, never blocked\",理由成立;191 筆是 ledger 噪音而非判定缺陷"
   - round: 72
-    line: 5042
+    line: 5063
     kind: table_row
     item: "D"
     reason: "`_scope_violation_scripts` 本身仍只看 untracked + top-level"
     reopen: "Surgical:站7 加的是**另一類**判準(工具備份後綴,全樹),既有那條的 top-level 限制有它自己的理由(遞迴會誤殺 mid-phase 的新模組)"
   - round: 70
-    line: 5158
+    line: 5179
     kind: bullet
     text: |-
       - **不拆 `RUNALL_MAX_BYTES` 的註解**：單行 13,374 字元、14 筆歷史條目、
         有一支測試在 parse 它——用註解當資料庫是真問題，但拆檔要一併改那支測試，
         與本輪四站不相稱。**再開條件**：下一次有人需要在那行裡找一筆舊條目而找不到。
   - round: 70
-    line: 5161
+    line: 5182
     kind: bullet
     text: |-
       - **不統一 D4 門檻的兩份表**：`spec_shared.D4_THRESHOLDS`（以 phase 索引）與
@@ -891,31 +891,31 @@ entries:
         分屬兩個互不 import 的 package。站1 只補上 gate 1 缺的那筆（40.0，原本只存在於
         GATE1 prompt 的 `--threshold 40.0` 字串裡），並用守衛把兩處綁住。
   - round: 70
-    line: 5165
+    line: 5186
     kind: bullet
     text: |-
       - **Sync 站保留文字判定，且理由寫進碼裡**：`render_sync_verified` 跑的是前景
         `git push`，crash 發生在 pre-push hook 的子程序，`git push` 只會回 1——RC
         區分不了「hook 說 blocked」與「hook crash」。兩種來源對應兩種機制，不是漂移。
   - round: 70
-    line: 5168
+    line: 5189
     kind: bullet
     text: "- **不改 `taskq-*` 任何檔案**：全程唯讀，只讀不寫。"
   - round: 69
-    line: 5301
+    line: 5322
     kind: bullet
     text: |-
       - **不驗證 `Deferred:` 行指名的工具是否真的跑過。** 本輪只擋「沒指名」。
         再開條件＝`gate:ac-deferred` 累積到能看出哪些工具名是真的被執行的。
         這是 R43 母體在本輪的殘留。
   - round: 69
-    line: 5304
+    line: 5325
     kind: bullet
     text: |-
       - **不 revert 那 8 個 commit。** 它們已 push 且各自解了真問題（taskq-new 59
         筆假指控、taskq-api P2 的 50 分鐘空轉、SRS prose 誤計）；正解是修在來源。
   - round: 69
-    line: 5306
+    line: 5327
     kind: bullet
     text: |-
       - **AC 三態今天爆炸半徑為零**，且照實記：沒有語料專案寫過 `Deferred:` 行
@@ -923,7 +923,7 @@ entries:
         taskq-super 的 `AC-N7.2` 仍是 `ac_no_test_case`——它是 uncited，不是
         deferred。機制先於 prompt 的建議落到任何一棵樹。
   - round: 69
-    line: 5310
+    line: 5331
     kind: bullet
     text: |-
       - **#1/E1 的後果強度是 Medium 不是 High。** 語料顯示 agent 在 taskq-cc 的 P6
@@ -931,58 +931,58 @@ entries:
         比較可能是「昂貴、非確定性」而不是硬死鎖。修法在兩種情況下都正確，但
         **這不是死鎖，是每次都靠 agent 自己補救**，不冒充成更嚴重的戰果。
   - round: 69
-    line: 5314
+    line: 5335
     kind: bullet
     text: |-
       - **站 1 的 re-verify 成本沒量。** 每個 exit-gate 相位多一次 verify-gate，
         含 `pip install code-review-graph` + CRG 圖建置。若過貴，替代方案是把
         verdict 記錄從 verify-gate 拆成獨立的輕量 `record-verdict`——更大的一輪。
   - round: 66
-    line: 5691
+    line: 5712
     kind: unstructured
     heading: "### D 的前情：R25 曾明確「不做」，本輪以不同理由重開"
-    spans_lines: [5691, 5698]
+    spans_lines: [5712, 5719]
   - round: 65
-    line: 5878
+    line: 5899
     kind: bullet
     text: |-
       - **不加 Windows 的 job object / taskkill /T**：無法在此驗證，且 CI 只有 ubuntu。
         `run_isolated` 在沒有 process group 的平台退回 `subprocess.run` 的行為並寫明。
         re-open：出現 Windows CI 或 Windows 上的實測工單。
   - round: 65
-    line: 5881
+    line: 5902
     kind: bullet
     text: |-
       - **不動 `phase5-verification.js` 的 `tests/integration/` 硬編路徑**：
         同一類但屬先前既有，且該行自帶 "skip gracefully if dir absent"。
         re-open：有專案的 integration 測試不在 `tests/integration/`。
   - round: 65
-    line: 5884
+    line: 5905
     kind: bullet
     text: |-
       - **不動 `--cov` 之外的 prompt 路徑陳述**（bug-hunt 的 "write a repro test under
         03-development/tests/"）：那是寫入位置的建議，不是被 Gate 3 重量的判準。
   - round: 65
-    line: 5886
+    line: 5907
     kind: bullet
     text: |-
       - **不改 `suite_timeout` 的 30 秒下限**：站0 的逾時測試改 patch 這個旋鈕，
         其餘全是真的 pytest 執行。
   - round: 64
-    line: 6031
+    line: 6052
     kind: bullet
     text: |-
       - **不改 SAB prompt 的 14/18 硬寫數字**（發現 8）：今天實測正確，
         且該句真正的指令不依賴這兩個數。**再開條件**：詞彙表變動。
   - round: 64
-    line: 6033
+    line: 6054
     kind: bullet
     text: "- **不改「最後一次回空判 session block」的語意**（見 D2）。"
   - round: 64
-    line: 6034
+    line: 6055
     kind: bullet
     text: "- **不追認 Round 62/63 兩個沒有賬本節的號碼**。"
   - round: 64
-    line: 6035
+    line: 6056
     kind: bullet
     text: "- **不改 taskq-\\* 任何檔案、不重判既有 gate 結果。**"
