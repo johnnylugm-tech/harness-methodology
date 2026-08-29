@@ -94,7 +94,15 @@ REPO = Path(__file__).resolve().parent.parent
 # with its steps. The gate_cmds half of the pair keeps its getsource — that
 # writer did not move, and converting it would be a change this round did not
 # measure.
-_GETSOURCE_CEILING = 36
+# 35 at Round 82 站6: `test_the_scope_is_computed_with_the_projects_declaration`
+# read `inspect.getsource(harness_bridge)` whole to ask whether
+# `measurement_scope` is called with the project's declaration. The call is
+# in `_stage_dimension_thresholds`, which moved into the `_FinalizeStages`
+# mixin; the reader became `pipeline_source(finalize_gate)`. That reader had
+# to learn the `self.helper(...)` shape first — it only followed bare-name
+# calls, so a question asked of the finalize pipeline had been seeing the
+# caller's own body alone.
+_GETSOURCE_CEILING = 35
 
 
 def _getsource_calls() -> "dict[str, int]":

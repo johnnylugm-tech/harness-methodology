@@ -39,7 +39,20 @@ from core.quality_gate.block_reason import (
 pytestmark = [pytest.mark.core]
 
 REPO = Path(__file__).resolve().parent.parent
-BRIDGE = REPO / "harness" / "harness_bridge.py"
+
+#: Every file the framework may raise `GateBlockedError` from, read as one
+#: source. Round 82 站6: this was `harness/harness_bridge.py` alone, and twelve
+#: of the eighteen raise sites moved to harness/gate_stages.py with the
+#: `_stage_*` methods — the counts below would have fallen to 6 and 3 while
+#: nothing about the gate had changed. The subject was never one file; it is
+#: where the framework raises a gate block, and `harness/` is that place
+#: (measured: zero `GateBlockedError` raise sites in cli/, core/, scripts/ or
+#: detection/). A file added here later is covered without anyone remembering.
+BRIDGE_FILES = sorted((REPO / "harness").rglob("*.py"))
+
+
+def _bridge_source() -> str:
+    return "\n".join(p.read_text(encoding="utf-8") for p in BRIDGE_FILES)
 
 
 def _dict_keys(node: ast.expr) -> list[str] | None:
@@ -84,7 +97,7 @@ def scan_bridge_detail_keys(source: str) -> tuple[set[str], int, int]:
 
 
 def test_every_bridge_detail_key_has_a_registered_remediation():
-    keys, total, with_details = scan_bridge_detail_keys(BRIDGE.read_text(encoding="utf-8"))
+    keys, total, with_details = scan_bridge_detail_keys(_bridge_source())
     assert total >= 9, f"expected at least 9 GateBlockedError raise sites, found {total}"
     assert with_details >= 7, (
         f"expected at least 7 raise sites carrying details, found {with_details} — "
@@ -103,7 +116,7 @@ def test_registry_has_no_entries_the_bridge_never_raises():
     """Reverse direction: a stale entry means a cause was removed and the
     remediation text was left to rot (and would mislead if the key came back
     with different semantics)."""
-    keys, _, _ = scan_bridge_detail_keys(BRIDGE.read_text(encoding="utf-8"))
+    keys, _, _ = scan_bridge_detail_keys(_bridge_source())
     stale = sorted(set(_DETAIL_REGISTRY) - keys)
     assert not stale, (
         f"_DETAIL_REGISTRY has entries {stale} that harness_bridge never raises. "
@@ -123,6 +136,30 @@ def test_scan_sees_positionally_passed_details():
     keys, total, with_details = scan_bridge_detail_keys(src)
     assert keys == {"positional_only_key"}
     assert (total, with_details) == (1, 1)
+
+
+def test_the_scan_reaches_past_harness_bridge_into_its_siblings():
+    """Negative control for Round 82 站6's widening.
+
+    Twelve of the eighteen raise sites now live in harness/gate_stages.py. A
+    "widening" that had quietly kept reading one file would have made the two
+    assertions above weaker rather than truer — `total >= 9` passes on 6 sites
+    if you also lower the number, which is the shape this repo calls fitting
+    the ruler to the corpus. So: the scan must be able to see a site in a file
+    that is NOT harness_bridge.py, and gate_stages.py must be one of them.
+    """
+    stages = REPO / "harness" / "gate_stages.py"
+    assert stages in BRIDGE_FILES, "gate_stages.py is outside the scanned set"
+
+    _, only_bridge, _ = scan_bridge_detail_keys(
+        (REPO / "harness" / "harness_bridge.py").read_text(encoding="utf-8")
+    )
+    _, everywhere, _ = scan_bridge_detail_keys(_bridge_source())
+    assert everywhere > only_bridge, (
+        f"the scan sees {everywhere} raise sites across harness/ and "
+        f"{only_bridge} in harness_bridge.py alone — if those are equal the "
+        f"widening is not reaching the siblings it was written for"
+    )
 
 
 def test_scan_reports_a_detail_less_site():

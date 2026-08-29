@@ -54,17 +54,22 @@ def _lookup(module: str, name: str) -> "tuple[ast.FunctionDef, str]":
 
     obj = getattr(facade, name, None)
     if obj is None:
-        # A method: reached through the class, not the module.
-        owners = [
-            value for value in vars(facade).values()
+        # A method: reached through a class, not the module. More than one
+        # class in the namespace can carry the name and that is not ambiguity
+        # — `HarnessBridge` and the `_FinalizeStages` mixin it inherits from
+        # both answer to `_stage_*` with the SAME function object. What would
+        # be ambiguous is two DIFFERENT functions, so that is what is checked.
+        found = {
+            getattr(value, name)
+            for value in vars(facade).values()
             if isinstance(value, type) and getattr(value, name, None) is not None
-        ]
-        assert len(owners) == 1, (
-            f"{name} is not reachable from {dotted} — as a module attribute or "
-            f"as a method of exactly one class defined there (found "
-            f"{len(owners)} candidate classes)"
+        }
+        assert len(found) == 1, (
+            f"{name} is not reachable from {dotted} as a module attribute, and "
+            f"the classes defined there answer to it with {len(found)} "
+            f"different objects — say which one is meant"
         )
-        obj = getattr(owners[0], name)
+        obj = found.pop()
 
     home = importlib.import_module(obj.__module__)
     home_file = getattr(home, "__file__", None)
@@ -202,10 +207,22 @@ def pipeline_source(module: str, name: str, *, helper_prefix: str) -> str:
 
     target, _ = (found := _lookup(module, name))
     out = [span(found)]
+    seen: "set[str]" = set()
     for node in ast.walk(target):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
-                and node.func.id.startswith(helper_prefix):
-            out.append(span(_lookup(module, node.func.id)))
+        if not isinstance(node, ast.Call):
+            continue
+        # `helper(...)` and `self.helper(...)` both. `reconstructed` has read
+        # the method shape since Round 81 站8 — `finalize_gate`'s stages are
+        # methods — and this reader did not, so a question asked of the
+        # finalize pipeline saw only the caller's own body.
+        func = node.func
+        called = (func.attr if isinstance(func, ast.Attribute)
+                  and isinstance(func.value, ast.Name) and func.value.id == "self"
+                  else getattr(func, "id", None) if isinstance(func, ast.Name)
+                  else None)
+        if called and called.startswith(helper_prefix) and called not in seen:
+            seen.add(called)
+            out.append(span(_lookup(module, called)))
     return "".join(out)
 
 

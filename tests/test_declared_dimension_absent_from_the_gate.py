@@ -119,11 +119,13 @@ def test_no_manifest_is_an_empty_declaration_not_an_empty_gate(tmp_path):
 def test_the_scope_is_computed_with_the_projects_declaration(tmp_path):
     """A key computed and never passed is Round 43's defect; pinned on the
     source, where the scope is stashed on the context."""
-    import inspect
+    # Round 82 站6: the call is in `_stage_dimension_thresholds`, which moved
+    # to harness/gate_stages.py as part of the mixin. The subject is
+    # finalize_gate's pipeline, not the file it sits in.
+    from tests.support.pipeline import pipeline_source
 
-    from harness import harness_bridge
-
-    src = inspect.getsource(harness_bridge)
+    src = pipeline_source("harness/harness_bridge.py", "finalize_gate",
+                          helper_prefix="_stage_")
     assert "declared=declared_dimensions(" in src, (
         "measurement_scope is called without the project's declared "
         "dimensions, so `dimensions_declared_absent` can only ever be empty"

@@ -3982,6 +3982,49 @@ Round 80 對 `_crg_enrich_gate_findings` 寫的 re-open 條件就是這個形狀
 讀它),連同計畫已抓到的 `framework_measured` 自己。**這一站全套件零測試改動就綠了** ——
 沒有任何一把尺 grep 這些定義,re-export 接住其餘全部。
 
+### 站6 — 十六支 stage 進 mixin,而 mypy 逼出一句本來就該寫下的話
+
+`harness/harness_bridge.py` **3777 → 3366**。十六支 `_stage_*` 搬到
+`harness/gate_stages.py` 的 `class _FinalizeStages`,`class HarnessBridge(_FinalizeStages)`
+一行,十六個 `self._stage_*(...)` 呼叫點零改動。
+
+**mixin 而不是模組層函式,理由是位元組**:method body 在任何 class 底下都是兩層縮排,
+在 `_FinalizeStages` 底下**是同樣的兩層** —— 十六支全部逐位元組相同。
+dedent 成模組層函式會改寫 386 行,而改寫需要一份本輪沒有、也不打算偽造的行為 golden。
+`_FinalizeStages` 是命名空間不是型別:沒有人建構它、沒有人 isinstance 它,
+`HarnessBridge` 是它唯一的子類。
+
+搬移前量過:`__bases__` 是 `(object,)`、metaclass 是 `type`、無 `__init_subclass__`、
+全 repo 零個 `__mro__` / `__bases__` / `__qualname__` 讀者。
+
+#### 三件本站抓到的事
+
+**(1) `_lookup` 的「唯一擁有者」斷言誤判了繼承。** 站1 寫的解析器要求
+「恰好一個 class 有這個名字」,而 `HarnessBridge` 與 `_FinalizeStages` 現在**都有** ——
+同一個函式物件。斷言拒絕猜測是對的,但它問錯了問題:有歧義的是**兩個不同的物件**,
+不是兩個名字。改成比對物件身分。
+
+**(2) mypy 逼出 mixin 的宿主契約。** `_stage_record_verdict` 用了
+`self._log` / `self._effort` / `self._update_quality_manifest` / `self._trigger_hooks`,
+四個 `HarnessBridge` 才有的東西。**在那四行加 `# type: ignore` 會改動 body 的文字,
+而本輪的全部安全論證就是那些 body 逐位元組相同** —— 所以改成在 mixin 的 class 體裡
+用 `if TYPE_CHECKING:` 宣告它對宿主的要求。這個要求本來就存在,只是從來沒被寫下來。
+
+**(3) 第九把尺,而且 `pipeline_source` 自己就是漏的那一半。**
+`test_declared_dimension_absent_from_the_gate` 讀整個 `harness_bridge` 找
+`declared=declared_dimensions(`。改走 `pipeline_source(finalize_gate)` 時才發現:
+**它只跟隨裸名字呼叫,不跟隨 `self.helper(...)`** —— 而 `reconstructed` 從 R81 站8 起
+就認得 method 形狀。也就是說,任何拿 `pipeline_source` 問 finalize pipeline 的問題,
+過去看到的都只是呼叫者自己的 body。補上。source-reading ratchet **36 → 35**。
+
+#### block-reason registry 的主題修正
+
+`BRIDGE` 單檔 → `harness/**/*.py`。十八個 raise site 有十二個跟著 stage 走,
+單檔掃描會掉到 6 / 3。**把斷言的門檻跟著調低才是「把尺配合語料」(R55)**,
+所以調的是主題:框架在哪裡 raise 一個 gate block,答案是 `harness/`
+(實測 cli/ core/ scripts/ detection/ 各為零)。加一支負向控制,
+斷言掃描確實看得到 `harness_bridge.py` 以外的 raise site —— 否則這次放寬只是把斷言變寬。
+
 ---
 
 ## Round 81 — 擋住那五項的是量測,不是工程
