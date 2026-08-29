@@ -4127,6 +4127,76 @@ out[anchor:anchor] = ["\n".join(reversed(helpers)).replace("\n\n\n", "\n\n")]
 **一個只在 diff 裡少一個空行的缺陷,任何行為測試都不會發現。**
 這就是為什麼抽取的安全性押在逐位元組與 AST 同一性上,而不是押在測試通過。
 
+### 明列不做(附 re-open 條件)
+
+| 項目 | 為什麼不做 | re-open |
+|---|---|---|
+| Tier C/D 抽取(放寬到允許 1-3 個 live-out,實測可達 52-97%) | 那些名字傳遞得對不對只能靠人看,而人看正是 R80 拒絕分解的理由。本輪只做「機械上可驗證」的那 39% | 出現一個能機械驗證單一 live-out 傳遞的方法 |
+| `_precheck_p3_security_and_quality`(279)/ `_advance_step_commit_and_push`(257) 再拆 | 兩段在規則下**沒有安全切點**:每一個前綴都 bind 了後面要讀的東西。整段出來或都不出來 | 這兩段內部的資料流改變,或有人為它們建行為 golden |
+| `cmd_run_fr_step` 剩下的 588 行 | 它把狀態穿過 dispatch 迴圈。這是那段程式碼的性質,不是方法的極限 | 同上 |
+| 把抽出的 36 個 helper 搬去新模組 | 抽取已是本輪最大風險面;搬移是獨立且已被證明的動作(站2/站3) | 抽取全部在 main 上綠過一輪 |
+| 賬本 162 條的 `guard:` 逐條補齊 | 只在有人真的看過、能指名時才填。逐條走完是另一次全庫審查 | 有人做那次審查 |
+| `test_test_spec_parser_parity` 的掃描讀 `git ls-files`,看不到未 commit 的新檔 | 本輪踩到一次(站5 的 commit 前綠、commit 後紅)。**不是本輪造的,且屬另一個守衛的家族** | 該守衛家族被系統性檢視,或有人因此漏掉一次真缺陷 |
+| branch protection | 老闆全域禁止。站4 修的是**另一個**洞 | — |
+| `overlay_used` 絕對路徑 / 支援 mutmut 3.x | 承 R80 | 承 R80 |
+
+### 反證
+
+| 站 | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| 1 | 刪 `.gitattributes` | `test_this_repo_selects_the_python_diff_driver`;另有合成 repo 的正負對照 |
+| 2 | 拿掉 `_atomic_write_gate_result` 的 re-export | `test_god_file_split_safety` 兩格 |
+| 3 | 拿掉 `_crg_enrich_gate_findings` 的 re-export | 上述兩格 + 兩支 patch 測試,共 4 個 node |
+| 4 | doctor 取消接線 / 在一則訊息尾端加一個空白 | 兩個 ERROR 案例 / 五狀態錄音比對 |
+| 5 | `branch protection` → `branch protections`(一個字元)/ 改名一支被指名的守衛 | 三條斷言 / node id 解析 |
+| 6-9 | 改動任一 helper body 的一個字元 / 拿掉一個呼叫點的傳遞 | 逐位元組比對 / 傳遞守衛 |
+
+**兩個缺陷是守衛在我身上抓到的,不是我讀出來的**:站7 的 `_advance_` 前綴撞上檔案裡既有的
+`_advance_prechecks`/`_advance_fsm`/`_advance_commit_targets`(**五支測試因此為一個比本意更寬的
+理由而綠**),以及產生器的 `.replace("\n\n\n", "\n\n")` 吃掉了被搬動 body 內部的空行。
+後者的全部症狀就是 diff 裡少一個空行 —— **任何行為測試都不可能發現**。
+
+### 終局
+
+| | 前 | 後 |
+|---|---|---|
+| `HarnessBridge.finalize_gate` | 1150 | **899** |
+| `cmd_run_fr_step` | 940 | **770** |
+| `cmd_advance_phase` | 845 | **413** |
+| `_advance_prechecks` | 818 | **244** |
+| 四支合計 | 3753 | **2326** |
+| pytest | 7863 passed / 3 skipped | **7904 passed / 3 skipped** |
+| guards | 938 | **965** |
+| source-reading ratchet | 47 | **39** |
+| `cli/phase_cmds.py` | 3268 | 3511 |
+| `harness/harness_bridge.py` | 3828 | 3994 |
+| `cli/fr_cmds.py` | 2393 | 2449 |
+
+1427 行搬進 36 個具名 helper,**每一個都與它取代的文字逐位元組相同**,
+且每一次抽取都能逆推回原函式的 AST、逐個語句相同。
+`.claude/workflows/` 十支與 `122ea009` **零改動**。ruff / mypy clean。
+
+檔案級覆蓋率(全套件實測):`harness_bridge.py` 79.1 → 81.3%、
+`phase_cmds.py` 70.3 → 71.8%、`fr_cmds.py` 72.3 → 72.9%。
+**這個上升是產物不是成果** —— 新增的 `def` 行在 import 時就被執行、計為已覆蓋。
+本輪沒有寫新的行為測試,也沒有宣稱寫了。
+
+### 如果這個結論是錯的,最可能錯在哪
+
+1. **資料流分析器可能仍算漏一種讀取路徑。** 兩個方向的錯誤各出貨過一次(comprehension 作用域、
+   先讀後重新 bind),都是在幾分鐘內被 ruff / 測試抓到的。剩下的風險是我沒想到的第三種形狀 ——
+   對此的唯一防線是 `tests/test_dataflow_rule.py` 的負向控制,而那些案例是我寫的。
+2. **AST 重建證明的是「語句相同、順序相同」,不是「執行等價」。** 兩者之間的差距是
+   helper 的參數列:重建不檢查參數傳遞,靜態自由變數檢查與 ruff F821 才檢查。
+   三道加起來我認為封閉,但它們是三道不同的論證而不是一道。
+3. **站4 的 severity 我判錯過一次。** 是 e2e 套件糾正的,不是我推理出來的。
+   同一種判斷還出現在「WARN 會不會被讀」這個問題上,而那個沒有量測支持。
+4. **站1 的 churn 排行修正確認了 R80 的主張。** 一個修正後的量測支持原結論,這是好事;
+   但我也該記下:如果它反過來推翻了原結論,ratchet 的 24 條天花板就得重新論證,
+   而本輪沒有為那個情況準備。
+5. **語料只剩 `taskq-cc-new` 一個。** 站4 的 doctor 行為、四支函式的抽取,都只在本 repo
+   與 fixture 上證明過。
+
 
 ---
 
