@@ -15,10 +15,19 @@
 # that — this mapping is the part that would.
 #
 # DELIBERATELY SPARSE. An entry is added only when someone has actually looked
-# and can name the test. Going through all 162 index entries is a separate
-# repo-wide audit, recorded as not-doing in Round 81 with that as its re-open
-# condition. An absent key here means "nobody has checked", which is different
-# from "nothing measures it" — Round 46, again.
+# and can name the test. Going through every index entry is a separate repo-wide
+# audit, recorded as not-doing in Round 81 with that as its re-open condition.
+# An absent key here means "nobody has checked", which is different from
+# "nothing measures it" — Round 46, again.
+#
+# AND A THIRD THING AN ABSENT KEY CAN MEAN, which Round 81 shipped and did not
+# notice: "someone checked, wrote the answer in the ledger, and never brought it
+# back here". The mega-function row below was missing from the first version of
+# this file — the round spent four stations on it and answered its re-open
+# condition head-on in prose, and the machine-readable half recorded the two
+# SMALLER things the same round resolved. Written down because the sentence
+# above ("an absent key means nobody has checked") was itself the wrong
+# statement of what absence means.
 #
 # KEYED BY (round, item), NOT BY LINE. The first draft keyed on the ledger line
 # number, which every subsequent ledger edit invalidates — Round 81's own
@@ -34,6 +43,24 @@
 # =============================================================================
 
 entries:
+  - round: 80
+    item: "`finalize_gate`(1150)/`cmd_run_fr_step`(940)/`cmd_advance_phase`(845)/`_advance_prechecks`(818) 的**分解**"
+    guard: "tests/test_extraction_moved_not_rewrote.py::test_undoing_the_extraction_gives_back_the_original_function"
+    resolved_in: "Round 81 站6-站9(部分:3753 → 2326 行)"
+    note: >-
+      The re-open condition asked for a behaviour golden pinning finalize_gate's
+      verdict / exit code / BLOCK text with its coverage measured, and that is
+      NOT what was built — the condition assumes decomposition is a rewrite, and
+      a behaviour golden is how you check a rewrite. The named guard puts each
+      helper back at its call site, strips the propagation scaffolding, and
+      asserts the result is the original function statement for statement, which
+      holds for every input rather than for a fixture matrix. Two more guards in
+      the same file carry the other half: byte-identity of each moved body, and
+      no helper reading a name nobody gives it. PARTIAL by design — 39% was the
+      measured ceiling of the mechanical rule, and Round 81's own table carries
+      the remainder as three separate rows (Tier C/D, the two helpers with no
+      safe cut point, cmd_run_fr_step's other 588 lines).
+
   - round: 80
     item: "`_crg_enrich_gate_findings` 搬出 harness_bridge"
     guard: "tests/test_god_file_split_safety.py::test_every_split_function_moved_without_being_rewritten"
