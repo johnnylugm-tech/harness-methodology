@@ -78,7 +78,14 @@ REPO = Path(__file__).resolve().parent.parent
 # caller's own body after 站6 would have answered a question none of them meant.
 # 站7 repeats it for `cmd_advance_phase`: four more readers followed the
 # extraction into the `_advance_*` helpers rather than being narrowed.
-_GETSOURCE_CEILING = 39
+# 38 at Round 82 站2: `test_the_scan_scope_change_stays_withdrawn` read
+# `inspect.getsource(cli.phase_cmds)` — the whole module — to ask whether the
+# framework still invokes gitleaks the way it does. The invocation moved to
+# cli/advance_prechecks.py with the rest of `_precheck_p3_security_and_quality`,
+# and the reader became `pipeline_source`, which asks the precheck PIPELINE and
+# follows it wherever it lives. Pointing it at the new module instead would
+# have kept the getsource and put the same defect one move further down.
+_GETSOURCE_CEILING = 38
 
 
 def _getsource_calls() -> "dict[str, int]":

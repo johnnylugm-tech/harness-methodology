@@ -21,8 +21,6 @@ so the next reader does not have to guess whether it was forgotten.
 """
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 import harness_cli  # noqa: F401  entry-first load order
@@ -160,9 +158,16 @@ def test_the_scan_scope_change_stays_withdrawn(tmp_path):
     gitleaks in --no-git mode, the exclusions belong in a generated
     .gitleaks.toml, and this test should be replaced rather than deleted.
     """
-    import cli.phase_cmds as pc
+    from tests.support.pipeline import pipeline_source
 
-    src = inspect.getsource(pc)
+    # Round 82 站2: the invocation moved to cli/advance_prechecks.py with the
+    # rest of `_precheck_p3_security_and_quality`. Reading `cli.phase_cmds`
+    # whole was never the subject — the subject is the precheck pipeline that
+    # issues the scan, and `pipeline_source` follows it wherever it lives.
+    # Naming the new module here instead would put the same defect one move
+    # further down the road.
+    src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                          helper_prefix="_precheck_")
     assert '"gitleaks", "detect", "--source", "."' in src
     # Matches the ARGUMENT form (a string literal in the arg list), not the
     # flag name in the docstring above — which quotes it on purpose.

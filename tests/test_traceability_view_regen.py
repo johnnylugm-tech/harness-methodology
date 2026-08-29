@@ -81,7 +81,14 @@ def test_regen_traceability_scan_failure_is_nonfatal(tmp_path, monkeypatch) -> N
 def test_advance_phase_wires_traceability_view_regen() -> None:
     """Wiring guard: advance-phase must keep calling the view regen (else the
     閉環 silently breaks and matrices go stale again)."""
-    src = (_REPO / "cli" / "phase_cmds.py").read_text(encoding="utf-8")
+    # Round 82 站2: the call sits inside `_precheck_deliverable_anchors`, which
+    # moved to cli/advance_prechecks.py. The subject was always "does
+    # advance-phase still run this", never "is this string in that file" —
+    # `pipeline_source` asks the pipeline and follows it wherever it lives.
+    from tests.support.pipeline import pipeline_source
+
+    src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                          helper_prefix="_precheck_")
     assert "_regen_traceability_views(project)" in src, (
         "traceability view auto-regen unwired from advance-phase"
     )

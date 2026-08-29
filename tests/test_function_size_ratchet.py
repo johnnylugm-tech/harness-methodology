@@ -134,7 +134,12 @@ _CEILINGS: dict[str, int] = {
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line
     # function, and naming it here is how the next round finds it.
-    "cli/phase_cmds.py::_precheck_p3_security_and_quality": 279,
+    # Round 82 站2 moved it to cli/advance_prechecks.py with the other eight.
+    # Re-keyed rather than re-measured: the number is the same 279 because the
+    # move was a move — tests/test_god_file_split_safety.py's fingerprint for
+    # it did not change, and this key changing while that digest does not is
+    # what a relocation looks like from here.
+    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 279,
     "cli/gate_cmds.py::_cmd_finalize_gate_impl": 606,
     "harness/harness_bridge.py::_run_harness_cross_validation": 475,
 

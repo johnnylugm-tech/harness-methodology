@@ -3876,6 +3876,36 @@ import 門面模組 → 解析屬性(re-export 因此仍然有效)→ 從 `__mod
 是在對一個不再相關的 namespace 問問題。改成逐 helper 從它的家讀。
 
 **這一站不搬任何程式碼,全套件必須在零搬移下綠** —— 否則就是我改壞了尺而不是修好它。
+實測 7907 passed,與站0 同一個數字。
+
+### 站2 — 九支 `_precheck_*` 出門,而計畫漏數了一把尺
+
+`cli/phase_cmds.py` **3511 → 2816**,九支 helper(680 行)加 `_MYPY_EXCLUDE_ARGS`
+搬到 `cli/advance_prechecks.py`(753 行)。這是 Round 81 站6 承諾而沒能拿的收成:
+那個 commit 把這個 ratchet 條目**升了 243** 而函式縮了 574,論點是「這筆交易值得,
+行數之後會離開」。這裡就是之後。
+
+耦合實測:九支只讀原檔 **一個** 名字。`_MYPY_EXCLUDE_ARGS` 跟著走,因為它唯一的呼叫點
+就在 `_precheck_p3_security_and_quality` 裡;留下它等於讓新模組反向 import 回 phase_cmds,
+而那個循環只靠行號順序解得開。
+
+**九個指紋一個都沒變,golden 沒有重錄** —— 這就是「搬移」的全部主張。
+
+#### 計畫說七把尺,實測是八把
+
+`tests/test_denominator_protection.py::test_the_scan_scope_change_stays_withdrawn`
+用 `inspect.getsource(cli.phase_cmds)` 讀**整個模組**,問「框架是否還是這樣呼叫 gitleaks」。
+我的清單是用「字串常數只出現在搬移區塊」近似出來的,而這一支的搜尋字串帶引號、
+在近似裡沒有落進來。**計畫裡寫下的停手條件 1 —— 「不預設我那份清單是完整的」——
+是這一輪唯一抓到它的東西。**
+
+它的主題從來不是「這個字串在不在那個檔」,而是「發出這個掃描的那條 pipeline」。
+改走 `pipeline_source`,順帶讓 source-reading ratchet **39 → 38**。
+另外三把(`test_traceability_view_regen`、`test_exit_9_causes_are_all_written_down`、
+`test_advance_phase_pragma_early_audit` 的裸讀那一半)照計畫修,全部改成問 pipeline
+而不是問檔案 —— **指向新模組會把同一個缺陷往下一次搬移推一步。**
+
+四個因為搬移而變成孤兒的 import 一併刪掉。
 
 ---
 

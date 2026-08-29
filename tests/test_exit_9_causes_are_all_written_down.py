@@ -114,7 +114,15 @@ def test_each_documented_cause_is_a_message_the_code_actually_prints():
     # are built from f-strings split over three source lines, and Python's
     # parser is what joins adjacent segments back into one constant. Grepping
     # the file would only find the fragment before the line break.
-    tree = ast.parse((REPO / "cli" / "phase_cmds.py").read_text(encoding="utf-8"))
+    #
+    # Round 82 站2: all three messages are printed by `_precheck_*` helpers,
+    # which moved to cli/advance_prechecks.py. The subject is the pipeline that
+    # RETURNS exit 9, not the file it happened to live in — read it through
+    # `pipeline_source`, which follows the helpers wherever they go.
+    from tests.support.pipeline import pipeline_source
+
+    tree = ast.parse(pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
+                                     helper_prefix="_precheck_"))
     literals = [
         node.value for node in ast.walk(tree)
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
@@ -122,7 +130,7 @@ def test_each_documented_cause_is_a_message_the_code_actually_prints():
     for cause in _documented_causes():
         assert any(cause in text for text in literals), (
             f"docs/ERROR_HANDLING.md lists an exit-9 cause whose message "
-            f"cli/phase_cmds.py never prints: {cause!r}")
+            f"advance-phase's precheck pipeline never prints: {cause!r}")
 
 
 def test_the_registry_description_no_longer_names_only_coverage():
