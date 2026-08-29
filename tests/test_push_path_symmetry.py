@@ -57,7 +57,7 @@ def _symmetry_violations(commands) -> list[str]:
         try:
             source = pipeline_source(
                 "cli/" + module.__name__.rsplit(".", 1)[-1] + ".py", func_name,
-                helper_prefix="_advance_")
+                helper_prefix="_advance_step_")
         except (FileNotFoundError, AssertionError):
             source = inspect.getsource(getattr(module, func_name))
         if "refresh_attestation" not in source:

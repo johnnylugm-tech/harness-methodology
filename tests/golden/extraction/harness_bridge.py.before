@@ -2135,423 +2135,6 @@ class HarnessBridge:
             _existing_spec_count=_existing_spec_count,
         )
 
-    @staticmethod
-    def _stage_shape_contract(_shape, ctx) -> None:
-        """Shape contract — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if not _shape.valid:
-            _shape_msg = _shape.as_block_message(ctx.gate_num)
-            print(f"\n[BLOCKED] {_shape_msg}", file=sys.stderr)
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                    open_critical=1, open_high=0,
-                    quality_complete=False, rounds_used=0,
-                ),
-                details={"malformed_gate_result": list(_shape.violations)},
-            )
-
-
-    @staticmethod
-    def _stage_infra_fail_pollution(_infra_violations, ctx) -> None:
-        """Infra fail pollution — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _infra_violations:
-            print("\n[INFRA_FAIL] gate result rejected — infrastructure failure "
-                  "recorded as quality zero(s); NOT a code-quality verdict:")
-            for _v in _infra_violations:
-                print(f"  - {_v}")
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num,
-                    score=0.0,
-                    dimensions=[],
-                    open_critical=len(_infra_violations),
-                    open_high=0,
-                    quality_complete=False,
-                    rounds_used=0,
-                ),
-                details={"infra_fail": _infra_violations},
-            )
-
-
-    @staticmethod
-    def _stage_persist_cited_evidence(ctx, persist_cited_evidence, raw, result_path) -> None:
-        """Persist cited evidence — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if persist_cited_evidence(Path(ctx.project_root), ctx.gate_num, raw):
-            # The re-pointing has to reach the file, not just this dict: the
-            # digest block below re-reads `result_path` from disk, and
-            # cli/gate_cmds.py copies that same file to
-            # .methodology/gate{N}_result.json. Written only when something
-            # actually moved, so a run that changes nothing leaves the agent's
-            # bytes alone.
-            _atomic_write_gate_result(result_path, raw)
-
-
-    @staticmethod
-    def _stage_tool_evidence(_evidence_digests, _tool_violations, ctx, raw, result_path) -> None:
-        """Tool evidence — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _evidence_digests:
-            # Persist immediately, in the same shape the CRG enrichment below
-            # already uses (read → add field → atomic write): the digest is only
-            # true of the files as they are RIGHT NOW, and a later BLOCK on some
-            # other check must not throw away the record of what this run read.
-            try:
-                _gr = json.loads(result_path.read_text(encoding="utf-8"))
-                if isinstance(_gr, dict):
-                    _gr["evidence_digest"] = _evidence_digests
-                    _atomic_write_gate_result(result_path, _gr)
-                    raw["evidence_digest"] = _evidence_digests
-            except (OSError, json.JSONDecodeError) as _exc:
-                print(f"[WARN] could not record evidence digests: {_exc}",
-                      file=sys.stderr)
-        if _tool_violations:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num,
-                    score=0.0,
-                    dimensions=[],
-                    open_critical=len(_tool_violations),
-                    open_high=0,
-                    quality_complete=False,
-                    rounds_used=0,
-                ),
-                details={"tool_evidence_missing": _tool_violations},
-            )
-
-
-    @staticmethod
-    def _stage_declared_constraints(_constraint_reason, ctx) -> None:
-        """Declared constraints — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _constraint_reason:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                    open_critical=1, open_high=0,
-                    quality_complete=False, rounds_used=0,
-                ),
-                details={"arch_constraint_unconfigured": [_constraint_reason]},
-            )
-
-
-    @staticmethod
-    def _stage_coverage_denominator(_coverage_reason, ctx) -> None:
-        """Coverage denominator — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _coverage_reason:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                    open_critical=1, open_high=0,
-                    quality_complete=False, rounds_used=0,
-                ),
-                details={"arch_contract_coverage": [_coverage_reason]},
-            )
-
-
-    @staticmethod
-    def _stage_required_artifacts(_artifact_reason, ctx) -> None:
-        """Required artifacts — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _artifact_reason:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                    open_critical=1, open_high=0,
-                    quality_complete=False, rounds_used=0,
-                ),
-                details={"required_artifact_missing": [_artifact_reason]},
-            )
-
-
-    @staticmethod
-    def _stage_verify_target(_vt_reason, ctx) -> None:
-        """Verify target — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _vt_reason:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                    open_critical=1, open_high=0,
-                    quality_complete=False, rounds_used=0,
-                ),
-                details={"verify_target": [_vt_reason]},
-            )
-
-        # ── S4: Harness cross-validation (Solution B) ────────────────────────
-        # For each Tier 1/2 dimension where the agent claims a passing score,
-        # the harness independently runs the tool and computes its own score.
-        # If harness_score < threshold but agent_score ≥ threshold, the gate is
-        # blocked with a fabrication violation.
-        # Slow tools (mutmut, scancode) are skipped here; S3-A covers them.
-        print("\n[S4] Running harness cross-validation...")
-
-
-    @staticmethod
-    def _stage_s4_cross_validation(_s4_fabrication, _s4_unverifiable, ctx) -> None:
-        """S4 cross validation — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _s4_fabrication or _s4_unverifiable:
-            _s4_details = s4_block_details(_s4_fabrication, _s4_unverifiable)
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num,
-                    score=0.0,
-                    dimensions=[],
-                    open_critical=len(_s4_fabrication) + len(_s4_unverifiable),
-                    open_high=0,
-                    quality_complete=False,
-                    rounds_used=0,
-                ),
-                details=_s4_details,
-            )
-
-
-    @staticmethod
-    def _stage_system_reach(_reach, ctx) -> None:
-        """System reach — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _reach:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                    open_critical=len(_reach), open_high=0,
-                    quality_complete=False, rounds_used=0,
-                ),
-                details={"stubbed_boundary_never_run": _reach},
-            )
-
-
-    @staticmethod
-    def _stage_spec_coverage_cap(_spec_cap, _spec_names, dims, raw) -> None:
-        """Spec coverage cap — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        for dim_name, dim_data in raw.get("breakdown", {}).items():
-            # `dict.get(k, default)` only substitutes when the key is absent;
-            # an explicit JSON `null` still surfaces as None. DimResult.score is
-            # Optional[float] and every downstream reader in this function already
-            # guards `is not None` — preserve None here instead of coercing to 0.0,
-            # which used to make a legitimately-inapplicable dimension (e.g.
-            # pytest-benchmark with no benchmarks) look like a real 0-score failure.
-            raw_score = dim_data.get("score")
-            score = float(raw_score) if raw_score is not None else None
-            raw_thresh = dim_data.get("threshold")
-            threshold = float(raw_thresh) if raw_thresh is not None else 0.0
-            if dim_name == "test_coverage" and _spec_names and score is not None:
-                score = min(score, _spec_cap)
-            dims.append(DimResult(
-                name=dim_name,
-                score=score,
-                threshold=threshold,
-                issues=dim_data.get("issues", []),
-                # Written by S4 above (_mark_framework_na, the framework-score
-                # write-back, the unverifiable branch). Reading it here is what
-                # carries the provenance into the verdict and its denominator
-                # instead of leaving it in the breakdown dict nobody consults.
-                score_source=dim_data.get("score_source"),
-            ))
-
-
-    @staticmethod
-    def _stage_absent_dimensions(_absent, _overall_score, ctx, dims) -> None:
-        """Absent dimensions — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _absent:
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
-                    open_critical=0, open_high=0, quality_complete=False,
-                ),
-                details={"dimension_absent": [
-                    f"{_name}: declared in the gate config, absent from the "
-                    f"result — no score, no N/A, no entry"
-                    for _name in _absent
-                ]},
-            )
-
-
-    @staticmethod
-    def _stage_stubbed_boundaries(_boundary_findings, _overall_score, _unmeasured, ctx, dims) -> None:
-        """Stubbed boundaries — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _unmeasured:
-            _stub_by_module = {
-                f["module"]: f for f in reversed(_boundary_findings or [])
-            }
-            _unmeasured_detail: list[str] = []
-            for _name in _unmeasured:
-                _src = next((d.score_source for d in dims if d.name == _name), None)
-                if _src == SCORE_SOURCE_STUBBED_BOUNDARY and _stub_by_module:
-                    _who = "; ".join(
-                        f"{f['fixture']} in {f['file']} replaces {f['module']}"
-                        for f in sorted(
-                            _stub_by_module.values(),
-                            key=lambda f: (f["file"], f["fixture"]),
-                        )
-                    )
-                    _unmeasured_detail.append(
-                        f"{_name}: measured over a suite that replaces a "
-                        f"declared high-risk boundary ({_who}) — the score is "
-                        f"not a measurement of the delivered code. Remove the "
-                        f"autouse replacement, or stop declaring the module "
-                        f"high-risk in the SAB if it is not"
-                    )
-                else:
-                    _unmeasured_detail.append(
-                        f"{_name}: carries a score the framework ran the tool "
-                        f"for and could not reproduce (score_source={_src}). "
-                        f"The number is the agent's claim standing alone"
-                    )
-            raise GateBlockedError(
-                ctx.gate_num,
-                GateResult(
-                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
-                    open_critical=0, open_high=0, quality_complete=False,
-                ),
-                details={"dimension_not_measured": _unmeasured_detail},
-            )
-
-
-    @staticmethod
-    def _stage_dimension_thresholds(_all_dims_pass, _dim_passes, _dim_weights, _effective_threshold, ctx, dims) -> None:
-        """Dimension thresholds — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if not _all_dims_pass and dims:
-            _failing = [f"{d.name}={d.score:.1f}" for d in dims
-                        if d.score is not None and d.score < _effective_threshold(d)]
-            _unverified_na = [d.name for d in dims if not _dim_passes(d) and d.score is None]
-            if _unverified_na:
-                _failing += [f"{n}=N/A (unverified)" for n in _unverified_na]
-            print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
-
-        # Round 42 站4b: what the composite was averaged over, computed where
-        # the weights already are. Stashed on the context rather than
-        # recomputed at the write site, for the reason `spec_coverage_report`
-        # takes its rows as an argument: a second derivation of the
-        # denominator is a second denominator.
-        ctx.measurement_scope = measurement_scope(  # type: ignore[attr-defined]
-            dims, _dim_weights,
-            declared=declared_dimensions(ctx.project_root),
-        )
-
-
-    @staticmethod
-    def _stage_declared_absent(_declared_absent, ctx, raw) -> None:
-        """Declared absent — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        if _declared_absent:
-            from core.degradation_ledger import record_degradation
-            record_degradation(
-                ctx.project_root, "gate:dimension-declared-absent",
-                f"{len(_declared_absent)} dimension(s) the quality manifest "
-                f"pins an NFR to are not in gate {ctx.gate_num}'s config",
-                why=("the composite is an average over the gate's dimensions, "
-                     "and these were never among them: "
-                     + ", ".join(_declared_absent)),
-                data={"dimensions": _declared_absent, "gate": ctx.gate_num},
-                owner="harness",
-            )
-
-        # Round 67 站1: the corrected result, for whoever persists it. Every
-        # write into `raw` above — S4's framework score, `_mark_framework_na`,
-        # `_mark_stubbed_boundary_dimensions` — lived only here, because the
-        # persist step in `cli/gate_cmds.py` re-read the agent's file from disk
-        # and copied a fixed list of fields back onto it. Measured on
-        # taskq-cc's committed gate4_result.json: sixteen dimensions, zero
-        # `score_source`, beside a `measurement_scope` naming two of them as
-        # unscored. Stashed rather than re-derived, same rule as the line
-        # above: a second derivation is a second source.
-        ctx.finalized_result = raw  # type: ignore[attr-defined]
-
-
-    def _stage_record_verdict(self, _gate_passes, ctx, result, t0, time) -> "GateResult | None":
-        """Record verdict — extracted verbatim from `finalize_gate`.
-
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
-        """
-        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, project_root=ctx.project_root)
-
-        self._effort.record(EffortRecord(
-            phase=ctx.phase, gate_num=ctx.gate_num, agent_id="GATE",
-            operation="gate_finalize", duration_s=time.time() - t0,
-        ))
-        self._log.write(DecisionLogEntry(
-            ctx=DecisionContext(agent_id="GATE", phase=ctx.phase, fr_id=ctx.fr_id),
-            decision="GATE_PASS" if result.quality_complete else "GATE_BLOCK",
-            reasoning=(
-                f"Gate {ctx.gate_num}: score={result.score:.1f}, "
-                f"critical={result.open_critical}, high={result.open_high}"
-            ),
-            scores={"gate_score": result.score},
-        ))
-
-        if not _gate_passes:
-            self._trigger_hooks(ctx, "on_gate_fail")
-            raise GateBlockedError(ctx.gate_num, result)
-
-        self._trigger_hooks(ctx, "after_gate_pass")
-
-        return result
-
     def finalize_gate(self, ctx: GateContext) -> GateResult:
         """
         Phase 2 of the two-phase gate evaluation API.
@@ -2619,7 +2202,18 @@ class HarnessBridge:
         # that actually drives scoring.
         from core.quality_gate.gate_result_schema import validate_gate_result
         _shape = validate_gate_result(raw)
-        self._stage_shape_contract(_shape, ctx)
+        if not _shape.valid:
+            _shape_msg = _shape.as_block_message(ctx.gate_num)
+            print(f"\n[BLOCKED] {_shape_msg}", file=sys.stderr)
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"malformed_gate_result": list(_shape.violations)},
+            )
 
         # ── Round 12 站3b: INFRA_FAIL ≠ quality failure ──────────────────────
         # Reject zero scores whose evidence carries a run-gate PRECONDITION-
@@ -2628,7 +2222,24 @@ class HarnessBridge:
         # CODE-FIX dispatched at healthy code). The BLOCK message is the
         # navigation: fix the precondition, not the source.
         _infra_violations = _check_infra_fail_pollution(raw)
-        self._stage_infra_fail_pollution(_infra_violations, ctx)
+        if _infra_violations:
+            print("\n[INFRA_FAIL] gate result rejected — infrastructure failure "
+                  "recorded as quality zero(s); NOT a code-quality verdict:")
+            for _v in _infra_violations:
+                print(f"  - {_v}")
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=len(_infra_violations),
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details={"infra_fail": _infra_violations},
+            )
 
         # ── S3: Tool execution evidence enforcement ──────────────────────────
         # For dimensions with requires_tool_execution:true in the gate YAML,
@@ -2656,11 +2267,45 @@ class HarnessBridge:
         # This adds no judgement — S3's existence, containment and content
         # checks are untouched.
         from core.quality_gate.gate_evidence_store import persist_cited_evidence
-        self._stage_persist_cited_evidence(ctx, persist_cited_evidence, raw, result_path)
+        if persist_cited_evidence(Path(ctx.project_root), ctx.gate_num, raw):
+            # The re-pointing has to reach the file, not just this dict: the
+            # digest block below re-reads `result_path` from disk, and
+            # cli/gate_cmds.py copies that same file to
+            # .methodology/gate{N}_result.json. Written only when something
+            # actually moved, so a run that changes nothing leaves the agent's
+            # bytes alone.
+            _atomic_write_gate_result(result_path, raw)
 
         _evidence_digests: dict = {}
         _tool_violations = _check_tool_evidence(ctx, raw, _evidence_digests)
-        self._stage_tool_evidence(_evidence_digests, _tool_violations, ctx, raw, result_path)
+        if _evidence_digests:
+            # Persist immediately, in the same shape the CRG enrichment below
+            # already uses (read → add field → atomic write): the digest is only
+            # true of the files as they are RIGHT NOW, and a later BLOCK on some
+            # other check must not throw away the record of what this run read.
+            try:
+                _gr = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(_gr, dict):
+                    _gr["evidence_digest"] = _evidence_digests
+                    _atomic_write_gate_result(result_path, _gr)
+                    raw["evidence_digest"] = _evidence_digests
+            except (OSError, json.JSONDecodeError) as _exc:
+                print(f"[WARN] could not record evidence digests: {_exc}",
+                      file=sys.stderr)
+        if _tool_violations:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=len(_tool_violations),
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details={"tool_evidence_missing": _tool_violations},
+            )
 
         # ── Round 51 站2: which declared constraints nobody checks ───────────
         # The SAB's `architecture_constraints` list reaches CLAUDE.md and the
@@ -2692,7 +2337,16 @@ class HarnessBridge:
         # constraint nothing can decide is to delete the declaration, which
         # makes the SAB less true rather than the code better.
         _constraint_reason = unconfigured_blocking_reason(_constraint_rows)
-        self._stage_declared_constraints(_constraint_reason, ctx)
+        if _constraint_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"arch_constraint_unconfigured": [_constraint_reason]},
+            )
 
         # ── Round 67 站7: a contract that does not reach the delivered tree ──
         # `contract_coverage_gap` has computed this since Round 46 and its
@@ -2707,7 +2361,16 @@ class HarnessBridge:
         # a true declaration. Here the contract exists, the tool runs, and the
         # uncovered modules are a list the framework already has.
         _coverage_reason = contract_coverage_blocking_reason(ctx.project_root)
-        self._stage_coverage_denominator(_coverage_reason, ctx)
+        if _coverage_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"arch_contract_coverage": [_coverage_reason]},
+            )
 
         # ── Round 68 站1: the files the project says it must ship ────────────
         # Every other check in this framework reads one artifact against
@@ -2729,7 +2392,16 @@ class HarnessBridge:
         _artifact_reason = required_artifacts_blocking_reason(
             record_required_artifacts(ctx.project_root)
         )
-        self._stage_required_artifacts(_artifact_reason, ctx)
+        if _artifact_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"required_artifact_missing": [_artifact_reason]},
+            )
 
         # ── Round 51 站3: a number measured over a suite that removed the
         # thing it measures ──────────────────────────────────────────────────
@@ -2756,13 +2428,44 @@ class HarnessBridge:
         )
         record_verify_target_status(ctx.project_root)
         _vt_reason = _verify_target_block(ctx.project_root)
-        self._stage_verify_target(_vt_reason, ctx)
+        if _vt_reason:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=1, open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"verify_target": [_vt_reason]},
+            )
+
+        # ── S4: Harness cross-validation (Solution B) ────────────────────────
+        # For each Tier 1/2 dimension where the agent claims a passing score,
+        # the harness independently runs the tool and computes its own score.
+        # If harness_score < threshold but agent_score ≥ threshold, the gate is
+        # blocked with a fabrication violation.
+        # Slow tools (mutmut, scancode) are skipped here; S3-A covers them.
+        print("\n[S4] Running harness cross-validation...")
         # Round 77 站1: the runs S4 performs are kept so S4-B below can be
         # decided from them rather than from the agent's pasted excerpt.
         _s4_tool_runs: "dict[str, tuple[str, str, int]]" = {}
         _s4_fabrication, _s4_unverifiable = _run_harness_cross_validation(
             ctx, raw, _s4_tool_runs)
-        self._stage_s4_cross_validation(_s4_fabrication, _s4_unverifiable, ctx)
+        if _s4_fabrication or _s4_unverifiable:
+            _s4_details = s4_block_details(_s4_fabrication, _s4_unverifiable)
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num,
+                    score=0.0,
+                    dimensions=[],
+                    open_critical=len(_s4_fabrication) + len(_s4_unverifiable),
+                    open_high=0,
+                    quality_complete=False,
+                    rounds_used=0,
+                ),
+                details=_s4_details,
+            )
 
         # ── Round 52 站2: the replaced boundary had to run somewhere ─────────
         # Placed after S4 because S4 is what runs `system-verification`, and
@@ -2773,7 +2476,16 @@ class HarnessBridge:
         # each one is executed for real by the project's own verification
         # target. Five of the six projects here owe nothing.
         _reach = _verify_system_reach_block(ctx)
-        self._stage_system_reach(_reach, ctx)
+        if _reach:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                    open_critical=len(_reach), open_high=0,
+                    quality_complete=False, rounds_used=0,
+                ),
+                details={"stubbed_boundary_never_run": _reach},
+            )
 
         # ── Round 52 站3: the product-side facts, on the record ──────────────
         # Rendered from the producers above, judged by nothing here. The
@@ -2927,7 +2639,30 @@ class HarnessBridge:
             _spec_cap = _existing_count / max(len(_spec_names), 1) * 100.0
 
         dims: list[DimResult] = []
-        self._stage_spec_coverage_cap(_spec_cap, _spec_names, dims, raw)
+        for dim_name, dim_data in raw.get("breakdown", {}).items():
+            # `dict.get(k, default)` only substitutes when the key is absent;
+            # an explicit JSON `null` still surfaces as None. DimResult.score is
+            # Optional[float] and every downstream reader in this function already
+            # guards `is not None` — preserve None here instead of coercing to 0.0,
+            # which used to make a legitimately-inapplicable dimension (e.g.
+            # pytest-benchmark with no benchmarks) look like a real 0-score failure.
+            raw_score = dim_data.get("score")
+            score = float(raw_score) if raw_score is not None else None
+            raw_thresh = dim_data.get("threshold")
+            threshold = float(raw_thresh) if raw_thresh is not None else 0.0
+            if dim_name == "test_coverage" and _spec_names and score is not None:
+                score = min(score, _spec_cap)
+            dims.append(DimResult(
+                name=dim_name,
+                score=score,
+                threshold=threshold,
+                issues=dim_data.get("issues", []),
+                # Written by S4 above (_mark_framework_na, the framework-score
+                # write-back, the unverifiable branch). Reading it here is what
+                # carries the provenance into the verdict and its denominator
+                # instead of leaving it in the breakdown dict nobody consults.
+                score_source=dim_data.get("score_source"),
+            ))
 
         # Apply gate_score_overrides from quality_manifest as threshold floor.
         # Never lower a threshold below what the gate YAML / Claude set — only raise it.
@@ -3339,7 +3074,19 @@ class HarnessBridge:
             [_d.get("name", "") for _d in _cfg_dims if _d.get("name")],
             [d.name for d in dims],
         )
-        self._stage_absent_dimensions(_absent, _overall_score, ctx, dims)
+        if _absent:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
+                    open_critical=0, open_high=0, quality_complete=False,
+                ),
+                details={"dimension_absent": [
+                    f"{_name}: declared in the gate config, absent from the "
+                    f"result — no score, no N/A, no entry"
+                    for _name in _absent
+                ]},
+            )
 
         # Round 67 站2: a number the framework did not measure over the
         # delivered code is not evidence that dimension passed. `_SOURCES_NOT_
@@ -3358,7 +3105,42 @@ class HarnessBridge:
             d.name for d in dims
             if d.score is not None and not framework_measured(d)
         )
-        self._stage_stubbed_boundaries(_boundary_findings, _overall_score, _unmeasured, ctx, dims)
+        if _unmeasured:
+            _stub_by_module = {
+                f["module"]: f for f in reversed(_boundary_findings or [])
+            }
+            _unmeasured_detail: list[str] = []
+            for _name in _unmeasured:
+                _src = next((d.score_source for d in dims if d.name == _name), None)
+                if _src == SCORE_SOURCE_STUBBED_BOUNDARY and _stub_by_module:
+                    _who = "; ".join(
+                        f"{f['fixture']} in {f['file']} replaces {f['module']}"
+                        for f in sorted(
+                            _stub_by_module.values(),
+                            key=lambda f: (f["file"], f["fixture"]),
+                        )
+                    )
+                    _unmeasured_detail.append(
+                        f"{_name}: measured over a suite that replaces a "
+                        f"declared high-risk boundary ({_who}) — the score is "
+                        f"not a measurement of the delivered code. Remove the "
+                        f"autouse replacement, or stop declaring the module "
+                        f"high-risk in the SAB if it is not"
+                    )
+                else:
+                    _unmeasured_detail.append(
+                        f"{_name}: carries a score the framework ran the tool "
+                        f"for and could not reproduce (score_source={_src}). "
+                        f"The number is the agent's claim standing alone"
+                    )
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
+                    open_critical=0, open_high=0, quality_complete=False,
+                ),
+                details={"dimension_not_measured": _unmeasured_detail},
+            )
 
         def _dim_passes(d: DimResult) -> bool:
             if d.score is not None:
@@ -3371,7 +3153,23 @@ class HarnessBridge:
             if dims else False  # empty dims = no evidence = not complete
         _quality_complete = _overall_score >= _gt and _all_dims_pass
 
-        self._stage_dimension_thresholds(_all_dims_pass, _dim_passes, _dim_weights, _effective_threshold, ctx, dims)
+        if not _all_dims_pass and dims:
+            _failing = [f"{d.name}={d.score:.1f}" for d in dims
+                        if d.score is not None and d.score < _effective_threshold(d)]
+            _unverified_na = [d.name for d in dims if not _dim_passes(d) and d.score is None]
+            if _unverified_na:
+                _failing += [f"{n}=N/A (unverified)" for n in _unverified_na]
+            print(f"\n[harness] {len(_failing)} dimension(s) below individual threshold: {', '.join(_failing)}")
+
+        # Round 42 站4b: what the composite was averaged over, computed where
+        # the weights already are. Stashed on the context rather than
+        # recomputed at the write site, for the reason `spec_coverage_report`
+        # takes its rows as an argument: a second derivation of the
+        # denominator is a second denominator.
+        ctx.measurement_scope = measurement_scope(  # type: ignore[attr-defined]
+            dims, _dim_weights,
+            declared=declared_dimensions(ctx.project_root),
+        )
         # Round 73 站5: non-blocking must not mean free (Round 68 站1). The row
         # is what a later round reads to ask whether a gate's dimension list
         # and the manifest's NFR mapping were ever meant to differ; owner is
@@ -3379,7 +3177,29 @@ class HarnessBridge:
         # and the gate config is the framework's.
         _declared_absent = ctx.measurement_scope[  # type: ignore[attr-defined]
             "dimensions_declared_absent"]
-        self._stage_declared_absent(_declared_absent, ctx, raw)
+        if _declared_absent:
+            from core.degradation_ledger import record_degradation
+            record_degradation(
+                ctx.project_root, "gate:dimension-declared-absent",
+                f"{len(_declared_absent)} dimension(s) the quality manifest "
+                f"pins an NFR to are not in gate {ctx.gate_num}'s config",
+                why=("the composite is an average over the gate's dimensions, "
+                     "and these were never among them: "
+                     + ", ".join(_declared_absent)),
+                data={"dimensions": _declared_absent, "gate": ctx.gate_num},
+                owner="harness",
+            )
+
+        # Round 67 站1: the corrected result, for whoever persists it. Every
+        # write into `raw` above — S4's framework score, `_mark_framework_na`,
+        # `_mark_stubbed_boundary_dimensions` — lived only here, because the
+        # persist step in `cli/gate_cmds.py` re-read the agent's file from disk
+        # and copied a fixed list of fields back onto it. Measured on
+        # taskq-cc's committed gate4_result.json: sixteen dimensions, zero
+        # `score_source`, beside a `measurement_scope` naming two of them as
+        # unscored. Stashed rather than re-derived, same rule as the line
+        # above: a second derivation is a second source.
+        ctx.finalized_result = raw  # type: ignore[attr-defined]
 
         result = GateResult(
             gate_num=ctx.gate_num,
@@ -3442,15 +3262,29 @@ class HarnessBridge:
         if _gate_passes and not result.quality_complete:
             result = dataclasses.replace(result, quality_complete=True)
 
-        _stage_rc = self._stage_record_verdict(_gate_passes, ctx, result, t0, time)
-        if _stage_rc is not None:
-            return _stage_rc
+        self._update_quality_manifest(ctx.gate_num, ctx.fr_id, result, project_root=ctx.project_root)
 
-        # The contract's fall-through. Unreachable today — `_stage_record_verdict`
-        # carries this method's original terminal `return result` and always
-        # returns — but `-> GateResult` has to be true of the annotation, not
-        # only of today's implementation.
-        raise GateBlockedError(ctx.gate_num, result)
+        self._effort.record(EffortRecord(
+            phase=ctx.phase, gate_num=ctx.gate_num, agent_id="GATE",
+            operation="gate_finalize", duration_s=time.time() - t0,
+        ))
+        self._log.write(DecisionLogEntry(
+            ctx=DecisionContext(agent_id="GATE", phase=ctx.phase, fr_id=ctx.fr_id),
+            decision="GATE_PASS" if result.quality_complete else "GATE_BLOCK",
+            reasoning=(
+                f"Gate {ctx.gate_num}: score={result.score:.1f}, "
+                f"critical={result.open_critical}, high={result.open_high}"
+            ),
+            scores={"gate_score": result.score},
+        ))
+
+        if not _gate_passes:
+            self._trigger_hooks(ctx, "on_gate_fail")
+            raise GateBlockedError(ctx.gate_num, result)
+
+        self._trigger_hooks(ctx, "after_gate_pass")
+
+        return result
 
     def check_pre_fix_safety(self, project_root: str, ref: str = "HEAD") -> dict:
         """

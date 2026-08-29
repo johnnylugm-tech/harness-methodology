@@ -530,7 +530,7 @@ def _run_doctor_after_advance(project: Path) -> None:
         )
 
 
-def _advance_refuse_phase_9(args) -> "int | None":
+def _advance_step_refuse_phase_9(args) -> "int | None":
     """Efuse phase 9 — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -551,7 +551,7 @@ def _advance_refuse_phase_9(args) -> "int | None":
     return None
 
 
-def _advance_refuse_uncommitted(_uncommitted, args, project) -> "int | None":
+def _advance_step_refuse_uncommitted(_uncommitted, args, project) -> "int | None":
     """Efuse uncommitted — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -602,7 +602,7 @@ def _advance_refuse_uncommitted(_uncommitted, args, project) -> "int | None":
     return None
 
 
-def _advance_refuse_open_obligations(_obligations, args, next_phase, project) -> "int | None":
+def _advance_step_refuse_open_obligations(_obligations, args, next_phase, project) -> "int | None":
     """Efuse open obligations — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -682,7 +682,7 @@ def _advance_refuse_open_obligations(_obligations, args, next_phase, project) ->
     return None
 
 
-def _advance_run_fsm_transition(args, last_fr_id, last_gate_num, project) -> None:
+def _advance_step_run_fsm_transition(args, last_fr_id, last_gate_num, project) -> None:
     """Un fsm transition — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -747,7 +747,7 @@ def _advance_run_fsm_transition(args, last_fr_id, last_gate_num, project) -> Non
                 shutil.rmtree(_sentinels_backup, ignore_errors=True)
 
 
-def _advance_seed_p8_archive(next_phase, project) -> None:
+def _advance_step_seed_p8_archive(next_phase, project) -> None:
     """Eed p8 archive — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -770,7 +770,7 @@ def _advance_seed_p8_archive(next_phase, project) -> None:
             )
 
 
-def _advance_write_next_plan_header(gen, next_phase, status, task_bg) -> None:
+def _advance_step_write_next_plan_header(gen, next_phase, status, task_bg) -> None:
     """Rite next plan header — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -789,7 +789,7 @@ def _advance_write_next_plan_header(gen, next_phase, status, task_bg) -> None:
     )
 
 
-def _advance_commit_and_push(_advance_snap, _manifest_regenerated, _saved_cwd, _setup_cfg_written, args, next_phase, project) -> "int | None":
+def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_cwd, _setup_cfg_written, args, next_phase, project) -> "int | None":
     """Ommit and push — extracted verbatim from `cmd_advance_phase`.
 
     Round 81 站6. See the note above the first `_precheck_*` for what
@@ -1069,7 +1069,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
 
     # Phase 9 (Maintenance) is a terminal steady state: work happens as
     # re-entrant CR tickets (cr-open/cr-close), never as a phase exit.
-    _pre_rc = _advance_refuse_phase_9(args)
+    _pre_rc = _advance_step_refuse_phase_9(args)
     if _pre_rc is not None:
         return _pre_rc
 
@@ -1103,7 +1103,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # the check the advance had just satisfied.
     _uncommitted = _uncommitted_deliverables(project, args.completed_phase,
                                              args.completed_phase + 1)
-    _pre_rc = _advance_refuse_uncommitted(_uncommitted, args, project)
+    _pre_rc = _advance_step_refuse_uncommitted(_uncommitted, args, project)
     if _pre_rc is not None:
         return _pre_rc
 
@@ -1315,7 +1315,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         print(f"  [WARN] preview_next_phase_blocking failed: {_oblig_err}",
               file=sys.stderr)
         _obligations = []
-    _pre_rc = _advance_refuse_open_obligations(_obligations, args, next_phase, project)
+    _pre_rc = _advance_step_refuse_open_obligations(_obligations, args, next_phase, project)
     if _pre_rc is not None:
         return _pre_rc
     # B1 (split-brain fix): capture the advance write-set BEFORE anything is
@@ -1338,7 +1338,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         _layout.config_records_path,
         _layout.release_checklist_path,
     ])
-    _advance_run_fsm_transition(args, last_fr_id, last_gate_num, project)
+    _advance_step_run_fsm_transition(args, last_fr_id, last_gate_num, project)
 
     # Fix Finding #3: auto-regenerate quality_manifest.json at P2 exit.
     #
@@ -1445,17 +1445,17 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # builds both files from state.json + quality_manifest.json + git state;
     # the LLM agent that runs P8 can then review and append human-only context
     # instead of re-deriving the whole structure.
-    _advance_seed_p8_archive(next_phase, project)
+    _advance_step_seed_p8_archive(next_phase, project)
 
     gen = HandoverGenerator(project)
-    _advance_write_next_plan_header(gen, next_phase, status, task_bg)
+    _advance_step_write_next_plan_header(gen, next_phase, status, task_bg)
 
     # Commit locally (no push — next milestone push publishes to origin)
-    _pre_rc = _advance_commit_and_push(_advance_snap, _manifest_regenerated, _saved_cwd, _setup_cfg_written, args, next_phase, project)
+    _pre_rc = _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_cwd, _setup_cfg_written, args, next_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 
-    # The contract's fall-through. Unreachable today — `_advance_commit_and_push`
+    # The contract's fall-through. Unreachable today — `_advance_step_commit_and_push`
     # carries this function's original terminal `return 0` and always
     # returns — but `-> int` has to be true of the annotation, not
     # only of today's implementation.

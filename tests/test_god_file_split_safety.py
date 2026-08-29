@@ -133,10 +133,10 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         "_precheck_scope_violations", "_precheck_p3_security_and_quality",
         "_precheck_stage_pass_staging",
         # Round 81 站7: the seven runs extracted out of `cmd_advance_phase`.
-        "_advance_refuse_phase_9", "_advance_refuse_uncommitted",
-        "_advance_refuse_open_obligations", "_advance_run_fsm_transition",
-        "_advance_seed_p8_archive", "_advance_write_next_plan_header",
-        "_advance_commit_and_push",
+        "_advance_step_refuse_phase_9", "_advance_step_refuse_uncommitted",
+        "_advance_step_refuse_open_obligations", "_advance_step_run_fsm_transition",
+        "_advance_step_seed_p8_archive", "_advance_step_write_next_plan_header",
+        "_advance_step_commit_and_push",
     ),
     "core.doctor": (
         "run_doctor", "_check_ci_template_drift",

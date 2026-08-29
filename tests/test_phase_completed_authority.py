@@ -173,7 +173,7 @@ def test_advance_phase_source_records_phase_completed():
     # module, and follows the delegation.
     from tests.support.pipeline import pipeline_source
     src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
-                          helper_prefix="_advance_")
+                          helper_prefix="_advance_step_")
     assert 'setdefault("phase_completed", {})' in src, (
         "cmd_advance_phase must record phase_completed[N] — it is the command "
         "that verifies the exit gate and writes the handover commit"
@@ -591,7 +591,7 @@ def test_advance_phase_source_pins_entry_gate_before_git_add():
     # module, and follows the delegation.
     from tests.support.pipeline import pipeline_source
     src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
-                          helper_prefix="_advance_")
+                          helper_prefix="_advance_step_")
     prechecks_pos = src.index("_advance_prechecks(project, args.completed_phase)")
     # Normal advance's entry-gate call is the only one passing
     # `prev_record_pending=True` (Round 72 站1) — it is the caller that writes

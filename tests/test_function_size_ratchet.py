@@ -104,7 +104,13 @@ _DEFAULT_CEILING = 200
 _CEILINGS: dict[str, int] = {
     # The five the churn concentrates in. Frozen, not split — see the module
     # docstring for why Round 80 did not attempt the decomposition.
-    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 1150,
+    # 899 at Round 81 站8, from 1150: sixteen runs extracted to `_stage_*`
+    # methods. Still the longest function here, and still first in this
+    # dict — 275 of its lines were safely extractable and the rest binds
+    # what follows it. Harvested in the same commit, because
+    # test_no_ceiling_sits_above_the_function_it_covers does not allow
+    # otherwise.
+    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 899,
     "cli/fr_cmds.py::cmd_run_fr_step": 940,
     # 413 at Round 81 站7, from 845: seven runs extracted. Harvested in the
     # same commit because test_no_ceiling_sits_above_the_function_it_covers
@@ -114,7 +120,7 @@ _CEILINGS: dict[str, int] = {
     # rollback each of those needs. One run, because every prefix of it
     # binds something the rest reads — the same shape as
     # `_precheck_p3_security_and_quality`, and the same decision.
-    "cli/phase_cmds.py::_advance_commit_and_push": 257,
+    "cli/phase_cmds.py::_advance_step_commit_and_push": 257,
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same

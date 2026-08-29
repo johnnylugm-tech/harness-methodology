@@ -209,7 +209,7 @@ class TestRollbackLockAndResetDiagnostic:
         # module, and follows the delegation.
         from tests.support.pipeline import pipeline_source
         src = pipeline_source("cli/phase_cmds.py", "cmd_advance_phase",
-                                                  helper_prefix="_advance_")
+                                                  helper_prefix="_advance_step_")
         restore_pos_probe = src.rindex("_advance_snap.restore()")
         lock_pos = src.rindex(
             "with file_lock(state_lock_path(project)):", 0, restore_pos_probe

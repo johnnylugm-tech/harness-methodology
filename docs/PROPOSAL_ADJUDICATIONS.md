@@ -4074,6 +4074,38 @@ helper,所以兩者都補上一行**契約的 fall-through**:今天不可達(最
 
 `cli/phase_cmds.py` 檔案 3268 → 3511。**四支巨型函式裡的兩支,合計 1663 → 657 行。**
 
+### 站8 — `finalize_gate` 1150 → 899,並且正面回答 R80 的重開條件
+
+十六個 run 抽出為 `_stage_*`。**抽成 method 而不是模組層函式**,而那正是保住逐位元組的原因:
+method 的 body 與另一個 method 裡的一段**同樣在兩層縮排**,一樣不用重排。
+十六個 run 裡**只有一個碰 `self`**,其餘十五個是 `@staticmethod`;十五個是 raise 而不是
+return,所以 `tests/test_block_reason_registry.py`(掃的是這個**檔案**,不是那個函式)原封運作。
+
+#### R80 的重開條件要的是行為 golden,我給的是更強的東西 —— 並且說明為什麼
+
+R80 寫的重開條件是「有一支能釘住 `finalize_gate` 在 gate 矩陣上的 verdict / exit code /
+BLOCK 文字的行為 golden,且其覆蓋被實測」。**那個條件假設分解等於改寫**,而行為 golden
+正是檢查改寫的方法。這一輪的分解不是改寫。
+
+`test_undoing_the_extraction_gives_back_the_original_function` 把 helper 放回呼叫點、
+去掉傳遞的鷹架,然後斷言結果**與原函式逐個語句、逐個 AST 相同**。
+**AST 同一性對每一個輸入都成立,包含沒有人寫過 fixture 的那些** —— 這比任何 fixture 矩陣強。
+逐位元組證明每個 body 沒被改寫、資料流規則證明沒有繫結外洩,而**兩者都不管呼叫點的順序**;
+這一支管。三個抽取事件全部通過。
+
+#### 它抓到的第一個東西,是我自己在站7 埋的
+
+站7 把 helper 命名為 `_advance_*`,而 `cli/phase_cmds.py` **本來就有**
+`_advance_prechecks`、`_advance_fsm`、`_advance_commit_targets`。於是 pipeline 視圖
+把三個從未被抽取的函式也一起展開了 —— **站7 那五支改過問法的測試,是因為一個比它們本意更寬的
+理由才綠的**。重建斷言在站8 立刻把它打紅。改名 `_advance_step_*`。
+
+三支函式的終端 return 都跟著跑進了最後一個 helper,所以三支都補上契約的 fall-through。
+`finalize_gate` 的那一行是 `raise GateBlockedError` 而不是 return:
+**對一個 gate 來說,fail-closed 才是對的預設**,而對一個 CLI 指令 `return 0` 才是。
+
+`harness/harness_bridge.py` 3828 → 3994。**三支巨型函式:2813 → 1556 行。**
+
 
 ---
 

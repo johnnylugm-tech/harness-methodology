@@ -24,6 +24,90 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 
 
+def moved_statements(func: "ast.FunctionDef") -> "list[ast.stmt]":
+    """A helper's body minus what the extraction generated rather than moved.
+
+    That is the docstring and, when present, the trailing explicit
+    `return None` mypy requires of an `int | None` fall-through. The runs never
+    contain one: the extraction rule refuses a run that returns None, because
+    the call site uses exactly that to mean "the helper did not return".
+    """
+    body = list(func.body)
+    first = body[0]
+    if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str) and len(body) > 1):
+        body = body[1:]
+    last = body[-1] if body else None
+    if isinstance(last, ast.Return) and isinstance(last.value, ast.Constant) \
+            and last.value.value is None:
+        body = body[:-1]
+    return body
+
+
+def reconstructed(module: str, name: str, *, helper_prefix: str,
+                  generated_tail: bool = False) -> "list[ast.stmt]":
+    """The caller's body with the extraction undone — helpers AND scaffolding.
+
+    `inlined` puts helper bodies back where they run but leaves the two-line
+    `if _rc is not None: return _rc` behind, because the tests that use it are
+    asking what the pipeline does. This one removes that too, so what comes
+    back should be the original function's body statement for statement — the
+    complete equivalence claim, ORDER included, which neither the byte-identity
+    check nor the data-flow rule covers on its own.
+
+    `generated_tail` drops the caller's own `return 0` contract fall-through
+    where the extraction added one, for the two functions whose terminal return
+    travelled into their last helper.
+    """
+    tree = ast.parse((REPO / module).read_text(encoding="utf-8"))
+    target = _function(tree, name)
+
+    def helper_of(stmt: ast.stmt) -> "str | None":
+        call: "ast.Call | None" = None
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            call = stmt.value
+        elif isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call):
+            call = stmt.value
+        if call is None:
+            return None
+        func = call.func
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) \
+                and func.value.id == "self":
+            return func.attr if func.attr.startswith(helper_prefix) else None
+        if isinstance(func, ast.Name):
+            return func.id if func.id.startswith(helper_prefix) else None
+        return None
+
+    body: "list[ast.stmt]" = []
+    skip_next_propagate = False
+    for stmt in target.body:
+        if skip_next_propagate:
+            skip_next_propagate = False
+            if isinstance(stmt, ast.If) and all(
+                isinstance(n, ast.Return) for n in stmt.body
+            ):
+                continue
+        helper = helper_of(stmt)
+        if helper is None:
+            body.append(stmt)
+            continue
+        body.extend(moved_statements(_function(tree, helper)))
+        skip_next_propagate = isinstance(stmt, ast.Assign)
+
+    # A `Raise` as well as a `Return`: finalize_gate's generated fall-through
+    # is `raise GateBlockedError(...)`, because fail-closed is the right default
+    # for a gate where `return 0` is the right one for a CLI command.
+    if generated_tail and body and isinstance(body[-1], (ast.Return, ast.Raise)):
+        body = body[:-1]
+    return body
+
+
+def original_statements(before_file: str, name: str) -> "list[ast.stmt]":
+    """The function's body as it stood before the extraction."""
+    path = REPO / "tests" / "golden" / "extraction" / before_file
+    return list(_function(ast.parse(path.read_text(encoding="utf-8")), name).body)
+
+
 def pipeline_source(module: str, name: str, *, helper_prefix: str) -> str:
     """`name`'s source text followed by that of every helper it calls.
 

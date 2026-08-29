@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.dataflow import _bound, _loaded
+from tests.support.pipeline import original_statements, reconstructed
 
 pytestmark = [pytest.mark.core]
 
@@ -52,6 +53,8 @@ _EXTRACTED: "dict[str, dict]" = {
         "module": "cli/phase_cmds.py",
         "before": "phase_cmds.py.before",
         "caller": "_advance_prechecks",
+        "prefix": "_precheck_",
+        "generated_tail": True,
         "helpers": (
             "_precheck_cleared_dir_evidence",
             "_precheck_backup_artifacts",
@@ -71,14 +74,41 @@ _EXTRACTED: "dict[str, dict]" = {
         # not part of, which is a different and false question.
         "before": "phase_cmds.py.before-station7",
         "caller": "cmd_advance_phase",
+        # `_advance_step_`, not `_advance_`: this file already had
+        # `_advance_prechecks`, `_advance_fsm` and `_advance_commit_targets`,
+        # and the shorter prefix pulled all three into the pipeline view — five
+        # tests passed for a broader reason than they meant to.
+        "prefix": "_advance_step_",
+        "generated_tail": True,
         "helpers": (
-            "_advance_refuse_phase_9",
-            "_advance_refuse_uncommitted",
-            "_advance_refuse_open_obligations",
-            "_advance_run_fsm_transition",
-            "_advance_seed_p8_archive",
-            "_advance_write_next_plan_header",
-            "_advance_commit_and_push",
+            "_advance_step_refuse_phase_9",
+            "_advance_step_refuse_uncommitted",
+            "_advance_step_refuse_open_obligations",
+            "_advance_step_run_fsm_transition",
+            "_advance_step_seed_p8_archive",
+            "_advance_step_write_next_plan_header",
+            "_advance_step_commit_and_push",
+        ),
+    },
+    "harness_bridge.finalize_gate": {
+        "module": "harness/harness_bridge.py",
+        "before": "harness_bridge.py.before",
+        "caller": "finalize_gate",
+        "prefix": "_stage_",
+        # Its terminal `return result` DID travel, into `_stage_record_verdict`,
+        # so the method carries a generated fall-through like the other two.
+        # `raise GateBlockedError` rather than a return: fail-closed is the
+        # right default for a gate.
+        "generated_tail": True,
+        "helpers": (
+            "_stage_shape_contract", "_stage_infra_fail_pollution",
+            "_stage_persist_cited_evidence", "_stage_tool_evidence",
+            "_stage_declared_constraints", "_stage_coverage_denominator",
+            "_stage_required_artifacts", "_stage_verify_target",
+            "_stage_s4_cross_validation", "_stage_system_reach",
+            "_stage_spec_coverage_cap", "_stage_absent_dimensions",
+            "_stage_stubbed_boundaries", "_stage_dimension_thresholds",
+            "_stage_declared_absent", "_stage_record_verdict",
         ),
     },
 }
@@ -212,6 +242,42 @@ def test_no_helper_reads_a_name_nobody_gives_it(label):
 
 
 @pytest.mark.parametrize("label", sorted(_EXTRACTED))
+def test_undoing_the_extraction_gives_back_the_original_function(label):
+    """The complete claim: same statements, same ORDER, nothing added or lost.
+
+    Byte-identity proves each body was not rewritten. The data-flow rule proves
+    no binding escapes. Neither says the call sites are in the order the runs
+    were, and a reordering would be invisible to both. This puts the helpers
+    back where they are called, strips the propagation scaffolding, and asks
+    whether what comes out is the function that was there.
+
+    It is also what Round 80's re-open condition — "a behavioural golden
+    pinning finalize_gate's verdict / exit code / BLOCK text, with its coverage
+    measured" — was reaching for. That condition assumed decomposition meant
+    rewriting, and a behavioural golden is how you check a rewrite. This is not
+    a rewrite, and an AST identity is a stronger answer than any matrix of
+    fixtures: it holds for every input, including the ones nobody thought of.
+    """
+    spec = _EXTRACTED[label]
+    rebuilt = reconstructed(spec["module"], spec["caller"],
+                            helper_prefix=spec["prefix"],
+                            generated_tail=spec["generated_tail"])
+    original = original_statements(spec["before"], spec["caller"])
+
+    got = [ast.dump(n) for n in rebuilt]
+    want = [ast.dump(n) for n in original]
+
+    assert got == want, (
+        f"undoing {label}'s extraction does not give back the function that "
+        f"was there: {len(got)} statements against {len(want)}.\n"
+        + "\n".join(
+            f"  [{i}] differs" for i in range(min(len(got), len(want)))
+            if got[i] != want[i]
+        )
+    )
+
+
+@pytest.mark.parametrize("label", sorted(_EXTRACTED))
 def test_the_caller_still_propagates_every_early_return(label):
     """A helper that can return a code, called without checking it, is a
     silently disabled check — the shape Round 43 named (detected, no executor).
@@ -231,15 +297,21 @@ def test_the_caller_still_propagates_every_early_return(label):
     checked: "set[str]" = set()
     body = caller.body
     for index, stmt in enumerate(body):
-        if not (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)
-                and isinstance(stmt.value.func, ast.Name)
-                and stmt.value.func.id in helpers):
+        if not (isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call)):
+            continue
+        func = stmt.value.func
+        # `self._stage_x(...)` as well as `_precheck_x(...)`: finalize_gate's
+        # helpers are methods, and a check that only knew the bare-name shape
+        # reported every one of them as unchecked.
+        called = (func.attr if isinstance(func, ast.Attribute)
+                  else getattr(func, "id", None))
+        if called not in helpers:
             continue
         target = stmt.targets[0]
         following = body[index + 1] if index + 1 < len(body) else None
         if (isinstance(target, ast.Name) and isinstance(following, ast.If)
                 and any(isinstance(n, ast.Return) for n in ast.walk(following))):
-            checked.add(stmt.value.func.id)
+            checked.add(called)
 
     assert can_return <= checked, (
         f"these helpers can return an exit code that "
