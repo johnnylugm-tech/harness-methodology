@@ -3971,10 +3971,72 @@ finding 的文字寫死 `CRASH_DIR_RELPATH`。本 repo 實測:69 份全在
 依老闆裁示**標記不刪**:寫 `.triaged` 標記,原始 bundle 保留。
 doctor 的 crash-bundles WARN 歸零。
 
+### 站3 — 驗收鏈只有一條通道,每一環都指名存在的東西
+
+**3a 延期 → 測試存在性的 join。** `record_ac_deferrals` 的 docstring 從 R68 站1
+起就寫著「the row is what **a later round reads** to ask whether any of the named
+verifiers was ever run, **which nothing does today**」。兩半都算好了,沒有人接:
+`_parse_deferrals` 解析出驗證者子句然後丟掉;`spec_coverage` 知道哪些宣告的測試
+函式存在(那正是 `spec:undelivered` 數的東西)。
+
+taskq-cc-new:**35 條延期行,35 條全部指名一個測試函式**;第一筆
+`spec:undelivered` 的 37 個缺席測試裡有 35 個就是它們;最後一筆仍有 2 個 ——
+`AC-N10.1` → `test_nfr10_integration_coverage_ge_80`、
+`AC-N7.4` → `test_sbom_at_08_config_with_required_schema`。
+**兩個驗收準則由不存在的測試「驗證」,走完 Gate 4(94.43 PASS)與 P8。**
+
+離線 dry-run 實測:taskq-cc-new 2 個 violation(正是那兩個),
+taskq-new / taskq-verify / taskq-super 各 0 —— 精準,零誤報。
+指名不到任何 `test_*` 的子句(人工流程、外部工具)不動:那是
+`unattributed` 通道的問題,兩個檢查報同一件事是它們開始互相矛盾的方式。
+
+**3b 框架拒絕被指名為它不是的東西。** `R-CANONICAL-INTERP-001` 給 Agent A 的
+模板是 `'<verbatim canonical phrase> — measurement / interpretation boundary is
+owned by the test harness per <canonical line>.'` —— **框架裡沒有任何元件是那個
+owner**:沒有一個檢查讀 AC 的散文並裁決它。
+
+十一專案實測:taskq-cc-new **95/95** 條驗收準則帶著這句話,taskq-plus 3、
+taskq-renew 1、其餘全 0。**所以不是「每個專案的預設出口」,是一個沒有上限的
+逃生口被一個專案用了 95 次** —— 包括 `AC-6.1`(「All data access flows through
+the `repository/` layer」),而 FR-06 在 P5/P7/P8 三次 Gate 1 拿 100.0,
+`repository/key_repo.py` 始終是一個行程內 dict:沒有 ORM、沒有 Session、
+沒有持久化,`deps.py:60/317/487` 把它綁成生產的 API-key 儲存。
+(外部報告 Dim1 說它是「未掛載 DI 的 dead code」—— 理由不成立,它**就是**生產綁定;
+但它指到的問題比報告說的嚴重。)
+
+修在模板(指名驗證者;指名不出來就是 NFR-99 的情況,規則本來就有這條逃生口)
+**加上**一個執法者:AC 不得指名本框架為裁決者。反過度規格化的原意零損失 ——
+改的是「誰驗」必須有名字,不是「A 可不可以逐字轉錄」。
+
+**查證途中挖出的第三個 bug**:`_BULLET` 的 `(.+)$` 在 MULTILINE 下停在換行,
+所以**任何換行的驗收準則,每一個消費者拿到的都只有第一行**。
+95 條裡的驗證者子句全在續行上,新檢查一開始看到的是 **0 / 95**;
+連我自己的 grep 也因此少算(77 而非 95,另外 18 條的片語跨行斷開)。
+落地前量過爆炸半徑:修正後 `check_ac_identifiers` 在 11 個專案上的
+findings **逐一相同**。
+
+**3c 撤回 —— 我自己寫的停手條件生效。** 計畫要把 SRS 的 `C-xx` 約束表接進 SAB 的
+`architecture_constraints`(外部報告 Dim3 −8b「SQLite/PG 鎖方言」的根源)。實測:
+
+| 專案 | SRS `\| C-xx \|` | SAB architecture_constraints |
+|---|---|---|
+| taskq-advance / taskq-cc-new / taskq-plus | 20 / 17 / 14 | 6 / 4 / 6 |
+| 其餘七個 | **0** | 1–7 |
+
+**那張表不是框架定義的結構**,是三個專案各自採用的慣例;七個專案完全沒有。
+而且兩邊**不是同一套詞彙** —— SAB 的成員是執行器名字
+(`no_circular_dependencies`、`no_sqlalchemy_above_repository`),
+`C-06`(「Database: SQLite dev / PostgreSQL prod」)根本不是 SAB 意義下的架構約束,
+是技術選型。要求「每條 C-xx 都要進 SAB」等於發明一條框架從未陳述的規則,
+而且對七個專案完全靜默。停手,不在未驗證的形狀上蓋東西。
+`declared_only` 那一類 R54 已裁決:記錄、永不擋。
+
 ### 本輪不做
 
 | 項目 | 理由 | 再開條件 |
 |---|---|---|
+| SRS `C-xx` → SAB `architecture_constraints` 的 join | 那張表只有 3/10 個專案使用,且與 SAB 的執行器名字不是同一套詞彙 —— 沒有可對的 id 映射。詳見站3c | 框架自己定義 `C-xx` 的結構與語意,或 SAB 改成收 SRS 的約束 id |
+| 拆分 `core/quality_gate/artifact_consistency.py`(977 行,越過 900 門檻) | 本輪主題是驗收鏈,不是檔案拆分;拆之前要先織位元組網(R49) | 該檔進入下一輪拆分清單 |
 | 給 `crash-triage` 一個「這不是 bug」的處置 | 唯一會寫 `.triaged` 的路徑是 `--open-cr`,會為 fixture 殘骸開 CR-BUG。這 69 份是一次性殘骸,為它加旗標是為單一情況造通用方案 | 再出現一批非 bug 的 bundle,或框架自己的測試又把 bundle 寫進真 repo |
 | 讓 `performance` 讀專案宣告的 p95 預算 | `_score_pytest_benchmark` 用固定 1000/3000ms 罰則、不讀任何 p95(R46 站3 已記載)。要讀專案預算需要一條 p95 的機器可讀通道,是另一輪的設計 | 出現 p95 的機器可讀來源,或再有一份報告把 `performance: 100.0` 讀成「達成 NFR-01」 |
 | 補上 `.github/workflows/harness_quality_gate.yml`(doctor 的第二個 WARN) | 那是框架 repo 對自己部署消費專案 CI 模板的問題,與本輪三問無關;順手做是廚房水槽 | 該 WARN 造成一次實際漏檢 |

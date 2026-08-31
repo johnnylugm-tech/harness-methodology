@@ -1184,7 +1184,9 @@ class PhaseHooks:
         disagree about when a rule activates.
         """
         from core.quality_gate.artifact_consistency import (
+            check_ac_deferral_targets,
             check_ac_identifiers,
+            check_ac_verifier_is_nameable,
             check_ac_test_spec_coverage,
             check_forward_refs,
             check_module_fr_coverage,
@@ -1210,7 +1212,30 @@ class PhaseHooks:
             if self.phase is not None and self.phase >= 3:
                 violations = violations + check_nfr_adr_coverage(self._layout.root)
                 violations = violations + check_ac_identifiers(self._layout.root)
+                # Round 83 站3: and the framework refuses to be named as the
+                # thing that decides a criterion. R-CANONICAL-INTERP-001 used
+                # to hand Agent A that sentence; nothing in this framework
+                # reads an AC's prose and decides it. Beside check_ac_identifiers
+                # because they ask the same artefact the same kind of question
+                # — that one whether the criterion can be cited, this one
+                # whether its verifier exists.
+                violations = violations + check_ac_verifier_is_nameable(self._layout.root)
                 violations = violations + check_ac_test_spec_coverage(self._layout.root)
+                # Round 83 站3: the read that Round 68 站1's ledger row was
+                # written for. The deferral names a test function; spec_coverage
+                # already knows which declared test functions exist; nothing
+                # joined them. taskq-cc-new deferred 35 criteria to tests, 35 of
+                # which did not exist at the time — and `AC-N10.1` and `AC-N7.4`
+                # still did not when it left Phase 8 with Gate 4 at 94.43 PASS.
+                #
+                # Blocking, unlike the row below it, because the two say
+                # different things: "verified somewhere else" is a legitimate
+                # disposition to record, and "verified by a test nobody wrote"
+                # is a false statement in the delivered spec. Phase >= 3 for
+                # the same reason as its neighbours — TEST_SPEC.md is Phase 2's
+                # output, so asking earlier asks of an artifact that does not
+                # exist yet.
+                violations = violations + check_ac_deferral_targets(self._layout.root)
                 # Round 69 站5: an `ac_deferred` row is `info`, so it does not
                 # fail this preflight — which is correct, and is exactly why
                 # it also has to be written down. Non-blocking is not free.

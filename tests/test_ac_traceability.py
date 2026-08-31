@@ -584,3 +584,79 @@ def test_a_range_expression_is_not_reported_as_malformed(tmp_path):
     assert not [x for x in v if "canonical" in x.message], (
         "a range expression was reported as a malformed identifier"
     )
+
+
+_SRS_WRAPPED_AC = (
+    "# SRS\n\n"
+    "### FR-01: create a task\n\n"
+    "**Acceptance criteria**\n\n"
+    "- **AC-1.1** `POST /v1/tasks` with a valid key returns 201 and a task id\n"
+    "  — measurement / interpretation boundary is owned by the test harness\n"
+    "  per SPEC.md §3 FR-01.\n"
+    "- **AC-1.2** the same call with no key returns 401.\n"
+)
+
+
+def test_a_wrapped_acceptance_criterion_is_read_past_its_first_line(tmp_path):
+    """Round 83 站3 — `(.+)$` under MULTILINE stops at the newline.
+
+    An acceptance criterion long enough to be a sentence wraps, and every
+    consumer of `_srs_acceptance_criteria` was handed its first line only.
+    Measured on taskq-cc-new: 95 bullets parsed, and every one of the 95
+    clauses `check_ac_verifier_is_nameable` looks for sits on a continuation
+    line — so that check saw zero of its 95 subjects while a plain grep over
+    the same file found 77 (the other 18 wrap mid-phrase, which is why the
+    grep undercounted too).
+
+    The bullet boundary still has to hold: two criteria must not become one.
+    """
+    from core.quality_gate.artifact_consistency import _srs_acceptance_criteria
+
+    criteria = _srs_acceptance_criteria(_project(tmp_path, _SRS_WRAPPED_AC))
+    bullets = criteria["FR-01"]
+    assert len(bullets) == 2, (
+        f"the continuation swallowed the next bullet: {bullets}")
+    assert "owned by the test harness" in bullets[0], (
+        "the criterion's second and third lines were dropped, so nothing "
+        "reading its content could see what it says"
+    )
+    assert "AC-1.2" in bullets[1] and "401" in bullets[1]
+
+
+def test_the_harness_may_not_be_named_as_the_verifier(tmp_path):
+    """Round 83 站3 — the framework refuses to be named as something it is not.
+
+    `harness/prompts/rules/R-CANONICAL-INTERP-001.md` handed Agent A the
+    sentence "measurement / interpretation boundary is owned by the test
+    harness". Nothing in this framework is that owner: no check reads an
+    acceptance criterion's prose and decides it. taskq-cc-new shipped the
+    phrase in 95 of 95 criteria, including AC-6.1 ("All data access flows
+    through the `repository/` layer"), whose FR-06 passed Gate 1 at 100.0 in
+    three separate phases while `repository/key_repo.py` stayed an in-process
+    dict with no ORM, no Session and no persistence.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_verifier_is_nameable
+
+    violations = check_ac_verifier_is_nameable(_project(tmp_path, _SRS_WRAPPED_AC))
+    assert len(violations) == 1 and violations[0].severity == "error"
+    assert violations[0].rule_id == "FR-01"
+    assert "R-CANONICAL-INTERP-001" in violations[0].message, (
+        "the block must name the rule that taught the phrase — otherwise the "
+        "next agent reads the template, writes the sentence, and is blocked "
+        "for following instructions"
+    )
+
+
+def test_a_criterion_naming_a_real_verifier_passes(tmp_path):
+    """The positive control. The rule's transcribe-verbatim half is untouched;
+    what it now requires is that the clause name someone. A criterion that
+    does must not be blocked, or the check would be telling projects to stop
+    writing acceptance criteria."""
+    from core.quality_gate.artifact_consistency import check_ac_verifier_is_nameable
+
+    srs = (
+        "# SRS\n\n### FR-01: create a task\n\n**Acceptance criteria**\n\n"
+        "- **AC-1.1** `POST /v1/tasks` returns 201 — decided by\n"
+        "  `test_fr01_create_returns_201`, per SPEC.md §3 FR-01.\n"
+    )
+    assert check_ac_verifier_is_nameable(_project(tmp_path, srs)) == []

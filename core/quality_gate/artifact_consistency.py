@@ -44,7 +44,8 @@ from core.quality_gate.legal_artifacts import LEGAL_ARTIFACTS
 from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["ac_deferral_shape", "ac_label_shape", "check_ac_identifiers",
+__all__ = ["ac_deferral_shape", "ac_label_shape", "check_ac_deferral_targets",
+           "check_ac_identifiers",
            "check_ac_test_spec_coverage", "check_forward_refs",
            "check_nfr_adr_coverage", "check_module_fr_coverage",
            "record_ac_deferrals"]
@@ -480,14 +481,21 @@ def ac_deferral_shape() -> str:
             "which tool verifies this>, not a TEST_SPEC case.")
 
 
-def _parse_deferrals(text: str) -> "tuple[set[str], set[str]]":
-    """(attributed, unattributed) canonical ids from *text*'s Deferred lines.
+def _parse_deferrals(text: str) -> "tuple[dict[str, str], set[str]]":
+    """({attributed id: verifier clause}, unattributed ids) from *text*.
 
     Unattributed means the line named ids and no verifier — no `— <clause>`,
     or an empty one. A deferral that names nobody can never be asked whether
     the thing it points at ever ran.
+
+    Round 83 站3: the clause was parsed here and dropped on the floor, and the
+    function returned two sets. Keeping it is the whole of what makes the
+    deferral answerable — `check_ac_deferral_targets` reads it to ask whether
+    the verifier the line names actually exists. Callers that only want the id
+    set take `set(attributed)`; a second parser for the same lines would be a
+    second answer to "what does this line defer to".
     """
-    attributed: set[str] = set()
+    attributed: dict[str, str] = {}
     unattributed: set[str] = set()
     for m in _AC_DEFERRAL_LINE.finditer(text):
         body = m.group("body")
@@ -497,7 +505,11 @@ def _parse_deferrals(text: str) -> "tuple[set[str], set[str]]":
                 head, _, why = body.partition(sep)
                 break
         ids = {_with_dash(t) for t in _AC_ID_CITED.findall(head)}
-        (attributed if why.strip() else unattributed).update(ids)
+        if why.strip():
+            for _id in ids:
+                attributed[_id] = why.strip()
+        else:
+            unattributed.update(ids)
     return attributed, unattributed
 # What WANTED to be an identifier, for the parse-gap channel only. A different
 # question from `_AC_ID` (which decides what IS one), not a second spelling of
@@ -529,7 +541,19 @@ _AC_BLOCK = re.compile(
     _AC_LABEL_RE + r"[^\n]*\n(.*?)(?=\n#{1,6}\s|\n\*\*[A-Z]|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
-_BULLET = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
+# Round 83 站3: `(.+)$` under MULTILINE stops at the first newline, so a
+# wrapped bullet — which is what a real acceptance criterion looks like once it
+# is a sentence rather than a phrase — reached every consumer as its first line
+# only. Measured on taskq-cc-new: 95 bullets parsed, and the 77 occurrences of
+# the phrase `check_ac_verifier_is_nameable` looks for sit on continuation
+# lines, so that check saw zero of its 77 subjects. The continuation shape is
+# the one `scripts/extract_deferred_index.py` already uses for the same reason:
+# a following line that is indented or blank and does not start a new bullet.
+# Strictly more text per bullet, so the id search in `check_ac_identifiers` can
+# only find MORE ids than before, never fewer.
+_BULLET = re.compile(
+    r"^[ \t]*[-*][ \t]+(.+(?:\n(?![ \t]*[-*][ \t])[ \t]+\S.*)*)",
+    re.MULTILINE)
 # `#### AC-1.1` — the criterion as its own heading. Both shapes are live in
 # the corpus and reading one reads a third of it: taskq and taskq-renew write
 # headings (the shape `scripts/canonical_diff.py` assumes), taskq-advance
@@ -761,7 +785,160 @@ def _test_spec_dispositions(
     # uncited". The SRS side stays `_AC_ID` so a typo never silently passes;
     # that question is `check_ac_identifiers`'s, not this one's.
     cited = {_with_dash(t) for t in _AC_ID_CITED.findall(remainder)}
-    return cited, deferred - cited, unattributed - cited
+    return cited, set(deferred) - cited, unattributed - cited
+
+
+#: The phrase `R-CANONICAL-INTERP-001` used to hand Agent A as its
+#: fidelity-preserving template. It names this framework as the thing that
+#: decides an acceptance criterion, and no component of this framework reads an
+#: AC and decides it — so every AC carrying it ships a false statement about
+#: who checked it. Matched loosely on the two load-bearing words because the
+#: template was prose and agents paraphrase it.
+_HARNESS_AS_VERIFIER = re.compile(
+    r"\bowned\s+by\s+the\s+(?:test\s+)?harness\b", re.IGNORECASE)
+
+
+def check_ac_verifier_is_nameable(project: "str | Path") -> list[Violation]:
+    """An AC may not name this framework as the thing that decides it.
+
+    Round 83 站3. `harness/prompts/rules/R-CANONICAL-INTERP-001.md` existed to
+    stop Agent A over-specifying ambiguous canonical terms — a real problem,
+    and the rule's transcribe-verbatim half is untouched. What it also did was
+    hand A a sentence to put in the AC:
+
+        '<verbatim canonical phrase> — measurement / interpretation boundary
+         is owned by the test harness per <canonical line>.'
+
+    Nothing in this framework is that owner. No check reads an AC's prose and
+    decides it; `check_ac_test_spec_coverage` asks whether the id is cited in
+    TEST_SPEC, and that is the whole of it.
+
+    Measured across the eleven projects on this machine: taskq-cc-new carries
+    the phrase in 77 of its 95 acceptance criteria, taskq-api in 8, taskq-plus
+    in 6, taskq-renew in 3, and six projects use it zero times. So it is not a
+    default every project falls into — it is an escape hatch with no ceiling
+    that one project took 77 times, including `AC-6.1` ("All data access flows
+    through the `repository/` layer — measurement / interpretation boundary is
+    owned by the test harness"), whose FR-06 passed Gate 1 at 100.0 three
+    times while `repository/key_repo.py` remained an in-process dict.
+
+    Narrow on purpose. It does not ask whether a deferral's verifier is a good
+    one, or whether a human process is an acceptable verifier — a quarterly
+    manual audit is a real answer and this says nothing about it. It asserts
+    one thing the framework can assert with certainty: that it is not the
+    verifier, because it knows what it runs.
+
+    Never raises — an unreadable SRS is a worse reason to stop than the thing
+    this was going to report.
+    """
+    project = Path(project)
+    try:
+        criteria = _srs_acceptance_criteria(project)
+    except OSError:
+        return []
+    violations: list[Violation] = []
+    for req_id, bullets in sorted(criteria.items()):
+        named = [b for b in bullets if _HARNESS_AS_VERIFIER.search(b)]
+        if not named:
+            continue
+        violations.append(Violation(
+            check_type="ac_verifier_is_the_harness", rule_id=req_id,
+            severity="error", file="01-requirements/SRS.md",
+            message=(
+                f"{req_id}: {len(named)} of {len(bullets)} acceptance criteria "
+                f"say the measurement is owned by the test harness. It is not "
+                f"— no component of this framework reads an acceptance "
+                f"criterion and decides it, so this ships a claim that someone "
+                f"checked it when nobody did. Name the test function, tool or "
+                f"downstream phase that measures it "
+                f"(R-CANONICAL-INTERP-001), or raise NFR-99 if the canonical "
+                f"line is genuinely ambiguous. First: {named[0][:100]!r}"
+            )))
+    return violations
+
+
+#: A test function named inside a deferral's verifier clause. The convention
+#: every one of them follows — `templates/TEST_SPEC.md`'s own shape, and the
+#: same `test_*` prefix `_scan_test_functions` and `_parse_test_spec` key on.
+#: Measured on taskq-cc-new: 35 deferral lines, 35 naming a test function.
+_DEFERRAL_TEST_FN = re.compile(r"\b(test_[A-Za-z0-9_]+)\b")
+
+
+def check_ac_deferral_targets(project: "str | Path") -> list[Violation]:
+    """A deferral that points at a test nobody wrote verifies nothing.
+
+    Round 83 站3. `record_ac_deferrals`'s own docstring has said since Round 68
+    站1 that its row "is what a later round reads to ask whether any of the
+    named verifiers was ever run, which nothing does today". This is that
+    read, and it is a JOIN rather than a new mechanism: the deferral names a
+    test function (`_parse_deferrals` already parsed the clause and dropped
+    it), and `spec_coverage` already knows which declared test functions exist
+    — it is the producer behind the `spec:undelivered` ledger row. Both halves
+    were computed on every run; nothing put them together.
+
+    Measured on taskq-cc-new (Phase 2, 2026-08-24):
+
+        deferral lines                     : 35
+        naming a test function             : 35   (all of them)
+        first spec:undelivered "missing"   : 37, of which 35 are those tests
+        last recorded row                  :  4, of which  2 still are
+
+    Those two are `AC-N10.1` -> `test_nfr10_integration_coverage_ge_80` and
+    `AC-N7.4` -> `test_sbom_at_08_config_with_required_schema`. Neither test
+    ever existed. Both criteria travelled through Gate 4 (94.43 PASS) and out
+    the far end of Phase 8 verified by nothing at all.
+
+    A clause naming NO test function is left alone: that is the shape
+    `_parse_deferrals`'s `unattributed` set already reports, and a deferral to
+    a human process or an external tool is a legitimate thing to write. What
+    cannot stand is a deferral that names a verifier and is wrong about it.
+
+    Returns `Violation`s like its neighbours — severity `error`, which
+    `preflight_artifact_consistency` makes blocking from phase 2 on.
+    Never raises — an unreadable TEST_SPEC is a worse reason to stop than the
+    thing this was going to report.
+    """
+    from core.quality_gate.spec_coverage import (
+        _get_test_directories, _scan_test_functions,
+    )
+    from core.utils.lang_patterns import project_language
+
+    project = Path(project)
+    try:
+        test_spec = ProjectLayout(project).test_spec_path
+        if not test_spec.exists():
+            return []
+        clauses, _unattributed = _parse_deferrals(
+            test_spec.read_text(encoding="utf-8", errors="replace"))
+        named = {ac: fns for ac, clause in clauses.items()
+                 if (fns := _DEFERRAL_TEST_FN.findall(clause))}
+        if not named:
+            return []
+        lang = project_language(project)
+        actual: set[str] = set()
+        for test_dir in _get_test_directories(project):
+            actual |= _scan_test_functions(test_dir, lang)
+    except OSError:
+        return []
+
+    violations: list[Violation] = []
+    for ac in sorted(named):
+        absent = sorted(fn for fn in named[ac] if fn not in actual)
+        if not absent:
+            continue
+        violations.append(Violation(
+            check_type="ac_deferral_target_missing", rule_id=ac,
+            severity="error",
+            file=str(test_spec.relative_to(project)),
+            message=(
+                f"{ac} is deferred to {', '.join(absent)}, which no test "
+                f"function defines. A deferral is a promise that something "
+                f"else verifies the criterion; this one names a verifier that "
+                f"does not exist, so the criterion is verified by nothing. "
+                f"Write the test, or change the deferral to name what really "
+                f"checks it."
+            )))
+    return violations
 
 
 def record_ac_deferrals(project: "str | Path") -> list[str]:
@@ -769,7 +946,10 @@ def record_ac_deferrals(project: "str | Path") -> list[str]:
 
     Returns the ids recorded. Non-blocking must not mean free (Round 68 站1):
     the row is what a later round reads to ask whether any of the named
-    verifiers was ever run, which nothing does today.
+    verifiers was ever run. Round 83 站3 is that reader —
+    `check_ac_deferral_targets` — so this row's remaining subject is the
+    deferrals whose target DOES exist: still not a TEST_SPEC case, still worth
+    a line, no longer unexamined.
 
     Never raises — a project whose TEST_SPEC cannot be read is a worse reason
     to stop a gate than the thing this was going to report.
@@ -789,8 +969,9 @@ def record_ac_deferrals(project: "str | Path") -> list[str]:
         f"{len(ids)} acceptance criterion(s) deferred to a named tool "
         f"instead of a TEST_SPEC case",
         why=("a deferral is a promise that something else verifies the "
-             "criterion, and no check confirms the named verifier exists or "
-             "ever ran — the criterion is on record as unverified here"),
+             "criterion; check_ac_deferral_targets confirms the named test "
+             "exists, and nothing confirms it ever RAN green — the criterion "
+             "is on record as unverified here"),
         data={"deferred": ids}, owner="project",
     )
     return ids

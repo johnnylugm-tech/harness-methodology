@@ -99,6 +99,87 @@ def test_a_deferral_that_names_no_tool_is_an_error(tmp_path: Path) -> None:
     assert len(unattributed) == 1 and unattributed[0].severity == "error"
 
 
+def _with_tests(project: Path, *fn_names: str) -> Path:
+    """Give the project a test tree defining `fn_names` — the same tree
+    `spec_coverage._scan_test_functions` reads, which is the inventory the
+    deferral join asks."""
+    tests = project / "03-development" / "tests"
+    tests.mkdir(parents=True, exist_ok=True)
+    (tests / "test_deferred.py").write_text(
+        "".join(f"def {n}():\n    assert True\n\n" for n in fn_names),
+        encoding="utf-8")
+    return project
+
+
+def test_a_deferral_to_a_test_nobody_wrote_is_an_error(tmp_path: Path) -> None:
+    """Round 83 站3 — the read Round 68 站1's ledger row was written for.
+
+    `record_ac_deferrals`'s docstring: the row "is what a later round reads to
+    ask whether any of the named verifiers was ever run, which nothing does
+    today". Both halves of the answer were already computed on every run —
+    `_parse_deferrals` parsed the clause and dropped it, and `spec_coverage`
+    knows which declared test functions exist (it is what `spec:undelivered`
+    counts). Nothing joined them.
+
+    Measured on taskq-cc-new: 35 deferral lines, all 35 naming a test
+    function, 35 of them absent at Phase 2 — and `AC-N10.1`
+    (`test_nfr10_integration_coverage_ge_80`) and `AC-N7.4`
+    (`test_sbom_at_08_config_with_required_schema`) still absent when the
+    project left Phase 8 with Gate 4 at 94.43 PASS.
+    """
+    from core.quality_gate.artifact_consistency import check_ac_deferral_targets
+
+    spec = (
+        "# TEST_SPEC.md\n\n| 1 | `test_no_gpl_dependency` | AC-N7.1 |\n\n"
+        "Deferred: AC-N7.2 — unit test_sbom_at_08_config_with_required_schema, "
+        "not a TEST_SPEC case.\n"
+    )
+    project = _with_tests(_project(tmp_path, spec), "test_no_gpl_dependency")
+    violations = check_ac_deferral_targets(project)
+    assert len(violations) == 1, (
+        f"the deferral names a test that does not exist: {violations}")
+    v = violations[0]
+    assert v.severity == "error" and v.rule_id == "AC-N7.2"
+    assert "test_sbom_at_08_config_with_required_schema" in v.message, (
+        "the block has to name the missing test — 'a deferral is unverified' "
+        f"is not something a project can act on. Got: {v.message}")
+
+
+def test_a_deferral_to_a_test_that_exists_passes(tmp_path: Path) -> None:
+    """The positive control. Deferring to a real test is the legitimate use of
+    the mechanism and must stay legitimate, or the check would be telling
+    every project to stop deferring rather than to stop deferring to nothing."""
+    from core.quality_gate.artifact_consistency import check_ac_deferral_targets
+
+    spec = (
+        "# TEST_SPEC.md\n\n| 1 | `test_no_gpl_dependency` | AC-N7.1 |\n\n"
+        "Deferred: AC-N7.2 — unit test_sbom_at_08_config_with_required_schema, "
+        "not a TEST_SPEC case.\n"
+    )
+    project = _with_tests(_project(tmp_path, spec), "test_no_gpl_dependency",
+                          "test_sbom_at_08_config_with_required_schema")
+    assert check_ac_deferral_targets(project) == []
+
+
+def test_a_deferral_naming_no_test_at_all_is_left_to_its_own_channel(
+    tmp_path: Path,
+) -> None:
+    """A deferral to a human process or an external tool names no `test_*`,
+    and this check must not invent a violation for it — `_parse_deferrals`'s
+    `unattributed` set already reports the clause-less kind, and
+    `test_a_deferral_that_names_no_tool_is_an_error` above pins that. Two
+    checks reporting one fact is how they come to disagree about it."""
+    from core.quality_gate.artifact_consistency import check_ac_deferral_targets
+
+    spec = (
+        "# TEST_SPEC.md\n\n| 1 | `test_no_gpl_dependency` | AC-N7.1 |\n\n"
+        "Deferred: AC-N7.2 — quarterly manual licence audit by legal, "
+        "not a TEST_SPEC case.\n"
+    )
+    project = _with_tests(_project(tmp_path, spec), "test_no_gpl_dependency")
+    assert check_ac_deferral_targets(project) == []
+
+
 def test_an_uncited_criterion_is_still_an_error(tmp_path: Path) -> None:
     spec = "# TEST_SPEC.md\n\n| 1 | `test_no_gpl_dependency` | AC-N7.1 |\n"
     violations = check_ac_test_spec_coverage(_project(tmp_path, spec))

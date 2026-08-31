@@ -4042,3 +4042,27 @@
 - test: tests/test_doctor.py::TestCrashBundles::test_the_warning_names_the_durable_directory_too
   bug: "the other half of the pair — without it the fix could be a swapped constant, which is the same defect pointing the other way"
   fixed_in: "Round 83 站2"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_a_deferral_to_a_test_nobody_wrote_is_an_error
+  bug: "record_ac_deferrals's own docstring said since Round 68 站1 that its ledger row 'is what a later round reads to ask whether any of the named verifiers was ever run, which nothing does today'. Both halves were computed on every run and nothing joined them: _parse_deferrals parsed the verifier clause and dropped it, and spec_coverage already knows which declared test functions exist (it is what the spec:undelivered row counts). Measured on taskq-cc-new: 35 deferral lines, all 35 naming a test function, 35 absent at Phase 2 — and AC-N10.1 (test_nfr10_integration_coverage_ge_80) and AC-N7.4 (test_sbom_at_08_config_with_required_schema) still absent when the project left Phase 8 with Gate 4 at 94.43 PASS"
+  fixed_in: "Round 83 站3"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_a_deferral_to_a_test_that_exists_passes
+  bug: "positive control — deferring to a real test is the legitimate use of the mechanism, and without this the check could be telling every project to stop deferring rather than to stop deferring to nothing"
+  fixed_in: "Round 83 站3"
+
+- test: tests/test_ac_deferral_is_not_coverage.py::test_a_deferral_naming_no_test_at_all_is_left_to_its_own_channel
+  bug: "a deferral to a human process or an external tool names no test_* and must not be invented into a violation here — _parse_deferrals's `unattributed` set already reports the clause-less kind, and two checks reporting one fact is how they come to disagree about it"
+  fixed_in: "Round 83 站3"
+
+- test: tests/test_ac_traceability.py::test_a_wrapped_acceptance_criterion_is_read_past_its_first_line
+  bug: "_BULLET's `(.+)$` under re.MULTILINE stops at the newline, so an acceptance criterion long enough to wrap reached every consumer of _srs_acceptance_criteria as its first line only. Measured on taskq-cc-new: 95 bullets parsed and every one of the 95 verifier clauses sits on a continuation line, so check_ac_verifier_is_nameable saw zero of its 95 subjects (a plain grep found 77 — the other 18 wrap mid-phrase, so the grep undercounted too). Blast radius measured before landing: check_ac_identifiers produces byte-identical findings on all 11 corpus projects"
+  fixed_in: "Round 83 站3"
+
+- test: tests/test_ac_traceability.py::test_the_harness_may_not_be_named_as_the_verifier
+  bug: "harness/prompts/rules/R-CANONICAL-INTERP-001.md handed Agent A the template '<verbatim canonical phrase> — measurement / interpretation boundary is owned by the test harness per <canonical line>'. Nothing in this framework is that owner: no check reads an acceptance criterion's prose and decides it. taskq-cc-new shipped the phrase in 95 of 95 criteria including AC-6.1 ('All data access flows through the repository/ layer'), whose FR-06 passed Gate 1 at 100.0 in three separate phases while repository/key_repo.py stayed an in-process dict with no ORM, no Session and no persistence"
+  fixed_in: "Round 83 站3"
+
+- test: tests/test_ac_traceability.py::test_a_criterion_naming_a_real_verifier_passes
+  bug: "positive control for the verifier check — the rule's anti-over-specification half is untouched and a criterion that names a real verifier must not be blocked, or the check would be telling projects to stop writing acceptance criteria"
+  fixed_in: "Round 83 站3"
