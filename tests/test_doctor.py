@@ -447,6 +447,43 @@ class TestCrashBundles:
         assert len(found) == 1 and found[0].severity == "WARN"
         assert "crash-triage" in found[0].message
 
+    def test_the_warning_names_the_directory_it_counted(self, tmp_path):
+        """Round 83 站2 — the finding sent the operator to an empty directory.
+
+        `crash_bundle_paths` enumerates TWO locations: `.methodology/crash`
+        (durable, since Round 28) and `.sessi-work/crash` (legacy), so a
+        project with bundles at the old path does not read as clean. The
+        message named only the first, unconditionally.
+
+        Measured on the harness repo itself 2026-08-31: 69 bundles counted,
+        every one under `.sessi-work/crash/`, and the WARN pointed at
+        `.methodology/crash/` — a directory that does not exist there. Note
+        this class's own `_write_bundle` helper has always written to the
+        legacy path, so every test above ran against the wrong-directory
+        message and none of them looked at it.
+        """
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        self._write_bundle(project)  # legacy .sessi-work/crash
+        msg = self._findings(project)[0].message
+        assert ".sessi-work/crash/" in msg, (
+            f"the bundle is in .sessi-work/crash and the message says "
+            f"otherwise: {msg}"
+        )
+        assert ".methodology/crash/" not in msg, (
+            f"named a directory that holds none of what it counted: {msg}"
+        )
+
+    def test_the_warning_names_the_durable_directory_too(self, tmp_path):
+        """The other half of the pair: a bundle at the durable path is named
+        as being there. Without this the fix could be a swapped constant —
+        the same defect pointing the other way."""
+        project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
+        crash_dir = project / ".methodology" / "crash"
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        (crash_dir / "crash_1.json").write_text("{}", encoding="utf-8")
+        msg = self._findings(project)[0].message
+        assert ".methodology/crash/" in msg and ".sessi-work/crash/" not in msg, msg
+
     def test_triaged_bundle_is_silent(self, tmp_path):
         project = _project(tmp_path, state=GOOD_STATE, claude_md=GOOD_CLAUDE)
         self._write_bundle(project, triaged=True)

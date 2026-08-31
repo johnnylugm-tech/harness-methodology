@@ -4022,3 +4022,23 @@
 - test: tests/test_every_score_names_its_source.py::test_the_crg_architecture_override_records_its_own_number
   bug: "`architecture` is in `_CRG_OWNED_DIMENSIONS`, so S4 skips it on its first line and the number comes from the framework's own CRG run inside finalize_gate. That run's replace-branch wrote no `score_source` — 0.10 of Gate 4's weight in both taskq-cc-new and taskq-new. Drives a real finalize_gate with a faked crg_metrics.json so the branch actually executes"
   fixed_in: "Round 83 站1"
+
+- test: tests/test_degradation_ledger.py::test_a_broken_stderr_does_not_end_the_run
+  bug: "core/degradation_ledger.py has promised 'Never raises' since Round 13 站1 and did not: the `[DEGRADED]` print sat OUTSIDE the try that covers the file write, and BrokenPipeError is an OSError. taskq-new's committed crash bundle .methodology/crash/crash_20260821T211052Z_33516.json is that exact frame — degradation_ledger.py:77, argv ['advance-phase','--completed','2',...] — a phase transition ended by its own logging when stderr's reader went away"
+  fixed_in: "Round 83 站2"
+
+- test: tests/test_degradation_ledger.py::test_a_broken_stderr_still_leaves_the_record
+  bug: "the substantive half of the same defect: the unguarded print came BEFORE the JSONL append, so a broken stderr meant the ledger entry was never written at all — the artefact that outlives the run (Round 27 站3 moved it out of .sessi-work for exactly that reason) was lost in precisely the runs worth debugging"
+  fixed_in: "Round 83 站2"
+
+- test: tests/test_degradation_ledger.py::test_a_broken_stderr_and_an_unwritable_ledger_together
+  bug: "the `except OSError` handler's own remedy was a second unguarded print to the same stderr, so a broken pipe re-raised out of the handler that existed to stop exactly this. A guard covering only the first print would leave this path open"
+  fixed_in: "Round 83 站2"
+
+- test: tests/test_doctor.py::TestCrashBundles::test_the_warning_names_the_directory_it_counted
+  bug: "`crash_bundle_paths` enumerates two locations (.methodology/crash since Round 28, plus the legacy .sessi-work/crash, so a project with bundles at the old path does not read as clean) and the WARN named only the first, unconditionally. Measured on the harness repo 2026-08-31: 69 bundles counted, all under .sessi-work/crash/, message pointing at .methodology/crash/ which does not exist there. This class's own _write_bundle helper has always written to the legacy path, so every existing test ran against the wrong-directory message and none looked at it"
+  fixed_in: "Round 83 站2"
+
+- test: tests/test_doctor.py::TestCrashBundles::test_the_warning_names_the_durable_directory_too
+  bug: "the other half of the pair — without it the fix could be a swapped constant, which is the same defect pointing the other way"
+  fixed_in: "Round 83 站2"

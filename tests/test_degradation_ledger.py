@@ -55,3 +55,76 @@ def test_record_degradation_never_raises_on_ledger_write_failure(tmp_path, capsy
     err = capsys.readouterr().err
     assert "[DEGRADED]" in err
     assert "failed to write degradation ledger entry" in err
+
+
+class _BrokenStderr:
+    """A stderr whose reader has gone away — a pipe into `head`, a killed
+    `tee`, a closed terminal. `BrokenPipeError` is an `OSError`."""
+
+    def write(self, _s):
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self):
+        raise BrokenPipeError(32, "Broken pipe")
+
+
+def test_a_broken_stderr_does_not_end_the_run(tmp_path, monkeypatch):
+    """Round 83 站2 — the function that records quiet failures, failing loudly.
+
+    This module has promised "Never raises" since Round 13 站1. The promise
+    covered the `try` around the file write; the `[DEGRADED]` print sat OUTSIDE
+    it. taskq-new's committed crash bundle
+    `.methodology/crash/crash_20260821T211052Z_33516.json` is that line:
+
+        exc_type : BrokenPipeError  [Errno 32] Broken pipe
+        argv     : ['advance-phase', '--completed', '2', '--project', ...]
+        frame    : core/degradation_ledger.py:77 in record_degradation
+                   print(f"[DEGRADED] ...", file=sys.stderr)
+
+    A phase transition ended by its own logging.
+    """
+    import sys
+
+    monkeypatch.setattr(sys, "stderr", _BrokenStderr())
+    record_degradation(tmp_path, "test_broken_stderr", "thing", why="reason")
+
+
+def test_a_broken_stderr_still_leaves_the_record(tmp_path, monkeypatch):
+    """And the part that matters after the run is over.
+
+    The stderr line is a courtesy to whoever is watching live; the JSONL is
+    the artefact that outlives the run (Round 27 站3 moved it out of
+    .sessi-work for exactly that reason). Before the fix the print came first
+    and unguarded, so a broken stderr meant the append never ran — the record
+    was lost in precisely the runs worth debugging.
+    """
+    import sys
+
+    monkeypatch.setattr(sys, "stderr", _BrokenStderr())
+    record_degradation(tmp_path, "test_broken_stderr_record", "thing",
+                       why="reason", owner="harness")
+
+    ledger = tmp_path / ".methodology" / "degradations.jsonl"
+    assert ledger.exists(), (
+        "stderr going away must not take the ledger with it — the JSONL is "
+        "the half of this function that survives the run"
+    )
+    entry = json.loads(ledger.read_text(encoding="utf-8").strip())
+    assert entry["component"] == "test_broken_stderr_record"
+    assert entry["owner"] == "harness"
+
+
+def test_a_broken_stderr_and_an_unwritable_ledger_together(tmp_path, monkeypatch):
+    """Both halves failing at once, which is the shape that actually escaped.
+
+    The `except OSError` handler's own remedy was a second unguarded print to
+    the same stderr, so a broken pipe there re-raised out of the handler that
+    existed to stop exactly this. A guard that only covered the first print
+    would leave this path open and this test is what says so.
+    """
+    import sys
+
+    blocker = tmp_path / "blocked"
+    blocker.write_text("x")  # project path is a FILE — the append will fail
+    monkeypatch.setattr(sys, "stderr", _BrokenStderr())
+    record_degradation(blocker, "test_broken_both", "thing")

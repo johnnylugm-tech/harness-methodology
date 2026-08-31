@@ -605,7 +605,7 @@
     "cli.phase_cmds::cmd_validate_handoff": "fc854b905270e47f",
     "cli.phase_cmds::register": "73b996f22bde90aa",
     "core.doctor::_check_ci_template_drift": "100905544439a543",
-    "core.doctor::_check_crash_bundles": "e6626ffc816e582a",
+    "core.doctor::_check_crash_bundles": "76410cba36c0730f",
     "core.doctor::_check_enforcement_zombie_keys": "646303e3c9d66dbe",
     "core.doctor::_check_enforcer_provenance": "2a48b0f0f7d45d0b",
     "core.doctor::_check_gate1_evidence": "71da4982dd726d5c",

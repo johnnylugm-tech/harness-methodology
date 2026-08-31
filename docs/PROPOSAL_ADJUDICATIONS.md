@@ -3822,6 +3822,166 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 83 — 空白是一種讀數
+
+老闆令三問:(1) 前幾 round 的修復是否到位?(2) 還有沒有根本性/結構性問題?
+(3) GitHub CI 的錯誤還有別的嗎?追加令兩次:**每一項都要先從專案端證實問題為真、
+複核副作用**;並針對一份外部評分報告的扣分項**重新查證真實性與根源**。
+
+基線 `9c7d69e8`(調查起點 `6ba535e7`,途中平行 session 落地三個 commit)。
+語料十一專案全程唯讀。**本節隨每一站增長** —— Round 80 站9 的守衛要求一個 round
+的第一個 commit 就有它的賬本節。Round 81、82 各踩過一次,本輪是第三次:
+**這條規則值得寫進協議,而不是每輪靠記憶重新發現。**
+
+### 母體
+
+> **空白被當成好消息。**
+
+五處機制裡,「沒有人寫下來」都被讀成最有利的答案:沒寫來源=框架量過;
+沒有 ref 可讀=全是基礎設施 commit;延期指向的測試不存在=沒人去對;
+宣告了驗證者卻沒指名是誰=有人會驗;不在這道 gate=不必進分母。
+
+### 被我自己的查證推翻的四項(先寫,因為它們改寫了計畫)
+
+| 初稿診斷 | 查證結果 |
+|---|---|
+| 站0 是「測試依賴環境」 | **病因更深**:修法本身瞄錯直譯器,對它自己引用的事件無效 |
+| 69 份 crash bundle 是結構問題 | **誤判**:全是 `tests/test_heartbeat.py` 的 fixture 殘骸,洩漏早已修好 |
+| AC 延期的驗證者是「工具」,可用 R54 三態分類 | **被資料否決**:35/35 條延期指名的是**測試函式**,不是工具 |
+| 外部報告「整合覆蓋 76.5%」 | **無法重現**:框架 committed evidence 是 81%(648 statements / 124 missing),同一條 SRS 指令 |
+
+### (3) CI 是紅的,而修法瞄錯了直譯器
+
+HEAD `6ba535e7` 的 `Framework Self-Tests` failure(`1 failed, 7913 passed`),
+`4d72dc1d` 帶進來的 `test_distribution_installed_passes_via_metadata_probe`,
+本機同樣紅。專案端實測:
+
+```
+harness .venv 有 pip-tools                    : NO
+taskq-verify/.venv 有 pip-tools               : YES  ← commit 引用的那個真實事件
+_is_distribution_installed('pip-tools')       -> False
+probe_cli_tools(['pip-tools'], taskq-verify)  -> {'pip-tools': False}   ← 仍被指控造假
+```
+
+`_is_distribution_installed` 在 **harness 自己的行程**裡問 `importlib.metadata`,
+而 env-check 要驗的是**專案的**環境。它下面那支 `_import_probe_spec(name, project)`
+做對了(實測回傳 `[harness python, project venv python]`);新 probe 插在它上面,
+**沒帶 project**。而它的測試只有在「harness venv 剛好裝了那個套件」時才綠 ——
+測試與修法**錯在同一個方向**。
+
+**正解(站0,`a834d1f2`)**:讓 deferred probe 在它**本來就要 spawn 的那個
+subprocess** 裡多問一個問題 —— import 不到就問 distribution。`_import_probe_spec`
+回傳 probe 原始碼而不是套件名,讓「probe 問什麼」只有一個拼法。
+`_is_distribution_installed` 留作免費快路徑(命中即真),docstring 補上它答的是誰的環境。
+**否決**把 `pip-tools` 寫進 `requirements.txt`:為一支測試加依賴,判定仍掛在環境上。
+
+測試改成 hermetic 且真的釘住專案端行為:在 tmp 專案的 src 下造一個真的
+`.dist-info`,那正是 `import_env` 的 `PYTHONPATH` 指向、而本 repo 的直譯器看不見的位置。
+反證:revert 成 import-only 轉紅並吐出原本那句造假指控,`cp` 還原 sha256 `2a2d1d76` 相同。
+**驗收:`probe_cli_tools(['pip-tools'], taskq-verify)` False → True。**
+
+### (1) 前幾 round 的修復
+
+**到位(實測)**:R79 env-fp 移除(12 支 shipped JS 零命中)、R79 `args.run_tag`
+(10/12)、R80 站10 `find_latest_green_sha`(實打 API 回 `90e9ef48`,拒紅 HEAD ——
+**消費專案沒有被這次紅汙染**)、R82 拆分(2245/1887/3376 + `--check` OK)、
+R67 站1 `build_persisted_gate_result`(兩個新專案的 artifact 確實帶 `score_source`)。
+
+**沒到位**:R50 站2 來源標記(四條出口只做一條)、R73 站5「分母跟著數字走」
+(清單有、比值沒有)、R43/R47「偵測到了沒有執行者」、R37/R78/R79 push→CI 迴路、
+`record_degradation` 的「Never raises」。
+
+### 站1 — 每個分數都帶來源(`aacac81f`、守衛補登 `1c45b0e8`)
+
+掃 11 個語料專案的 committed gate artifact。舊專案幾乎全空白(早於 R67 站1,
+已知歷史);**R67 站1 之後跑完的兩個專案殘留完全一致**:
+
+| 專案 | gate 2 / 3 / 4 空白權重 | 發布的 weight_covered |
+|---|---|---|
+| taskq-cc-new | **0.28 / 0.31 / 0.33** | **1.0 / 1.0 / 1.0** |
+| taskq-new | **0.28 / 0.31 / 0.33** | **1.0 / 1.0 / 1.0** |
+
+空白維度五個,由三條出口完全解釋:`not requires_tool`(traceability、
+adversarial_review)、`_CRG_OWNED_DIMENSIONS`(architecture)、
+skip-list `rc == -1`(mutation_testing、license_compliance)。
+其中 **0.15 的權重是 agent 自己的數字**,只驗了輸出檔的存在與格式。
+
+`framework_measured()` 把 `None` 讀成「框架量過」,理由是「predates the field」——
+但這些寫於 2026-08-26,欄位是 R50(08-13)加的。**理由過期三個月,而它一直是承重的。**
+
+**修在生產者,不在讀者**:三個 `_override_*` 的 replace 分支補寫
+`SCORE_SOURCE_FRAMEWORK`(它們的 append 分支從第一天就在寫 —— 於是框架把自己的數字
+記成自己的,取決於 agent 有沒有提到那個維度);skip-list 分支寫**新值**
+`SCORE_SOURCE_ARTIFACT_VERIFIED`(比 `AGENT_UNVERIFIED` 強、比 `FRAMEWORK` 弱)。
+`measurement_scope` 加 `dimensions_artifact_verified` / `weight_artifact_verified`。
+最後才加守衛:**帶空白 `score_source` 抵達本次產出結果的宣告維度 = `infra_fail` 阻擋**。
+
+**零判定漂移,是量出來的不是宣稱的**:對兩專案六份 committed artifact 重算
+`composite_over` 與逐維 pass/fail,前後**逐位元組相同**
+(91.5918 / 93.6810 / 94.4343、93.4020 / 95.6760 / 94.5900)。
+`ARTIFACT_VERIFIED` 刻意**不進** `_SOURCES_NOT_FRAMEWORK_MEASURED` —— 進去會讓
+mutmut / scancode 掉出每一個 composite 並觸發 `_unmeasured` 的 raise。
+
+**守衛範圍被自己的反證修正過一次**:第一次反證刪掉四個寫入,測試全綠 ——
+登記的四支都直接建構 `DimResult`,沒有一支執行生產者。補了四支各自驅動真實生產者
+的測試(traceability / adversarial_review 走各自的函式,skip-list 走
+`_run_harness_cross_validation`,architecture 走真的 `finalize_gate` + 假 crg_metrics),
+再跑同一個反證,**恰好那四支轉紅**。這四支是在 fix commit **之後**才進 registry 的,
+`1c45b0e8` 就是為了讓這件事看得見而不是 amend 掉。
+
+**守衛第一版是錯的,被 fixture 抓出來**:原本對所有維度發動,包括 gate config 從未
+宣告的維度 —— 那種維度**依構造**沒有生產者,對它說「某個生產者放棄了」是 R45 的
+假指控換個標題。收斂成只問 config 宣告的維度。
+
+**16 個 fixture 也在吃這個 fail-open**:它們的 breakdown 有分數沒有來源。
+補上 `score_source` 是 fixture 說出它自己的意思,不是遷就守衛。
+`test_harness_bridge_trace_override.py` 的 `_Dim` 是手寫的 DimResult 替身,
+**R50 加的欄位它三個月沒長** —— 改成就用真型別,替身不可能再漂移。
+
+`test_extraction_moved_not_rewrote.py` 的 `harness_bridge.finalize_gate`
+**重建宣稱到期**(我在 caller 加了程式碼,沒有動任何被搬走的 body)。
+按該檔自己的規則不可重錄;但整條 entry 刪掉會連帶丟掉三個仍然成立的宣稱,
+所以只退役到期的那一條(`reconstructible: False`,理由寫在資料裡),
+其餘三支照跑。**不是 skip:parametrize 直接不生成那個 case,沒有幽靈綠。**
+
+### 站2 — 賬本的寫入器不准擊落 harness
+
+taskq-new 的 committed crash bundle
+`crash_20260821T211052Z_33516.json`:`BrokenPipeError` @
+`core/degradation_ledger.py:77` 的 `print(..., file=sys.stderr)`,
+argv `['advance-phase','--completed','2',...]`。**一次 phase transition 被它自己的
+log 打掉。** docstring 從 R13 站1 起就寫著 "Never raises" —— 那句話涵蓋的是檔案
+寫入的 `try`,而那支 print 在 `try` **外面**;`except OSError` 的處理器**自己也是
+一支 print 到 stderr**,同一條 broken pipe 會讓它再炸一次。
+
+正解是一支 `_to_stderr`,兩個呼叫點共用,catch `(OSError, ValueError)`
+—— 不是 `except Exception`:它只收 `str` 然後 `print`,能失敗的只有 stream。
+順序是承重的:**stderr 出事,JSONL 仍然要寫** —— 修好之前,broken stderr 意味著
+那筆記錄從來沒有寫下,而那正是最值得除錯的那些 run。
+
+**順帶(doctor 的假指控)**:`crash_bundle_paths` 列舉兩個位置,
+finding 的文字寫死 `CRASH_DIR_RELPATH`。本 repo 實測:69 份全在
+`.sessi-work/crash/`,而 WARN 指向不存在的 `.methodology/crash/`。
+改成印**實際數到的目錄**。`TestCrashBundles` 自己的 `_write_bundle` 一直寫在 legacy
+路徑,所以既有每一支測試都跑在錯目錄的訊息上而沒有一支看它 —— 這是新增那兩支
+測試的理由。
+
+那 69 份逐份查證後**全部**來自 `tests/test_heartbeat.py` 的 `"kaboom"` fixture
+(洩漏本身早已在該測試裡修好並留下註解,最新一份 2026-08-02),
+依老闆裁示**標記不刪**:寫 `.triaged` 標記,原始 bundle 保留。
+doctor 的 crash-bundles WARN 歸零。
+
+### 本輪不做
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| 給 `crash-triage` 一個「這不是 bug」的處置 | 唯一會寫 `.triaged` 的路徑是 `--open-cr`,會為 fixture 殘骸開 CR-BUG。這 69 份是一次性殘骸,為它加旗標是為單一情況造通用方案 | 再出現一批非 bug 的 bundle,或框架自己的測試又把 bundle 寫進真 repo |
+| 讓 `performance` 讀專案宣告的 p95 預算 | `_score_pytest_benchmark` 用固定 1000/3000ms 罰則、不讀任何 p95(R46 站3 已記載)。要讀專案預算需要一條 p95 的機器可讀通道,是另一輪的設計 | 出現 p95 的機器可讀來源,或再有一份報告把 `performance: 100.0` 讀成「達成 NFR-01」 |
+| 補上 `.github/workflows/harness_quality_gate.yml`(doctor 的第二個 WARN) | 那是框架 repo 對自己部署消費專案 CI 模板的問題,與本輪三問無關;順手做是廚房水槽 | 該 WARN 造成一次實際漏檢 |
+| 關掉 `git push --no-verify` | hook 關不掉(git 根本不叫它),branch protection 老闆禁止我動 | 老闆解除 branch protection 的限制 |
+
+---
+
 ## Round 82 — 擋住那 36 支的是七把只認一個檔案的尺
 
 老闆令:把 Round 81 抽出的 36 個 helper 搬去新模組。老闆兩項裁示:**全做 36 支**,

@@ -37,6 +37,39 @@ LEDGER_RELPATH = ".methodology/degradations.jsonl"
 _warned: set[tuple[str, str]] = set()
 
 
+def _to_stderr(line: str) -> None:
+    """Put `line` on stderr, or give up silently. The one thing that cannot
+    fail here is this module's promise not to raise.
+
+    Round 83 站2. `record_degradation` has said "Never raises" since Round 13
+    站1 and did not: its `[DEGRADED]` print sat OUTSIDE the try, and the
+    `except OSError` handler's own print sat inside a handler that could not
+    catch itself. `BrokenPipeError` is an `OSError`, so a run whose stderr
+    reader has gone away — a pipe into `head`, a killed tee, a closed terminal
+    — took the whole command down from inside the function that exists to
+    record that something went wrong quietly.
+
+    Not hypothetical: taskq-new's committed crash bundle
+    `.methodology/crash/crash_20260821T211052Z_33516.json` is
+    `BrokenPipeError: [Errno 32] Broken pipe` at this module's line 77, with
+    `argv: ['advance-phase', '--completed', '2', ...]`. A phase transition was
+    ended by its own logging.
+
+    `ValueError` joins `OSError` because a closed (rather than broken) stream
+    raises "I/O operation on closed file", which is the same event with a
+    different exception class and the same right answer.
+
+    Deliberately NOT a broader `except Exception`: this takes a `str` and
+    calls `print`, so the only failures available to it are stream failures,
+    and swallowing more than that would hide a bug in this module rather than
+    a condition in the environment.
+    """
+    try:
+        print(line, file=sys.stderr)
+    except (OSError, ValueError):
+        pass
+
+
 def record_degradation(
     project: "str | Path", component: str, what: str, why: str = "",
     data: "dict | None" = None, *, owner: str = "unknown",
@@ -46,6 +79,12 @@ def record_degradation(
     `<project>/.methodology/degradations.jsonl`. Never raises — a failure
     to write the ledger must not be worse than the degradation it was
     trying to record.
+
+    "Never raises" became true in Round 83 站2; before that it was a claim
+    about the `try` around the file write only, and the two stderr prints
+    beside it could each end the run (see `_to_stderr`). The order below is
+    load-bearing for the same reason: whatever happens to stderr, the JSONL
+    append still runs.
 
     `data` is an optional machine-readable payload, written under its own key.
     Round 41 站3 added it because the ledger acquired its first PROGRAMMATIC
@@ -74,7 +113,11 @@ def record_degradation(
     if key not in _warned:
         _warned.add(key)
         suffix = f" ({why})" if why else ""
-        print(f"[DEGRADED] {component}: {what}{suffix}", file=sys.stderr)
+        # Round 83 站2: the live line is a courtesy to whoever is watching; the
+        # JSONL below is the record. Before this, a stderr that had gone away
+        # took the record with it — the append never ran, so the one artefact
+        # that outlives the run was lost in exactly the runs worth debugging.
+        _to_stderr(f"[DEGRADED] {component}: {what}{suffix}")
     try:
         ledger_path = Path(project) / LEDGER_RELPATH
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,7 +133,7 @@ def record_degradation(
         with open(ledger_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:
-        print(f"[WARN] failed to write degradation ledger entry: {exc}", file=sys.stderr)
+        _to_stderr(f"[WARN] failed to write degradation ledger entry: {exc}")
 
 
 def read_degradations(project: "str | Path") -> list[dict]:

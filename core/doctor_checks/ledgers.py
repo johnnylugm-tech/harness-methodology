@@ -18,7 +18,6 @@ import re
 from pathlib import Path
 
 from core.doctor_checks import Finding
-from core.errors import CRASH_DIR_RELPATH
 from core.utils.project_layout import ProjectLayout
 
 def _check_heartbeat(project: Path) -> list[Finding]:
@@ -146,12 +145,24 @@ def _check_crash_bundles(project: Path) -> list[Finding]:
     ]
     if not untriaged:
         return []
+    # Round 83 站2: name the directories the bundles were COUNTED in, not the
+    # constant. `crash_bundle_paths` enumerates two — CRASH_DIR_RELPATH and
+    # LEGACY_CRASH_DIR_RELPATH, because Round 28 moved them and a project with
+    # bundles at the old path must not read as clean — and this message named
+    # only the first. Measured on this repo 2026-08-31: 69 bundles counted,
+    # all of them under `.sessi-work/crash/`, and the WARN sent the operator to
+    # `.methodology/crash/`, which does not exist. A finding that cannot be
+    # acted on from its own text is Round 45's shape with a new subject line.
+    _dirs = sorted({
+        p.parent.relative_to(project).as_posix() for p in untriaged
+    })
     return [Finding(
         "crash-bundles", "WARN",
         f"{len(untriaged)} untriaged harness-methodology crash bundle(s) in "
-        f"{CRASH_DIR_RELPATH}/ — harness-methodology crashed on its own bug at "
-        f"least once. Triage: harness_cli.py crash-triage --project {project} "
-        f"(add --open-cr to file a CR-BUG ticket in the harness repo)")]
+        f"{', '.join(d + '/' for d in _dirs)} — harness-methodology crashed on "
+        f"its own bug at least once. Triage: harness_cli.py crash-triage "
+        f"--project {project} (add --open-cr to file a CR-BUG ticket in the "
+        f"harness repo)")]
 
 
 def _check_open_workflow_blocks(project: Path) -> list[Finding]:
