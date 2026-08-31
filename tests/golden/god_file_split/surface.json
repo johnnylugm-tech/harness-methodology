@@ -622,7 +622,7 @@
     "core.doctor::run_doctor": "ba75138eb89709df",
     "harness.harness_bridge::HarnessBridge._stage_absent_dimensions": "65942c54124c926d",
     "harness.harness_bridge::HarnessBridge._stage_coverage_denominator": "06f1e40981bb149d",
-    "harness.harness_bridge::HarnessBridge._stage_declared_absent": "eaa5f5615b0206ad",
+    "harness.harness_bridge::HarnessBridge._stage_declared_absent": "77b5ae7147d7507a",
     "harness.harness_bridge::HarnessBridge._stage_declared_constraints": "5b579d981f4b4ac7",
     "harness.harness_bridge::HarnessBridge._stage_dimension_thresholds": "7274628fdf8810ff",
     "harness.harness_bridge::HarnessBridge._stage_infra_fail_pollution": "13b0a53b5834786b",

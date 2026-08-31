@@ -4071,6 +4071,36 @@ EXIT=0
 改用 `run_isolated`。同檔的 `_check_git_sync` 仍是裸形式(早於該規則、
 在被 ratchet 往下數的那 92 個裡),**告知不順手改**。
 
+### 站5 — 問整條 pipeline,不問這一道 gate
+
+`gate:dimension-declared-absent` 問的是「這個宣告的維度在**這道** gate 裡嗎」。
+那不是 quality manifest 在問的問題,而且它的答案永遠是框架自己的分層。
+
+十一專案實測:四份 gate config 的聯集 **18** 個維度名,
+python registry **16** 個,**`registry − 聯集 = ∅`**。
+所以 per-gate 的 row **永遠不可能指出一個真正沒被量到的維度** ——
+它產出的每一筆都是框架把自己的設計當成 harness 缺陷報給自己。
+taskq-cc-new 記了 **79 筆**,其中 66 筆出自 Gate 1(依設計只有四個維度),
+`owner="harness"`,**零真訊號**。
+
+換成它自己 MEASUREMENT_SINKS 條目寫的 re-open 條件:
+「a dimension NOTHING else judges」——
+`gate:dimension-never-measured`,只在**沒有任何一份 gate config 含有它**時才記。
+語料today 全部為 0,而那正是重點:一條沒有假陽性的通道,它的第一筆才會被讀。
+
+**不撤銷 R73 站5**:artifact 裡的 per-gate `dimensions_declared_absent`
+一個字沒動 —— 那是關於「你正在看的這個平均」的真陳述。
+搬走的只有每次 finalize 都重寫一遍的那筆 ledger row。
+
+**代價,誠實記錄**:`_stage_declared_absent` 是 R81 站8 抽出的十六支之一,
+改它的 body 觸發 `test_extraction_moved_not_rewrote` 自己的規則 ——
+「an entry leaves this dict the moment one of its bodies is deliberately
+edited」。所以 `harness_bridge.finalize_gate` 整條 entry 退出,
+四個宣稱一起失效(站1 已先退役其中的重建宣稱)。
+`.before` golden **保留**:重錄它就是間接刪掉那份搬移證據,同一段 docstring 禁止。
+站1 為此加的 `reconstructible` 旗標隨之成為孤兒,一併移除 ——
+沒有任何 entry 帶的鍵是為不存在的情況造的機制。
+
 ### 本輪不做
 
 | 項目 | 理由 | 再開條件 |

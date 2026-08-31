@@ -96,21 +96,28 @@ sinks:
       for the ones that did not.
 
   # ── report-only ────────────────────────────────────────────────────────
-  "gate:dimension-declared-absent":
+  "gate:dimension-never-measured":
     sink: report-only
     why: >-
-      Round 73 站5. Which dimensions a gate runs is a framework decision —
-      `architecture_constraints` lives only in gate1_per_fr.yaml because it is
-      a per-FR dimension — so blocking a project for a list it did not write
-      would stop every one of them. Six of the nine projects here pin an NFR
-      to that dimension and every one of their Gate 4s published
-      `weight_covered: 1.0` with `dimensions_unscored: []`, which is the
-      defect: a dimension left out of the average read as though it were in
-      it. NFR-06's substantive judgement is Round 73 站3's, which does block
-      through `unconfigured_blocking_reason`. Reopen if a gate config and the
-      manifest mapping diverge on a dimension NOTHING else judges — that would
-      be a requirement with no executor at all rather than one judged
-      elsewhere.
+      Round 73 站5 wrote this as `gate:dimension-declared-absent`, asking
+      whether a declared dimension was in THIS gate. Its own reopen condition
+      was "a dimension NOTHING else judges — a requirement with no executor at
+      all rather than one judged elsewhere", and Round 83 站5 is that reopen:
+      the row now fires only when no gate config anywhere contains the
+      dimension. The per-gate question could never produce a true finding —
+      measured over the eleven projects here, the union of the four gate
+      configs is 18 names, the python registry is 16, and `registry - union`
+      is empty, so every row it emitted was the framework's own gate layering
+      filed as a harness fault (taskq-cc-new: 79 rows, 66 of them at Gate 1,
+      which has four dimensions by design; zero real findings). Zero rows
+      across the corpus under the new question, which is the point — a channel
+      with no false positives is one whose first row will be read. Still
+      report-only rather than blocking: which dimensions a gate runs is a
+      framework decision, so this names the framework's own gap, and
+      `raw["measurement_scope"]["dimensions_declared_absent"]` keeps the
+      per-gate list Round 73 站5 built (a true statement about the average the
+      reader is looking at). Reopen if a project ships with a non-empty row —
+      that is a requirement this pipeline cannot score at all.
 
   "gate:tests-failed-declared":
     sink: report-only

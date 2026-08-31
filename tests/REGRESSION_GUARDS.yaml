@@ -4090,3 +4090,19 @@
 - test: tests/test_doctor_sees_a_red_head.py::test_a_green_head_is_silent
   bug: "the other control on the three-state answer — green must be as silent as unavailable, or the check would fire on every doctor run in a healthy repo"
   fixed_in: "Round 83 站4"
+
+- test: tests/test_declared_dimension_is_measured_somewhere.py::test_every_scoreable_python_dimension_is_in_some_gate
+  bug: "gate:dimension-declared-absent asked whether a declared dimension was in THIS gate, which is a different question from the one a quality manifest is asking and one whose answer is always the framework's own gate layering. Measured over 11 projects: union of the four gate configs = 18 names, python registry = 16, registry - union = EMPTY — so the per-gate row could never name a genuinely unmeasured dimension. taskq-cc-new logged 79 of them, 66 at Gate 1 (which has four dimensions by design), zero real findings, all owner=harness"
+  fixed_in: "Round 83 站5"
+
+- test: tests/test_declared_dimension_is_measured_somewhere.py::test_the_union_reads_every_gate
+  bug: "a union built from a stale gate list would silently shrink, and a smaller union makes MORE dimensions look never-measured — a false accusation rather than a missed one, which is the direction that wastes a project's round"
+  fixed_in: "Round 83 站5"
+
+- test: tests/test_declared_dimension_is_measured_somewhere.py::test_a_dimension_in_some_other_gate_is_not_reported
+  bug: "architecture_constraints lives only in gate1_per_fr.yaml, so at Gate 4 it IS declared-absent — gate layering, not a gap. Six of the nine projects Round 73 站5 measured pin an NFR to it, which is where the bulk of the 79 false rows came from"
+  fixed_in: "Round 83 站5"
+
+- test: tests/test_declared_dimension_is_measured_somewhere.py::test_a_dimension_no_gate_measures_is_reported
+  bug: "positive control — without it the subtraction could be a deletion, and the channel would be silent in the one case it exists for (a dimension no gate config contains anywhere, i.e. a requirement nothing this pipeline runs can score). This is the reopen condition Round 73 站5's own MEASUREMENT_SINKS entry named"
+  fixed_in: "Round 83 站5"

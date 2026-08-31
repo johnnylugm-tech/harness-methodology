@@ -432,21 +432,47 @@ class _FinalizeStages:
 
     @staticmethod
     def _stage_declared_absent(_declared_absent, ctx, raw) -> None:
-        """Declared absent — extracted verbatim from `finalize_gate`.
+        """A dimension the manifest declares that NO gate measures.
 
-        Round 81 站8. See the note above the first `_stage_*` for what
-        makes this a move rather than a rewrite.
+        Round 81 站8 moved this here verbatim. Round 83 站5 changed what it
+        asks, and the change is a subtraction: the row used to fire for a
+        dimension absent from THIS gate, which is a different question from
+        the one it was written to answer.
+
+        Measured across the eleven projects on this machine: the union of the
+        four gate configs is 18 dimensions, the python registry has 16, and
+        `registry - union` is EMPTY. So a per-gate row can never name a
+        dimension that is genuinely unmeasured — every one it produces is the
+        framework's own gate layering, reported back to itself as a harness
+        fault. taskq-cc-new logged 79 of them, 66 at Gate 1 alone (which has
+        four dimensions by design), and not one was a real finding.
+
+        What survives is the row that CAN be true: a dimension the manifest
+        pins an NFR to and no gate config anywhere contains. Zero across the
+        corpus today, which is the point — a channel with no false positives
+        is one whose first row will be read.
+
+        `raw`'s per-gate `dimensions_declared_absent` is UNTOUCHED. That list
+        is Round 73 站5's deliverable and it is a true statement about this
+        gate ("this dimension is not in the average you are looking at"). Only
+        the ledger row moves, and it moves because a ledger is read by
+        somebody deciding what to fix.
         """
-        if _declared_absent:
+        if not _declared_absent:
+            return
+        from core.quality_gate.gate_thresholds import all_gate_dimension_names
+        never_measured = sorted(
+            set(_declared_absent) - all_gate_dimension_names())
+        if never_measured:
             from core.degradation_ledger import record_degradation
             record_degradation(
-                ctx.project_root, "gate:dimension-declared-absent",
-                f"{len(_declared_absent)} dimension(s) the quality manifest "
-                f"pins an NFR to are not in gate {ctx.gate_num}'s config",
-                why=("the composite is an average over the gate's dimensions, "
-                     "and these were never among them: "
-                     + ", ".join(_declared_absent)),
-                data={"dimensions": _declared_absent, "gate": ctx.gate_num},
+                ctx.project_root, "gate:dimension-never-measured",
+                f"{len(never_measured)} dimension(s) the quality manifest "
+                f"pins an NFR to are in no gate config at all",
+                why=("no gate measures these, so nothing this pipeline runs "
+                     "can ever produce a score for them: "
+                     + ", ".join(never_measured)),
+                data={"dimensions": never_measured, "gate": ctx.gate_num},
                 owner="harness",
             )
 

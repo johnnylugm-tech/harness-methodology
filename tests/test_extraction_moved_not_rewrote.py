@@ -90,40 +90,33 @@ _EXTRACTED: "dict[str, dict]" = {
             "_advance_step_commit_and_push",
         ),
     },
-    "harness_bridge.finalize_gate": {
-        "module": "harness/harness_bridge.py",
-        "before": "harness_bridge.py.before",
-        "caller": "finalize_gate",
-        "prefix": "_stage_",
-        # Its terminal `return result` DID travel, into `_stage_record_verdict`,
-        # so the method carries a generated fall-through like the other two.
-        # `raise GateBlockedError` rather than a return: fail-closed is the
-        # right default for a gate.
-        "generated_tail": True,
-        # Round 83 站1 added a block to this caller — the `_unsourced` raise
-        # beside the `_unmeasured` one — so "undoing the extraction gives back
-        # the function that was there" is no longer true of it, and will never
-        # be true again. That claim is retired here rather than by deleting the
-        # entry, because the other three claims are untouched and still worth
-        # checking: no extracted BODY was edited (they are still byte-identical
-        # to what they replaced), no helper reads a name nobody gives it, and
-        # every early return still propagates. This file's docstring says an
-        # entry leaves the moment one of its bodies is deliberately edited;
-        # none was. What expired is the reconstruction, and re-recording the
-        # .before to make it pass again would delete the evidence of the move,
-        # which the same docstring forbids.
-        "reconstructible": False,
-        "helpers": (
-            "_stage_shape_contract", "_stage_infra_fail_pollution",
-            "_stage_persist_cited_evidence", "_stage_tool_evidence",
-            "_stage_declared_constraints", "_stage_coverage_denominator",
-            "_stage_required_artifacts", "_stage_verify_target",
-            "_stage_s4_cross_validation", "_stage_system_reach",
-            "_stage_spec_coverage_cap", "_stage_absent_dimensions",
-            "_stage_stubbed_boundaries", "_stage_dimension_thresholds",
-            "_stage_declared_absent", "_stage_record_verdict",
-        ),
-    },
+    # `harness_bridge.finalize_gate` LEFT this dict in Round 83 站5, under the
+    # rule stated in this module's docstring: an entry goes the moment one of
+    # its bodies is deliberately edited, with the reason in that commit.
+    #
+    # Round 83 站1 had already retired one of its four claims — the round added
+    # a block to the CALLER (the `_unsourced` raise beside `_unmeasured`), so
+    # "undoing the extraction gives back the function that was there" stopped
+    # being true, while all sixteen extracted bodies were still byte-identical.
+    # That was recorded with a `reconstructible: False` key and a filter on the
+    # reconstruction test's parametrize, and the other three claims kept
+    # running. Both are gone with the entry: a key no entry carries and a
+    # filter that excludes nothing is machinery for a case that no longer
+    # exists, and the round that next needs it can add it with its own reason.
+    #
+    # 站5 then edited `_stage_declared_absent` itself. It stopped asking
+    # whether a declared dimension is in THIS gate — a question whose answer is
+    # always the framework's own gate layering, 79 rows on taskq-cc-new and not
+    # one a real finding — and asks whether any gate config contains it at all.
+    # The body is no longer the code that was moved, so the claim "this is the
+    # code that was there" has expired for this extraction event, and
+    # re-recording harness_bridge.py.before to make it pass again would delete
+    # the only evidence the move ever happened.
+    #
+    # tests/golden/extraction/harness_bridge.py.before is deliberately KEPT
+    # after its last reader: it is the recording of the tree at the moment of
+    # Round 81 站8's move, and deleting it is the thing the docstring above
+    # forbids doing indirectly.
     "fr_cmds.cmd_run_fr_step": {
         "module": "cli/fr_cmds.py",
         "before": "fr_cmds.py.before",
@@ -278,16 +271,7 @@ def test_no_helper_reads_a_name_nobody_gives_it(label):
     )
 
 
-# Not `sorted(_EXTRACTED)` like its three siblings: this is the one claim with
-# an expiry date. A caller that legitimately grows after its extraction can
-# never satisfy it again, and the entry says so in `reconstructible` rather
-# than the test skipping in silence (Round 46: an absent witness is not a
-# passing one — so the reason lives in the data every reader of _EXTRACTED
-# already opens, not in a skip marker nobody sees in a -q run).
-@pytest.mark.parametrize(
-    "label",
-    sorted(k for k, v in _EXTRACTED.items() if v.get("reconstructible", True)),
-)
+@pytest.mark.parametrize("label", sorted(_EXTRACTED))
 def test_undoing_the_extraction_gives_back_the_original_function(label):
     """The complete claim: same statements, same ORDER, nothing added or lost.
 

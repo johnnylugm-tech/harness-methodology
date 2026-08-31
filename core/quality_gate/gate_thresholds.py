@@ -86,6 +86,30 @@ def load_gate_dimensions(gate_num: int) -> list[dict]:
     return [dict(d) for d in _read_gate_dimensions(gate_num)]
 
 
+def all_gate_dimension_names() -> frozenset[str]:
+    """Every dimension name any gate config declares — the whole pipeline's set.
+
+    Round 83 站5. "Is this dimension in THIS gate" and "is this dimension
+    measured ANYWHERE" are different questions, and the second is the one a
+    project's quality manifest is asking when it pins an NFR to a dimension.
+    Measured across the eleven projects on this machine: the union below is 18
+    names, the python registry has 16, and `registry - union` is EMPTY — so
+    every dimension a manifest can legally name is measured by some gate, and
+    a per-gate answer to the pipeline's question can only ever report the
+    framework's own gate layering back at itself.
+
+    Reads through `load_gate_dimensions`, which is `lru_cache`d, rather than
+    opening the YAMLs again: a second reader of the same files is a second
+    answer waiting to disagree with the first.
+    """
+    return frozenset(
+        str(d["name"])
+        for gate_num in GATE_CONFIG_NAMES
+        for d in load_gate_dimensions(gate_num)
+        if d.get("name")
+    )
+
+
 def load_score_gate(gate_num: int) -> float | None:
     """Return the composite score a gate must reach, or None if it declares none.
 
