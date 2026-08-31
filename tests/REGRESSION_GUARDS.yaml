@@ -4006,3 +4006,19 @@
 - test: tests/test_every_score_names_its_source.py::test_the_new_source_moves_no_composite
   bug: "`framework_measured` has three readers and two of them move verdicts — `composite_over` is the composite itself and the `_unmeasured` check raises GateBlockedError. Putting the new artifact_verified marker into `_SOURCES_NOT_FRAMEWORK_MEASURED` would drop mutmut and scancode out of every composite and block every gate that runs them; this pins that labelling a score changes no number, so the zero-drift claim is a test rather than a sentence in a commit message"
   fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_the_traceability_override_records_that_the_number_is_the_frameworks
+  bug: "`_override_traceability_dim_score` replaces the agent's number with `compute_trace_dimension`'s — its own docstring calls that the source of truth — and recorded nothing about the swap, while the APPEND branch fifteen lines below (the one that fires when the agent omitted the dimension) had written `score_source` since the day it was added. So whether the framework's own number was recorded as the framework's depended on whether the agent happened to mention the dimension. First counter-proof of Round 83 站1 removed all four writes and this file stayed green, which is how the gap was found"
+  fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_the_adversarial_review_override_records_its_own_number
+  bug: "same asymmetry as the traceability override, in `_override_adversarial_review_dim_score`: the replace-branch wrote no `score_source`, the append-branch always had. This is the fifth blank in taskq-cc-new's and taskq-new's committed Gate 3 results"
+  fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_the_skiplist_branch_records_what_it_verified
+  bug: "S4's skip-list branch (scancode, mutmut — `ToolSpec.skip_inline`) validated the committed tool_output's existence and format, accepted the agent's score, and wrote no `score_source`. Drives `_run_harness_cross_validation` for real rather than asserting on a constructed DimResult, because the constructed-DimResult tests stayed green through a counter-proof that deleted this write"
+  fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_the_crg_architecture_override_records_its_own_number
+  bug: "`architecture` is in `_CRG_OWNED_DIMENSIONS`, so S4 skips it on its first line and the number comes from the framework's own CRG run inside finalize_gate. That run's replace-branch wrote no `score_source` — 0.10 of Gate 4's weight in both taskq-cc-new and taskq-new. Drives a real finalize_gate with a faked crg_metrics.json so the branch actually executes"
+  fixed_in: "Round 83 站1"
