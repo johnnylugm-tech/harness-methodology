@@ -109,6 +109,35 @@ def cmd_finalize_gate(args: argparse.Namespace) -> int:
         return _exit
 
 
+def _write_blocked_env_check_result(project: str, blocked_reason: "str | None") -> None:
+    """Persist a ready=false env_check_result.json when dependency install fails.
+
+    Without this, a successful earlier run leaves the file claiming the env is
+    ready while the current install failure returns RC=1, and downstream
+    readers (workflow JS anti-fabrication cross-check, operators inspecting
+    the file) see a contradictory state: the installer just told us install
+    failed, but the file still says ready. The blocked reason belongs in the
+    file for the same reason the summary belongs in it on the success path —
+    it is the only place that survives the harness subprocess exit. Schema
+    mirrors the success-path fields the workflow already reads, so consumers
+    do not need a new branch.
+    """
+    _blocked_result_path = Path(project) / ".sessi-work" / "env_check_result.json"
+    _blocked_result_path.parent.mkdir(parents=True, exist_ok=True)
+    _blocked: dict[str, object] = {
+        "ready": False,
+        "blocked_reason": blocked_reason,
+        "summary": f"env-check blocked at install: {blocked_reason}",
+        "env_vars": {"required": [], "optional_missing": []},
+        "cli_tools": {"required": []},
+        "infra_services": {"required": [], "docker_compose_services": []},
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _blocked_result_path.write_text(
+        json.dumps(_blocked, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
 def cmd_run_env_check(args: argparse.Namespace) -> int:
     """Print project-aware environment evaluation prompt for Claude.
 
@@ -158,6 +187,7 @@ def cmd_run_env_check(args: argparse.Namespace) -> int:
             print(f"[REPAIR] env-check: installed project dependencies from "
                   f"{_deps.manifest.name if _deps.manifest else '?'}")
         if not _deps.ok:
+            _write_blocked_env_check_result(project, _deps.blocked_reason)
             print(
                 f"\n[BLOCKED] env-check: {_deps.blocked_reason}\n"
                 f"  Fix: add the manifest that declares this project's runtime\n"

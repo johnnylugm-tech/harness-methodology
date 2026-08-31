@@ -169,6 +169,48 @@ def _found_on_path_or_venv(name: str, project: Path) -> bool:
     return False
 
 
+def _is_distribution_installed(name: str) -> bool:
+    """Whether a Python distribution named `name` is installed.
+
+    PEP 503 normalises case + `._-` for distribution lookup, so
+    `pip-tools`, `pip_tools`, and `PIPTOOLS` all resolve to the same
+    distribution. Distribution lookup is the canonical "is this PyPI
+    package installed" check — it is exactly what `pip show <name>`,
+    `pip install --dry-run`, and `pkg_resources.get_distribution` do
+    internally.
+
+    Symmetric with `_found_on_path_or_venv`'s `_` <-> `-` fallback: that
+    function fixes the case where a tool's CLI uses a different separator
+    than its distribution name. This function fixes the case that
+    `_found_on_path_or_venv` CANNOT — packages whose distribution name,
+    CLI binaries, and top-level module name all differ.
+
+    Worked example observed on taskq-verify (2026-08-30):
+
+      distribution name : pip-tools
+      console_scripts   : pip-compile, pip-sync        (neither named `pip-tools`)
+      top-level module  : piptools                       (no separator at all)
+      import probe name : pip_tools  (= name.replace("-","_"))  ← doesn't match
+
+      None of `which pip-tools`, `import pip_tools`, or
+      `import piptools` is what `pip show pip-tools` answers against —
+      `pip show` does NOT shell out to the CLI nor import the module;
+      it reads distribution metadata directly. Doing the same here
+      captures the legitimate install that the binary + import probes
+      both miss.
+
+    Performance: `importlib.metadata.distribution()` consults the already-
+    loaded `PackagePath` cache first; only on miss does it scan
+    site-packages. Sub-millisecond on a typical venv.
+    """
+    import importlib.metadata
+    try:
+        importlib.metadata.distribution(name)
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        return False
+
+
 def _is_venv_python_semantic_name(name: str, project: Path) -> bool:
     """Bug #128 (2026-06-27): "venv-python", "python-venv", "venv-python3" are
     LOGICAL names meaning "the Python interpreter inside the project's
@@ -236,8 +278,11 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
 
     Order matters and is cheapest-first. PATH is a `shutil.which` lookup and
     costs nothing, so a tool that is simply installed never pays for a
-    subprocess. Only when PATH misses does the registry's own `check_cmd` get
-    a turn (Round 56 站2), and only after that the generic import probe.
+    subprocess. After PATH, distribution metadata (`importlib.metadata.
+    distribution`) covers packages whose CLI binaries and module name both
+    differ from the distribution name (pip-tools → pip-compile + piptools).
+    Only after both miss does the registry's own `check_cmd` get a turn
+    (Round 56 站2), and only after that the generic import probe.
     Measured 2026-08-17: nine registry tools reach the check_cmd branch, each
     0.02–0.04s, and they run in the same thread pool as the import probes.
     """
@@ -255,6 +300,15 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
             results[raw_name] = True
             continue
         if _is_venv_python_semantic_name(name, project):
+            results[raw_name] = True
+            continue
+        # Distribution metadata lookup — the canonical `pip show` answer
+        # for "is this PyPI package installed". Catches packages whose
+        # distribution name, CLI binaries, and top-level module all
+        # differ (pip-tools → pip-compile/pip-sync + piptools). Symmetric
+        # with `_found_on_path_or_venv`'s dash/underscore fallback; cheaper
+        # than the registry/import probes, so it sits before them.
+        if _is_distribution_installed(name):
             results[raw_name] = True
             continue
         check_cmd = _registry_check_cmd(name)

@@ -263,6 +263,54 @@ class TestVerifyEnvCheckClaims:
             "Real exported var must pass; optional_missing entry must not be flagged"
         )
 
+    def test_distribution_installed_passes_via_metadata_probe(self, tmp_path):
+        """pip-tools-style: distribution installed but no matching CLI/module.
+
+        Regression for the env-check miss observed on taskq-verify (2026-08-30):
+          distribution name : pip-tools
+          console_scripts   : pip-compile, pip-sync   (neither named `pip-tools`)
+          top-level module  : piptools                  (no separator at all)
+          name.replace("-","_") → `pip_tools`           (still no match)
+
+        The agent's claim is legitimate — `pip show pip-tools` confirms
+        install — but `_found_on_path_or_venv` and the generic import probe
+        both miss. The fix routes through `importlib.metadata.distribution`
+        (canonical `pip show` lookup) as a cheap fallback.
+
+        No mocking: `pip-tools` is a real dependency of THIS test venv
+        (harness/requirements.txt), and genuinely exhibits the mismatch —
+        confirmed directly against the running interpreter (2026-08-31):
+        `_found_on_path_or_venv('pip-tools', ...)` and
+        `_registry_check_cmd('pip-tools')` both miss, only the new
+        `_is_distribution_installed` probe hits. Testing the real probe
+        chain against a real installed package is both simpler and more
+        faithful to the incident than patching the private probe functions.
+        """
+        from cli.gate_cmds import _verify_env_check_claims
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "pip-tools", "present": True},
+        ]}})
+        assert _verify_env_check_claims(tmp_path) == [], (
+            "Distribution-installed package (pip-tools) must pass via "
+            "importlib.metadata probe, not be flagged as fabrication"
+        )
+
+    def test_distribution_absent_still_flagged(self, tmp_path):
+        """Sanity pair to test_distribution_installed_passes_via_metadata_probe:
+        a package absent from every probe — PATH, distribution metadata,
+        registry check_cmd, import — MUST still be flagged as fabrication.
+        Pins the closed-world contract: the distribution probe expands the
+        PASS set, it does not suppress legitimate fabrication findings."""
+        from cli.gate_cmds import _verify_env_check_claims
+        self._write(tmp_path, {"cli_tools": {"required": [
+            {"name": "definitely_not_installed_xyz", "present": True},
+        ]}})
+        findings = _verify_env_check_claims(tmp_path)
+        assert any("definitely_not_installed_xyz" in f for f in findings), (
+            "Absent package must remain flagged when ALL probes miss — "
+            f"got findings: {findings}"
+        )
+
 
 class TestCmdRunEnvCheck:
     """Bug #127: cmd_run_env_check exit code reflects ready flag."""
