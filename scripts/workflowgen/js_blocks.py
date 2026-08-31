@@ -1231,6 +1231,50 @@ def render_sync_verified(
     )
 
 
+def render_deferred_fixes_step(*, gate_num: int, phase: int, d4_threshold: float) -> str:
+    """The 'exhausted 3 rounds, write .methodology/deferred_fixes.md' recorder.
+
+    Extracted from what used to be `spec_phase4.py::_GATE3_DEFERRED_FIXES_STEP`
+    (Gate 3 only) so Gate 2 and Gate 4 can share it. Every token that varies
+    between gates was already gate/phase-specific prose or the D4 threshold —
+    both already parameters `render_gate_loop` receives — so there was no
+    Gate-3-only logic to strip out, only Gate-3-only literals to parameterize.
+
+    Before this, `render_gate_loop`'s `on_fail_error_msg` for Gate 2 and Gate 4
+    both PROMISED "write deferred_fixes.md + escalate to human" on exhausted
+    retries, but neither passed a `deferred_fixes_step` — so neither ever
+    wrote the file. `advance-phase`'s `_check_deferred_fixes_resolved`
+    (cli/phase_cmds.py) treats a missing file as "nothing to enforce", so this
+    wasn't just a doc mismatch: Stage-5 debt-closure enforcement silently
+    never engaged for a Gate 2 or Gate 4 halt.
+    """
+    # String concatenation, not an f-string: the embedded Python one-liner
+    # (inside the `-c "..."` JS string) is dense with literal `{}` (empty-
+    # dict fallbacks) that an f-string would require doubling to `{{}}` —
+    # easy to miscount and silently corrupt the generated Python one-liner's
+    # syntax. Concatenation lets the literal braces stay literal.
+    g = str(gate_num)
+    return (
+        "  log('  Gate " + g + " exhausted 3 rounds — generating deferred_fixes.md')\n"
+        "  const gate" + g + "StateCmd = PY + ' -c \"import json; g=(json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')).get(\\'gate_results\\',{}) or {}).get(\\'gate" + g + "\\') or {}; print(json.dumps({\\'score\\': g.get(\\'score\\'), \\'qc\\': g.get(\\'quality_complete\\'), \\'dims\\': g.get(\\'dimensions\\',{})}))\"'\n"
+        "  await agent(\n"
+        "    'YOU ARE THE DEFERRED-FIX RECORDER. Gate " + g + " failed to reach PASS in 3 rounds.\\n'\n"
+        "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        "    + '1. Get the last-known Gate " + g + " state:\\n`' + gate" + g + "StateCmd + '`\\n'\n"
+        "    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold " + str(d4_threshold) + "; echo \"RC=$?\"` for the D4 status.\\n'\n"
+        "    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '; echo \"RC=$?\"` for the CRG architecture status.\\n'\n"
+        "    + '4. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\\n'\n"
+        "    + '   - A brief header: \"Gate " + g + " — deferred fixes\" + date + last-known composite score\\n'\n"
+        "    + '   - Each failing dimension (score below its threshold) as a `- [ ]` checkbox item\\n'\n"
+        "    + '   - D4 as a `- [ ]` checkbox item (spec-coverage < 80%)\\n'\n"
+        "    + '   - CRG architecture as a `- [ ]` checkbox item if RC != 0 (architecture score < 80%)\\n'\n"
+        "    + '   - Each item MUST cite the current score AND the required threshold\\n'\n"
+        "    + '   - A final \"Next step:\" line: \"Resolve every item → re-run Phase " + str(phase) + " Gate " + g + " → advance-phase\"',\n"
+        "    { label: 'deferred-fixes-g" + g + "', phase: 'Gate " + g + "', agentType: 'general-purpose' },\n"
+        "  )\n"
+    )
+
+
 def render_gate_loop(
     *,
     gate_num: int,
@@ -1255,8 +1299,13 @@ def render_gate_loop(
     (dims/thresholds/fix-hints — supplied via `prompt_steps`/`scope_rules`/
     `pass_line_desc` since that prose doesn't repeat between gates;
     `include_manifest_integrity` — gate2 re-checks each round, gate3/gate4
-    don't; `deferred_fixes_step` — gate3 writes deferred_fixes.md on
-    exhausted-retries FAIL, gate2/gate4 don't; `wrap_try_catch` — gate4's
+    don't; `deferred_fixes_step` — all three gates pass
+    `render_deferred_fixes_step(gate_num=..., phase=..., d4_threshold=...)`
+    here so an exhausted-retries FAIL writes .methodology/deferred_fixes.md
+    (until this was wired symmetrically, gate2 and gate4's own
+    `on_fail_error_msg` PROMISED the file and never wrote it — the gap sat
+    undetected because a missing file reads as "nothing to enforce" to
+    `advance-phase`'s deferred-fix check, not as a failure); `wrap_try_catch` — gate4's
     orchestrator call is wrapped in try/catch, ported from phase3 in a
     historical "Bug #2" fix, gate2/gate3 aren't; `orchestrator_desc` —
     gate2/gate3 say "(Phase N exit)", gate4 says "(Phase 6 — full project

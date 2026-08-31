@@ -3966,3 +3966,11 @@
 - test: tests/test_block_reason_registry.py::test_the_scan_reaches_past_harness_bridge_into_its_siblings
   bug: "Round 82 站6 moved twelve of the eighteen GateBlockedError raise sites into harness/gate_stages.py with the `_stage_*` mixin. The scan read harness/harness_bridge.py alone, so it would have seen 6 sites and 3 detail-carrying ones — and the tempting repair (lower `total >= 9` to match) is Round 55's shape: fitting the ruler to the corpus. The subject is where the FRAMEWORK raises a gate block, so the scan reads harness/ and this control asserts it genuinely reaches a sibling file rather than having been widened on paper"
   fixed_in: "Round 82 站6"
+
+- test: tests/test_workflowgen.py::TestDeferredFixesStepAllGates::test_all_three_gate_phases_write_deferred_fixes_on_exhaustion
+  bug: "Gate 2's and Gate 4's on_fail_error_msg both promised 'write deferred_fixes.md + escalate to human' on exhausted-retries FAIL, but only Gate 3 passed a deferred_fixes_step into render_gate_loop — Gate 2 and Gate 4 never wrote the file. advance-phase's _check_deferred_fixes_resolved treats a missing file as nothing to enforce, so Stage-5 debt-closure silently never engaged for either gate. Confirmed on a real taskq-verify Gate 2 halt (2026-08-31): exhausted 3 rounds, halt message named the file, none existed on disk."
+  fixed_in: "2026-08-31 (js_blocks.render_deferred_fixes_step extraction, wired into spec_phase3/spec_phase6)"
+
+- test: tests/test_workflowgen.py::TestDeferredFixesStepAllGates::test_runall_inlines_all_three_gates_deferred_fixes_writers
+  bug: "same as test_all_three_gate_phases_write_deferred_fixes_on_exhaustion, checked at the run-all.js composite level — a phase file and the inlined composite can drift independently (spec_runall.py inlines generate_raw() output, so a fix to spec_phase3.py alone is not proof run-all.js picked it up without regenerating)"
+  fixed_in: "2026-08-31 (js_blocks.render_deferred_fixes_step extraction, wired into spec_phase3/spec_phase6)"

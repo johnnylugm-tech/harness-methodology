@@ -317,6 +317,9 @@ def generate_phase6() -> str:
             d4_threshold=_D4_THRESHOLD_P6,
             on_fail_error_msg="Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=False,
+            deferred_fixes_step=B.render_deferred_fixes_step(
+                gate_num=4, phase=6, d4_threshold=_D4_THRESHOLD_P6,
+            ),
             wrap_try_catch=True,
             orchestrator_desc="Phase 6 — full project quality",
             pre_gate_note="Pre-Gate: confirm all FRs merged to main + no open critical/high from Gate 3.",

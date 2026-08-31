@@ -464,6 +464,9 @@ def generate_phase3() -> str:
             d4_threshold=_D4_THRESHOLD_P3,
             on_fail_error_msg="Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)",
             include_manifest_integrity=True,
+            deferred_fixes_step=B.render_deferred_fixes_step(
+                gate_num=2, phase=3, d4_threshold=_D4_THRESHOLD_P3,
+            ),
         ),
         B.render_preview_next_phase(3),
         B.render_advance_loop(

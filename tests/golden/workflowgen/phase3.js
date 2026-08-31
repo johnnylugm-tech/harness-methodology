@@ -694,6 +694,23 @@ if (gate2Blocked) {
   return { session_limit_blocked: true, gate: 2, message: 'Agent hit session/rate limit during Gate 2 evaluation. Resume after quota reset — GUARD checks will skip completed FRs.' }
 }
 if (!gate2Pass) {
+  log('  Gate 2 exhausted 3 rounds — generating deferred_fixes.md')
+  const gate2StateCmd = PY + ' -c "import json; g=(json.load(open(\'' + REPO + '/.methodology/quality_manifest.json\')).get(\'gate_results\',{}) or {}).get(\'gate2\') or {}; print(json.dumps({\'score\': g.get(\'score\'), \'qc\': g.get(\'quality_complete\'), \'dims\': g.get(\'dimensions\',{})}))"'
+  await dispatch(
+    'YOU ARE THE DEFERRED-FIX RECORDER. Gate 2 failed to reach PASS in 3 rounds.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + '1. Get the last-known Gate 2 state:\n`' + gate2StateCmd + '`\n'
+    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold 60.0; echo "RC=$?"` for the D4 status.\n'
+    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '; echo "RC=$?"` for the CRG architecture status.\n'
+    + '4. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\n'
+    + '   - A brief header: "Gate 2 — deferred fixes" + date + last-known composite score\n'
+    + '   - Each failing dimension (score below its threshold) as a `- [ ]` checkbox item\n'
+    + '   - D4 as a `- [ ]` checkbox item (spec-coverage < 80%)\n'
+    + '   - CRG architecture as a `- [ ]` checkbox item if RC != 0 (architecture score < 80%)\n'
+    + '   - Each item MUST cite the current score AND the required threshold\n'
+    + '   - A final "Next step:" line: "Resolve every item → re-run Phase 3 Gate 2 → advance-phase"',
+    { label: 'deferred-fixes-g2', phase: 'Gate 2', agentType: 'general-purpose' },
+  )
   return halt('gate2', { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate2Report ?? '').slice(-600) })
 }
 

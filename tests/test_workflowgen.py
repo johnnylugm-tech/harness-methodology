@@ -495,3 +495,42 @@ class TestSessionBlockGuard:
             f"session_limit_blocked is written in {found}, expected {expected} "
             f"— every other site must go through render_session_block_guard"
         )
+
+
+class TestDeferredFixesStepAllGates:
+    """Regression guard: Gate 2's and Gate 4's on_fail_error_msg both promise
+    "write deferred_fixes.md" on exhausted-retries FAIL, but only Gate 3 ever
+    passed a `deferred_fixes_step` into `render_gate_loop`. Confirmed on a
+    real taskq-verify Gate 2 halt (2026-08-31): the message named the file,
+    advance-phase's deferred-fix check treats a missing file as nothing to
+    enforce, and Stage-5 debt-closure silently never engaged. All three gates
+    must write the file when they exhaust their round loop."""
+
+    def test_render_deferred_fixes_step_is_gate_agnostic(self):
+        for gate_num, phase, d4 in ((2, 3, 60.0), (3, 4, 60.0), (4, 6, 90.0)):
+            text = B.render_deferred_fixes_step(
+                gate_num=gate_num, phase=phase, d4_threshold=d4,
+            )
+            assert "deferred_fixes.md" in text
+            assert f"Gate {gate_num}" in text
+            assert f"deferred-fixes-g{gate_num}" in text
+            assert str(d4) in text
+
+    def test_all_three_gate_phases_write_deferred_fixes_on_exhaustion(self):
+        for phase in (3, 4, 6):
+            text = generate(phase)
+            assert "DEFERRED-FIX RECORDER" in text, (
+                f"phase {phase}'s generated workflow has no deferred-fix "
+                f"recorder — its on_fail_error_msg still promises a file "
+                f"render_gate_loop never wires a writer for"
+            )
+            assert ".methodology/deferred_fixes.md` with" in text
+
+    def test_runall_inlines_all_three_gates_deferred_fixes_writers(self):
+        from scripts.workflowgen.spec_runall import generate_runall
+        text = generate_runall()
+        for gate_num in (2, 3, 4):
+            assert f"deferred-fixes-g{gate_num}" in text, (
+                f"run-all.js is missing gate {gate_num}'s deferred-fix "
+                f"recorder — a phase file and the composite have drifted"
+            )

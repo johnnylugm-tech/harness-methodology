@@ -159,10 +159,16 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "gate orchestrator scores dims inline + fixes; its prose is "
      "narrative only — the -verify-r carrier is authoritative"),
     (r"^(test-plan|coverage|bug-hunt|config-docs|archive|release-docs|"
-     r"risk-docs|verification-docs|sab-generation|deferred-fixes|"
+     r"risk-docs|verification-docs|sab-generation|"
      r"cleanup-r)$", "judgment", "text-token",
      "doc/artifact authoring steps; SAB/ACI/etc. verdicts come from "
      "follow-up carrier or CLI checks where they exist"),
+    (r"^deferred-fixes-g[234]$", "judgment", "text-token",
+     "exhausted-retries deferred-fix recorder, shared by gates 2/3/4 via "
+     "js_blocks.render_deferred_fixes_step (gate-qualified label so "
+     "run-all.js's three inlined copies aren't indistinguishable in a "
+     "trace); same doc-authoring shape as the row above, no CLI-verified "
+     "verdict exists for 'did the recorder write a good file'"),
     # ── mixed: fixed command skeleton + fix-on-output loops ──
     (r"^(preflight|preflight-|preflight-a)$", "mixed", "text-token",
      "runs fixed command menu, fixes what run-phase reports; P3-8 use "

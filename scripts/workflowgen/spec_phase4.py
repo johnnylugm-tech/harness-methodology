@@ -138,27 +138,6 @@ _GATE3_SCOPE_RULES = (
     "- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes."
 )
 
-_GATE3_DEFERRED_FIXES_STEP = (
-    "  log('  Gate 3 exhausted 3 rounds — generating deferred_fixes.md')\n"
-    "  const gate3StateCmd = PY + ' -c \"import json; g=(json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')).get(\\'gate_results\\',{}) or {}).get(\\'gate3\\') or {}; print(json.dumps({\\'score\\': g.get(\\'score\\'), \\'qc\\': g.get(\\'quality_complete\\'), \\'dims\\': g.get(\\'dimensions\\',{})}))\"'\n"
-    "  await agent(\n"
-    "    'YOU ARE THE DEFERRED-FIX RECORDER. Gate 3 failed to reach PASS in 3 rounds.\\n'\n"
-    "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
-    "    + '1. Get the last-known Gate 3 state:\\n`' + gate3StateCmd + '`\\n'\n"
-    f"    + '2. Run `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P4}; echo \"RC=$?\"` for the D4 status.\\n'\n"
-    "    + '3. Run `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '; echo \"RC=$?\"` for the CRG architecture status.\\n'\n"
-    "    + '4. Write `' + REPO + '/.methodology/deferred_fixes.md` with:\\n'\n"
-    "    + '   - A brief header: \"Gate 3 — deferred fixes\" + date + last-known composite score\\n'\n"
-    "    + '   - Each failing dimension (score below its threshold) as a `- [ ]` checkbox item\\n'\n"
-    "    + '   - D4 as a `- [ ]` checkbox item (spec-coverage < 80%)\\n'\n"
-    "    + '   - CRG architecture as a `- [ ]` checkbox item if RC != 0 (architecture score < 80%)\\n'\n"
-    "    + '   - Each item MUST cite the current score AND the required threshold\\n'\n"
-    "    + '   - A final \"Next step:\" line: \"Resolve every item → re-run Phase 4 Gate 3 → advance-phase\"',\n"
-    "    { label: 'deferred-fixes', phase: 'Gate 3', agentType: 'general-purpose' },\n"
-    "  )\n"
-)
-
-
 def generate_phase4() -> str:
     parts = [
         _HEADER_4,
@@ -237,7 +216,9 @@ def generate_phase4() -> str:
             d4_threshold=_D4_THRESHOLD_P4,
             on_fail_error_msg="Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)",
             include_manifest_integrity=False,
-            deferred_fixes_step=_GATE3_DEFERRED_FIXES_STEP,
+            deferred_fixes_step=B.render_deferred_fixes_step(
+                gate_num=3, phase=4, d4_threshold=_D4_THRESHOLD_P4,
+            ),
         ),
         B.render_preview_next_phase(4),
         B.render_advance_loop(
