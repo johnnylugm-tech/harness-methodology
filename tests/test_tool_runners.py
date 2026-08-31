@@ -200,9 +200,26 @@ class TestScoreBandit:
         data = {"results": [{"issue_severity": "HIGH"}] * 11}
         assert _score_bandit(json.dumps(data), 0) == 0.0
 
-    def test_non_json_returns_zero(self):
-        # Conservative: tool crash → 0, not 100
-        assert _score_bandit("bandit: command not found", 127) == 0.0
+    def test_non_json_returns_none(self):
+        # Same contract as _score_radon_cc / _score_radon_mi: a parse
+        # failure means "could not measure", not "measured 0" — the two
+        # were conflated here until 2026-08-31, when bandit's own stderr
+        # log noise (unconditional, every run) got appended after a
+        # genuinely successful JSON result via run_tool's stdout+stderr
+        # concatenation, and the old `except: return 0.0` silently turned
+        # a WORKING bandit run into a fabricated failing score.
+        assert _score_bandit("bandit: command not found", 127) is None
+
+    def test_trailing_stderr_noise_after_valid_json_returns_none(self):
+        # The exact shape observed in production: bandit's JSON is complete
+        # and valid, but trailing INFO-level log lines (which -q, added to
+        # the registry's bandit ToolSpec in the same fix, now suppresses)
+        # follow it in the combined stdout+stderr string. json.loads must
+        # reject this (json.JSONDecodeError: Extra data) — asserting None
+        # here, not a lucky partial parse, is the point of the test.
+        data = {"results": []}
+        combined = json.dumps(data) + "[main]\tINFO\tprofile include tests: None\n"
+        assert _score_bandit(combined, 0) is None
 
 
 # ---------------------------------------------------------------------------

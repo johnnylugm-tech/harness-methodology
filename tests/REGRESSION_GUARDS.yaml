@@ -3974,3 +3974,19 @@
 - test: tests/test_workflowgen.py::TestDeferredFixesStepAllGates::test_runall_inlines_all_three_gates_deferred_fixes_writers
   bug: "same as test_all_three_gate_phases_write_deferred_fixes_on_exhaustion, checked at the run-all.js composite level — a phase file and the inlined composite can drift independently (spec_runall.py inlines generate_raw() output, so a fix to spec_phase3.py alone is not proof run-all.js picked it up without regenerating)"
   fixed_in: "2026-08-31 (js_blocks.render_deferred_fixes_step extraction, wired into spec_phase3/spec_phase6)"
+
+- test: tests/test_anti_fabrication.py::TestHarnessCrossValidation::test_agent_below_threshold_harness_disagrees_score_corrected
+  bug: "_run_harness_cross_validation returned immediately (`continue`, skipping run_tool entirely) whenever the agent self-reported a dimension below its threshold, on the theory that a self-reported FAIL carries no fabrication risk. Round 35 站3 already named this flaw for mutmut specifically ('correct about fabrication and wrong about attribution') and special-cased it; the general guard was never removed. Confirmed on a real taskq-verify Gate 2 halt (2026-08-31): a genuinely passing `security` dimension (bandit, committed evidence + an earlier round's own S4 cross-check both showing 96/PASS) was silently overwritten by a LATER round's self-reported `security: 0` carrying a fabricated technical explanation, because 0 < threshold skipped verification — the gate burned all 3 rounds chasing a dimension that was never actually broken."
+  fixed_in: "2026-08-31 (harness_bridge.py: removed the agent_score < threshold early-continue in _run_harness_cross_validation)"
+
+- test: tests/test_anti_fabrication.py::TestHarnessCrossValidation::test_agent_below_threshold_harness_agrees_no_violation
+  bug: "companion guard to test_agent_below_threshold_harness_disagrees_score_corrected — pins that a self-reported FAIL the harness's own tool run CONFIRMS still produces zero violations and the harness-measured score, now that this dimension is unconditionally re-verified rather than skipped"
+  fixed_in: "2026-08-31 (harness_bridge.py: removed the agent_score < threshold early-continue in _run_harness_cross_validation)"
+
+- test: tests/test_tool_runners.py::TestScoreBandit::test_trailing_stderr_noise_after_valid_json_returns_none
+  bug: "bandit 1.8.6 writes its own INFO-level startup log to stderr unconditionally on every run; run_tool() concatenates stdout+stderr for audit-file completeness, so the log lines landed after bandit's own valid closing `}` and broke _score_bandit's json.loads. The old handler returned 0.0 on any parse failure ('conservative: tool crash -> 0, not 100'), so a WORKING bandit run that scored cleanly at 96 was silently misreported as a genuine harness measurement of 0 — indistinguishable from '100 real findings'. Discovered while verifying the S4 symmetric-cross-validation fix against taskq-verify's real Gate 2 security dimension: with the early-continue removed, bandit finally ran on the self-reported-FAIL branch and immediately hit this pre-existing, 100%-reproducible bug."
+  fixed_in: "2026-08-31 (toolchains/registry.py: added -q to bandit's ToolSpec.cmd; tool_runners.py: _score_bandit returns None on parse failure, matching _score_radon_cc/_score_radon_mi)"
+
+- test: tests/test_tool_runners.py::TestScoreBandit::test_non_json_returns_none
+  bug: "same root cause as test_trailing_stderr_noise_after_valid_json_returns_none — _score_bandit's parse-failure return value was 0.0 (a real failing score) instead of None (framework could not measure), conflating 'could not parse' with 'measured 0' exactly the way Round 32 站4 already fixed for other S4 failure modes"
+  fixed_in: "2026-08-31 (toolchains/registry.py: added -q to bandit's ToolSpec.cmd; tool_runners.py: _score_bandit returns None on parse failure, matching _score_radon_cc/_score_radon_mi)"

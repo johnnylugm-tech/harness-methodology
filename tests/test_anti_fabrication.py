@@ -801,8 +801,11 @@ class TestHarnessCrossValidation:
         cfg_path.write_text(yaml.dump({"gate": gate, "dimensions": dims}))
         return cfg_path
 
-    def test_no_fabrication_agent_below_threshold_accepted(self, tmp_path, monkeypatch):
-        """Agent score below threshold — no fabrication concern, no violations."""
+    def test_agent_below_threshold_harness_agrees_no_violation(self, tmp_path, monkeypatch):
+        """Agent self-reports FAIL, harness's own tool run agrees (still FAIL):
+        no violation — the self-report was accurate, not fabricated in either
+        direction. This dimension IS now re-verified (the fix), it just
+        confirms rather than corrects."""
         from unittest.mock import patch
         from harness.harness_bridge import _run_harness_cross_validation
         import core.quality_gate.gate_thresholds as _gt
@@ -815,12 +818,60 @@ class TestHarnessCrossValidation:
         ctx = self._make_ctx(tmp_path, gate=4)
         raw = {"breakdown": {"linting": {"score": 70}}}  # agent already says FAIL
 
-        # run_tool should never be called when agent score < threshold
-        with patch("harness.tool_runners.run_tool") as mock_run:
+        import json
+        ruff_output = json.dumps([
+            {"code": "E501", "filename": f"src/a_{i}.py",
+             "location": {"row": i, "column": 1}, "message": "too long"}
+            for i in range(15)
+        ])  # 15 violations -> score 100 - 15*2 = 70, matching the agent's own number
+        with patch("harness.tool_runners.run_tool", return_value=(ruff_output, 0)) as mock_run:
             violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
 
+        mock_run.assert_called_once()
         assert violations == []
-        mock_run.assert_not_called()
+        assert raw["breakdown"]["linting"]["score"] == 70
+
+    def test_agent_below_threshold_harness_disagrees_score_corrected(self, tmp_path, monkeypatch):
+        """Regression for the taskq-verify Gate 2 incident (2026-08-31): the
+        agent self-reports FAIL (score 0, with a fabricated technical
+        narrative in the real incident) but the harness's own tool run shows
+        the code genuinely passes. This is NOT fabrication (the agent did
+        not claim a pass the tool contradicts — the direction fabrication's
+        own definition requires) so no violation fires, but the recorded
+        score must be corrected to the harness's measured value, not left at
+        the agent's wrong number — the whole point of running the tool at
+        all. Before this fix, `_run_harness_cross_validation` returned
+        immediately on `agent_score < threshold` and never reached this
+        code path; a real S4-verified PASS from an earlier round could be
+        silently overwritten by a later round's wrong self-report with no
+        detection."""
+        from unittest.mock import patch
+        from harness.harness_bridge import _run_harness_cross_validation
+        import core.quality_gate.gate_thresholds as _gt
+
+        cfg_path = self._make_gate_yaml(tmp_path, 4, [
+            {"name": "security", "requires_tool_execution": True, "tool": "bandit",
+             "threshold": 80},
+        ])
+        monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
+        ctx = self._make_ctx(tmp_path, gate=4)
+        raw = {"breakdown": {"security": {"score": 0}}}  # agent wrongly says FAIL
+
+        import json
+        bandit_output = json.dumps({"results": []})  # 0 findings -> score 100
+        with patch("harness.tool_runners.run_tool", return_value=(bandit_output, 0)) as mock_run:
+            violations, _unver = _run_harness_cross_validation(ctx, raw)  # type: ignore[reportArgumentType]
+
+        mock_run.assert_called_once()
+        assert violations == [], (
+            "correcting a mistaken self-reported FAIL is not fabrication — "
+            "fabrication requires the agent to have claimed a PASS"
+        )
+        assert raw["breakdown"]["security"]["score"] == 100, (
+            "the harness's own measurement must replace the agent's wrong "
+            "self-report, not be silently discarded"
+        )
+        assert raw["breakdown"]["security"]["score_source"] == "framework"
 
     def test_fabrication_detected_blocks(self, tmp_path, monkeypatch):
         """Agent claims PASS but harness score < threshold → fabrication detected."""
@@ -875,8 +926,10 @@ class TestHarnessCrossValidation:
 
         Without a committed file, a high agent score is unverifiable → block.
         With a valid file present, it passes (not re-run).
-        Note: mutmut was previously a skip-list tool; commit 631782b changed it to
-        skip_inline=False so the harness now runs it directly. scancode remains skip-list.
+        Note: mutmut is skip_inline=True (registry.py) — Round 31 站2 restored
+        this after an earlier attempt at skip_inline=False produced a bare,
+        broken `mutmut run` invocation; the docstring here previously claimed
+        the opposite (stale as of 2026-08-31). scancode is also skip-list.
         """
         from harness.harness_bridge import _run_harness_cross_validation
         import core.quality_gate.gate_thresholds as _gt

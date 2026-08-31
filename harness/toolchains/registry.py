@@ -142,8 +142,22 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "bandit": ToolSpec(
         tool_id="bandit",
-        # --exit-zero: always exit 0 so returncode doesn't mask JSON output
-        cmd=("bandit", "-r", "{src_target}", "-f", "json", "--exit-zero"),
+        # --exit-zero: always exit 0 so returncode doesn't mask JSON output.
+        # -q: bandit 1.8.6 writes its own INFO-level startup log ("profile
+        # include tests: None" etc.) to stderr on every run, unconditionally,
+        # regardless of --exit-zero or -f json. run_tool() concatenates
+        # stdout+stderr into one string (harness/tool_runners.py:258) for
+        # audit-file completeness — correct for every OTHER tool here, whose
+        # scorers tolerate or expect stderr content — but bandit's own JSON
+        # is on stdout alone, so the appended stderr lines land AFTER the
+        # closing `}` and break `_score_bandit`'s `json.loads`. Confirmed
+        # 2026-08-31: reproducible on every invocation, `-q` fully silences
+        # it (verified: stderr empty, stdout unchanged). Without -q,
+        # `_score_bandit` silently scored 0.0 for a WORKING bandit run,
+        # indistinguishable from "code has 100 findings" — this is what let
+        # a real taskq-verify Gate 2 dimension read as a genuine harness
+        # measurement of 0 when bandit had in fact scored 96.
+        cmd=("bandit", "-r", "{src_target}", "-f", "json", "-q", "--exit-zero"),
         timeout=60,
         check_cmd="bandit --version 2>&1",
         human_name="bandit",

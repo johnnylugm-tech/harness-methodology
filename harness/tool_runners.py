@@ -375,8 +375,18 @@ def _score_pyright(output: str, _returncode: int) -> float:
     return max(0.0, 100.0 - errors * 5.0)
 
 
-def _score_bandit(output: str, _returncode: int) -> float:
-    """Score bandit -f json.  HIGH=−10, MEDIUM=−3, LOW=−1 per issue."""
+def _score_bandit(output: str, _returncode: int) -> Optional[float]:
+    """Score bandit -f json.  HIGH=−10, MEDIUM=−3, LOW=−1 per issue.
+
+    Returns None on JSON parse failure so compute_tool_score propagates None
+    (framework could not measure) rather than silently awarding a failing 0 —
+    same contract as _score_radon_cc / _score_radon_mi. A parse failure and
+    "0 findings costing 100 points" are different facts (Round 32 站4): the
+    tool registry's own -q flag (registry.py's bandit ToolSpec) exists
+    precisely to keep bandit's stderr log noise out of this string, but this
+    return value must not silently misreport it as a real score if some
+    future stderr content slips through anyway.
+    """
     import json as _json
     try:
         data = _json.loads(output)
@@ -386,7 +396,7 @@ def _score_bandit(output: str, _returncode: int) -> float:
         low    = sum(1 for r in results if r.get("issue_severity") == "LOW")
         return max(0.0, 100.0 - high * 10.0 - medium * 3.0 - low * 1.0)
     except (_json.JSONDecodeError, ValueError):
-        return 0.0
+        return None
 
 
 def _score_radon_cc(output: str, _returncode: int) -> Optional[float]:

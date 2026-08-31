@@ -689,15 +689,25 @@ def _run_harness_cross_validation(
             violations.extend(_mut_fab)
             unverifiable.extend(_mut_infra)
 
-        # Only cross-validate when the agent claims a passing score.
-        # If the agent already reports FAIL, there is no fabrication concern.
-        #
-        # A None is NOT a claim of failure — it is a claim that the dimension does
-        # not apply, and that claim is exactly what the framework has to check
-        # (see na_is_framework_verified). So it falls through to run_tool below.
-        if agent_score is not None and agent_score < threshold:
-            continue
-
+        # No early exit on a self-reported FAIL. Round 35 站3, immediately
+        # above, already named the flaw this used to have for mutmut: "the
+        # early exit below is correct about fabrication and wrong about
+        # attribution" — a self-reported failing score CAN be false, just in
+        # the other direction (mistaken or hallucinated, not inflated), and
+        # skipping verification there was never anything but a cost-saving
+        # assumption. Confirmed wrong on a real taskq-verify Gate 2 round:
+        # an earlier round's bandit run (committed evidence, S4-confirmed
+        # passing at 96) was silently overwritten by a LATER round's
+        # self-reported `security: 0` carrying a fabricated technical
+        # explanation — because 0 < threshold, this function never looked
+        # again, and the gate burned all 3 rounds chasing a dimension that
+        # was never actually broken. Every dimension now runs through
+        # `run_tool` unconditionally; `s4_score_verdict` below already
+        # handles the result correctly in both directions — its
+        # `fabrication` flag is `harness_score < threshold <= agent_score`,
+        # which cannot fire here since `agent_score < threshold` makes that
+        # false by construction. A self-reported FAIL that the tool actually
+        # confirms is a PASS is corrected, not flagged.
         output, returncode = run_tool(tool, ctx.project_root)
         if tool_runs is not None:
             tool_runs[dim_name] = (tool, output, returncode)

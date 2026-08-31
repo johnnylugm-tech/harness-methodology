@@ -144,7 +144,13 @@ _CEILINGS: dict[str, int] = {
     # what a relocation looks like from here.
     "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 279,
     "cli/gate_cmds.py::_cmd_finalize_gate_impl": 606,
-    "harness/harness_bridge.py::_run_harness_cross_validation": 475,
+    # 485 at 2026-08-31, from 475: replaced the `agent_score < threshold`
+    # early-continue with a comment explaining the removal and pointing at
+    # the Round 35 站3 prior-art comment above it — see
+    # tests/test_file_size_ratchet.py's harness_bridge.py entry for the
+    # full incident (a fabricated self-reported FAIL silently overwrote a
+    # genuinely passing, S4-confirmed dimension on a real Gate 2 run).
+    "harness/harness_bridge.py::_run_harness_cross_validation": 485,
 
     "cli/project_cmds.py::cmd_init_project": 417,
     "core/quality_gate/security_design.py::check_security_design": 322,
