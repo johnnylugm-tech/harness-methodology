@@ -268,8 +268,8 @@ class TestFinalizeGate:
             # Round 60 站4: the context declares `coverage` too, and a
             # declared dimension with no entry now blocks. A happy-path
             # fixture has to report what its own config declares.
-            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0},
-                          "coverage": {"score": 90.0, "threshold": 75.0}},
+            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0, "score_source": "framework"},
+                          "coverage": {"score": 90.0, "threshold": 75.0, "score_source": "framework"}},
         })
         with patch.object(bridge, "_update_quality_manifest"):
             with patch.object(bridge, "_log"):
@@ -311,8 +311,8 @@ class TestFinalizeGate:
             "quality_complete": False,   # agent wrote false (stale/default)
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "coverage": {"score": 90.0, "threshold": 75.0},
-                "linting": {"score": 85.0, "threshold": 75.0},
+                "coverage": {"score": 90.0, "threshold": 75.0, "score_source": "framework"},
+                "linting": {"score": 85.0, "threshold": 75.0, "score_source": "framework"},
             },
         })
         with patch.object(bridge, "_update_quality_manifest"):
@@ -340,7 +340,7 @@ class TestFinalizeGate:
         self._write_result(ctx, {
             "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {"coverage": {"score": 90.0, "threshold": 75.0}},
+            "breakdown": {"coverage": {"score": 90.0, "threshold": 75.0, "score_source": "framework"}},
         })
 
         def _fake_enrich(_crg, dims, _project_root, _work_dir, _gate_num):
@@ -380,7 +380,7 @@ class TestFinalizeGate:
             "open_critical_count": 0, "open_high_count": 0,
             # No "architecture" key — the exact omission that used to disable
             # the check.
-            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0}},
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0, "score_source": "framework"}},
         })
 
         def _fake_crg(project_root, work_dir):
@@ -438,7 +438,7 @@ class TestFinalizeGate:
         self._write_result(ctx, {
             "overall_score": 90.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0}},
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0, "score_source": "framework"}},
         })
 
         def _fake_crg(project_root, work_dir):
@@ -495,7 +495,7 @@ class TestFinalizeGate:
         self._write_result(ctx, {
             "overall_score": 90.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
-            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0}},
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0, "score_source": "framework"}},
         })
 
         def _fake_crg(project_root, work_dir):
@@ -534,7 +534,7 @@ class TestFinalizeGate:
             "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 90.0, "threshold": 75.0},
+                "linting": {"score": 90.0, "threshold": 75.0, "score_source": "framework"},
                 "performance": {"score": None, "threshold": 75.0},
             },
         })
@@ -573,7 +573,7 @@ class TestFinalizeGate:
             "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 90.0, "threshold": 75.0},
+                "linting": {"score": 90.0, "threshold": 75.0, "score_source": "framework"},
                 # No score_source: nothing verified this.
                 "performance": {"score": None, "threshold": 75.0},
             },
@@ -602,7 +602,7 @@ class TestFinalizeGate:
             "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 90.0, "threshold": 75.0},
+                "linting": {"score": 90.0, "threshold": 75.0, "score_source": "framework"},
                 "performance": {"score": None, "threshold": 75.0,
                                 "score_source": "framework_na",
                                 "na_verified_by": "pytest-benchmark (rc=5)"},
@@ -647,8 +647,8 @@ class TestFinalizeGate:
             # Round 60 站4: the context declares `coverage` too, and a
             # declared dimension with no entry now blocks. A happy-path
             # fixture has to report what its own config declares.
-            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0},
-                          "coverage": {"score": 90.0, "threshold": 75.0}},
+            "breakdown": {"linting": {"score": 90.0, "threshold": 85.0, "score_source": "framework"},
+                          "coverage": {"score": 90.0, "threshold": 75.0, "score_source": "framework"}},
         })
         manifest_path = tmp_path / ".methodology" / "quality_manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)

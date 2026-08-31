@@ -110,7 +110,14 @@ _CEILINGS: dict[str, int] = {
     # what follows it. Harvested in the same commit, because
     # test_no_ceiling_sits_above_the_function_it_covers does not allow
     # otherwise.
-    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 899,
+    # 963 at Round 83 站1, from 899: +64 for the `_unsourced` block beside the
+    # `_unmeasured` one — six lines of raise and fifty of comment carrying the
+    # measurement (taskq-cc-new and taskq-new, six committed gate results, the
+    # same four dimensions carrying a score and no `score_source` in every one,
+    # 0.28/0.31/0.33 of gates 2/3/4 published beside `weight_covered: 1.0`).
+    # It sits here rather than in a `_stage_*` because it reads `_cfg_dims`,
+    # `dims` and `_overall_score`, all three of which are bound in this method.
+    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 963,
     # 770 at Round 81 站9, from 940: four runs extracted. The smallest
     # harvest of the four, because only 182 of its lines are extractable
     # under the rule — the rest threads state through the dispatch loop.
@@ -150,7 +157,12 @@ _CEILINGS: dict[str, int] = {
     # tests/test_file_size_ratchet.py's harness_bridge.py entry for the
     # full incident (a fabricated self-reported FAIL silently overwrote a
     # genuinely passing, S4-confirmed dimension on a real Gate 2 run).
-    "harness/harness_bridge.py::_run_harness_cross_validation": 485,
+    # 493 at Round 83 站1, from 485: +8 for the skip-list branch recording
+    # `SCORE_SOURCE_ARTIFACT_VERIFIED`. One line writes it; the other seven say
+    # why it is not `framework` — mutmut and scancode are not re-run here, the
+    # branch validates their committed artifact, and leaving it blank is what
+    # put 0.15 of taskq-cc-new's Gate 4 weight inside `weight_covered: 1.0`.
+    "harness/harness_bridge.py::_run_harness_cross_validation": 493,
 
     "cli/project_cmds.py::cmd_init_project": 417,
     "core/quality_gate/security_design.py::check_security_design": 322,

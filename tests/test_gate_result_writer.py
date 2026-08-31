@@ -61,15 +61,23 @@ def _call_finalize(
         # Default-shaped payload that satisfies the bridge's per-dimension
         # score checks. The fr_id is intentionally a separate input from the
         # CLI arg so the mismatch test can flip it.
+        # Round 83 站1: `score_source` is part of what a finalized breakdown
+        # carries — a declared dimension whose score says nothing about where
+        # it came from now blocks as infra_fail. This payload stands in for
+        # one S4 has already been through, so it says what S4 says.
         gate1_result = {
             "gate": 1, "phase": phase, "fr_id": fr_id,
             "score": 95.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 100.0, "threshold": 90},
-                "type_safety": {"score": 98.5, "threshold": 85},
-                "test_coverage": {"score": 92.0, "threshold": 80},
-                "architecture_constraints": {"score": 100.0, "threshold": 90},
+                "linting": {"score": 100.0, "threshold": 90,
+                            "score_source": "framework"},
+                "type_safety": {"score": 98.5, "threshold": 85,
+                                "score_source": "framework"},
+                "test_coverage": {"score": 92.0, "threshold": 80,
+                                  "score_source": "framework"},
+                "architecture_constraints": {"score": 100.0, "threshold": 90,
+                                             "score_source": "framework"},
             },
         }
     (sessi / "gate1_result.json").write_text(json.dumps(gate1_result))
@@ -149,10 +157,14 @@ class TestFrIdConsistency:
             "score": 95.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 100.0, "threshold": 90},
-                "type_safety": {"score": 98.5, "threshold": 85},
-                "test_coverage": {"score": 92.0, "threshold": 80},
-                "architecture_constraints": {"score": 100.0, "threshold": 90},
+                "linting": {"score": 100.0, "threshold": 90,
+                            "score_source": "framework"},
+                "type_safety": {"score": 98.5, "threshold": 85,
+                                "score_source": "framework"},
+                "test_coverage": {"score": 92.0, "threshold": 80,
+                                  "score_source": "framework"},
+                "architecture_constraints": {"score": 100.0, "threshold": 90,
+                                             "score_source": "framework"},
             },
         }
         _call_finalize(monkeypatch, tmp_path, fr_id="FR-09", gate1_result=payload)
@@ -175,10 +187,14 @@ class TestFrIdConsistency:
             "score": 95.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 100.0, "threshold": 90},
-                "type_safety": {"score": 98.5, "threshold": 85},
-                "test_coverage": {"score": 92.0, "threshold": 80},
-                "architecture_constraints": {"score": 100.0, "threshold": 90},
+                "linting": {"score": 100.0, "threshold": 90,
+                            "score_source": "framework"},
+                "type_safety": {"score": 98.5, "threshold": 85,
+                                "score_source": "framework"},
+                "test_coverage": {"score": 92.0, "threshold": 80,
+                                  "score_source": "framework"},
+                "architecture_constraints": {"score": 100.0, "threshold": 90,
+                                             "score_source": "framework"},
             },
         }))
         _call_finalize(monkeypatch, tmp_path, fr_id="FR-09", gate1_result=payload)
@@ -197,10 +213,14 @@ class TestFrIdConsistency:
             "score": 95.0, "quality_complete": True,
             "open_critical_count": 0, "open_high_count": 0,
             "breakdown": {
-                "linting": {"score": 100.0, "threshold": 90},
-                "type_safety": {"score": 98.5, "threshold": 85},
-                "test_coverage": {"score": 92.0, "threshold": 80},
-                "architecture_constraints": {"score": 100.0, "threshold": 90},
+                "linting": {"score": 100.0, "threshold": 90,
+                            "score_source": "framework"},
+                "type_safety": {"score": 98.5, "threshold": 85,
+                                "score_source": "framework"},
+                "test_coverage": {"score": 92.0, "threshold": 80,
+                                  "score_source": "framework"},
+                "architecture_constraints": {"score": 100.0, "threshold": 90,
+                                             "score_source": "framework"},
             },
         }
         _call_finalize(monkeypatch, tmp_path, fr_id="FR-09", force=True,
@@ -227,10 +247,14 @@ class TestIdempotency:
             "verdict": "PASS", "passed": True,
             "composite_score": 95.0,
             "breakdown": {
-                "linting": {"score": 100.0, "threshold": 90},
-                "type_safety": {"score": 98.5, "threshold": 85},
-                "test_coverage": {"score": 92.0, "threshold": 80},
-                "architecture_constraints": {"score": 100.0, "threshold": 90},
+                "linting": {"score": 100.0, "threshold": 90,
+                            "score_source": "framework"},
+                "type_safety": {"score": 98.5, "threshold": 85,
+                                "score_source": "framework"},
+                "test_coverage": {"score": 92.0, "threshold": 80,
+                                  "score_source": "framework"},
+                "architecture_constraints": {"score": 100.0, "threshold": 90,
+                                             "score_source": "framework"},
             },
         }
         path.write_text(json.dumps(original))
@@ -252,10 +276,14 @@ class TestIdempotency:
             "verdict": "PASS", "passed": True,
             "composite_score": 95.0,
             "breakdown": {
-                "linting": {"score": 100.0, "threshold": 90},
-                "type_safety": {"score": 98.5, "threshold": 85},
-                "test_coverage": {"score": 92.0, "threshold": 80},
-                "architecture_constraints": {"score": 100.0, "threshold": 90},
+                "linting": {"score": 100.0, "threshold": 90,
+                            "score_source": "framework"},
+                "type_safety": {"score": 98.5, "threshold": 85,
+                                "score_source": "framework"},
+                "test_coverage": {"score": 92.0, "threshold": 80,
+                                  "score_source": "framework"},
+                "architecture_constraints": {"score": 100.0, "threshold": 90,
+                                             "score_source": "framework"},
             },
         }
         path.write_text(json.dumps(original))

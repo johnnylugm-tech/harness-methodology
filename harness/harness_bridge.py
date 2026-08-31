@@ -76,6 +76,7 @@ from harness.gate_stages import _FinalizeStages  # noqa: E402
 
 from harness.gate_result import (  # noqa: F401,E402  re-export after Round 82 站5 move
     SCORE_SOURCE_AGENT_UNVERIFIED,
+    SCORE_SOURCE_ARTIFACT_VERIFIED,
     SCORE_SOURCE_FRAMEWORK,
     SCORE_SOURCE_FRAMEWORK_NA,
     SCORE_SOURCE_STUBBED_BOUNDARY,
@@ -250,10 +251,20 @@ def _override_traceability_dim_score(
             # max so a project-level override for this dim is never silently
             # discarded by the framework's own recomputed threshold_effective.
             _new_threshold = max(_trace_dim["threshold_effective"], _d.threshold)
+            # Round 83 站1: the number being written here is the framework's —
+            # `compute_trace_dimension`'s, per this function's own docstring —
+            # so it is recorded as the framework's. Without this the score left
+            # finalize_gate with `score_source: None`, and `framework_measured`
+            # reads a blank as "the framework measured it", which is the right
+            # answer arrived at by not asking. `or` rather than an
+            # unconditional write: Round 51 站3 sets `stubbed_boundary` before
+            # this runs and Round 54 recorded that overwriting it revokes that
+            # round without a word.
             _new_dims.append(dataclasses.replace(
                 _d,
                 score=_framework_score,
                 threshold=_new_threshold,
+                score_source=_d.score_source or SCORE_SOURCE_FRAMEWORK,
             ))
         else:
             _new_dims.append(_d)
@@ -317,9 +328,15 @@ def _override_adversarial_review_dim_score(
                     f"(open_blocking={verdict.open_blocking})"
                 )
                 _changed = True
-            _new_dims.append(
-                dataclasses.replace(_d, score=verdict.score, issues=issues)
-            )
+            # Round 83 站1: same write the append branch below has always
+            # done. The number is `verify_bug_hunt_report`'s, so it is labelled
+            # as the framework's here too — whether the framework's own score
+            # was recorded as the framework's must not depend on whether the
+            # agent happened to mention the dimension.
+            _new_dims.append(dataclasses.replace(
+                _d, score=verdict.score, issues=issues,
+                score_source=_d.score_source or SCORE_SOURCE_FRAMEWORK,
+            ))
         else:
             _new_dims.append(_d)
     if not _found:
@@ -815,6 +832,14 @@ def _run_harness_cross_validation(
                     f"A passing score requires genuine '{tool}' output committed to a file."
                 )
             else:
+                # Round 83 站1: record WHAT was verified, because it is not what
+                # `framework` means everywhere else in this loop. The artifact
+                # was checked; the tool was not re-run. Left blank, this branch
+                # produced `score_source: None`, which `framework_measured`
+                # reads as a measurement — measured on taskq-cc-new and
+                # taskq-new, `mutation_testing` + `license_compliance` = 0.15
+                # of Gate 4's weight published inside `weight_covered: 1.0`.
+                _dim_entry["score_source"] = SCORE_SOURCE_ARTIFACT_VERIFIED
                 print(
                     f"  [S4] {dim_name}: '{tool}' skip-list — tool_output file verified "
                     f"(format OK); not re-run (too slow)"
@@ -2452,7 +2477,17 @@ class HarnessBridge(_FinalizeStages):
                                 f"{_new:.1f} ({_detail})"
                             )
                             _crg_overrides_applied = True
-                        _new_dims.append(dataclasses.replace(_d, score=_new))
+                        # Round 83 站1: `_arch_score` is the framework's own
+                        # CRG run (S4 skips this dimension entirely —
+                        # `_CRG_OWNED_DIMENSIONS`), so the label goes on here.
+                        # The append branch below has always written it; this
+                        # branch never did, which is why taskq-cc-new and
+                        # taskq-new both published `architecture` with no
+                        # source over 0.10 of Gate 4's weight.
+                        _new_dims.append(dataclasses.replace(
+                            _d, score=_new,
+                            score_source=_d.score_source or SCORE_SOURCE_FRAMEWORK,
+                        ))
                         # Print unhealthy communities so the agent knows what to fix
                         _coh_data = _crg_m.get("community_cohesion", {})
                         _unhealthy = _coh_data.get("unhealthy", [])
@@ -2741,6 +2776,60 @@ class HarnessBridge(_FinalizeStages):
             if d.score is not None and not framework_measured(d)
         )
         self._stage_stubbed_boundaries(_boundary_findings, _overall_score, _unmeasured, ctx, dims)
+
+        # Round 83 站1: and a number nobody said anything about at all.
+        #
+        # The check above asks "is this source one of the ones that mean the
+        # framework did not measure". It cannot ask anything of a dimension
+        # whose source was never written, because `framework_measured` reads a
+        # blank as a measurement — a default chosen in Round 50 for artifacts
+        # that predated the field, kept for three months after every producer
+        # should have been writing it, and load-bearing the whole time.
+        #
+        # Measured on the two projects that ran to completion after Round 67 站1
+        # made `score_source` survive persistence: taskq-cc-new and taskq-new,
+        # six committed gate results, the SAME four dimensions blank in each —
+        # architecture, traceability, mutation_testing, license_compliance —
+        # for 0.28 / 0.31 / 0.33 of gates 2 / 3 / 4, published beside
+        # `weight_covered: 1.0` and `dimensions_unscored: []`.
+        #
+        # Every one of those had a producer that knew the answer and did not
+        # write it (the three `_override_*` replace-branches, and the skip-list
+        # branch of S4). With those writing, a blank arriving here means a
+        # producer bailed — a CRG or trace computation that raised and printed
+        # a WARN — and Round 32 站4's rule applies: the framework failing to
+        # measure is `infra_fail`, the framework's debt, never a number the
+        # project may lower. Silence was the third option and it is the one
+        # this removes.
+        # Scoped to what this gate's config declares, because a dimension the
+        # config never mentions has no producer BY CONSTRUCTION — an agent that
+        # reports an extra dimension would otherwise be told a producer bailed,
+        # which is Round 45's false accusation with a new subject line. What
+        # such a dimension does to the average is `composite_over`'s
+        # `fallback` question, already recorded as a separate decision.
+        _declared_names = {_d.get("name") for _d in _cfg_dims if _d.get("name")}
+        _unsourced = sorted(
+            d.name for d in dims
+            if d.score is not None and d.score_source is None
+            and d.name in _declared_names
+        )
+        if _unsourced:
+            raise GateBlockedError(
+                ctx.gate_num,
+                GateResult(
+                    gate_num=ctx.gate_num, score=_overall_score, dimensions=dims,
+                    open_critical=0, open_high=0, quality_complete=False,
+                ),
+                details={"infra_fail": [
+                    f"{_n}: carries a score with no recorded score_source, so "
+                    f"nothing in this result says where the number came from. "
+                    f"A producer for this dimension bailed — check the "
+                    f"[WARN] lines above for the override that skipped — and "
+                    f"repair it. Do NOT lower the dimension score to work "
+                    f"around a framework-side gap."
+                    for _n in _unsourced
+                ]},
+            )
 
         def _dim_passes(d: DimResult) -> bool:
             if d.score is not None:

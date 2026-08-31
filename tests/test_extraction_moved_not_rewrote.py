@@ -100,6 +100,19 @@ _EXTRACTED: "dict[str, dict]" = {
         # `raise GateBlockedError` rather than a return: fail-closed is the
         # right default for a gate.
         "generated_tail": True,
+        # Round 83 站1 added a block to this caller — the `_unsourced` raise
+        # beside the `_unmeasured` one — so "undoing the extraction gives back
+        # the function that was there" is no longer true of it, and will never
+        # be true again. That claim is retired here rather than by deleting the
+        # entry, because the other three claims are untouched and still worth
+        # checking: no extracted BODY was edited (they are still byte-identical
+        # to what they replaced), no helper reads a name nobody gives it, and
+        # every early return still propagates. This file's docstring says an
+        # entry leaves the moment one of its bodies is deliberately edited;
+        # none was. What expired is the reconstruction, and re-recording the
+        # .before to make it pass again would delete the evidence of the move,
+        # which the same docstring forbids.
+        "reconstructible": False,
         "helpers": (
             "_stage_shape_contract", "_stage_infra_fail_pollution",
             "_stage_persist_cited_evidence", "_stage_tool_evidence",
@@ -265,7 +278,16 @@ def test_no_helper_reads_a_name_nobody_gives_it(label):
     )
 
 
-@pytest.mark.parametrize("label", sorted(_EXTRACTED))
+# Not `sorted(_EXTRACTED)` like its three siblings: this is the one claim with
+# an expiry date. A caller that legitimately grows after its extraction can
+# never satisfy it again, and the entry says so in `reconstructible` rather
+# than the test skipping in silence (Round 46: an absent witness is not a
+# passing one — so the reason lives in the data every reader of _EXTRACTED
+# already opens, not in a skip marker nobody sees in a -q run).
+@pytest.mark.parametrize(
+    "label",
+    sorted(k for k, v in _EXTRACTED.items() if v.get("reconstructible", True)),
+)
 def test_undoing_the_extraction_gives_back_the_original_function(label):
     """The complete claim: same statements, same ORDER, nothing added or lost.
 

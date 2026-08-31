@@ -3990,3 +3990,19 @@
 - test: tests/test_tool_runners.py::TestScoreBandit::test_non_json_returns_none
   bug: "same root cause as test_trailing_stderr_noise_after_valid_json_returns_none — _score_bandit's parse-failure return value was 0.0 (a real failing score) instead of None (framework could not measure), conflating 'could not parse' with 'measured 0' exactly the way Round 32 站4 already fixed for other S4 failure modes"
   fixed_in: "2026-08-31 (toolchains/registry.py: added -q to bandit's ToolSpec.cmd; tool_runners.py: _score_bandit returns None on parse failure, matching _score_radon_cc/_score_radon_mi)"
+
+- test: tests/test_every_score_names_its_source.py::test_a_declared_dimension_with_no_score_source_blocks
+  bug: "`framework_measured` read a missing `score_source` as 'the framework measured this' — a default Round 50 站2 chose for artifacts that predated the field and that stayed load-bearing for three months after every producer should have been writing it. Measured on taskq-cc-new and taskq-new (six committed gate results): architecture, traceability, mutation_testing and license_compliance carry a score and no source in every one, for 0.28/0.31/0.33 of gates 2/3/4, published beside `weight_covered: 1.0` and `dimensions_unscored: []`. Four producers knew the answer and did not write it — the replace-branches of the three `_override_*` functions (whose append-branches always had) and S4's skip-list branch"
+  fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_every_dimension_sourced_is_not_blocked_for_that_reason
+  bug: "positive control for test_a_declared_dimension_with_no_score_source_blocks — without it the block would pass its own test while firing on anything, which is Round 46's shape: a guard that cannot tell the case it is for from the case it is not"
+  fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_artifact_verified_weight_is_published_beside_the_denominator
+  bug: "mutmut and scancode are `ToolSpec.skip_inline`: S4 validates their committed output artifact instead of re-running them, which is not the same thing as measuring and must not read as the same thing. That branch wrote no `score_source` at all, so 0.15 of taskq-cc-new's Gate 4 denominator was published inside `weight_covered: 1.0` as if the framework had re-measured it (Round 37: the ruler travels with the number)"
+  fixed_in: "Round 83 站1"
+
+- test: tests/test_every_score_names_its_source.py::test_the_new_source_moves_no_composite
+  bug: "`framework_measured` has three readers and two of them move verdicts — `composite_over` is the composite itself and the `_unmeasured` check raises GateBlockedError. Putting the new artifact_verified marker into `_SOURCES_NOT_FRAMEWORK_MEASURED` would drop mutmut and scancode out of every composite and block every gate that runs them; this pins that labelling a score changes no number, so the zero-drift claim is a test rather than a sentence in a commit message"
+  fixed_in: "Round 83 站1"

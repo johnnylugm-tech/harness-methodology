@@ -113,6 +113,29 @@ SCORE_SOURCE_AGENT_UNVERIFIED = "agent_unverified"
 # as somebody else.
 SCORE_SOURCE_STUBBED_BOUNDARY = "stubbed_boundary"
 
+# Round 83 站1. The framework did not run the tool in THIS gate; it verified
+# that the tool's committed output artifact exists, is non-empty and matches
+# the tool's own output format. That is the skip-list contract
+# (`ToolSpec.skip_inline` — mutmut / scancode / code-review-graph are minutes
+# long, so S4 checks the artifact instead of re-running them).
+#
+# It gets a word of its own because the two neighbours are both wrong for it:
+# SCORE_SOURCE_FRAMEWORK claims a measurement that did not happen this gate,
+# and SCORE_SOURCE_AGENT_UNVERIFIED claims there is no evidence when a
+# format-validated artifact is exactly what there is. Before this the branch
+# wrote nothing at all, and `framework_measured` read the blank as the first
+# of those two — measured on taskq-cc-new and taskq-new, six committed gate
+# results between them, `license_compliance` and `mutation_testing` carrying
+# 0.15 of Gate 4's weight with no recorded source beside `weight_covered: 1.0`.
+#
+# Deliberately NOT in `_SOURCES_NOT_FRAMEWORK_MEASURED`: the artifact is the
+# framework's own evidence contract and the number rides on it, so demoting it
+# would drop mutmut and scancode out of every composite and trip the
+# `_unmeasured` block on every gate that runs them. What changes is that
+# `measurement_scope` now says how much of the denominator was verified this
+# way rather than re-measured (Round 37: the ruler travels with the number).
+SCORE_SOURCE_ARTIFACT_VERIFIED = "artifact_verified"
+
 # The sources that are not "the framework measured the delivered code". Two
 # readers select on this and they must select on the same set — a second `!=`
 # comparison beside the first is how one of them comes to disagree with the
@@ -212,6 +235,18 @@ def measurement_scope(
     """
     scored = sorted(d.name for d in dims if framework_measured(d))
     unscored = sorted(d.name for d in dims if not framework_measured(d))
+    # Round 83 站1: the third state, inside `scored`. A skip-list dimension's
+    # number rides on a committed artifact the framework validated rather than
+    # on a tool it ran here, and until now the two were the same entry in this
+    # dict. taskq-cc-new's Gate 4 published `weight_covered: 1.0` over sixteen
+    # dimensions of which `mutation_testing` (0.08) and `license_compliance`
+    # (0.07) were of this kind — 15% of the denominator that a reader takes for
+    # re-measured. Listed, not subtracted: `weight_covered` keeps its meaning
+    # so cross-project comparisons of it stay comparable.
+    artifact_verified = sorted(
+        d.name for d in dims
+        if framework_measured(d) and d.score_source == SCORE_SOURCE_ARTIFACT_VERIFIED
+    )
     # Round 73 站5: the third list, one layer above the other two. Both of
     # those are built from the dimensions THIS GATE'S CONFIG produced, so a
     # dimension the config never mentions is neither — it is invisible.
@@ -234,8 +269,11 @@ def measurement_scope(
     return {
         "weight_covered": round(sum(weights.get(n, 0.0) for n in scored), 10),
         "weight_total": round(sum(weights.values()), 10),
+        "weight_artifact_verified": round(
+            sum(weights.get(n, 0.0) for n in artifact_verified), 10),
         "dimensions_scored": scored,
         "dimensions_unscored": unscored,
+        "dimensions_artifact_verified": artifact_verified,
         "dimensions_declared_absent": sorted(
             set(declared or []) - in_gate),
     }

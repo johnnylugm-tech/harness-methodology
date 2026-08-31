@@ -2353,11 +2353,20 @@ class TestFinalizeGate1:
                 # dimension with no entry now blocks. Its absence here was the
                 # same shape taskq (2026-07-27) and taskq-plus (2026-08-01)
                 # published in real Gate 1 results.
+                # Round 83 站1: and `score_source` is the fifth thing a
+                # finalized breakdown carries. A declared dimension whose
+                # score says nothing about where it came from now blocks as
+                # infra_fail; this payload stands in for one S4 has already
+                # been through, so it says what S4 says.
                 "breakdown": {
-                    "linting": {"score": 100.0, "threshold": 90},
-                    "type_safety": {"score": 98.5, "threshold": 85},
-                    "test_coverage": {"score": 92.0, "threshold": 80},
-                    "architecture_constraints": {"score": 96.0, "threshold": 80},
+                    "linting": {"score": 100.0, "threshold": 90,
+                                "score_source": "framework"},
+                    "type_safety": {"score": 98.5, "threshold": 85,
+                                    "score_source": "framework"},
+                    "test_coverage": {"score": 92.0, "threshold": 80,
+                                      "score_source": "framework"},
+                    "architecture_constraints": {"score": 96.0, "threshold": 80,
+                                                 "score_source": "framework"},
                 },
             }
         import json as _json

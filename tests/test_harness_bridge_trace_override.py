@@ -18,24 +18,27 @@ Cases covered:
   6. Non-traceability dims are passed through unchanged
   7. Input dims are not mutated (returns a new list)
 """
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import List
 from unittest.mock import patch
 
 import pytest  # noqa: F401 (test infra import)
+
+from harness.gate_result import DimResult
 
 
 # Playbook §6: dynamic mutation-oracle marker
 pytestmark = pytest.mark.mutation_oracle
 
 
-@dataclass
-class _Dim:
-    name: str
-    score: float
-    threshold: float
-    issues: List[Dict[str, Any]] = field(default_factory=list)
+# Round 83 站1: was a hand-rolled `@dataclass _Dim` with four fields. Round 50
+# added `score_source` to the real DimResult and this double never grew it, so
+# every test here ran against a shape production has not had for three months —
+# and the moment the override started recording where its number came from, six
+# tests failed on `AttributeError: '_Dim' object has no attribute
+# 'score_source'` rather than on anything about traceability. The double cannot
+# drift from the type if it is the type.
+_Dim = DimResult
 
 
 def _dims_with_traceability(trace_score: float) -> List[_Dim]:
