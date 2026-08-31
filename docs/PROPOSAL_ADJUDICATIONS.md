@@ -4113,6 +4113,55 @@ edited」。所以 `harness_bridge.finalize_gate` 整條 entry 退出,
 | 補上 `.github/workflows/harness_quality_gate.yml`(doctor 的第二個 WARN) | 那是框架 repo 對自己部署消費專案 CI 模板的問題,與本輪三問無關;順手做是廚房水槽 | 該 WARN 造成一次實際漏檢 |
 | 關掉 `git push --no-verify` | hook 關不掉(git 根本不叫它),branch protection 老闆禁止我動 | 老闆解除 branch protection 的限制 |
 
+### 驗證
+
+`bash scripts/self_check.sh` 全綠:ruff clean、guard registry 1003 支全在、
+**7945 passed / 4 skipped**(基線 7913 passed **/ 1 failed**)。
+`generate_workflows.py --write` 產出、goldens 重錄、`.claude/workflows/*.js` 零手改。
+
+**每一站獨立反證,還原後 `cp` 逐位元組復原並比對 sha256**
+(絕不用 `git restore`):
+
+| 站 | 反證 | 轉紅的守衛 | 還原 sha256 |
+|---|---|---|---|
+| 0 | probe 改回 import-only | 新的 dist-info 測試,吐出原本那句造假指控 | `2a2d1d76` |
+| 1 | 拿掉四個 `score_source` 寫入 | 四支各驅動一個生產者的測試(**第一次反證全綠,才發現登記的四支都沒執行過生產者**) | `1acdb03d` |
+| 1 | 拿掉 `_unsourced` 阻擋 | 阻擋測試 | 同上 |
+| 2 | print 改回無保護 | 三支 broken-stderr 測試 | `5f0bf54a` |
+| 3 | `_BULLET` 改回單行 / join 改成 no-op | 兩支換行測試 / 延期測試 | `7eca3b35` |
+| 4 | 移除 zero-refs 區塊 / 廢掉 red-head finding | 各一支,且各自的正控制維持綠 | `f1784c40`、`2c9db87d` |
+| 5 | 拿掉聯集減法 | 兩支 `_stage_declared_absent` 測試 | `8ea21dbd` |
+
+語料十二專案唯讀:`find -newermt <本輪第一個 commit>` 對每個專案為 0,
+唯一非零的 taskq-verify 是平行 session 的 live run 加一次 submodule bump
+(`harness/` 子模組 checkout 到 `9c7d69e8`,mtime 19:54:44 對應那次 checkout,
+不是我的寫入)。
+
+### Self-Review
+
+**被自己的量測改寫的,共六項**(四項在計畫階段,兩項在實作中):
+
+1. 站0 的病因比初稿深 —— 不是「測試依賴環境」,是修法瞄錯直譯器。
+2. 69 份 crash bundle 不是結構問題,是 fixture 殘骸。
+3. 站3 原設計「把驗證者當工具用 R54 三態分類」被 35/35 指向測試函式的資料否決。
+4. 外部報告的整合覆蓋 76.5% 無法重現(框架 committed evidence 是 81%)。
+5. **站1 的守衛第一次反證全綠** —— 登記的四支都直接建構 `DimResult`,
+   沒有一支執行生產者。補四支驅動真實生產者的測試後才真的關上。
+6. **站4 的理由是錯的** —— `find_latest_green_sha` 有讀者且實測有效,
+   缺的只是框架 repo 對自己的視角,修法因此從 20 次 walk 縮成 1 次呼叫。
+
+**外部報告 5 個扣分項**:2 個不成立(Dim1 的理由、Dim2 的 76.5%),
+1 個非框架缺陷(Dockerfile 未被任何文件宣告),
+2 個屬實但根源與報告所述不同(benchmark 警告 → performance 讀不到 p95;
+SQLite/PG → SRS 的 C-xx 從未進入約束通道,而那條路本輪查證後撤回)。
+
+**未驗證的假設**:(a) `6ba535e7` 那次紅推怎麼繞過 hook 的,判定不出來 ——
+站4 修的是能實跑證明的那條空路徑;(b) performance evidence 的 ~2.7e-07 秒
+取樣是否代表 benchmark 量到 no-op,唯讀專案下無法證實,站1c 因此只做
+「基準隨數字走」,不基於這個推論下任何判定;
+(c) taskq-cc-new 那支跨 10 個 FR 一直紅的
+`test_t07_no_orphan_descendant_after_timeout` 最後是修好還是被豁免,沒追到底。
+
 ---
 
 ## Round 82 — 擋住那 36 支的是七把只認一個檔案的尺
