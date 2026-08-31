@@ -338,6 +338,33 @@ _TEXT_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
         Owner.INFRA,
         "session/rate limit — the API quota, not the project's code",
     ),
+    # Gate-exhaustion halt (Round 79 站3+). The driver fires this after a
+    # bounded loop (3 rounds by default) of gate evaluation runs the
+    # quality_manifest's per-dimension scores below threshold without
+    # converging. The dim-level gaps are written to deferred_fixes.md and
+    # name PROJECT-side work (missing TEST_SPEC rows, missing integration
+    # tests, NFR-to-test traceability gaps) — never the framework. PROJECT
+    # is therefore the right answer; INFRA / HARNESS would route a fix
+    # agent at code or env that is not where the gap is.
+    #
+    # Narrow on purpose: "escalate to human" alone is too generic — the
+    # HARNESS-tagged corpus entry "HR-08: Phase 6 Peer Review had REJECT
+    # or unresolved medium/high gaps — escalate to human" also contains
+    # that phrase and would be misattributed here. The combination of
+    # "did not pass" + round count is what the bounded gate loop's halt
+    # message looks like and nothing else does (verified against the
+    # real-halt corpus, Round 79 站3+).
+    (
+        re.compile(
+            r"did\s+not\s+pass\s+in\s+\d+\s+rounds?|"
+            r"deferred[_\s-]?fixes|"
+            r"exhausted\s+\d+\s+rounds?",
+            re.I,
+        ),
+        Owner.PROJECT,
+        "gate loop exhausted N rounds — deferred_fixes.md names the "
+        "PROJECT-side dim gaps the orchestrator cannot fix in-budget",
+    ),
 )
 
 

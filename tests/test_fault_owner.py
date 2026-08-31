@@ -114,6 +114,33 @@ def test_session_limit_message_names_infrastructure():
     ).owner == Owner.INFRA
 
 
+def test_gate_exhaustion_message_names_the_project():
+    """Bounded gate loop exhausting N rounds lands in PROJECT's tree.
+
+    Measured 2026-08-31 on taskq-verify (second run-all, P3 Gate 2 final
+    halt): the driver returned `outcome.error` with message
+    "Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md +
+    escalate to human)" and `recordBlock(...)` was called WITHOUT
+    `--owner`. The text-only fallback had no rule for "did not PASS in N
+    rounds" / "deferred_fixes" — so the row landed as `owner=unknown`
+    even though deferred_fixes.md names PROJECT-side work (missing TEST_SPEC
+    rows, missing integration tests, NFR-to-test gaps). This test pins
+    the rule that closes that gap.
+    """
+    from core.fault_owner import Owner
+
+    assert _classify(
+        text="Gate 2 did not PASS in 3 rounds (HR-08; "
+             "write deferred_fixes.md + escalate to human)"
+    ).owner == Owner.PROJECT
+    assert _classify(
+        text="Gate 3 exhausted 5 rounds without convergence"
+    ).owner == Owner.PROJECT
+    assert _classify(
+        text="P4 entry blocked: deferred-fixes step refused to write the file"
+    ).owner == Owner.PROJECT
+
+
 def test_overloaded_exit_codes_need_their_message():
     """Measured 2026-08-12: two of the four overloaded codes carry two owners.
 
