@@ -263,40 +263,68 @@ class TestVerifyEnvCheckClaims:
             "Real exported var must pass; optional_missing entry must not be flagged"
         )
 
-    def test_distribution_installed_passes_via_metadata_probe(self, tmp_path):
+    # pip-tools' shape, as a name nothing on this machine can supply by
+    # accident: distribution name, CLI binary and importable module all differ.
+    #   distribution name : harness-probe-fixture-pkg
+    #   PATH binary       : none
+    #   name.replace("-","_") -> harness_probe_fixture_pkg   (not importable)
+    _TRIPLE_MISMATCH_DIST = "harness-probe-fixture-pkg"
+
+    def _install_dist_into_project(self, project: Path, dist_name: str) -> None:
+        """Put a real .dist-info under the project's src root.
+
+        `_import_probe_spec` puts `ProjectLayout(project).active_src_dir` on the
+        probe's PYTHONPATH, so a distribution installed there is one the
+        PROJECT's environment has and this repo's does not — which is the
+        distinction the probe has to get right.
+        """
+        src = project / "03-development" / "src"
+        src.mkdir(parents=True, exist_ok=True)
+        info = src / f"{dist_name.replace('-', '_')}-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(
+            f"Metadata-Version: 2.1\nName: {dist_name}\nVersion: 1.0\n",
+            encoding="utf-8",
+        )
+
+    def test_distribution_installed_in_the_project_passes(self, tmp_path):
         """pip-tools-style: distribution installed but no matching CLI/module.
 
-        Regression for the env-check miss observed on taskq-verify (2026-08-30):
+        The incident (taskq-verify, 2026-08-30):
           distribution name : pip-tools
           console_scripts   : pip-compile, pip-sync   (neither named `pip-tools`)
           top-level module  : piptools                  (no separator at all)
           name.replace("-","_") → `pip_tools`           (still no match)
 
-        The agent's claim is legitimate — `pip show pip-tools` confirms
-        install — but `_found_on_path_or_venv` and the generic import probe
-        both miss. The fix routes through `importlib.metadata.distribution`
-        (canonical `pip show` lookup) as a cheap fallback.
+        The claim is legitimate — `pip show pip-tools` confirms the install —
+        and `_found_on_path_or_venv` plus the plain `import` probe both miss.
 
-        No mocking: `pip-tools` is a real dependency of THIS test venv
-        (harness/requirements.txt), and genuinely exhibits the mismatch —
-        confirmed directly against the running interpreter (2026-08-31):
-        `_found_on_path_or_venv('pip-tools', ...)` and
-        `_registry_check_cmd('pip-tools')` both miss, only the new
-        `_is_distribution_installed` probe hits. Testing the real probe
-        chain against a real installed package is both simpler and more
-        faithful to the incident than patching the private probe functions.
+        What this pins is WHOSE environment answers. env-check verifies claims
+        about the PROJECT's environment, so a probe that asks the harness's own
+        interpreter answers a different question: measured 2026-08-31 with
+        pip-tools present in taskq-verify/.venv and absent from this repo's,
+        the in-process lookup returned False and the legitimate install was
+        still reported as a fabricated claim.
+
+        So the distribution is installed HERE — under the project's src root,
+        which `_import_probe_spec` puts on the probe's PYTHONPATH and which
+        this repo's interpreter cannot see. No probe function is patched; the
+        real chain runs (PATH → in-process distribution → registry check_cmd →
+        deferred per-interpreter probe) and only the last link can pass this.
         """
         from cli.gate_cmds import _verify_env_check_claims
+        self._install_dist_into_project(tmp_path, self._TRIPLE_MISMATCH_DIST)
         self._write(tmp_path, {"cli_tools": {"required": [
-            {"name": "pip-tools", "present": True},
+            {"name": self._TRIPLE_MISMATCH_DIST, "present": True},
         ]}})
         assert _verify_env_check_claims(tmp_path) == [], (
-            "Distribution-installed package (pip-tools) must pass via "
-            "importlib.metadata probe, not be flagged as fabrication"
+            "A distribution installed in the PROJECT must pass the probe, not "
+            "be flagged as fabrication because the harness's own interpreter "
+            "does not have it"
         )
 
     def test_distribution_absent_still_flagged(self, tmp_path):
-        """Sanity pair to test_distribution_installed_passes_via_metadata_probe:
+        """Sanity pair to test_distribution_installed_in_the_project_passes:
         a package absent from every probe — PATH, distribution metadata,
         registry check_cmd, import — MUST still be flagged as fabrication.
         Pins the closed-world contract: the distribution probe expands the

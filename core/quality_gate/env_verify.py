@@ -170,7 +170,7 @@ def _found_on_path_or_venv(name: str, project: Path) -> bool:
 
 
 def _is_distribution_installed(name: str) -> bool:
-    """Whether a Python distribution named `name` is installed.
+    """Whether a Python distribution named `name` is installed *in THIS process*.
 
     PEP 503 normalises case + `._-` for distribution lookup, so
     `pip-tools`, `pip_tools`, and `PIPTOOLS` all resolve to the same
@@ -181,7 +181,7 @@ def _is_distribution_installed(name: str) -> bool:
 
     Symmetric with `_found_on_path_or_venv`'s `_` <-> `-` fallback: that
     function fixes the case where a tool's CLI uses a different separator
-    than its distribution name. This function fixes the case that
+    than its distribution name. This covers the case that
     `_found_on_path_or_venv` CANNOT — packages whose distribution name,
     CLI binaries, and top-level module name all differ.
 
@@ -192,16 +192,20 @@ def _is_distribution_installed(name: str) -> bool:
       top-level module  : piptools                       (no separator at all)
       import probe name : pip_tools  (= name.replace("-","_"))  ← doesn't match
 
-      None of `which pip-tools`, `import pip_tools`, or
-      `import piptools` is what `pip show pip-tools` answers against —
-      `pip show` does NOT shell out to the CLI nor import the module;
-      it reads distribution metadata directly. Doing the same here
-      captures the legitimate install that the binary + import probes
-      both miss.
+    THE SCOPE, because it is the whole reason this is not the last word:
+    `importlib.metadata` answers for the interpreter that calls it, which is
+    the harness's. The claim being checked is about the PROJECT's environment.
+    Measured 2026-08-31 on the very incident above: `taskq-verify/.venv` has
+    pip-tools, this repo's `.venv` does not, and asking here returned False —
+    so the legitimate install was still reported as a fabricated claim, which
+    is exactly the finding this probe was added to remove.
 
-    Performance: `importlib.metadata.distribution()` consults the already-
-    loaded `PackagePath` cache first; only on miss does it scan
-    site-packages. Sub-millisecond on a typical venv.
+    So this stays as the free fast path — it costs no subprocess, and a hit
+    is a true hit — and the project's own interpreters are asked by the
+    batched probe in `probe_cli_tools`, which already spawns one process per
+    interpreter and now asks it this question too. Same rule as
+    `_import_probe_spec`'s Bug #129 note: whether a package verifies must not
+    depend on which interpreter happens to run harness_cli.
     """
     import importlib.metadata
     try:
@@ -238,15 +242,33 @@ def _is_venv_python_semantic_name(name: str, project: Path) -> bool:
 
 
 def _import_probe_spec(name: str, project: Path) -> "tuple[str, dict, list[str]]":
-    """Build the (package, env, interpreters) triple for an `import <pkg>` probe.
+    """Build the (probe source, env, interpreters) triple for the deferred probe.
 
     src-layout projects (e.g. 03-development/src/taskq) are importable only with
     the project's src root on PYTHONPATH — the deliverable package is a valid
     "present" claim even before pip install. Bug #129: try the project venv's
     python too, so whether a plugin-only package (pytest-cov) verifies does not
     depend on which interpreter happens to run harness_cli.
+
+    The source asks TWO questions in the one process it was already going to
+    spawn: can this interpreter import the module, and does this interpreter's
+    site-packages hold a distribution by that name. They are different
+    questions — pip-tools answers no to the first and yes to the second — and
+    `_is_distribution_installed` can only ask the second one of the harness.
+    Returning the source rather than the package name keeps what the probe asks
+    in one place; two spellings of it is how the caller comes to ask something
+    else than this function documents.
     """
     pkg = name.replace("-", "_")
+    probe_src = (
+        "import importlib, importlib.metadata as _m, sys\n"
+        f"try:\n"
+        f"    importlib.import_module({pkg!r})\n"
+        f"    sys.exit(0)\n"
+        f"except ImportError:\n"
+        f"    pass\n"
+        f"_m.distribution({name!r})\n"
+    )
     import_env = {**os.environ}
     try:
         src_dir = ProjectLayout(project).active_src_dir
@@ -264,27 +286,28 @@ def _import_probe_spec(name: str, project: Path) -> "tuple[str, dict, list[str]]
         vp = project / vd / _bin_dir() / py_exe
         if vp.exists():
             interps.append(str(vp))
-    return pkg, import_env, interps
+    return probe_src, import_env, interps
 
 
 def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
     """Probe CLI tool names, returning {raw_name: found}.
 
     Batched on purpose: several unresolved tools each sequentially spawning up
-    to len(interps) `import <pkg>` probes (5s timeout each) serialize to tens of
-    seconds on a blocking CLI path, so all deferred probes run concurrently at
-    the end. Framework subcommands (`*.py`) are reported found — they are not
-    PATH tools and probing them is meaningless (Bug #123).
+    to len(interps) probes (5s timeout each) serialize to tens of seconds on a
+    blocking CLI path, so all deferred probes run concurrently at the end.
+    Framework subcommands (`*.py`) are reported found — they are not PATH tools
+    and probing them is meaningless (Bug #123).
 
     Order matters and is cheapest-first. PATH is a `shutil.which` lookup and
     costs nothing, so a tool that is simply installed never pays for a
-    subprocess. After PATH, distribution metadata (`importlib.metadata.
-    distribution`) covers packages whose CLI binaries and module name both
-    differ from the distribution name (pip-tools → pip-compile + piptools).
-    Only after both miss does the registry's own `check_cmd` get a turn
-    (Round 56 站2), and only after that the generic import probe.
+    subprocess. After PATH, an in-process distribution lookup catches the same
+    package when the harness's own interpreter happens to have it. Only after
+    both miss does the registry's own `check_cmd` get a turn (Round 56 站2),
+    and only after that the deferred probe, which asks BOTH questions —
+    importable, or a distribution by that name — of every interpreter,
+    including the project's own venv.
     Measured 2026-08-17: nine registry tools reach the check_cmd branch, each
-    0.02–0.04s, and they run in the same thread pool as the import probes.
+    0.02–0.04s, and they run in the same thread pool as the deferred probes.
     """
     results: dict[str, bool] = {}
     pending: list[tuple[str, str, dict, list[str]]] = []
@@ -302,12 +325,12 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
         if _is_venv_python_semantic_name(name, project):
             results[raw_name] = True
             continue
-        # Distribution metadata lookup — the canonical `pip show` answer
-        # for "is this PyPI package installed". Catches packages whose
-        # distribution name, CLI binaries, and top-level module all
-        # differ (pip-tools → pip-compile/pip-sync + piptools). Symmetric
-        # with `_found_on_path_or_venv`'s dash/underscore fallback; cheaper
-        # than the registry/import probes, so it sits before them.
+        # Distribution metadata lookup — the canonical `pip show` answer for
+        # "is this PyPI package installed", asked of THIS interpreter. A hit
+        # is free and true; a miss says nothing about the project, which is
+        # why it is a fast path here and not the branch that decides. The
+        # project's own interpreters get the same question in the deferred
+        # probe below (`_import_probe_spec`).
         if _is_distribution_installed(name):
             results[raw_name] = True
             continue
@@ -315,23 +338,24 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
         if check_cmd:
             checks.append((raw_name, check_cmd))
             continue
-        pkg, import_env, interps = _import_probe_spec(name, project)
-        pending.append((raw_name, pkg, import_env, interps))
+        probe_src, import_env, interps = _import_probe_spec(name, project)
+        pending.append((raw_name, probe_src, import_env, interps))
 
     if pending or checks:
         def _probe_import(item: "tuple[str, str, dict, list[str]]") -> "tuple[str, bool]":
-            _raw_name, _pkg, _import_env, _interps = item
+            _raw_name, _probe_src, _import_env, _interps = item
             for _interp in _interps:
                 try:
                     _r = subprocess.run(
-                        [_interp, "-c", f"import {_pkg}"],
+                        [_interp, "-c", _probe_src],
                         capture_output=True, timeout=5, env=_import_env,
                     )
                     if _r.returncode == 0:
                         return _raw_name, True
                 except Exception as exc:  # pylint: disable=broad-exception-caught
-                    print(f"[WARN] tool-check: import probe for '{_pkg}' via "
-                          f"{_interp} failed: {exc}", file=sys.stderr)
+                    print(f"[WARN] tool-check: import/distribution probe for "
+                          f"'{_raw_name}' via {_interp} failed: {exc}",
+                          file=sys.stderr)
             return _raw_name, False
 
         def _probe_check_cmd(item: "tuple[str, str]") -> "tuple[str, bool]":
