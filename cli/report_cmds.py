@@ -647,14 +647,46 @@ def cmd_record_block(args: argparse.Namespace) -> int:
     literal would be Round 36's shape (one fact, N statements) on a surface
     nobody can unit-test.
 
+    `--owner` is an OPTIONAL escape hatch: when the caller knows whose tree
+    must change (a workflow that observed its own session-limit halt, for
+    instance), it can declare the owner directly and bypass the text-based
+    classifier. It is the same shape fault_owner.py's docstring gives the
+    exit code — "the stronger signal when present" — applied to the
+    caller's own statement. Without `--owner` the behaviour is exactly what
+    it was before Round 79 站3.
+
     Exit code is always 0. This command reports a block that already happened;
     failing it would replace the caller's real problem with a bookkeeping one.
     """
-    from core.fault_owner import classify_fault, routes_to_harness_repair
+    from core.fault_owner import (
+        ALL_OWNERS,
+        classify_fault,
+        routes_to_harness_repair,
+    )
     from core.workflow_blocks import record_block
 
     project = Path(args.project).resolve()
-    verdict = classify_fault(exit_code=args.exit_code, text=args.message)
+
+    explicit_owner = getattr(args, "owner", None)
+    if explicit_owner is not None:
+        if explicit_owner not in ALL_OWNERS:
+            print(
+                f"[record-block] --owner must be one of "
+                f"{sorted(ALL_OWNERS)}, got {explicit_owner!r}; "
+                f"falling back to classifier",
+                file=sys.stderr,
+            )
+            verdict = classify_fault(exit_code=args.exit_code, text=args.message)
+        else:
+            # The caller is the source that knows. Skip the text classifier
+            # entirely so an "infra" / "harness" declaration is not silently
+            # demoted by a free-text mismatch — the failure mode this
+            # escape hatch exists to prevent. Even `unknown` is the caller's
+            # own statement, and they may mean it; trust it.
+            verdict = _explicit_verdict(explicit_owner, args.message)
+    else:
+        verdict = classify_fault(exit_code=args.exit_code, text=args.message)
+
     try:
         signature = record_block(
             project,
@@ -686,7 +718,28 @@ def cmd_record_block(args: argparse.Namespace) -> int:
     return 0
 
 
+def _explicit_verdict(owner: str, message: str):
+    """Build a FaultVerdict from a caller-supplied owner.
+
+    The evidence explains the route the verdict took, so a reader of the
+    ledger can tell at a glance whether the owner came from the caller's
+    own knowledge (`--owner`) or from classify_fault's heuristics."""
+    from core.fault_owner import FaultVerdict
+
+    return FaultVerdict(
+        owner=owner,
+        evidence=f"caller-supplied --owner={owner} (skip classifier); "
+                 f"raw message: {message[:120]!r}",
+    )
+
+
 def register(sub) -> None:
+    # The CLI argument's `choices` must be in scope at register time; this is
+    # the only place it is read at module import, so a top-level import would
+    # drag fault_owner into every importer of report_cmds. The lazy import
+    # inside cmd_record_block remains; here we want the symbol for choices=.
+    from core.fault_owner import ALL_OWNERS
+
     rb = sub.add_parser(
         "record-block",
         help="Record where a workflow stopped and classify whose fault it is "
@@ -703,6 +756,16 @@ def register(sub) -> None:
                          "must not be classified)")
     rb.add_argument("--exit-code", type=int, default=None,
                     help="Exit code, when the halt came from a CLI command")
+    rb.add_argument(
+        "--owner",
+        choices=sorted(ALL_OWNERS),
+        default=None,
+        help="If the caller already knows whose tree must change, declare it "
+             "here and skip the text classifier. Use this when the halt "
+             "message would not survive a text-only round-trip (e.g. "
+             "session-limit halts, where the workflow sandbox has no exit "
+             "code to carry).",
+    )
     rb.set_defaults(func=cmd_record_block)
 
     ld = sub.add_parser(

@@ -86,6 +86,34 @@ def test_a_project_quality_failure_names_the_project():
     assert _classify(exit_code=9).owner == Owner.PROJECT
 
 
+def test_session_limit_message_names_infrastructure():
+    """Quota / 429 / session-limit halts file as INFRA, not UNKNOWN.
+
+    Measured 2026-08-31 on taskq-verify (P3 Gate 2 round 2): the message
+    "Agent hit session/rate limit during Gate 2 evaluation." produced
+    `Owner.UNKNOWN` because the workflow sandbox has no filesystem and the
+    agent that hit the quota cannot carry an exit code; the text-only
+    fallback had no rule for it; the repair-workflow branch then went
+    un-suggested even though the fix is a clear INFRA one (wait for the
+    quota to reset). This test pins the rule that closes the gap.
+    """
+    from core.fault_owner import Owner
+
+    assert _classify(
+        text="Agent hit session/rate limit during Gate 2 evaluation. "
+             "Resume after quota reset."
+    ).owner == Owner.INFRA
+    assert _classify(
+        text="API Error 429: Token Plan usage limit has been reached."
+    ).owner == Owner.INFRA
+    assert _classify(
+        text="[log-dispatch] quota exceeded on batch flush"
+    ).owner == Owner.INFRA
+    assert _classify(
+        text="Agent hit rate-limit on dispatch; aborting retries."
+    ).owner == Owner.INFRA
+
+
 def test_overloaded_exit_codes_need_their_message():
     """Measured 2026-08-12: two of the four overloaded codes carry two owners.
 

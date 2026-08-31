@@ -317,6 +317,27 @@ _TEXT_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
         Owner.HARNESS,
         "crg_independent_failed — the harness's own CRG measurement failed",
     ),
+    # Session/rate-limit halt (Round 79 站3+). The workflow sandbox has no
+    # filesystem, no shell and no clock, so the agent that hit the quota
+    # cannot carry an exit code; the message is all the classifier sees.
+    # Without this rule every quota cap filed its row as `owner=unknown` and
+    # `repair_workflow=null` (measured today, 2026-08-31, on taskq-verify
+    # P3 Gate 2 round 2). The condition is INFRA — neither the project's
+    # code nor harness's own tree is at fault; the API quota is. The
+    # workflow's own `recordBlock(..., owner='infra')` caller path also
+    # exists, but text-only callers (a future ad-hoc CLI, an analyst
+    # reading workflow_blocks.jsonl by hand) need the same answer.
+    (
+        re.compile(
+            r"session[\s-]?limit|rate[\s-]?limit|"
+            r"token\s+plan|usage\s+limit|quota|"
+            r"\b429\b|"
+            r"agent\s+hit\s+(a\s+)?session",
+            re.I,
+        ),
+        Owner.INFRA,
+        "session/rate limit — the API quota, not the project's code",
+    ),
 )
 
 

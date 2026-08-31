@@ -164,13 +164,17 @@ log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 """
 
 RECORD_BLOCK_FN_BLOCK = """\
-// recordBlock persists the reason a run halted to .methodology/workflow_blocks.jsonl
-// (harness_cli.py record-block) and reports the owner/repair_workflow it
-// classifies, so a caller can decide whether an autonomous fix is possible.
-async function recordBlock(phaseNo, step, message) {
+// recordBlock persists a halt to .methodology/workflow_blocks.jsonl
+// (harness_cli.py record-block). Optional `owner` (Round 79 站3) lets a
+// caller who already knows the owner declare it directly — same shape
+// fault_owner.py gives the exit code.
+async function recordBlock(phaseNo, step, message, owner) {
   const clean = (s) => String(s == null ? '' : s).replace(/'/g, '').replace(/\\s+/g, ' ').slice(0, 800)
-  const cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
+  let cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
     + ' --phase ' + phaseNo + " --step '" + clean(step) + "' --message '" + clean(message) + "'"
+  if (owner != null && owner !== '') {
+    cmd += " --owner '" + clean(owner) + "'"
+  }
   try {
     const result = await agent(
       'Run this command via the Bash tool:\\n`' + cmd + '`\\n'

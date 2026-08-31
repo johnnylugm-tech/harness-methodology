@@ -235,13 +235,17 @@ const WRITE_SCOPE_TMP = REPO + '/.sessi-work/tmp'
 log('WRITE SCOPE: debug artifacts → ' + WRITE_SCOPE_TMP)
 
 
-// recordBlock persists the reason a run halted to .methodology/workflow_blocks.jsonl
-// (harness_cli.py record-block) and reports the owner/repair_workflow it
-// classifies, so a caller can decide whether an autonomous fix is possible.
-async function recordBlock(phaseNo, step, message) {
+// recordBlock persists a halt to .methodology/workflow_blocks.jsonl
+// (harness_cli.py record-block). Optional `owner` (Round 79 站3) lets a
+// caller who already knows the owner declare it directly — same shape
+// fault_owner.py gives the exit code.
+async function recordBlock(phaseNo, step, message, owner) {
   const clean = (s) => String(s == null ? '' : s).replace(/'/g, '').replace(/\s+/g, ' ').slice(0, 800)
-  const cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
+  let cmd = PY + ' ' + REPO + '/harness_cli.py record-block --project ' + REPO
     + ' --phase ' + phaseNo + " --step '" + clean(step) + "' --message '" + clean(message) + "'"
+  if (owner != null && owner !== '') {
+    cmd += " --owner '" + clean(owner) + "'"
+  }
   try {
     const result = await dispatch(
       'Run this command via the Bash tool:\n`' + cmd + '`\n'
@@ -4709,7 +4713,7 @@ for (let n = startPhase; n <= 8; n++) {
     return halt('workflow-crash', { error: crashMsg, phase: n, phases_run: phasesRun, note: 'An agent dispatch inside this phase threw instead of returning a result. Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' })
   }
   if (outcome && outcome.session_limit_blocked) {
-    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'))
+    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'), 'infra')
     return { session_limit_blocked: true, phase: n, phases_run: phasesRun, detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — it resumes from state.json and every completed phase short-circuits.' }
   }
   if (outcome && outcome.error) {

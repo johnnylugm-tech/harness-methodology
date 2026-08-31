@@ -301,7 +301,8 @@ def _render_driver(all_titles: list[str]) -> str:
         "Relaunch run-all — it resumes from state.json (this phase restarts from its current sub-task, per existing resumability).' })\n"
         "  }\n"
         "  if (outcome && outcome.session_limit_blocked) {\n"
-        "    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'))\n"
+        # Round 79 站3: pre-classify INFRA at the call site.
+        "    await recordBlock(n, 'session-limit', String(outcome.message || 'agent hit a session/rate limit'), 'infra')\n"
         "    return { session_limit_blocked: true, phase: n, phases_run: phasesRun, "
         "detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — "
         "it resumes from state.json and every completed phase short-circuits.' }\n"

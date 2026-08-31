@@ -201,3 +201,90 @@ def test_resolving_a_signature_that_was_never_recorded_is_refused(project):
 
     with pytest.raises(UnknownBlockError):
         resolve_block(project, "sha256:deadbeef", resolution="claimed fixed")
+
+
+# ---------------------------------------------------------------------------
+# Round 79 站3 — the explicit-owner escape hatch
+#
+# Before this: a workflow that observed its own session-limit halt could
+# only call `record-block --message '...'` and hope classify_fault read the
+# text right. When the message didn't match any rule, the row landed as
+# `owner=unknown` and the repair-workflow branch went un-suggested — the
+# exact failure mode measured on taskq-verify P3 Gate 2 round 2 (2026-08-31).
+# `--owner` is the caller's own statement, same shape fault_owner.py gives
+# the exit code: "the stronger signal when present".
+# ---------------------------------------------------------------------------
+
+
+def test_record_block_cli_accepts_explicit_owner(project, capsys):
+    """`harness_cli.py record-block --owner infra` skips the classifier.
+
+    The CLI is a thin wrapper over `core.workflow_blocks.record_block`, but
+    the `--owner` flag means `cmd_record_block` must NOT call
+    classify_fault — otherwise a text-only caller cannot escape the UNKNOWN
+    bucket when the halt would not survive a free-text round-trip.
+    """
+    import argparse
+    import json
+
+    from core.fault_owner import Owner
+
+    # Drive the CLI handler directly so we don't depend on argv plumbing.
+    from cli.report_cmds import cmd_record_block
+
+    args = argparse.Namespace(
+        project=str(project),
+        phase=3,
+        step="Gate 2",
+        message="Agent hit session/rate limit during Gate 2 evaluation.",
+        exit_code=None,
+        owner=Owner.INFRA,
+    )
+
+    assert cmd_record_block(args) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out.splitlines()[0])
+    assert payload["owner"] == Owner.INFRA, (
+        f"explicit --owner infra was overridden to {payload['owner']!r}"
+    )
+    assert payload["repair_workflow"] is None, (
+        "infra-owner should not route to harness-repair"
+    )
+    assert "caller-supplied --owner=infra" in payload["evidence"], (
+        "evidence must mark the verdict as caller-supplied so an audit can "
+        "tell at a glance which halts were self-classified by the caller"
+    )
+
+    rows = [json.loads(line) for line in _ledger(project).read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["owner"] == Owner.INFRA
+
+
+def test_record_block_cli_without_owner_still_classifies(project, capsys):
+    """The escape hatch is additive: absent --owner, classify_fault runs.
+
+    This is the regression guard for the additive contract — a caller that
+    never knew about --owner must continue to get the same verdict it did
+    before Round 79 站3.
+    """
+    import argparse
+    import json
+
+    from cli.report_cmds import cmd_record_block
+
+    args = argparse.Namespace(
+        project=str(project),
+        phase=3,
+        step="Gate 2",
+        message="Agent hit session/rate limit during Gate 2 evaluation.",
+        exit_code=None,
+        owner=None,
+    )
+
+    cmd_record_block(args)
+    out = capsys.readouterr().out
+    payload = json.loads(out.splitlines()[0])
+    assert payload["owner"] == "infra", (
+        f"text-only path must classify the session-limit message as INFRA "
+        f"(Round 79 站3 text rule), got {payload['owner']!r}"
+    )
