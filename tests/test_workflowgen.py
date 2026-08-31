@@ -534,3 +534,46 @@ class TestDeferredFixesStepAllGates:
                 f"run-all.js is missing gate {gate_num}'s deferred-fix "
                 f"recorder — a phase file and the composite have drifted"
             )
+
+
+class TestGateExhaustionOwnerThreading:
+    """Regression guard for Round 79 站3-4.
+
+    A gate-exhaustion halt ("Gate N did not PASS in 3 rounds") is always
+    PROJECT-owned — verify-gate's own manifest-based PASS/FAIL judgement is
+    the only way `render_gate_loop`'s halt can fire, and a genuine dispatch
+    crash never reaches it (run-all.js's outer try/catch intercepts that
+    first as 'workflow-crash'). `core.fault_owner._TEXT_RULES` used to guess
+    this from prose and misfired on two unrelated halts (see
+    tests/test_fault_owner.py::test_advance_and_deliverable_exhaustion_stay_unknown).
+    The fix instead has `render_gate_loop` state the owner directly and
+    run-all.js's driver forward it — these tests pin both halves so neither
+    can silently drift back to text-guessing."""
+
+    def test_all_three_gate_phases_name_project_on_exhaustion(self):
+        for phase in (3, 4, 6):
+            text = generate(phase)
+            assert "owner: 'project'" in text, (
+                f"phase {phase}'s generated gate-exhaustion halt no longer "
+                f"states owner: 'project' — render_gate_loop's halt() call "
+                f"has drifted from the Round 79 站3-4 fix"
+            )
+
+    def test_runall_forwards_outcome_owner_to_record_block(self):
+        from scripts.workflowgen.spec_runall import generate_runall
+        text = generate_runall()
+        assert "owner: 'project'" in text, (
+            "run-all.js no longer inlines a gate-exhaustion halt naming "
+            "owner: 'project' — the three phase bodies it composes have "
+            "drifted from render_gate_loop's fix"
+        )
+        start = text.index("if (outcome && outcome.error) {")
+        end = text.index("\n  }\n", start)
+        body = text[start:end]
+        assert "recordBlock(n, String(outcome.halt_step || 'phase-error'), " \
+               "String(outcome.error), outcome.owner)" in body, (
+            "run-all.js's generic outcome.error branch no longer forwards "
+            "outcome.owner to recordBlock — a halt object that states its "
+            "own owner (e.g. render_gate_loop's) would fall back to the "
+            "text classifier and lose that signal"
+        )

@@ -114,31 +114,62 @@ def test_session_limit_message_names_infrastructure():
     ).owner == Owner.INFRA
 
 
-def test_gate_exhaustion_message_names_the_project():
-    """Bounded gate loop exhausting N rounds lands in PROJECT's tree.
+def test_gate_exhaustion_text_alone_is_honestly_unknown():
+    """Gate-exhaustion messages are NOT classified from prose (Round 79 站3-4).
 
-    Measured 2026-08-31 on taskq-verify (second run-all, P3 Gate 2 final
-    halt): the driver returned `outcome.error` with message
-    "Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md +
-    escalate to human)" and `recordBlock(...)` was called WITHOUT
-    `--owner`. The text-only fallback had no rule for "did not PASS in N
-    rounds" / "deferred_fixes" — so the row landed as `owner=unknown`
-    even though deferred_fixes.md names PROJECT-side work (missing TEST_SPEC
-    rows, missing integration tests, NFR-to-test gaps). This test pins
-    the rule that closes that gap.
+    A first attempt (Round 79 站3-3) added a `_TEXT_RULES` regex for "did
+    not PASS in N rounds" / "exhausted N rounds". Measured against the real
+    generator source, that regex ALSO matched two unrelated, heterogeneous
+    halts — `js_blocks.py`'s Advance-loop exhaustion and its
+    deliverable-missing / sbr-deliverable-missing halts (see
+    `test_advance_and_deliverable_exhaustion_stay_unknown` below) — and
+    would have mis-filed them as PROJECT with no evidence. The correct fix
+    is at the one site that actually knows the answer:
+    `render_gate_loop()` now states `owner: 'project'` directly on the halt
+    object it returns, and run-all.js's driver forwards it to
+    `recordBlock`'s `--owner`. Text-only classification for this exact
+    message therefore stays UNKNOWN — the honest answer when the owner
+    travels by a different channel — see `REAL_HALT_CORPUS` for this
+    message pinned as a permanent regression entry.
     """
     from core.fault_owner import Owner
 
     assert _classify(
         text="Gate 2 did not PASS in 3 rounds (HR-08; "
              "write deferred_fixes.md + escalate to human)"
-    ).owner == Owner.PROJECT
+    ).owner == Owner.UNKNOWN
+
+
+def test_advance_and_deliverable_exhaustion_stay_unknown():
+    """Regression guard for the false positives Round 79 站3-3's regex had.
+
+    Verbatim (minus interpolated values) from `js_blocks.py`:
+    - `render_advance_loop`'s halt: "Advance did not PASS in N rounds —
+      check HANDOVER.md + state.json + the last [BLOCKED] message below."
+      Advance-phase re-verifies deliverables, phase_truth, the exit gate's
+      digest and the git push — a heterogeneous halt that can be INFRA
+      (git push failed) as easily as PROJECT (deliverables missing).
+    - `spec_phase1.py` / the SBR machine's deliverable-missing halt: "X not
+      found on disk after A — exhausted N rounds." Whether a sub-agent
+      failed to write its own deliverable is not decidable from this text
+      either.
+
+    Neither halt has a single-producer call site that can state its owner
+    the way `render_gate_loop` now does, so both correctly stay UNKNOWN.
+    A regex broad enough to catch "Gate N did not PASS in 3 rounds" also
+    catches these two — this test exists so nobody reintroduces that
+    regex without re-solving this collision.
+    """
+    from core.fault_owner import Owner
+
     assert _classify(
-        text="Gate 3 exhausted 5 rounds without convergence"
-    ).owner == Owner.PROJECT
+        text="Advance did not PASS in 3 rounds — check HANDOVER.md + "
+             "state.json + the last [BLOCKED] message below. If Phase 4 "
+             "is confirmed, resume workflow to verify."
+    ).owner == Owner.UNKNOWN
     assert _classify(
-        text="P4 entry blocked: deferred-fixes step refused to write the file"
-    ).owner == Owner.PROJECT
+        text="SAD.md: not found on disk after A — exhausted 5 rounds"
+    ).owner == Owner.UNKNOWN
 
 
 def test_overloaded_exit_codes_need_their_message():
@@ -238,6 +269,17 @@ REAL_HALT_CORPUS: tuple[tuple[str, str], ...] = (
     ("FR-01 TDD-GREEN: TURN_BUDGET", Owner.INFRA),
     ("incremental graph covered 6 of 41 delivered source file(s) — "
      "rebuilding in full", Owner.HARNESS),
+    # Verbatim from taskq-verify's .methodology/workflow_blocks.jsonl
+    # (2026-08-31, P3 Gate 2, second run-all after the session-limit fix
+    # landed). classify_fault(text=...) alone cannot tell this apart from
+    # the Advance-loop / deliverable-missing exhaustion halts (see
+    # test_advance_and_deliverable_exhaustion_stay_unknown) — the true
+    # owner is known only because render_gate_loop's halt object states
+    # `owner: 'project'` directly (Round 79 站3-4), which reaches the
+    # ledger through run-all.js's driver, not through this corpus's
+    # classifier.
+    ("Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + "
+     "escalate to human)", Owner.PROJECT),
 )
 
 

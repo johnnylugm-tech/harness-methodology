@@ -296,11 +296,30 @@ DISCRIMINATED_EXITS: frozenset[int] = frozenset(_DISCRIMINATORS)
 # ---------------------------------------------------------------------------
 # Text-only rules, for a halt that has no exit code (a workflow's own message).
 #
-# There are exactly two today, and that is the honest size of the evidence the
-# framework currently emits. Anything else is UNKNOWN — including the 93 halt
-# sites whose message is "X did not PASS in N attempts", which say nothing
-# about whose defect it is. Growing this table is how classification improves;
-# guessing is not.
+# There are exactly three today, and that is the honest size of the evidence
+# the framework currently emits. Anything else is UNKNOWN — including the 93
+# halt sites whose message is "X did not PASS in N attempts", which say
+# nothing about whose defect it is. Growing this table is how classification
+# improves; guessing is not.
+#
+# Gate-exhaustion ("Gate N did not PASS in 3 rounds") is deliberately NOT
+# here. Round 79 站3-3 added a regex for it and Round 79 站3-4 removed it —
+# measured against the real workflow-generator source, it also matched
+# "Advance did not PASS in N rounds" (js_blocks.py's render_advance_loop,
+# a heterogeneous halt that can be INFRA as easily as PROJECT) and "X not
+# found on disk after A — exhausted N rounds" (deliverable-missing /
+# sbr-deliverable-missing, same ambiguity). Text alone cannot tell those
+# apart from a genuine gate-loop exhaustion; guessing PROJECT for all of
+# them would be exactly the anti-pattern this module's docstring warns
+# against. The gate loop has exactly one producer —
+# scripts/workflowgen/js_blocks.py::render_gate_loop() — and it now states
+# `owner: 'project'` directly on the halt object it returns (true in every
+# case that function can reach: the halt only fires after verify-gate's own
+# manifest-based PASS/FAIL judgement, never on an uncaught dispatch crash,
+# which is intercepted earlier by run-all.js's workflow-crash boundary).
+# run-all.js's driver forwards that field to record-block's `--owner`, so
+# the correct answer travels from the one site that knows it instead of
+# being reconstructed here from prose that several unrelated halts share.
 # ---------------------------------------------------------------------------
 _TEXT_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
     (
@@ -337,33 +356,6 @@ _TEXT_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
         ),
         Owner.INFRA,
         "session/rate limit — the API quota, not the project's code",
-    ),
-    # Gate-exhaustion halt (Round 79 站3+). The driver fires this after a
-    # bounded loop (3 rounds by default) of gate evaluation runs the
-    # quality_manifest's per-dimension scores below threshold without
-    # converging. The dim-level gaps are written to deferred_fixes.md and
-    # name PROJECT-side work (missing TEST_SPEC rows, missing integration
-    # tests, NFR-to-test traceability gaps) — never the framework. PROJECT
-    # is therefore the right answer; INFRA / HARNESS would route a fix
-    # agent at code or env that is not where the gap is.
-    #
-    # Narrow on purpose: "escalate to human" alone is too generic — the
-    # HARNESS-tagged corpus entry "HR-08: Phase 6 Peer Review had REJECT
-    # or unresolved medium/high gaps — escalate to human" also contains
-    # that phrase and would be misattributed here. The combination of
-    # "did not pass" + round count is what the bounded gate loop's halt
-    # message looks like and nothing else does (verified against the
-    # real-halt corpus, Round 79 站3+).
-    (
-        re.compile(
-            r"did\s+not\s+pass\s+in\s+\d+\s+rounds?|"
-            r"deferred[_\s-]?fixes|"
-            r"exhausted\s+\d+\s+rounds?",
-            re.I,
-        ),
-        Owner.PROJECT,
-        "gate loop exhausted N rounds — deferred_fixes.md names the "
-        "PROJECT-side dim gaps the orchestrator cannot fix in-budget",
     ),
 )
 

@@ -2506,7 +2506,7 @@ if (!gate2Pass) {
     + '   - A final "Next step:" line: "Resolve every item → re-run Phase 3 Gate 2 → advance-phase"',
     { label: 'deferred-fixes-g2', phase: 'P3 · Gate 2', agentType: 'general-purpose' },
   )
-  return halt('gate2', { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate2Report ?? '').slice(-600) })
+  return halt('gate2', { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', owner: 'project', raw: String(gate2Report ?? '').slice(-600) })
 }
 
 
@@ -3043,7 +3043,7 @@ if (!gate3Pass) {
     + '   - A final "Next step:" line: "Resolve every item → re-run Phase 4 Gate 3 → advance-phase"',
     { label: 'deferred-fixes-g3', phase: 'P4 · Gate 3', agentType: 'general-purpose' },
   )
-  return halt('gate3', { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', raw: String(gate3Report ?? '').slice(-600) })
+  return halt('gate3', { error: 'Gate 3 did not PASS in 3 rounds (HR-08); deferred_fixes.md written to .methodology/ (advance-phase exit 17 until resolved)', owner: 'project', raw: String(gate3Report ?? '').slice(-600) })
 }
 
 
@@ -3712,7 +3712,7 @@ if (!gate4Pass) {
     + '   - A final "Next step:" line: "Resolve every item → re-run Phase 6 Gate 4 → advance-phase"',
     { label: 'deferred-fixes-g4', phase: 'P6 · Gate 4', agentType: 'general-purpose' },
   )
-  return halt('gate4', { error: 'Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate4Report ?? '').slice(-600) })
+  return halt('gate4', { error: 'Gate 4 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', owner: 'project', raw: String(gate4Report ?? '').slice(-600) })
 }
 
 
@@ -4717,7 +4717,7 @@ for (let n = startPhase; n <= 8; n++) {
     return { session_limit_blocked: true, phase: n, phases_run: phasesRun, detail: outcome, message: 'Agent hit a session/rate limit. Relaunch run-all after the quota resets — it resumes from state.json and every completed phase short-circuits.' }
   }
   if (outcome && outcome.error) {
-    await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error))
+    await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error), outcome.owner)
     return halt(String(outcome.halt_step || 'phase-error'), { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, phase: n, phases_run: phasesRun, detail: outcome })
   }
   // Round 28 — fail CLOSED, like the cursor read above. The two branches

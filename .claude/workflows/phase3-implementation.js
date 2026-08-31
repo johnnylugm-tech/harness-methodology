@@ -711,7 +711,7 @@ if (!gate2Pass) {
     + '   - A final "Next step:" line: "Resolve every item → re-run Phase 3 Gate 2 → advance-phase"',
     { label: 'deferred-fixes-g2', phase: 'Gate 2', agentType: 'general-purpose' },
   )
-  return halt('gate2', { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', raw: String(gate2Report ?? '').slice(-600) })
+  return halt('gate2', { error: 'Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)', owner: 'project', raw: String(gate2Report ?? '').slice(-600) })
 }
 
 

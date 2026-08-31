@@ -308,7 +308,11 @@ def _render_driver(all_titles: list[str]) -> str:
         "it resumes from state.json and every completed phase short-circuits.' }\n"
         "  }\n"
         "  if (outcome && outcome.error) {\n"
-        "    await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error))\n"
+        # Round 79 站3-4: forward outcome.owner when the phase's own halt
+        # object states it (e.g. render_gate_loop's gate-exhaustion halt).
+        # undefined for every halt_step that doesn't set it — recordBlock's
+        # `owner != null` guard treats that identically to today's behaviour.
+        "    await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error), outcome.owner)\n"
         "    return halt(String(outcome.halt_step || 'phase-error'), { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, "
         "phase: n, phases_run: phasesRun, detail: outcome })\n"
         "  }\n"

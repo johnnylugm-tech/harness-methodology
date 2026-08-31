@@ -1446,7 +1446,7 @@ def render_gate_loop(
         + "}\n"
         + f"if (!gate{gate_num}Pass) {{\n"
         + deferred_fixes_step
-        + f"  return halt('gate{gate_num}', {{ error: '{on_fail_error_msg}', raw: String(gate{gate_num}Report ?? '').slice(-600) }})\n"
+        + f"  return halt('gate{gate_num}', {{ error: '{on_fail_error_msg}', owner: 'project', raw: String(gate{gate_num}Report ?? '').slice(-600) }})\n"
         + "}\n"
     )
 
