@@ -181,3 +181,51 @@ def test_the_closing_line_says_which_checks_produced_the_verdict(tmp_path):
     skipped = _run_hook(_repo(tmp_path, framework=False, name="consumer")).stdout
     assert "self-check: skipped" in skipped, skipped[-300:]
     assert "framework-repo: false" in skipped
+
+
+def _run_hook_with_no_refs(proj: Path) -> subprocess.CompletedProcess:
+    """Invoke the hook with nothing on stdin — the fifth silent path."""
+    return subprocess.run(["bash", str(HOOK_SCRIPT)], cwd=proj, input="",
+                          capture_output=True, text=True)
+
+
+def test_zero_refs_blocks_in_the_framework_repo(tmp_path):
+    """Round 83 站4 — the fifth way out, in the same file as the other four.
+
+    `_ALL_HARNESS_CHORE` is initialised to true and only ever moves to false
+    INSIDE the ref loop. Zero refs on stdin means the loop body never runs, so
+    the flag stayed true and the hook printed "All commits are infrastructure
+    (harness submodule) — skipping gate check" and exited 0 having run
+    nothing: no guard registry, no self_check, no preflight. The message is
+    also false — a push carrying no commits has no infrastructure commits
+    either.
+
+    Measured on the harness repo 2026-08-31, at a moment when its own
+    self_check was red:
+
+        $ printf '' | bash scripts/hooks/pre-push origin https://example.invalid/x.git
+        All commits are infrastructure (harness submodule) — skipping gate check
+        EXIT=0
+    """
+    result = _run_hook_with_no_refs(_repo(tmp_path, framework=True))
+    assert result.returncode != 0, (
+        "zero refs ran zero checks and exited 0 — the state Round 79 站5 "
+        f"closed four other doors on (stdout={result.stdout[-400:]!r})")
+    assert _BLOCKED in result.stdout and "no refs" in result.stdout, (
+        "the block has to say WHY nothing was read, or the operator's next "
+        f"move is to run it again: {result.stdout[-500:]!r}")
+    assert "All commits are infrastructure" not in result.stdout, (
+        "a push with no commits at all must not be described as one carrying "
+        "only infrastructure commits")
+
+
+def test_zero_refs_is_silent_in_a_consuming_project(tmp_path):
+    """The positive control, and the reason the block is not unconditional.
+
+    A consuming project has no self-check suite and no reason to run one, so
+    the same condition is a legitimate not-applicable there. Without this the
+    test above would pass against a hook that refuses every push everywhere.
+    """
+    result = _run_hook_with_no_refs(_repo(tmp_path, framework=False))
+    assert result.returncode == 0, result.stdout[-400:]
+    assert _BLOCKED not in result.stdout, result.stdout[-400:]

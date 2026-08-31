@@ -116,7 +116,23 @@ _ALL_HARNESS_CHORE=true
 # `continue` so a mixed push still records every range; the flag only ever
 # moves true -> false, so the early exit was never load-bearing.
 _PUSH_RANGES=""
+# Round 83 站4: count what the loop actually read. `_ALL_HARNESS_CHORE` starts
+# true and only ever moves to false INSIDE the loop, so zero refs on stdin left
+# it true and the block below exited 0 having run nothing at all — no guard
+# registry, no self_check, no preflight — while printing "All commits are
+# infrastructure", which is a false statement about a push carrying no commits.
+# Measured on this repo 2026-08-31, with self_check red at the time:
+#
+#   $ printf '' | bash scripts/hooks/pre-push origin https://example.invalid/x.git
+#   All commits are infrastructure (harness submodule) — skipping gate check
+#   EXIT=0
+#
+# Round 46's shape, in the same file where Round 79 站5 had just closed four
+# other silent paths: a check that did not run must not read like one that
+# passed.
+_REFS_READ=0
 while read -r _local_ref _local_sha _remote_ref _remote_sha; do
+    _REFS_READ=$((_REFS_READ + 1))
     if [ "$_local_sha" = "0000000000000000000000000000000000000000" ]; then
         continue  # branch deletion — skip
     fi
@@ -137,6 +153,15 @@ while read -r _local_ref _local_sha _remote_ref _remote_sha; do
         _ALL_HARNESS_CHORE=false
     fi
 done
+if [ "$_REFS_READ" -eq 0 ]; then
+    _require_or_skip "git named no refs to push (nothing was read on stdin)" \
+        "A pre-push hook is handed one line per ref on stdin. Zero lines means
+this was not invoked by git — run it through an actual \`git push\`, or if you
+are testing the hook, feed it a ref line:
+  printf 'refs/heads/main <sha> refs/heads/main <remote-sha>\\n' \\\\
+    | bash scripts/hooks/pre-push origin <url>"
+    exit 0
+fi
 if [ "$_ALL_HARNESS_CHORE" = true ]; then
     echo "All commits are infrastructure (harness submodule) — skipping gate check"
     exit 0

@@ -17,6 +17,7 @@ import subprocess
 from pathlib import Path
 
 from core.doctor_checks import Finding
+from core.utils.subprocess_group import run_isolated
 
 # Durable phase-advance record: every successful advance-phase lands a commit
 # with this exact subject (cli/phase_cmds.py cmd_advance_phase). Message-level
@@ -177,3 +178,66 @@ def _check_git_sync(project: Path, current_phase: int) -> list[Finding]:
                         f"regressed behind its own durable record (hand-edit or "
                         f"restored backup?)")]
     return []
+
+
+def _check_head_ci_verdict(project: Path, runner=None) -> list[Finding]:
+    """ERROR when the commit this tree is sitting on is red on CI.
+
+    Round 83 站4. During this round's own investigation `doctor` reported
+    "0 error(s)" on a main whose Framework Self-Tests had been failing for
+    three hours (6ba535e7 pushed 16:37, still red until aacac81f at 19:16).
+    Nothing in the tooling said so — CI's own UI was the only place it
+    existed, and `doctor` is the command an operator runs when they want to
+    know whether anything is wrong.
+
+    Framework repo only, by the same predicate `scripts/hooks/pre-push` uses:
+    a repo that TRACKS `scripts/self_check.sh` is this one. A consuming
+    project has no `Framework Self-Tests` check, so the question is not
+    meaningful there and asking it would spend a network call to learn
+    nothing. `git ls-files` rather than a filesystem test, for the reason
+    Round 79 站5 recorded: a chmod cannot change what git tracks.
+
+    One `gh` call, for HEAD, not a walk. `find_latest_green_sha` exists and is
+    already read by `preflight_submodule_pin_ci` (measured this round: it
+    returns the last green commit and refuses a red HEAD, so consuming
+    projects are protected). What was missing is only the framework repo's
+    own view of itself, and the cheapest true form of that question is "is
+    the commit I am on red", which `fetch_ci_verdict` answers in one request.
+
+    `unavailable` produces NO finding — no origin remote, no `gh`, no network,
+    or a run that has not appeared yet. Round 32 站4's rule: could-not-measure
+    is not a finding, and turning an offline laptop into an ERROR about the
+    tree would be the inversion of the check this is.
+    """
+    # `run_isolated`, not a bare `subprocess.run(timeout=)`: Round 66's rule is
+    # that a `timeout=` promises to KILL the command, and killing has to mean
+    # killing the group. `_check_git_sync` above still has the bare form — it
+    # predates the rule and is inside the count tests/test_subprocess_group.py
+    # ratchets down; converting it is a separate change with its own reason,
+    # and is noted here rather than done in passing.
+    def _git(*args: str) -> subprocess.CompletedProcess:
+        return run_isolated(["git", "-C", str(project), *args], timeout=5)
+
+    try:
+        if _git("ls-files", "--error-unmatch",
+                "scripts/self_check.sh").returncode != 0:
+            return []  # not the framework repo — no such check to ask about
+        head = _git("rev-parse", "HEAD")
+        if head.returncode != 0:
+            return []
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+
+    sha = head.stdout.strip()
+    from core.ci_verdict import fetch_ci_verdict
+
+    verdict = fetch_ci_verdict(project, sha, runner)
+    if verdict.status != "red":
+        return []
+    return [Finding(
+        "head-ci", "ERROR",
+        f"HEAD ({sha[:8]}) is RED on CI: {', '.join(verdict.failed) or 'unknown check'}"
+        f" — anything pinning this commit pins a harness whose own self-tests "
+        f"fail. Fix it here, or find the last good pin: python3 -c "
+        f"\"from core.ci_verdict import find_latest_green_sha; "
+        f"print(find_latest_green_sha('.'))\"")]

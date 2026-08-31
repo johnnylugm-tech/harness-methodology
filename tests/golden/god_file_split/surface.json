@@ -619,7 +619,7 @@
     "core.doctor::_check_testpaths_drift": "020b9d1e53eda76e",
     "core.doctor::_enforcer_shas_in": "91c22f1b7bc95364",
     "core.doctor::_phase_from_sentinel_name": "822801208daa956b",
-    "core.doctor::run_doctor": "ea7441647a424775",
+    "core.doctor::run_doctor": "ba75138eb89709df",
     "harness.harness_bridge::HarnessBridge._stage_absent_dimensions": "65942c54124c926d",
     "harness.harness_bridge::HarnessBridge._stage_coverage_denominator": "06f1e40981bb149d",
     "harness.harness_bridge::HarnessBridge._stage_declared_absent": "eaa5f5615b0206ad",

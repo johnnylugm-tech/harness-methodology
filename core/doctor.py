@@ -26,6 +26,7 @@ from core.doctor_checks.config_drift import (
 from core.doctor_checks.git_state import (
     _check_ci_template_drift,
     _check_git_sync,
+    _check_head_ci_verdict,
     _check_hook_wiring,
     _check_submodule_behind,
 )
@@ -231,6 +232,15 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # inside a consumer repo with the harness beside it, so it can see both
     # files at once.
     findings.extend(_check_ci_template_drift(project))
+
+    # 14a. And whether the commit this tree is SITTING ON is red
+    # (Round 83 站4). Checks 14/14b ask what is installed; this asks
+    # what the installed thing produced. Framework repo only, one `gh`
+    # call for HEAD, and `unavailable` is silence — an offline laptop
+    # is not evidence about the tree (Round 32 站4). Measured this
+    # round: doctor said "0 error(s)" on a main whose Framework
+    # Self-Tests had been failing for three hours.
+    findings.extend(_check_head_ci_verdict(project))
 
     # 14b. The OTHER thing init-project installs (Round 81 站4). Check 14 goes
     # back to the CI workflow that command's step 2 wrote; nothing went back to

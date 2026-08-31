@@ -193,7 +193,12 @@ _CEILINGS: dict[str, int] = {
     # function asked about only one of them. A raise, and named as one: this
     # function is a registry of sixteen extends and every round that adds a
     # check adds to it.
-    "core/doctor.py::run_doctor": 210,
+    # 219 at Round 83 站4, from 210: check 14a and the comment saying what it
+    # asks that checks 14/14b do not — those ask what is INSTALLED, this asks
+    # what the installed thing produced. `run_doctor` is a sequence of
+    # `findings.extend(...)` lines by design: the list of what doctor asks is
+    # meant to be readable top to bottom in one place.
+    "core/doctor.py::run_doctor": 219,
     "core/quality_gate/spec_tracking_checker.py::compute_trace_dimension": 201,
 }
 

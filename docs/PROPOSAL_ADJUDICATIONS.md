@@ -4031,10 +4031,51 @@ findings **逐一相同**。
 而且對七個專案完全靜默。停手,不在未驗證的形狀上蓋東西。
 `declared_only` 那一類 R54 已裁決:記錄、永不擋。
 
+### 站4 — 讀不到 ref 要指名原因;doctor 要知道 HEAD 是紅的
+
+**第五條靜默出口,就在 R79 站5 剛封過四條的同一個檔案裡。**
+`_ALL_HARNESS_CHORE=true` 是初值,只在**迴圈內**才會變 false。
+stdin 零筆 ref → 迴圈一次都不跑 → 旗標留 true → hook 印一句
+「All commits are infrastructure」然後 exit 0,**什麼都沒跑**:
+沒有 guard registry、沒有 self_check、沒有 preflight。
+而且那句話是假的 —— 一個沒有任何 commit 的 push 也沒有基礎設施 commit。
+
+實跑於本 repo 2026-08-31,當時它自己的 self_check 正紅著:
+
+```
+$ printf '' | bash scripts/hooks/pre-push origin https://example.invalid/x.git
+All commits are infrastructure (harness submodule) — skipping gate check
+EXIT=0
+```
+
+修法:數迴圈實際讀到幾筆(`_REFS_READ`),零筆時在 framework repo 走
+`_require_or_skip` 指名 BLOCK,消費專案維持靜默通過(正控制在 tmp repo 實跑)。
+
+**doctor 對著紅的 main 說 0 error。** 本輪調查期間 `6ba535e7` 16:37 推上去、
+`Framework Self-Tests` 紅,`aacac81f` 19:16 修好 —— 中間三小時
+`doctor` 一直印「0 error(s)」。工具鏈裡沒有任何地方說得出這件事。
+
+**但計畫的理由是錯的**:我寫「把既有生產者接上一個沒有讀者的判定」——
+`find_latest_green_sha` **有**讀者(`preflight_submodule_pin_ci`),
+而且本輪實測它有效(回 `90e9ef48`、拒紅 HEAD,消費專案受保護)。
+缺的只是**框架 repo 對自己的視角**。所以修法也跟著縮小:
+不走 `find_latest_green_sha` 的 20 次 walk,只問 HEAD 一次
+(`fetch_ci_verdict`,三態 green/red/unavailable)。
+`unavailable` **不產生 finding** —— 沒網路不是關於這棵樹的證據(R32 站4)。
+實測三態:`6ba535e7` red(`Harness CI`)、`aacac81f` green、
+未推的 HEAD unavailable。
+
+**順帶被守衛抓到的一件事**:我新寫的 `_git` 用了裸
+`subprocess.run(timeout=5)`,`test_subprocess_group` 當場擋下
+(93 > 92)—— R66 的規則:`timeout=` 承諾要 kill,而 kill 必須 kill 整個 group。
+改用 `run_isolated`。同檔的 `_check_git_sync` 仍是裸形式(早於該規則、
+在被 ratchet 往下數的那 92 個裡),**告知不順手改**。
+
 ### 本輪不做
 
 | 項目 | 理由 | 再開條件 |
 |---|---|---|
+| 把 `_check_git_sync` 的裸 `subprocess.run(timeout=)` 轉成 `run_isolated` | 早於 R66 規則,在 ratchet 往下數的 92 個裡;順手改是鄰近程式碼改動,要有自己的理由 | 該檔進入下一輪,或 ratchet 降到需要它 |
 | SRS `C-xx` → SAB `architecture_constraints` 的 join | 那張表只有 3/10 個專案使用,且與 SAB 的執行器名字不是同一套詞彙 —— 沒有可對的 id 映射。詳見站3c | 框架自己定義 `C-xx` 的結構與語意,或 SAB 改成收 SRS 的約束 id |
 | 拆分 `core/quality_gate/artifact_consistency.py`(977 行,越過 900 門檻) | 本輪主題是驗收鏈,不是檔案拆分;拆之前要先織位元組網(R49) | 該檔進入下一輪拆分清單 |
 | 給 `crash-triage` 一個「這不是 bug」的處置 | 唯一會寫 `.triaged` 的路徑是 `--open-cr`,會為 fixture 殘骸開 CR-BUG。這 69 份是一次性殘骸,為它加旗標是為單一情況造通用方案 | 再出現一批非 bug 的 bundle,或框架自己的測試又把 bundle 寫進真 repo |

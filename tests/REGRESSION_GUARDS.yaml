@@ -4066,3 +4066,27 @@
 - test: tests/test_ac_traceability.py::test_a_criterion_naming_a_real_verifier_passes
   bug: "positive control for the verifier check — the rule's anti-over-specification half is untouched and a criterion that names a real verifier must not be blocked, or the check would be telling projects to stop writing acceptance criteria"
   fixed_in: "Round 83 站3"
+
+- test: tests/test_pre_push_cannot_pass_by_skipping.py::test_zero_refs_blocks_in_the_framework_repo
+  bug: "the fifth silent exit-0 in the same file Round 79 站5 closed four others in. `_ALL_HARNESS_CHORE` is initialised true and only moves to false INSIDE the ref loop, so zero refs on stdin left it true: the hook printed 'All commits are infrastructure (harness submodule) — skipping gate check' and exited 0 having run no guard registry, no self_check and no preflight — and the message is false, since a push with no commits has no infrastructure commits either. Reproduced on this repo 2026-08-31 while its own self_check was red: `printf '' | bash scripts/hooks/pre-push origin <url>` -> EXIT=0"
+  fixed_in: "Round 83 站4"
+
+- test: tests/test_pre_push_cannot_pass_by_skipping.py::test_zero_refs_is_silent_in_a_consuming_project
+  bug: "positive control — a consuming project has no self-check suite, so the same condition is a legitimate not-applicable there. Without it the test above would pass against a hook that refuses every push everywhere"
+  fixed_in: "Round 83 站4"
+
+- test: tests/test_doctor_sees_a_red_head.py::test_a_red_head_is_an_error
+  bug: "doctor printed '0 error(s)' on a main whose Framework Self-Tests had been failing for three hours (6ba535e7 pushed 16:37 red, aacac81f fixed it 19:16). Nothing in the tooling said so; CI's UI was the only place the fact existed. find_latest_green_sha already had a reader protecting CONSUMING projects (preflight_submodule_pin_ci, measured working this round) — what had no reader was the framework repo's own view of itself"
+  fixed_in: "Round 83 站4"
+
+- test: tests/test_doctor_sees_a_red_head.py::test_an_unobtainable_verdict_is_not_a_finding
+  bug: "no gh, no network, or a run that has not appeared yet must produce no finding — Round 32 站4's rule. The inversion would turn every offline doctor run into an ERROR about a tree it learned nothing about"
+  fixed_in: "Round 83 站4"
+
+- test: tests/test_doctor_sees_a_red_head.py::test_a_consuming_project_is_never_asked
+  bug: "a project that does not track scripts/self_check.sh has no Framework Self-Tests to be red, and asking anyway would spend a gh call per doctor run to learn nothing. The red runner in this test proves the check returns before reaching the network, not merely that it reports nothing"
+  fixed_in: "Round 83 站4"
+
+- test: tests/test_doctor_sees_a_red_head.py::test_a_green_head_is_silent
+  bug: "the other control on the three-state answer — green must be as silent as unavailable, or the check would fire on every doctor run in a healthy repo"
+  fixed_in: "Round 83 站4"
