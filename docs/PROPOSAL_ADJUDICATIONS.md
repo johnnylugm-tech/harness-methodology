@@ -3843,6 +3843,41 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 85 — GATE1 poll-cap 算術 + run-all halt 歸因
+
+背景：taskq-redo 在 run-all.js 跑到 P3 Gate 1 時反覆卡關，兩條獨立的框架層缺陷同時在起作用：
+
+1. run-all.js GATE1 的輪詢上限（40 polls × 30s = 1200s）只有該註解自己宣告的 worst case（2400s = 3 rounds × 600s）的一半。journal.jsonl 裡「FR-10 GATE1: PASS ... Wrapper script killed at 40-poll cap」顯示底層 harness_cli.py 已經 100% 通過並寫出結果檔，外層輪詢子代理卻因提前 kill 而回報假的 rc=-1（TIMEOUT），被 run-all.js 誤判為 FAIL。
+2. core/fault_owner.py 缺 run-all.js 自身 halt 訊息的歸因規則——兩種最常見的 halt（「Phase N: Gate N FAILED for FR(s)...」、「Phase N env-check did not PASS」）都落回 owner=unknown，導致每次卡關都要手動深挖。
+
+基線 `22fa2589`。
+
+### 母體
+
+> **輪詢上限算術小於宣告的 worst case 導致假逾時；halt 訊息缺乏歸因規則導致手動深挖。**
+
+### 兩項修復
+
+| 項目 | 病灶 | 正解 | commit |
+|---|---|---|---|
+| 1 | GATE1 poll-cap (40×30s=1200s < 2400s) | cap 40 → 96 (96×30s=2880s，覆蓋 2400s 並留 20% buffer)；同步重生成 workflows 及 golden 檔 | `b18daa62` |
+| 2 | run-all.js halt 訊息缺歸因規則 | `_TEXT_RULES` 加 2 條 regex，歸因為 `Owner.INFRA` (保守 fallback，標註非永久解) | `b18daa62` |
+
+### 告知不修 / 明列不做
+
+| 項目 | 理由 | re-open 條件 |
+|---|---|---|
+| record-block 從 journal.jsonl 的 dispatch chain 往回讀精準 owner | 涉及 `js_blocks.py` 重大更動與 sim 等價性，超出本 round 範圍 | 後續針對 dispatch chain 歸因進行專門架構重構時 |
+| 「Gate 2 did not PASS in 3 rounds」維持 UNKNOWN | 避免新規則誤命中既有 producer site 寫死 owner 的訊息 | producer 端能明確提供 owner 時 |
+
+### 驗證
+
+- `tests/test_fault_owner.py`: 16/16 通過（含「Gate 2 did not PASS in 3 rounds」維持 UNKNOWN 的反向驗證）
+- `python3 -m pytest tests/`: 7955 passed / 4 skipped（含 11 golden regenerate 後）
+- `node --test sim_runner.test.mjs`: 130/130 等價性測試通過
+
+---
+
 ## Round 84 — canonical spec 在哪,框架說了六次
 
 老闆令:評估**正規做法**移除 `PROJECT_BRIEF.md` —— 原始需求由 `SPEC.md` 提供
