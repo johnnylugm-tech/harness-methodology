@@ -3924,6 +3924,15 @@ B 的 prompt 時還要再加一份 86KB 的 SRS 草稿。**目的地本身裝不
   7,464 行的檔案上 —— 正是 `buildBPrompt` 明文告誡 Agent B 不得寫進 citation 的
   off-by-one。改用 `splitlines()`。
 
+### 站4 —— self_check 抓到的四支測試,兩支是「釘快照而不是釘規則」
+
+| 測試 | 為什麼紅 | 處置 |
+|---|---|---|
+| `test_the_retired_resolver_stays_retired` | 它的主題是「`resolve_canonical_spec` 保持退役」,但最後一行是 `assert sa.__all__ == ["check_spec_alignment"]` —— 一份**清單快照**。`structural_fr_ids` 提升為公開就紅了,而那個匯出對「哪個檔案是 canonical」不做任何決定 | 換成它原本要表達的規則:匯出名單裡不得有任何 `resolve` / `canonical_spec` / `spec_path` 字樣的**解析器** |
+| `test_every_failure_branch_sets_the_reason` | 它把四個分支寫成四個字面量。本輪**加了第五個分支、改了第四個** —— 只有「改」被抓到。純新增一個分支會讓 `lastFailReason` 留在 `'unknown'` 而測試全綠,那正是這個模組存在的理由 | 字面量更新,並補一支**結構**守衛:retry 迴圈裡 `continue` 的數量必須等於 `lastFailReason =` 的數量 |
+| `test_the_cli_surface_survives_the_split` | `read-file` 的旗標集合變了 | `REGEN_SPLIT_GOLDEN=1` 重生(只多兩個旗標) |
+| `test_the_index_is_regenerable_and_current` | 本節的 明列不做 表新增五列 | `extract_deferred_index.py` 重生 |
+
 ### 關掉的 re-open 條件
 
 - **Round 84 的 `expectPrefix` 從 `'# Project Brief'` 降到 `'# '`**:該條記

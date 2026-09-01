@@ -46,11 +46,12 @@ def test_last_fail_reason_is_declared_and_returned():
         "lastFailReason = 'agent_threw: '",
         "lastFailReason = 'ERROR_LOAD_FAILED'",
         "lastFailReason = 'too_short(len=' + text.length + '): '",
-        "lastFailReason = 'prefix_mismatch: got=' + text.slice(0, 40)",
+        "lastFailReason = 'relay_frame_broken: got=' + text.slice(0, 60)",
+        "lastFailReason = 'prefix_mismatch: got=' + anchorAt.slice(0, 40)",
     ],
 )
 def test_every_failure_branch_sets_the_reason(marker):
-    """Each of the 4 failure branches must set lastFailReason before `continue`,
+    """Each failure branch must set lastFailReason before `continue`,
     or that branch's halts would silently fall back to the 'unknown' default.
     """
     rendered = _rendered()
@@ -58,4 +59,30 @@ def test_every_failure_branch_sets_the_reason(marker):
         f"expected failure branch to set lastFailReason via {marker!r} — "
         "this branch would leave 'unknown' in the halt message instead of "
         "its real cause"
+    )
+
+
+def test_no_retry_branch_can_be_added_without_a_reason():
+    """The list above names branches; this counts them.
+
+    Round 86 站2 added a fifth branch and changed a fourth, and only the
+    CHANGE was caught — a purely additive branch would have shipped with
+    `lastFailReason` still reading 'unknown', which is the whole failure
+    this module exists to prevent. Every `continue` inside the retry loop
+    must be preceded by an assignment to lastFailReason.
+    """
+    rendered = _rendered()
+    start = rendered.index("for (let attempt = 1;")
+    loop = rendered[start:]
+    branches = loop.count("      continue\n")
+    reasons = loop.count("      lastFailReason = ")
+    assert branches == reasons, (
+        f"{branches} `continue` statements in loadFileViaPython's retry loop "
+        f"but {reasons} lastFailReason assignments — a branch that retries "
+        f"without recording why leaves 'unknown' in the terminal message"
+    )
+    assert branches >= 5, (
+        f"only {branches} retry branches found; the loop is expected to carry "
+        "at least the five it had at Round 86 (agent threw, ERROR_LOAD_FAILED, "
+        "too short, relay frame broken, prefix mismatch)"
     )

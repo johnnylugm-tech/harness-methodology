@@ -91,7 +91,19 @@ def test_the_retired_resolver_stays_retired() -> None:
         "canonical spec — belongs to ProjectLayout.spec_path, which is a "
         "constant and cannot be switched off by deleting a declaration."
     )
-    assert sa.__all__ == ["check_spec_alignment"]
+    # Round 86 站3 replaced an exact-list snapshot with the rule it was
+    # standing in for. `structural_fr_ids` was promoted to public so
+    # canonical_diff could reuse it instead of writing a second FR regex, and
+    # the snapshot failed — on an export that decides nothing about which file
+    # is canonical. What must stay retired is any exported RESOLVER.
+    resolvers = [
+        n for n in sa.__all__
+        if "resolve" in n or "canonical_spec" in n or "spec_path" in n
+    ]
+    assert not resolvers, (
+        f"spec_alignment exports {resolvers}, which reads as deciding which "
+        "file is the canonical spec. That job belongs to ProjectLayout."
+    )
 
 
 def test_ssot_manifest_and_the_gate_resolve_the_same_file(tmp_path: Path) -> None:

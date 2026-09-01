@@ -4222,3 +4222,11 @@
 - test: tests/test_canonical_diff.py::TestFrCoverage::test_elicitation_mode_reports_no_coverage_rather_than_a_false_empty
   bug: "with no canonical spec the coverage question has no answer, not the answer 'nothing is missing'. An empty in_spec_only computed from an absent spec is the absent-witness shape Round 46 is named after"
   fixed_in: "Round 86 站3"
+
+- test: tests/test_loader_failure_diagnostics.py::test_no_retry_branch_can_be_added_without_a_reason
+  bug: "the module named its four retry branches as four string literals. Round 86 站2 added a fifth and changed a fourth, and only the CHANGE was caught — a purely additive branch would have shipped with lastFailReason still reading 'unknown' while every test here stayed green, which is the exact failure this module exists to prevent. The count of `continue` statements in the retry loop must equal the count of lastFailReason assignments"
+  fixed_in: "Round 86 站4"
+
+- test: tests/test_canonical_spec_has_one_location.py::test_the_retired_resolver_stays_retired
+  bug: "the test's subject is that resolve_canonical_spec stays retired, but its last line pinned __all__ to an exact one-item list — a snapshot, not a rule. Promoting structural_fr_ids for canonical_diff to reuse turned it red on an export that decides nothing about which file is canonical. It now asserts what it meant: no exported name reads as a resolver"
+  fixed_in: "Round 86 站4"
