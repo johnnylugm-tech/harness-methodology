@@ -4194,3 +4194,15 @@
 - test: tests/cli/test_project_cmds_cli.py::TestCmdReadFile::test_relay_writes_the_same_enveloped_string_to_both_outputs
   bug: "the three read-file tests build argparse.Namespace by hand, so nothing tied them to the flags register() declares and adding --relay broke all three. This one goes through build_parser(), and pins that --content-out and the JSON `content` field are one string rather than two formats of the same read"
   fixed_in: "Round 86 站1"
+
+- test: tests/test_workflowgen.py::TestRelayReceipt::test_the_loader_clears_its_outputs_before_read_file_writes_them
+  bug: "contentOut is a fixed /tmp path and read-file does not write it when the read fails, so the wrapper agent cats a PREVIOUS run's leftover — a payload carrying a valid anchor and, since this round, a valid frame too. Same shape as the defect the frame closes: the judgement reading something other than what the framework just produced"
+  fixed_in: "Round 86 站2"
+
+- test: tests/test_workflowgen.py::TestRelayReceipt::test_the_ceiling_the_js_checks_is_the_one_python_enforces
+  bug: "two numbers for one limit is how the JS came to check startsWith('#') on a payload Python already knew the size of. The generated const and the --relay-max-bytes flag are both rendered from scripts.file_loader.RELAY_MAX_BYTES so read-file's refusal and the JS's contradiction check cannot disagree"
+  fixed_in: "Round 86 站2"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "Round 86 站2 — the far side of the relay checked `length >= 50` and a first-line anchor, and a truncated prefix passes both, so a 65%-truncated deliverable was indistinguishable from a complete one. Four sim_runner.test.mjs round86 fixtures pin the receipt (a truncation loses the END marker; a frame claiming whole content for an over-ceiling file is a contradiction, not a read; an index still satisfies the anchor through its FIRST-LINE field; an index reaches Agent B as itself instead of being summarised into `headings: []`), and the pass floor here is what keeps them from being deleted. The second fixture first passed for the wrong reason — a four-word payload was being caught by phase1's own `length < 200` guard — and was rewritten past 200 chars so only the check under test can reject it"
+  fixed_in: "Round 86 站2"

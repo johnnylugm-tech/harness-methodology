@@ -267,6 +267,9 @@ function safePrevB2(prevB2) {
 // preserving the structural skeleton B needs to orient.
 function makeDocSummary(content, opts) {
   opts = opts || {}
+  // An index IS the summary, and summarising it again reports
+  // `headings: 0` for a file whose headings are the payload.
+  if (isFileIndex(content)) return content
   const lines = content.split('\n')
   const headings = []
   for (const ln of lines) {
@@ -529,6 +532,33 @@ function firstLineHasAnchor(text, expectPrefix) {
   return firstLine.startsWith(expectPrefix)
 }
 
+// ---- relay frame (Round 86 站2): read-file's receipt, checked here ----
+const RELAY_MAX_BYTES = 24576
+function parseRelayFrame(text) {
+  const nl = text.indexOf('\n')
+  if (nl === -1) return null
+  const m = text.slice(0, nl).match(/^<<<HARNESS-RELAY v1 mode=(content|index) sha256=([0-9a-f]{64}) bytes=(\d+) lines=(\d+)>>>$/)
+  if (!m) return null
+  const end = '<<<HARNESS-RELAY-END sha256=' + m[2] + '>>>'
+  const body = text.slice(nl + 1).replace(/\s+$/, '')
+  if (!body.endsWith(end)) return null
+  // A relay claiming whole content for a file read-file refuses to send
+  // whole contradicts the framework's own rule. Reject, do not believe.
+  if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null
+  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),
+    payload: body.slice(0, body.length - end.length).replace(/\n$/, '') }
+}
+// An index payload names the file and its first line; that second field
+// is what keeps the anchor check alive for files too large to send.
+function isFileIndex(s) {
+  return typeof s === 'string' && /^FILE: .*\nFIRST-LINE: /.test(s)
+}
+function relayAnchorTarget(frame) {
+  if (frame.mode === 'content') return frame.payload
+  const m = frame.payload.match(/^FIRST-LINE: (.*)$/m)
+  return m ? m[1] : ''
+}
+
 // ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----
 // Drops the v29 MCP read path (failed at large-context stages) in favour of a
 // single-step Bash tool-call running the deterministic `harness_cli.py
@@ -543,8 +573,13 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   const safeName = relPath.replace(/[\/.]/g, '_')
   const contentOut = '/tmp/load_' + safeName + '.txt'
   const jsonOut = '/tmp/load_' + safeName + '.json'
-  const pythonCmd = PY + ' ' + REPO + '/harness_cli.py read-file --file ' + JSON.stringify(filePath)
-    + expectPrefixArg + ' --content --content-out ' + contentOut + ' --json-out ' + jsonOut + ' --quiet'
+  // rm -f first: contentOut is a fixed path, and read-file does not write
+  // it when the read fails — the agent would then cat a PREVIOUS run's
+  // leftover, which carries a valid anchor and now a valid frame too.
+  const pythonCmd = 'rm -f ' + contentOut + ' ' + jsonOut + ' && ' + PY
+    + ' ' + REPO + '/harness_cli.py read-file --file ' + JSON.stringify(filePath)
+    + expectPrefixArg + ' --relay --relay-max-bytes ' + RELAY_MAX_BYTES
+    + ' --content-out ' + contentOut + ' --json-out ' + jsonOut + ' --quiet'
 
   const prompt = 'You are a SHELL WRAPPER AGENT. Your ONLY job is to run ONE shell command and emit ONE file content verbatim.\n\n'
     + 'STEPS (DO NOT DEVIATE):\n'
@@ -593,12 +628,20 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')
       continue
     }
-    if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {
-      lastFailReason = 'prefix_mismatch: got=' + text.slice(0, 40)
-      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + text.slice(0, 80) + ')')
+    const frame = parseRelayFrame(text)
+    if (!frame) {
+      lastFailReason = 'relay_frame_broken: got=' + text.slice(0, 60)
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' relay frame broken (truncated in transit, or not what read-file wrote)')
       continue
     }
-    return text
+    const anchorAt = relayAnchorTarget(frame)
+    if (expectPrefix && !firstLineHasAnchor(anchorAt, expectPrefix)) {
+      lastFailReason = 'prefix_mismatch: got=' + anchorAt.slice(0, 40)
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + anchorAt.slice(0, 80) + ')')
+      continue
+    }
+    log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')
+    return frame.payload
   }
   return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
 }

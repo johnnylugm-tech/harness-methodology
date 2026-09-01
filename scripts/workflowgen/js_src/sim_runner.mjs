@@ -98,6 +98,34 @@ export async function runWorkflow(filePath, respond, opts = {}) {
  *
  * @param {{match: RegExp, respond: any}[]} [overrides]
  */
+/** Wrap a payload the way `read-file --relay` does (Round 86 站2).
+ *
+ * The sha is arbitrary here on purpose: `parseRelayFrame` checks that BEGIN
+ * and END carry the SAME sha, not that either matches the bytes — it has no
+ * crypto and no out-of-band channel, so it can detect a truncated relay and
+ * not a fabricated one. A sim that hashed the payload would be asserting a
+ * property the shipped code does not have.
+ */
+export function relayFrame(mode, payload, opts = {}) {
+  const sha = opts.sha || 'a'.repeat(64)
+  const endSha = opts.endSha || sha
+  const bytes = opts.bytes !== undefined ? opts.bytes : Buffer.byteLength(payload, 'utf8')
+  const lines = opts.lines !== undefined ? opts.lines : payload.split('\n').length
+  return `<<<HARNESS-RELAY v1 mode=${mode} sha256=${sha} bytes=${bytes} lines=${lines}>>>\n`
+    + payload.replace(/\n+$/, '') + '\n'
+    + `<<<HARNESS-RELAY-END sha256=${endSha}>>>`
+}
+
+/** The index shape `_render_index` emits for a file over the ceiling. */
+export function relayIndex(path, firstLine, rows = 'LINES         LVL  HEADING\n1-40            1  Intro\n') {
+  return relayFrame('index',
+    `FILE: ${path}   (341375 bytes, 7464 lines)\nFIRST-LINE: ${firstLine}\n`
+    + `This file exceeds the 24576-byte relay ceiling, so this is its\n`
+    + `heading index, not its content. Read any range with:\n  sed -n 'START,ENDp' ${path}\n`
+    + rows,
+    { bytes: 341375, lines: 7464 })
+}
+
 export function makeHappyResponder(overrides = []) {
   return (call, events) => {
     for (const o of overrides) {
@@ -118,7 +146,8 @@ export function makeHappyResponder(overrides = []) {
     if (/^loadpy-/.test(call.label)) {
       const m = call.prompt.match(/--expect-prefix\s+"([^"]+)"/)
       const heading = m ? m[1].replace(/^#\s*/, '') : 'Simulated Document'
-      return `# ${heading}\n\n` + 'simulated document body for the workflow logic testbed. '.repeat(4)
+      const body = `# ${heading}\n\n` + 'simulated document body for the workflow logic testbed. '.repeat(4)
+      return relayFrame('content', body)
     }
     const schema = call.schema
     if (schema && typeof schema === 'object' && schema.properties) {

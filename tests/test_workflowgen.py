@@ -645,3 +645,52 @@ class TestGateExhaustionOwnerThreading:
             "own owner (e.g. render_gate_loop's) would fall back to the "
             "text classifier and lose that signal"
         )
+
+
+class TestRelayReceipt:
+    """Round 86 站2 — the relay carries a receipt, and clears what it replaces.
+
+    `loadFileViaPython` moves a file through a sub-agent: `read-file` writes
+    it, the agent `cat`s it and re-emits it as its final message. Bash stdout
+    above ~30KB is replaced by a 2KB preview plus a persisted-file path
+    (measured 2026-09-02: 27,009 intact, 35,300 and 49,300 replaced), so
+    above that the agent never saw the content — and the JS-side checks it
+    faced, `length >= 50` and a first-line anchor, both pass on a truncated
+    prefix. The frame's END marker is what makes a short relay tellable from
+    a short file; sim_runner.test.mjs's round86 fixtures cover that side.
+    These two cover what a runtime simulation cannot see: a shell command.
+    """
+
+    def test_the_loader_clears_its_outputs_before_read_file_writes_them(self):
+        """contentOut is a fixed path and read-file skips it on failure.
+
+        Without the `rm -f`, the agent's `cat` returns a PREVIOUS run's
+        leftover for that path — a payload with a valid anchor and, since
+        this round, a valid frame too. Nothing downstream can tell it apart
+        from this run's read, which is the same shape as the defect the
+        frame exists to close: the judgement reading something other than
+        what the framework just produced.
+        """
+        for phase in (1, 2):
+            text = generate(phase)
+            assert "const pythonCmd = 'rm -f ' + contentOut + ' ' + jsonOut + ' && '" in text, (
+                f"phase {phase}'s loader no longer clears contentOut/jsonOut "
+                f"before read-file runs — a failed read leaves the previous "
+                f"run's file in place for the agent to cat"
+            )
+
+    def test_the_ceiling_the_js_checks_is_the_one_python_enforces(self):
+        from scripts.file_loader import RELAY_MAX_BYTES
+
+        for phase in (1, 2):
+            text = generate(phase)
+            assert f"const RELAY_MAX_BYTES = {RELAY_MAX_BYTES}" in text, (
+                f"phase {phase} states a relay ceiling other than "
+                f"scripts.file_loader.RELAY_MAX_BYTES — two numbers for one "
+                f"limit is how the JS came to check startsWith('#') on a "
+                f"payload Python already knew the size of"
+            )
+            assert "--relay --relay-max-bytes ' + RELAY_MAX_BYTES" in text, (
+                f"phase {phase}'s read-file call no longer passes the ceiling "
+                f"it checks against, so the two halves could disagree"
+            )

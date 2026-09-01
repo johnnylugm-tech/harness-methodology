@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import { runWorkflow, makeHappyResponder, nullResponder, throwingResponder } from './sim_runner.mjs'
+import { runWorkflow, makeHappyResponder, nullResponder, throwingResponder, relayFrame, relayIndex } from './sim_runner.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const WF = (name) => join(REPO, '.claude', 'workflows', name)
@@ -449,7 +449,8 @@ test('phase2 loadFileViaPython: agent() throwing on attempt 1 retries instead of
         if (loadpyCalls === 1) throw new Error('API Error: Connection closed mid-response.')
         const m = call.prompt.match(/--expect-prefix\s+"([^"]+)"/)
         const heading = m ? m[1].replace(/^#\s*/, '') : 'Simulated Document'
-        return `# ${heading}\n\n` + 'simulated document body for the workflow logic testbed. '.repeat(4)
+        return relayFrame('content',
+          `# ${heading}\n\n` + 'simulated document body for the workflow logic testbed. '.repeat(4))
       } },
     ...happyOverrides(),
   ]
@@ -882,6 +883,84 @@ test('round48: a phase that halts records where it stopped, exactly once', async
   assert.equal(recorded.length, 1, 'one dispatch, once per aborted run — not once per retry')
   assert.match(recorded[0].prompt, /harness_cli\.py record-block --project/)
   assert.match(recorded[0].prompt, /--phase 8 /, 'the record must name the phase it stopped in')
+})
+
+// ---- Round 86 站2: the relay's receipt ------------------------------------
+// The loader hands a file to a sub-agent that cats it and re-emits it as its
+// final message. Bash stdout above ~30KB becomes a 2KB preview plus a
+// persisted-file path, so above that the agent never saw the content — and
+// `length >= 50` plus a first-line anchor both pass on a truncated prefix.
+// Every corpus SRS.md is over that cliff; omnibot-new's SPEC.md is 341,375.
+
+test('round86: a relay truncated in transit is refused, not accepted as the file', async () => {
+  const overrides = [
+    { match: /^loadpy-SPEC-md/, respond: (call) => {
+        const full = relayFrame('content', '# Canonical spec\n\n' + 'body line\n'.repeat(40))
+        return full.slice(0, Math.floor(full.length * 0.6))   // the END marker is gone
+      } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(overrides))
+  assert.match(String(result.error ?? ''), /SPEC\.md load FAILED/)
+  assert.match(String(result.loaded_preview ?? ''), /^ERROR: LOADER_FAILED/)
+})
+
+test('round86: a relay claiming whole content for an over-ceiling file is refused', async () => {
+  // Not a truncation: a well-formed frame whose own header contradicts the
+  // rule read-file follows. Believing it is how a 341KB "content" payload
+  // would be accepted from an agent that never opened the file.
+  //
+  // The body is deliberately >200 chars. The first version of this test used
+  // a four-word payload, and removing the check under test left it green —
+  // phase1's own `canonicalSpecContent.length < 200` guard was catching it,
+  // so the test was passing for a reason that had nothing to do with it.
+  const overrides = [
+    { match: /^loadpy-SPEC-md/, respond: () =>
+        relayFrame('content', '# Canonical spec\n\n' + 'body line of the spec. '.repeat(20),
+          { bytes: 341375, lines: 7464 }) },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(overrides))
+  assert.match(String(result.error ?? ''), /SPEC\.md load FAILED/)
+})
+
+test('round86: an index relays fine, and its FIRST-LINE still has to satisfy the anchor', async () => {
+  const good = [
+    { match: /^loadpy-SPEC-md/, respond: () => relayIndex('/p/SPEC.md', '# OmniBot 需求規格書') },
+    ...happyOverrides(),
+  ]
+  const ok = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(good))
+  assert.equal(ok.result.error, undefined,
+    `an index payload must load: ${JSON.stringify(ok.result).slice(0, 200)}`)
+
+  // Same frame, a FIRST-LINE that does not start with '# ' — the playbook 8.2
+  // hallucination guard has to survive the mode it was not written for.
+  const bad = [
+    { match: /^loadpy-SPEC-md/, respond: () => relayIndex('/p/SPEC.md', 'Acknowledged. OmniBot') },
+    ...happyOverrides(),
+  ]
+  const no = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(bad))
+  assert.match(String(no.result.error ?? ''), /SPEC\.md load FAILED/)
+})
+
+test('round86: an index reaches Agent B as itself, not as a summary of itself', async () => {
+  // makeDocSummary reports `headings: N` over the payload it is given. Run on
+  // an index, whose headings are its DATA rather than its structure, it
+  // reports 0 — a false reading of the one file too large to send whole.
+  const overrides = [
+    { match: /^loadpy-01-requirements-SRS-md/, respond: () =>
+        relayIndex('/p/01-requirements/SRS.md', '# Software Requirements Specification') },
+    ...happyOverrides(),
+  ]
+  const { events } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(overrides))
+  const downstream = events.agents.filter(
+    (a) => /^b-(spec-track|trace|test-inv)/.test(a.label) && a.prompt.includes('01-requirements/SRS.md'))
+  assert.ok(downstream.length > 0, 'expected a downstream B review carrying the SRS doc')
+  for (const a of downstream) {
+    assert.ok(a.prompt.includes('FIRST-LINE: # Software Requirements Specification'),
+      `${a.label} lost the index`)
+    assert.ok(!/"headings":\s*\[\s*\]/.test(a.prompt), `${a.label} summarised the index into an empty heading list`)
+  }
 })
 
 // ---- Round 48 站4: harness-repair, the workflow whose subject is harness ----

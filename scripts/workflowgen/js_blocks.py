@@ -26,6 +26,12 @@ from pathlib import Path
 # so the edge only goes this way.
 from .spec_shared import D4_THRESHOLDS, render_session_block_guard
 
+# Round 86 站2 — the relay ceiling is stated where the relay is implemented
+# (scripts/file_loader.py), and rendered into the JS from there. Two numbers
+# for one limit is how the JS came to check `startsWith('#')` on a payload
+# Python already knew the size of.
+from scripts.file_loader import RELAY_MAX_BYTES
+
 _JS_SRC_DIR = Path(__file__).resolve().parent / "js_src"
 _EXPORT_RE = re.compile(r"^export\s+(?=function\b)", re.MULTILINE)
 
@@ -1564,6 +1570,9 @@ def render_make_doc_summary() -> str:
         "// preserving the structural skeleton B needs to orient.\n"
         "function makeDocSummary(content, opts) {\n"
         "  opts = opts || {}\n"
+        "  // An index IS the summary, and summarising it again reports\n"
+        "  // `headings: 0` for a file whose headings are the payload.\n"
+        "  if (isFileIndex(content)) return content\n"
         "  const lines = content.split('\\n')\n"
         "  const headings = []\n"
         "  for (const ln of lines) {\n"
@@ -1904,9 +1913,59 @@ def render_anchor_check() -> str:
     return _EXPORT_RE.sub("", body)
 
 
+def render_relay_frame() -> str:
+    """The receipt `read-file --relay` writes around what it hands back.
+
+    The relay is a sub-agent: it `cat`s the file and re-emits it as its final
+    message. Bash stdout above ~30KB is replaced by a preview plus a
+    persisted-file path (measured 2026-09-02: 27,009 bytes intact, 35,300 and
+    49,300 replaced), so above that the agent never saw the content — and the
+    two checks below this one, `length >= 50` and a first-line anchor, both
+    pass on a truncated prefix. Every corpus SRS.md is over that cliff.
+
+    The END marker is what closes it: a truncation anywhere loses it, so a
+    short relay is finally distinguishable from a short file. It does NOT
+    authenticate the relay — an agent that never opened the file could emit a
+    consistent pair of invented shas, which JS cannot detect without crypto or
+    an out-of-band channel (Round 86 entry, docs/PROPOSAL_ADJUDICATIONS.md).
+    """
+    return (
+        "// ---- relay frame (Round 86 站2): read-file's receipt, checked here ----\n"
+        f"const RELAY_MAX_BYTES = {RELAY_MAX_BYTES}\n"
+        "function parseRelayFrame(text) {\n"
+        "  const nl = text.indexOf('\\n')\n"
+        "  if (nl === -1) return null\n"
+        "  const m = text.slice(0, nl).match("
+        "/^<<<HARNESS-RELAY v1 mode=(content|index) sha256=([0-9a-f]{64}) "
+        "bytes=(\\d+) lines=(\\d+)>>>$/)\n"
+        "  if (!m) return null\n"
+        "  const end = '<<<HARNESS-RELAY-END sha256=' + m[2] + '>>>'\n"
+        "  const body = text.slice(nl + 1).replace(/\\s+$/, '')\n"
+        "  if (!body.endsWith(end)) return null\n"
+        "  // A relay claiming whole content for a file read-file refuses to send\n"
+        "  // whole contradicts the framework's own rule. Reject, do not believe.\n"
+        "  if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null\n"
+        "  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),\n"
+        "    payload: body.slice(0, body.length - end.length).replace(/\\n$/, '') }\n"
+        "}\n"
+        "// An index payload names the file and its first line; that second field\n"
+        "// is what keeps the anchor check alive for files too large to send.\n"
+        "function isFileIndex(s) {\n"
+        "  return typeof s === 'string' && /^FILE: .*\\nFIRST-LINE: /.test(s)\n"
+        "}\n"
+        "function relayAnchorTarget(frame) {\n"
+        "  if (frame.mode === 'content') return frame.payload\n"
+        "  const m = frame.payload.match(/^FIRST-LINE: (.*)$/m)\n"
+        "  return m ? m[1] : ''\n"
+        "}\n"
+    )
+
+
 def render_load_file_via_python() -> str:
     return (
         render_anchor_check()
+        + "\n"
+        + render_relay_frame()
         + "\n"
         "// ---- loadFileViaPython: deterministic Bash + harness_cli.py read-file (v33) ----\n"
         "// Drops the v29 MCP read path (failed at large-context stages) in favour of a\n"
@@ -1922,8 +1981,13 @@ def render_load_file_via_python() -> str:
         "  const safeName = relPath.replace(/[\\/.]/g, '_')\n"
         "  const contentOut = '/tmp/load_' + safeName + '.txt'\n"
         "  const jsonOut = '/tmp/load_' + safeName + '.json'\n"
-        "  const pythonCmd = PY + ' ' + REPO + '/harness_cli.py read-file --file ' + JSON.stringify(filePath)\n"
-        "    + expectPrefixArg + ' --content --content-out ' + contentOut + ' --json-out ' + jsonOut + ' --quiet'\n"
+        "  // rm -f first: contentOut is a fixed path, and read-file does not write\n"
+        "  // it when the read fails — the agent would then cat a PREVIOUS run's\n"
+        "  // leftover, which carries a valid anchor and now a valid frame too.\n"
+        "  const pythonCmd = 'rm -f ' + contentOut + ' ' + jsonOut + ' && ' + PY\n"
+        "    + ' ' + REPO + '/harness_cli.py read-file --file ' + JSON.stringify(filePath)\n"
+        "    + expectPrefixArg + ' --relay --relay-max-bytes ' + RELAY_MAX_BYTES\n"
+        "    + ' --content-out ' + contentOut + ' --json-out ' + jsonOut + ' --quiet'\n"
         "\n"
         "  const prompt = 'You are a SHELL WRAPPER AGENT. Your ONLY job is to run ONE shell command and emit ONE file content verbatim.\\n\\n'\n"
         "    + 'STEPS (DO NOT DEVIATE):\\n'\n"
@@ -1972,12 +2036,20 @@ def render_load_file_via_python() -> str:
         "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')\n"
         "      continue\n"
         "    }\n"
-        "    if (expectPrefix && !firstLineHasAnchor(text, expectPrefix)) {\n"
-        "      lastFailReason = 'prefix_mismatch: got=' + text.slice(0, 40)\n"
-        "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with \"' + expectPrefix + '\", got: ' + text.slice(0, 80) + ')')\n"
+        "    const frame = parseRelayFrame(text)\n"
+        "    if (!frame) {\n"
+        "      lastFailReason = 'relay_frame_broken: got=' + text.slice(0, 60)\n"
+        "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' relay frame broken (truncated in transit, or not what read-file wrote)')\n"
         "      continue\n"
         "    }\n"
-        "    return text\n"
+        "    const anchorAt = relayAnchorTarget(frame)\n"
+        "    if (expectPrefix && !firstLineHasAnchor(anchorAt, expectPrefix)) {\n"
+        "      lastFailReason = 'prefix_mismatch: got=' + anchorAt.slice(0, 40)\n"
+        "      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with \"' + expectPrefix + '\", got: ' + anchorAt.slice(0, 80) + ')')\n"
+        "      continue\n"
+        "    }\n"
+        "    log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')\n"
+        "    return frame.payload\n"
         "  }\n"
         "  return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'\n"
         "}\n"

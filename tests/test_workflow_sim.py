@@ -134,4 +134,13 @@ def test_sim_testbed_passes():
     # defaults `opts.args ?? { repo: '/sim/project' }`, so until this section
     # NOTHING here had ever executed that path, which is how a binding read
     # inside its own initializer shipped green.
-    assert int(m.group(1)) >= 130, f"sim suite shrank: only {m.group(1)} passing tests (floor 130)"
+    # 130 -> 137 by Round 86 站2. Four round86 fixtures cover the relay's
+    # receipt: a truncation loses the END marker, a frame claiming whole
+    # content for an over-ceiling file is a contradiction rather than a read,
+    # an index still has to satisfy the anchor through its FIRST-LINE field,
+    # and an index reaches Agent B as itself instead of being summarised into
+    # `headings: []`. The other three are the retry/happy-path fixtures the
+    # frame changed. Nothing here had ever sent the loader anything but a
+    # well-formed body, which is how a 65%-truncated deliverable stayed
+    # indistinguishable from a complete one across every corpus project.
+    assert int(m.group(1)) >= 137, f"sim suite shrank: only {m.group(1)} passing tests (floor 137)"
