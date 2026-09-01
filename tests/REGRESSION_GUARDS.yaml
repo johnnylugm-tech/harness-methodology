@@ -4166,3 +4166,31 @@
 - test: tests/test_fault_owner.py::test_the_text_rule_table_stays_at_the_size_its_header_claims
   bug: "the table header said 'There are exactly three today' while five rules followed it, and its next sentence ('Growing this table is how classification improves; guessing is not') was contradicted by entries whose own comment conceded the root cause was a heterogeneous mix"
   fixed_in: "Round 85 站2"
+
+- test: tests/test_file_loader.py::TestRelayEnvelope::test_a_file_over_the_ceiling_relays_an_index_not_its_content
+  bug: "loadFileViaPython moves file content through a sub-agent that cats the file and re-emits it as its final message, and Bash stdout above ~30KB is replaced by a 2KB preview plus a persisted-file path (measured 2026-09-02: 27,009 intact, 35,300 and 49,300 replaced). Every corpus SRS.md is over that cliff — taskq-new's is 86,338 bytes — and omnibot-new's SPEC.md is 341,375"
+  fixed_in: "Round 86 站1"
+
+- test: tests/test_file_loader.py::TestRelayEnvelope::test_the_envelope_ends_with_the_sha_it_opened_with
+  bug: "the JS-side checks a relay faced were `length >= 50` and a first-line anchor, and a truncated prefix passes both — so a 65%-truncated deliverable was indistinguishable from a complete one. file_loader had computed content_sha256 and byte_size since it was written; the JS built the path to that JSON and never read it. Closes the re-open condition Round 84 recorded for its weakened '# ' anchor"
+  fixed_in: "Round 86 站1"
+
+- test: tests/test_file_loader.py::TestRelayEnvelope::test_an_index_never_exceeds_the_ceiling_the_envelope_rides_inside_it
+  bug: "the first version of _render_index fitted the payload to the ceiling and forgot the envelope, shipping a 24,776-byte relay under a 24,576-byte limit; and without the depth-fallback loop a file with thousands of level-3 headings indexes to ~400KB, i.e. an index that cannot cross the relay it exists to replace"
+  fixed_in: "Round 86 站1"
+
+- test: tests/test_file_loader.py::TestRelayEnvelope::test_a_file_with_no_markdown_headings_indexes_its_head_not_an_empty_table
+  bug: "the index assumed Markdown. srs_vs_spec_diff.json is a DOC in the Phase 1 SRS review, reached 27,762 bytes on taskq-new with 124 ACs and zero headings, and would have relayed an empty heading table. The head-of-file form lands on `summary`, which build_diff_report emits before `per_ac`"
+  fixed_in: "Round 86 站1"
+
+- test: tests/test_file_loader.py::TestRelayEnvelope::test_index_line_ranges_stay_inside_the_file
+  bug: "_render_index split on newlines, so a file ending in one gained a phantom last line and the final section's range read 7439-7465 on a 7,464-line file. buildBPrompt explicitly tells Agent B that a range citation whose end exceeds the file's line count is a known blocking failure mode — the index was modelling the thing the framework forbids"
+  fixed_in: "Round 86 站1"
+
+- test: tests/test_file_loader.py::TestRelayEnvelope::test_the_index_carries_the_first_line_so_the_anchor_check_survives
+  bug: "in index mode the payload's first line is the index header, not the file's H1, so applying expect_prefix to it would either fail every large file or have to be skipped — and skipping it removes the playbook 8.2 hallucination guard for exactly the files too large to verify any other way"
+  fixed_in: "Round 86 站1"
+
+- test: tests/cli/test_project_cmds_cli.py::TestCmdReadFile::test_relay_writes_the_same_enveloped_string_to_both_outputs
+  bug: "the three read-file tests build argparse.Namespace by hand, so nothing tied them to the flags register() declares and adding --relay broke all three. This one goes through build_parser(), and pins that --content-out and the JSON `content` field are one string rather than two formats of the same read"
+  fixed_in: "Round 86 站1"

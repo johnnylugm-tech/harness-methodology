@@ -29,6 +29,7 @@ from core.utils.script_loader import load_harness_script
 # Module level so it is patchable by name, like every other heavyweight
 # init-project step (_init_phase_dirs, _check_crg_available, ...).
 from scripts.bootstrap_env import bootstrap as bootstrap_project_env
+from scripts.file_loader import RELAY_MAX_BYTES as _RELAY_MAX_BYTES
 from harness import tool_checks
 
 
@@ -904,6 +905,8 @@ def cmd_read_file(args: argparse.Namespace) -> int:
         min_length=args.min_length,
         max_length=args.max_length,
         include_content=args.content,
+        relay=args.relay,
+        relay_max_bytes=args.relay_max_bytes,
     )
 
     json_text = json.dumps(result, indent=2, ensure_ascii=False)
@@ -2095,6 +2098,8 @@ def register(sub) -> None:
     rf.add_argument("--max-length", type=int, default=None, help="Maximum byte size; above truncates content with a suffix")
     rf.add_argument("--content", action="store_true", help="Include (possibly truncated) content text in JSON output")
     rf.add_argument("--content-out", default=None, help="If set, also write content to this path")
+    rf.add_argument("--relay", action="store_true", help="Wrap content in the relay envelope; index it above the ceiling")
+    rf.add_argument("--relay-max-bytes", type=int, default=_RELAY_MAX_BYTES, help=f"Relay content ceiling in bytes (default {_RELAY_MAX_BYTES})")
     rf.add_argument("--json-out", default=None, help="If set, write JSON result to this path; otherwise print to stdout")
     rf.add_argument("--quiet", action="store_true", help="Suppress the human-readable status line on stderr")
     rf.set_defaults(func=cmd_read_file)

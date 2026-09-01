@@ -21,6 +21,7 @@ Commonality: phase-agnostic. Used by all 8 phase workflow JS files.
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from scripts.file_loader import (
+    RELAY_MAX_BYTES,
     TRUNCATION_SUFFIX,
     _first_line,
     _sha256_bytes,
@@ -336,6 +338,120 @@ class TestCLI:
 # ---------------------------------------------------------------------------
 # Determinism — workflow JS can rely on stable sha256 across calls
 # ---------------------------------------------------------------------------
+
+
+class TestRelayEnvelope:
+    """Round 86: the relay carries a receipt, and stops carrying what it cannot.
+
+    `loadFileViaPython` moves file content through a sub-agent: `read-file`
+    writes the file, the agent `cat`s it and re-emits it as its final message.
+    Bash stdout above ~30KB is replaced by a 2KB preview plus a persisted-file
+    path (measured 2026-09-02: 27,009 intact, 35,300 and 49,300 replaced), so
+    the agent never saw the content — and the JS-side checks it faced,
+    `length >= 50` and a first-line anchor, both pass on a truncated prefix.
+    Every corpus SRS.md is over that cliff (taskq-new's is 86,338 bytes).
+    """
+
+    def _spec(self, tmp_path: Path, sections: int, level: int = 3) -> Path:
+        f = tmp_path / "SPEC.md"
+        body = ["# Canonical spec", ""]
+        for i in range(sections):
+            body += ["#" * level + f" FR-{i:03d}: {'requirement text ' * 4}", "", "x" * 200, ""]
+        f.write_text("\n".join(body), encoding="utf-8")
+        return f
+
+    def test_a_file_under_the_ceiling_relays_its_content_verbatim(self, tmp_path: Path):
+        f = tmp_path / "SPEC.md"
+        f.write_text("# Small spec\n\nbody\n", encoding="utf-8")
+        r = load_file(f, relay=True)
+        assert r["relay_mode"] == "content"
+        assert "# Small spec\n\nbody" in r["content"]
+
+    def test_a_file_over_the_ceiling_relays_an_index_not_its_content(self, tmp_path: Path):
+        f = self._spec(tmp_path, 200)
+        assert f.stat().st_size > RELAY_MAX_BYTES
+        r = load_file(f, relay=True)
+        assert r["relay_mode"] == "index"
+        assert "x" * 200 not in r["content"]
+        assert "FR-000:" in r["content"]
+        assert "FR-199:" in r["content"]
+
+    def test_the_envelope_ends_with_the_sha_it_opened_with(self, tmp_path: Path):
+        f = self._spec(tmp_path, 200)
+        r = load_file(f, relay=True)
+        head, *_, tail = r["content"].rstrip("\n").split("\n")
+        assert head.startswith("<<<HARNESS-RELAY v1 mode=index ")
+        assert f"sha256={r['content_sha256']}" in head
+        assert tail == f"<<<HARNESS-RELAY-END sha256={r['content_sha256']}>>>"
+
+    def test_a_truncated_relay_loses_its_end_marker(self, tmp_path: Path):
+        # The whole point of the frame: a short relay is now distinguishable
+        # from a short file, which is the distinction the JS could not make.
+        f = self._spec(tmp_path, 200)
+        relayed = load_file(f, relay=True)["content"]
+        assert not relayed[: len(relayed) // 2].rstrip().endswith(">>>")
+
+    def test_an_index_never_exceeds_the_ceiling_the_envelope_rides_inside_it(
+        self, tmp_path: Path,
+    ):
+        # 4000 level-3 headings: the level-3 index does not fit, so the depth
+        # loop has to fall back. Without the fallback the payload is ~400KB.
+        f = self._spec(tmp_path, 4000)
+        r = load_file(f, relay=True)
+        assert r["relay_mode"] == "index"
+        assert len(r["content"].encode("utf-8")) <= RELAY_MAX_BYTES
+
+    def test_a_file_with_no_markdown_headings_indexes_its_head_not_an_empty_table(
+        self, tmp_path: Path,
+    ):
+        # Not hypothetical: srs_vs_spec_diff.json is a Phase 1 SRS-review DOC
+        # and reached 27,762 bytes on taskq-new with no heading in it.
+        f = tmp_path / "diff.json"
+        f.write_text(
+            '{\n  "summary": {"total_ac": 124},\n  "per_ac": [\n'
+            + "".join(f'    {{"label": "AC-{i}"}},\n' for i in range(3000))
+            + "  ]\n}\n",
+            encoding="utf-8",
+        )
+        r = load_file(f, relay=True)
+        assert r["relay_mode"] == "index"
+        assert '"summary": {"total_ac": 124}' in r["content"]
+        assert len(r["content"].encode("utf-8")) <= RELAY_MAX_BYTES
+
+    def test_index_line_ranges_stay_inside_the_file(self, tmp_path: Path):
+        # An out-of-range end line is the off-by-one `buildBPrompt` tells
+        # Agent B never to write in a citation; the index must not model it.
+        f = self._spec(tmp_path, 200)
+        r = load_file(f, relay=True)
+        ends = [
+            int(m.group(1))
+            for m in (re.match(r"^\d+-(\d+)\s", ln) for ln in r["content"].split("\n"))
+            if m
+        ]
+        assert ends and max(ends) <= r["line_count"]
+
+    def test_the_index_carries_the_first_line_so_the_anchor_check_survives(
+        self, tmp_path: Path,
+    ):
+        f = self._spec(tmp_path, 200)
+        r = load_file(f, relay=True)
+        assert "\nFIRST-LINE: # Canonical spec\n" in r["content"]
+
+    def test_a_file_whose_shallowest_index_still_overflows_is_refused(
+        self, tmp_path: Path,
+    ):
+        f = self._spec(tmp_path, 600, level=1)
+        r = load_file(f, relay=True)
+        assert r["status"] == "READ_ERROR"
+        assert "no index fits" in r["diagnostic"]
+
+    def test_relay_is_off_by_default_so_existing_callers_are_untouched(
+        self, tmp_path: Path,
+    ):
+        f = self._spec(tmp_path, 200)
+        r = load_file(f, include_content=True)
+        assert r["relay_mode"] is None
+        assert not r["content"].startswith("<<<HARNESS-RELAY")
 
 
 class TestDeterminism:

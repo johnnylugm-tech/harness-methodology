@@ -3843,6 +3843,106 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 86 — 搬不動的東西，沒有人量它搬不搬得動
+
+老闆令:調研 omnibot-new 的 `SPEC.md` 太大載不進 workflow,探討最佳解(分段?
+還是有更好的做法),進入 plan mode。追加令一次:**再次驗證方案是否是正解且沒有
+引入副作用** —— 該次複核改寫了計畫五處,其中兩處是真的錯誤(見下)。
+
+基線 `ba14b606`。
+
+### 母體
+
+> **框架算得出真值,判定卻讀別的** —— 第 N 次。`file_loader.py` 早就算出
+> `content_sha256` / `byte_size` / `line_count` 並寫進 `/tmp/load_*.json`;
+> JS 組了那個路徑,然後從不讀它,只檢查 LLM 轉述回來的字串以 `#` 開頭。
+
+### 問題不是 SPEC.md 太大
+
+`loadFileViaPython` 有一個沒人宣告、沒人檢查的容量上限,omnibot-new 只是第一個
+把它撞破到看得見的專案。
+
+| # | 事實 | 證據 |
+|---|---|---|
+| 1 | workflow JS 沒有 fs,所有 I/O 必須經 `agent()` | `docs/WORKFLOW_PLAYBOOK.md` §4 |
+| 2 | relay ＝ sub-agent `cat` 檔案後把內容當**最終訊息**吐回 | `js_blocks.render_load_file_via_python` |
+| 3 | Bash 工具輸出超過約 30KB 被換成 2KB preview + 落盤路徑 | 本輪實測 2026-09-02:27,009 完整通過;35,300 與 49,300 皆被落盤 |
+| 4 | JS 端只驗 `length >= 50` + 第一行 anchor,**截斷前綴兩項全過** | `js_src/anchor_check.mjs` |
+| 5 | `--max-length` 宣告了,呼叫者 0 個 | `grep -rn -- --max-length` |
+
+**這不只影響 omnibot-new。** `wc -c` 實測:taskq-new `SRS.md` 86,338、taskq-super
+70,697、taskq-cc-new 64,040、taskq-api 57,068、taskq-plus 40,493;每個 `SAD.md`
+31,919–41,732;taskq-new `srs_vs_spec_diff.json` 27,762;語料 `SPEC.md` 28,009
+(懸崖不確定區內);omnibot-new `SPEC.md` 341,375。
+
+旁證:taskq-new 的 B 審查引用 `01-requirements/SRS.md:1204` ＝ byte offset
+60,325,遠在懸崖外 —— **B 的判斷本來就不靠內嵌的 DOC**,`buildBPrompt` 命令它
+citation 必須自己重讀磁碟。
+
+### 為什麼不是「分段」(老闆問句的直接回答)
+
+分段解決運輸,解決不了目的地:341KB ≈ 9.5 萬 token,就算切 14 段接回 JS,塞進
+B 的 prompt 時還要再加一份 86KB 的 SRS 草稿。**目的地本身裝不下。** 正解是不把
+內容搬進 JS —— 框架自己的 doctrine 已經這樣寫了(`render_build_b_prompt` 的
+「Layer 1 — SUMMARY via makeDocSummary; B Bash-cats full file for any citation」),
+`SPEC.md` 是唯一的例外,而且是 2026-09-01 的 `f662bf99` 才變成例外的。
+
+### 落地
+
+| 站 | 做了什麼 |
+|---|---|
+| 1 | `RELAY_MAX_BYTES = 24_576`(量測而非猜測)、relay 信封、兩種索引形態、`read-file --relay` |
+| 2 | JS 端讀信封:BEGIN/END 同 sha、`mode=content` 不得超過天花板、anchor 改讀 `FIRST-LINE:` |
+| 3 | DOC 標籤說出它是索引、A 的「already loaded for you」變成真的、`fr_coverage` 搭 DOC 3 便車 |
+| 4 | 本節、ratchet、反證 |
+
+### 追加驗證改寫計畫的五點(兩點是真的錯誤)
+
+1. **站3 原本要新增一次 dispatch。** `check-spec-alignment` 在 workflow JS 裡
+   **零呼叫點**(grep 全樹)。改為讓 `canonical_diff.build_diff_report` 多輸出
+   `fr_coverage`(重用 `spec_alignment.structural_fr_ids`)—— DOC 3 本來就在載,
+   **零新 dispatch**。
+2. **「雙模式保留 Round 84」是假話。** 語料 `SPEC.md` 是 28,009 > 任何我能誠實
+   設定的天花板(實測通過點 27,009),**11/11 語料專案的 SPEC.md 都會走索引**。
+   這是行為變更,不是「小檔不受影響」。
+3. **索引器假設檔案是 Markdown,而有一個必然反例。** taskq-new 的
+   `srs_vs_spec_diff.json` 已 27,762 bytes / 124 個 AC,超標且零標題,原設計會
+   給它一份空索引。改成兩形態,依檔案客觀性質分而非依檔名。
+4. **`first-line-b64` 賭 runtime 有 `atob`,沒有依據。** 改用索引 payload 的
+   `FIRST-LINE:` 欄位,純 regex。
+5. **殘留檔。** `contentOut` 是固定路徑,`read-file` 失敗時不寫它,agent 會
+   `cat` 到上一次 run 的殘留,而殘留自帶合法 anchor(加信封後也自帶合法信封)。
+   同一條病,在同一條指令前置 `rm -f` 關掉。
+
+### 實作中被自己的測試抓到的兩件事
+
+- **索引超出天花板 200 bytes**:第一版把 payload 對齊天花板,忘了信封本身佔位。
+  改成「`ceiling` 是講給讀者聽的數字,`budget` 是 payload 扣掉信封後能佔的」。
+- **無標題索引的預留是猜的**:`budget - header - 300`,在長路徑 + 六位數計數下
+  超標 46 bytes。改成把註記文字用「每個計數取最寬」渲染一次來量上界。
+- **索引結尾行號越界**:`split("\n")` 對結尾換行多算一行,`7439-7465` 出現在
+  7,464 行的檔案上 —— 正是 `buildBPrompt` 明文告誡 Agent B 不得寫進 citation 的
+  off-by-one。改用 `splitlines()`。
+
+### 關掉的 re-open 條件
+
+- **Round 84 的 `expectPrefix` 從 `'# Project Brief'` 降到 `'# '`**:該條記
+  「正解是比對 `read-file` 已算出的 sha256 —— 那影響所有 `loadFileViaPython`
+  呼叫點,是另一輪」。本輪即那一輪:信封的 BEGIN/END 同 sha 取代了它,anchor
+  兩種模式都仍在(index 模式讀 `FIRST-LINE:`)。
+
+### 告知不修 / 明列不做
+
+| 項目 | 理由 | re-open 條件 |
+|---|---|---|
+| 5 處 `startsWith('FILE_MISSING')` 是死檢查 | `loadFileViaPython` 唯一的失敗回傳是 `'ERROR: LOADER_FAILED_AFTER_…'`,`file_loader` 的 status 是 `MISSING`,兩者都不以 `FILE_MISSING` 開頭。無關本輪病灶 | 有人要重整 loader 的失敗回傳詞彙時一併收 |
+| 造假 agent 的信封偽造 | 信封擋的是**截斷**。一個從沒讀過檔案的 agent 可以自造一致的假 sha;JS 無 crypto、無頻外通道,單次 dispatch 內無解 | 出現一次可證的偽造事故 → 改雙 dispatch(第二次只 relay ~400 bytes 的 JSON) |
+| `RELAY_MAX_BYTES` 量的是本機 Bash 工具,不是 sub-agent 的 | 兩者是否同一限制未直接觀測。方向安全:信封讓猜太高只會 fail-closed,猜太低只是少用全文模式 | 取得 sub-agent 的實測上限時重新定值 |
+| omnibot-new 的 341KB / 28 FR 是否該拆成多個 milestone | 專案端範圍決定,不是框架決定。**修好 relay 是它 P1 的必要非充分條件** —— A 仍要在自己的 context 裡消化 341KB(≈9.5 萬 token)並寫出 SRS | 第一次真跑 P1 之後 |
+| `cli/project_cmds.py:706` 的 `^###\s+FR-(\d+)\s*:` 與 `structural_fr_ids` 是兩份實作 | 收編會改變 P1 fallback 的行為(多認 table/json 形式)—— Round 84 已列為明列不做,本輪不動 | 同 Round 84 |
+
+---
+
 ## Round 85 — 判定讀不到自己算出來的數
 
 背景：taskq-redo 在 run-all.js 跑到 P3 Gate 1 反覆卡關。站1（`b18daa62`，他人

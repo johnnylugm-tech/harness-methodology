@@ -1015,6 +1015,8 @@ class TestCmdReadFile:
             max_length=None,
             content=True,
             content_out=None,
+            relay=False,
+            relay_max_bytes=24576,
             json_out=str(out_json),
             quiet=True
         )
@@ -1035,6 +1037,8 @@ class TestCmdReadFile:
             max_length=None,
             content=False,
             content_out=None,
+            relay=False,
+            relay_max_bytes=24576,
             json_out=None,
             quiet=True
         )
@@ -1054,12 +1058,36 @@ class TestCmdReadFile:
             max_length=None,
             content=True,
             content_out=str(out_content),
+            relay=False,
+            relay_max_bytes=24576,
             json_out=None,
             quiet=True
         )
         rc = harness_cli.cmd_read_file(args)
         assert rc == 0
         assert out_content.read_text(encoding="utf-8") == "Hello Content"
+
+    def test_relay_writes_the_same_enveloped_string_to_both_outputs(self, tmp_path):
+        """Round 86: --relay is one statement, not two formats of one read.
+
+        Built through the real parser rather than a hand-made Namespace: the
+        three tests above are hand-made, and adding --relay broke all three
+        because nothing tied them to the flags `register()` actually declares.
+        """
+        import harness_cli
+        f = tmp_path / "SPEC.md"
+        f.write_text("# Spec\n\n" + "section body\n" * 4000, encoding="utf-8")
+        out_content, out_json = tmp_path / "c.txt", tmp_path / "j.json"
+
+        args = harness_cli.build_parser().parse_args([
+            "read-file", "--file", str(f), "--relay",
+            "--content-out", str(out_content), "--json-out", str(out_json), "--quiet",
+        ])
+        assert harness_cli.cmd_read_file(args) == 0
+        data = json.loads(out_json.read_text(encoding="utf-8"))
+        assert data["relay_mode"] == "index"
+        assert out_content.read_text(encoding="utf-8") == data["content"]
+        assert data["content"].startswith("<<<HARNESS-RELAY v1 mode=index ")
 
 
 # =============================================================================
