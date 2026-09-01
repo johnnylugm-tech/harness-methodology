@@ -3917,9 +3917,42 @@ Source 是 `SPEC.md`**,唯一一條 brief(C-15)其內容也在 `SPEC.md:481`。
 實測:12 個目標(11 語料 + 本 repo)**verdict drift = 0**;繞過探針
 (SRS 在、SPEC.md 被刪)今天靜默通過,改後 `error:canonical_missing`。
 
-### 落地
+### 落地(2 commits,`88e15a7d`..`f662bf99`)
 
-_(隨站增長)_
+| 站 | 內容 |
+|---|---|
+| **站1** | `resolve_canonical_spec` 與兩條 layout regex 退役;`check_spec_alignment` 改用 `ProjectLayout.spec_path` + 四格判準;`preflight_spec_alignment` 移除 elicitation skip,並把「空 violations」的兩個成因分開措辭;`load-context` 的 P1 fallback 直接讀 `SPEC.md` |
+| **站2** | Agent B 的 DOC 1 = `SPEC.md` 全文;`srsAPrompt` 五條 precedence → 一條;`srsBChecklist` 刪掉問「A 有沒有正確解析 precedence」的那條 |
+| **站3** | `[PROJECT-BRIEF]` → `[CANONICAL-SPEC]`;plangen task_hint / checks / embed_docs |
+| **站4** | `SKILL.md`、`templates/SRS.md`、`R-SRS-FR-BLOCK-001`;playbook §8.2 原文不動只加註 |
+| **站5** | 五支新守衛(四條反證各自轉紅);15 支既有測試改寫;順帶修 ledger guard 的死 regex |
+| **站6** | 本節 + Round 71 補記 |
+
+**零漂移,量過不是斷言**:12 個目標(11 語料 + 本 repo)改前改後
+`check_spec_alignment` 逐行相同。語料十一專案 `find -newermt` 全部 0 檔案被動。
+`self_check.sh` 全綠,7954 passed / 4 skipped,guards 905 → 1011。
+
+### 站3 撞到的計畫外發現:一份手寫的「生成物」
+
+重生 `.methodology/phase1_plan.md` 時發現它是 **v2.7.0**(2026-05-31),而
+生成器已是 v2.12.0。`plan-all` 對它 SKIP 了三個月 —— skip 規則在任何 `[x]`
+上觸發,而模板自己就帶一個(`sessions_spawn.log` 那列)。307 行變動裡只有
+24 行是本輪的。
+
+更值得記的是它讓一支守衛現形:`test_p1_plan_defines_prompt_injection_guard`
+斷言 `'Prompt-injection guard'` 在 `phase1_plan.md` 裡,而
+`grep -rn 'Prompt-injection guard' scripts/` **零命中** —— 沒有任何生成器
+產生過那段文字。它只存在於本 repo 那份手寫副本;兩個消費專案的 plan 都是
+v2.12.0,都沒有它。**那支守衛讀的是手寫副本,卻以為在守生成器。**
+連同 R-MODE-1 / R-MODE-2 一起撤銷,改成守生成器輸出。
+
+### 站5 順帶修掉的死規則
+
+`test_ledger_has_no_holes` 的 round 偵測 regex 是 `\bR(\d+) 站`,要求 `站`
+前面是**空格**。實測:這個 repo 的 commit 歷史裡,寫成 `R<N> 站<M>` 的有
+**0 個**,寫成 `R<N>-站<M>` 的有 5 個 —— 那條 alternation 自加入之日起
+命中數為零。它讓兩輪對兩項檢查都隱形:84(本輪)與 **71**,而 Round 71 的
+`ae68b7a5` 確實出貨過。改成分隔符字元類,並補上 Round 71 的考古節。
 
 ### 告知不修
 
@@ -3928,6 +3961,8 @@ _(隨站增長)_
 | `cli/project_cmds.py` 的 `^###\s+FR-(\d+)\s*:` 與 `_structural_fr_ids`(三種 pattern)是兩份實作 | 不是本輪病灶;收編會改變 P1 fallback 的行為(多認 table/json 形式) |
 | `hunt.py --spec` 是第 5 個陳述 | 它是**使用者可覆蓋的 CLI 參數**,語意與「canonical spec 在哪」不同 |
 | 語料專案 SRS 對 `PROJECT_BRIEF.md` 的懸空引用(taskq-cc-new §1.4 References、C-15 Source 欄) | 語料唯讀;框架也不加 lint —— 那會對歷史專案追溯開罰 |
+| `plan-all` 的 skip 規則被模板自己的 `[x]` 觸發,使 shipped plan 可以凍結任意久 | 修它要改「什麼算人工進度」的定義,是獨立一輪的設計;本輪已用 `--force` 讓 `phase1_plan.md` 對齊生成器,問題本身記在這裡 |
+| `88e15a7d` 的 `phase_hooks.py` ratchet 在下一個 commit 才調 | 已發生無法回頭(禁止 amend);note 裡寫明它遲到,與 Round 71 的 `ae68b7a5` 同形 |
 
 ### re-open 條件
 
