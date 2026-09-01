@@ -899,7 +899,8 @@ def check_ac_deferral_targets(project: "str | Path") -> list[Violation]:
     thing this was going to report.
     """
     from core.quality_gate.spec_coverage import (
-        _get_test_directories, _scan_test_functions,
+        _get_test_directories, _live_test_outcomes, _scan_test_functions,
+        delivery_outcome,
     )
     from core.utils.lang_patterns import project_language
 
@@ -918,25 +919,33 @@ def check_ac_deferral_targets(project: "str | Path") -> list[Violation]:
         actual: set[str] = set()
         for test_dir in _get_test_directories(project):
             actual |= _scan_test_functions(test_dir, lang)
+        outcomes = _live_test_outcomes(project)
     except OSError:
         return []
 
     violations: list[Violation] = []
     for ac in sorted(named):
-        absent = sorted(fn for fn in named[ac] if fn not in actual)
-        if not absent:
+        # Round 87 站1: the same rule spec_coverage scores by. This check and
+        # that score disagreed about the word "exists" for four rounds — one
+        # blocked on a `def`, the other counted one — and a stub satisfied
+        # both. `delivery_outcome` is the single definition; importing it is
+        # the point, a local re-implementation here would recreate the split.
+        graded = ((fn, delivery_outcome(fn, actual, outcomes)) for fn in named[ac])
+        undelivered = sorted((fn, why) for fn, why in graded if why != "delivered")
+        if not undelivered:
             continue
+        detail = ", ".join(f"{fn} [{why}]" for fn, why in undelivered)
         violations.append(Violation(
             check_type="ac_deferral_target_missing", rule_id=ac,
             severity="error",
             file=str(test_spec.relative_to(project)),
             message=(
-                f"{ac} is deferred to {', '.join(absent)}, which no test "
-                f"function defines. A deferral is a promise that something "
-                f"else verifies the criterion; this one names a verifier that "
-                f"does not exist, so the criterion is verified by nothing. "
-                f"Write the test, or change the deferral to name what really "
-                f"checks it."
+                f"{ac} is deferred to {detail}, which this run has no passing "
+                f"result for. A deferral is a promise that something else "
+                f"verifies the criterion; this one names a verifier that did "
+                f"not run and pass, so the criterion is verified by nothing. "
+                f"Write the test so it runs and passes, or change the deferral "
+                f"to name what really checks it."
             )))
     return violations
 

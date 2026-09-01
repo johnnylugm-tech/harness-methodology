@@ -2058,10 +2058,17 @@ def _record_undelivered_tests(
     fix. What changes here is that a pass over the ladder no longer erases
     what it passed over.
     """
-    report = spec_coverage.spec_coverage_report(project_path)
+    # Round 87 站1: the same outcomes `_run_spec_coverage_check` scored with.
+    # Without this argument this call is a THIRD statement of "delivered" —
+    # presence-only — and the ledger row would contradict the gate result it
+    # sits beside, which is the exact defect shape this round is repairing.
+    report = spec_coverage.spec_coverage_report(
+        project_path, test_outcomes=spec_coverage._live_test_outcomes(project_path)
+    )
     missing = [
         {"test_fn": m["test_fn"], "type": m["type"],
-         "derivation": m["derivation"], "fr_id": m["fr_id"]}
+         "derivation": m["derivation"], "fr_id": m["fr_id"],
+         "why": m.get("why", "absent")}
         for m in report["missing"]
     ]
     args._spec_undelivered = missing  # type: ignore[attr-defined]

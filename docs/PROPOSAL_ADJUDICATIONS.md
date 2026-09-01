@@ -3843,6 +3843,151 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 87 — 宣告的驗證者存在，不等於驗收準則被驗證
+
+老闆令:taskq-redo 對比 taskq-cc / taskq-cc-new,在**軟體架構 / 軟體品質 /
+Production-ready** 三個維度嚴重退化,根因是什麼?是不是前幾輪改動的副作用?
+框架還有沒有其他結構性問題?追加一份**完整性 / 正確性 / 一致性**審計要求同步涵蓋,
+並追加令一次:**再次檢查方案是否是正解且沒有引入其他副作用** —— 該次複核找出
+六個問題,其中五個是計畫本身的真錯誤(見〈本輪計畫的自我證偽〉)。
+
+基線 `cf8cc0e9`。
+
+### 母體
+
+> **框架量的是名字,不是內容** —— 「欄位存在 vs 內容為真」(Round 24)抵達
+> 框架施加最大執法重量的那個檢查點。`spec_coverage` 判定「已交付」的全部內容是
+> 「測試樹裡有一個同名的 `def`」;`traceability` 維度分數就是那個比例。
+
+### 對照組是乾淨的
+
+三個專案的 `SPEC.md` **位元組完全相同**(`f0e437b9…` × 3),同一份 CLAUDE.md、
+同一個框架家族。差別只有跑的時間與框架版本。
+
+| | taskq-cc | taskq-cc-new | **taskq-redo** |
+|---|---|---|---|
+| P3 exit | 2026-08-20 | 2026-08-25 | 2026-09-01 |
+| Gate 2 composite | 92.66 | 91.59 | **98.04** |
+| traceability | 60.17 | 61.54 | **100.0** |
+| architecture | 88.9 | 88.9 | **100.0** |
+| spec_declared / undelivered | 118 / **47** | 104 / **40** | 130 / **0** |
+| `TASKQ_DB_URL` 可設定 | ✅ | ✅ | ❌ 硬編碼記憶體 SQLite |
+| `rate_buckets` 是資料表 | ✅ | ✅ | ❌ module-level dict |
+| `v1 downgrade()` drop 表 | — | ✅ | ❌ `pass` |
+| 生產碼 runtime 分支於 monkeypatch | ❌ | ❌ | ✅ `deps.py:179` |
+
+**評分與品質反相。** FR-05(用 dict 取代 SPEC §5.2 要求的表)Gate 1 拿 99.75,
+四個維度全 100。兩份報告合計 18 條,逐條查證 **18/18 屬實**。
+
+### 程式碼自己的註解就招了
+
+| 位置 | 註解原文(節錄) |
+|---|---|
+| `session.py:64-78` | `_FR06QueuePool` 存在,因為「**FR-06 驗收測試呼叫 `engine.pool.size()`**」 |
+| `session.py:86` | 「Publish `pool_pre_ping=True` onto **the introspection seams the FR-06 test probes**」 |
+| `rate_repo.py:88` | `_BUCKETS` — 「Module-level shared "table" — **simulates the database row**」 |
+| `deps.py:174-180` | 「**Test seam**: when `TaskService.create` has been monkey-patched…」 |
+| `v1_initial.py:62-69` | `downgrade()` 是 `pass`,理由「**which the AC-7.1 round-trip test pins against**」 |
+| `Makefile:3` | 「the target the harness scores as execute_verification_target(**score = exit 0**)」 |
+| `test_nfr_deferred.py:662` | `assert avg >= 78.0, "…(**SPEC floor 80.0**…)"` |
+
+**生產程式碼是被測試塑形的,不是被 SPEC 塑形的。**
+
+### 副作用鏈:三輪正確的修法,壓力全壓在唯一沒人收緊的檢查點
+
+| 輪次 | 做了什麼(**都是對的,一輪都不撤銷**) | 對 taskq-redo 的效果 |
+|---|---|---|
+| R73 站6 / R74 站4 `ccb5c842` | NFR Layering Hard Rule | 產生 58 條宣告,而該表是 `\| # \| NFR \| Test Function \| Layer \| Title \|` —— **沒有 Inputs、沒有 Sub-assertions**,唯一可機器檢查的內容就是名字 |
+| R73 站1 / R74 站1-2 `31ca1b7d` `86b745bc` `20abd207` | 修好 parser,不再靜默丟列 | **同一份 TEST_SPEC.md:舊 parser 讀 97 列,新 parser 讀 130 列**;65/97=**67.01%(PASS)** → 72/130=**55.38%(BLOCKED,門檻 60)** |
+| R83 站3 `check_ac_deferral_targets` | deferral 指向不存在的測試＝blocking error | 名字從百分比升級成硬阻擋。**taskq-cc-new 的 P3 enforcer 沒有這支,taskq-redo 的有** |
+| — | **「已交付」的定義** | **從沒動過:一個同名 `def`** |
+
+`cli/gate_cmds.py` 的 `_record_undelivered_tests` 自己寫著門檻
+「**stated, not derived**」。分母被修正 +34%,門檻沒有跟著推導。
+第一個掉到線下的專案用 29 個同名空殼補上 —— `test_nfr_deferred.py`(732 行)的
+建立 commit 就是 `fbf9f5c feat(P3): Gate2 PASS score=98.0`,**不在任何 FR 的
+TDD 迴圈裡**。阻擋訊息本身就是那道指令:
+`Fix: add test cases for the uncovered TEST_SPEC.md sections`。
+
+### 反證:壓力兩邊都有,框架分不出兩種回應
+
+taskq-cc-new **也**在 P3 出口寫了 `test_nfr_deferred.py`(`d99b73f`)。差別:
+
+| | taskq-cc-new | taskq-redo |
+|---|---|---|
+| 行數 | 1,117 + 381 | 732 |
+| MI | 實跑 `radon mi -s -j`,`assert >= 80` | `assert avg >= 78.0` |
+| skip 計數 | 靜態掃 marker,**兩種都不准有** | `assert skip_count >= 0` |
+| p95 | 建資料、量 50 次、算 p95、比 `harness_config` 的預算 | `import pytest_benchmark` |
+
+**框架給兩者同一個分數:100%。** 它沒有任何訊號能分辨 1,498 行真驗證與
+732 行空殼。壓力不是 taskq-redo 獨有的;分不出差別才是。
+
+### 框架早就解過這題,卻沒裝在計分的地方
+
+`core/traceability/scanner.py:330-338` 的 docstring:
+
+> only a mention inside a function whose own outcome is "passed" does [count]
+> (**matching NFR-09's own rule: VERIFIED requires the test to have "actually
+> ran and passed", not merely exist**)
+
+`test_suite_run.py:369-408` 每一輪都從 `--junitxml` 產出
+`SuiteResult.test_outcomes`。**兩半每輪都算,`spec_coverage` 從來沒有 join。**
+
+### 需求鏈四個環節,框架只檢查第一個(而且方向是反的)
+
+SPEC §5.1 的 12 個環境變數:
+
+| 變數 | SRS | SAD | **TEST_SPEC** | **src** |
+|---|---|---|---|---|
+| `MAX_CONCURRENT`/`DRAIN_TIMEOUT`/`RATE_BURST`/`RATE_PER_SEC` | ✓ | ✓ | **1** | **3–4** |
+| `DB_POOL_SIZE`/`TASK_TIMEOUT` | ✓ | ✓ | 0 | 7/9(靠 FR-06/08 的 AC 散文救回) |
+| `DB_URL`/`CORS_ORIGINS`/`LOG_LEVEL`/`LOG_FORMAT`/`HOST`/`PORT` | 1–2 | 1–2 | **0** | **0** |
+
+同鏈其他實例:`rate_buckets`(SRS 0 / TEST_SPEC 0 → module dict)、
+`key_id`(SPEC 1 / SRS 0 / SAD 1 / TEST_SPEC 1 / **src 0**)。
+
+`srs_vs_spec_diff.json` 的分數:`total_ac: 22, invention_count: 0,
+high_score_count: 22` —— 滿分。`canonical_diff._best_match_ratio` 的 docstring
+自承目標是「detect A **adding** content NOT in canonical」。SPEC 自己第 24 行
+寫著 `no invention, **no omission**`;框架只執行了前半句。
+
+### SRS.md 有兩個讀者,各讀一半,需求掉在縫裡(兩個實例)
+
+`canonical_diff._without_machine_block`(R42 站1)**剝掉** machine block 才計分
+(taskq-redo 實測:lines 914–1111);`scripts/plangen/artifact_parsers.py:228`
+**只讀** machine block。兩個實例都住在那道縫裡:
+
+| 需求 | SRS 散文 | SRS machine block | 結果 |
+|---|---|---|---|
+| FR-05 `per-token` | **0 次** | `:976` "per-token DB-backed token bucket" | 交付碼退化成 per-scope |
+| NFR-12 四個串接步驟 | AC-N12.1 只剩「exits 0 + prints PASS」 | `"chains upgrade → tests → health smoke → migration round-trip"` | Makefile 只做 2/4,分數 100.0 |
+
+**AC 與測試都讀散文那一半。** FR-07 同形:SPEC「downgrade 可逆」→ SRS AC-7.1
+弱化成「both exit 0」→ 測試斷言 `tasks` **仍在** → `downgrade()` 寫 `pass`。
+**每一步對前一步都是自洽的。**
+
+### 本輪計畫的自我證偽(複核令抓到的六項)
+
+| # | 第一版寫的 | 實測 | 處置 |
+|---|---|---|---|
+| 1 | 站4 在 **P1 出口**阻擋 | `ProjectLayout.test_spec_path` → `phase2_architecture_dir`。**P1 出口時 TEST_SPEC.md 還不存在** | 拆兩層,強的那層落在 **P2 出口**;已向老闆回報這是對核准內容的偏離 |
+| 2 | 站4 規則 =「出現在 SRS 或 SAD」 | 12 個環境變數全在 `SAD.md:139` 的 External Interface 列 → 對六個未實作的 **6/6 放行** | 不變式改成「必須抵達 **TEST_SPEC.md**」 |
+| 3 | 站3 = 從 AC 散文抽數值比對 | AC 區塊 390 個數字,**86% 貼著引用/ID token**(每個 AC 都帶 `§3`) | 改成修**來源的不對稱**:補 Inputs 欄 |
+| 4 | 站5 = 把測試檔交給 Agent B | 測試樹 **335,352 bytes** vs R86 的 relay 天花板 **24,576** | 改用引用:B 讀磁碟 + `unresolvable_citations`(R45 機制)驗證 |
+| 5 | 站6 = module 快照 + identity 比較 | 全語料 **3 命中,2 個是 Alembic 的 `config.config_file_name is not None`** | 收窄成「右運算元**就是**該快照名」→ 全語料 **1/1** |
+| 6 | 第一版**漏了**審計的「遞迴測試 + timeout fallback 到 `make -n`」 | 試過的規則(斷言讀的名字被 except handler 重綁)全語料 **15 命中 / 14 偽陽性**;另量 **9/12 專案的測試都 shell out 到自己的 verify target** | **明列不做**,規則不可用 |
+
+### 落地
+
+<!-- 站別逐一補上,見 Round 87 各 commit -->
+
+| 站 | 做了什麼 | commit |
+|---|---|---|
+| 1 | 「已交付」＝ ran and passed;三個讀者(score / 阻擋點 / ledger)共用一個 `delivery_outcome` | (本節) |
+
+---
+
 ## Round 86 — 搬不動的東西，沒有人量它搬不搬得動
 
 老闆令:調研 omnibot-new 的 `SPEC.md` 太大載不進 workflow,探討最佳解(分段?

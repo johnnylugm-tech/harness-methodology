@@ -74,6 +74,61 @@ def _scan_test_functions(test_dir: Path, language: str = "python") -> set[str]:
     return fns
 
 
+#: What a declared test function's own outcome must be for the declaration it
+#: satisfies to count as delivered. Round 87 站1.
+_DELIVERING_OUTCOME = "passed"
+
+
+def delivery_outcome(
+    test_fn: str, actual_fns: set, test_outcomes: "dict[str, str] | None"
+) -> str:
+    """Why this declared test does or does not count as delivered.
+
+    Round 87 站1. `spec_coverage` decided delivery by "a `def` with this name
+    exists" and nothing else — not what it asserts, not whether it ran. The
+    rule applied here is not new: `core.traceability.scanner` has stated and
+    implemented it since Round 73, in its own words, "only a mention inside a
+    function whose own outcome is `passed` does [count] (matching NFR-09's own
+    rule: VERIFIED requires the test to have 'actually ran and passed', not
+    merely exist)". `test_suite_run.run_suite` has produced the per-test map it
+    needs on every run since. The two halves were computed every time and
+    nothing joined them, which is how taskq-redo closed a 55.4% spec-coverage
+    to 100% with 29 correctly-named stubs and took `traceability` 100.0 —
+    against taskq-cc-new's 60-ish for leaving the same criteria honestly
+    undelivered.
+
+    Returns one of:
+      ``"delivered"``   — counts toward coverage
+      ``"absent"``      — no test function of that name exists
+      ``"skipped"`` / ``"failed"`` / ``"error"`` — it exists and the run said so
+      ``"not_collected"`` — it exists but this run's report never named it
+
+    `test_outcomes is None` means no measurement was taken (a non-Python
+    project, or a caller with no live run). That preserves presence-only
+    delivery, the same None-contract `scan_test_fr_coverage` documents — a
+    caller without run data must not be told its declarations are undelivered.
+
+    A name defined in two files counts as delivered when ANY occurrence passed.
+    That matches the per-mention semantics of the scanner this borrows from,
+    and the alternative (every occurrence) would charge a project for a
+    duplicated helper name it never declared twice.
+    """
+    if test_fn not in actual_fns:
+        return "absent"
+    if test_outcomes is None:
+        return "delivered"
+    seen: list[str] = []
+    for nodeid, status in test_outcomes.items():
+        qualified = nodeid.partition("::")[2]
+        if qualified.rpartition(".")[2] == test_fn:
+            if status == _DELIVERING_OUTCOME:
+                return "delivered"
+            seen.append(status)
+    if not seen:
+        return "not_collected"
+    return seen[0]
+
+
 def _flatten_test_names(inventory: dict | None) -> set[str]:
     """Flatten TEST_INVENTORY.yaml fr_tests + cross_cutting into a set of function names."""
     names: set[str] = set()
@@ -329,9 +384,10 @@ def spec_coverage_report(
     project: Path,
     *,
     fr_id: "str | None" = None,
+    test_outcomes: "dict[str, str] | None" = None,
     _items: "list[dict] | None" = None,
 ) -> dict:
-    """Which declared tests exist, which do not, and the ratio between them.
+    """Which declared tests are delivered, which are not, and the ratio between them.
 
     Round 42 站2. `_run_spec_coverage_check` has always known exactly which
     declared tests are absent — it prints them — and has always returned only
@@ -350,7 +406,13 @@ def spec_coverage_report(
     Returns ``{declared, implemented, covered, missing, unread, pct}`` where
     `covered` and `missing` are the parsed TEST_SPEC rows, each keeping its
     `type`, `derivation` and `fr_id` — without those a name cannot say which
-    requirement lost its evidence.
+    requirement lost its evidence. Every `missing` row also carries `why` from
+    `delivery_outcome`, so "nobody wrote it" and "it was written and skipped"
+    stop being the same report.
+
+    `test_outcomes` (from `test_suite_run.run_suite(...).test_outcomes`) is
+    Round 87 站1 — see `delivery_outcome` for the rule and why it is not new.
+    `None` preserves presence-only delivery.
 
     `unread` is Round 74 站2: the table rows the parser saw inside a
     declaration table and turned into nothing. It is empty when `_items` is
@@ -387,8 +449,14 @@ def spec_coverage_report(
     for test_dir in _get_test_directories(project):
         actual_fns |= _scan_test_functions(test_dir, _lang)
 
-    covered = [i for i in items if i["test_fn"] in actual_fns]
-    missing = [i for i in items if i["test_fn"] not in actual_fns]
+    covered: list[dict] = []
+    missing: list[dict] = []
+    for item in items:
+        why = delivery_outcome(item["test_fn"], actual_fns, test_outcomes)
+        if why == "delivered":
+            covered.append(item)
+        else:
+            missing.append({**item, "why": why})
     return {
         "declared": len(items),
         "implemented": len(covered),
@@ -450,9 +518,12 @@ def _run_spec_coverage_check(
 
     This is the UNIFIED D4 check (v2.6). TEST_SPEC.md is the single source of
     truth for all test traceability. For each test case declared in TEST_SPEC.md
-    (P2 deliverable), verify that a matching test function exists in tests/.
+    (P2 deliverable), verify that a matching test function ran and passed.
     Replaces the prior two-check model (I-1 TEST_INVENTORY.yaml forward +
     I-5 TEST_SPEC.md backward).
+
+    Round 87 站1 changed "exists" to "ran and passed" — see `delivery_outcome`.
+    The outcomes are fetched here, once, by `_live_test_outcomes`.
 
     Args:
         project: Project root directory.
@@ -546,24 +617,84 @@ def _run_spec_coverage_check(
                 print("  Agent A may have hallucinated names. Re-run derive_test_cases.md.")
             return (1, 0.0)
 
-    report = spec_coverage_report(project, fr_id=fr_id, _items=items)
+    outcomes = _live_test_outcomes(project)
+    report = spec_coverage_report(
+        project, fr_id=fr_id, test_outcomes=outcomes, _items=items
+    )
     covered, missing, pct = report["covered"], report["missing"], report["pct"]
 
     if verbose:
         scope = f" [{fr_id}]" if fr_id else ""
-        print(f"[spec-coverage]{scope} {len(covered)}/{len(items)} ({pct:.1f}%)")
+        measured = "ran-and-passed" if outcomes is not None else "presence-only (suite not measured)"
+        print(f"[spec-coverage]{scope} {len(covered)}/{len(items)} ({pct:.1f}%) — delivery = {measured}")
         if missing:
-            print(f"  Missing ({len(missing)}):")
+            print(f"  Undelivered ({len(missing)}):")
             for item in missing[:20]:
-                print(f"    - {item['test_fn']}  (type={item['type']}, deriv={item['derivation']})")
+                print(f"    - {item['test_fn']}  [{item['why']}]  "
+                      f"(criterion={item['fr_id']}, type={item['type']}, deriv={item['derivation']})")
             if len(missing) > 20:
                 print(f"    ... and {len(missing) - 20} more")
 
     if pct < threshold:
         if verbose:
             print(f"\n[BLOCKED] spec-coverage {pct:.1f}% < {threshold}% threshold")
+            print(_undelivered_remedy(missing))
         return (1, pct)
     return (0, pct)
+
+
+def _live_test_outcomes(project: Path) -> "dict[str, str] | None":
+    """This run's per-test outcomes, or None when the suite was not measured.
+
+    Round 87 站1. Fetched here rather than passed in by each of the seven
+    callers of `_run_spec_coverage_check`: a rule with seven entry points is
+    a rule with seven chances to disagree, which is the defect this round is
+    repairing, not a shape to reproduce.
+
+    `run_suite` memoises per process behind a source-tree fingerprint, and
+    `gate1_evidence`, `advance_prechecks` and `phase_truth_verifier` already
+    call it inside the same advance-phase, so the gate paths hit the memo.
+    A caller that runs alone (the standalone `spec-coverage-check` command)
+    pays for one suite run and the line above says which basis it used.
+
+    Never raises: an unmeasurable suite must degrade to presence-only, not
+    stop the gate that was asking a different question.
+    """
+    try:
+        from core.quality_gate.test_suite_run import run_suite
+
+        return run_suite(project).test_outcomes
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        print(f"[WARN] spec_coverage: suite outcomes unavailable ({exc}); "
+              f"delivery falls back to presence-only", file=sys.stderr)
+        return None
+
+
+def _undelivered_remedy(missing: list[dict]) -> str:
+    """The instruction a blocked run reads, naming criteria rather than names.
+
+    Round 87 站2. The line this replaces was "Fix: add test cases for the
+    uncovered TEST_SPEC.md sections, then re-run." — and adding a correctly
+    named function was, until 站1, the whole of what the check measured. That
+    sentence is where taskq-redo's 29-stub `test_nfr_deferred.py` came from:
+    it named the cheapest satisfying action, and the framework scored exactly
+    that action. An instruction that can be obeyed without verifying anything
+    is the defect, not the agent that obeyed it.
+    """
+    by_why: dict[str, list[str]] = {}
+    for item in missing:
+        by_why.setdefault(item.get("why", "absent"), []).append(
+            f"{item['fr_id']}:{item['test_fn']}")
+    lines = ["  These acceptance criteria have no passing verifier:"]
+    for why in sorted(by_why):
+        names = sorted(by_why[why])
+        lines.append(f"    [{why}] {', '.join(names[:6])}"
+                     + (f" … +{len(names) - 6} more" if len(names) > 6 else ""))
+    lines.append("  A declared test counts as delivered only when THIS run's report "
+                 "records it as passed.")
+    lines.append("  Writing a function with the right name that skips, fails, or "
+                 "asserts nothing falsifiable does not close this.")
+    return "\n".join(lines)
 
 
 def _parse_inventory_fallback(text: str) -> dict:
