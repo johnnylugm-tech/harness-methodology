@@ -346,3 +346,68 @@ def test_no_corpus_entry_is_attributed_to_the_wrong_tree():
         if _classify(text=msg).owner not in (expected, Owner.UNKNOWN)
     ]
     assert not wrong, wrong
+
+
+def test_run_all_gate_loop_halt_is_attributed_to_infra():
+    """Round 85 站1 fallback — run-all.js halt("gate1", ...) no longer files as UNKNOWN.
+
+    A `Phase N: Gate N FAILED for FR(s): ...` halt is the workflow telling the
+    operator that gate-loop exhaustion (HR-08) occurred and the framework is
+    escalating. The root cause is a heterogeneous mix: project tests/code
+    (PROJECT), the harness poll-cap arithmetic (HARNESS), or the run's quota
+    (INFRA). The proper design — `record-block` walking the dispatch chain
+    backwards for the per-FR sub-report that names the failing dimension —
+    lives in `js_blocks.py` and is out of this round's scope. Until that lands,
+    INFRA is the conservative fallback: both halts fire only when the
+    workflow itself decided it cannot auto-resolve, which is the operational
+    definition of "needs an operator".
+    """
+    from core.fault_owner import Owner
+
+    assert _classify(
+        text="Phase 3: Gate 1 FAILED for FR(s): FR-08, FR-09, FR-10 (escalate — fix code/tests)"
+    ).owner == Owner.INFRA
+    assert _classify(
+        text="Phase 4: Gate 3 FAILED for FR(s): FR-01 (escalate)"
+    ).owner == Owner.INFRA
+    # Phase-scoped (any phase number) — the rule does not pin a phase.
+    assert _classify(
+        text="Phase 8: Gate 2 FAILED for FR(s): FR-05 (escalate — fix code/tests)"
+    ).owner == Owner.INFRA
+    # Phase N: must be present — this guards against the rule mis-firing on
+    # messages from other producers (the explicit-UNKNOWN gate-exhaustion
+    # message, "Gate 2 did not PASS in 3 rounds", shares the words Gate + FAILED
+    # but lacks the "Phase N:" prefix).
+    assert _classify(
+        text="Gate 2 did not PASS in 3 rounds (HR-08; write deferred_fixes.md + escalate to human)"
+    ).owner == Owner.UNKNOWN
+
+
+def test_run_all_env_check_halt_is_attributed_to_infra():
+    """Round 85 站1 fallback — run-all.js halt("env-check", ...) no longer files as UNKNOWN.
+
+    A `Phase N env-check did not PASS` halt means the env_check_result.json
+    has `ready: false` (run-env-check / finalize-env-check returned non-zero,
+    or the file is missing). Per run-all.js:2222 it is a hard block — the
+    workflow does not proceed to per-FR work. The fix is to read the result
+    JSON for the failing key; the operator (not the framework) does that.
+    Same caveat as test_run_all_gate_loop_halt_is_attributed_to_infra: a more
+    specific owner would require walking the chain backwards to read the
+    earlier error_class / evidence, out of scope here.
+    """
+    from core.fault_owner import Owner
+
+    assert _classify(
+        text="Phase 3 env-check did not PASS"
+    ).owner == Owner.INFRA
+    assert _classify(
+        text="Phase 5 env-check did not PASS (run-env-check/finalize-env-check rc=1)"
+    ).owner == Owner.INFRA
+    # Phase-scoped (any phase number).
+    assert _classify(
+        text="Phase 8 env-check did not PASS"
+    ).owner == Owner.INFRA
+    # Unrelated halts stay UNKNOWN.
+    assert _classify(
+        text="Some unrelated halt that mentions env-check in passing"
+    ).owner == Owner.UNKNOWN

@@ -210,7 +210,7 @@ def _render_per_fr_tdd() -> str:
         + "      + '6. GATE1 — long-running (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s: can silently block ~2400s worst case). Run it BACKGROUNDED — do NOT invoke it as a plain synchronous command:\\n'\n"
         + "      + '   GATE1 invocation procedure (a/b/c):\\n'\n"
         + "      + '   a. Launch: `nohup bash -c \\'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + '; echo \"RC=$?\"\\' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\\n'\n"
-        + "      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~20min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
+        + "      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 96 polls / ~48min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
         + "      + '   c. Once DONE: `tail -200 /tmp/gate1_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\\'s own exit code — that integer, verbatim, is what you report. It is NOT the Bash tool\\'s rc, and you must not compute, infer or round it: read it off the line.\\n'\n"
         + "      + '   Gate 1 per-dimension thresholds are printed in the log itself (dynamic — read from quality_manifest gate_score_overrides, do not assume fixed numbers).\\n'\n"
         + "      + '   - PASS → done.\\n'\n"
