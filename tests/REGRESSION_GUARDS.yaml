@@ -4106,3 +4106,35 @@
 - test: tests/test_declared_dimension_is_measured_somewhere.py::test_a_dimension_no_gate_measures_is_reported
   bug: "positive control — without it the subtraction could be a deletion, and the channel would be silent in the one case it exists for (a dimension no gate config contains anywhere, i.e. a requirement nothing this pipeline runs can score). This is the reopen condition Round 73 站5's own MEASUREMENT_SINKS entry named"
   fixed_in: "Round 83 站5"
+
+- test: tests/test_canonical_spec_has_one_location.py::test_no_production_code_reads_project_brief
+  bug: "PROJECT_BRIEF.md's `canonical_spec:` field was the only variable statement among six about where the canonical spec lives; the other five (ProjectLayout.spec_path, the workflow prompt, canonical_diff.py's --spec, ssot_manifest.py:369, hunt.py's --spec default) are constants naming project-root SPEC.md. All eleven corpus projects declared SPEC.md, so the variable never expressed a difference — it only offered a way to switch the front-edge gate off. The scan reads string literals via AST and skips docstrings, so the comments recording why the field went are kept"
+  fixed_in: "Round 84 站1"
+
+- test: tests/test_canonical_spec_has_one_location.py::test_the_retired_resolver_stays_retired
+  bug: "resolve_canonical_spec is the function that made the location a decision. Deleting the file it read downgraded a project to elicitation mode and check_spec_alignment returned [] on a dropped requirement — measured end to end through the CLI in test_deleting_the_canonical_spec_does_not_buy_a_pass"
+  fixed_in: "Round 84 站1"
+
+- test: tests/test_canonical_spec_has_one_location.py::test_ssot_manifest_and_the_gate_resolve_the_same_file
+  bug: "harness/ssot_manifest.py computes root / 'SPEC.md' itself instead of going through ProjectLayout.spec_path — pre-existing, left alone deliberately (Round 84 ledger, 'told not fixed'), but the two answers must stay equal or a project's dependency manifest would read one file while its front-edge gate reads another"
+  fixed_in: "Round 84 站1"
+
+- test: tests/test_canonical_spec_has_one_location.py::test_shipped_workflows_do_not_instruct_agents_to_read_the_brief
+  bug: "Round 39's shape — removing a mechanism is not removing the sentences that describe it. The generated JS is what an agent actually receives; a Python-side removal that leaves the prompt telling Agent A to resolve canonical_spec from PROJECT_BRIEF.md would leave the mechanism alive in the only place it runs"
+  fixed_in: "Round 84 站2"
+
+- test: tests/test_spec_alignment.py::test_srs_without_canonical_spec_blocks
+  bug: "the row the mode switch read as good news: an SRS.md whose canonical spec is absent used to return [] (elicitation N/A). Deleting SPEC.md turned a dropped-requirement BLOCK into a pass"
+  fixed_in: "Round 84 站1"
+
+- test: tests/test_spec_alignment.py::test_neither_document_present_is_not_an_accusation
+  bug: "the negative control, and it has a measured subject: this framework repo has neither SPEC.md nor SRS.md and its pre-push hook runs `run-phase --phase 1` on itself, so a blanket 'canonical spec missing is an error' would make the framework accuse itself of losing a file it never had on every push (Round 45's shape)"
+  fixed_in: "Round 84 站1"
+
+- test: tests/test_spec_alignment.py::test_preflight_says_na_rather_than_covered_when_nothing_exists
+  bug: "an empty violation list has two causes and the hook reported them alike — with neither document on disk it printed 'SRS.md covers canonical_spec', a statement about two files that were not there"
+  fixed_in: "Round 84 站1"
+
+- test: tests/test_generate_full_plan.py::TestIngestionModeAndEightQuestionProtocol::test_p1_plan_no_longer_teaches_a_retired_mechanism
+  bug: "replaces R-MODE-1/R-MODE-2, which pinned phase1_plan.md to declaring two modes and a four-step PROJECT_BRIEF precedence — both retired. R-MODE-3 went too, for a worse reason: it asserted on 'Prompt-injection guard' text that no generator has ever emitted, so it was reading this repo's hand-written v2.7.0 plan copy and calling it generator output. `plan-all` had skipped that file for three months because its skip rule fires on any [x] and the template ships one"
+  fixed_in: "Round 84 站3"

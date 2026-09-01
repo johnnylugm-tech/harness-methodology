@@ -80,12 +80,13 @@ def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
     lines.extend([
         "### Phase 1 Precondition",
         "",
-        "- **[PROJECT-BRIEF]** Prepare `PROJECT_BRIEF.md` at project root **before starting Phase 1**:",
-        "  - Project domain, stakeholders, business goals (1–2 pages)",
-        "  - Key constraints (technical, regulatory, budget, timeline)",
+        "- **[CANONICAL-SPEC]** Place `SPEC.md` at the project root **before starting Phase 1**:",
+        "  - Every requirement the build must satisfy, each under a `### FR-NN:` / `### NFR-NN:` heading",
+        "  - Domain, constraints and goals belong here too — this is the single source the whole pipeline reads back to",
         "  - This file is **Agent B's primary context** for all P1 reviews (embedded as DOC 1 in each B-1 prompt)",
         "  - Source: project owner / product manager supplies this before Phase 1 begins",
-        "  - Not a P1 deliverable — it is the seed input that drives requirements authoring",
+        "  - Not a P1 deliverable — it is the input Phase 1 transcribes into `01-requirements/SRS.md`",
+        "  - The location is fixed: `<project-root>/SPEC.md`, not a path declared elsewhere",
         "",
     ])
 

@@ -57,7 +57,13 @@ _LEDGER_STARTS_AT = 14
 _MAX_ROUND = 200
 
 _HEADING = re.compile(r"^#{1,3} Round (\d+)", re.MULTILINE)
-_IN_SUBJECT = re.compile(r"[Rr]ound ?-?(\d+)\b|\bR(\d+) 站")
+#: Round 84: the second alternation used to require a SPACE before 站, and no
+#: commit in this repository's history has ever been written that way — all
+#: five that use the short form write `R<N>-站<M>`, so the branch had matched
+#: nothing since the day it was added. It hid two rounds from both checks
+#: below: 84 (this one) and 71, whose single commit `ae68b7a5` shipped without
+#: ever being adjudicated. A separator class, not a space.
+_IN_SUBJECT = re.compile(r"[Rr]ound ?-?(\d+)\b|\bR(\d+)[ \-–—]站")
 
 
 def _rounds_with_sections() -> "set[int]":

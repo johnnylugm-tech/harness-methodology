@@ -111,8 +111,7 @@ Note: `type:` must be one of the values above — this list mirrors
 if it ever falls out of sync that test fails.
 
 Note: Fill in the JSON above - used for downstream requirements traceability.
-Ingestion mode (PROJECT_BRIEF.md declares a `canonical_spec`): every `### FR-NN`
-in the canonical source MUST appear here, and every FR here MUST trace back to a
-canonical clause — `harness_cli.py check-spec-alignment` blocks on a dropped or
+Every `### FR-NN` in the canonical source (project-root `SPEC.md`) MUST appear
+here, and every FR here MUST trace back to a canonical clause — `harness_cli.py check-spec-alignment` blocks on a dropped or
 invented requirement. Defer a canonical FR you cannot yet transcribe as
 `FR-NN-deferred` / NFR-99 rather than omitting it.

@@ -2208,11 +2208,19 @@ class TestReviewerDesignFixes:
         assert "TEST_PLAN" in joined
 
     # C5: P1 must have PROJECT-BRIEF precondition section
-    def test_p1_has_project_brief_precondition(self, tmp_path: Path):
+    def test_p1_has_canonical_spec_precondition(self, tmp_path: Path):
+        """Round 84: the precondition names SPEC.md, and names its location.
+
+        It used to be `[PROJECT-BRIEF]` / PROJECT_BRIEF.md. The seed input is
+        the canonical spec itself now, and the plan must say where it goes —
+        a path declared inside another file was the one variable statement
+        among six about where the canonical spec lives.
+        """
         result = generate_full_plan(1, tmp_path, dynamic=True)
         assert result is not None
-        assert "PROJECT-BRIEF" in result, "P1 must have [PROJECT-BRIEF] precondition step"
-        assert "PROJECT_BRIEF.md" in result
+        assert "CANONICAL-SPEC" in result, "P1 must have [CANONICAL-SPEC] precondition step"
+        assert "SPEC.md" in result
+        assert "PROJECT_BRIEF" not in result
 
     # Auto-fix: Gate 2/3/4 must mention auto-fix engine
     def test_gate_exit_has_autofix_note(self):
@@ -2306,23 +2314,37 @@ class TestIngestionModeAndEightQuestionProtocol:
     def derive_md_text(self) -> str:
         return Path("harness/ssi/prompts/derive_test_cases.md").read_text(encoding="utf-8")
 
-    # R-MODE-1: phase1_plan.md must declare BOTH modes (not just one)
-    def test_p1_plan_declares_both_modes(self, phase1_plan_text):
-        assert "Elicitation Mode" in phase1_plan_text
-        assert "Ingestion Mode" in phase1_plan_text
+    # R-MODE-1/2 (Round 84): WITHDRAWN, and replaced rather than deleted.
+    #
+    # They pinned phase1_plan.md to declaring two modes and a four-step
+    # `PROJECT_BRIEF.md::canonical_spec` precedence. Both mechanisms are gone:
+    # the canonical spec is project-root SPEC.md, one statement, no declaration
+    # to resolve — so a guard demanding the plan still describe the precedence
+    # would be demanding the plan describe something that no longer exists.
+    # What replaces them is the same question asked of the new shape.
+    #
+    # R-MODE-3 went with them for a different and worse reason. It asserted on
+    # "Prompt-injection guard" / "ignore previous instructions" / "you are
+    # now", and `grep -rn 'Prompt-injection guard' scripts/` returns nothing:
+    # no generator has ever emitted that text. It lived only in this repo's own
+    # .methodology/phase1_plan.md, a v2.7.0 file that `plan-all` skipped for
+    # three months because the skip rule fires on any `[x]` and the template
+    # ships one of its own. Both consuming projects' plans are v2.12.0 and
+    # carry none of it. The guard was reading a hand-written copy and calling
+    # it the generator's output; the scan below asks the generator instead.
+    def test_p1_plan_names_the_canonical_spec_and_its_location(self, phase1_plan_text):
+        assert "SPEC.md" in phase1_plan_text
+        assert "project-root" in phase1_plan_text or "project root" in phase1_plan_text
 
-    # R-MODE-2: phase1_plan.md must document the canonical_spec detection precedence
-    def test_p1_plan_documents_canonical_spec_precedence(self, phase1_plan_text):
-        # The 4-step precedence list introduced by review-fix #9
-        assert "PROJECT_BRIEF.md` has `canonical_spec: <path>`" in phase1_plan_text
-        assert "REJECT, request human disambiguation" in phase1_plan_text
-        assert "auto-detected SPEC file but no PROJECT_BRIEF.md" in phase1_plan_text
+    def test_p1_plan_no_longer_teaches_a_retired_mechanism(self, phase1_plan_text):
+        for gone in ("PROJECT_BRIEF", "Elicitation", "canonical_spec:"):
+            assert gone not in phase1_plan_text, (
+                f"{gone!r} survives in .methodology/phase1_plan.md — the shipped "
+                "plan still teaches a mechanism the framework no longer has"
+            )
 
-    # R-MODE-3: phase1_plan.md must define a prompt-injection guard
-    def test_p1_plan_defines_prompt_injection_guard(self, phase1_plan_text):
-        assert "Prompt-injection guard" in phase1_plan_text
-        assert "ignore previous instructions" in phase1_plan_text
-        assert "you are now" in phase1_plan_text
+    def test_p1_plan_still_requires_the_prompt_injection_scan(self, phase1_plan_text):
+        assert "prompt-injection" in phase1_plan_text.lower()
 
     # R-MODE-4: phase1_plan.md must define the TBD/TODO/placeholder capture policy
     def test_p1_plan_defines_deferred_marker_policy(self, phase1_plan_text):
@@ -2373,11 +2395,12 @@ class TestIngestionModeAndEightQuestionProtocol:
         assert "Interface ↔ NFR cross-check" in derive_md_text
         assert "NP-01" in derive_md_text and "unauthenticated_returns_401" in derive_md_text
 
-    # R-SCRIPT-1: generate_full_plan.py P1 entry must surface BOTH mode names
-    def test_gen_plan_p1_mentions_both_modes(self):
+    # R-SCRIPT-1 (Round 84): the P1 entry names ONE canonical spec, not two modes.
+    def test_gen_plan_p1_names_one_canonical_spec(self):
         p1_block = _phase_deliverable_text(1)
-        assert "INGESTION MODE" in p1_block or "Ingestion Mode" in p1_block
-        assert "Elicitation" in p1_block
+        assert "SPEC.md" in p1_block
+        assert "Elicitation" not in p1_block
+        assert "PROJECT_BRIEF" not in p1_block
 
     # R-SCRIPT-2: generate_full_plan.py P1 entry must mention the prompt-injection scan
     def test_gen_plan_p1_mentions_prompt_injection(self):

@@ -592,6 +592,14 @@ const brief = await agent(
 // + defensive validation: 必須以 "# Project Brief" 開頭 + 長度 >=50
 ```
 
+> **Round 84 註**:此事故記錄保持原樣。它被載入的檔案已換成 `SPEC.md`
+> (`PROJECT_BRIEF.md` 隨 elicitation 模式一併退役),但**防護本身仍在且仍是
+> 這個形狀** —— `loadFileViaPython` 的 anchor 兩端都檢查:Python 端對磁碟
+> 檔案的第一行,JS 端對 agent 回傳的內容。新的 anchor 是 `'# '` 而非
+> `'# Project Brief'`:`SPEC.md` 的 H1 由專案自訂(實測十一個語料專案各不
+> 相同),`R-NO-PRESCRIPTION-001` 禁止框架規定它。**這比原本弱一格**,
+> re-open 條件記在 `docs/PROPOSAL_ADJUDICATIONS.md` 的 Round 84。
+
 ### 8.3 P3 ❌ B-review reject loop 沒 revise step → 無限循環
 
 **症狀**: B-agent 一直 REJECT SRS,理由幾乎相同 (placeholder、NFR count)。

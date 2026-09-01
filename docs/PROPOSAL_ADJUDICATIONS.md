@@ -3822,6 +3822,27 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 71 — mutmut 的 live run 進 custody(Round 84 補記)
+
+**這一節是 Round 84 補的,不是當時寫的。** 它之所以缺席三個月而沒被
+`test_ledger_has_no_holes` 抓到,是因為那支守衛的 round 偵測 regex
+`\bR(\d+) 站` 要求 `站` 前面是**空格**,而這個 repo 從來沒有一個 commit
+是那樣寫的 —— 五個用短式的全部寫 `R<N>-站<M>`。那條 alternation 自加入
+之日起命中數為零,於是 Round 71 和 84 兩輪對兩項檢查都是隱形的。
+Round 84 站5 把它改成分隔符字元類並補上本節。
+
+內容由 commit 考古得出,不是當時的判定記錄:
+
+| commit | 動作 |
+|---|---|
+| `d552fc35` | `_compute_mutation_score` 的 live mutmut run 包進 custody:超時/例外後斷言原始碼逐位元組還原、沒有留下未關閉的 custody entry(`core/quality_gate/mutation_enforcer.py` +16,`tests/test_mutation_enforcer.py` +100) |
+| `ae68b7a5` | 上一個 commit 撐破的行數與 private-patch ratchet,在**下一個** commit 才調 —— 違反「天花板與成長在同一 commit」的規矩,當時沒有人記下來 |
+
+**告知不修**:`d552fc35` 的 ratchet 分兩個 commit 這件事已經發生且無法回頭,
+記在這裡是為了讓它可被引用,不是要重做。
+
+---
+
 ## Round 84 — canonical spec 在哪,框架說了六次
 
 老闆令:評估**正規做法**移除 `PROJECT_BRIEF.md` —— 原始需求由 `SPEC.md` 提供
