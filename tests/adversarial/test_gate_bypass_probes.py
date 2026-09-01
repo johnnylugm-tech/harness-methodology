@@ -113,14 +113,12 @@ class TestMutationProbes:
 
 
 class TestSpecAlignmentProbes:
-    """Direction A: canonical_spec (PRD) → SRS front-edge gate. A dropped or
+    """Direction A: canonical spec (SPEC.md) → SRS front-edge gate. A dropped or
     invented requirement is decidable (no LLM), so an agent cannot make it pass
     without actually reconciling SRS.md with the canonical source."""
 
     @staticmethod
     def _ingestion(tmp_path: Path, srs_body: str) -> Path:
-        (tmp_path / "PROJECT_BRIEF.md").write_text(
-            "canonical_spec: SPEC.md\n", encoding="utf-8")
         (tmp_path / "SPEC.md").write_text(
             "### FR-01: login\n### FR-02: logout\n", encoding="utf-8")
         req = tmp_path / "01-requirements"
@@ -145,6 +143,22 @@ class TestSpecAlignmentProbes:
         assert result.returncode != 0
         combined = result.stdout + result.stderr
         assert "FR-09" in combined and "invent" in combined.lower(), combined[-2000:]
+
+    def test_deleting_the_canonical_spec_does_not_buy_a_pass(self, tmp_path):
+        """Round 84: the bypass the mode switch used to allow.
+
+        With `canonical_spec` declared in PROJECT_BRIEF.md, an agent facing a
+        dropped-requirement BLOCK could delete that file and the gate reported
+        elicitation-mode N/A — exit 0 on the same SRS that had just failed.
+        """
+        sandbox = self._ingestion(tmp_path, "### FR-01: login\n")
+        assert _run(sandbox, "check-spec-alignment").returncode != 0
+        (sandbox / "SPEC.md").unlink()
+        result = _run(sandbox, "check-spec-alignment")
+        assert result.returncode != 0, (
+            "deleting the canonical spec turned a BLOCK into a pass: "
+            + (result.stdout + result.stderr)[-2000:]
+        )
 
 
 class TestPropertyProbes:

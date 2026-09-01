@@ -9,10 +9,30 @@ covered elsewhere:
 
 This module mechanically enforces the INGESTION MODE prompt rule
 R-CANONICAL-INTERP-001 ("100% transcribe … cite <canonical-line>") that today
-only Agent A/B (LLM) uphold. It is decidable and ingestion-mode-only:
-elicitation mode (no canonical_spec) has no ground truth to check against, so
-the check returns empty (N/A) rather than fabricating a verdict — matching the
-red_assertion engine's "does not guess" contract.
+only Agent A/B (LLM) uphold.
+
+Round 84: the canonical spec is `ProjectLayout.spec_path` (project-root
+SPEC.md) and nothing else. It used to be whatever `PROJECT_BRIEF.md` declared
+in a `canonical_spec:` field — one variable statement against five constant
+ones (`project_layout.spec_path`, the workflow prompt's "canonical_spec = root
+SPEC.md per harness SSOT", `canonical_diff.py`'s hardcoded `--spec`,
+`ssot_manifest.py:369`, `hunt.py`'s `--spec` default). The variable was never
+used to express a difference: all eleven corpus projects declared `SPEC.md`.
+
+Removing the field removes the mode switch with it. What replaces it is not a
+second mode but a question about subjects: this check compares two documents,
+and asks only whether each one is there.
+
+    SPEC.md   SRS.md   verdict
+    present   present  compare (the real check)
+    present   absent   srs_missing      — ingestion started and stopped
+    absent    present  canonical_missing — the SRS came from somewhere
+    absent    absent   []                — Phase 1 has produced nothing yet
+
+The last row is N/A because there is no subject on either side, not because a
+mode was declared. The third row is what the old code read as good news: with
+the mode switch in place, deleting the canonical spec silently downgraded a
+project to elicitation and this gate returned `[]` on a dropped requirement.
 
 FR-IDs are compared as SETS over the two documents. Only *structural* FR forms
 are read (never prose mentions), so a stray "FR-01" in a sentence cannot create
@@ -28,7 +48,7 @@ from core.quality_gate import Violation
 from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["check_spec_alignment", "resolve_canonical_spec"]
+__all__ = ["check_spec_alignment"]
 
 # Structural FR-ID forms — never a bare prose mention:
 #   heading   `### FR-01: ...`          (canonical SPEC.md / SRS flat layout)
@@ -70,18 +90,6 @@ _FR_DEFERRED_FORMS = (
     re.compile(r"^\s*[-*]\s*\*{0,2}\s*(?<!N)FR-(\d+)-deferred\b", re.MULTILINE),
 )
 
-# canonical_spec declaration in PROJECT_BRIEF.md — two accepted layouts, same
-# as the P1 fallback in cli/project_cmds.py (kept in sync; ~4 lines, replicated
-# rather than shared to avoid a cli→core import edge).
-#
-# Both forms capture the path token only (\S+) so trailing metadata like
-# `SPEC.md (v3.0.0, 2026-07-04, 5 FR / 6 NFR / 8 env vars)` is stripped
-# rather than treated as part of the file path. Without this the heading
-# form regressed silently when PROJECT_BRIEF.md added a version annotation
-# after the path (see test_heading_form_with_trailing_metadata).
-_CANON_INLINE = re.compile(r"^\s*canonical_spec\s*:\s*(\S+)\s*$", re.MULTILINE)
-_CANON_HEADING = re.compile(r"^##\s*canonical_spec\s*$\n+(\S+)", re.MULTILINE)
-
 
 def _fid(num: str) -> str:
     """Zero-pad an FR number so `FR-1` and `FR-01` compare equal."""
@@ -102,37 +110,31 @@ def _deferred_fr_ids(text: str) -> set[str]:
     return ids
 
 
-def resolve_canonical_spec(project: Path) -> str | None:
-    """Return the canonical_spec relative path declared in PROJECT_BRIEF.md, or
-    None when none is declared (elicitation mode)."""
-    brief = project / "PROJECT_BRIEF.md"
-    if not brief.exists():
-        return None
-    text = brief.read_text(encoding="utf-8", errors="replace")
-    m = _CANON_INLINE.search(text) or _CANON_HEADING.search(text)
-    return m.group(1).strip() if m else None
-
-
 def check_spec_alignment(project: Path) -> list[Violation]:
-    """Return Violations for canonical_spec ↔ SRS FR-set divergence.
+    """Return Violations for canonical spec (SPEC.md) ↔ SRS FR-set divergence.
 
     error == blocking defect (dropped / invented requirement, or a broken
     ingestion setup); info == needs_review (canonical not mechanically
-    enumerable). Empty list == aligned, or elicitation mode (N/A).
+    enumerable). Empty list == aligned, or nothing to compare yet (see the
+    module docstring's four-row table).
     """
     project = Path(project)
-    canonical_rel = resolve_canonical_spec(project)
-    if canonical_rel is None:
-        return []  # elicitation mode — no ground truth, N/A
+    layout = ProjectLayout(project)
+    canonical_path = layout.spec_path
+    srs_path = layout.srs_path
 
-    canonical_path = Path(canonical_rel)
-    if not canonical_path.is_absolute():
-        canonical_path = project / canonical_rel
     if not canonical_path.exists():
+        if not srs_path.exists():
+            # No subject on either side — Phase 1 has not produced requirements
+            # yet. Not a mode, and not a finding: naming a defect here would
+            # accuse every project (and this framework repo itself, whose
+            # pre-push runs `run-phase --phase 1`) of losing a file it never had.
+            return []
         return [Violation(
             check_type="canonical_missing", rule_id="SA", severity="error",
-            message=(f"PROJECT_BRIEF.md declares canonical_spec {canonical_rel!r} "
-                     f"but the file does not exist at {canonical_path}"))]
+            message=(f"SRS.md exists at {srs_path} but the canonical spec is "
+                     f"missing at {canonical_path} — the SRS's requirements have "
+                     f"no source to be checked against"))]
 
     canonical_frs = _structural_fr_ids(
         canonical_path.read_text(encoding="utf-8", errors="replace"))
@@ -143,7 +145,6 @@ def check_spec_alignment(project: Path) -> list[Violation]:
                      "PRD→SRS coverage cannot be mechanically verified; Agent B "
                      "must confirm fidelity (needs_review)"))]
 
-    srs_path = ProjectLayout(project).srs_path
     if not srs_path.exists():
         return [Violation(
             check_type="srs_missing", rule_id="SA", severity="error",

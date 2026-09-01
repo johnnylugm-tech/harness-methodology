@@ -3822,6 +3822,105 @@ pytest 7356 passed / 4 skipped、guards 643→647、ruff clean、`--check` 10/10
 
 ---
 
+## Round 84 — canonical spec 在哪,框架說了六次
+
+老闆令:評估**正規做法**移除 `PROJECT_BRIEF.md` —— 原始需求由 `SPEC.md` 提供
+(SSOT),再經每階段主要產出物往下傳遞;四個消費者能否改由其他產出物取得?
+追加令:**再次驗證是否是正解、是否引入副作用。**
+
+基線 `5b3bb1be`。語料十一專案全程唯讀。**本節隨每一站增長** —— Round 80 站9
+的守衛要求一個 round 的第一個 commit 就有它的賬本節(Round 81/82/83 各踩過一次)。
+
+### 母體
+
+> **同一件事有六個陳述,其中五個是常數,只有第六個是變數 —— 而唯一讀
+> `PROJECT_BRIEF.md` 的就是那第六個。**
+
+| # | 陳述 | 位置 | 值 |
+|---|---|---|---|
+| 1 | `ProjectLayout.spec_path` | `core/utils/project_layout.py:107` | `root/SPEC.md` — **零消費者**(實測) |
+| 2 | workflow prompt | `run-all.js:1005` | 「canonical_spec = root `SPEC.md` per harness SSOT」 |
+| 3 | `canonical_diff.py --spec` | workflow 硬編碼 | `REPO/SPEC.md` |
+| 4 | `ssot_manifest.py:369` | `root / "SPEC.md"` | 常數,未走 #1 |
+| 5 | `hunt.py:217/253/319` | `--spec` 預設 | `"SPEC.md"`(CLI 參數,語意不同) |
+| 6 | `resolve_canonical_spec` | `spec_alignment.py:105` | **讀 brief 的可變欄位** |
+
+第 6 個從沒被用來表達差異:**11/11 語料專案的 `canonical_spec` 都是 `SPEC.md`**
+(實測,全走 `## canonical_spec` heading 形式)。
+
+### 老闆的兩個裁示
+
+1. **elicitation mode 一併退役。** 它的唯一輸入源就是 brief
+   (`phase1_plan.md:95` 明文「elicit from brief」),且現行 workflow 對 brief
+   缺席是硬中止 —— 所以 elicitation 專案也**必須**有 brief,只是不寫
+   `canonical_spec` 欄位。移除 brief = 移除 elicitation 的輸入。
+2. **Agent B 的 DOC 1 換成 `SPEC.md` 全文。**
+
+### 被我自己的追加驗證推翻的六項(先寫,因為它們改寫了計畫)
+
+| 初稿寫的 | 驗證結果 |
+|---|---|
+| 「SPEC.md 缺席即 error」 | **會對本 repo 自己產生假指控**(R45 形狀)。本 repo 無 SPEC.md/SRS.md/brief 而 `pre-push` 每次跑 `run-phase --phase 1`。改成四格判準 |
+| `expectPrefix` 可傳 `null` | **推翻**:JS 端也用它檢查 agent 回傳值(`run-all.js:454` `firstLineHasAnchor`),那是 playbook §8.2 hallucination 事故的防護 |
+| 守衛2 掃「所有 SPEC.md 取得都走 `spec_path`」 | **不可行**:production python 有 32 處 `SPEC.md` 字面,**26 處在註解**。縮成 `spec_alignment` ↔ `ssot_manifest` parity |
+| 受影響測試 3 檔 | **15 支 / 4 檔**;且其中兩支是要**撤銷的前輪守衛**(R-MODE-1/R-MODE-2) |
+| 重生 `phase1_plan.md` 是單檔操作 | `plan-all` 會 churn **9 個 tracked 檔**的 `> **Date**:` 行 |
+| 「brief 是 SPEC 的純冗餘」可機器證明 | **兩次量測都失敗**,見下 |
+
+### 兩次失敗的機械測量(誠實記錄)
+
+想證明 brief 對 SPEC.md 零獨有資訊,兩種方法都不成立:
+
+1. 用框架自己的 `_split_sentences` + `_best_match_ratio` —— 它把 14KB 的 brief
+   只切成 **7 個「句子」**(那支切句是為 AC 文字設計的),分母過大,結果不可用。
+2. 改逐行 token 比對 —— 63.3% 的行 ratio < 0.45。檢視低分行後確認是
+   **語言差異**(brief 英文、SPEC 中文),不是資訊差異。
+
+**所以「零獨有資訊」是 Requires Verification**,支撐它的是文件自我宣告而非
+機器證明:brief 每節標題自寫 `(canonical: SPEC.md §N)`;「Source of Truth」節
+明寫 `All requirements are fully specified in SPEC.md`;高風險模組清單
+`SPEC.md:481` 逐項相同;taskq-cc-new `SRS.md §2 Constraints` 17 條裡 **16 條
+Source 是 `SPEC.md`**,唯一一條 brief(C-15)其內容也在 `SPEC.md:481`。
+
+### V1 — 四格判準取代模式開關
+
+不再問「哪個模式」,只問「有沒有對象」:
+
+| SPEC.md | SRS.md | 判定 |
+|---|---|---|
+| 有 | 有 | 正常比對(語料 10 個) |
+| 有 | 無 | `srs_missing` error(既有,taskq-mm) |
+| **無** | **有** | **`canonical_missing` error ← 新,封住繞過** |
+| 無 | 無 | `[]` — P1 尚未產出需求,兩端都沒有對象(**本 repo**) |
+
+實測:12 個目標(11 語料 + 本 repo)**verdict drift = 0**;繞過探針
+(SRS 在、SPEC.md 被刪)今天靜默通過,改後 `error:canonical_missing`。
+
+### 落地
+
+_(隨站增長)_
+
+### 告知不修
+
+| 既有債 | 為何不在本輪動 |
+|---|---|
+| `cli/project_cmds.py` 的 `^###\s+FR-(\d+)\s*:` 與 `_structural_fr_ids`(三種 pattern)是兩份實作 | 不是本輪病灶;收編會改變 P1 fallback 的行為(多認 table/json 形式) |
+| `hunt.py --spec` 是第 5 個陳述 | 它是**使用者可覆蓋的 CLI 參數**,語意與「canonical spec 在哪」不同 |
+| 語料專案 SRS 對 `PROJECT_BRIEF.md` 的懸空引用(taskq-cc-new §1.4 References、C-15 Source 欄) | 語料唯讀;框架也不加 lint —— 那會對歷史專案追溯開罰 |
+
+### re-open 條件
+
+- **`expectPrefix` 從 `'# Project Brief'` 降到 `'# '`**:這是真的減損(V8c 已證
+  它是 hallucination 防護)。無法更強,因為框架不得規定專案端 `SPEC.md` 的 H1
+  (`R-NO-PRESCRIPTION-001`);實測 11 個專案的 H1 各不相同。
+  **正解是比對 `read-file` 已算出的 sha256** —— 那影響所有
+  `loadFileViaPython` 呼叫點,是另一輪。出現一次 SPEC.md 的 hallucination 事故
+  即 re-open。
+- **elicitation 退役**:若出現一個真的沒有 canonical spec、且需要框架從訪談
+  產生需求的專案,re-open 並為它設計輸入源(不是把 brief 加回來)。
+
+---
+
 ## Round 83 — 空白是一種讀數
 
 老闆令三問:(1) 前幾 round 的修復是否到位?(2) 還有沒有根本性/結構性問題?

@@ -410,28 +410,29 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
 
 
 def cmd_check_spec_alignment(args: argparse.Namespace) -> int:
-    """Front-edge gate — prove SRS.md faithfully covers the canonical_spec (PRD).
+    """Front-edge gate — prove SRS.md faithfully covers the canonical spec (PRD).
 
-    The one boundary nothing else machine-checks: canonical_spec → SRS. In
-    INGESTION MODE (PROJECT_BRIEF.md declares canonical_spec) every canonical FR
-    must appear in SRS.md and every SRS FR must trace back — a dropped or
-    invented requirement FAILS, before P2 builds the wrong target. Elicitation
-    mode (no canonical_spec) has no ground truth and is reported N/A. This
+    The one boundary nothing else machine-checks: SPEC.md → SRS. Every canonical
+    FR must appear in SRS.md and every SRS FR must trace back — a dropped or
+    invented requirement FAILS, before P2 builds the wrong target. This
     mechanically enforces the ingestion prompt rule R-CANONICAL-INTERP-001 that
     today only Agent A/B (LLM) uphold. Distinct from check-test-spec-consistency
     (TEST_SPEC self-consistency) and preflight_fr_spec_consistency (SAD↔SPEC).
+
+    Round 84: the canonical spec is project-root SPEC.md, full stop — there is
+    no mode to resolve first. When neither SPEC.md nor SRS.md exists there is
+    nothing to compare and the checker says so (see its module docstring).
     """
     project = Path(args.project).resolve()
-    from core.quality_gate.spec_alignment import (
-        check_spec_alignment,
-        resolve_canonical_spec,
-    )
-
-    if resolve_canonical_spec(project) is None:
-        print("[check-spec-alignment] Elicitation mode (no canonical_spec declared) — N/A.")
-        return 0
+    from core.quality_gate.spec_alignment import check_spec_alignment
+    from core.utils.project_layout import ProjectLayout
 
     violations = check_spec_alignment(project)
+    if not violations and not ProjectLayout(project).spec_path.exists():
+        print("[check-spec-alignment] N/A — no canonical spec and no SRS.md; "
+              "Phase 1 has not produced requirements yet.")
+        return 0
+
     errors = [v for v in violations if v.severity == "error"]
     reviews = [v for v in violations if v.severity == "info"]
     for v in errors:

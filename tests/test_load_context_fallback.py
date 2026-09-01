@@ -9,10 +9,12 @@ refuse to start. Workaround was a manual quality_manifest.json, which is
 fragile and undocumented.
 
 Fix: when quality_manifest.json is missing or empty, load-context falls back
-to extracting FR headers from the canonical spec declared in PROJECT_BRIEF.md.
-Two PROJECT_BRIEF.md layouts are supported:
-  (a) inline:     `canonical_spec: SPEC.md`
-  (b) heading:    `## canonical_spec\nSPEC.md\n`
+to extracting FR headers from the canonical spec.
+
+Round 84: the canonical spec is `ProjectLayout.spec_path` (project-root
+SPEC.md). It used to be whatever PROJECT_BRIEF.md's `canonical_spec:` field
+declared, in either of two layouts — a variable that all eleven corpus
+projects set to the same value the framework already stated five other ways.
 
 Reference: integration-test/AUDIT_LOG entry 2026-06-15-bug-2
 """
@@ -42,7 +44,7 @@ def _run_load_context(project_dir: Path, env: dict) -> dict:
 
 @pytest.fixture
 def tmp_project(tmp_path: Path) -> Path:
-    """Minimal integration-test-shaped project: SPEC.md + PROJECT_BRIEF.md."""
+    """Minimal integration-test-shaped project (SPEC.md written per-test)."""
     (tmp_path / "harness").mkdir()  # satisfy PYTHONPATH=harness
     (tmp_path / ".methodology").mkdir()
     (tmp_path / "01-requirements").mkdir()
@@ -56,43 +58,37 @@ def tmp_project(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_p1_fallback_to_brief_inline_format(tmp_project: Path) -> None:
-    """P1 cold start: no manifest, brief uses inline `canonical_spec: SPEC.md`."""
+def test_p1_fallback_reads_the_canonical_spec(tmp_project: Path) -> None:
+    """P1 cold start: no manifest → FR ids come from project-root SPEC.md."""
     (tmp_project / "SPEC.md").write_text(
         "# SPEC\n\n### FR-01: alpha\n\n### FR-02: beta\n\n### FR-03: gamma\n",
         encoding="utf-8",
     )
-    (tmp_project / "PROJECT_BRIEF.md").write_text(
-        "# Brief\n\ncanonical_spec: SPEC.md\n\n## Intent\nfoo\n",
-        encoding="utf-8",
-    )
     result = _run_load_context(tmp_project, env={})
     assert result["fr_ids"] == ["FR-01", "FR-02", "FR-03"]
-    assert "PROJECT_BRIEF.md::canonical_spec" in result["fr_id_source"]
+    assert "SPEC.md" in result["fr_id_source"]
     assert "P1 fallback" in result["fr_id_source"]
 
 
-def test_p1_fallback_to_brief_heading_format(tmp_project: Path) -> None:
-    """P1 cold start: brief uses `## canonical_spec\\nSPEC.md` heading."""
-    (tmp_project / "SPEC.md").write_text(
-        "# SPEC\n\n### FR-01: a\n\n### FR-02: b\n",
-        encoding="utf-8",
-    )
-    (tmp_project / "PROJECT_BRIEF.md").write_text(
-        "# Brief\n\n## canonical_spec\nSPEC.md\n\n## Intent\nbar\n",
-        encoding="utf-8",
+def test_p1_fallback_ignores_a_spec_outside_the_project_root(
+    tmp_project: Path,
+) -> None:
+    """Round 84: the location is the constant, not a declared path.
+
+    A SPEC.md under a phase directory is not the canonical spec; before this
+    round a PROJECT_BRIEF.md field could point the fallback at any file.
+    """
+    (tmp_project / "01-requirements" / "SPEC.md").write_text(
+        "# SPEC\n\n### FR-01: alpha\n", encoding="utf-8",
     )
     result = _run_load_context(tmp_project, env={})
-    assert result["fr_ids"] == ["FR-01", "FR-02"]
-    assert "PROJECT_BRIEF.md::canonical_spec" in result["fr_id_source"]
+    assert result["fr_ids"] == []
+    assert result["fr_id_source"] == "none"
 
 
 def test_p2_plus_uses_manifest_when_present(tmp_project: Path) -> None:
     """When manifest exists with fr_ids, it takes precedence (no fallback)."""
     (tmp_project / "SPEC.md").write_text("# SPEC\n\n### FR-99: irrelevant\n", encoding="utf-8")
-    (tmp_project / "PROJECT_BRIEF.md").write_text(
-        "canonical_spec: SPEC.md\n", encoding="utf-8"
-    )
     (tmp_project / ".methodology" / "quality_manifest.json").write_text(
         json.dumps({"fr_ids": ["FR-01", "FR-02"], "gate_results": {}}),
         encoding="utf-8",
@@ -102,17 +98,17 @@ def test_p2_plus_uses_manifest_when_present(tmp_project: Path) -> None:
     assert result["fr_id_source"] == "quality_manifest.json"
 
 
-def test_p1_no_brief_no_manifest_returns_empty(tmp_project: Path) -> None:
-    """No brief, no manifest → fr_ids=[], fr_id_source='none' (no error)."""
+def test_p1_no_spec_no_manifest_returns_empty(tmp_project: Path) -> None:
+    """No SPEC.md, no manifest → fr_ids=[], fr_id_source='none' (no error)."""
     result = _run_load_context(tmp_project, env={})
     assert result["fr_ids"] == []
     assert result["fr_id_source"] == "none"
 
 
-def test_p1_brief_but_canonical_spec_missing(tmp_project: Path) -> None:
-    """Brief references non-existent spec → fall through to fr_ids=[], no crash."""
-    (tmp_project / "PROJECT_BRIEF.md").write_text(
-        "canonical_spec: nonexistent.md\n", encoding="utf-8"
+def test_p1_spec_without_fr_headings_returns_empty(tmp_project: Path) -> None:
+    """A SPEC.md with no `### FR-NN:` anchors falls through, no crash."""
+    (tmp_project / "SPEC.md").write_text(
+        "# SPEC\n\nProse only, no requirement anchors.\n", encoding="utf-8",
     )
     result = _run_load_context(tmp_project, env={})
     assert result["fr_ids"] == []

@@ -1040,26 +1040,23 @@ class PhaseHooks:
         }
 
     def preflight_spec_alignment(self) -> Dict[str, Any]:
-        """Front-edge gate: canonical_spec (PRD) ↔ SRS.md FR-set coverage.
+        """Front-edge gate: canonical spec (SPEC.md) ↔ SRS.md FR-set coverage.
 
-        Ingestion mode only (PROJECT_BRIEF.md declares canonical_spec). Catches
-        requirements dropped from — or invented beyond — the canonical source,
-        the one boundary neither `preflight_traceability` (SRS/SAD → downstream)
-        nor `preflight_fr_spec_consistency` (SAD ↔ TEST_SPEC) checks. It
-        mechanically enforces the ingestion prompt rule R-CANONICAL-INTERP-001
-        that today only Agent A/B (LLM) uphold. Informational while P1 is still
-        being authored (phase < 2); blocking from P2 entry. Elicitation mode has
-        no ground truth → skipped (not a fake gate — genuinely N/A).
+        Catches requirements dropped from — or invented beyond — the canonical
+        source, the one boundary neither `preflight_traceability` (SRS/SAD →
+        downstream) nor `preflight_fr_spec_consistency` (SAD ↔ TEST_SPEC)
+        checks. It mechanically enforces the ingestion prompt rule
+        R-CANONICAL-INTERP-001 that today only Agent A/B (LLM) uphold.
+        Informational while P1 is still being authored (phase < 2); blocking
+        from P2 entry.
+
+        Round 84: no mode switch. `check_spec_alignment` decides on the two
+        documents' presence alone (see its module docstring) and returns [] when
+        neither exists — this hook does not need to ask a second question first.
         """
-        from core.quality_gate.spec_alignment import (
-            check_spec_alignment,
-            resolve_canonical_spec,
-        )
-        print("\n[PRE-FLIGHT] Spec Alignment (canonical_spec ↔ SRS)")
+        from core.quality_gate.spec_alignment import check_spec_alignment
+        print("\n[PRE-FLIGHT] Spec Alignment (canonical spec ↔ SRS)")
         project = self._layout.root
-        if resolve_canonical_spec(project) is None:
-            print("   Skipped: elicitation mode (no canonical_spec declared).")
-            return {"passed": True, "skipped": True, "reason": "elicitation mode"}
 
         try:
             violations = check_spec_alignment(project)
@@ -1083,8 +1080,15 @@ class PhaseHooks:
                       f"phase {self.phase}")
         elif reviews:
             print(f"   needs_review: {reviews[0].message}")
+        elif not self._layout.spec_path.exists():
+            # Empty violations has two causes and they are not the same news.
+            # Saying "SRS.md covers the canonical spec" when neither document
+            # exists is the shape this round exists to remove. The verdict is
+            # still the checker's — this only picks the wording.
+            print("   N/A: no canonical spec and no SRS.md — Phase 1 has not "
+                  "produced requirements yet")
         else:
-            print("   SRS.md covers canonical_spec")
+            print("   SRS.md covers the canonical spec")
 
         return {
             "passed": passed,

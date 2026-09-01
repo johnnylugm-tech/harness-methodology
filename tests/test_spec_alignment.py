@@ -1,20 +1,22 @@
-"""Tests for the PRD/canonical_spec ↔ SRS alignment gate (Direction A).
+"""Tests for the canonical spec (SPEC.md) ↔ SRS alignment gate (Direction A).
 
 check_spec_alignment fills the ONE boundary the pipeline never machine-checks:
-the front edge PRD/canonical_spec → SRS (phase_artifact_enforcer.py:77 states
+the front edge PRD/SPEC.md → SRS (phase_artifact_enforcer.py:77 states
 "Phase 1 input is the user-provided PRD (external, not checked here)"). It is
 distinct from:
   * preflight_fr_spec_consistency  — SAD ↔ TEST_SPEC FR-set parity
   * preflight_traceability (4a/4b/4c) — SRS/SAD → code/test/NFR coverage
 
 Behavioural contract (tests behaviour, not implementation):
-  * ingestion mode (PROJECT_BRIEF declares canonical_spec):
+  * both documents present:
       - a canonical FR absent from SRS  → error (dropped requirement)
       - an SRS FR absent from canonical → error (invented requirement)
       - a canonical FR the SRS records as `FR-NN-deferred` → NOT dropped
-  * elicitation mode (no canonical_spec) → no ground truth → [] (N/A)
   * canonical with no `### FR-NN` anchors → info needs_review, never a false error
-  * declared canonical_spec file missing → error (fail-closed)
+  * SPEC.md present, SRS.md absent → error (ingestion incomplete)
+  * SPEC.md absent, SRS.md present → error (the SRS has no source) — Round 84
+  * neither present → [] (Phase 1 has produced nothing; not a mode, and not a
+    finding — see `test_neither_document_present_is_not_an_accusation`)
 """
 
 from __future__ import annotations
@@ -31,12 +33,9 @@ def _write(path: Path, text: str) -> None:
 
 
 def _project(tmp_path: Path, *, canonical: str | None, srs: str | None) -> Path:
-    """Build a minimal project. canonical=None → elicitation mode."""
+    """Build a minimal project. canonical=None → no SPEC.md on disk."""
     if canonical is not None:
-        _write(tmp_path / "PROJECT_BRIEF.md", "canonical_spec: SPEC.md\n")
         _write(tmp_path / "SPEC.md", canonical)
-    else:
-        _write(tmp_path / "PROJECT_BRIEF.md", "# brief\nno canonical here\n")
     if srs is not None:
         _write(ProjectLayout(tmp_path).srs_path, srs)
     return tmp_path
@@ -76,10 +75,27 @@ def test_clean_ingestion_passes(tmp_path: Path) -> None:
     assert check_spec_alignment(proj) == []
 
 
-def test_elicitation_mode_is_not_applicable(tmp_path: Path) -> None:
-    # No canonical_spec declared → nothing to check fidelity against.
+def test_neither_document_present_is_not_an_accusation(tmp_path: Path) -> None:
+    """Round 84: no SPEC.md and no SRS.md means Phase 1 has produced nothing.
+
+    This is the only N/A row left after the mode switch retired, and it exists
+    for a measured reason: this framework repo has neither file and its
+    pre-push hook runs `run-phase --phase 1` on itself. Naming a defect here
+    would accuse it of losing a file it never had.
+    """
+    assert check_spec_alignment(_project(tmp_path, canonical=None, srs=None)) == []
+
+
+def test_srs_without_canonical_spec_blocks(tmp_path: Path) -> None:
+    """Round 84: the row the old mode switch read as good news.
+
+    With `canonical_spec` living in PROJECT_BRIEF.md, deleting that file (or
+    the spec it pointed at) silently downgraded the project to elicitation and
+    this gate returned [] on an SRS whose requirements had no source at all.
+    """
     proj = _project(tmp_path, canonical=None, srs="### FR-01: login\n")
-    assert check_spec_alignment(proj) == []
+    errors = [v for v in check_spec_alignment(proj) if v.severity == "error"]
+    assert [v.check_type for v in errors] == ["canonical_missing"]
 
 
 def test_unstructured_canonical_needs_review(tmp_path: Path) -> None:
@@ -124,40 +140,26 @@ def test_deferred_requirement_not_invented(tmp_path: Path) -> None:
     assert [v for v in check_spec_alignment(proj) if v.severity == "error"] == []
 
 
-def test_missing_canonical_file_blocks(tmp_path: Path) -> None:
-    _write(tmp_path / "PROJECT_BRIEF.md", "canonical_spec: SPEC.md\n")
-    _write(ProjectLayout(tmp_path).srs_path, "### FR-01: login\n")
-    vs = check_spec_alignment(tmp_path)
-    errors = [v for v in vs if v.severity == "error"]
-    assert len(errors) == 1
-    assert "canonical" in errors[0].message.lower()
-
-
 def test_missing_srs_blocks_in_ingestion(tmp_path: Path) -> None:
     proj = _project(tmp_path, canonical=_CANON_3, srs=None)
     vs = check_spec_alignment(proj)
     assert any(v.severity == "error" for v in vs)
 
 
-def test_heading_form_with_trailing_metadata(tmp_path: Path) -> None:
-    # PROJECT_BRIEF heading form with a version annotation after the path
-    # (e.g. "SPEC.md (v3.0.0, 2026-07-04, 5 FR / 6 NFR / 8 env vars)") must
-    # capture only the path token — not the whole line — so the alignment
-    # gate can still locate SPEC.md.
-    _write(
-        tmp_path / "PROJECT_BRIEF.md",
-        "## canonical_spec\nSPEC.md (v3.0.0, 2026-07-04, 5 FR / 6 NFR / 8 env vars)\n",
-    )
-    _write(tmp_path / "SPEC.md", _CANON_3)
-    _write(ProjectLayout(tmp_path).srs_path, _CANON_3)
-    assert check_spec_alignment(tmp_path) == []
+def test_canonical_spec_is_project_root_spec_md(tmp_path: Path) -> None:
+    """The location is `ProjectLayout.spec_path` and nothing else reads it.
 
-
-def test_heading_form_clean(tmp_path: Path) -> None:
-    # Plain heading form (no trailing metadata) must still resolve cleanly.
-    _write(tmp_path / "PROJECT_BRIEF.md", "## canonical_spec\nSPEC.md\n")
-    _write(tmp_path / "SPEC.md", _CANON_3)
+    Round 84 replaced a PROJECT_BRIEF.md field with the constant the framework
+    already stated five other ways. A SPEC.md anywhere but the project root is
+    not the canonical spec — proving the path is not merely "some file named
+    SPEC.md that happens to be nearby".
+    """
+    _write(tmp_path / "01-requirements" / "SPEC.md", _CANON_3)  # wrong location
     _write(ProjectLayout(tmp_path).srs_path, _CANON_3)
+    errors = [v for v in check_spec_alignment(tmp_path) if v.severity == "error"]
+    assert [v.check_type for v in errors] == ["canonical_missing"]
+
+    _write(ProjectLayout(tmp_path).spec_path, _CANON_3)  # right location
     assert check_spec_alignment(tmp_path) == []
 
 
@@ -231,10 +233,33 @@ def test_preflight_informational_at_p1_blocking_at_p2(tmp_path: Path) -> None:
     assert r2["passed"] is False and r2["blocking"] is True and r2["errors"] == 2
 
 
-def test_preflight_skips_in_elicitation_mode(tmp_path: Path) -> None:
+def test_preflight_blocks_at_p2_when_the_srs_has_no_canonical_source(
+    tmp_path: Path,
+) -> None:
+    """The preflight used to skip here, on the strength of a declaration.
+
+    Round 84: it asks the checker and the checker reads disk, so an SRS whose
+    canonical spec is gone blocks at P2 instead of being waved through as
+    "elicitation mode".
+    """
     proj = _project(tmp_path, canonical=None, srs="### FR-01: login\n")
     r = _hooks(proj, 2).preflight_spec_alignment()
-    assert r["passed"] is True and r.get("skipped") is True
+    assert r["passed"] is False and r["blocking"] is True and r["errors"] == 1
+
+
+def test_preflight_says_na_rather_than_covered_when_nothing_exists(
+    tmp_path: Path, capsys
+) -> None:
+    """Empty violations has two causes; the hook must not report them alike.
+
+    With neither document on disk the old wording ("SRS.md covers
+    canonical_spec") was a statement about two files that were not there.
+    """
+    r = _hooks(_project(tmp_path, canonical=None, srs=None), 2).preflight_spec_alignment()
+    assert r["passed"] is True and r["errors"] == 0
+    out = capsys.readouterr().out
+    assert "N/A" in out and "has not produced requirements yet" in out
+    assert "covers the canonical spec" not in out
 
 
 def test_spec_alignment_is_wired_into_preflight_all() -> None:
