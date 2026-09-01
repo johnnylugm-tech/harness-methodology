@@ -3843,38 +3843,120 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
-## Round 85 — GATE1 poll-cap 算術 + run-all halt 歸因
+## Round 85 — 判定讀不到自己算出來的數
 
-背景：taskq-redo 在 run-all.js 跑到 P3 Gate 1 時反覆卡關，兩條獨立的框架層缺陷同時在起作用：
-
-1. run-all.js GATE1 的輪詢上限（40 polls × 30s = 1200s）只有該註解自己宣告的 worst case（2400s = 3 rounds × 600s）的一半。journal.jsonl 裡「FR-10 GATE1: PASS ... Wrapper script killed at 40-poll cap」顯示底層 harness_cli.py 已經 100% 通過並寫出結果檔，外層輪詢子代理卻因提前 kill 而回報假的 rc=-1（TIMEOUT），被 run-all.js 誤判為 FAIL。
-2. core/fault_owner.py 缺 run-all.js 自身 halt 訊息的歸因規則——兩種最常見的 halt（「Phase N: Gate N FAILED for FR(s)...」、「Phase N env-check did not PASS」）都落回 owner=unknown，導致每次卡關都要手動深挖。
+背景：taskq-redo 在 run-all.js 跑到 P3 Gate 1 反覆卡關。站1（`b18daa62`，他人
+session）改了兩處；本輪的 code review 逐行查證後，**兩處都修錯了層**，站2 起
+在病因層重做。站1 沒有違反「禁止手改 workflow JS」——`--check` exit 0，JS 是生成的。
 
 基線 `22fa2589`。
 
 ### 母體
 
-> **輪詢上限算術小於宣告的 worst case 導致假逾時；halt 訊息缺乏歸因規則導致手動深挖。**
+> **框架算得出真值，判定卻讀別的：一個「還沒有判定」被折成「判定為失敗」，
+> 一個「別人的樹」被貼上「誰的樹都不是」。**
 
-### 兩項修復
+### 站1 的兩項修法，與它們各自的錯層
 
-| 項目 | 病灶 | 正解 | commit |
-|---|---|---|---|
-| 1 | GATE1 poll-cap (40×30s=1200s < 2400s) | cap 40 → 96 (96×30s=2880s，覆蓋 2400s 並留 20% buffer)；同步重生成 workflows 及 golden 檔 | `b18daa62` |
-| 2 | run-all.js halt 訊息缺歸因規則 | `_TEXT_RULES` 加 2 條 regex，歸因為 `Owner.INFRA` (保守 fallback，標註非永久解) | `b18daa62` |
+| # | 站1 做了什麼 | 查證結果 |
+|---|---|---|
+| 1 | GATE1 poll cap 40 → 96，理由是「rc=-1 被 run-all.js 誤判為 FAIL」 | **機制陳述被它自己指名的程式碼推翻。** `passed = verifyOut.startsWith('GATE1_VERIFIED_PASS')` 只讀 `verify_gate1_qc.py` 的 stdout；`frRc` 只在 23/70/25 三個終止用到，`-1` 一個都不 match，永遠走不到 PASS/FAIL 決策。真鏈是 **cap 到了 → kill 截斷 harness_cli → manifest 沒被寫 → verify 回 FAIL**。 |
+| 2 | `_TEXT_RULES` 加兩條 regex，把兩種 halt 歸因 `Owner.INFRA` | **把 Round 79 站3-4 移除的文字猜測放了回去，而且答錯。** `Gate 1 FAILED for FR(s)` 由 `verify_gate1_qc.py` 讀**專案自己的** manifest 決定；`ERROR_HANDLING.md:387` 定義 `infra` 是「neither tree; the environment」。同族的 gate-loop halt 早已從 producer 帶 `owner: 'project'`，兩個 halt 因此拿到互相矛盾的 owner。 |
+
+而且 96 × 30 = 2880s 仍然不夠：`~2400s` 這個基準只數了 CODE-FIX。
+[`cli/fr_cmds.py`](../cli/fr_cmds.py) 裡 GATE1 重派的 `spawner.spawn` 縮排 i12，
+與 `else:`(i12) 同層 —— **每個 fix round 發兩次 dispatch**。預設 worst case 是
+`2×600 + 3×(600+600) = 4800s`。
+
+### 落地（站2-4）
+
+| 站 | 病灶 | 正解 |
+|---|---|---|
+| 1 | cap 是手抄常數，它要覆蓋的每個量都是設定 | `cli.fr_cmds.fr_step_poll_plan` 算 `(cap, interval)`，`load-context` 放進 `phase{N}_ctx.json`，三個 poll 站點讀它。走 `fr_config > values > 內建` 的既有優先序，並取 `fr_config` 的**最大值**（一個 cap 蓋一個 phase，`fr_config` 卻是逐 FR）。預設 `(40, 120)`；框架文件的 FR-19 範例 `(120, 120)`。 |
+| 2 | 逾時被折成 gate 判定 | `render_fr_step_timeout_exit`：`!passed && frRc === -1` → `halt_step: 'fr-step-timeout'`，FR **不**進 `gate1Fail`，**不**帶 owner（掛住的原因證據沒說）。單一 renderer、兩個呼叫點，涵蓋 P3/4/5/7/8。 |
+| 3 | verify dispatch 沒有 session guard | 既有的 `render_session_block_guard` 套上去。配額中斷回 `null` → `String(null \|\| '')` 不以 `GATE1_VERIFIED_PASS` 開頭 → 今天被記成 Gate 1 品質失敗。 |
+| 3 | 歸因發生在分類器而不是 producer | 刪掉站1 的兩條 `_TEXT_RULES`；`spec_phase3` 與 `render_per_fr_delta` 的 `halt('gate1', …)` 帶 `owner: 'project'`。env-check 沒有 producer 端的把握，維持 UNKNOWN。 |
+
+`docs/ERROR_HANDLING.md` **不動**：它記載的政策（Round 48「分類器需要的是新的
+證據來源，而不是更多規則」）在規則被移除後重新為真。
+
+`FR_STEP_SCHEMA` 的 `rc` 欄位從 Round 70 站3 起就寫著 `(-1 if it never finished)`
+—— 宣告了、透過 schema 傳輸了、**沒有任何一行程式讀它**。站2 是把既有合約接上
+執行者。
+
+### 追加驗證改寫了計畫的四點
+
+老闆在核准前要求「再確認是否都套用正解、有無副作用」。四項在實作前被推翻：
+
+1. **站1 有洞**：初稿用專案預設值算 phase 級 cap，那正好在「某個 FR 宣告了更長
+   timeout」時太小 —— 把被修的缺陷複製到上一層。改成取 `fr_config` 的最大值。
+2. **站2 的落點會讓已經通過的 FR 被判失敗**：初稿要把 `-1` 加進
+   `render_terminal_abort_detectors`（23/70/25 的單一來源），但它跑在 manifest
+   verify **之前**。kill 可能落在 `quality_complete=True` 寫完之後幾毫秒 ——
+   那種情況今天會正確判 PASS。改成放在 verify 之後，條件 `!passed && frRc === -1`。
+3. **站2 只做 phase 3 就會犯下本輪自己指控的第 4 項**（同形兄弟未掃齊）。
+   `render_terminal_abort_detectors` 的 docstring 正好記著 P4/5/7/8 曾因此各缺兩個
+   detector。改成單一 renderer 兩個呼叫點。
+4. **站3 的 `owner: 'project'` 在補上 session guard 之前不成立**：verify 被限流
+   回 null 那條路徑會落進 `gate1Fail`，在上面宣告 project 就是本輪正在修的缺陷
+   本身。
+
+### 撤銷的守衛（三支，各自寫明理由）
+
+| 守衛 | 撤銷理由 |
+|---|---|
+| `test_run_all_gate_loop_halt_is_attributed_to_infra` | 站1 自己的守衛；斷言的 owner 是錯的。它的三句正面斷言有兩句用 `Gate 3` / `Gate 2 FAILED for FR(s)`，全樹 22 處那個句子**全是 Gate 1**，沒有 producer 產得出來 —— 它在測 regex 的寬度，不是框架的輸出。 |
+| `test_run_all_env_check_halt_is_attributed_to_infra` | 同上。 |
+| `test_the_full_per_fr_loop_keeps_its_flat_interval`（Round 22 站4） | 它的註解說 flat 30s 是刻意的，因為「那條路徑可能串一整輪 TDD」。前半仍為真，後半不是：同一條路徑也跑未變動的 FR，那些會在 CLI 裡短路 —— Round 22 站4 自己在姊妹站點量過這個成本。 |
+
+### 反證（七項，各自轉紅後以 `cp` 備份逐位元組還原，`sha256` 比對）
+
+| # | 還原什麼 | 轉紅的守衛 |
+|---|---|---|
+| 1 | 拿掉 ctx 兩個鍵 | 兩支 load-context 測試 |
+| 2 | budget 只取預設值 | `fr_config` 覆蓋測試 |
+| 3 | 逾時 renderer 回傳空字串 | python 守衛 + sim #30 |
+| 4 | 拿掉 `!passed` 前綴（等於在 manifest 之前決定） | sim #31（132/133，乾淨的單點訊號） |
+| 5 | 拿掉 verify 的 session guard | sim #32 + python 守衛 |
+| 6 | 拿掉 `owner: 'project'` | producer 歸因測試 |
+| 7 | 復活兩條 `_TEXT_RULES` | 兩支 fault_owner 測試 |
+
+反證 4 第一版是粗暴地搬移程式碼區塊，連帶弄紅六支無關的 fixture；重做成只改
+判斷條件後才得到單點訊號。反證 7 第一版的 regex 被 heredoc 過度跳脫，**只有
+數量測試抓到**，行為測試沒紅 —— 重寫成真的會 match 之後兩支都紅。兩次都記在
+這裡，因為「反證看起來成立」和「反證確實成立」是兩件事。
 
 ### 告知不修 / 明列不做
 
 | 項目 | 理由 | re-open 條件 |
 |---|---|---|
-| record-block 從 journal.jsonl 的 dispatch chain 往回讀精準 owner | 涉及 `js_blocks.py` 重大更動與 sim 等價性，超出本 round 範圍 | 後續針對 dispatch chain 歸因進行專門架構重構時 |
-| 「Gate 2 did not PASS in 3 rounds」維持 UNKNOWN | 避免新規則誤命中既有 producer site 寫死 owner 的訊息 | producer 端能明確提供 owner 時 |
+| env-check halt 把 `rc` 當 `--exit-code` 送進 `record-block` | `envReport.rc` 可能是 0（chain 成功但 `ready:false`），而 `OWNER_BY_EXIT[0] = Owner.NONE`「不是失敗」—— 比今天的 UNKNOWN 更糟 | 有 `rc` 語意的實測資料，能證明 0 不出現在 halt 路徑上 |
+| 輪詢子代理的 turn budget 撐不撐得住 cap 次呼叫 | 生成 JS 用 runtime 提供的 `agent()`，本 repo 讀不到它的 turn 上限，無法量測。本輪把次數從 96 降到 40，方向上更安全 | 有一次真實 run 的 dispatch 記錄可對照 |
+| `render_env_check` 的 `Cap 22 polls` 仍是字面量 | 它輪詢的是 `run-env-check`，budget 來自 `STALL_TIMEOUTS` 而非 `fr_step × max_fix_rounds`，是另一條 SSOT | 該 cap 被量到不足時 |
+| `recordBlock` 在 fail-closed 分支硬寫 `'phase-incomplete'`，不讀 `outcome.halt_step` | 既有不對稱（halt 讀、ledger 不讀），與本輪病灶無關 | 需要用 halt_step 做賬本聚合時 |
+
+### 已作廢的站1 條目
+
+站1 記了兩條「告知不修」，兩條都描述不存在的路徑，本輪一併作廢：
+
+- 「record-block 從 journal.jsonl 的 dispatch chain 往回讀精準 owner」——
+  journal.jsonl 在 `~/.claude/projects/<session>/…/wf_xxx/`，而 `record-block`
+  的參數只有 `--project/--phase/--step/--message/--exit-code/--owner`，拿不到
+  session id 與 run id。這個「理想解」讀不到它要讀的檔。正解是 owner 由 producer
+  陳述，本輪已做。
+- 「『Gate 2 did not PASS in 3 rounds』維持 UNKNOWN」—— 那條 halt 從 Round 79
+  站3-4 起就從 producer 帶 `owner: 'project'`，`classify_fault(text=)` 根本不會
+  被問到。
 
 ### 驗證
 
-- `tests/test_fault_owner.py`: 16/16 通過（含「Gate 2 did not PASS in 3 rounds」維持 UNKNOWN 的反向驗證）
-- `python3 -m pytest tests/`: 7955 passed / 4 skipped（含 11 golden regenerate 後）
-- `node --test sim_runner.test.mjs`: 130/130 等價性測試通過
+- `generate_workflows.py --check` exit 0；`.claude/workflows/*.js` 零手改
+- `node --test sim_runner.test.mjs`: 133/133（130 + 3 新 fixture）
+- `python -m pytest tests/`: 7960 passed / 4 skipped
+- guards 1011 → 1018
+- ratchet 三處在同一 commit 調整並帶算術：`RUNALL_MAX_BYTES` 384757 → 390449
+  （+5692，逐項量測而非估算 —— 第一版的 note 把 poll 行寫成淨負，那是估的，
+  已在 note 內更正）、`cli/fr_cmds.py` 1887 → 1934、`js_blocks.py` 2040 → 2098
 
 ---
 
