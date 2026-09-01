@@ -4138,3 +4138,31 @@
 - test: tests/test_generate_full_plan.py::TestIngestionModeAndEightQuestionProtocol::test_p1_plan_no_longer_teaches_a_retired_mechanism
   bug: "replaces R-MODE-1/R-MODE-2, which pinned phase1_plan.md to declaring two modes and a four-step PROJECT_BRIEF precedence — both retired. R-MODE-3 went too, for a worse reason: it asserted on 'Prompt-injection guard' text that no generator has ever emitted, so it was reading this repo's hand-written v2.7.0 plan copy and calling it generator output. `plan-all` had skipped that file for three months because its skip rule fires on any [x] and the template ships one"
   fixed_in: "Round 84 站3"
+
+- test: tests/test_load_context_fallback.py::test_load_context_reports_the_poll_budget_the_fr_loop_will_need
+  bug: "the per-FR GATE1 prompts named their own poll cap. `b18daa62` raised it 40 -> 96 (2880s) against a comment claiming a ~2400s worst case; the real figure is 4800s at the default config, because every fix round spawns the fixer AND re-dispatches a full GATE1 — the second spawn sits outside the is_s3 branch and the comment counted only the first. A cap the wrapper kills a live run at cannot be a literal typed into a prompt"
+  fixed_in: "Round 85 站2"
+
+- test: tests/test_load_context_fallback.py::test_a_per_fr_timeout_override_widens_the_cap_for_the_whole_phase
+  bug: "one cap covers a phase while `fr_config` is per-FR, so a budget computed from the project defaults would kill exactly the FR that declared a longer timeout — the framework's own documented example ({\"FR-19\": {\"timeout\": 1200, \"max_fix_rounds\": 5}}) needs 14400s. Found by re-verifying this round's own plan before implementing it"
+  fixed_in: "Round 85 站2"
+
+- test: tests/test_workflowgen.py::TestPollBackoff::test_both_per_fr_poll_sites_read_the_cap_rather_than_naming_one
+  bug: "withdraws test_the_full_per_fr_loop_keeps_its_flat_interval (Round 22 站4), whose comment called the flat 30s deliberate for a path that also runs for unchanged FRs that short-circuit in the CLI. Counts the placeholder at every poll site so a literal typed back into any of the three removes it and fails"
+  fixed_in: "Round 85 站2"
+
+- test: tests/test_workflowgen.py::TestGateExhaustionOwnerThreading::test_the_per_fr_gate1_halt_names_project_too
+  bug: "Round 79 站3-4 gave render_gate_loop's halt `owner: 'project'` and left the per-FR Gate 1 halt with none, so Round 85 站1 classified it from its text and answered INFRA — docs/ERROR_HANDLING.md defines infra as 'neither tree; the environment', while that halt is decided by verify_gate1_qc.py reading the project's own manifest. Two halts from the same mechanism carried contradictory owners"
+  fixed_in: "Round 85 站3"
+
+- test: tests/test_workflowgen.py::TestGateExhaustionOwnerThreading::test_a_killed_step_exits_before_the_gate1_halt_can_claim_it
+  bug: "the two paths that reached the Gate 1 halt without a manifest verdict, and would now be stamped `project`: a poll-cap kill (rc -1, declared by FR_STEP_SCHEMA since Round 70 站3 and read by nothing) and a rate-limited verifier (null return, no session guard on that dispatch). The timeout check must stay AFTER `passed` is computed — a kill can land just after quality_complete=True was written"
+  fixed_in: "Round 85 站2"
+
+- test: tests/test_fault_owner.py::test_the_two_run_all_halts_stay_unknown_in_text
+  bug: "Round 85 站1 put text-guessing back into _TEXT_RULES for the two commonest run-all halts, the mechanism Round 79 站3-4 had removed. Its own assertions named messages no producer emits ('Phase 4: Gate 3 FAILED for FR(s)'), so they exercised the regex's breadth rather than the framework's output"
+  fixed_in: "Round 85 站2"
+
+- test: tests/test_fault_owner.py::test_the_text_rule_table_stays_at_the_size_its_header_claims
+  bug: "the table header said 'There are exactly three today' while five rules followed it, and its next sentence ('Growing this table is how classification improves; guessing is not') was contradicted by entries whose own comment conceded the root cause was a heterogeneous mix"
+  fixed_in: "Round 85 站2"

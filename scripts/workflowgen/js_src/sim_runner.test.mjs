@@ -302,6 +302,60 @@ test('phase3 TDD loop: an ordinary Gate 1 failure (rc 1) is not an abort', async
   assert.notEqual(result.harness_bug_detected, true)
   assert.notEqual(result.dispatch_structurally_broken, true)
   assert.ok(result.error, 'it must still fail the gate, just not as a terminal abort')
+  // Round 85 站3: that halt now states its own owner. `verify_gate1_qc.py`
+  // reads the project's manifest and nothing else, and the two ways to reach
+  // this halt without a manifest verdict exit before it (the two tests below).
+  assert.equal(result.owner, 'project', JSON.stringify(result).slice(0, 200))
+})
+
+// Round 85 站2. FR_STEP_SCHEMA has described rc as "-1 if it never finished"
+// since Round 70 站3 and nothing read it: the wrapper kills its background
+// run-fr-step at the poll cap, run-fr-step never writes a gate1 entry,
+// verify_gate1_qc.py prints GATE1_VERIFIED_FAIL, and a run that reached no
+// verdict was filed as a Gate 1 quality failure — with 站3's attribution, as
+// the PROJECT's. Round 85 站1 read that chain as "run-all.js misjudges rc=-1
+// as FAIL" and raised the cap; `passed` never consults rc at all.
+test('phase3 TDD loop: a poll-cap kill (rc -1) is not a gate verdict', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: -1, final_line: 'FR-01 GATE1: PASS — wrapper killed at the poll cap' } },
+    { match: /^gate1-verify-/, respond: { pass: false, reason: 'GATE1_VERIFIED_FAIL score=None' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.equal(result.fr_step_timeout, true, JSON.stringify(result).slice(0, 300))
+  assert.equal(result.halt_step, 'fr-step-timeout')
+  assert.ok(!(result.gate1Fail || []).includes('FR-01'),
+    'a step that produced no verdict must not be recorded as a Gate 1 failure')
+  assert.equal(result.owner, undefined,
+    'why the step hung is not something this halt can know — unknown is the answer')
+})
+
+// The reason this check sits AFTER the manifest read rather than beside its
+// three siblings in render_terminal_abort_detectors: the kill can land just
+// after run-fr-step wrote quality_complete=True, and then the FR really did
+// pass. The manifest stays the authority; -1 only decides what a NON-pass means.
+test('phase3 TDD loop: rc -1 with a PASS already in the manifest still passes', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: -1, final_line: 'FR-01 GATE1: PASS — wrapper killed at the poll cap' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.notEqual(result.fr_step_timeout, true,
+    'the manifest said PASS — a late kill did not undo it')
+})
+
+// Round 85 站2. The verifier dispatch had no session guard: a quota cap
+// returns null, String(null || '') does not start with GATE1_VERIFIED_PASS,
+// and the rate limit was recorded as a Gate 1 quality failure.
+test('phase3 TDD loop: a rate-limited verifier is a session block, not a Gate 1 FAIL', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 0, final_line: 'FR-01 GATE1: PASS' } },
+    { match: /^gate1-verify-/, respond: null },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.equal(result.session_limit_blocked, true, JSON.stringify(result).slice(0, 300))
+  assert.ok(!(result.gate1Fail || []).includes('FR-01'))
 })
 
 // ---- 3c. Sync verdict FAIL branch (Round 28) -------------------------------

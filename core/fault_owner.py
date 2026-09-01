@@ -357,47 +357,15 @@ _TEXT_RULES: tuple[tuple[re.Pattern[str], str, str], ...] = (
         Owner.INFRA,
         "session/rate limit — the API quota, not the project's code",
     ),
-    # run-all.js halt-site attribution (Round 85 站1 fallback).
-    #
-    # Two run-all.js halts produce a message that says what failed but not
-    # whose fault it is — `gate1` ("Phase N: Gate N FAILED for FR(s): ...")
-    # and `env-check` ("Phase N env-check did not PASS"). Both share two
-    # properties that disqualify a hard-coded owner:
-    #
-    #   (a) Their root cause is a heterogeneous mix: a "Gate 1 FAILED for
-    #       FR(s)" can be the project's tests/code (PROJECT), the framework's
-    #       own poll-cap arithmetic (HARNESS), or the run's quota (INFRA).
-    #   (b) The more specific signal sits EARLIER in the same dispatch chain
-    #       (e.g. a per-FR sub-report in journal.jsonl already names the
-    #       failing dimension with line numbers); only the originating
-    #       producer knows which one fired.
-    #
-    # The ideal design — `record-block` walking the chain backwards to pull
-    # the most specific owner before stamping — is a `js_blocks.py` change
-    # with sim_runner equivalence implications. This rule is the conservative
-    # fallback that already beats `owner=unknown`: it tells the operator
-    # "the workflow halted and escalated — look at the chain" instead of
-    # "we have no idea". INFRA is the closest standard owner because both
-    # halts only fire when the workflow itself decides it cannot auto-resolve,
-    # which is the operational definition of "needs an operator".
-    (
-        re.compile(
-            r"Phase\s+\d+:\s+Gate\s+\d+\s+FAILED\s+for\s+FR\(s\)",
-            re.I,
-        ),
-        Owner.INFRA,
-        "run-all.js gate-loop halt — workflow exhausted code-fix rounds; "
-        "see earlier per-FR dispatch results for the failing dimension",
-    ),
-    (
-        re.compile(
-            r"Phase\s+\d+\s+env-check\s+did\s+not\s+PASS",
-            re.I,
-        ),
-        Owner.INFRA,
-        "run-all.js env-check halt — install / config-liveness check blocked; "
-        "see .sessi-work/env_check_result.json for the failing key",
-    ),
+    # Round 85 站1 added two more entries here and 站2 removed them, for the
+    # reason stated three paragraphs above: `Phase N: Gate 1 FAILED for FR(s)`
+    # and `Phase N env-check did not PASS` were both stamped INFRA, and the
+    # first of them is decided by `verify_gate1_qc.py` reading the PROJECT's
+    # own manifest — the tree the table above says INFRA is not. The gate1
+    # half is answered where it is known: `js_blocks.render_per_fr_delta` and
+    # `spec_phase3` now emit `owner: 'project'` on that halt, the same shape
+    # Round 79 站3-4 used for `render_gate_loop`. The env-check half has no
+    # producer-side certainty, so it stays UNKNOWN, which is a real answer.
 )
 
 

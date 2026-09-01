@@ -318,17 +318,41 @@ class TestPollBackoff:
 
     def test_delta_fastpath_poll_starts_short_and_backs_off(self):
         text = B.render_per_fr_delta(phase=7, forbidden_note="")
-        assert "BACKOFF intervals, in seconds: 5, 10, then 30" in text
-        assert "Cap 42 polls" in text
-        assert "Cap 40 polls" not in text, "the pre-backoff fast-path cap is back"
+        assert "BACKOFF intervals, in seconds: 5, 10, 20, 30, 60" in text
+        assert "sleep <interval>" in text
 
-    def test_the_full_per_fr_loop_keeps_its_flat_interval(self):
-        # Deliberately NOT changed: that path can chain a full TDD cycle on
-        # top of GATE1-DELTA's own retries, so it is genuinely long-running
-        # and a short first sleep buys nothing.
-        text = B.render_per_fr_delta(phase=7, forbidden_note="")
-        assert "Poll every 30s" in text
-        assert "Cap 60 polls" in text
+    def test_both_per_fr_poll_sites_read_the_cap_rather_than_naming_one(self):
+        """Round 85 站2 withdraws `test_the_full_per_fr_loop_keeps_its_flat_interval`.
+
+        That test asserted `Poll every 30s` / `Cap 60 polls` on the full
+        per-FR loop and its comment called the flat interval deliberate —
+        "that path can chain a full TDD cycle on top of GATE1-DELTA's own
+        retries, so it is genuinely long-running and a short first sleep buys
+        nothing". The first half stayed true and the second did not: the same
+        path also runs for FRs whose code is unchanged, which short-circuit
+        inside the CLI, and Round 22 站4 had already measured that cost on the
+        sibling probe. Both sites now carry the same backoff.
+
+        The literal caps went with it, which is this round's actual subject.
+        42 and 60 polls were 1215s and 1800s against a worst case the
+        generator's own prose put at 2400s — and the real figure is higher
+        still, because each fix round spawns the fixer AND re-dispatches a
+        full GATE1. A cap that must cover `values.timeouts.fr_step` x
+        `values.max_fix_rounds`, both of which a project can override per FR,
+        cannot be a number typed into a prompt.
+        """
+        # Counted, not just present: the delta renderer has two poll sites (the
+        # batched fast probe and the full per-FR loop) and phase3 has one. A
+        # literal typed back into any of them removes its placeholder, so the
+        # count is what makes this a scan rather than a spot check.
+        for label, text, sites in (
+            ("render_per_fr_delta",
+             B.render_per_fr_delta(phase=7, forbidden_note=""), 2),
+            ("phase3", generate(3), 1),
+        ):
+            assert text.count("Cap `fr_step_poll_cap` polls") == sites, label
+            assert text.count("`fr_step_poll_interval_s`") == sites, label
+            assert "Poll every 30s" not in text, label
 
 
 class TestNfrTypeLegalityInPhase1Checklist:
@@ -557,6 +581,50 @@ class TestGateExhaustionOwnerThreading:
                 f"phase {phase}'s generated gate-exhaustion halt no longer "
                 f"states owner: 'project' — render_gate_loop's halt() call "
                 f"has drifted from the Round 79 站3-4 fix"
+            )
+
+    def test_the_per_fr_gate1_halt_names_project_too(self):
+        """Round 85 站2 — the one gate halt Round 79 站3-4 did not reach.
+
+        `render_gate_loop`'s halt got `owner: 'project'`; the per-FR Gate 1
+        halt (`spec_phase3` and `render_per_fr_delta`) kept none, so Round 85
+        站1 tried to classify it from its text and answered INFRA. It has the
+        same justification as its sibling and now says so at the producer:
+        `passed` comes only from `verify_gate1_qc.py` reading the project's
+        manifest, and the two paths that could reach the halt without a
+        manifest verdict — a poll-cap kill and a rate-limited verifier — exit
+        before it (`render_fr_step_timeout_exit`, `render_session_block_guard`).
+        """
+        for phase in (3, 4, 5, 7, 8):
+            text = generate(phase)
+            assert (f"halt('gate1', {{ error: 'Phase {phase}: Gate 1 FAILED "
+                    f"for FR(s): '") in text, phase
+            gate1_halt = text[text.index(f"halt('gate1', {{ error: 'Phase {phase}"):]
+            assert "owner: 'project'" in gate1_halt.split("})")[0], (
+                f"phase {phase}'s per-FR Gate 1 halt no longer states "
+                f"owner: 'project' — without it the halt falls back to the "
+                f"text classifier, which is what Round 85 站1 got wrong"
+            )
+
+    def test_a_killed_step_exits_before_the_gate1_halt_can_claim_it(self):
+        """The `owner: 'project'` above is only true because these two exist.
+
+        A run killed at the poll cap reports rc -1 and leaves no manifest
+        entry; a rate-limited verifier returns null and leaves an empty
+        reason. Both used to land in `gate1Fail` and would now be stamped
+        `project`. Each phase that runs a per-FR Gate 1 loop must carry both
+        exits, and the timeout one must be read AFTER `passed` is computed —
+        a kill can land just after `quality_complete=True` was written.
+        """
+        for phase in (3, 4, 5, 7, 8):
+            text = generate(phase)
+            assert "fr_step_timeout: true" in text, phase
+            assert "if (!passed && frRc === -1)" in text, phase
+            assert (text.index("passed")
+                    < text.index("if (!passed && frRc === -1)")), phase
+            assert "session/rate limit verifying" in text, (
+                f"phase {phase}'s Gate 1 verifier dispatch has no session "
+                f"guard — a quota cap there reads as a Gate 1 quality failure"
             )
 
     def test_runall_forwards_outcome_owner_to_record_block(self):

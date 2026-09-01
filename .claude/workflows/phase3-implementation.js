@@ -487,10 +487,10 @@ for (const frId of frIds) {
       + '4. TDD-IMPROVE:`' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step TDD-IMPROVE --project ' + REPO + '`\n'
       + '   Coverage-filling tests that exercise ANOTHER FR\'s not-yet-implemented stub (the `_err(f"\'<name>\' is not yet implemented...")` pattern) MUST NOT assert on that stub\'s specific message text — it is temporary and will be replaced when the owning FR lands, breaking your test. Either skip that branch (it will be covered when the owning FR implements it and re-runs GATE1/DELTA) or assert only an invariant guaranteed stable across the stub-to-real transition (e.g. non-zero exit code), never the stub\'s literal text.\n'
       + '5. amend-sab (proactive, BEFORE GATE1): `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` (first-class dispatch, idempotent, deterministic — does NOT spawn a sub-agent). If new modules are registered to .methodology/SAB.json: commit them (`git -C ' + REPO + ' add .methodology/SAB.json && git -C ' + REPO + ' commit -m "amend: register SAB modules (' + frId + ')"`) before proceeding to GATE1. This FR\'s GREEN/IMPROVE steps may have added modules GATE1\'s Architecture Amendment Protocol would otherwise BLOCK on — registering them now avoids a wasted GATE1 round.\n'
-      + '6. GATE1 — long-running (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s: can silently block ~2400s worst case). Run it BACKGROUNDED — do NOT invoke it as a plain synchronous command:\n'
+      + '6. GATE1 — long-running (every internal fix round spawns a fixer AND re-dispatches a full GATE1, so the wall time is the budget the cap in step b encodes). Run it BACKGROUNDED — do NOT invoke it as a plain synchronous command:\n'
       + '   GATE1 invocation procedure (a/b/c):\n'
       + '   a. Launch: `nohup bash -c \'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step GATE1 --project ' + REPO + '; echo "RC=$?"\' > /tmp/gate1_' + frId + '.log 2>&1 & echo $!` — note the printed PID.\n'
-      + '   b. Poll: every 30s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 96 polls / ~48min, comfortably above the ~2400s worst case). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
+      + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls; both from phase3_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
       + '   c. Once DONE: `tail -200 /tmp/gate1_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — that integer, verbatim, is what you report. It is NOT the Bash tool\'s rc, and you must not compute, infer or round it: read it off the line.\n'
       + '   Gate 1 per-dimension thresholds are printed in the log itself (dynamic — read from quality_manifest gate_score_overrides, do not assume fixed numbers).\n'
       + '   - PASS → done.\n'
@@ -572,6 +572,12 @@ for (const frId of frIds) {
       + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly "GATE1_VERIFIED_PASS"; reason = the verbatim stdout (do NOT paraphrase, summarize, or prepend commentary).',
       { label: 'gate1-verify-' + frId, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: VERDICT_SCHEMA }
     )
+    // Round 85 站2: a quota cap here returns null, whose empty reason does
+    // not start with GATE1_VERIFIED_PASS — a rate limit read as a Gate 1 FAIL.
+    if (verifyResult === null || verifyResult === undefined || typeof verifyResult !== 'object') {
+      log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+      return { session_limit_blocked: true, phase: 3, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit verifying ' + frId + ' Gate 1. Resume after quota reset — the manifest read is idempotent.' }
+    }
     const verifyOut = String((verifyResult && verifyResult.reason) || '').trim()
     // Round 12 站2a: verdict from the deterministic stdout ONLY — the AND
     // on verifyResult.pass contradicted the comment above (v2.13.3 shipped
@@ -579,6 +585,12 @@ for (const frId of frIds) {
     // hallucinated pass:false veto a PASS manifest, the exact
     // wf_53d055ce-d0b incident this step exists to prevent).
     passed = verifyOut.startsWith('GATE1_VERIFIED_PASS')
+    // rc -1 is the wrapper saying it killed the step, not a verdict — after
+    // the manifest read (see render_fr_step_timeout_exit, Round 85 站2).
+    if (!passed && frRc === -1) {
+      log('  ' + frId + ' — GATE1 killed at the poll cap; no manifest verdict')
+      return { fr_step_timeout: true, halt_step: 'fr-step-timeout', phase: 3, fr_id: frId, gate1Pass, gate1Fail, message: frId + ' GATE1: killed at the poll cap with run-fr-step still running, so no gate verdict was reached — this is NOT a code-quality failure and no fix agent should be sent at it. Re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}); a recurrence means the step is hung past the budget computed from fr_step timeout and max_fix_rounds.' }
+    }
     if (passed) break
     }
     if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }
@@ -603,7 +615,7 @@ for (const frId of frIds) {
   }
 }
 if (gate1Fail.length) {
-  return halt('gate1', { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', gate1Pass, gate1Fail })
+  return halt('gate1', { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', owner: 'project', gate1Pass, gate1Fail })
 }
 
 

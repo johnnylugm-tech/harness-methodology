@@ -156,3 +156,46 @@ def test_an_explicit_coveragerc_source_reaches_the_prompt(tmp_path):
     ctx = _run_load_context(tmp_path, {})
     assert ctx["test_target"] == "03-development/tests"
     assert ctx["cov_target"] == "03-development/src/pkg"
+
+
+# ── Round 85 站2: how long to wait for run-fr-step, said once ───────────────
+
+def test_load_context_reports_the_poll_budget_the_fr_loop_will_need(tmp_project):
+    """The per-FR GATE1 prompts read these instead of naming a cap.
+
+    Same defect one layer over from the two targets above: `b18daa62` shipped
+    "cap 96 polls / ~48min, comfortably above the ~2400s worst case", and
+    2880s does not cover 4800s. The prose it was calibrated against counted
+    the CODE-FIX spawn per fix round and missed the full GATE1 re-dispatch
+    that follows at the same indent (`cli/fr_cmds.py`, the spawn after the
+    `is_s3` else-branch).
+    """
+    from cli.fr_cmds import fr_step_poll_plan
+
+    ctx = _run_load_context(tmp_project, {})
+    cap, interval = fr_step_poll_plan(tmp_project)
+    assert (ctx["fr_step_poll_cap"], ctx["fr_step_poll_interval_s"]) == (cap, interval)
+    # Whatever the interval, the product must cover the default worst case:
+    # _STEP_RETRY_ATTEMPTS(2) x 600 + max_fix_rounds(3) x 2 x 600.
+    assert ctx["fr_step_poll_cap"] * ctx["fr_step_poll_interval_s"] >= 4800
+
+
+def test_a_per_fr_timeout_override_widens_the_cap_for_the_whole_phase(tmp_path):
+    """`fr_config` is per-FR; the cap is per-phase, so it must take the max.
+
+    The override shape is the framework's own documented example
+    (`cli/fr_cmds.py`: `{"fr_config": {"FR-19": {"timeout": 1200,
+    "max_fix_rounds": 5}}}`). A cap computed from the defaults alone would
+    kill exactly the FR that asked for more room — which is the case the
+    literal cap failed at, reproduced one level up.
+    """
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / ".methodology" / "quality_manifest.json").write_text(json.dumps(
+        {"fr_config": {"FR-19": {"timeout": 1200, "max_fix_rounds": 5}}}),
+        encoding="utf-8")
+    ctx = _run_load_context(tmp_path, {})
+    budget = ctx["fr_step_poll_cap"] * ctx["fr_step_poll_interval_s"]
+    assert budget >= 2 * 1200 + 5 * 2 * 1200, (
+        "the poll cap ignores fr_config — a phase-wide number computed from "
+        "the defaults is below the budget an overriding FR declared"
+    )

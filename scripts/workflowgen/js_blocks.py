@@ -747,6 +747,52 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
     )
 
 
+def render_fr_step_timeout_exit(*, phase: int, step: str, indent: str) -> str:
+    """The fourth non-verdict — and the only one the manifest can overrule.
+
+    `FR_STEP_SCHEMA` has described `rc` as "the exact exit code of
+    run-fr-step ... (-1 if it never finished)" since Round 70 站3, and nothing
+    read the -1. The wrapper agent kills its background `run-fr-step` at the
+    poll cap and reports -1 exactly as its prompt asks; `run-fr-step` then
+    never wrote a gate1 entry, `verify_gate1_qc.py` prints
+    GATE1_VERIFIED_FAIL, and a run that reached no verdict was recorded as a
+    code-quality failure — sending a fix agent at code that may be fine, and
+    (with Round 85 站3's producer-side attribution) stamping it `project`.
+
+    Round 85 站1 read that chain as "run-all.js misjudges rc=-1 as FAIL" and
+    raised the cap. `passed` is computed only from the verifier's stdout, so
+    -1 never reaches the PASS/FAIL decision at all; the chain runs through the
+    manifest, and a bigger cap makes a truncated run rarer without making a
+    truncated run mean anything different.
+
+    Placed AFTER the manifest read rather than beside its three siblings in
+    `render_terminal_abort_detectors`: the kill can land microseconds after
+    `run-fr-step` wrote `quality_complete=True`, and in that case the FR
+    really did pass. The manifest stays the authority — -1 only decides what a
+    NON-pass means.
+
+    `frId` deliberately does not join `gate1Fail` here. The three siblings add
+    it because they describe a run that produced a verdict this workflow
+    cannot act on; this one produced no verdict to record.
+    """
+    i = indent
+    return (
+        f"{i}// rc -1 is the wrapper saying it killed the step, not a verdict — after\n"
+        f"{i}// the manifest read (see render_fr_step_timeout_exit, Round 85 站2).\n"
+        f"{i}if (!passed && frRc === -1) {{\n"
+        f"{i}  log('  ' + frId + ' — {step} killed at the poll cap; no manifest verdict')\n"
+        f"{i}  return {{ fr_step_timeout: true, halt_step: 'fr-step-timeout', "
+        f"phase: {phase}, fr_id: frId, gate1Pass, gate1Fail, message: frId + "
+        f"' {step}: killed at the poll cap with run-fr-step still running, so no gate "
+        f"verdict was reached — this is NOT a code-quality failure and no fix agent "
+        f"should be sent at it. Re-run with a NEW run_tag: "
+        f"Workflow({{scriptPath, args: {{repo, run_tag}}}}); a recurrence means the "
+        f"step is hung past the budget computed from fr_step timeout and "
+        f"max_fix_rounds.' }}\n"
+        f"{i}}}\n"
+    )
+
+
 def render_per_fr_delta(
     *,
     phase: int,
@@ -829,9 +875,9 @@ def render_per_fr_delta(
         + "  + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\nFRs: ' + JSON.stringify(frIds) + '\\n\\n'\n"
         + f"  + 'Direction C (past lessons): BEFORE classifying, Bash `cat ' + REPO + '/.sessi-work/phase{phase}_ctx.json` and READ the `lessons` field (compact markdown, \"\" if none). DO NOT repeat those past failure modes in your pass/fail classification or any follow-up P{phase} work.\\n\\n'\n"
         + "  + 'For EACH FR in order, substituting <FR> with the FR id:\\n'\n"
-        + "  + '1. GATE1-DELTA is long-running for any FR whose code actually changed (harness runs up to 3 internal CODE-FIX rounds, each up to ~600s — can silently block ~2400s worst case even though this step is a \"probe\"). Run it BACKGROUNDED, ONE FR AT A TIME — they share one project tree and one lock, so N at once is slower than N in sequence:\\n'\n"
+        + "  + '1. GATE1-DELTA is long-running for any FR whose code actually changed (every internal fix round spawns a fixer AND re-dispatches a full GATE1, so even this \"probe\" runs for the budget the cap in step b encodes). Run it BACKGROUNDED, ONE FR AT A TIME — they share one project tree and one lock, so N at once is slower than N in sequence:\\n'\n"
         + f"  + '   a. `nohup ' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase {phase} --fr-id <FR> --step GATE1-DELTA --project ' + REPO + ' > /tmp/gate1delta_<FR>.log 2>&1 & echo $!` — note the PID.\\n'\n"
-        + "  + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, then 30 for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 42 polls (5+10 + 40x30 ≈ 20min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), classify <FR> as fail_fr_ids and move on (the full loop retries it).\\n'\n"
+        + "  + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls; both from the ctx JSON read for Direction C (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), classify <FR> as fail_fr_ids and move on (the full loop retries it).\\n'\n"
         + "  + '      (Round 22 站4: the first interval used to be a flat 30s. An unchanged FR hits the in-CLI short-circuit almost instantly, and this probe walks the FRs one at a time, so a fixed first sleep cost 30s x N — ten minutes on a 20-FR project spent waiting on commands that had already returned.)\\n'\n"
         + "  + '   c. DONE → proceed to step 2 (the log itself is not needed — the authoritative verdict is the manifest read below).\\n'\n"
         + f"  + '2. Authoritative verdict (manifest qc AND a phase-{phase} gate-1 timestamp for <FR>): `' + PY + ' -c \"import json; g=(json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')).get(\\'gate_results\\',{{}}) or {{}}).get(\\'gate1\\',{{}}).get(\\'<FR>\\',{{}}) or {{}}; ts=any(e.get(\\'phase\\')=={phase} and e.get(\\'gate\\')==1 and e.get(\\'fr_id\\')==\\'<FR>\\' for e in (json.loads(l) for l in open(\\'' + REPO + '/.methodology/gate_timestamps.jsonl\\') if l.strip())); print(bool(g.get(\\'quality_complete\\')) and ts)\"`\\n'\n"
@@ -856,9 +902,9 @@ def render_per_fr_delta(
         + role_line
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
-        + "    + '1. GATE1-DELTA — long-running when code changed (harness runs up to 3 internal CODE-FIX rounds plus, on FAIL, a full TDD-RED→GREEN→IMPROVE→GATE1 chain — can silently block well past 180s). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\\n'\n"
+        + "    + '1. GATE1-DELTA — long-running when code changed (every internal fix round spawns a fixer AND re-dispatches a full GATE1, so the wall time is the budget the cap in step b encodes). Run it BACKGROUNDED, do NOT invoke it as a plain synchronous command:\\n'\n"
         + f"    + '   a. `nohup bash -c \\'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase {phase} --fr-id ' + frId + ' --step GATE1-DELTA --project ' + REPO + '; echo \"RC=$?\"\\' > /tmp/gate1delta_' + frId + '.log 2>&1 & echo $!` — note the PID.\\n'\n"
-        + "    + '   b. Poll every 30s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap 60 polls (~30min — this path can chain a full TDD cycle on top of GATE1-DELTA\\'s own retries). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
+        + f"    + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase{phase}_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
         + "    + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\\'s own exit code — report that integer verbatim. It is NOT the Bash tool\\'s rc; do not compute or infer it.\\n'\n"
         + "    + '   - RC=0 → done.\\n'\n"
         + "    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\\n'\n"
@@ -898,14 +944,26 @@ def render_per_fr_delta(
         + "    + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly \"GATE1_VERIFIED_PASS\"; reason = the verbatim stdout (do NOT paraphrase, summarize, or prepend commentary).',\n"
         + "    { label: 'gate1-verify-' + frId, phase: 'Per-FR Delta', agentType: 'general-purpose', schema: VERDICT_SCHEMA },\n"
         + "  )\n"
+        + "  // Round 85 站2: a quota cap here returns null, whose empty reason does\n"
+        + "  // not start with GATE1_VERIFIED_PASS — a rate limit read as a Gate 1 FAIL.\n"
+        + render_session_block_guard(
+            'verdict', '', phase,
+            step_js='frId',
+            extra_fields='fr_id: frId, gate1Pass',
+            message="Agent hit session/rate limit verifying ' + frId + ' Gate 1. "
+                    "Resume after quota reset — the manifest read is idempotent.",
+            indent='  ',
+            payload='object',
+        )
         + "  const passed = String((verdict && verdict.reason) || '').trim().startsWith('GATE1_VERIFIED_PASS')\n"
+        + render_fr_step_timeout_exit(phase=phase, step="GATE1-DELTA", indent="  ")
         + "  if (passed) {\n"
         + "    gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS [harness-verified]')\n"
         + "  } else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
         + mid_milestone_step
         + "}\n"
         + "if (gate1Fail.length) {\n"
-        + f"  return halt('gate1', {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', gate1Pass, gate1Fail }})\n"
+        + f"  return halt('gate1', {{ error: 'Phase {phase}: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate)', owner: 'project', gate1Pass, gate1Fail }})\n"
         + "}\n"
         + _orch_post()
     )

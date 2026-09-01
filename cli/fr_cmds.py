@@ -1131,7 +1131,54 @@ def cmd_reload_policy(args: argparse.Namespace) -> int:
 # attempts, i.e. 1 retry.
 _STEP_RETRY_ATTEMPTS = 2
 
+#: Seconds between polls once the wrapper agent's backoff prefix is spent.
+#: Fixed here rather than in the prompt so `fr_step_poll_plan` is the only
+#: place the two halves of the wait (how long, how often) are stated.
+_FR_STEP_POLL_INTERVAL_S = 120
 
+
+def fr_step_poll_plan(project: "str | Path") -> "tuple[int, int]":
+    """How long a wrapper agent must be willing to wait for one `run-fr-step`.
+
+    Returns `(poll_cap, interval_seconds)` for the background-poll prompts in
+    `scripts/workflowgen`, carried to them by `load-context` through
+    `phase{N}_ctx.json`. Round 85 站2: those prompts used to name a literal —
+    "cap 40 polls / ~20min", then "cap 96 polls / ~48min" — and both were
+    below the worst case this framework itself produces, because the number
+    was copied from a comment that counted half the dispatches.
+
+    The budget is read off the loop's shape rather than restated:
+
+        _STEP_RETRY_ATTEMPTS x t   the initial dispatch, retried once on a
+                                   dispatch-error status
+      + rounds x 2 x t             each fix round spawns the fixer AND
+                                   re-dispatches a full GATE1 — that second
+                                   spawn sits outside the `is_s3` branch, so
+                                   it runs every round, not only on S3
+
+    `t` and `rounds` follow the same precedence `cmd_run_fr_step` reads them
+    with: per-FR `fr_config` > `values` > built-in. One cap covers a whole
+    phase while `fr_config` is per-FR, so the budget is the MAX across every
+    FR the manifest configures — computing it from the defaults alone would
+    kill exactly the long FR that asked for more room.
+    """
+    fr_config = load_quality_manifest(project, lenient=True).get("fr_config") or {}
+    default_timeout = get_timeout("fr_step", project)
+    default_rounds = get_value(project, "max_fix_rounds")
+
+    budget = 0
+    for conf in [*(c for c in fr_config.values() if isinstance(c, dict)), {}]:
+        timeout = conf.get("timeout", default_timeout)
+        rounds = conf.get("max_fix_rounds", default_rounds)
+        # A hand-edited fr_config entry can hold anything. Skipping a
+        # malformed one keeps `load-context` (which every phase runs) from
+        # dying over another FR's typo; the defaults row below still applies.
+        if not isinstance(timeout, int) or not isinstance(rounds, int):
+            continue
+        budget = max(budget, _STEP_RETRY_ATTEMPTS * timeout + rounds * 2 * timeout)
+
+    interval = _FR_STEP_POLL_INTERVAL_S
+    return (budget + interval - 1) // interval, interval
 
 
 def _classify_infra_or_harness_bug(out: str) -> "tuple[str, str] | None":

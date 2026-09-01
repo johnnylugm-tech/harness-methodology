@@ -757,6 +757,16 @@ def cmd_load_context(args: argparse.Namespace) -> int:
 
     test_target, cov_target = resolve_targets(project)
 
+    # Round 85 站2: how long a wrapper agent must wait for one `run-fr-step`,
+    # from the loop that actually runs it. Same reason as the two targets
+    # above — the per-FR GATE1 / GATE1-DELTA prompts used to name the cap
+    # themselves, and the literal they named was below the worst case this
+    # framework produces under its own default config, let alone under the
+    # per-FR `fr_config` overrides the CLI documents.
+    from cli.fr_cmds import fr_step_poll_plan
+
+    fr_step_poll_cap, fr_step_poll_interval_s = fr_step_poll_plan(project)
+
     result = {
         "phase": phase,
         "project_name": project.name,
@@ -768,6 +778,8 @@ def cmd_load_context(args: argparse.Namespace) -> int:
         "fr_id_source": fr_id_source or "none",
         "test_target": test_target,
         "cov_target": cov_target,
+        "fr_step_poll_cap": fr_step_poll_cap,
+        "fr_step_poll_interval_s": fr_step_poll_interval_s,
     }
 
     # Direction C: auto-inject relevant past-failure lessons at phase entry.
