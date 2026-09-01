@@ -1592,6 +1592,25 @@ def render_make_doc_summary() -> str:
     )
 
 
+def render_doc_block() -> str:
+    """A DOC label that says which of the two things it is (Round 86 站3).
+
+    The labels read "(full content — this IS the deliverable under review)".
+    Above the relay ceiling that is no longer true, and a reviewer told it is
+    reading the whole file has no reason to go and read the rest.
+    """
+    return (
+        "// ---- docBlock: a DOC says whether it is the file or its index ----\n"
+        "function docBlock(label, loaded) {\n"
+        "  // The index payload already carries the path and the sed -n form;\n"
+        "  // the label only has to stop it being read as the whole file.\n"
+        "  return isFileIndex(loaded)\n"
+        "    ? [label + ' — INDEX ONLY, not the file; read ranges as it instructs', loaded]\n"
+        "    : [label, loaded]\n"
+        "}\n"
+    )
+
+
 def render_scope_rules() -> str:
     """phase1-only text-builder (phase2 inlines its SCOPE RULES text
     per-prompt instead) — only injected into phase1's generated file."""

@@ -4206,3 +4206,19 @@
 - test: tests/test_workflow_sim.py::test_sim_testbed_passes
   bug: "Round 86 站2 — the far side of the relay checked `length >= 50` and a first-line anchor, and a truncated prefix passes both, so a 65%-truncated deliverable was indistinguishable from a complete one. Four sim_runner.test.mjs round86 fixtures pin the receipt (a truncation loses the END marker; a frame claiming whole content for an over-ceiling file is a contradiction, not a read; an index still satisfies the anchor through its FIRST-LINE field; an index reaches Agent B as itself instead of being summarised into `headings: []`), and the pass floor here is what keeps them from being deleted. The second fixture first passed for the wrong reason — a four-word payload was being caught by phase1's own `length < 200` guard — and was rewritten past 200 chars so only the check under test can reject it"
   fixed_in: "Round 86 站2"
+
+- test: tests/test_canonical_diff.py::TestFrCoverage::test_a_requirement_the_srs_never_transcribed_is_named
+  bug: "the report scored what Agent A WROTE against the canonical text (`per_ac`, the invention axis) and said nothing about which canonical requirements never arrived. Agent B's first checklist question is exactly that — 'did A transcribe ALL features from the canonical spec' — and for a spec too large to relay whole it can no longer be answered by reading the DOC"
+  fixed_in: "Round 86 站3"
+
+- test: tests/test_canonical_diff.py::TestFrCoverage::test_coverage_precedes_per_ac_so_a_head_excerpt_still_carries_it
+  bug: "srs_vs_spec_diff.json is itself relayed, and taskq-new's is 27,762 bytes at 124 ACs — over the ceiling, so only its head crosses. `per_ac` is the part that grows without bound, so a coverage table written after it would be the first thing lost"
+  fixed_in: "Round 86 站3"
+
+- test: tests/test_canonical_diff.py::TestFrCoverage::test_the_fr_id_set_has_one_definition
+  bug: "canonical_diff reuses check_spec_alignment's structural_fr_ids (promoted from private in the same commit) rather than writing a second FR regex. A second regex is how one document comes to have two answers to 'which requirements are in it' — cli/project_cmds.py already holds a third, narrower reading, which Round 84 listed as deliberately not folded in"
+  fixed_in: "Round 86 站3"
+
+- test: tests/test_canonical_diff.py::TestFrCoverage::test_elicitation_mode_reports_no_coverage_rather_than_a_false_empty
+  bug: "with no canonical spec the coverage question has no answer, not the answer 'nothing is missing'. An empty in_spec_only computed from an absent spec is the absent-witness shape Round 46 is named after"
+  fixed_in: "Round 86 站3"

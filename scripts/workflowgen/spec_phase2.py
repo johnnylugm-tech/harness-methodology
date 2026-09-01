@@ -164,7 +164,7 @@ def _render_phase2_subtask1_sad() -> str:
         + "    + (round > 1 && prevB2 ? '\\n\\n=== [DOC: Previous B-2 review JSON — SAD.md] ===\\n' + JSON.stringify(prevB2, null, 2) : ''),\n"
         + "  buildBDocs: (content) => [\n"
         + "    ['DOC 1: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],\n"
-        + "    ['DOC 2: draft 02-architecture/SAD.md (full content — this IS the deliverable under review)', content],\n"
+        + "    docBlock('DOC 2: draft 02-architecture/SAD.md (full content — this IS the deliverable under review)', content),\n"
         + "    ['DOC 3: harness/templates/SAD.md §2.1 — Directory Structure Design Principles (heading summary)', makeDocSummary(sadTemplateContent)],\n"
         + "  ],\n"
         + "  checklist:\n"
@@ -201,7 +201,7 @@ def _render_phase2_subtask2_adr() -> str:
         + "    ['DOC 1: Previous Sub-Task B-2 review JSON — SAD.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(sadB2), null, 2)],\n"
         + "    ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],\n"
         + "    ['DOC 3: 02-architecture/SAD.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(sadContent, { includeFirstLines: true })],\n"
-        + "    ['DOC 4: draft 02-architecture/adr/ADR.md (full content — this IS the deliverable under review)', content],\n"
+        + "    docBlock('DOC 4: draft 02-architecture/adr/ADR.md (full content — this IS the deliverable under review)', content),\n"
         + "    ['DOC 5: harness/templates/ADR.md (template format — heading summary)', makeDocSummary(adrTemplateContent)],\n"
         + "  ],\n"
         + "  checklist:\n"
@@ -302,7 +302,7 @@ def _render_phase2_subtask3_test_spec() -> str:
         + "    ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],\n"
         + "    ['DOC 3: 02-architecture/SAD.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(sadContent, { includeFirstLines: true })],\n"
         + "    ['DOC 4: 02-architecture/adr/ADR.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(adrContent)],\n"
-        + "    ['DOC 5: draft 02-architecture/TEST_SPEC.md (full content — this IS the deliverable under review)', content],\n"
+        + "    docBlock('DOC 5: draft 02-architecture/TEST_SPEC.md (full content — this IS the deliverable under review)', content),\n"
         + "  ],\n"
         + "  checklist:\n"
         + "    '- Upstream ADR review caveats addressed?\\n- Every FR has ≥1 named test case (happy_path + validation mandatory)?\\n'\n"
@@ -583,6 +583,7 @@ def generate_phase2() -> str:
         ),
         B.render_safe_prev_b2(),
         B.render_make_doc_summary(),
+        B.render_doc_block(),
         B.render_structured_b_review(default_phase_num=2),
         B.render_generic_ab_loop(b_role="TECH_LEAD", phase_num=2),
         B.render_schemas(["VERDICT_SCHEMA"]),

@@ -1375,3 +1375,32 @@ for (const name of [...PHASE_FILES, 'run-all.js', 'harness-repair.js']) {
       + 'them has')
   })
 }
+
+// ---- Round 86 站3: the DOC says which of the two things it is -------------
+
+test('round86: Agent A is handed the canonical spec it is told to transcribe', async () => {
+  // srsAPrompt step 2 has said "It is DOC 1 below, already loaded for you"
+  // since f662bf99, and there was no DOC 1 in A's prompt — canonicalSpecContent
+  // reached Agent B's srsBDocs and nothing else. The agent asked to transcribe
+  // 100% of the canonical spec was the one never shown it.
+  const { events } = await runWorkflow(
+    WF('phase1-requirements.js'), makeHappyResponder(happyOverrides()))
+  const a = events.agents.filter((x) => /^a-srs-r1$/.test(x.label))
+  assert.equal(a.length, 1, 'expected exactly one first-round SRS authoring dispatch')
+  assert.ok(a[0].prompt.includes('DOC 1: canonical spec (SPEC.md)'),
+    'Agent A must carry the canonical spec its own step 2 promises it')
+})
+
+test('round86: a DOC that is an index says so in its label', async () => {
+  const overrides = [
+    { match: /^loadpy-SPEC-md/, respond: () => relayIndex('/p/SPEC.md', '# OmniBot spec') },
+    ...happyOverrides(),
+  ]
+  const { events } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(overrides))
+  const carriers = events.agents.filter((x) => x.prompt.includes('DOC 1: canonical spec (SPEC.md)'))
+  assert.ok(carriers.length >= 2, 'both Agent A and Agent B carry DOC 1')
+  for (const c of carriers) {
+    assert.ok(c.prompt.includes('INDEX ONLY, not the file'),
+      `${c.label} presents an index under a label that claims it is the whole file`)
+  }
+})

@@ -509,7 +509,7 @@ def _render_phase1_subtask1_srs() -> str:
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SRS.md && echo EXISTS || echo MISSING`.\\n'\n"
         "    + '   - If EXISTS: Read it (current state). Continue to step 4.\\n'\n"
         "    + '   - If MISSING: Continue to step 2 (first-time authoring).\\n'\n"
-        "    + '2. The canonical spec is ' + REPO + '/SPEC.md — the project-root file, always, with no declaration to resolve and no other candidate. It is DOC 1 below, already loaded for you.\\n'\n"
+        "    + '2. The canonical spec is ' + REPO + '/SPEC.md — the project-root file, always, with no declaration to resolve and no other candidate. It is DOC 1 below: the file itself, or its heading index when too large to relay — an index names the line range of every section and how to read them.\\n'\n"
         "    + '3. Author SRS.md (only if MISSING in step 1):\\n'\n"
         "    + '   - **ANTI-OVER-SPEC FRAMEWORK EVIDENCE (Bug D fix)**: BEFORE writing, run\\n'\n"
         "    + '     `python3 ' + REPO + '/harness/scripts/canonical_diff.py --srs ' + REPO + '/01-requirements/SRS.md --spec ' + REPO + '/SPEC.md --out ' + REPO + '/srs_vs_spec_diff.json`\\n'\n"
@@ -533,6 +533,12 @@ def _render_phase1_subtask1_srs() -> str:
         "    + '7. Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\\n'\n"
         "    + '{\"status\":\"OK\",\"confidence\":\"high|medium|low\",\"citations\":[\"...\"],\"summary\":\"<1-2 lines>\"}'\n"
         "    + scopeRules('01-requirements/SRS.md', null)\n"
+        # Round 86 站3: step 2 has said "It is DOC 1 below, already loaded for
+        # you" since f662bf99 and there was no DOC 1 — canonicalSpecContent
+        # reached Agent B's srsBDocs and nothing else. The agent asked to
+        # transcribe 100% of the canonical spec was the one never shown it.
+        "  const specDoc = docBlock('DOC 1: canonical spec (SPEC.md) — the ground truth to transcribe 100%', canonicalSpecContent)\n"
+        "  p += '\\n\\n=== [' + specDoc[0] + '] ===\\n' + specDoc[1]\n"
         "  if (round > 1 && prevB2) {\n"
         "    p += '\\n\\n=== [DOC: Previous B-2 review JSON — SRS.md] ===\\n' + JSON.stringify(prevB2, null, 2)\n"
         "  }\n"
@@ -561,8 +567,8 @@ def _render_phase1_subtask1_srs() -> str:
         "    ? 'srs_vs_spec_diff.json unavailable — treat all ACs as potential over-spec per the Canonical Interpretation Rule.'\n"
         "    : diffRaw\n"
         "  return [\n"
-        "    ['DOC 1: canonical spec (SPEC.md) — the ground truth Agent A must transcribe 100%', canonicalSpecContent],\n"
-        "    ['DOC 2: draft 01-requirements/SRS.md (full content)', content],\n"
+        "    docBlock('DOC 1: canonical spec (SPEC.md) — the ground truth Agent A must transcribe 100%', canonicalSpecContent),\n"
+        "    docBlock('DOC 2: draft 01-requirements/SRS.md (full content)', content),\n"
         "    ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 verbatim canonical .. 1.0 pure invention); gaps with over_spec_score > 0.7 are framework-flagged', diffDoc],\n"
         "  ]\n"
         "}\n"
@@ -637,7 +643,7 @@ def _render_phase1_subtask2_spec_tracking() -> str:
         "  return [\n"
         "    ['DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)', JSON.stringify(safePrevB2(srsB2), null, 2)],\n"
         "    ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],\n"
-        "    ['DOC 3: draft 01-requirements/SPEC_TRACKING.md (full content — this IS the deliverable under review)', content],\n"
+        "    docBlock('DOC 3: draft 01-requirements/SPEC_TRACKING.md (full content — this IS the deliverable under review)', content),\n"
         "  ]\n"
         "}\n"
         "\n"
@@ -706,7 +712,7 @@ def _render_phase1_subtask3_traceability() -> str:
         "    ['DOC 2: Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(specTrackB2), null, 2)],\n"
         "    ['DOC 3: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],\n"
         "    ['DOC 4: 01-requirements/SPEC_TRACKING.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(specTrackContent)],\n"
-        "    ['DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content — this IS the deliverable under review)', content],\n"
+        "    docBlock('DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content — this IS the deliverable under review)', content),\n"
         "  ]\n"
         "}\n"
         "\n"
@@ -783,7 +789,7 @@ def _render_phase1_subtask4_test_inventory() -> str:
         "    ['DOC 1: Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(traceB2), null, 2)],\n"
         "    ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],\n"
         "    ['DOC 3: 01-requirements/TRACEABILITY_MATRIX.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(traceContent, { includeFirstLines: true })],\n"
-        "    ['DOC 4: draft TEST_INVENTORY.yaml (full content — this IS the deliverable under review)', content],\n"
+        "    docBlock('DOC 4: draft TEST_INVENTORY.yaml (full content — this IS the deliverable under review)', content),\n"
         "  ]\n"
         "}\n"
         "\n"
@@ -981,6 +987,7 @@ def generate_phase1() -> str:
         ),
         B.render_safe_prev_b2(),
         B.render_make_doc_summary(),
+        B.render_doc_block(),
         B.render_scope_rules(),
         B.render_structured_b_review(default_phase_num=1),
         _render_phase1_run_sub_task(),

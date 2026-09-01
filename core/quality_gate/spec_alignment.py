@@ -48,7 +48,7 @@ from core.quality_gate import Violation
 from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["check_spec_alignment"]
+__all__ = ["check_spec_alignment", "structural_fr_ids"]
 
 # Structural FR-ID forms — never a bare prose mention:
 #   heading   `### FR-01: ...`          (canonical SPEC.md / SRS flat layout)
@@ -96,7 +96,16 @@ def _fid(num: str) -> str:
     return f"FR-{int(num):02d}"
 
 
-def _structural_fr_ids(text: str) -> set[str]:
+def structural_fr_ids(text: str) -> set[str]:
+    """The FR IDs a document structurally declares — headings, table rows, JSON.
+
+    Public since Round 86 站3: `scripts/canonical_diff.py` reports the same
+    SPEC-vs-SRS difference to Agent B, and writing a second FR regex there is
+    how a document comes to have two answers to "which requirements are in
+    it". `cli/project_cmds.py`'s narrower `^###\\s+FR-(\\d+)\\s*:` is NOT folded
+    in — that would widen the Phase 1 FR-id fallback, which Round 84 已列為
+    明列不做.
+    """
     ids: set[str] = set()
     for pat in (_FR_HEADING, _FR_TABLE, _FR_JSON):
         ids.update(_fid(m) for m in pat.findall(text))
@@ -136,7 +145,7 @@ def check_spec_alignment(project: Path) -> list[Violation]:
                      f"missing at {canonical_path} — the SRS's requirements have "
                      f"no source to be checked against"))]
 
-    canonical_frs = _structural_fr_ids(
+    canonical_frs = structural_fr_ids(
         canonical_path.read_text(encoding="utf-8", errors="replace"))
     if not canonical_frs:
         return [Violation(
@@ -152,7 +161,7 @@ def check_spec_alignment(project: Path) -> list[Violation]:
                      f"SRS.md is missing at {srs_path} — ingestion incomplete"))]
 
     srs_text = srs_path.read_text(encoding="utf-8", errors="replace")
-    srs_frs = _structural_fr_ids(srs_text)
+    srs_frs = structural_fr_ids(srs_text)
     srs_deferred = _deferred_fr_ids(srs_text)
 
     violations: list[Violation] = []

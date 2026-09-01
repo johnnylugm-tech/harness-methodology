@@ -542,6 +542,12 @@ function makeDocSummary(content, opts) {
   return JSON.stringify(summary, null, 2)
 }
 
+function docBlock(label, loaded) {
+  return isFileIndex(loaded)
+    ? [label + ' — INDEX ONLY, not the file; read ranges as it instructs', loaded]
+    : [label, loaded]
+}
+
 function scopeRules(singleDeliverable, prevDeliverables) {
   let p = '\n\nSCOPE RULES (you MUST obey):\n'
   p += '- DO NOT write any deliverable OTHER than ' + singleDeliverable + '.\n'
@@ -941,7 +947,7 @@ function srsAPrompt(round, prevB2) {
     + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SRS.md && echo EXISTS || echo MISSING`.\n'
     + '   - If EXISTS: Read it (current state). Continue to step 4.\n'
     + '   - If MISSING: Continue to step 2 (first-time authoring).\n'
-    + '2. The canonical spec is ' + REPO + '/SPEC.md — the project-root file, always, with no declaration to resolve and no other candidate. It is DOC 1 below, already loaded for you.\n'
+    + '2. The canonical spec is ' + REPO + '/SPEC.md — the project-root file, always, with no declaration to resolve and no other candidate. It is DOC 1 below: the file itself, or its heading index when too large to relay — an index names the line range of every section and how to read them.\n'
     + '3. Author SRS.md (only if MISSING in step 1):\n'
     + '   - **ANTI-OVER-SPEC FRAMEWORK EVIDENCE (Bug D fix)**: BEFORE writing, run\n'
     + '     `python3 ' + REPO + '/harness/scripts/canonical_diff.py --srs ' + REPO + '/01-requirements/SRS.md --spec ' + REPO + '/SPEC.md --out ' + REPO + '/srs_vs_spec_diff.json`\n'
@@ -965,6 +971,8 @@ function srsAPrompt(round, prevB2) {
     + '7. Return ONLY this compact JSON — do NOT embed file content (content is read from disk separately):\n'
     + '{"status":"OK","confidence":"high|medium|low","citations":["..."],"summary":"<1-2 lines>"}'
     + scopeRules('01-requirements/SRS.md', null)
+  const specDoc = docBlock('DOC 1: canonical spec (SPEC.md) — the ground truth to transcribe 100%', canonicalSpecContent)
+  p += '\n\n=== [' + specDoc[0] + '] ===\n' + specDoc[1]
   if (round > 1 && prevB2) {
     p += '\n\n=== [DOC: Previous B-2 review JSON — SRS.md] ===\n' + JSON.stringify(prevB2, null, 2)
   }
@@ -977,8 +985,8 @@ async function srsBDocs(round, content, prevB2) {
     ? 'srs_vs_spec_diff.json unavailable — treat all ACs as potential over-spec per the Canonical Interpretation Rule.'
     : diffRaw
   return [
-    ['DOC 1: canonical spec (SPEC.md) — the ground truth Agent A must transcribe 100%', canonicalSpecContent],
-    ['DOC 2: draft 01-requirements/SRS.md (full content)', content],
+    docBlock('DOC 1: canonical spec (SPEC.md) — the ground truth Agent A must transcribe 100%', canonicalSpecContent),
+    docBlock('DOC 2: draft 01-requirements/SRS.md (full content)', content),
     ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 verbatim canonical .. 1.0 pure invention); gaps with over_spec_score > 0.7 are framework-flagged', diffDoc],
   ]
 }
@@ -1045,7 +1053,7 @@ function specTrackBDocs(round, content, prevB2) {
   return [
     ['DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)', JSON.stringify(safePrevB2(srsB2), null, 2)],
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
-    ['DOC 3: draft 01-requirements/SPEC_TRACKING.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 3: draft 01-requirements/SPEC_TRACKING.md (full content — this IS the deliverable under review)', content),
   ]
 }
 
@@ -1107,7 +1115,7 @@ function traceBDocs(round, content, prevB2) {
     ['DOC 2: Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(specTrackB2), null, 2)],
     ['DOC 3: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     ['DOC 4: 01-requirements/SPEC_TRACKING.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(specTrackContent)],
-    ['DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content — this IS the deliverable under review)', content),
   ]
 }
 
@@ -1177,7 +1185,7 @@ function testInvBDocs(round, content, prevB2) {
     ['DOC 1: Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(traceB2), null, 2)],
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     ['DOC 3: 01-requirements/TRACEABILITY_MATRIX.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(traceContent, { includeFirstLines: true })],
-    ['DOC 4: draft TEST_INVENTORY.yaml (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 4: draft TEST_INVENTORY.yaml (full content — this IS the deliverable under review)', content),
   ]
 }
 
@@ -1454,6 +1462,12 @@ function makeDocSummary(content, opts) {
     summary.first_3_lines = lines.slice(0, 3).map(l => l.slice(0, 120))
   }
   return JSON.stringify(summary, null, 2)
+}
+
+function docBlock(label, loaded) {
+  return isFileIndex(loaded)
+    ? [label + ' — INDEX ONLY, not the file; read ranges as it instructs', loaded]
+    : [label, loaded]
 }
 
 async function structuredBReview(bRawText, round, maxRounds, delivPath, phaseNum) {
@@ -1810,7 +1824,7 @@ const sad = await abLoop({
     + (round > 1 && prevB2 ? '\n\n=== [DOC: Previous B-2 review JSON — SAD.md] ===\n' + JSON.stringify(prevB2, null, 2) : ''),
   buildBDocs: (content) => [
     ['DOC 1: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
-    ['DOC 2: draft 02-architecture/SAD.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 2: draft 02-architecture/SAD.md (full content — this IS the deliverable under review)', content),
     ['DOC 3: harness/templates/SAD.md §2.1 — Directory Structure Design Principles (heading summary)', makeDocSummary(sadTemplateContent)],
   ],
   checklist:
@@ -1845,7 +1859,7 @@ const adr = await abLoop({
     ['DOC 1: Previous Sub-Task B-2 review JSON — SAD.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(sadB2), null, 2)],
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     ['DOC 3: 02-architecture/SAD.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(sadContent, { includeFirstLines: true })],
-    ['DOC 4: draft 02-architecture/adr/ADR.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 4: draft 02-architecture/adr/ADR.md (full content — this IS the deliverable under review)', content),
     ['DOC 5: harness/templates/ADR.md (template format — heading summary)', makeDocSummary(adrTemplateContent)],
   ],
   checklist:
@@ -1934,7 +1948,7 @@ const testSpec = await abLoop({
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     ['DOC 3: 02-architecture/SAD.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(sadContent, { includeFirstLines: true })],
     ['DOC 4: 02-architecture/adr/ADR.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(adrContent)],
-    ['DOC 5: draft 02-architecture/TEST_SPEC.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 5: draft 02-architecture/TEST_SPEC.md (full content — this IS the deliverable under review)', content),
   ],
   checklist:
     '- Upstream ADR review caveats addressed?\n- Every FR has ≥1 named test case (happy_path + validation mandatory)?\n'

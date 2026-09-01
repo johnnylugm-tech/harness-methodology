@@ -337,3 +337,69 @@ class TestHR12Regression:
               "qualify; user-initiated cancels MUST NOT trigger retry.")
         s = compute_over_spec_score(ac, canonical, derived_present=False)
         assert s["over_spec_score"] > 0.3
+
+
+class TestFrCoverage:
+    """Round 86 站3 — the omission axis, beside the invention axis.
+
+    `per_ac` scores what Agent A wrote against the canonical text; nothing in
+    this report said which canonical requirements never arrived. Agent B's
+    first checklist question is exactly that ("did A transcribe ALL features
+    from the canonical spec"), and for a spec too large to relay whole it can
+    no longer be answered by reading the DOC.
+    """
+
+    def _pair(self, tmp_path, spec_frs, srs_frs):
+        spec = tmp_path / "SPEC.md"
+        spec.write_text(
+            "# Spec\n\n" + "".join(f"### {f}: thing\n\nbody\n\n" for f in spec_frs),
+            encoding="utf-8")
+        srs = tmp_path / "SRS.md"
+        srs.write_text(
+            "# Software Requirements Specification\n\n"
+            + "".join(f"### {f}: thing\n\n**Acceptance criteria**\n"
+                      f"- AC-1.1 body\n\n" for f in srs_frs),
+            encoding="utf-8")
+        return srs, spec
+
+    def test_a_requirement_the_srs_never_transcribed_is_named(self, tmp_path):
+        srs, spec = self._pair(tmp_path, ["FR-01", "FR-02", "FR-03"], ["FR-01", "FR-03"])
+        cov = build_diff_report(srs, spec)["fr_coverage"]
+        assert cov["in_spec_only"] == ["FR-02"]
+        assert cov["in_both"] == ["FR-01", "FR-03"]
+        assert cov["in_srs_only"] == []
+
+    def test_a_requirement_the_srs_invented_is_named_too(self, tmp_path):
+        srs, spec = self._pair(tmp_path, ["FR-01"], ["FR-01", "FR-09"])
+        assert build_diff_report(srs, spec)["fr_coverage"]["in_srs_only"] == ["FR-09"]
+
+    def test_coverage_precedes_per_ac_so_a_head_excerpt_still_carries_it(self, tmp_path):
+        """This report is itself relayed, and above the ceiling only its head is.
+
+        taskq-new's srs_vs_spec_diff.json is 27,762 bytes at 124 ACs — over the
+        24,576-byte relay ceiling — and `per_ac` is the part that grows without
+        bound. A coverage table written after it would be the first thing lost.
+        """
+        srs, spec = self._pair(tmp_path, ["FR-01"], ["FR-01"])
+        keys = list(build_diff_report(srs, spec))
+        assert keys.index("fr_coverage") < keys.index("per_ac")
+
+    def test_elicitation_mode_reports_no_coverage_rather_than_a_false_empty(
+        self, srs_verbatim_ac,
+    ):
+        # No canonical spec means the question has no answer, not the answer
+        # "nothing is missing" — a distinction Round 46 is named after.
+        assert build_diff_report(srs_verbatim_ac, None)["fr_coverage"] == {}
+
+    def test_the_fr_id_set_has_one_definition(self, tmp_path):
+        """Reused from check_spec_alignment rather than re-derived here.
+
+        A second FR regex is how one document comes to have two answers to
+        "which requirements are in it" — the shape this repo keeps finding.
+        """
+        from core.quality_gate.spec_alignment import structural_fr_ids
+
+        srs, spec = self._pair(tmp_path, ["FR-01", "FR-02"], ["FR-01"])
+        cov = build_diff_report(srs, spec)["fr_coverage"]
+        spec_ids = structural_fr_ids(spec.read_text(encoding="utf-8"))
+        assert sorted(spec_ids) == sorted(cov["in_both"] + cov["in_spec_only"])

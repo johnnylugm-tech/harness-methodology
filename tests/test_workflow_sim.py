@@ -143,4 +143,8 @@ def test_sim_testbed_passes():
     # frame changed. Nothing here had ever sent the loader anything but a
     # well-formed body, which is how a 65%-truncated deliverable stayed
     # indistinguishable from a complete one across every corpus project.
-    assert int(m.group(1)) >= 137, f"sim suite shrank: only {m.group(1)} passing tests (floor 137)"
+    # 137 -> 139 by Round 86 站3. Agent A is handed the canonical spec its
+    # own step 2 promises it, and a DOC that is an index says so in its
+    # label instead of still reading "full content — this IS the
+    # deliverable under review".
+    assert int(m.group(1)) >= 139, f"sim suite shrank: only {m.group(1)} passing tests (floor 139)"

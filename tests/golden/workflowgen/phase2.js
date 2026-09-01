@@ -287,6 +287,15 @@ function makeDocSummary(content, opts) {
   return JSON.stringify(summary, null, 2)
 }
 
+// ---- docBlock: a DOC says whether it is the file or its index ----
+function docBlock(label, loaded) {
+  // The index payload already carries the path and the sed -n form;
+  // the label only has to stop it being read as the whole file.
+  return isFileIndex(loaded)
+    ? [label + ' — INDEX ONLY, not the file; read ranges as it instructs', loaded]
+    : [label, loaded]
+}
+
 // ---- structuredBReview (T1-B) — harness-owned B-2 round-loop control ----
 //
 // Replaces hasHighGap() (hand-rolled gap-severity gating), runBSelfVerify()
@@ -732,7 +741,7 @@ const sad = await abLoop({
     + (round > 1 && prevB2 ? '\n\n=== [DOC: Previous B-2 review JSON — SAD.md] ===\n' + JSON.stringify(prevB2, null, 2) : ''),
   buildBDocs: (content) => [
     ['DOC 1: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
-    ['DOC 2: draft 02-architecture/SAD.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 2: draft 02-architecture/SAD.md (full content — this IS the deliverable under review)', content),
     ['DOC 3: harness/templates/SAD.md §2.1 — Directory Structure Design Principles (heading summary)', makeDocSummary(sadTemplateContent)],
   ],
   checklist:
@@ -770,7 +779,7 @@ const adr = await abLoop({
     ['DOC 1: Previous Sub-Task B-2 review JSON — SAD.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(sadB2), null, 2)],
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     ['DOC 3: 02-architecture/SAD.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(sadContent, { includeFirstLines: true })],
-    ['DOC 4: draft 02-architecture/adr/ADR.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 4: draft 02-architecture/adr/ADR.md (full content — this IS the deliverable under review)', content),
     ['DOC 5: harness/templates/ADR.md (template format — heading summary)', makeDocSummary(adrTemplateContent)],
   ],
   checklist:
@@ -868,7 +877,7 @@ const testSpec = await abLoop({
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     ['DOC 3: 02-architecture/SAD.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(sadContent, { includeFirstLines: true })],
     ['DOC 4: 02-architecture/adr/ADR.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(adrContent)],
-    ['DOC 5: draft 02-architecture/TEST_SPEC.md (full content — this IS the deliverable under review)', content],
+    docBlock('DOC 5: draft 02-architecture/TEST_SPEC.md (full content — this IS the deliverable under review)', content),
   ],
   checklist:
     '- Upstream ADR review caveats addressed?\n- Every FR has ≥1 named test case (happy_path + validation mandatory)?\n'

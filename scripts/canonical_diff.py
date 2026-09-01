@@ -40,6 +40,11 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.quality_gate.spec_alignment import structural_fr_ids  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +280,7 @@ def build_diff_report(
     clauses = _split_ac_clauses(srs_text)
 
     canonical_sentences: list[str] = []
+    spec_text = ""
     spec_present = spec_path is not None and spec_path.exists()
     if spec_present and spec_path is not None:
         spec_text = spec_path.read_text(encoding="utf-8")
@@ -308,12 +314,36 @@ def build_diff_report(
         ),
     }
 
+    # Round 86 站3 — the omission axis, beside the invention axis.
+    #
+    # `per_ac` scores what Agent A WROTE against the canonical text; nothing
+    # in this report said which canonical requirements never arrived. Agent
+    # B's first checklist question is exactly that ("did A transcribe ALL
+    # features"), and for a spec too large to relay whole it can no longer be
+    # answered by reading the DOC. `check_spec_alignment` already computes
+    # this set difference deterministically — reused rather than re-derived,
+    # so one document cannot have two answers to which FRs are in it.
+    #
+    # Placed BEFORE `per_ac`: when this file itself exceeds the relay ceiling
+    # (taskq-new's is 27,762 bytes at 124 ACs) the index relays its head, and
+    # `per_ac` is the part that grows without bound.
+    fr_coverage: dict[str, Any] = {}
+    if spec_present and spec_path is not None:
+        spec_frs = structural_fr_ids(spec_text)
+        srs_frs = structural_fr_ids(srs_text)
+        fr_coverage = {
+            "in_spec_only": sorted(spec_frs - srs_frs),
+            "in_srs_only": sorted(srs_frs - spec_frs),
+            "in_both": sorted(spec_frs & srs_frs),
+        }
+
     return {
         "deliverable": str(srs_path),
         "canonical": str(spec_path) if spec_present else None,
         "mode": mode,
         "spec_present": spec_present,
         "summary": summary,
+        "fr_coverage": fr_coverage,
         "per_ac": per_ac,
     }
 
