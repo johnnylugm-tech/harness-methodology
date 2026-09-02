@@ -1199,6 +1199,7 @@ class PhaseHooks:
         )
         from core.quality_gate.security_design import check_security_design
         from core.quality_gate.srs_structure import check_srs_structure
+        from core.quality_gate.test_seam_in_production import check_test_seams
         print("\n[PRE-FLIGHT] Artifact Consistency")
         try:
             violations = check_forward_refs(self._layout.root) + check_module_fr_coverage(self._layout.root)
@@ -1240,6 +1241,13 @@ class PhaseHooks:
                 # output, so asking earlier asks of an artifact that does not
                 # exist yet.
                 violations = violations + check_ac_deferral_targets(self._layout.root)
+                # Round 87 站6: and the delivered code does not get to know it
+                # is being tested. `boundary_realism` asks what the suite
+                # replaced; this is the mirror — taskq-redo's `deps.py:181`
+                # disables the rate limiter whenever `TaskService.create` is
+                # not the object it was at import time, so the program the
+                # gates score is not the program that ships.
+                violations = violations + check_test_seams(self._layout.root)
                 # Round 69 站5: an `ac_deferred` row is `info`, so it does not
                 # fail this preflight — which is correct, and is exactly why
                 # it also has to be written down. Non-blocking is not free.
