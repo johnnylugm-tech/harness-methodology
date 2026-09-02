@@ -90,6 +90,8 @@ def build_fingerprint(project: "str | Path", *, phase: int = 0,
     )
     from core.quality_gate.boundary_realism import stubbed_boundaries
     from core.quality_gate.cov_utils import coverage_denominator, read_coveragerc_omit
+    from core.quality_gate.red_assertion_check import spec_ambiguity_notes
+    from core.quality_gate.test_seam_in_production import runtime_test_seams
     from core.quality_gate.verify_system_reach import unmet_obligations
     from core.quality_gate.verify_target import verify_target_findings
 
@@ -146,6 +148,23 @@ def build_fingerprint(project: "str | Path", *, phase: int = 0,
             "obligations_unmet": [f"{r['module']}.{r['attr']}"
                                   for r in (reach.get("unmet") or [])],
         },
+        # Round 87 站7 and 站6, the two facts about the delivered tree that had
+        # producers and no readers at all.
+        #
+        # `spec_ambiguity` is the deviation the TDD-RED prompt asks for by
+        # name — "Add `# SPEC_AMBIGUITY: <one-line>` comment in the test …
+        # and note the deviation". A full-tree search for that token found one
+        # occurrence: the line of prompt that asks for it. It is the only point
+        # in the pipeline where anyone has both the AC prose and the assertion
+        # open at once, and what they noticed went nowhere. Recorded, judged by
+        # nothing here.
+        #
+        # `test_seams` is blocked by `check_test_seams` at the artifact
+        # preflight; the count sits here for the same reason every other row
+        # does — so a later delivery can be compared against this one.
+        "spec_ambiguity": spec_ambiguity_notes(project),
+        "test_seams": [f"{r['file']}:{r['line']}"
+                       for r in runtime_test_seams(project)],
     }
 
 

@@ -72,8 +72,14 @@ purely a library function; read it if test_file ever calls `subprocess.run`,
   impossible assertions. Add `# SPEC_AMBIGUITY: <one-line>` comment in the
   test, prefer the prose AC's scenario, and write the test to construct it
   mechanically (e.g. mix success+failure commands to produce the desired
-  distribution). If you truly cannot construct the scenario, write the test
+  distribution). If you truly cannot construct the SCENARIO, write the test
   against the SIMPLER invariant (>= 1 instead of == 3) and note the deviation.
+  THIS LICENCE IS ABOUT SCENARIOS, NEVER ABOUT THRESHOLDS. When the AC states
+  a number (MI >= 80, p95 < 30ms, coverage >= 80, zero skips), that number is
+  the criterion — asserting a weaker one is not a simpler test of the same
+  thing, it is a test of a different thing that will pass while the criterion
+  fails. If you cannot make the declared threshold hold, leave the test RED
+  and say so; do not lower it.
 - SUBPROCESS COVERAGE CEILING — critical for GATE1 test_coverage:
   * pytest-cov CANNOT measure coverage of code running inside a subprocess.
     If your test uses `subprocess.run([sys.executable, "-m", "<pkg>", ...])`,

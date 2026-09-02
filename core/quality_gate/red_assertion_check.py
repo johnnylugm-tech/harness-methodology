@@ -44,6 +44,7 @@ __all__ = [
     "check_test_spec_consistency",
     "check_test_mirrors_spec",
     "check_test_mirrors_spec_js",
+    "spec_ambiguity_notes",
 ]
 
 
@@ -1009,3 +1010,46 @@ def check_test_mirrors_spec(
                              f"{sorted(test_trigger)} but TEST_SPEC applies_to maps to {sorted(spec_trigger_set)}"),
                     extra={"test_trigger": sorted(test_trigger), "spec_trigger": sorted(spec_trigger_set)}))
     return violations
+
+
+#: The deviation the TDD-RED prompt asks for by name. Round 87 站7.
+_SPEC_AMBIGUITY = re.compile(r"#\s*SPEC_AMBIGUITY:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def spec_ambiguity_notes(project) -> list[dict]:
+    """Every `# SPEC_AMBIGUITY:` the test tree declares.
+
+    Round 87 站7. `cli/fr_prompts/tdd.py` has told the TDD-RED agent since it
+    was written: when the TEST_SPEC Inputs and the SRS prose disagree, "Add
+    `# SPEC_AMBIGUITY: <one-line>` comment in the test … and note the
+    deviation". A full-tree search for that token finds exactly one
+    occurrence in this repository — the line of prompt that asks for it. The
+    framework requested a record and built no reader for it, which is Round
+    43's detected-with-no-executor with the detection delegated to the agent.
+
+    A note is not a defect. It is the agent saying, at the moment it had both
+    documents open, that they disagreed — the only point in the pipeline where
+    anyone does. Recorded into the delivery fingerprint so the next reader has
+    it; judged by nothing here.
+
+    Returns `[{file, line, note}]`, relative paths, sorted. Never raises.
+    """
+    from pathlib import Path
+
+    from core.quality_gate.spec_coverage import _get_test_directories
+
+    root = Path(project)
+    out: list[dict] = []
+    for test_dir in _get_test_directories(root):
+        for path in sorted(Path(test_dir).rglob("*.py")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for match in _SPEC_AMBIGUITY.finditer(text):
+                out.append({
+                    "file": str(path.relative_to(root)),
+                    "line": text[: match.start()].count("\n") + 1,
+                    "note": match.group(1)[:200],
+                })
+    return sorted(out, key=lambda r: (r["file"], r["line"]))
