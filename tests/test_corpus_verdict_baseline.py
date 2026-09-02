@@ -262,8 +262,43 @@ def test_a_moved_verdict_makes_the_replay_exit_nonzero(tmp_path: Path, monkeypat
     baseline.write_text(json.dumps({"proj": {"spec_declared": 100}}), encoding="utf-8")
     monkeypatch.setattr(cr, "BASELINE_PATH", baseline)
     monkeypatch.setattr(cr, "replay", lambda *a, **k: {"proj": {"spec_declared": 42}})
+    # `tmp_path` holds no harness-managed project, which is now the skip
+    # condition — the corpus has to be non-empty for the comparison to be
+    # reached at all. Stubbing discovery is what makes this test about the
+    # exit code rather than about whether a corpus is present.
+    monkeypatch.setattr(cr, "corpus_projects", lambda *a, **k: ["proj"])
     monkeypatch.setattr(sys, "argv", ["corpus_replay.py", "--corpus", str(tmp_path)])
     assert cr._cli() == 1, "a moved verdict must block, not merely print"
+
+
+def test_a_machine_with_no_corpus_skips_instead_of_blocking(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The gate is local; a runner without delivered trees must not go red.
+
+    This is the failure this gate's own first push produced. The skip was
+    conditioned on `not corpus.is_dir()`, and on a CI runner the parent of the
+    checkout DOES exist — it just holds no project. So the replay measured
+    zero trees, `diff_against` read all fifteen baseline entries as vanished,
+    and CI blocked on a machine that had nothing to say.
+
+    The condition now names what actually makes the gate local: whether any
+    harness-managed project is there. `tmp_path` is a real, existing,
+    empty-of-projects directory — the same shape as the runner.
+    """
+    import corpus_replay as cr
+
+    monkeypatch.setattr(sys, "argv", ["corpus_replay.py", "--corpus", str(tmp_path)])
+    assert cr._cli() == 0, "a machine with no corpus must skip, not block"
+    out = capsys.readouterr().out
+    assert "SKIP" in out and "no harness-managed project" in out, out
+
+
+def test_a_directory_that_does_not_exist_also_skips(tmp_path: Path, monkeypatch) -> None:
+    """The older condition still has to hold — this widened it, not replaced it."""
+    import corpus_replay as cr
+
+    monkeypatch.setattr(
+        sys, "argv", ["corpus_replay.py", "--corpus", str(tmp_path / "nope")])
+    assert cr._cli() == 0
 
 
 def test_a_metric_this_enforcer_cannot_compute_is_none_not_zero(tmp_path: Path) -> None:

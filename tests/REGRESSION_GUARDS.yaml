@@ -4562,3 +4562,11 @@
 - test: tests/test_project_scanners_resolve_their_root.py::test_the_scanner_registry_does_not_shrink_unnoticed
   bug: "a registry entry removed is an entry point nobody asks the symlink question of; deliberately a name set rather than AST discovery over 97 relative_to sites whose false-positive rate is unmeasured"
   fixed_in: "Round 88 站1"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_machine_with_no_corpus_skips_instead_of_blocking
+  bug: "this gate's own first push turned CI red — the skip was conditioned on `not corpus.is_dir()`, and on a runner the parent of the checkout DOES exist and just holds no project, so the replay measured zero trees and read all fifteen baseline entries as vanished"
+  fixed_in: "Round 88 站2 (CI 33622678299)"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_directory_that_does_not_exist_also_skips
+  bug: "the widened skip condition must still cover the case the narrow one did"
+  fixed_in: "Round 88 站2"

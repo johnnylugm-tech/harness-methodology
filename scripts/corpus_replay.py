@@ -363,9 +363,16 @@ def _cli() -> int:
     args = ap.parse_args()
 
     corpus = Path(args.corpus)
-    if not corpus.is_dir():
-        print(f"[corpus-replay] SKIP: no corpus at {corpus} — this gate is local "
-              f"(CI has no delivered projects to replay)")
+    # "Is there a corpus here", not "does this directory exist". On a CI runner
+    # the parent directory of a checkout DOES exist and holds no delivered
+    # project, so the first version's `not corpus.is_dir()` never fired and the
+    # replay reported all fifteen baseline entries as vanished — this gate's
+    # own first push turned CI red for exactly that. The gate is local by
+    # construction; the condition has to name what makes it local.
+    if not corpus_projects(corpus):
+        print(f"[corpus-replay] SKIP: no harness-managed project beside "
+              f"{corpus} — this gate is local (a CI runner has no delivered "
+              f"tree to replay, like the corpus tests that already skip there)")
         return 0
 
     current = replay(corpus)
