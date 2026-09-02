@@ -1796,6 +1796,8 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
             # instruction, and the cheapest way to obey it was a correctly
             # named stub, which is exactly what the check then scored.
             print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] {_sc1_pct:.1f}% < 40% threshold")
+            print("  → the undelivered criteria and what closes them are listed "
+                  "above, under [spec-coverage]; then re-run.")
             return 1
 
     return None
@@ -2162,6 +2164,8 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
         if _sc_code != 0:
             # Round 87 站2 — see the Gate 1 site: one producer, one remedy.
             print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
+            print("  → the undelivered criteria and what closes them are listed "
+                  "above, under [spec-coverage]; then re-run.")
             return 1
 
     # ── Round 31 站2: mutation_testing's score is the framework's ────

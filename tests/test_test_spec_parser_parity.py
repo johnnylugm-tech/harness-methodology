@@ -232,6 +232,13 @@ _TABLE_CELL_SPLITTERS = {
         "unified-diff hunk headers, not markdown",
     ("scripts/plangen/artifact_parsers.py", "parse_srs_fr_nfr_xref"):
         "SRS NFR→FR cross-reference rows",
+    ("cli/checks/specs.py", "_deferred_rows_with_inputs"):
+        "the Deferred-to-Downstream-Phases table's Inputs column (Round 87 "
+        "站3). Never answers which tests are declared — `_parse_test_spec` "
+        "does, and this one reads the SAME rows for a different field. The "
+        "two cannot disagree about the row set because this one only asks a "
+        "question about rows it finds a `Inputs` header for, and reports "
+        "not-checked when the header is absent",
     ("scripts/extract_deferred_index.py", "_cells"):
         "the 明列不做 tables in docs/PROPOSAL_ADJUDICATIONS.md. Never a spec: "
         "it reads adjudication decisions, and it only ever `.strip()`s, so "

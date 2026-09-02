@@ -4230,3 +4230,119 @@
 - test: tests/test_canonical_spec_has_one_location.py::test_the_retired_resolver_stays_retired
   bug: "the test's subject is that resolve_canonical_spec stays retired, but its last line pinned __all__ to an exact one-item list — a snapshot, not a rule. Promoting structural_fr_ids for canonical_diff to reuse turned it red on an export that decides nothing about which file is canonical. It now asserts what it meant: no exported name reads as a resolver"
   fixed_in: "Round 86 站4"
+
+- test: tests/test_spec_coverage_delivery.py::test_delivery_reads_the_runs_own_outcome
+  bug: "spec_coverage decided 'delivered' by `test_fn in actual_fns` — a `def` with that name exists somewhere in the test tree. Nothing asked what it asserts, whether it ran, or whether it passed, and the traceability dimension score IS that ratio (taskq-cc's 71/118 = 60.16949152542372% is the number in its committed gate2_result.json to the last digit). core/traceability/scanner.py has stated and implemented the correct rule since Round 73 and test_suite_run.run_suite has produced the per-test outcome map on every run since; nothing joined them"
+  fixed_in: "Round 87 站1"
+
+- test: tests/test_spec_coverage_delivery.py::test_a_skipping_test_does_not_deliver_its_declaration
+  bug: "a declared test that calls pytest.skip when its tool is absent counted as delivered evidence for its NFR. taskq-redo's test_every_dep_license_in_allowlist skips when pip-licenses is missing, which is how NFR-07's allowlist grew to include GPL, LGPL and MPL with nothing red"
+  fixed_in: "Round 87 站1"
+
+- test: tests/test_spec_coverage_delivery.py::test_no_outcomes_preserves_presence_only
+  bug: "None means 'not measured' and must not be read as 'not delivered' — a non-Python project or a caller with no live run must get the pre-Round-87 answer rather than a report that every criterion lost its verifier. Same contract scan_test_fr_coverage documents"
+  fixed_in: "Round 87 站1"
+
+- test: tests/test_spec_coverage_delivery.py::test_delivered_has_exactly_one_definition
+  bug: "check_ac_deferral_targets (Round 83 站3) BLOCKED on 'no def of that name' while spec_coverage SCORED the same condition — one rule with two implementations, and a correctly-named stub satisfied both. The blocking site must call the scorer's delivery_outcome, not decide for itself"
+  fixed_in: "Round 87 站1"
+
+- test: tests/test_undelivered_remedy_and_denominator.py::test_the_instruction_has_one_producer
+  bug: "'Fix: add test cases for the uncovered TEST_SPEC.md sections' was live in three places (spec_coverage plus gate_cmds' Gate 1 and Gate 2-4 block sites). It named the cheapest satisfying action and the check then scored exactly that action — taskq-redo's 732-line, 29-function test_nfr_deferred.py was written in the Gate-2-exit commit itself. Docstrings recording what was replaced are excluded; only live string values are scanned"
+  fixed_in: "Round 87 站2"
+
+- test: tests/test_undelivered_remedy_and_denominator.py::test_the_remedy_separates_absent_from_ran_and_did_not_pass
+  bug: "the remedy could not distinguish 'nobody wrote it' from 'it was written and skipped' — two different repairs reported as one"
+  fixed_in: "Round 87 站2"
+
+- test: tests/test_undelivered_remedy_and_denominator.py::test_the_gate_result_records_what_the_denominator_was_counted_from
+  bug: "R73 站1 / R74 站1-2 fixed the TEST_SPEC parser and moved taskq-redo's declarations from 97 to 130 on the same bytes, taking 65/97 = 67.01% (PASS at 60) to 72/130 = 55.38% (BLOCKED). Both fixes were right; no committed artifact recorded which parser produced either number, so a change that flipped a verdict left no trace"
+  fixed_in: "Round 87 站2"
+
+- test: tests/test_undelivered_remedy_and_denominator.py::test_the_provenance_reaches_the_committed_gate_result
+  bug: "computing the provenance and not patching it into the gate result JSON would be Round 43's detected-with-no-executor"
+  fixed_in: "Round 87 站2"
+
+- test: tests/test_deferred_table_thresholds.py::test_the_shipped_drift_is_reported
+  bug: "the NFR Layering Hard Rule's Deferred table was dictated as '#, NFR, Test Function, Layer, Title' by the one sentence in spec_phase2.py that names its columns, while the same sentence required Inputs and Sub-assertions of every integration-level NFR. taskq-redo's 58 unit/static declarations therefore had no machine-checkable content but their own names — test_project_mi_at_least_80 asserts >= 78.0 and says 'SPEC floor 80.0' in its own failure message"
+  fixed_in: "Round 87 站3"
+
+- test: tests/test_deferred_table_thresholds.py::test_a_threshold_read_from_a_framework_constant_is_not_a_violation
+  bug: "the first draft asked only 'is the declared value in the function body' and reported taskq-cc-new's real p95 test, which reads cfg['performance']['p95_budget_ms'] instead of retyping 30 — the BETTER implementation would have been the one blocked. The rule needs both halves: the declared number absent from the file AND the test's own assertions hardcoding a literal"
+  fixed_in: "Round 87 站3"
+
+- test: tests/test_deferred_table_thresholds.py::test_a_table_without_the_column_says_so_instead_of_passing
+  bug: "every TEST_SPEC.md written before this round has the five-column table; a check that cannot run must report not-checked rather than clean (Round 74 站4), or it is Round 30's half-built mechanism"
+  fixed_in: "Round 87 站3"
+
+- test: tests/test_deferred_table_thresholds.py::test_the_generator_asks_for_the_column_it_enforces
+  bug: "an enforcer for a column no prompt asks for blocks every project forever; a prompt asking for a column no enforcer reads is a half-built mechanism. spec_phase2.py is the only place the Deferred table's columns are named, so both halves are one statement"
+  fixed_in: "Round 87 站3"
+
+- test: tests/test_deferred_table_thresholds.py::test_no_corpus_project_is_retroactively_blocked
+  bug: "the Inputs migration is forward-only; a rule written after a project's TEST_SPEC.md must not charge it for old rows (Round 42)"
+  fixed_in: "Round 87 站3"
+
+- test: tests/test_requirement_chain.py::test_a_declared_key_is_a_key_not_one_of_its_values
+  bug: "draft 2 of the config-key extractor could not tell TASKQ_LOG_LEVEL from its default INFO, and reported DEBUG/INFO/WARNING/ERROR against every project including the ones that were right. Requiring an underscore makes the distinction structural rather than a word list"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_requirement_chain.py::test_a_key_the_source_never_reads_is_blocking
+  bug: "canonical_diff scores only what Agent A ADDED (its own docstring: 'the anti-over-spec goal is to detect A adding content NOT in canonical'). taskq-redo's srs_vs_spec_diff.json records invention_count 0 and high_score_count 22 over an SRS that reduced TASKQ_DB_URL to NFR-04's redaction clause, while session.py hardcodes an in-memory SQLite URL at module scope. SPEC.md's own line 24 asks for 'no invention, no omission'"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_requirement_chain.py::test_no_source_tree_is_not_a_finding
+  bug: "P1 and P2 have no delivered source; asking there would block every project for work Phase 3 has not started"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_requirement_chain.py::test_the_report_and_the_gate_share_one_extractor
+  bug: "canonical_diff reports the declared key set to Agent B and spec_alignment blocks on it; a second regex in the reporting half is how one document comes to have two answers"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_requirement_chain.py::test_machine_block_terms_absent_from_prose_are_reported
+  bug: "SRS.md has two readers reading different halves — _without_machine_block STRIPS the fenced JSON before scoring conformance, plangen/artifact_parsers reads ONLY it. FR-05's 'per-token' and NFR-12's four chained steps survive only in the block, and the AC prose and the tests read the other half. taskq-redo delivered per-scope rate limiting and a verify-system chaining two of four steps, both scored 100"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_requirement_chain.py::test_the_new_report_keys_precede_per_ac
+  bug: "srs_vs_spec_diff.json is 27,762 bytes against a 24,576-byte relay ceiling (Round 86) and per_ac is the part that grows without bound; a key after it is a key head-truncation decides"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_requirement_chain.py::test_the_rule_discriminates_on_the_corpus
+  bug: "two earlier drafts of the config-key rule fired on every corpus project. taskq-cc reads all twelve declared keys — that clean sheet is the evidence the rule measures the defect rather than the corpus, and taskq-redo missing TASKQ_DB_URL is the Production-ready finding it exists for"
+  fixed_in: "Round 87 站4"
+
+- test: tests/test_test_seam_in_production.py::test_the_shipped_seam_is_found
+  bug: "boundary_realism asks which boundaries the SUITE replaced; nothing asked which production modules were reshaped so a test would pass. taskq-redo's api/deps.py:181 disables the rate limiter whenever TaskService.create is not the object it was at import time — the program the four Gate 1 dimensions scored is not the program that ships"
+  fixed_in: "Round 87 站6"
+
+- test: tests/test_test_seam_in_production.py::test_alembic_boilerplate_is_not_a_seam
+  bug: "the first draft was 'a module-level attribute snapshot compared by identity' and reported Alembic's own `config.config_file_name is not None` in two corpus projects. The snapshot must be the operand COMPARED AGAINST, which takes 3 hits in 12 projects to 1"
+  fixed_in: "Round 87 站6"
+
+- test: tests/test_test_seam_in_production.py::test_a_comment_mentioning_monkeypatch_is_not_a_seam
+  bug: "taskq-cc-new's production code documents its monkeypatchable seams in comments and its implementation is the correct one; a scan reading prose would charge it for being explicit"
+  fixed_in: "Round 87 站6"
+
+- test: tests/test_test_seam_in_production.py::test_the_rule_is_one_in_twelve_on_the_corpus
+  bug: "keeps the measurement that chose the rule's shape executable — a second reporting project means either that project grew the defect or the rule drifted back toward the draft that reported Alembic"
+  fixed_in: "Round 87 站6"
+
+- test: tests/test_spec_ambiguity_has_a_reader.py::test_the_note_reaches_the_delivery_fingerprint
+  bug: "cli/fr_prompts/tdd.py has asked every TDD-RED agent to write `# SPEC_AMBIGUITY: <one-line>` since it was authored, and a full-tree search for that token found one occurrence — the line of prompt that asks for it. Three notes exist across ten corpus projects and taskq-advance's records a live contradiction in a canonical spec (SPEC.md §7 mapping 401 to /errors/unauthenticated); all three went nowhere"
+  fixed_in: "Round 87 站7"
+
+- test: tests/test_spec_ambiguity_has_a_reader.py::test_the_weakening_licence_excludes_thresholds
+  bug: "the same prompt licensed 'write the test against the SIMPLER invariant (>= 1 instead of == 3)', and taskq-redo generalised it from scenarios to thresholds: `assert skip_count >= 0` is always true, and its own docstring explains that unconditional skips are what the SPEC forbids. A stated number is the criterion; asserting a weaker one is a test of a different thing that passes while the criterion fails"
+  fixed_in: "Round 87 站7"
+
+- test: tests/test_spec_ambiguity_has_a_reader.py::test_the_prompt_that_asks_for_it_still_asks_for_it
+  bug: "a collector for a token no prompt requests is dead code, and a prompt requesting a token nothing collects is what this round found; producer and reader are one statement"
+  fixed_in: "Round 87 站7"
+
+- test: tests/test_spec_ambiguity_has_a_reader.py::test_the_collector_is_not_collected_as_a_test
+  bug: "站6 shipped a production helper named test_seam_findings and pytest collected it as a test case on import, failing with `fixture 'project' not found`. No top-level public function in these modules may be named test_*"
+  fixed_in: "Round 87 站7"
+
+- test: tests/test_requirement_chain.py::test_the_parity_finding_reaches_the_report
+  bug: "the first version of the machine-block guard called machine_block_parity directly, so replacing build_diff_report's field with a literal [] left it green — a producer with no reader, which is the shape this whole round is about. Found by the Round 87 counter-proof, not by review. The report is what Agent B reads as DOC 3; the function's return value is read by nothing on its own"
+  fixed_in: "Round 87 站8"

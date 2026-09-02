@@ -117,10 +117,15 @@ def test_the_weakening_licence_excludes_thresholds() -> None:
     assert "SIMPLER invariant" in prompt, "the licence itself is gone — check the golden"
     licence_start = prompt.index("SIMPLER invariant")
     window = prompt[licence_start: licence_start + 900]
-    assert "THRESHOLD" in window.upper(), (
-        "the SIMPLER-invariant licence no longer carries its threshold "
-        "exclusion. Without it, `assert avg >= 78.0` against an AC stating 80 "
-        "is something the framework's own prompt authorises."
+    # The exclusion must be an EXCLUSION, not merely the word appearing
+    # somewhere nearby. The first version of this guard asserted
+    # `"THRESHOLD" in window.upper()`, and deleting the scope sentence left it
+    # green because a later line still said "the declared threshold" — the
+    # counter-proof found that, not review.
+    assert "NEVER ABOUT THRESHOLD" in window.upper(), (
+        "the SIMPLER-invariant licence no longer states that it does not "
+        "cover thresholds. Without that scope line, `assert avg >= 78.0` "
+        "against an AC stating 80 is something this prompt authorises."
     )
     assert "do not lower it" in window, (
         "the licence no longer says what to do instead of lowering a declared "

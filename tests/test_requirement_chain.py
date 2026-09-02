@@ -179,6 +179,36 @@ def test_machine_block_terms_absent_from_prose_are_reported() -> None:
     assert "per-token" in found[0]["terms_only_in_machine_block"]
 
 
+def test_the_parity_finding_reaches_the_report(tmp_path: Path) -> None:
+    """Computing it and not putting it in the report is a producer with no reader.
+
+    The first version of this guard called `machine_block_parity` directly and
+    asserted on its return value, so replacing the report's field with a
+    literal `[]` left it green — the counter-proof found that, not review. The
+    report is what Agent B reads as DOC 3; the function's return value is read
+    by nothing on its own.
+    """
+    project = _project(tmp_path, src="X = 1\n")
+    srs = project / "01-requirements" / "SRS.md"
+    srs.write_text(
+        "## 3. Requirements\n\n"
+        "### FR-01: config\n\n"
+        "- **AC-1.1** reads config.\n\n"
+        "## 9. Machine block\n\n"
+        "```json\n"
+        '{"functional_requirements": [{"id": "FR-01", '
+        '"description": "per-token DB-backed bucket"}]}\n'
+        "```\n",
+        encoding="utf-8")
+    report = build_diff_report(srs, project / "SPEC.md")
+    assert report["machine_block_parity"], (
+        "the report's machine_block_parity is empty for an SRS whose block "
+        "says `per-token` and whose prose does not — the field is not wired "
+        "to its producer"
+    )
+    assert report["machine_block_parity"][0]["id"] == "FR-01"
+
+
 def test_the_new_report_keys_precede_per_ac(tmp_path: Path) -> None:
     """Head truncation must not be what decides whether they are read.
 

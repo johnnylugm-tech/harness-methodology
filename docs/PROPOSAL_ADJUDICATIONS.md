@@ -3980,11 +3980,80 @@ high_score_count: 22` —— 滿分。`canonical_diff._best_match_ratio` 的 doc
 
 ### 落地
 
-<!-- 站別逐一補上,見 Round 87 各 commit -->
+| 站 | 做了什麼 |
+|---|---|
+| 1 | 「已交付」＝ ran and passed(用 `scanner.py` 從 R73 起就實作的同一條規則);三個讀者(score / `check_ac_deferral_targets` 阻擋點 / ledger)共用一個 `delivery_outcome` |
+| 2 | 阻擋訊息的三份宣告收成一個生產者,指名失去驗證者的 AC 並按原因分組;gate result 加 `denominator_provenance` |
+| 3 | Deferred 表補 `Inputs` 欄(修在 `spec_phase2.py` 那唯一一句宣告),`deferred_inputs_violations` 讀它 |
+| 4 | `spec_config_keys` + `unread_config_key`(阻擋);`machine_block_parity`(只回報) |
+| 5 | **未做** —— 見下 |
+| 6 | `check_test_seams`:生產碼不得 runtime 分支於「測試是否動過手腳」 |
+| 7 | `SPEC_AMBIGUITY` 有了讀者(delivery fingerprint);弱化授權加上門檻界線 |
+| 8 | guards 1034→1063、10 條反證、賬本 |
 
-| 站 | 做了什麼 | commit |
+### 站5 未做,以及為什麼不半做
+
+計畫的站5 是「把 RED 測試納入 Agent B 的審查,零新 dispatch」。實作時量到兩件事,
+兩件都推翻那個前提:
+
+1. **P3 沒有任何審查機制。** `.claude/workflows/phase3-implementation.js` 的
+   dispatch 標籤裡沒有 review / approval / reviewer;每 FR 的步驟是
+   `TDD-RED | TDD-GREEN | TDD-IMPROVE | GATE1 | GATE1-DELTA`。
+   `.methodology/agent_b_approvals/` 有 7 份文件、**0 個測試檔**。
+2. **`PHASE_DELIVERABLES` 不能加 key 3。** `cli/fr_cmds.py:113` 對任何在該 dict
+   裡的 phase 強制 `--fr-id` 必須是 deliverable 名字,而 P3 的 dispatch 用的是
+   `--fr-id FR-01`。加 key 3 會**打壞每一個 P3 dispatch**。
+   `legal_artifacts.py:60` 自己寫著理由:「P1/2/6 only — per-FR approval is only
+   meaningful from P3 onwards」。
+
+所以「零新 dispatch」是假的:要讓一個讀者同時看到 AC 與斷言,就得新增 dispatch。
+**只蓋執法那一半會讓每個專案永遠卡在 P3 出口** —— 那正是 R30 的半座機制。
+兩半一起蓋、或一半都不蓋;本輪選後者,並把它記在這裡而不是靜靜縮小範圍。
+
+**再開條件**:老闆同意 P3 出口新增一次 dispatch(或每 FR 一次)。
+量到的病灶不變:`downgrade()` 寫 `pass` 是因為 AC-7.1 的測試斷言 `tasks` 仍在,
+而 AC 文字與那個斷言**從來沒有被同一個讀者同時看過**。
+
+### 告知不修 / 明列不做
+
+| 項目 | 量測 | 再開條件 |
 |---|---|---|
-| 1 | 「已交付」＝ ran and passed;三個讀者(score / 阻擋點 / ledger)共用一個 `delivery_outcome` | (本節) |
+| 無門檻 AC 的恆真斷言(`assert skip_count >= 0`) | 站1 抓 skip、站3 抓數值門檻,這一條兩者都抓不到 —— `0` 確實出現在測試裡 | 出現可判定的恆真式判準(且對語料誤判率可接受)時 |
+| 遞迴測試 + timeout fallback 到 `make -n` | 為它試的規則(斷言讀的名字被 except handler 重綁)全語料 **15 命中 / 14 偽陽性**(`except ValueError: body = {}` 這種正常防禦性解析);另量 **9/12 專案的測試都 shell out 到自己的 verify target**,不是異常 | 出現能分辨「換掉被測 subject」與「防禦性預設值」的判準 |
+| FR 表的 Inputs 門檻對帳 | 八專案 772 個宣告值 / 107 缺席;收窄成整值數字後 569 / 64(88.8% 一致)。11% 是真訊號混著規則出現前寫的 fixture 資料,阻擋會為舊資料處罰專案(R42) | 新一輪專案的 FR 表在新規則下寫成後,對它們阻擋 |
+| 站6 規則的過擬合 | 全語料 1/12 既是零誤判的證據,也是「只認一種 AST 形狀」的證據。用 `sys.modules` / `PYTEST_CURRENT_TEST` / env var 問同一個問題的寫法抓不到 | 出現第二種形狀 → 一起收編,不預先泛化 |
+| `machine_block_parity` 不阻擋 | 同一條規則 taskq-redo 5、taskq-cc 4、taskq-cc-new 11,而 taskq-cc 的 `per-token` 是做對的 —— 它標的是每個專案都有的風險,不是能區分某一個的缺陷 | 出現「block 與 prose 不一致 → 交付錯誤」的可判定關聯時 |
+| `architecture` 維度 = community cohesion | taskq-redo 拿 100.0,而該維度量的是程式碼圖的模組聚合度,看不見 SAD/SPEC。三個專案 88.9 / 88.9 / 100.0 與實際架構品質反相 | 有人提出可判定的 SAD↔交付碼一致性判準時 |
+| 生產碼 5 處 `assert`(bandit LOW) | 框架已量到並計入 security 95.0 —— 是專案沒修,不是框架缺陷 | — |
+
+### 本輪自己犯的、被自己的機制抓到的
+
+| # | 什麼 | 誰抓到 |
+|---|---|---|
+| 1 | 站3 第一版只問「宣告的數在函式體裡嗎」,會把 taskq-cc-new **讀 config 的正確實作**判成違規 | 我自己寫的那支反例測試 |
+| 2 | 站4 第一版規則「出現在 SRS 或 SAD」對六個未實作的環境變數 **6/6 放行**(它們都在 `SAD.md:139`) | 複核令要求的實測 |
+| 3 | 站4 第二、三版抽取器在**每個專案**都響(81 名字 / 一半是框架自己的詞彙;扣掉後仍有 `DEBUG`/`TBD`/`Makefile`) | 語料對照,taskq-cc 必須是乾淨的 |
+| 4 | 站6 把生產函式命名為 `test_seam_findings`,pytest 當成測試項收集 | pytest 自己(`fixture 'project' not found`) |
+| 5 | 站6 的 ratchet 我加了**第二筆** `core/phase_hooks.py` 條目,Python 保留後者(較舊較鬆) | `test_no_path_has_two_ceilings` |
+| 6 | 站4 的 machine-block 守衛直接呼叫函式而不是走報告,把報告欄位換成 `[]` 仍然全綠 | **反證 CP-7** |
+| 7 | 站7 的門檻例外守衛只找 window 裡有沒有 `THRESHOLD` 這個字,刪掉範圍句仍然全綠(後面一行還有 "the declared threshold") | **反證 CP-10** |
+
+第 6、7 兩項是反證的全部意義:**守衛綠不代表守衛有用。**
+
+### 反證(10 條,每條 revert → 指定守衛轉紅 → `cp` 備份還原 + `sha256` 逐位比對)
+
+| # | 還原什麼 | 結果 |
+|---|---|---|
+| 1 | `covered` 改回 presence-only | 1 failed / 8 passed,還原 exact |
+| 2 | `check_ac_deferral_targets` 改回只看 `def` 存在 | FAILED,還原 exact |
+| 3 | 阻擋訊息在呼叫點重述 | 1 failed / 5 passed,還原 exact |
+| 4 | 拿掉 `denominator_provenance` 的 patch | 1 failed / 5 passed,還原 exact |
+| 5 | Deferred 的 Inputs 改成選用 | 3 failed / 4 passed,還原 exact |
+| 6 | config-key 拿掉底線要求 | 4 failed / 4 passed,還原 exact |
+| 7 | `machine_block_parity` 報告欄位改成 `[]` | **第一版空過**;守衛改成走報告後 1 failed / 8 passed |
+| 8 | 站6 拿掉「右運算元就是快照」子句 | 2 failed / 4 passed,還原 exact |
+| 9 | fingerprint 拿掉 `spec_ambiguity` | 1 failed / 5 passed,還原 exact |
+| 10 | prompt 拿掉門檻範圍句 | **第一版空過**;守衛改成找範圍句後 1 failed / 5 passed |
 
 ---
 

@@ -150,7 +150,14 @@ _CEILINGS: dict[str, int] = {
     # it did not change, and this key changing while that digest does not is
     # what a relocation looks like from here.
     "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 279,
-    "cli/gate_cmds.py::_cmd_finalize_gate_impl": 606,
+    # 614 at Round 87 站2, from 606: +8 for the `denominator_provenance` patch
+    # into the committed gate result. R73/R74's parser fix moved taskq-redo's
+    # declarations 97 -> 130 on the same bytes, taking 65/97 = 67.01% (PASS at
+    # 60) to 72/130 = 55.38% (BLOCKED), and no committed artifact recorded
+    # which parser produced either number. Measured 614 — the two block-site
+    # remediation pointers this round also added live in
+    # `_finalize_gate_cross_checks`, not here.
+    "cli/gate_cmds.py::_cmd_finalize_gate_impl": 614,
     # 485 at 2026-08-31, from 475: replaced the `agent_score < threshold`
     # early-continue with a comment explaining the removal and pointing at
     # the Round 35 站3 prior-art comment above it — see
