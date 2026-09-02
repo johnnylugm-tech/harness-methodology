@@ -313,6 +313,144 @@ def nfr_layering_violations(project: "str | Path") -> list[str]:
     return violations
 
 
+#: A declared threshold in the Inputs form the FR tables already use:
+#: `key="value"` or `key=value`, where the WHOLE value is a number. A number
+#: embedded in a longer string (`key_id="k-revoked-1"`, a 64-hex digest) is
+#: not a threshold, and Round 87 站3 measured what happens without that
+#: restriction — 772 values checked across eight corpus projects, 107 absent
+#: from their tests, of which the identifier-embedded ones were noise.
+_DECLARED_THRESHOLD = re.compile(r'(\w+)\s*=\s*"?(\d+(?:\.\d+)?)"?(?=\s*;|\s*\||\s*$)')
+
+
+def _deferred_rows_with_inputs(deferred: str) -> "tuple[bool, list[tuple[str, str]]]":
+    """(`the table declares an Inputs column`, `[(test_fn, inputs_cell), …]`).
+
+    Round 87 站3. The Deferred table's columns are dictated in exactly one
+    place — `scripts/workflowgen/spec_phase2.py`'s Step 1 instruction — and
+    until this round that sentence read "#, NFR, Test Function, Layer, Title"
+    while the same sentence required `Inputs` and `Sub-assertions` of every
+    integration-level NFR. So the 58 unit/static declarations taskq-redo wrote
+    had no machine-checkable content but their own names, and the name is what
+    `spec_coverage` scored. `test_project_mi_at_least_80` asserting `>= 78.0`
+    with "SPEC floor 80.0" in its own failure message is what that buys.
+
+    Reports "no column" rather than "no violations" when the header has none:
+    the migration is forward-only (existing TEST_SPEC.md files predate the
+    column) and a check that cannot run must say so, not pass.
+    """
+    header_cols: list[str] = []
+    rows: list[tuple[str, str]] = []
+    for line in deferred.splitlines():
+        stripped = line.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|")):
+            continue
+        cols = [c.strip() for c in stripped.split("|")[1:-1]]
+        if any(c.lower() == "inputs" for c in cols) and not any(
+                _TEST_IDENT.match(c.strip("`")) for c in cols):
+            header_cols = [c.lower() for c in cols]
+            continue
+        if not header_cols:
+            continue
+        idx = header_cols.index("inputs")
+        fn = next((c.strip("`") for c in cols if _TEST_IDENT.match(c.strip("`"))), "")
+        if fn:
+            rows.append((fn, cols[idx] if idx < len(cols) else ""))
+    return bool(header_cols), rows
+
+
+def deferred_inputs_violations(project: "str | Path") -> "tuple[str, list[str]]":
+    """Deferred rows whose declared thresholds are missing or contradicted.
+
+    Two findings, both decidable, both over `key=<number>` rather than prose:
+
+    * a row with no `Inputs` cell — the declaration is a name again
+    * a test that HARDCODES a number in its assertions while the declared
+      threshold appears nowhere in its file — `test_project_mi_at_least_80`
+      asserting `>= 78.0` against a declared `mi_floor="80"`
+
+    The second condition has two halves on purpose, and the first draft of it
+    had only one. Asking merely "is the declared value in the function body"
+    reported taskq-cc-new's real p95 test, which reads
+    `cfg["performance"]["p95_budget_ms"]` from a framework-owned constant
+    rather than retyping 30 — the better implementation would have been the
+    one blocked. A test that asserts against a name, a config lookup or a
+    module constant states no competing number and is left alone; only a
+    test that writes a literal of its own AND does not carry the declared one
+    is claiming a different threshold than its criterion.
+
+    Returns `(not_checked_reason, violations)`. Scoped to the Deferred table on
+    purpose: the FR tables' Inputs carry fixture data as well as thresholds
+    (ids, sample strings), and the same rule over them reports 64 rows across
+    eight corpus projects — real signal at an 11% noise rate over content
+    written before the rule existed. Recorded in the Round 87 ledger with its
+    re-open condition rather than blocked on.
+    """
+    import ast
+
+    project = Path(project)
+    spec_path = ProjectLayout(project).test_spec_path
+    if not spec_path.is_file():
+        return ("", [])
+    deferred = deferred_section_text(
+        spec_path.read_text(encoding="utf-8", errors="replace"))
+    if not deferred.strip():
+        return ("", [])
+    has_column, rows = _deferred_rows_with_inputs(deferred)
+    if not has_column:
+        return ("the Deferred table declares no `Inputs` column (it predates "
+                "Round 87 站3; regenerate TEST_SPEC.md to add it)", [])
+
+    # Scope is the FILE, not the function: a threshold lifted to a module
+    # constant is still the threshold this test asserts against, and the
+    # first draft of this check — which read `ast.unparse(node)` alone —
+    # reported exactly that shape.
+    scopes: dict = {}
+    from core.quality_gate.spec_coverage import _get_test_directories
+    for test_dir in _get_test_directories(project):
+        for path in sorted(Path(test_dir).rglob("*.py")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                tree = ast.parse(text)
+            except (SyntaxError, OSError):
+                continue
+            for node in ast.walk(tree):
+                if not (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name.startswith("test_")):
+                    continue
+                literals = {
+                    str(c.value) for a in ast.walk(node)
+                    if isinstance(a, ast.Assert)
+                    for c in ast.walk(a.test)
+                    if isinstance(c, ast.Constant)
+                    and isinstance(c.value, (int, float))
+                    and not isinstance(c.value, bool)
+                }
+                scopes.setdefault(node.name, []).append((text, literals))
+
+    violations: list[str] = []
+    for fn, cell in rows:
+        declared = _DECLARED_THRESHOLD.findall(cell)
+        if not declared:
+            violations.append(
+                f"{fn} — Inputs cell declares no `key=<number>` threshold, so "
+                f"the only machine-checkable content of this declaration is "
+                f"its name")
+            continue
+        if fn not in scopes:
+            continue  # absent test: spec-coverage's finding, not this one
+        for key, value in declared:
+            for text, literals in scopes[fn]:
+                if re.search(rf"(?<![\w.]){re.escape(value)}(?![\w.])", text):
+                    continue  # the declared number is reachable here
+                if not literals:
+                    continue  # asserts against a name/config: states no rival
+                violations.append(
+                    f"{fn} — declares {key}={value}; its file never contains "
+                    f"{value} and its assertions hardcode {sorted(literals)}. "
+                    f"The test states a different threshold than its criterion.")
+    return ("", violations)
+
+
 def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
     """P2 self-consistency gate — prove TEST_SPEC.md is not unsatisfiable.
 
@@ -402,6 +540,22 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
             print(f"  ... and {len(missing_nfrs) - 5} more.")
         print("\n[BLOCKED] You MUST isolate all Unit/Static NFRs in a section titled 'Deferred to Downstream Phases'.")
         print("          Do NOT place them in the Integration table. Create the Deferred table if it does not exist.")
+        return 1
+
+    # Round 87 站3: being in the right table is not the same as being checkable.
+    _inputs_not_checked, _inputs_bad = deferred_inputs_violations(project)
+    if _inputs_not_checked:
+        print(f"\n[not checked] Deferred-table thresholds — {_inputs_not_checked}")
+    if _inputs_bad:
+        print("\n[FAIL] Deferred-table declarations carry no checkable threshold, "
+              "or state one their test does not:")
+        for v in _inputs_bad[:5]:
+            print(f"  • {v}")
+        if len(_inputs_bad) > 5:
+            print(f"  ... and {len(_inputs_bad) - 5} more.")
+        print("\n[BLOCKED] Every Deferred row's `Inputs` cell declares the AC's "
+              "thresholds as `key=\"value\"`, and the named test must contain each "
+              "number (a literal, or the framework constant whose value it is).")
         return 1
 
     print("[check-test-spec-consistency] OK — 0 contradictions"
