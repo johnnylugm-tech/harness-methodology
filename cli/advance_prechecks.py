@@ -473,7 +473,23 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
     if not fr_ids:
         return None
     problems: list[tuple[str, list[str]]] = []
+    unstated: list[str] = []
     for fr_id in fr_ids:
+        sources = criteria_review.review_sources(project, fr_id)
+        if not sources["requirement_excerpt"]:
+            # Neither SPEC.md nor SRS.md states this FR, so there is no
+            # requirement for a review to compare assertions against, and a
+            # block here would charge a project for a document shape nothing
+            # at P3 asked it for. The neighbours in this same run degrade the
+            # same way ("TEST_SPEC.md not found — skipping", "SAB.json not
+            # present — skipping").
+            #
+            # This is not the free N/A Round 27 named: a real P3 project has
+            # `### FR-XX` in SRS.md because P1's own exit gate requires SRS.md
+            # and its anchor, so reaching this branch means skipping P1 — and
+            # the skip is printed rather than silent.
+            unstated.append(fr_id)
+            continue
         approval_path = (project / ".methodology" / "agent_b_approvals" / f"{fr_id}.json")
         reasons: list[str] = []
         if not approval_path.is_file():
@@ -495,12 +511,20 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
             reasons.append(f"approval JSON unreadable: {exc}")
             approval = None
         if isinstance(approval, dict):
-            reasons += criteria_review.approval_defects(project, fr_id, approval)
+            reasons += criteria_review.approval_defects(project, fr_id, approval, sources)
         if reasons:
             problems.append((fr_id, reasons))
 
+    if unstated:
+        print(
+            f"  [criteria-review] no requirement text for {', '.join(unstated)} "
+            "in SPEC.md or SRS.md — nothing to review these against, skipped"
+        )
     if not problems:
-        print(f"  [criteria-review] Phase 3 — {len(fr_ids)} FR review(s) verified ✓")
+        print(
+            f"  [criteria-review] Phase 3 — "
+            f"{len(fr_ids) - len(unstated)}/{len(fr_ids)} FR review(s) verified ✓"
+        )
         return None
 
     print(

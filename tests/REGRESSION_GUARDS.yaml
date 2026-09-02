@@ -4456,3 +4456,11 @@
 - test: tests/test_criteria_review.py::test_advance_phase_actually_calls_the_precheck
   bug: "Round 43's shape — every other guard here calls _precheck_p3_criteria_review directly and stays green if the call site vanishes from _advance_prechecks; this one reads the caller and checks the exit code is propagated"
   fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_an_fr_no_document_states_is_skipped_and_the_skip_is_printed
+  bug: "an FR no document states has no requirement to hold assertions up to; blocking there charges a project for a shape nothing at P3 asked for (two advance-phase fixtures are exactly that). Round 27's rule is why the skip PRINTS — an abstention nobody can see is indistinguishable from a pass"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_a_stated_fr_is_still_blocked_when_another_is_skipped
+  bug: "the no-requirement skip is per-FR, not a switch that turns the whole P3 check off"
+  fixed_in: "Round 87 站5"

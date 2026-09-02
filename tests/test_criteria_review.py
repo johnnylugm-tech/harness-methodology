@@ -427,6 +427,43 @@ def test_advance_phase_actually_calls_the_precheck() -> None:
     )
 
 
+def test_an_fr_no_document_states_is_skipped_and_the_skip_is_printed(
+    tmp_path: Path, capsys
+) -> None:
+    """Nothing to compare against is not a finding — but it is not silent either.
+
+    A project whose SPEC.md and SRS.md both lack a `### FR-XX` section has no
+    requirement for this review to hold assertions up to, and blocking there
+    charges it for a document shape nothing at P3 asked for. Two advance-phase
+    fixtures in tests/test_handover_generator.py are exactly that: a bare
+    `.methodology/` with a manifest and no requirements at all.
+
+    Round 27's rule is why the skip PRINTS: an abstention that nobody can see
+    is indistinguishable from a pass. And it is not a free N/A — a real P3
+    project has `### FR-XX` in SRS.md because P1's own exit gate requires
+    SRS.md and its anchor, so reaching this branch means P1 was skipped.
+    """
+    from cli.advance_prechecks import _precheck_p3_criteria_review
+
+    project = _project(tmp_path, spec=None)
+    assert review_sources(project, "FR-01")["requirement_excerpt"] == ""
+    assert _precheck_p3_criteria_review(3, project) is None
+    out = capsys.readouterr().out
+    assert "no requirement text for FR-01" in out
+    assert "skipped" in out
+
+
+def test_a_stated_fr_is_still_blocked_when_another_is_skipped(tmp_path: Path) -> None:
+    """The skip is per-FR, not a switch that turns the whole check off."""
+    from cli.advance_prechecks import _precheck_p3_criteria_review
+
+    project = _project(tmp_path)
+    (project / ".methodology" / "quality_manifest.json").write_text(
+        json.dumps({"fr_ids": ["FR-01", "FR-09"]}), encoding="utf-8")
+    assert review_sources(project, "FR-09")["requirement_excerpt"] == ""
+    assert _precheck_p3_criteria_review(3, project) == 13
+
+
 def test_other_phases_are_untouched(tmp_path: Path) -> None:
     """P4-P8 re-evaluate via GATE1-DELTA; this station gates the P3 exit only.
 

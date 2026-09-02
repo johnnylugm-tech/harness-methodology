@@ -4124,6 +4124,19 @@ taskq-redo 的 `deps.py:181`。
 要審兩次以上。代價是測試已經綠了、reviewer 有合理化的誘因 —— 反事實判準
 (「哪一行斷言在需求被違反時會失敗」)是抵銷它的手段,不是消除。
 
+#### 一個 FR 沒有任何文件陳述時
+
+`review_sources` 拿不到需求文字(SPEC.md 與 SRS.md 都沒有 `### FR-XX`)就**逐 FR
+跳過並印出來**。同一次 advance 裡的鄰居本來就這樣降級(`TEST_SPEC.md not found
+— skipping`、`SAB.json not present — skipping`),而擋在這裡是拿一個 P3 從沒要求
+過的文件形狀去罰專案 —— `tests/test_handover_generator.py` 有兩個 fixture 正是
+只有 `.methodology/` 沒有任何需求文件。
+
+**這不是 R27 的免費 N/A**:真正跑過 P1 的專案 SRS.md 一定有 `### FR-XX`
+(P1 出口自己就在要 SRS.md 與它的錨點),走到這個分支代表 P1 被跳過;而且跳過
+**會印出來**,不是靜默的。守衛兩個方向都釘:沒有需求文字不得擋、有需求文字的
+FR 不得因為隔壁被跳過而一起放行。
+
 #### 誠實邊界
 
 1. **買到的是紀錄,不是保證。** 機械層保證「有人同時看過兩端,而且看的就是現在
