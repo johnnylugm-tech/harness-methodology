@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "7989f0eaf30a6fb531757e6bd74e60c0d353000c",
-  "content_sha256": "5d49ac2c45c8c23c4d5c1ab18ba930c62095c72dfb05a1b0d9b482bd59fbcce5",
+  "git_sha": "96cc2603558af67b287d7fa0ac79df44163357fc",
+  "content_sha256": "62ffb13928e05b8dbe5ac068f203feb1b74d1fd3956723574b65c95c6c47f558",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 123,
+      "total_links": 127,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-06",
@@ -68,6 +68,7 @@
           "tests/test_overlay_merge.py",
           "tests/test_policy_engine.py",
           "tests/test_preflight_auto_fix_dispatch.py",
+          "tests/test_project_scanners_resolve_their_root.py",
           "tests/test_requirement_witness_absent.py",
           "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_mutation_coverage.py",
@@ -75,6 +76,7 @@
           "tests/test_step_precondition_blocked.py",
           "tests/test_trace_dirty_state.py",
           "tests/test_traceability_pipeline.py",
+          "tests/test_unmeasured_suite_is_not_zero.py",
           "tests/test_verify_spec_compliance.py"
         ],
         "test_files": [
@@ -94,6 +96,7 @@
           "tests/test_overlay_merge.py",
           "tests/test_policy_engine.py",
           "tests/test_preflight_auto_fix_dispatch.py",
+          "tests/test_project_scanners_resolve_their_root.py",
           "tests/test_requirement_witness_absent.py",
           "tests/test_scanner_js_traceability.py",
           "tests/test_scanner_mutation_coverage.py",
@@ -101,6 +104,7 @@
           "tests/test_step_precondition_blocked.py",
           "tests/test_trace_dirty_state.py",
           "tests/test_traceability_pipeline.py",
+          "tests/test_unmeasured_suite_is_not_zero.py",
           "tests/test_verify_spec_compliance.py"
         ],
         "sad_module": "—",

@@ -686,11 +686,47 @@ def _live_test_outcomes(project: Path) -> "dict[str, str] | None":
 
     Never raises: an unmeasurable suite must degrade to presence-only, not
     stop the gate that was asking a different question.
+
+    Round 88 站0. That sentence was written here in Round 87 and only one of
+    the three ways a suite can be unmeasurable was handled — the one that
+    raises. `run_suite` also returns `ran=False` (no source or test directory,
+    a non-Python project) and, on a pytest collection error, `ran=True` with a
+    non-zero exit and an EMPTY outcome map. Both handed back `{}`, and
+    `delivery_outcome` reads `{}` as a measurement in which every declared
+    test failed to be collected.
+
+    `_parse_junit_outcomes`, which produces that `{}`, already states the rule:
+    callers "must treat that the same as 'no outcome data available', never as
+    'zero tests ran'". Two consumers already obey it —
+    `spec_tracking_checker`'s `if suite_result.ran and
+    suite_result.test_outcomes` and `scanner`'s identical expression. This was
+    the third and it did not, so the guard here is theirs, not a new rule.
+
+    Measured: `check_ac_deferral_targets` against taskq-cc-new's frozen P3
+    tree — the commit its own `phase_completed["3"]` names, a tree that passed
+    its P3 exit — returned 35 blocking violations, 33 reading
+    `[not_collected]`, from a suite reporting `ran=True rc=2` because an
+    archived tree has no `.venv`. With the guard: 2, both `[absent]`, both
+    real. The project it punished hardest is the one Round 87 held up as
+    having done the work honestly; a project that answered every criterion
+    with a correctly-named stub has nothing that can be reported uncollected.
+
+    The guard is here rather than in `delivery_outcome` on purpose: a caller
+    that genuinely measured a suite containing no matching tests must still be
+    able to say so, and moving it would make `{}` mean "unmeasured" for
+    everyone, including the caller who meant it.
     """
     try:
         from core.quality_gate.test_suite_run import run_suite
 
-        return run_suite(project).test_outcomes
+        result = run_suite(project)
+        if result.ran and result.test_outcomes:
+            return result.test_outcomes
+        print(f"[WARN] spec_coverage: suite outcomes unavailable "
+              f"(ran={result.ran}, rc={result.returncode}, "
+              f"{len(result.test_outcomes or {})} outcome(s)); "
+              f"delivery falls back to presence-only", file=sys.stderr)
+        return None
     except Exception as exc:  # noqa: BLE001 — see docstring
         print(f"[WARN] spec_coverage: suite outcomes unavailable ({exc}); "
               f"delivery falls back to presence-only", file=sys.stderr)
