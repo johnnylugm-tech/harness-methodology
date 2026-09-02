@@ -4574,3 +4574,11 @@
 - test: tests/test_corpus_verdict_baseline.py::test_every_skip_in_this_file_asks_the_same_question
   bug: "three hand-rolled skip conditions each named a directory (harness-methodology / taskq-cc/.methodology / taskq-cc/.git) rather than 'is there a corpus here'; on a CI runner the checkout IS called harness-methodology, so one never fired and its test asserted against an empty discovery — Round 20's shape, committed twice in the round that is itself about it"
   fixed_in: "Round 88 站2 (CI 33624162289)"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_note_is_not_a_verdict_and_does_not_count_as_drift
+  bug: "diff_against compared `_note` as if it were a measurement, so the gate would have gone permanently red on the very commit that answered its own demand for an explanation — a path never walked while no entry had a note"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_the_shipped_baseline_replays_clean_with_its_notes_attached
+  bug: "test_the_shipped_baseline_matches_a_live_replay strips _note before comparing, so it stays green even if diff_against treats notes as verdicts; this one does not strip"
+  fixed_in: "Round 88 站3"

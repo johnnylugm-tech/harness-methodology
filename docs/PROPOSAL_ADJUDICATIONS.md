@@ -4005,6 +4005,36 @@ baseline.py` 裡還有**三個各自手寫的 skip 條件**,各自指名一個�
 而 `test_a_moved_verdict_makes_the_replay_exit_nonzero` 當場被新條件弄紅,
 因為它的 `tmp_path` 也沒有專案 —— 那是修法的真實副作用,由既有守衛抓到。
 
+### 首次基準的四段 note,以及寫它時第三次踩到同一個形狀
+
+老闆令補上首次建立的說明。十五個條目各一份四段 note,寫的時候:
+
+- **守衛當場擋下我自己。** 兩個 unmeasured 條目的「最省力滿足」我寫了
+  `Nothing to satisfy.`(< 40 字元)—— 我自己訂了「n/a 不算數」的規則,然後自己
+  寫了兩段實質是 n/a 的。改成真實內容:**讓一個 unmeasured 條目變成 measured,
+  最省力的做法是寫一筆 `phase_completed["3"]` 記錄**,而 `frozen_tree_sha` 只檢查
+  它是 40 個十六進位字元 —— R72 站1 就抓過一個專案在那裡寫
+  `PLACEHOLDER_WILL_BE_REPLACED_ON_ADVANCE`。
+- **`diff_against` 把 `_note` 當成判定在比。** 基準一旦有 note,重播就把每個帶
+  note 的專案報成「不再可量測」—— **這道閘門會在它自己回答「請解釋」的那個
+  commit 上永遠變紅**。在此之前沒有任何條目有 note,所以這條路徑從沒被走過。
+  **本輪第三次**踩到「只有在還沒有人到達的狀態下才會走到的分支」(前兩次把 CI 弄紅)。
+  三處排除清單收成一個 `NON_VERDICT_KEYS`。
+
+寫 note 時查證出來的三件事:
+
+1. **taskq-api 與 taskq-redo 同樣是 `undelivered=0`**,而框架分不出來。
+   本輪為此做了一次函式體掃描(無語句/無斷言/恆真斷言):api 12、redo 16、cc 1 ——
+   **分不出 api 與 redo**。誠實記為「沒找到鑑別訊號」,不是記為乾淨。
+   唯一指認得出 taskq-redo 的仍然只有 `runtime_test_seams=1`(全語料唯一非零)。
+2. **六個 unmeasured 分三類**:`omnibot`/`tts-new` 到了 phase 8 而
+   `phase_completed` **完全是空的**;`taskq`/`run-all-by-workflow` 跑完九個 phase
+   只記到 P1/P2;只有 `taskq-final`(phase 2)是正常的「還沒到」。
+   **六個裡有五個跑過 P3 卻沒留下 P3 出口的 commit** —— 那是 R43 站4 與本輪重播
+   共同的依據。記為待查的觀察,本輪不追根因。
+3. `taskq-plus` / `taskq-renew` 的 committed gate result **沒有 `spec_declared`**,
+   所以它們的漂移是**未知**,不是零。
+
 ### 誠實邊界
 
 1. **基準偵測「移動」,不判斷移動對不對。** 判斷在四段 note 裡,而 note 是人寫的。

@@ -1,17 +1,47 @@
 {
   "omnibot": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None. Recorded as an observation, not a diagnosis \u2014 why phase_completed is empty here has not been investigated this round. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed is EMPTY at current_phase 8 \u2014 not even P1 was recorded.",
+      "why_right": "An empty record at phase 8 is a different failure from taskq's partial one, and collapsing the two would hide it."
+    },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "omnibot-new": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "The 275KB / 34-FR SPEC here is the largest in the corpus, so when it does become measurable it is the tree that will test whether these metrics scale. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed is empty and current_phase is 1 \u2014 this project has not reached P3.",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name."
+    },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "run-all-by-workflow": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict. Five of the six unmeasured entries here ran past P3 without leaving a P3 record, which is worth a round of its own and is not this one. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed holds keys 1 and 2 at current_phase 9 \u2014 the same shape as taskq.",
+      "why_right": "Two independent projects that completed nine phases and recorded only the first two makes this a property of when they ran, not of one project's state file."
+    },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "The reading itself is the signal: at current_phase 9 with no P3 record, this project ran the phase and left nothing behind that could be re-judged. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed holds keys 1 and 2 only, so no commit names this project's P3 exit and there is no tree to freeze.",
+      "why_right": "Recorded as unmeasured rather than dropped (R46): a project this gate cannot watch has to say so, otherwise the coverage silently shrinks."
+    },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq-advance": {
+    "_note": {
+      "cheapest_satisfaction": "An unread row is closed by making it parse \u2014 reformatting the table, not writing a test. That is cheap and it is also correct, so the number going to 0 is not by itself a warning.",
+      "discriminating_signal": "spec_unread_rows and spec_undelivered move independently, which is the discrimination: a row that starts parsing lands in the denominator and shows up as undelivered until a real test exists.",
+      "moved": "First recording: 97 declared / 31 undelivered / 2 unread rows on the P3-exit tree 81bbeb44e786. Accepted at 89/23.",
+      "why_right": "The only tree with unread TEST_SPEC rows recorded here (2). Round 74 \u7ad92 added that out-parameter so silence would stop being the answer; this is the first time the number is pinned anywhere."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -23,6 +53,12 @@
     "spec_unread_rows": 2
   },
   "taskq-api": {
+    "_note": {
+      "cheapest_satisfaction": "Same as any 0: a correctly-named test with a weak or self-chosen assertion counts exactly as a real one. Probed this round and NOT resolved \u2014 a body-level scan (no statements / no asserts / trivially-true asserts) reports 12 here against 16 in taskq-redo, which separates neither.",
+      "discriminating_signal": "None found. runtime_test_seams is 0 here and 1 in taskq-redo, but that rule recognises one AST shape and cannot be read as a verdict on this project. Recorded as an open gap rather than as a clean bill.",
+      "moved": "First recording: 113 declared / 0 undelivered on the P3-exit tree 7e3113ecf131. Accepted at 86/0 \u2014 the denominator has since grown 27 on a tree that never changed.",
+      "why_right": "A second 0-undelivered project, recorded beside taskq-redo's on purpose. Two identical readings whose provenance is not identical is the thing this file is meant to make visible."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -34,6 +70,12 @@
     "spec_unread_rows": 0
   },
   "taskq-cc": {
+    "_note": {
+      "cheapest_satisfaction": "47 criteria left honestly undelivered is what a project pays for not stubbing. Every parser improvement lands on this number, which is why it moved +6 in declared while its undelivered stayed put.",
+      "discriminating_signal": "This project is the signal: it is the reference a new rule has to stay quiet on. If a future check reports here, that is the first thing to explain.",
+      "moved": "First recording: 124 declared / 47 undelivered / 1 unread row / 0 spec_alignment violations on the P3-exit tree 59489a184ad7.",
+      "why_right": "The only tree in the corpus with zero spec_alignment violations, and the control group Round 87 used to choose the shape of three separate rules \u2014 a rule that fires here is measuring the corpus, not a defect."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -45,6 +87,12 @@
     "spec_unread_rows": 1
   },
   "taskq-cc-new": {
+    "_note": {
+      "cheapest_satisfaction": "Not applicable in the usual direction: this project answered the same pressure taskq-redo did by writing tests that shell out to radon and measure p95 over 50 runs (Round 87's counter-proof). The cheap path was available and not taken.",
+      "discriminating_signal": "The framework still cannot see the difference \u2014 it scored this tree BELOW taskq-redo on every dimension. What distinguishes them is in the assertions, and only Round 87 \u7ad95's criteria review reads those, per FR, at P3.",
+      "moved": "First recording: 104 declared / 15 undelivered on the P3-exit tree 5298d3ab760b. Accepted at 104/40 \u2014 the only tree in the corpus that today's enforcer judges LOOSER, by 25.",
+      "why_right": "A loosening nobody reviewed is the half of drift that no ratchet in this repo would have caught. Recording it is what makes the next one answerable."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -56,9 +104,21 @@
     "spec_unread_rows": 0
   },
   "taskq-final": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "It is itself the control for the other five: a project mid-pipeline with the record it should have at this point. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed holds key 1 at current_phase 2 \u2014 this project has not reached P3 either.",
+      "why_right": "The only one of the six unmeasured entries whose absence is simply 'not yet'. Distinguishing it from the five that ran past P3 without a record is the reason each entry carries its own reason."
+    },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq-new": {
+    "_note": {
+      "cheapest_satisfaction": "Identical to taskq-super's: name the missing tests and the number goes to zero without an assertion being written.",
+      "discriminating_signal": "None today. Round 87 \u7ad91 made delivery outcome-aware, but that half is deliberately outside this baseline \u2014 run_suite measures the machine on an archived tree, which is the defect Round 88 \u7ad90 fixed.",
+      "moved": "First recording: 116 declared / 52 undelivered on the P3-exit tree c15966f250d7. Accepted at 81/17 \u2014 +35 on both, the second-largest drift.",
+      "why_right": "A second independent instance of the same +35-ish jump, which is what makes it a property of the enforcer rather than of one project's documents."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -70,6 +130,12 @@
     "spec_unread_rows": 0
   },
   "taskq-plus": {
+    "_note": {
+      "cheapest_satisfaction": "Same as its siblings for the 50 \u2014 name them. Note that its accepted verdict recorded nothing to compare against, so the drift here is unknown rather than zero.",
+      "discriminating_signal": "None for the declarations. What this entry adds is coverage of a different SPEC shape, so a future rule that only works on the 10-FR layout reports here first.",
+      "moved": "First recording: 113 declared / 50 undelivered / 8 FRs on the P3-exit tree 21130712f632. Its own gate2_result.json records no spec_declared at all.",
+      "why_right": "An 8-FR SPEC from an earlier generation, kept in the baseline for exactly that reason: a rule tuned on the 10-FR family should be shown a tree it did not come from."
+    },
     "frs_total": 8,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -81,6 +147,12 @@
     "spec_unread_rows": 0
   },
   "taskq-redo": {
+    "_note": {
+      "cheapest_satisfaction": "This project IS the cheapest satisfaction, on the record: 29 correctly-named empty tests written in the Gate 2 exit commit itself (fbf9f5c). 130/130 stays 130/130 under any parser, so no improvement to the thing that reads declarations can ever move this line.",
+      "discriminating_signal": "Exactly one, and it is narrow: runtime_test_seams=1, the only non-zero in the corpus (deps.py branches at runtime on whether TaskService.create was monkey-patched). spec_undelivered cannot tell this tree from taskq-api's identical 0.",
+      "moved": "First recording, not a move: 130 declared / 0 undelivered / 1 runtime_test_seam on the P3-exit tree f58d68552567.",
+      "why_right": "This is the tree Round 87 traced the three-dimension degradation to, recorded exactly as today's enforcer reads it. It is the reference point the whole baseline exists for."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -92,6 +164,12 @@
     "spec_unread_rows": 0
   },
   "taskq-renew": {
+    "_note": {
+      "cheapest_satisfaction": "8 is small enough that closing it with stubs would cost less than an afternoon, which is the point: cheapness scales with how far below the line a project sits.",
+      "discriminating_signal": "None. Recorded so that a rule which suddenly reports many violations on the corpus's cleanest declaration set has to explain itself.",
+      "moved": "First recording: 89 declared / 8 undelivered / 8 FRs on the P3-exit tree 7e9277dcbf17. Like taskq-plus, its committed gate result carries no spec_declared to compare against.",
+      "why_right": "The lowest undelivered count of any measured tree, and from the older 8-FR family \u2014 the far end of the range this baseline covers."
+    },
     "frs_total": 8,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -103,6 +181,12 @@
     "spec_unread_rows": 0
   },
   "taskq-super": {
+    "_note": {
+      "cheapest_satisfaction": "36 declarations appeared under this tree because the parser stopped dropping rows. A project facing that jump can close it by writing 36 named stubs, which is precisely the path taskq-redo took two rounds later.",
+      "discriminating_signal": "None for the declarations themselves. What this entry buys is that the next +36 cannot happen without somebody writing down what a project below the new line is expected to do about it.",
+      "moved": "First recording: 123 declared / 51 undelivered on the P3-exit tree 2b74f46fb187. Accepted at 87/15 \u2014 the largest drift in the corpus, +36 on both numbers, on bytes that never changed.",
+      "why_right": "The clearest single measurement of how far the bar has moved under projects that were already accepted. It is recorded, not corrected: grandfathering would mean the framework can never raise its own bar (R43 \u7ad94)."
+    },
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -114,6 +198,12 @@
     "spec_unread_rows": 0
   },
   "tts-new": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None. Two projects at phase 8 with no phase_completed entries at all is the finding; its cause is not established here. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed is EMPTY at current_phase 8, the same shape as omnibot.",
+      "why_right": "A second instance of the empty-record shape, which is what makes it worth naming rather than treating as one project's accident."
+    },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   }
 }

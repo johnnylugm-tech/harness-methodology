@@ -103,6 +103,18 @@ def frozen_tree_sha(project: Path, phase: str = REPLAY_PHASE) -> "str | None":
     return sha if isinstance(sha, str) and len(sha) == 40 else None
 
 
+#: Entry keys that carry provenance or prose rather than a verdict. A replay
+#: never produces them, so comparing them against a baseline that does would
+#: report every annotated project as having lost its measurement.
+#:
+#: `_note` was added to this set the first time the baseline actually carried
+#: notes — up to then no entry had one, so the path was never walked and the
+#: gate would have gone permanently red on the commit that answered its own
+#: demand for an explanation. The same shape as this round's two CI failures:
+#: a branch that only runs in the state nobody had reached yet.
+NON_VERDICT_KEYS: frozenset[str] = frozenset({"sha", "_note", "_unmeasured_metrics"})
+
+
 def _fr_ids(tree: Path) -> list[str]:
     import re
     spec = tree / "SPEC.md"
@@ -274,7 +286,7 @@ def diff_against(baseline: dict, current: dict) -> list[str]:
         if "unmeasured" in now:
             continue
         for key in sorted(set(was) | set(now)):
-            if key in ("sha", "_unmeasured_metrics"):
+            if key in NON_VERDICT_KEYS:
                 continue
             old_v, new_v = was.get(key), now.get(key)
             if old_v == new_v:
@@ -326,7 +338,7 @@ def note_defects(previous: dict, current: dict) -> list[str]:
         was = previous.get(name)
         changed = [
             key for key in sorted(set(entry) | set(was or {}))
-            if key not in ("sha", "_note", "_unmeasured_metrics")
+            if key not in NON_VERDICT_KEYS
             and (was or {}).get(key) != entry.get(key)
         ] if isinstance(was, dict) else []
 

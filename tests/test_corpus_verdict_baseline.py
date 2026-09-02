@@ -285,6 +285,46 @@ def test_a_moved_verdict_makes_the_replay_exit_nonzero(tmp_path: Path, monkeypat
     assert cr._cli() == 1, "a moved verdict must block, not merely print"
 
 
+def test_a_note_is_not_a_verdict_and_does_not_count_as_drift() -> None:
+    """The note explains the number; it is not one.
+
+    A replay never produces `_note` (or `sha`, or `_unmeasured_metrics`), so a
+    baseline carrying them would read as having lost those measurements. Up to
+    the commit that first wrote the notes, no entry had one — the path had
+    never been walked, and the gate would have gone permanently red on the very
+    commit that answered its own demand for an explanation. Third time this
+    round that a branch only reachable in a state nobody had produced yet was
+    wrong; the other two turned CI red.
+    """
+    import corpus_replay as cr
+
+    note = {p: "x" * MIN_NOTE_CHARS for p in NOTE_PARTS}
+    was = {"proj": {"spec_declared": 100, "_note": note, "sha": "abc123def456"}}
+    now = {"proj": {"spec_declared": 100}}
+    assert diff_against(was, now) == [], (
+        "prose and provenance must not be compared as verdicts")
+    assert "_note" in cr.NON_VERDICT_KEYS
+
+    # and the real number still moves
+    now_moved = {"proj": {"spec_declared": 42}}
+    assert diff_against(was, now_moved) == ["proj.spec_declared: 100 -> 42"]
+
+
+def test_the_shipped_baseline_replays_clean_with_its_notes_attached() -> None:
+    """End to end, against the file as it ships.
+
+    `test_the_shipped_baseline_matches_a_live_replay` strips `_note` before
+    comparing, which is right for what it asks but means it would stay green
+    even if `diff_against` treated notes as verdicts. This one does not strip.
+    """
+    _require_corpus()
+    baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+    assert any("_note" in v for v in baseline.values()), (
+        "this guard is vacuous unless the shipped baseline actually carries notes")
+    moved = diff_against(baseline, replay())
+    assert not moved, "\n  ".join(["the shipped baseline does not replay clean:"] + moved)
+
+
 def test_every_skip_in_this_file_asks_the_same_question() -> None:
     """One definition of "there is no corpus here", not one per test.
 
