@@ -110,6 +110,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_deliverable_anchors,
     _precheck_early_stage_pass,
     _precheck_manifest_and_p1_baselines,
+    _precheck_p3_criteria_review,
     _precheck_p3_security_and_quality,
     _precheck_per_fr_gate1_and_phase_truth,
     _precheck_scope_violations,
@@ -2028,6 +2029,14 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     #   19 → mypy: type errors in src
     #   20 → gitleaks: hardcoded secrets detected
     _pre_rc = _precheck_p3_security_and_quality(completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # ── Criteria review (P3 exit) — Round 87 站5 ──────────────────
+    # Placed after the P3 quality block so the cheap, deterministic checks
+    # report first; this one reads every FR's approval and re-measures the
+    # assertions it pinned.
+    _pre_rc = _precheck_p3_criteria_review(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

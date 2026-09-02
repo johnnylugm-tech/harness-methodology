@@ -55,6 +55,21 @@ _EXTRACTED: "dict[str, dict]" = {
         "caller": "_advance_prechecks",
         "prefix": "_precheck_",
         "generated_tail": True,
+        # Round 87 站5 added `_precheck_p3_criteria_review` — NEW work in the
+        # caller, not an edit to any moved body. Reconstruction therefore
+        # returns thirteen statements `phase_cmds.py.before` never had, and
+        # that one claim has expired: `_advance_prechecks` is no longer the
+        # function that was there, because the P3 exit now has a check it did
+        # not have. The other three claims are untouched and still run — every
+        # extracted body is still byte-identical, reads only what it is given,
+        # and has its early return propagated.
+        #
+        # This is Round 83 站1's shape exactly, and the comment below (written
+        # when that round's key was removed) invites it back with its own
+        # reason. The alternative was worse both ways: naming the new helper
+        # something that does not match `prefix` games the guard, and removing
+        # the whole entry deletes three live claims to retire one.
+        "reconstructible": False,
         "helpers": (
             "_precheck_cleared_dir_evidence",
             "_precheck_backup_artifacts",
@@ -271,9 +286,17 @@ def test_no_helper_reads_a_name_nobody_gives_it(label):
     )
 
 
-@pytest.mark.parametrize("label", sorted(_EXTRACTED))
+@pytest.mark.parametrize(
+    "label",
+    sorted(k for k, v in _EXTRACTED.items() if v.get("reconstructible", True)),
+)
 def test_undoing_the_extraction_gives_back_the_original_function(label):
     """The complete claim: same statements, same ORDER, nothing added or lost.
+
+    Skipped for an entry marked `reconstructible: False` — a caller that has
+    since gained NEW work is no longer the function that was there, while its
+    extracted bodies can still be byte-identical. That entry's reason is beside
+    the key, and its other three claims keep running.
 
     Byte-identity proves each body was not rewritten. The data-flow rule proves
     no binding escapes. Neither says the call sites are in the order the runs

@@ -140,7 +140,11 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-01
   python3 harness_cli.py amend-sab --project .
+  python3 harness_cli.py review-fr-tests --fr-id FR-01 --phase 3 --project .
   ```
+  → review-fr-tests REJECT: fix the TEST so it fails when SPEC.md's FR-01 requirement
+    is violated — not the implementation, and not by weakening the assertion. Re-run GATE1,
+    then re-run review-fr-tests. advance-phase blocks at the P3 exit while it stands.
 
 > 💡 **Crash recovery**: `python3 harness_cli.py resume-fr-phase --phase 3 --project .`
 > prints the next pending step (idempotent on re-run).
@@ -211,7 +215,11 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   ```bash
   python3 harness_cli.py spec-coverage-check --project . --threshold 40.0 --fr-id FR-02
   python3 harness_cli.py amend-sab --project .
+  python3 harness_cli.py review-fr-tests --fr-id FR-02 --phase 3 --project .
   ```
+  → review-fr-tests REJECT: fix the TEST so it fails when SPEC.md's FR-02 requirement
+    is violated — not the implementation, and not by weakening the assertion. Re-run GATE1,
+    then re-run review-fr-tests. advance-phase blocks at the P3 exit while it stands.
 
 > 💡 **Crash recovery**: `python3 harness_cli.py resume-fr-phase --phase 3 --project .`
 > prints the next pending step (idempotent on re-run).

@@ -442,6 +442,80 @@ def _precheck_scope_violations(_orphans, completed_phase, project) -> "int | Non
     return None
 
 
+def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
+    """P3 exit: every FR's tests were read against the requirement they verify.
+
+    Round 87 站5, the enforcing half. The producing half is
+    `harness_cli.py review-fr-tests`, which every P3 per-FR ORCH-POST runs and
+    which this block names for any FR that has not.
+
+    This runs the SAME pair of checks the producer ran —
+    `verify_agent_b_approvals_core` for the approval's own shape, and
+    `criteria_review.approval_defects` for what it was about — so an approval
+    accepted at ORCH-POST can only fail here for a reason that arose AFTER it:
+    a declared assertion edited, a declared test added or removed. That is the
+    whole point of pinning them (Round 69: a verdict is not the last thing
+    said about the tree unless something re-reads it).
+
+    Measured before shipping: no corpus project is at phase 3 (they sit at 1,
+    7, 8 or 9) and no project anywhere holds an `FR-*.json` approval, so this
+    blocks nothing already in flight — the next project to run P3 gets the
+    producer and the enforcer together.
+    """
+    if completed_phase != 3:
+        return None
+    import json
+
+    from cli.exit_codes import EX_AGENT_B_APPROVALS_INCOMPLETE
+    from core.quality_gate import criteria_review
+
+    fr_ids = _resolve_fr_ids_from_manifest(project)
+    if not fr_ids:
+        return None
+    problems: list[tuple[str, list[str]]] = []
+    for fr_id in fr_ids:
+        approval_path = (project / ".methodology" / "agent_b_approvals" / f"{fr_id}.json")
+        passed, report = agent_b_approvals.verify_agent_b_approvals_core(
+            project, 3, [fr_id]
+        )
+        reasons: list[str] = []
+        if not passed:
+            reasons = [ln.strip() for ln in report.splitlines()
+                       if ln.strip().startswith("•")] or [report.strip()]
+        if approval_path.is_file():
+            try:
+                approval = json.loads(approval_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                reasons.append(f"approval JSON unreadable: {exc}")
+                approval = None
+            if isinstance(approval, dict):
+                reasons += criteria_review.approval_defects(project, fr_id, approval)
+        if reasons:
+            problems.append((fr_id, reasons))
+
+    if not problems:
+        print(f"  [criteria-review] Phase 3 — {len(fr_ids)} FR review(s) verified ✓")
+        return None
+
+    print(
+        f"\n[BLOCKED] Phase 3 criteria review incomplete for "
+        f"{len(problems)}/{len(fr_ids)} FR(s). A test named after an acceptance "
+        "criterion is not a test of it — one reader must have read the "
+        "requirement and the assertions together, and that reading must still "
+        "describe the tests on disk."
+    )
+    for fr_id, reasons in problems:
+        print(f"  {fr_id}:")
+        for r in reasons:
+            print(f"    • {r.lstrip('• ')}")
+        print(
+            f"    → python3 harness_cli.py review-fr-tests --fr-id {fr_id} "
+            f"--phase 3 --project ."
+        )
+    print("  Then re-run advance-phase.")
+    return EX_AGENT_B_APPROVALS_INCOMPLETE
+
+
 def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
     """P3 security and quality — extracted verbatim from `_advance_prechecks`.
 

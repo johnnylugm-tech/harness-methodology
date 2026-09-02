@@ -219,16 +219,10 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
                 )
                 return 1
 
-    approvals_dir = project / ".methodology" / "agent_b_approvals"
-    approval_path = approvals_dir / f"{fr_id}.json"
     try:
-        approvals_dir.mkdir(parents=True, exist_ok=True)
-        # Atomic write (tmp + os.replace) — same pattern as taskq NFR-03 atomic contract
-        tmp_path = approval_path.with_suffix(approval_path.suffix + ".tmp")
-        tmp_path.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp_path, approval_path)
+        approval_path = _write_approval_file(project, fr_id, payload)
     except OSError as e:
-        print(f"[write-approval] ERROR: write failed for {approval_path}: {e}", file=sys.stderr)
+        print(f"[write-approval] ERROR: write failed for {fr_id}: {e}", file=sys.stderr)
         return 1
 
     # Deterministic in-process verify (replaces LLM-as-shell-wrapper disk check)
@@ -241,6 +235,124 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
         return 2
 
     print(f"[write-approval] OK: {approval_path} ({size} bytes, written + verified)")
+    return 0
+
+
+def _write_approval_file(project: Path, fr_id: str, payload: dict) -> Path:
+    """Atomically persist one approval JSON; returns the path written.
+
+    Extracted from `cmd_write_approval` when `cmd_review_fr_tests` needed the
+    same six lines. Two copies of "how an approval lands on disk" is how the
+    tmp-file convention drifts on one path and not the other.
+    """
+    approvals_dir = project / ".methodology" / "agent_b_approvals"
+    approval_path = approvals_dir / f"{fr_id}.json"
+    approvals_dir.mkdir(parents=True, exist_ok=True)
+    # Atomic write (tmp + os.replace) — same pattern as taskq NFR-03 atomic contract
+    tmp_path = approval_path.with_suffix(approval_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp_path, approval_path)
+    return approval_path
+
+
+def cmd_review_fr_tests(args: argparse.Namespace) -> int:
+    """Review this FR's tests against the requirement as originally stated.
+
+    Round 87 站5. The chain SPEC -> SRS -> TEST_SPEC -> test -> code is
+    consistent at every adjacent step and inverted end to end (see
+    `core.quality_gate.criteria_review`). This is the one dispatch that reads
+    both ends.
+
+    The harness owns everything except the judgement: it resolves the
+    requirement source, the FR's test files and the AST digest of each
+    declared test, dispatches a stateless reviewer, writes the approval with
+    its own measurements attached, and then verifies the result through the
+    SAME pair of checks advance-phase will run at the P3 exit. An approval
+    this command would not accept never reaches disk as an accepted one.
+
+    Exit 0 = APPROVE that passes both checks; 1 = anything else.
+    """
+    from core.quality_gate import criteria_review
+
+    project = Path(args.project).resolve()
+    fr_id = args.fr_id
+    phase = getattr(args, "phase", 3)
+    sources = criteria_review.review_sources(project, fr_id)
+    prompt = criteria_review.review_prompt(project, fr_id, sources)
+
+    if getattr(args, "print_prompt", False):
+        print(prompt)
+        return 0
+
+    if not sources["test_files"]:
+        print(
+            f"\n[BLOCKED] review-fr-tests {fr_id}: no test file is named after "
+            f"or annotated with {fr_id}, so there is nothing to review.\n"
+            f"  Fix: put {fr_id}'s tests in test_fr<NN>.py, or annotate them "
+            f"[{fr_id}] in their docstrings (NFR-05), then re-run this command.",
+            file=sys.stderr,
+        )
+        return 1
+
+    from cli.fr_cmds import _extract_review_json
+    from core.agent_spawner import AgentSpawner
+
+    result = AgentSpawner(project_path=project).spawn(
+        role="CRITERIA_REVIEWER",
+        prompt=prompt,
+        context={"phase": phase, "fr_id": fr_id},
+        phase=phase,
+        fr_id=fr_id,
+        # Stateless reviewer: persona/SOP push Claude into exploration instead
+        # of returning JSON (SAD §reviewer_router), and one response turn is
+        # what this asks for — same settings cmd_dispatch applies to its own
+        # reviewer roles.
+        persona_override="",
+        phase_sop_override="",
+        max_turns=3,
+    )
+    status = result.get("status", "")
+    review = _extract_review_json(result.get("output", "")) if status == "complete" else None
+    if not review:
+        print(
+            f"\n[BLOCKED] review-fr-tests {fr_id}: reviewer returned no review "
+            f"JSON (dispatch status={status!r}).\n"
+            "  Fix: re-run this command; on a repeated failure inspect the "
+            "dispatch log named above.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # The harness's own measurements, not the reviewer's. A number a reviewer
+    # reports about the tree is a claim; this block is a reading.
+    review[criteria_review.REVIEW_BLOCK_KEY] = {
+        "requirement_path": sources["requirement_path"],
+        "declared_tests": sources["declared_tests"],
+        "assertion_digests": sources["assertion_digests"],
+        "test_files": sources["test_files"],
+    }
+    try:
+        approval_path = _write_approval_file(project, fr_id, review)
+    except OSError as exc:
+        print(f"[review-fr-tests] ERROR: write failed for {fr_id}: {exc}", file=sys.stderr)
+        return 1
+
+    passed, report = agent_b_approvals.verify_agent_b_approvals_core(project, phase, [fr_id])
+    defects = criteria_review.approval_defects(project, fr_id, review, sources)
+    if not passed or defects:
+        print(f"\n[BLOCKED] review-fr-tests {fr_id}: the review does not stand.")
+        if not passed:
+            print(report)
+        for d in defects:
+            print(f"    • {d}")
+        print(
+            f"  Fix: the reviewer's own output is at {approval_path}. Address "
+            f"the point(s) above, then re-run:\n"
+            f"    python3 harness_cli.py review-fr-tests --fr-id {fr_id} "
+            f"--phase {phase} --project ."
+        )
+        return 1
+    print(f"[review-fr-tests] {fr_id}: APPROVE verified → {approval_path}")
     return 0
 
 
@@ -395,6 +507,22 @@ def register(sub) -> None:
     vab.add_argument("--fr-ids",  default="", dest="fr_ids",
                      help="Comma-separated FR IDs (default: read from quality_manifest.json)")
     vab.set_defaults(func=cmd_verify_agent_b_approvals)
+
+    # review-fr-tests (Round 87 站5 — the one reader that sees both ends of the
+    # requirement chain: SPEC.md's text and the FR's own assertions)
+    rft = sub.add_parser(
+        "review-fr-tests",
+        help="Dispatch a criteria review for one FR: do this FR's assertions "
+             "fail when SPEC.md's requirement is violated? Writes/verifies "
+             ".methodology/agent_b_approvals/FR-XX.json (exit 0=APPROVE verified).",
+    )
+    rft.add_argument("--project", default=".", help="Project root (default: .)")
+    rft.add_argument("--fr-id", required=True, dest="fr_id", help="FR ID (e.g. FR-07)")
+    rft.add_argument("--phase", type=int, default=3, help="Current phase number (default: 3)")
+    rft.add_argument("--print-prompt", action="store_true", dest="print_prompt",
+                     help="Print the reviewer prompt and exit without dispatching "
+                          "(inspect what the reviewer is given, no LLM call)")
+    rft.set_defaults(func=cmd_review_fr_tests)
 
     # write-approval (architectural fix for Bug v22 — replaces LLM-as-shell-wrapper persistApproval)
     wa = sub.add_parser(

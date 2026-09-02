@@ -671,7 +671,7 @@ _LINE_CEILING: dict[str, int] = {
     # the plan text and phase1-requirements.js say the same thing; a project
     # entered directly at P3 on a venv-less checkout is recorded in
     # docs/PROPOSAL_ADJUDICATIONS.md as a next-round candidate, not widened here.
-    "scripts/plangen/blocks.py": 1747,  # 2026-08-23: +2 — Round 70 站1: `_SPEC_COVERAGE_THRESHOLDS` gains its gate-1 entry (40.0) and the note recording why it was absent. The reader sat behind `if score_gate is not None` and gate 1 declared no score_gate, so declaring one walked into a KeyError on a branch that had never run for gate 1. Previous: 1745.
+    "scripts/plangen/blocks.py": 1749,  # 2026-09-02: +2 — Round 87 站5: the P3 per-FR [ORCH-POST] block gains the `review-fr-tests` command line plus the three-line note on what a REJECT means (fix the test, not the implementation). One line is the command; the three prose lines replace nothing, because the manual CLI path had no statement of this step at all. Previous: 1747.  # 2026-08-23: +2 — Round 70 站1: `_SPEC_COVERAGE_THRESHOLDS` gains its gate-1 entry (40.0) and the note recording why it was absent. The reader sat behind `if score_gate is not None` and gate 1 declared no score_gate, so declaring one walked into a KeyError on a branch that had never run for gate 1. Previous: 1745.
     # 2026-07-11: +3/+6 lines — new check_module_fr_coverage gate (module/FR-NFR
     # ownership drift between TRACEABILITY_MATRIX.md's own §5.3 and
     # SPEC_TRACKING.md's §5) wired into preflight_artifact_consistency
@@ -765,7 +765,10 @@ _LINE_CEILING: dict[str, int] = {
     # dispatches to, so a command's flags and its body are now in one file.
     # What is left is the re-exports and a register() that names the six
     # families — which is the whole of what this module is for.
-    "cli/check_cmds.py": 81,
+    #
+    # 2026-09-02: 81 -> 82. Round 87 站5 adds one re-export line,
+    # `cmd_review_fr_tests`, for the same reason the other eight are here.
+    "cli/check_cmds.py": 82,
     # 2026-07-12: +2 lines — Round 5 exception-swallow ratchet: _manifest_fr_ids
     # / _auto_fr_ids now log the swallowed parse error before returning [].
     # 2026-07-17: +5 lines — the sessions_spawn.log.lock gitignore entry

@@ -3986,7 +3986,7 @@ high_score_count: 22` —— 滿分。`canonical_diff._best_match_ratio` 的 doc
 | 2 | 阻擋訊息的三份宣告收成一個生產者,指名失去驗證者的 AC 並按原因分組;gate result 加 `denominator_provenance` |
 | 3 | Deferred 表補 `Inputs` 欄(修在 `spec_phase2.py` 那唯一一句宣告),`deferred_inputs_violations` 讀它 |
 | 4 | `spec_config_keys` + `unread_config_key`(阻擋);`machine_block_parity`(只回報) |
-| 5 | **未做** —— 見下 |
+| 5 | 第一次**未做**(見〈站5 未做〉);老闆同意再開條件後補做 —— `criteria_review` + `review-fr-tests` + P3 出口執法,見〈站5 補做〉 |
 | 6 | `check_test_seams`:生產碼不得 runtime 分支於「測試是否動過手腳」 |
 | 7 | `SPEC_AMBIGUITY` 有了讀者(delivery fingerprint);弱化授權加上門檻界線 |
 | 8 | guards 1034→1063、10 條反證、賬本 |
@@ -4041,7 +4041,11 @@ taskq-redo 的 `deps.py:181`。
 
 四條反證(CP-11..14)各自轉紅、`cp` 還原逐位相同。self_check 8027 passed / 4 skipped。
 
-### 站5 未做,以及為什麼不半做
+### 站5(第一次未做,以及為什麼不半做)
+
+> **後續**:老闆於 2026-09-02 同意再開條件,站5 已完成。做法與六項實測見下一節
+> 〈站5 補做〉。本節保留原樣,因為它記的是當時為什麼**不**半做 —— 那個判斷至今成立,
+> 而且下一節的方案正是照它列的兩個限制設計的。
 
 計畫的站5 是「把 RED 測試納入 Agent B 的審查,零新 dispatch」。實作時量到兩件事,
 兩件都推翻那個前提:
@@ -4063,6 +4067,93 @@ taskq-redo 的 `deps.py:181`。
 **再開條件**:老闆同意 P3 出口新增一次 dispatch(或每 FR 一次)。
 量到的病灶不變:`downgrade()` 寫 `pass` 是因為 AC-7.1 的測試斷言 `tasks` 仍在,
 而 AC 文字與那個斷言**從來沒有被同一個讀者同時看過**。
+
+### 站5 補做 — 讓一個讀者同時看到需求與斷言,並留下會過期的紀錄
+
+老闆同意再開條件(2026-09-02)。兩半一起蓋。
+
+**要比對的是兩端,不是相鄰的兩環。** 本輪重新查證交付樹(唯讀):
+
+| 位置 | 逐字 |
+|---|---|
+| `SPEC.md` FR-07 | `\| **v1** \| 建立 tasks、api_keys 兩表 \| **drop 兩表** \|` |
+| `SRS.md` AC-7.1 | 弱化成「`upgrade head` 與 `downgrade base` 都 exit 0」 |
+| `test_fr07.py:217` | `# v1 tables must remain (downgrade base leaves v1 in place).` |
+| `test_fr07.py:218` | `assert "tasks" in table_names_after` |
+| `v1_initial.py` | `def downgrade(): pass` |
+
+所以**需求來源是 SPEC.md,不是 SRS.md**。走到 SRS 時需求已經被縮小,拿被縮小的
+那一版去審,審查會通過那個反相的斷言而不與任何被給的文字牴觸 —— prompt 因此
+明文禁止代入任何 restatement,並有守衛釘住 SRS 的 AC 散文不得出現在 prompt 裡。
+
+**沒有任何機械規則能判定它。** 站3 已量到 AC 散文抽數值 86% 是噪音,而這是語意
+反相,不是數字。LLM 是唯一的讀取工具;框架擁有的是它周圍的一切。
+
+#### 六項實測(規則的形狀由量測選出)
+
+| # | 量的是什麼 | 結果 | 對方案的影響 |
+|---|---|---|---|
+| 1 | `_extract_srs_fr_section` 用在 **SPEC.md** 是否有界 | 13 專案全部有界。taskq 家族 max 687 字元;omnibot-new(275KB SPEC / 34 FR)median 5,917、max 14,057 | **重用,不寫第二支 parser**(移進 `core/quality_gate/parsers/fr_section.py`,cli 端改為委派,17 支 prompt golden 逐位不變) |
+| 2 | 每個 FR 是否至少有一個測試檔 | 11 專案 **101 FR,100 有**(唯一例外 taskq-mm FR-04) | 「零測試檔」本身就是要報的缺陷 |
+| 3 | `unresolvable_citations` 能否解析 `03-development/tests/…:217` 與 `SPEC.md:132` | 都能;`tests/test_fr07.py:10` 不能(`_PHASE_DIRS` 不含巢狀 tests) | **不放寬 `_PHASE_DIRS`**(會改動 P1/P2/P6);prompt 直接給框架算出的專案相對路徑 |
+| 4 | 幾個語料專案卡在 phase 3 | **零個**(1/7/8/9)。`FR-*.json` approval 全語料 **0 份** | 新執法點不擋任何在飛的專案;下一個跑 P3 的專案兩半一起拿到 |
+| 5 | FR 的測試檔在 RED 之後改幾次 | 4 專案各 **2–7 次**(MIRROR 對齊、GREEN、coverage+pragma、G2 修復、**P3 出口 lint**)。整檔 byte digest **4/4 都會過期** | **整檔 digest 不可用** |
+| 6 | 改成「只 digest 該 FR 在 TEST_SPEC 宣告的測試函式、AST 正規化」 | taskq-cc 5 支 **0 變**、taskq-new 7 支 **0 變**、taskq-redo 5 支 1 變、taskq-cc-new 5 支 1 變 | **這是正確的粒度**。2/4 專案完全不必重審;另 2 個各有一支**被審過的斷言真的改了**,那時擋住是對的 |
+
+量測 5→6 是本站唯一一次被自己的量測改寫:方案第一版釘的是檔案 sha256。
+
+#### 落地
+
+| 元件 | 做了什麼 |
+|---|---|
+| `core/quality_gate/criteria_review.py` | `review_sources` / `review_prompt` / `approval_defects` —— **一個定義,兩個讀者**(生產者與執法者共用同一次呼叫) |
+| `review-fr-tests`(`cli/checks/approvals.py`) | 組 sources → 派 stateless reviewer → **框架自己**補上 `criteria_review` 區塊(digests 由框架算,不採信 agent 回報的任何數字)→ atomic 寫入 → 立刻用執法用的同一對檢查自我驗證。`--print-prompt` 是不叫 LLM 也能檢查 prompt 的接縫 |
+| `REQUIRED_EMBEDDED_DOCS[3] = []` | **存在且為空**是刻意的:缺 key 會讓 `.get(phase, ["SRS.md","SAD.md"])` 去要求一份 reviewer 根本沒讀過的 SAD.md。P3 要求哪份文件是動態的,規則放在解析得出來源的那一邊 |
+| `_precheck_p3_criteria_review`(P3 出口) | 逐 FR 跑 `verify_agent_b_approvals_core` + `approval_defects`,擋下時**指名缺陷並印出每個 FR 該跑的那一行**,回傳既有的 exit 13(`fault_owner` 已對到 `Owner.PROJECT`,不新增 exit code) |
+| `spec_phase3.py` / `plangen/blocks.py` | ORCH-POST 新增同一步;`.claude/workflows/*.js` 全部由 `--write` 重生 |
+
+`approval_defects` 的五條規則全部是框架自己算的,沒有一條讀 agent 的散文
+(R77):沒有框架寫的區塊、宣告集合變了、任一斷言 digest 不符(**指名那支**)、
+`docs_embedded` 沒列需求來源、citation 沒有同時落在需求端與測試端。
+`review_status`/`reason` 長度/citation 可解析**不重複實作**,交給
+`verify_agent_b_approvals_core`。
+
+#### 為什麼審查點在 GATE1 PASS 之後
+
+量測 5/6:RED 時釘住的 digest 會被 MIRROR/GREEN/coverage 反覆作廢,等於每個 FR
+要審兩次以上。代價是測試已經綠了、reviewer 有合理化的誘因 —— 反事實判準
+(「哪一行斷言在需求被違反時會失敗」)是抵銷它的手段,不是消除。
+
+#### 誠實邊界
+
+1. **買到的是紀錄,不是保證。** 機械層保證「有人同時看過兩端,而且看的就是現在
+   這份斷言」,不保證他看得出來。
+2. **只擋 P3 出口。** P4 之後測試再改,P3 的 approval 不會被重新檢查。
+   `test_other_phases_are_untouched` 把這個範圍寫成可證偽的,而不只是寫在這裡。
+3. **prompt 改了不等於行為改了。** 本站只能宣稱「文字改了、機械層擋得住」;
+   reviewer 的實際判斷力本輪無法驗證。
+4. **量測 6 只在四個專案的 FR-07 上做過。** 別的 FR 形狀(例如 class-nested)可能
+   不同;`test_comments_pragmas_and_undeclared_tests_do_not_expire_it` 會在漂回
+   整檔 digest 時報。
+
+#### 本站自己修正的一項
+
+計畫寫「11 專案 110 FR、109 有測試檔」。那是我心算的,**實際是 101 / 100**
+(5+8+8+10×8 = 101)。守衛裡寫的是實測值。
+
+#### 一個守衛的退場,以及為什麼不是換掉它
+
+`_advance_prechecks` 多了一個 precheck 呼叫,`test_undoing_the_extraction_gives_
+back_the_original_function` 因此轉紅 —— 它比對的是「把抽出的 helper 塞回去,會不會
+拿回抽取前那個函式」,而現在不會了:P3 出口多了一項它以前沒有的檢查。
+
+**被抽出的九個 helper 一個位元組都沒動**(byte-identity / data-flow / early-return
+三條主張全綠)。R83 站1 遇過一模一樣的情況並留下解法(`reconstructible: False`
++ parametrize 過濾),那段註解寫著「the round that next needs it can add it with
+its own reason」。照做:只讓那一條過期的主張退場,另外三條照跑。
+
+兩個被否決的替代:把新 helper 取一個不以 `_precheck_` 開頭的名字 —— 那是繞過守衛
+(R64 的形狀);整條 entry 移除 —— 為了退掉一條主張而刪掉三條活的。
 
 ### 告知不修 / 明列不做
 

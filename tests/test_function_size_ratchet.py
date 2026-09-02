@@ -139,7 +139,13 @@ _CEILINGS: dict[str, int] = {
     # function_it_covers fails until this number is lowered in the same
     # commit as the shrink, which is exactly what Round 78 站3 rewrote a
     # file-ratchet entry for.
-    "cli/phase_cmds.py::_advance_prechecks": 244,
+    # Round 87 站5: 244 -> 252. Eight lines — a four-line comment saying why
+    # the criteria review runs after the P3 quality block, the
+    # `_precheck_p3_criteria_review` call, and its three-line return
+    # propagation. The check itself is 65 lines in its own helper in
+    # cli/advance_prechecks.py, not here; what this function gained is one
+    # more call site, which is what it is for.
+    "cli/phase_cmds.py::_advance_prechecks": 252,
     # The one run with NO safe cut point under the extraction rule: every
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line

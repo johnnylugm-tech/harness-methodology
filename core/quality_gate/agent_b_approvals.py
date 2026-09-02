@@ -19,9 +19,19 @@ __all__ = [
 ]
 
 # Documents that Agent B must embed per phase (SAD.md doesn't exist until P2)
+#
+# Phase 3 is present and EMPTY on purpose (Round 87 站5). Its review is a
+# criteria review — this FR's tests against the requirement as stated — and the
+# document that states the requirement is SPEC.md for a project that has one
+# and SRS.md for a project that does not. A static per-phase list cannot say
+# "whichever of those two this project has", so the rule lives in
+# `criteria_review.approval_defects`, which resolves the source before it
+# checks. Without this key the `.get(phase, ["SRS.md", "SAD.md"])` default
+# below would demand SAD.md of a reviewer that was never shown it.
 REQUIRED_EMBEDDED_DOCS: dict[int, list[str]] = {
     1: ["SRS.md"],
     2: ["SRS.md", "SAD.md"],
+    3: [],
     6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "VERIFICATION_REPORT.md"],
 }
 

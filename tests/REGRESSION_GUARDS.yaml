@@ -4362,3 +4362,97 @@
 - test: tests/test_test_seam_in_production.py::test_a_symlinked_project_path_does_not_raise
   bug: "the module's docstring said 'never raises' and it raised: ProjectLayout resolves the root so rglob yields resolved paths, and an unresolved caller path (macOS /tmp -> /private/tmp, or any project reached through a symlink) made relative_to throw ValueError. preflight_artifact_consistency wraps its checks in `except Exception` and turns that into `[BLOCKED] artifact-consistency scan error` — a hard block on a tree with no defect in it"
   fixed_in: "Round 87 站9"
+
+# ── Round 87 站5 — one reader who sees the requirement and the assertion ──
+# taskq-redo's FR-07: SPEC.md says v1's downgrade drops both tables, SRS
+# AC-7.1 narrowed that to "both commands exit 0", test_fr07.py:218 asserts
+# `"tasks" in table_names_after`, and v1_initial.py's downgrade() is `pass`.
+# Every adjacent pair agrees; only the ends disagree, and nothing read both.
+
+- test: tests/test_criteria_review.py::test_sources_resolve_requirement_tests_and_digests
+  bug: "the criteria review's three inputs (requirement excerpt, the FR's test files, the AST digest of each DECLARED test) must all be measured by the harness, not reported by the reviewer"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_a_project_without_a_spec_falls_back_to_srs_and_says_so
+  bug: "a project with no SPEC.md is reviewed against SRS.md, and the approval must record WHICH — the two are not equivalent evidence"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_an_fr_with_no_test_file_is_a_defect
+  bug: "an FR with no test file (taskq-mm FR-04, 1 of 101 corpus FRs) must be reported, not silently approved as a review of nothing"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_an_approval_without_the_harness_block_does_not_stand
+  bug: "a hand-written APPROVE records nothing about what it reviewed; without the harness-written criteria_review block the approval is unverifiable"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_editing_a_reviewed_assertion_expires_the_approval
+  bug: "Round 69's shape — a verdict outliving its proof. Editing a declared test's assertion after the review must expire the approval AND name the test"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_comments_pragmas_and_undeclared_tests_do_not_expire_it
+  bug: "the digest's granularity: a whole-file sha256 goes stale in 4/4 corpus projects on comments/pragmas/lint; restricted to declared functions via ast.dump, taskq-cc and taskq-new show zero changes across the same commits"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_a_new_declared_test_expires_it
+  bug: "a criterion declared in TEST_SPEC.md after the review was never part of the verdict"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_citing_only_the_requirement_does_not_stand
+  bug: "'one reader saw both ends' in mechanical form — an approval citing only SPEC.md never looked at an assertion"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_citing_only_the_tests_does_not_stand
+  bug: "the other half — an approval citing only the tests judged them against nothing"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_docs_embedded_must_name_the_requirement_source
+  bug: "REQUIRED_EMBEDDED_DOCS[3] is empty because P3's required document is SPEC.md or SRS.md per project; the rule lives in approval_defects, which resolves the source first"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_a_complete_approval_has_no_defects
+  bug: "the rules must be satisfiable — a checker no correct approval can pass is a permanent block, not a gate"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_the_prompt_carries_the_requirement_the_paths_and_the_question
+  bug: "the reviewer must be given the requirement verbatim, the test paths, and the counterfactual question (which assertion FAILS if the requirement is violated) rather than 'is this AC covered'"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_the_prompt_does_not_embed_the_srs_restatement
+  bug: "SRS AC-7.1 is the narrowed link; a reviewer shown it approves the inverted assertion without contradicting anything it was given"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_phase3_is_not_a_phase_deliverable_phase
+  bug: "adding key 3 to PHASE_DELIVERABLES breaks every P3 dispatch (cli/fr_cmds.py:113 forces --fr-id to be a deliverable NAME) — the reason Round 87 left 站5 unbuilt the first time"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_phase3_required_embedded_docs_is_declared_and_empty
+  bug: "absent (not empty) makes .get(phase, ['SRS.md','SAD.md']) demand SAD.md of a reviewer never shown it, failing every P3 approval on an unrelated document"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_the_generated_phase3_workflow_runs_the_review
+  bug: "Round 64's lesson — `generate_workflows.py --check` stays green if the step is deleted from the generator and regenerated; a guard has to pin what the shipped file SAYS"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_the_plan_tells_the_manual_path_the_same_thing
+  bug: "the plangen CLI fallback path must carry the same step as the workflow — a producer only the workflow knows about leaves the manual path blocked at the P3 exit with no instruction"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_advance_phase_blocks_p3_without_a_review
+  bug: "the enforcing half (Round 30: both halves or neither) — P3 exit blocks with exit 13 and names the exact review-fr-tests command per FR"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_advance_phase_passes_p3_with_a_complete_review
+  bug: "a complete review must let the advance through — otherwise the producer's output can never satisfy the enforcer"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_other_phases_are_untouched
+  bug: "scope: this station gates the P3 exit only; widening it later has to change this test rather than only the ledger"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_every_corpus_fr_but_one_has_a_test_file_to_review
+  bug: "the corpus measurement kept executable: 100 of 101 FRs across eleven projects resolve at least one test file, so the review has something to be about in practice"
+  fixed_in: "Round 87 站5"
+
+- test: tests/test_criteria_review.py::test_advance_phase_actually_calls_the_precheck
+  bug: "Round 43's shape — every other guard here calls _precheck_p3_criteria_review directly and stays green if the call site vanishes from _advance_prechecks; this one reads the caller and checks the exit code is propagated"
+  fixed_in: "Round 87 站5"

@@ -19,6 +19,7 @@ from cli.checks.approvals import (  # noqa: F401  (re-exported for harness_cli +
     cmd_check_manifest_integrity,
     cmd_generate_verification_report,
     cmd_manifest,
+    cmd_review_fr_tests,
     cmd_verify_agent_b_approvals,
     cmd_verify_file,
     cmd_write_approval,
