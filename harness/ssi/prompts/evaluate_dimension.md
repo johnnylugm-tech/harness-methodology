@@ -206,8 +206,15 @@ python3 -m detect_secrets scan . --baseline .secrets.baseline
 
 ### license_compliance (Tier 1)
 ```bash
-scancode --license --processes 2 --json-pp - src/ | head -300
+scancode --license --processes 2 --json-pp - src/ 2>/dev/null
 ```
+**No `2>&1` and no `head` here, unlike the blocks above.** This dimension has no
+framework-produced number behind it, so the committed `tool_output` IS the
+score's only backing and the harness parses it: it must be scancode's own JSON
+document, whole. scancode writes that JSON to stdout and its warnings and
+`Scanning done.` summary to stderr — a file holding both parses as neither, and
+`head` truncates a pretty-printed document mid-object. Put any excerpt you want
+to comment on in `tool_evidence`; `tool_output` is the tool's own file.
 
 ### mutation_testing (Tier 1)
 

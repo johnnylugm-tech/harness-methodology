@@ -83,6 +83,9 @@ def _validate_tool_content(
       3. Tool-specific structural pattern match (applies to both)
       4. For tools whose dimension score is read out of the output: the
          quantity itself is present (Round 67 站3)
+      5. For a tool whose dimension score has no framework-produced number,
+         so that this file is the score's whole backing: the file says which
+         tool produced it (Round 91, file only)
 
     Returns list of violation messages (empty = OK).
     """
@@ -135,7 +138,78 @@ def _validate_tool_content(
                 f"with coverage enabled and cite that run"
             )
 
+    # 5. Round 91. For a tool whose dimension score has NO framework-produced
+    #    number, the committed file is the score's only backing, and check 3
+    #    is not enough to be that backing: it is an OR over four bare words.
+    #    Measured on taskq-redo's Gate 4 — a 22893-byte
+    #    `license_compliance.json` that json.loads rejects at line 1 (scancode's
+    #    real JSON sandwiched between Python warnings and `Scanning done.`)
+    #    passed with zero violations, because "Scan files for: licenses"
+    #    contains "license". score=100.0, score_source=artifact_verified.
+    #
+    #    scancode is the only member today, so there is no registry for one
+    #    entry (Round 35 站3's precedent, stated for mutmut in harness_bridge):
+    #    `mutation_testing` has `.methodology/mutation_score.json` behind it and
+    #    its tool_output is audit, not the number. license_compliance has no
+    #    such artifact. Add a second member here and this becomes a table.
+    #
+    #    Only for files. An inline `tool_evidence` IS an excerpt by definition
+    #    (see its own field description in evaluate_dimension.md) and cannot be
+    #    expected to parse.
+    if tool == "scancode" and not inline:
+        violations.extend(_scancode_provenance_problems(content, dim_name))
+
     return violations
+
+
+def _scancode_provenance_problems(content: str, dim_name: str) -> list[str]:
+    """Does this file say scancode produced it?
+
+    Round 91. Asks about the output's ORIGIN rather than about words in its
+    text, which is the difference that matters: measured over the corpus's
+    twenty committed `license_compliance` evidence files, `headers[0].tool_name`
+    separates them into four groups with nothing ambiguous in between —
+
+        9  scancode-toolkit          genuine `--json-pp` output
+        8  not JSON                  stdout/stderr interleaved, or truncated
+        2  JSON without headers      an agent's own summary (one is 45 bytes)
+        1  JSON that is not an object
+
+    while a content-word rule passes all twenty and a "must be valid JSON" rule
+    still passes the 45-byte summary. The remediation is named in each message
+    because every one of the three failures has a different one.
+    """
+    what = f"{dim_name}: tool_output"
+    try:
+        doc = json.loads(content)
+    except (json.JSONDecodeError, ValueError):
+        return [
+            f"{what} is not parseable JSON. `scancode --json-pp -` writes JSON "
+            f"to stdout and its progress lines to stderr; a file holding both "
+            f"is neither. Re-run with stderr separated "
+            f"(`2>/dev/null`) and commit that output — this dimension's score "
+            f"has no other backing"
+        ]
+    if not isinstance(doc, dict):
+        return [
+            f"{what} parses as {type(doc).__name__}, not a scancode document. "
+            f"Commit the output of `scancode --license --json-pp -` itself"
+        ]
+    headers = doc.get("headers")
+    if not (isinstance(headers, list) and headers and isinstance(headers[0], dict)):
+        return [
+            f"{what} is JSON with no `headers` block, so it cannot say which "
+            f"tool produced it — a hand-written summary belongs in "
+            f"`tool_evidence`, and `tool_output` has to be the tool's own file"
+        ]
+    produced_by = headers[0].get("tool_name")
+    if produced_by != "scancode-toolkit":
+        return [
+            f"{what} reports tool_name={produced_by!r}, not 'scancode-toolkit' "
+            f"— the score for this dimension is cited against output from "
+            f"something else"
+        ]
+    return []
 
 
 

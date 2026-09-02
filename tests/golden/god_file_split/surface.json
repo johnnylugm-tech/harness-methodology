@@ -665,7 +665,7 @@
     "harness.harness_bridge::_parse_spec_names_for_fr": "6a157664bfafa1f8",
     "harness.harness_bridge::_record_coverage_denominator": "19c140ffeef15256",
     "harness.harness_bridge::_run_harness_cross_validation": "9f81cc4b53e10197",
-    "harness.harness_bridge::_validate_tool_content": "ac0ae1ca4e265bdc",
+    "harness.harness_bridge::_validate_tool_content": "e05871d01810b927",
     "harness.harness_bridge::_verify_system_reach_block": "ac8ff45d71d15a10",
     "harness.harness_bridge::absent_declared_dimensions": "1f50b3f2e4d9cf22",
     "harness.harness_bridge::composite_over": "f301a2186b854671",

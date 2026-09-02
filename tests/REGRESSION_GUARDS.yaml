@@ -4670,3 +4670,47 @@
 - test: tests/test_ci_template_carries_preflight_credentials.py::test_an_unobtainable_verdict_still_fails_the_preflight
   bug: "Round 37's rule is why a missing token was fatal rather than noisy: a verdict that could not be fetched is reported as a failure, not skipped"
   fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_interleaved_stdout_and_stderr_is_not_scancode_output
+  bug: "taskq-redo's Gate 4 licence evidence (22893 bytes, json.loads fails at line 1) scored 100.0 with score_source=artifact_verified — scancode's JSON interleaved with the warnings it writes to stderr"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_the_word_license_alone_no_longer_buys_a_score
+  bug: "check 3 is an OR over four bare words, and the progress line 'Scan files for: licenses' contains one of them"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_a_hand_written_summary_is_not_the_tools_own_file
+  bug: "taskq-super's 45-byte hand-written summary passes both a valid-JSON rule and a scancode-top-level-keys rule; only asking who produced it rejects it"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_json_that_is_not_an_object_is_rejected
+  bug: "one corpus evidence file is a JSON list, not a scancode document"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_output_from_a_different_tool_is_rejected
+  bug: "a score cited against another tool's output is a score cited against nothing"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_genuine_scancode_output_passes
+  bug: "the check must admit what it exists to admit — nine corpus files are genuine --json-pp documents"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_inline_evidence_is_still_an_excerpt
+  bug: "tool_evidence is defined as an excerpt and cannot be expected to parse; only the committed file carries the score"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_no_other_tool_is_affected
+  bug: "requiring provenance of thirty tools is how a guard manufactures the fabrication it exists to prevent (Round 67 站3's note)"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_mutation_keeps_its_framework_produced_number
+  bug: "scancode is the only member because mutation_testing has .methodology/mutation_score.json behind it; if mutmut loses that, this rule needs a second member"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_the_prompt_tells_the_agent_to_separate_the_streams
+  bug: "the prescribed command was `scancode --json-pp - src/ | head -300` — no stderr separation, and head truncates a pretty-printed document mid-object, so the framework taught agents to produce the file its own check rejects"
+  fixed_in: "Round 91"
+
+- test: tests/test_licence_evidence_names_its_producer.py::test_the_fixtures_standing_in_for_scancode_are_real_shapes
+  bug: "two tests — one of them the test that BUILT artifact_verified — stood in for scancode output with the sentence 'Scan completed. No license violations found.', which scancode cannot emit"
+  fixed_in: "Round 91"

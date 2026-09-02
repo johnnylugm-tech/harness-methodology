@@ -242,7 +242,20 @@ def test_the_skiplist_branch_records_what_it_verified(tmp_path, monkeypatch):
 
     out = tmp_path / ".sessi-work" / "scancode_out.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("Scan completed. No license violations found.\n", encoding="utf-8")
+    # Round 91: this fixture used to be the sentence "Scan completed. No license
+    # violations found." — which is not scancode output at all, and this test is
+    # the one that built `artifact_verified`. The rule's correctness was
+    # underwritten by a sample that could never have come from the tool. The
+    # shape below is taken from taskq-cc's committed Gate 4 evidence, not from
+    # the check that reads it: deriving the fixture from the rule is how a
+    # closed loop starts (Round 19).
+    out.write_text(json.dumps({
+        "headers": [{"tool_name": "scancode-toolkit", "tool_version": "32.4.1",
+                     "errors": [], "warnings": []}],
+        "license_detections": [],
+        "files": [{"path": "src", "type": "directory",
+                   "detected_license_expression": None, "license_detections": []}],
+    }, indent=2), encoding="utf-8")
     entry = {"score": 95, "tool_output": ".sessi-work/scancode_out.txt"}
     raw = {"breakdown": {"license_compliance": entry}}
 

@@ -948,9 +948,22 @@ class TestHarnessCrossValidation:
         assert "unverifiable" in v_missing[0]
 
         # (b) real committed scancode output file → passes
+        #
+        # Round 91: this was the sentence "Scan completed. No license violations
+        # found." Nothing scancode can emit looks like that, and standing in for
+        # a genuine artifact is this fixture's entire job — check 5 in
+        # gate_checks now asks the file who produced it. Shape taken from
+        # taskq-cc's committed Gate 4 evidence.
         out = tmp_path / ".sessi-work" / "scancode_out.txt"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text("Scan completed. No license violations found.\n", encoding="utf-8")
+        out.write_text(json.dumps({
+            "headers": [{"tool_name": "scancode-toolkit", "tool_version": "32.4.1",
+                         "errors": [], "warnings": []}],
+            "license_detections": [],
+            "files": [{"path": "src", "type": "directory",
+                       "detected_license_expression": None,
+                       "license_detections": []}],
+        }, indent=2), encoding="utf-8")
         raw_ok = {"breakdown": {"license_compliance": {"score": 95,
                                                        "tool_output": ".sessi-work/scancode_out.txt"}}}
         v_ok, _unver = _run_harness_cross_validation(ctx, raw_ok)  # type: ignore[reportArgumentType]
