@@ -41,7 +41,11 @@ from core.degradation_ledger import record_degradation
 from core.doctor import run_doctor
 from core.evidence_retention import ADVANCE_CLEARED_DIRS
 from core.harness_config import get_timeout
-from core.harness_provenance import enforcer_sha, enforcer_surface
+from core.harness_provenance import (
+    enforcer_sha,
+    enforcer_surface,
+    phase_record_defects,
+)
 from core.phase_topology import EXIT_GATE_MAP
 from core.state_io import load_state
 from core.utils.delivery_scope import committed_tree_digest
@@ -372,6 +376,7 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
     Round 81 站6. See the note above the first `_precheck_*` for what
     makes this a move rather than a rewrite.
     """
+    _record_was_writable = False
     if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
@@ -505,6 +510,11 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
             capture_output=True, text=True,
         )
         if _head.returncode == 0 and _head.stdout.strip():
+            # Round 89: from here the framework CAN produce a record, so from
+            # here its absence is the framework's failure. The two branches
+            # that cannot — no git HEAD to name, and HARNESS_NO_GIT — leave
+            # this False and already record their own degradation.
+            _record_was_writable = True
             try:
                 with file_lock(state_lock_path(project)):
                     _sd = load_state(project, lenient=True)
@@ -610,6 +620,74 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
                 )
                 return 28
             print("[advance-phase] Pushed the handover commit to origin.")
+
+    # ── Read back the record this command just wrote (Round 89) ──────────
+    #
+    # taskq-super reached Phase 9 with `phase_completed` entries for 1, 2, 3,
+    # 4, 6, 7 — no 5 — and nothing objected. Its `handover: advance to Phase
+    # 6` commit exists and carries `last_milestone_command: advance-phase
+    # --completed-phase 5`, so the command ran and the FSM advanced; `"5": {`
+    # is absent from that project's entire git history, and the next commit to
+    # touch state.json (5h23m later) carries no `phase_completed` change, so
+    # the entry never reached the working tree either.
+    #
+    # Round 89 ruled out four explanations — `postflight_update_state` cannot
+    # be the lost-update writer (its write is behind `self.phase > old_phase`,
+    # false after an advance, and it never runs concurrently), every other
+    # state writer keeps `load` inside its own `file_lock`, the commit-failure
+    # path rolls the FSM back, and both write-failure branches record a
+    # degradation of which that project's 626-row ledger holds none. The cause
+    # is still unknown. The OUTCOME is not, and it is the same sentence
+    # whichever cause it turns out to be: this command said phase N was
+    # complete and the record for it is not there.
+    #
+    # Deliberately OUTSIDE the `HARNESS_NO_GIT` branch above, at this
+    # function's own indent. Both writes live inside that `else`, so a check
+    # placed beside them is skipped by exactly the condition that is the last
+    # remaining path consistent with what taskq-super shows.
+    #
+    # `phase_record_defects` is Round 72 站1's — a second opinion on what a
+    # record looks like is what this repository keeps having to merge back.
+    _record = (load_state(project, lenient=True).get("phase_completed")
+               or {}).get(str(args.completed_phase))
+    _defects = ([f"phase_completed[{args.completed_phase}] is absent"]
+                if not _record
+                else phase_record_defects(project, _record))
+    if _defects:
+        from cli.exit_codes import EX_PHASE_RECORD_NOT_WRITTEN
+
+        # `_record_was_writable` is the whole distinction: "tried and did not
+        # land" versus "never could". No git HEAD to name and HARNESS_NO_GIT
+        # are both the second — there is no sha for the record to carry, the
+        # branch that skipped it already recorded its own degradation, and
+        # blocking would turn a documented switch and a non-repo directory
+        # into framework failures. Listing environment conditions here instead
+        # would be a second, drifting copy of what those branches already know.
+        record_degradation(
+            project, "advance-phase",
+            f"phase_completed[{args.completed_phase}] did not land",
+            "; ".join(_defects) + ("" if _record_was_writable
+                                   else " (no writable record on this path)"),
+            owner="harness" if _record_was_writable else "project",
+        )
+        if _record_was_writable:
+            print(
+                f"\n[BLOCKED] advance-phase: {'; '.join(_defects)}.\n"
+                f"  The phase advanced and the handover commit was made, but "
+                f"the record naming the commit, the enforcer and the tree it "
+                f"was judged on is not in state.json — `doctor`'s verdict "
+                f"re-derivation, `_fr_step_lineage_boundary` and the entry "
+                f"gate all read it.\n"
+                f"  Fix: re-run so the framework writes it:\n"
+                f"    python harness_cli.py advance-phase --completed "
+                f"{args.completed_phase} --project {project}",
+                file=sys.stderr,
+            )
+            return EX_PHASE_RECORD_NOT_WRITTEN
+        # An abstention nobody can see is indistinguishable from a pass
+        # (Round 27), which is why it still reaches the ledger above.
+        print(f"[advance-phase] phase_completed[{args.completed_phase}] not "
+              f"recorded — this path could not produce one (logged)")
 
     _run_doctor_after_advance(project)
 

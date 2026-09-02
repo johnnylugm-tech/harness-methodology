@@ -988,12 +988,30 @@ def _stub_run(stdout: str = ""):
 
     One helper instead of five copies: the next check to read a new git verb
     has one place to teach.
+
+    Round 89 is that next check. `cmd_advance_phase` now reads back the
+    `phase_completed` entry it wrote, and that entry's `sha` comes from
+    `git rev-parse HEAD` — which this stub was answering with pytest coverage
+    output, so the command was recording `sha='===== test session starts
+    ====='` and every test here asserted exit 0 over it. Nothing had ever
+    looked at the value, which is the same shape as the defect Round 89 fixes.
+    A 40-character hex placeholder is what `phase_record_defects` (Round 72
+    站1) asks of a real one.
     """
+    _FAKE_HEAD = "a1b2c3d4" * 5  # 40 hex chars — the shape, not a real commit
+
     def _run(cmd, **_kw):
         class R:
             returncode = 0
             stderr = ""
-        R.stdout = "" if "status" in (cmd or []) else stdout  # type: ignore[attr-defined]
+        parts = cmd or []
+        if "status" in parts:
+            answer = ""
+        elif "rev-parse" in parts:
+            answer = _FAKE_HEAD
+        else:
+            answer = stdout
+        R.stdout = answer  # type: ignore[attr-defined]
         return R()
     return _run
 

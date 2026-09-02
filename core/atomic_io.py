@@ -15,9 +15,18 @@ The pattern below is the standard POSIX atomic-write recipe:
   3. os.replace(tmp, target) — atomic on POSIX and Win NTFS.
   4. Best-effort fsync the parent dir so the rename itself is durable.
 
-Cross-process file locking is also provided via `locked_state_update()` —
-a context manager using fcntl.flock that serializes read-modify-write
-on a single project's state files. See SG-12 in the robustness audit.
+Cross-process file locking is also provided via `file_lock()` below — a
+context manager using fcntl.flock that serializes read-modify-write on a
+single project's state files. See SG-12 in the robustness audit. Hold it
+across BOTH the read and the write, as its own usage example shows: a lock
+taken only around the write serialises nothing, because the value being
+written was computed from a read that happened outside it.
+
+Round 89: this paragraph named `locked_state_update()` for an unknown
+number of rounds. No such function exists anywhere in the repository — this
+line was its only mention, so a reader looking for the API it promised found
+nothing and a reader who trusted the name would have imported a hole. The
+nine state writers that do this correctly all use `file_lock` directly.
 
 Both helpers are no-ops on platforms without fcntl (Windows): the lock
 falls through silently. On macOS/Linux they block until the lock is

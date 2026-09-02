@@ -3843,6 +3843,92 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 89 — 寫了之後沒有人回頭看寫進去了沒有
+
+老闆令:修復上一輪報告的缺陷。追加令:**再次驗證方案是否是正解且沒有引入副作用。**
+照做的結果:**上一輪三處陳述要更正,而本輪方案第一版的核心前提是錯的。**
+
+基線 `678a0d32`。
+
+### 上一輪三處陳述的更正
+
+| # | 上一輪說的 | 實測 |
+|---|---|---|
+| 1 | 「五個跑過 P3 沒記錄」 | **四個**(`omnibot-new` phase 1、`taskq-final` phase 2 沒到 P3)。已於 `678a0d32` 更正 |
+| 2 | 「taskq-super P5 根因未確定」 | 框架 `cli/phase_cmds.py:1697` 寫過一個診斷 —— 但見下,**那個診斷本身經不起查證** |
+| 3 | 「67/73 靠後續 commit 帶走是活缺陷」 | **零個已知受害者**。消費者全部讀**工作樹**的 `state.json`,不讀 git。全語料「曾寫進 git 又消失」只有 **2 筆**(`omnibot` P1/P2),死因是 2026-06-17 的整份覆蓋,那個 bug 已修 |
+
+### 本輪方案第一版自己的三處真錯誤
+
+**B-1 掃描範圍不足。** 只掃 `cli/` 與 `core/`,只認 `atomic_write_json`。
+補掃 `harness/` `scripts/` 並加上 `json.dump` / `write_text` 後,候選 11 → **20**。
+
+**B-2 照抄掃描結果 —— 上一輪被打回的同一個錯,又犯一次。** 補掃後「11 個不在鎖裡」,
+逐一查證後**只有 3 個真的寫 state.json**:四個是 **workflow JS 的字串生成器**,
+四個不以 state.json 為寫入目標,`preflight_fsm_check` 的寫入只在檔案不存在時。
+
+**B-3 站0 的前提是錯的 —— 它要修的 race 不可能發生。** 第一版說
+`postflight_update_state` 沒有鎖、那個窗口吃掉了記錄。兩項實測推翻:
+
+1. **它根本不寫** —— 寫入在 `if self.phase and self.phase > old_phase` 內,
+   而 advance 早已把 `current_phase` 設成 N,`N > N` 為 False。
+2. **不並行** —— 八支 phase workflow 每支 `run-phase` 一次、`advance-phase` 一次。
+
+**連帶推翻框架自己的診斷**:`phase_cmds.py:1697` 說「a later whole-document writer
+that had loaded state before it dropped the key」—— 這個 repo 裡沒有那樣的 writer
+(其他寫入點的 `load` 都在自己的 `file_lock` 內,`postflight` 不寫,兩者不並行)。
+那句是推測而非實測,而 R72 站1 基於它選擇了「不改 ordering,一個 phase 之後才捕捉」。
+上一輪我把它當成已驗證的事實引用 —— **R77 的教訓,又一次**。
+
+**taskq-super P5 的根因仍然未定。** 這是誠實的狀態,不是待補的空格。
+
+### 正解:修在結果面,不在原因面
+
+根因未定,而無論兇手是誰,結果都是同一句話:
+
+> advance-phase 宣告了 Phase N 完成,記錄沒有進去,而沒有任何東西發現。
+
+`_advance_step_commit_and_push` 在 `return 0` 之前讀回自己剛寫的那一筆,
+跑 R72 站1 現成的 `phase_record_defects`(不寫第二份「記錄長什麼樣」的定義)。
+
+**落點是承重的**:兩處寫入都在 `if HARNESS_NO_GIT / else` 的 else 內,
+檢查放在那裡會被同一個條件跳過。檢查放在函式自己的層級,兩條路徑都經過。
+守衛用 **AST 祖先**釘住這件事 —— 第一版守衛量縮排,而多行表達式的續行縮排比語句深,
+它對一個 indent 4 的語句報「indent 16」。
+
+**`_record_was_writable` 是全部的分際**:「試了沒成」vs「根本沒試」。
+沒有 git HEAD 可命名、以及 `HARNESS_NO_GIT=1`,都是後者 —— 沒有 sha 可放進記錄,
+跳過的那條分支自己已經記了 degradation,擋它等於把一個文件化的開關和一個非 repo
+目錄變成框架失手。**反證 CP-4 實測:拿掉這個區分,9 支既有測試轉紅。**
+
+### 順帶抓到的兩件
+
+1. **`core/atomic_io.py:18` 指向一個不存在的函式。** 模組 docstring 說
+   「Cross-process file locking is also provided via `locked_state_update()`」——
+   **全 repo 只有這一行提到它**。改成指向實際存在的 `file_lock`,並寫上它的正確
+   用法(鎖要跨越讀與寫;只鎖住寫的那一刻等於沒鎖)。
+2. **`_stub_run` 讓九支測試在假記錄上斷言成功。** 它 mock 所有 `subprocess.run`,
+   於是 `git rev-parse HEAD` 回傳 pytest 的覆蓋率輸出,advance 寫下
+   `sha='===== test session starts ====='`,而每支測試都 assert exit 0。
+   **在本輪的讀回檢查之前,沒有任何東西看過那個值** —— 與本輪要修的缺陷同形。
+   那支 helper 的 docstring 自己寫著「the next check to read a new git verb has
+   one place to teach」,照做:教它回答 `rev-parse`。
+
+### 新 exit code 40
+
+`EX_PHASE_RECORD_NOT_WRITTEN`,`Owner.HARNESS`。與 70 分開的理由(R25 的條件):
+70 是 crash boundary 的未捕獲例外、**重跑不會好**;40 是框架沒能持久化一筆只有它會寫的
+記錄、**重跑 advance-phase 正是解法** —— 同 owner,不同 remediation channel。
+
+### 明確不做
+
+| 項目 | 理由(實測) |
+|---|---|
+| 改 `phase_completed[N].sha` 的 ordering | `tests/test_phase_completed_authority.py:130` 明確斷言 `sha == post-commit HEAD`,理由寫在測試裡;`phase_cmds.py:1706` 明說「The ordering is left alone」。收益(早一步進 git)**零受害者** |
+| 給 `postflight_update_state` 加鎖 | B-3:它不寫,且不並行 |
+| 建 `locked_state_update()` | 9/11 已經是對的;11 處重構是廚房水槽 |
+| 追 taskq-super P5 根因到底 | 已排除四條路徑,剩下的需要當時的執行環境,**已不存在** |
+
 ## Round 88 — 框架從來沒有對它所判定的那些樹執行過
 
 老闆令:taskq-redo 在**軟體架構 / 軟體品質 / Production-ready** 三個維度嚴重退化,

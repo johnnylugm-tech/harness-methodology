@@ -126,6 +126,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         off (features.<key>: false). No dimension can be excluded from a gate
         any more — remove the named key; a tool that genuinely cannot run here
         is an INFRA block with a repair route, not a scoring exemption
+    40  advance-phase: the phase advanced and the handover commit was made,
+        but state.json carries no phase_completed[N] record. That fact is
+        the framework's to write; re-run advance-phase for that phase.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

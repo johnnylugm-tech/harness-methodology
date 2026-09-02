@@ -154,6 +154,16 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # All go through the same already-accepted seams; not a new coupling,
     # one more instance of the established pattern.
     "tests/test_phase_completed_authority.py": 5,
+    # 2026-09-02 Round 89: the advance_project fixture stubs the same two
+    # seams as test_advance_commit_rollback.py, test_advance_refuses_a_blocked_entry.py
+    # and test_phase_completed_authority.py — cli.phase_cmds._advance_prechecks
+    # (the precondition aggregator) and _verify_entry_gate (the exit gate).
+    # Neither is under test here; what is under test is whether
+    # cmd_advance_phase reads back the phase_completed entry it just wrote.
+    # The third stub (PhaseHooks.preview_next_phase_blocking) is a PUBLIC
+    # method and does not count. Not a new coupling — the fourth file on an
+    # established seam.
+    "tests/test_advance_reads_back_what_it_wrote.py": 2,
     "tests/test_generate_full_plan.py": 1,
     "tests/test_harness_bridge_highs2.py": 1,
     "tests/test_kill_switch_complete.py": 1,

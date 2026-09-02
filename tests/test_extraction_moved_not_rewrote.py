@@ -82,29 +82,22 @@ _EXTRACTED: "dict[str, dict]" = {
             "_precheck_stage_pass_staging",
         ),
     },
-    "phase_cmds.cmd_advance_phase": {
-        "module": "cli/phase_cmds.py",
-        # 站7's recording is the file as 站6 LEFT it. Using 站6's recording
-        # would ask whether these bodies existed before an extraction they were
-        # not part of, which is a different and false question.
-        "before": "phase_cmds.py.before-station7",
-        "caller": "cmd_advance_phase",
-        # `_advance_step_`, not `_advance_`: this file already had
-        # `_advance_prechecks`, `_advance_fsm` and `_advance_commit_targets`,
-        # and the shorter prefix pulled all three into the pipeline view — five
-        # tests passed for a broader reason than they meant to.
-        "prefix": "_advance_step_",
-        "generated_tail": True,
-        "helpers": (
-            "_advance_step_refuse_phase_9",
-            "_advance_step_refuse_uncommitted",
-            "_advance_step_refuse_open_obligations",
-            "_advance_step_run_fsm_transition",
-            "_advance_step_seed_p8_archive",
-            "_advance_step_write_next_plan_header",
-            "_advance_step_commit_and_push",
-        ),
-    },
+    # `phase_cmds.cmd_advance_phase` LEFT this dict in Round 89, under the rule
+    # stated in this module's docstring: an entry goes the moment one of its
+    # bodies is deliberately edited, with the reason in that commit.
+    #
+    # Round 89 added a read-back to `_advance_step_commit_and_push` — after
+    # writing `phase_completed[N]`, advance-phase now loads state.json again and
+    # refuses to report success if the entry it is the sole author of is not
+    # there. taskq-super reached its terminal phase missing one. That is new
+    # code inside a moved body, not a relocation of it, so "this is the code
+    # that was there" has expired for this extraction event and re-recording
+    # phase_cmds.py.before-station7 to make it pass again would delete the only
+    # evidence the move ever happened.
+    #
+    # The `.before-station7` recording is deliberately KEPT after its last
+    # reader, for the same reason harness_bridge.py.before is.
+    #
     # `harness_bridge.finalize_gate` LEFT this dict in Round 83 站5, under the
     # rule stated in this module's docstring: an entry goes the moment one of
     # its bodies is deliberately edited, with the reason in that commit.

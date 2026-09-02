@@ -73,6 +73,12 @@ EX_STEP_REPEATED_FAILURE = 36
 EX_ADVANCE_ENTRY_OBLIGATIONS = 37
 EX_ADVANCE_UNCOMMITTED_DELIVERABLES = 38
 EX_RETIRED_FEATURE_FLAG = 39
+# Round 89. Distinct from 70: that one is an uncaught exception at the crash
+# boundary and no re-run clears it. This one is the framework failing to
+# persist a record it is the sole author of, and re-running advance-phase is
+# exactly the remedy — same owner, different remediation channel, which is
+# Round 25's condition for a number of its own rather than sharing 70.
+EX_PHASE_RECORD_NOT_WRITTEN = 40
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -117,6 +123,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_ENTRY_OBLIGATIONS: "advance-phase: the preflight simulated at the phase being entered reports findings that would block entry there — the [BLOCKED] table names each one by check, rule and file:line. state.json was NOT advanced: a project whose current_phase names a phase its own entry preflight rejects is a state with no truth value. Resolve the listed findings and re-run",
     EX_ADVANCE_UNCOMMITTED_DELIVERABLES: "advance-phase: delivered files differ from HEAD, so the commit about to record this phase does not contain the tree the phase's checks were measured on — the [BLOCKED] list names each file. Harness bookkeeping and the files this command rewrites itself are excluded. Commit the listed work (or gitignore it, if it is generated at runtime) and re-run",
     EX_RETIRED_FEATURE_FLAG: "run-gate: .methodology/harness_config.json still switches a dimension off (features.<key>: false). No dimension can be excluded from a gate any more — a dimension is measured, or the gate blocks and the run routes to repair. Remove the named key; if the tool genuinely cannot run here, that is an INFRA block with a repair route, not a scoring exemption",
+    EX_PHASE_RECORD_NOT_WRITTEN: "advance-phase: the phase advanced and the handover commit was made, but state.json carries no phase_completed[N] record — the fact naming the commit, the enforcer and the tree it was judged on is the framework's to write and it is not there. A project reached its terminal phase missing one such entry this way. Re-run advance-phase for that phase",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",

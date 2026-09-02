@@ -165,6 +165,7 @@ OWNER_BY_EXIT: dict[int, str] = {
     36: Owner.UNKNOWN,
     37: Owner.PROJECT,  # entry obligations at the phase being entered
     38: Owner.PROJECT,  # delivered files differ from HEAD
+    40: Owner.HARNESS,  # a record only the framework writes, and it did not land
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

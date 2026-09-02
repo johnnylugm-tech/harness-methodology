@@ -4582,3 +4582,37 @@
 - test: tests/test_corpus_verdict_baseline.py::test_the_shipped_baseline_replays_clean_with_its_notes_attached
   bug: "test_the_shipped_baseline_matches_a_live_replay strips _note before comparing, so it stays green even if diff_against treats notes as verdicts; this one does not strip"
   fixed_in: "Round 88 站3"
+
+# ── Round 89 — advance-phase reports success without reading back its record ──
+# taskq-super reached Phase 9 with phase_completed entries for 1,2,3,4,6,7 —
+# no 5 — and nothing objected. The command ran (last_milestone_command names
+# it), the FSM advanced, and `"5": {` is absent from that project's entire git
+# history. Root cause still unknown; the outcome is not.
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_a_record_that_did_not_land_blocks_the_advance
+  bug: "advance-phase returned 0 while the phase_completed entry it is the sole author of was absent — the state taskq-super reached Phase 9 in"
+  fixed_in: "Round 89"
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_the_block_names_what_to_re_run
+  bug: "Round 48 — a block naming no owner and no command is a dead end"
+  fixed_in: "Round 89"
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_the_loss_reaches_the_ledger
+  bug: "a record the framework alone writes, failing to land, is owner=harness and must reach the degradation ledger"
+  fixed_in: "Round 89"
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_a_healthy_advance_still_returns_zero
+  bug: "the read-back must not fire on the path that works — a verification that blocks correct runs is worse than the gap"
+  fixed_in: "Round 89"
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_no_git_records_the_gap_without_blocking
+  bug: "HARNESS_NO_GIT=1 and a non-repo directory cannot produce a sha for the record to carry; blocking there turns a documented switch into a framework failure. Removing that distinction turns 9 existing tests red (counter-proof CP-4)"
+  fixed_in: "Round 89"
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_the_check_is_not_inside_the_no_git_branch
+  bug: "both writes live inside the HARNESS_NO_GIT else-branch; a read-back placed beside them is skipped by exactly the condition it exists to survive. Pinned by AST ancestry, not indentation — the first version measured the column of a multi-line expression's continuation and reported indent 16 for a statement at indent 4"
+  fixed_in: "Round 89"
+
+- test: tests/test_advance_reads_back_what_it_wrote.py::test_the_read_back_reuses_the_shared_record_contract
+  bug: "phase_record_defects (Round 72 站1) already defines what a record looks like; a second copy here would be a second answer"
+  fixed_in: "Round 89"

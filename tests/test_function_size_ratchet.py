@@ -133,7 +133,17 @@ _CEILINGS: dict[str, int] = {
     # Round 82 站3 moved it to cli/advance_steps.py with the other six and
     # `_run_doctor_after_advance`. Same 257: the move was a move, and its
     # god-file fingerprint did not change.
-    "cli/advance_steps.py::_advance_step_commit_and_push": 257,
+    # 2026-09-02: 257 -> 331 — Round 89. The read-back: after writing
+    # phase_completed[N], advance-phase loads state.json again and refuses to
+    # report success if the entry it is the sole author of is not there (a
+    # project reached its terminal phase missing one, and nothing objected).
+    # 74 lines, of which roughly 45 are the comment carrying the four
+    # explanations Round 89 ruled out and the reason the check sits at this
+    # function's own indent rather than beside the two writes — both of those
+    # are inside the HARNESS_NO_GIT else-branch, and a check placed there is
+    # skipped by exactly the condition it exists to survive. It cannot move to
+    # a helper without moving that placement out of the reader's sight.
+    "cli/advance_steps.py::_advance_step_commit_and_push": 331,
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same
