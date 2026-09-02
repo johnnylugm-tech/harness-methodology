@@ -44,7 +44,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.quality_gate.spec_alignment import structural_fr_ids  # noqa: E402
+from core.quality_gate.spec_alignment import (  # noqa: E402
+    spec_config_keys, structural_fr_ids,
+)
+from scripts.plangen.artifact_parsers import srs_machine_block_span  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +331,7 @@ def build_diff_report(
     # (taskq-new's is 27,762 bytes at 124 ACs) the index relays its head, and
     # `per_ac` is the part that grows without bound.
     fr_coverage: dict[str, Any] = {}
+    config_keys: dict[str, Any] = {}
     if spec_present and spec_path is not None:
         spec_frs = structural_fr_ids(spec_text)
         srs_frs = structural_fr_ids(srs_text)
@@ -335,6 +339,17 @@ def build_diff_report(
             "in_spec_only": sorted(spec_frs - srs_frs),
             "in_srs_only": sorted(srs_frs - spec_frs),
             "in_both": sorted(spec_frs & srs_frs),
+        }
+        # Round 87 站4: the FR axis asks whether a requirement's ID survived
+        # ingestion. This asks whether the thing it is ABOUT did. Reported
+        # here and enforced against the delivered source by
+        # `spec_alignment._config_key_violations` — one extractor, two
+        # readers, so the two cannot disagree about which keys the spec
+        # declares.
+        declared = spec_config_keys(spec_text)
+        config_keys = {
+            "declared": sorted(declared),
+            "absent_from_srs": sorted(k for k in declared if k not in srs_text),
         }
 
     return {
@@ -344,8 +359,79 @@ def build_diff_report(
         "spec_present": spec_present,
         "summary": summary,
         "fr_coverage": fr_coverage,
+        "config_keys": config_keys,
+        "machine_block_parity": machine_block_parity(srs_text),
         "per_ac": per_ac,
     }
+
+
+#: A term specific enough that its absence means something: a hyphenated
+#: compound (`per-token`, `deny-by-default`, `round-trip`) or an ALL-CAPS
+#: identifier. Ordinary words differ between two descriptions of the same
+#: requirement for reasons that are not omissions.
+_SIGNIFICANT_TERM = re.compile(
+    r"\b([a-z]+-[a-z]+(?:-[a-z]+)?|[A-Z][A-Z0-9_]{4,})\b")
+
+
+def machine_block_parity(srs_text: str) -> list[dict]:
+    """Requirements whose machine block says something their prose does not.
+
+    Round 87 站4b. SRS.md has two readers and each reads a different half.
+    `_without_machine_block` (Round 42 站1) STRIPS the fenced JSON before
+    scoring conformance; `scripts/plangen/artifact_parsers` reads ONLY that
+    JSON to build the FR registry. A requirement can therefore be complete in
+    the half nobody scores and absent from the half everything downstream
+    quotes.
+
+    Two measured instances in taskq-redo, both live:
+
+        FR-05   block: "per-token DB-backed token bucket"    prose: no
+                `per-token` anywhere -> delivered as per-scope, one bucket
+                shared by every holder of a read/write/admin key
+        NFR-12  block: "chains upgrade -> tests -> health smoke -> migration
+                round-trip"   prose AC-N12.1: "exits 0 and prints
+                verify-system: PASS" -> Makefile chains two of the four, and
+                `execute_verification_target` scored 100.0
+
+    REPORTED, NOT BLOCKED, and the measurement is why: the same rule finds 5
+    requirements in taskq-redo, 4 in taskq-cc and 11 in taskq-cc-new, and
+    taskq-cc implemented `per-token` correctly regardless. It marks a hazard
+    that exists in every project rather than a defect that distinguishes one,
+    and Round 42's rule is that a project obeying the substance must not be
+    blocked for the letter. It goes where the reader who can act on it already
+    looks: `srs_vs_spec_diff.json` is Agent B's DOC 3.
+    """
+    span = srs_machine_block_span(srs_text)
+    if span is None:
+        return []
+    start, end = span
+    block, prose = srs_text[start:end], srs_text[:start] + srs_text[end:]
+    match = re.search(r"\{.*\}", block, re.S)
+    if match is None:
+        return []
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+    out: list[dict] = []
+    for req in ((data.get("functional_requirements") or [])
+                + (data.get("non_functional_requirements") or [])):
+        rid = req.get("id") or ""
+        description = req.get("description") or ""
+        if not rid or not description:
+            continue
+        heading = re.search(
+            rf"^#+\s*(?:[\d.]+\s+)?{re.escape(rid)}\b", prose, re.MULTILINE)
+        if heading is None:
+            continue
+        rest = prose[heading.end():]
+        nxt = re.search(r"^#+\s", rest, re.MULTILINE)
+        section = rest[: nxt.start()] if nxt else rest
+        missing = sorted(
+            {t for t in _SIGNIFICANT_TERM.findall(description) if t not in section})
+        if missing:
+            out.append({"id": rid, "terms_only_in_machine_block": missing})
+    return out
 
 
 def write_report(report: dict, out_path: Path) -> Path:

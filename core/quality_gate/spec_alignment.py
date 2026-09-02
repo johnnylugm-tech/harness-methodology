@@ -48,7 +48,7 @@ from core.quality_gate import Violation
 from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["check_spec_alignment", "structural_fr_ids"]
+__all__ = ["check_spec_alignment", "spec_config_keys", "structural_fr_ids"]
 
 # Structural FR-ID forms — never a bare prose mention:
 #   heading   `### FR-01: ...`          (canonical SPEC.md / SRS flat layout)
@@ -110,6 +110,61 @@ def structural_fr_ids(text: str) -> set[str]:
     for pat in (_FR_HEADING, _FR_TABLE, _FR_JSON):
         ids.update(_fid(m) for m in pat.findall(text))
     return ids
+
+
+#: A configuration key the canonical spec declares, quoted in one of its
+#: tables. ALL-CAPS **with an underscore** — the underscore is what makes this
+#: decidable rather than a guess. Round 87 站4 measured the alternatives on
+#: eight corpus projects: every backtick identifier in a SPEC table is 81
+#: names of which roughly half are the framework's OWN vocabulary (dimension
+#: names out of `## framework 對齊`), and dropping those still leaves
+#: `DEBUG` / `INFO` / `WARNING` / `ERROR` (log-level VALUES, not keys),
+#: `TBD` / `TODO`, `Makefile` and column names like `created_at`. Requiring an
+#: underscore removes every one of them and keeps all twelve real keys.
+_SPEC_CONFIG_KEY = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
+_BACKTICKED = re.compile(r"`([A-Za-z_][A-Za-z0-9_]{2,})`")
+_TABLE_SEPARATOR = re.compile(r"^\|[-:| ]+\|$")
+
+
+def spec_config_keys(text: str) -> set[str]:
+    """Configuration keys the canonical spec declares in its tables.
+
+    Round 87 站4. The requirement chain has four links — SPEC to SRS/SAD, to
+    TEST_SPEC, to the delivered source — and the framework checked the first
+    one, in the wrong direction: `canonical_diff._best_match_ratio` scores how
+    much of what Agent A WROTE is backed by the canonical text, which its own
+    docstring says is "the anti-over-spec goal … to detect A ADDING content".
+    Nothing asked what the canonical text declared and never arrived.
+
+    Measured on taskq-redo, whose SPEC §5.1 declares twelve environment
+    variables:
+
+        reach TEST_SPEC.md and src   MAX_CONCURRENT DRAIN_TIMEOUT
+                                     RATE_BURST RATE_PER_SEC
+        reach neither, built anyway  DB_POOL_SIZE TASK_TIMEOUT (carried by
+                                     FR-06/FR-08 prose)
+        reach neither, never built   DB_URL CORS_ORIGINS LOG_LEVEL
+                                     LOG_FORMAT HOST PORT
+
+    Its `srs_vs_spec_diff.json` scored that SRS `invention_count: 0,
+    high_score_count: 22` — full marks. SPEC.md's own line 24 asks for
+    "no invention, **no omission**"; only the first half had an executor.
+
+    The set is keys, not values: a spec may say `TASKQ_LOG_LEVEL` defaults to
+    `INFO`, and `INFO` is not something the project must read.
+    """
+    keys: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|")):
+            continue
+        if _TABLE_SEPARATOR.match(stripped):
+            continue
+        keys.update(
+            name for name in _BACKTICKED.findall(stripped)
+            if _SPEC_CONFIG_KEY.match(name)
+        )
+    return keys
 
 
 def _deferred_fr_ids(text: str) -> set[str]:
@@ -184,4 +239,57 @@ def check_spec_alignment(project: Path) -> list[Violation]:
             message=(f"SRS.md declares {fid} with no counterpart in canonical_spec "
                      f"(invented requirement — every FR must trace to a canonical "
                      f"source clause)")))
+    violations.extend(_config_key_violations(
+        canonical_path.read_text(encoding="utf-8", errors="replace"), layout))
     return violations
+
+
+def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list:
+    """A configuration key the spec declares and the delivered source never reads.
+
+    Round 87 站4, the fourth link of the requirement chain. The FR axis above
+    asks whether a requirement's ID survived; this asks whether the thing the
+    requirement is ABOUT did. taskq-redo's SPEC §5.1 declares
+    `TASKQ_DB_URL` with a default of `sqlite:///./taskq.db`; its SRS keeps the
+    name only inside NFR-04's "must not appear in logs" clause; its TEST_SPEC
+    never mentions it; and `repository/session.py` hardcodes
+    `sqlite:///file:taskq_shared?mode=memory&cache=shared&uri=true` at module
+    scope. Every gate passed. `architecture` scored 100.0 — that dimension is
+    the code graph's community cohesion, which cannot see a spec.
+
+    Self-gating by artifact presence, the same way `check_spec_alignment`
+    decides everything else: no source directory means Phase 3 has not run and
+    there is nothing to have read the key yet, so no finding. Once the tree
+    exists the question is answerable and the answer is blocking.
+
+    Measured over the eight corpus projects, all built from the same twelve-key
+    SPEC.md: taskq-cc reads all twelve; taskq-renew misses one; taskq-cc-new,
+    taskq-super and taskq-advance miss five; taskq-redo, taskq-new and
+    taskq-api miss six. `taskq-cc`'s clean sheet is what says the rule
+    discriminates rather than simply firing everywhere — three earlier drafts
+    of it did fire everywhere, and are recorded in the Round 87 ledger.
+    """
+    keys = spec_config_keys(canonical_text)
+    if not keys:
+        return []
+    src_dir = layout.phase3_development_dir / "src"
+    if not src_dir.is_dir():
+        return []
+    seen: set[str] = set()
+    for path in src_dir.rglob("*"):
+        if not path.is_file() or path.suffix in (".pyc", ".so"):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        seen.update(k for k in keys if k in text)
+    return [
+        Violation(
+            check_type="unread_config_key", rule_id=key, severity="error",
+            message=(f"canonical_spec declares the configuration key {key} and "
+                     f"no file under {src_dir.name}/ reads it — the delivered "
+                     f"system cannot be configured the way the spec says it "
+                     f"can. Read it, or record the omission as a deferral."))
+        for key in sorted(keys - seen)
+    ]
