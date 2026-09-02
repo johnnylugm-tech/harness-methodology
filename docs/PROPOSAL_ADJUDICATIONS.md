@@ -3990,6 +3990,17 @@ skip 條件寫成 `not corpus.is_dir()`。**runner 上那個目錄是存在的**
 專案」,而不是「這個目錄在不在」。R30 的形狀:意圖對,實作只覆蓋一種情況。
 
 本地 self_check 全綠,因為本地有語料 —— **這道閘門的 skip 路徑從來沒有被測過**。
+
+**而且第一次修完就又犯同一個錯。** `_cli` 的 skip 修好之後,`test_corpus_verdict_
+baseline.py` 裡還有**三個各自手寫的 skip 條件**,各自指名一個目錄
+(`harness-methodology` 在不在、`taskq-cc/.methodology` 在不在、`taskq-cc/.git`
+在不在)。CI 的 checkout **就叫 `harness-methodology`**,所以第一個永遠不會觸發,
+那支測試對著空的發現結果斷言 —— 第二次紅。**同一輪裡,站1 正在講「修一支不掃兄弟」,
+而我在同一天用同一個形狀犯了兩次。** 三處收成一個 `_require_corpus()`,
+並加一支 AST 守衛:這個檔案裡不得再有第四個手寫的 `pytest.skip`。
+
+第二次修法**在 push 前先在 CI 形狀的環境實測**(把 HEAD archive 到一個沒有語料的
+目錄下跑整支測試檔:14 passed / 3 skipped),不再靠推論。
 兩支守衛補上(空目錄、不存在的目錄),修法前紅、修法後綠;
 而 `test_a_moved_verdict_makes_the_replay_exit_nonzero` 當場被新條件弄紅,
 因為它的 `tmp_path` 也沒有專案 —— 那是修法的真實副作用,由既有守衛抓到。

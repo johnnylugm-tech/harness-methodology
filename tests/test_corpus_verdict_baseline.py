@@ -60,6 +60,23 @@ from corpus_replay import (  # noqa: E402
 pytestmark = [pytest.mark.core]
 
 
+def _require_corpus() -> None:
+    """Skip when there is no delivered tree to replay.
+
+    ONE definition, because the first version had three — `harness-methodology`
+    exists, `taskq-cc/.methodology` exists, `taskq-cc/.git` exists — and each
+    named a directory rather than the thing that actually makes this gate
+    local. On a CI runner the checkout IS called `harness-methodology`, so that
+    one never fired and the test asserted against an empty discovery. Same
+    defect as `_cli`'s skip, in the same round, found by the same CI run — and
+    it is Round 20's shape, which Round 88 站1 is itself about: fix one
+    instance, leave its siblings.
+    """
+    if not corpus_projects():
+        pytest.skip("no harness-managed project beside this repo — "
+                    "this gate is local (a CI runner has none)")
+
+
 # ── the note contract ────────────────────────────────────────────────────
 
 
@@ -146,8 +163,7 @@ def test_the_baseline_covers_every_corpus_project() -> None:
     of the twelve carry no P3 verdict commit and are recorded as unmeasured,
     which is a reading, not a zero.
     """
-    if not (CORPUS_ROOT / "harness-methodology").is_dir():
-        pytest.skip("corpus projects not present on this machine")
+    _require_corpus()
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
     assert sorted(baseline) == corpus_projects(), (
         "the baseline no longer covers exactly the harness-managed projects "
@@ -177,8 +193,7 @@ def test_the_baseline_records_the_project_that_cannot_move() -> None:
 
 def test_the_shipped_baseline_matches_a_live_replay() -> None:
     """The file is a recording of a measurement, not a hand-written table."""
-    if not (CORPUS_ROOT / "taskq-cc" / ".methodology").is_dir():
-        pytest.skip("corpus projects not present on this machine")
+    _require_corpus()
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
     for entry in baseline.values():
         entry.pop("_note", None)
@@ -188,8 +203,7 @@ def test_the_shipped_baseline_matches_a_live_replay() -> None:
 
 def test_replaying_leaves_the_corpus_untouched() -> None:
     """`git archive` writes nothing — the property the whole gate rests on."""
-    if not (CORPUS_ROOT / "taskq-cc" / ".git").is_dir():
-        pytest.skip("corpus projects not present on this machine")
+    _require_corpus()
 
     def snapshot() -> dict:
         out = {}
@@ -269,6 +283,42 @@ def test_a_moved_verdict_makes_the_replay_exit_nonzero(tmp_path: Path, monkeypat
     monkeypatch.setattr(cr, "corpus_projects", lambda *a, **k: ["proj"])
     monkeypatch.setattr(sys, "argv", ["corpus_replay.py", "--corpus", str(tmp_path)])
     assert cr._cli() == 1, "a moved verdict must block, not merely print"
+
+
+def test_every_skip_in_this_file_asks_the_same_question() -> None:
+    """One definition of "there is no corpus here", not one per test.
+
+    The first version of this file had three, each naming a directory:
+    `harness-methodology` exists, `taskq-cc/.methodology` exists,
+    `taskq-cc/.git` exists. On a CI runner the checkout IS called
+    `harness-methodology`, so the first never fired and its test asserted
+    against an empty discovery — a red CI on a machine with nothing to say.
+
+    Round 88 站1 is about fixing one instance of a defect and leaving its
+    siblings; this round did it again, in this file, the same day, and the
+    same CI run found both. So the rule is mechanical now.
+    """
+    import ast
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    offenders = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "skip"):
+            continue
+        fn = next(
+            (f for f in ast.walk(tree)
+             if isinstance(f, ast.FunctionDef)
+             and f.lineno <= node.lineno <= max(
+                 getattr(n, "lineno", f.lineno) for n in ast.walk(f))),
+            None)
+        if fn is not None and fn.name != "_require_corpus":
+            offenders.append(f"{fn.name}:{node.lineno}")
+    assert not offenders, (
+        f"these call pytest.skip directly instead of `_require_corpus()`, "
+        f"which is how three different directory checks got three different "
+        f"answers: {offenders}")
 
 
 def test_a_machine_with_no_corpus_skips_instead_of_blocking(tmp_path: Path, monkeypatch, capsys) -> None:

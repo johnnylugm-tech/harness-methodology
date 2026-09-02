@@ -4570,3 +4570,7 @@
 - test: tests/test_corpus_verdict_baseline.py::test_a_directory_that_does_not_exist_also_skips
   bug: "the widened skip condition must still cover the case the narrow one did"
   fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_every_skip_in_this_file_asks_the_same_question
+  bug: "three hand-rolled skip conditions each named a directory (harness-methodology / taskq-cc/.methodology / taskq-cc/.git) rather than 'is there a corpus here'; on a CI runner the checkout IS called harness-methodology, so one never fired and its test asserted against an empty discovery — Round 20's shape, committed twice in the round that is itself about it"
+  fixed_in: "Round 88 站2 (CI 33624162289)"
