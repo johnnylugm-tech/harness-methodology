@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from core.quality_gate.parsers import extract_fr_section
 from core.quality_gate.spec_coverage import _parse_test_spec
 from core.utils.project_layout import ProjectLayout
 
@@ -43,18 +44,12 @@ def _past_failures_block(project: Path, fr_id: str, dimension: str | None = None
 def _extract_srs_fr_section(srs_path: Path, fr_id: str) -> str:
     """Extract a single FR's full markdown section from SRS.md.
 
-    Returns text between '### FR-XX: ...' header and the next '### FR-' or '---'.
-    Falls back to empty string if the section is not found.
+    The implementation moved to `core.quality_gate.parsers.extract_fr_section`
+    in Round 87 站5 — `core.quality_gate.criteria_review` needs the same
+    extraction and `core/` may not import `cli/`. This name stays because six
+    prompt builders call it; the bytes it returns are unchanged.
     """
-    if not srs_path or not srs_path.exists():
-        return ""
-    content = srs_path.read_text(encoding="utf-8")
-    pat = re.compile(
-        rf"(### {re.escape(fr_id)}:[^\n]+\n)(.*?)(?=\n---\n|\n### FR-\d+|$)",
-        re.DOTALL,
-    )
-    m = pat.search(content)
-    return (m.group(1) + m.group(2)).strip() if m else ""
+    return extract_fr_section(srs_path, fr_id)
 
 
 def _sab_binding_block(project: Path, fr_id: str, src_dir: str) -> str:

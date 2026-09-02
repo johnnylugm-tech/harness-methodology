@@ -1,9 +1,9 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "65b137bc5905c3d6d87fb8b2aa8f0cb055d84348",
-  "content_sha256": "f2d62bb1dda139be9d93320fd7de973912f2a4d1b2c949c62ae3ea740af21ee7",
+  "git_sha": "7989f0eaf30a6fb531757e6bd74e60c0d353000c",
+  "content_sha256": "5d49ac2c45c8c23c4d5c1ab18ba930c62095c72dfb05a1b0d9b482bd59fbcce5",
   "tool": "scripts/build_trace_attestation.py",
-  "overlay_used": "/Users/johnny/workspace/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
+  "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
   "matrix": {
     "schema_version": "harness/traceability/overlay/v1",
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 120,
+      "total_links": 123,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-06",
@@ -59,6 +59,7 @@
           "tests/test_canonical_form.py",
           "tests/test_canonical_lint.py",
           "tests/test_citation_parser.py",
+          "tests/test_criteria_review.py",
           "tests/test_delivery_scope.py",
           "tests/test_drift_detector.py",
           "tests/test_ensemble_scorer.py",
@@ -84,6 +85,7 @@
           "tests/test_canonical_form.py",
           "tests/test_canonical_lint.py",
           "tests/test_citation_parser.py",
+          "tests/test_criteria_review.py",
           "tests/test_delivery_scope.py",
           "tests/test_drift_detector.py",
           "tests/test_ensemble_scorer.py",
@@ -206,6 +208,7 @@
         "status": "verified",
         "srs_section": null,
         "code_files": [
+          "core/quality_gate/criteria_review.py",
           "tests/test_gate1_live_coverage.py",
           "tests/test_phase_hooks_adapter.py",
           "tests/test_preview_is_read_only.py",
