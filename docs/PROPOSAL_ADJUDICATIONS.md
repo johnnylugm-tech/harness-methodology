@@ -3882,7 +3882,7 @@ that had loaded state before it dropped the key」—— 這個 repo 裡沒有�
 
 **taskq-super P5 的根因仍然未定。** 這是誠實的狀態,不是待補的空格。
 
-### 正解:修在結果面,不在原因面
+### 站0 — 正解:修在結果面,不在原因面
 
 根因未定,而無論兇手是誰,結果都是同一句話:
 
@@ -3891,7 +3891,9 @@ that had loaded state before it dropped the key」—— 這個 repo 裡沒有�
 `_advance_step_commit_and_push` 在 `return 0` 之前讀回自己剛寫的那一筆,
 跑 R72 站1 現成的 `phase_record_defects`(不寫第二份「記錄長什麼樣」的定義)。
 
-**落點是承重的**:兩處寫入都在 `if HARNESS_NO_GIT / else` 的 else 內,
+### 站1 — 執行者:落點是承重的
+
+兩處寫入都在 `if HARNESS_NO_GIT / else` 的 else 內,
 檢查放在那裡會被同一個條件跳過。檢查放在函式自己的層級,兩條路徑都經過。
 守衛用 **AST 祖先**釘住這件事 —— 第一版守衛量縮排,而多行表達式的續行縮排比語句深,
 它對一個 indent 4 的語句報「indent 16」。
@@ -3901,7 +3903,7 @@ that had loaded state before it dropped the key」—— 這個 repo 裡沒有�
 跳過的那條分支自己已經記了 degradation,擋它等於把一個文件化的開關和一個非 repo
 目錄變成框架失手。**反證 CP-4 實測:拿掉這個區分,9 支既有測試轉紅。**
 
-### 順帶抓到的兩件
+### 站2 — 順帶抓到的兩件
 
 1. **`core/atomic_io.py:18` 指向一個不存在的函式。** 模組 docstring 說
    「Cross-process file locking is also provided via `locked_state_update()`」——
@@ -3914,7 +3916,7 @@ that had loaded state before it dropped the key」—— 這個 repo 裡沒有�
    那支 helper 的 docstring 自己寫著「the next check to read a new git verb has
    one place to teach」,照做:教它回答 `rev-parse`。
 
-### 新 exit code 40
+### 站3 — 新 exit code 40
 
 `EX_PHASE_RECORD_NOT_WRITTEN`,`Owner.HARNESS`。與 70 分開的理由(R25 的條件):
 70 是 crash boundary 的未捕獲例外、**重跑不會好**;40 是框架沒能持久化一筆只有它會寫的
