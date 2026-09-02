@@ -1788,8 +1788,14 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
             project_path, 40.0, fr_id=fr_id, verbose=True
         )
         if _sc1_code != 0:
+            # Round 87 站2: the remedy is printed by the function that computed
+            # the finding (`spec_coverage._undelivered_remedy`, reached through
+            # the verbose=True above). The sentence that used to be duplicated
+            # here and at the Gate 2-4 site said "add test cases for the
+            # uncovered TEST_SPEC.md sections" — three statements of one
+            # instruction, and the cheapest way to obey it was a correctly
+            # named stub, which is exactly what the check then scored.
             print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] {_sc1_pct:.1f}% < 40% threshold")
-            print("  Fix: add test cases for this FR's uncovered TEST_SPEC.md sections, then re-run.")
             return 1
 
     return None
@@ -2062,8 +2068,9 @@ def _record_undelivered_tests(
     # Without this argument this call is a THIRD statement of "delivered" —
     # presence-only — and the ledger row would contradict the gate result it
     # sits beside, which is the exact defect shape this round is repairing.
+    outcomes = spec_coverage._live_test_outcomes(project_path)
     report = spec_coverage.spec_coverage_report(
-        project_path, test_outcomes=spec_coverage._live_test_outcomes(project_path)
+        project_path, test_outcomes=outcomes
     )
     missing = [
         {"test_fn": m["test_fn"], "type": m["type"],
@@ -2073,18 +2080,59 @@ def _record_undelivered_tests(
     ]
     args._spec_undelivered = missing  # type: ignore[attr-defined]
     args._spec_declared = report["declared"]  # type: ignore[attr-defined]
+    args._spec_denominator = _denominator_provenance(  # type: ignore[attr-defined]
+        project_path, report, outcomes)
     if missing:
         from core.degradation_ledger import record_degradation
+        by_why: dict = {}
+        for m in missing:
+            by_why[m["why"]] = by_why.get(m["why"], 0) + 1
         record_degradation(
             project_path, "spec:undelivered",
-            f"{len(missing)} of {report['declared']} declared tests do not exist",
-            why=("TEST_SPEC.md names them and no test function does; "
-                 "spec-coverage scored "
+            f"{len(missing)} of {report['declared']} declared tests have no "
+            f"passing result ({by_why})",
+            why=("TEST_SPEC.md names them and this run's report does not "
+                 "record them as passed; spec-coverage scored "
                  f"{report['implemented']}/{report['declared']} "
                  f"= {report['pct']:.1f}%"),
             data={"missing": missing}, owner="project"
         )
     return missing
+
+
+def _denominator_provenance(
+    project_path: Path, report: dict, outcomes: "dict | None"
+) -> dict:
+    """What this score's denominator was counted from, beside the score.
+
+    Round 87 站2. Round 73 站1 / Round 74 站1-2 fixed the TEST_SPEC parser so
+    it stopped silently dropping the Deferred-NFR table's rows. Measured on
+    taskq-redo's TEST_SPEC.md with both parsers: the old one reads 97
+    declarations, the current one reads 130. The same delivered tree therefore
+    moved from 65/97 = 67.01% (over Gate 2's 60) to 72/130 = 55.38% (under it),
+    and the project closed the gap with 29 correctly-named stubs.
+
+    Both parser fixes were right. What was missing is that a run records the
+    score and not the population it is a ratio of, so a change of that size
+    left no trace in any committed artifact — Round 44's judged-tree /
+    recorded-tree, one layer over. `_record_undelivered_tests`'s own docstring
+    has said since Round 42 that the ladder is "stated, not derived"; a stated
+    threshold compared against a quantity that can change under it needs the
+    quantity written down.
+    """
+    import hashlib
+
+    spec_path = ProjectLayout(project_path).test_spec_path
+    try:
+        digest = hashlib.sha256(spec_path.read_bytes()).hexdigest()
+    except OSError:
+        digest = ""
+    return {
+        "test_spec_sha256": digest,
+        "rows_declared": report["declared"],
+        "rows_unread": len(report.get("unread") or []),
+        "delivery_basis": "ran-and-passed" if outcomes is not None else "presence-only",
+    }
 
 
 def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) -> "int | None":
@@ -2112,8 +2160,8 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
         # crash-atomicity cases is exactly the run nobody re-derives later.
         _record_undelivered_tests(args, project_path)
         if _sc_code != 0:
+            # Round 87 站2 — see the Gate 1 site: one producer, one remedy.
             print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
-            print("  Fix: add test cases for the uncovered TEST_SPEC.md sections, then re-run.")
             return 1
 
     # ── Round 31 站2: mutation_testing's score is the framework's ────
@@ -2393,6 +2441,14 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                             args, "_spec_undelivered", [])
                         _gp_json["spec_declared"] = getattr(
                             args, "_spec_declared", 0)
+                        # Round 87 站2: and what that denominator was counted
+                        # from. See `_denominator_provenance` — R73/R74's
+                        # parser fix moved taskq-redo's declarations 97 -> 130
+                        # and its verdict from PASS to BLOCKED, and no
+                        # committed artifact records which parser produced
+                        # either number.
+                        _gp_json["denominator_provenance"] = getattr(
+                            args, "_spec_denominator", {})
                         # Round 42 站4: the composite's denominator, and the
                         # ruler the architecture score was measured with. Both
                         # were computed inside finalize_gate where the weights,

@@ -67,10 +67,27 @@ def test_the_missing_names_reach_the_ledger_and_the_verdict(tmp_path: Path):
     entries = [e for e in read_degradations(project)
                if e.get("component") == "spec:undelivered"]
     assert len(entries) == 1
-    assert "1 of 2 declared tests do not exist" in entries[0]["what"]
+    # Round 87 站1 replaced the pinned sentence "1 of 2 declared tests do not
+    # exist". Two reasons, and both are why this now pins the RULE instead of
+    # the wording: "do not exist" became false (a declaration can also be
+    # undelivered because its test ran and skipped), and a literal-string pin
+    # is the shape that let Round 86 add a fifth branch with only the CHANGED
+    # one caught. What the row must carry is the ratio and the reasons.
+    what = entries[0]["what"]
+    assert "1 of 2" in what, (
+        f"the ledger row no longer states the ratio it is about: {what!r}"
+    )
+    assert "absent" in what, (
+        f"the row does not say WHY the declaration is undelivered, so "
+        f"'nobody wrote it' and 'it was written and skipped' read the same: {what!r}"
+    )
     assert entries[0]["data"]["missing"][0]["derivation"] == "NP-01", (
         "the derivation has to survive — it is what says which requirement "
         "lost its evidence"
+    )
+    assert entries[0]["data"]["missing"][0]["why"] == "absent", (
+        "each undelivered row carries its own reason (Round 87 站1); without "
+        "it the ledger cannot tell a missing test from a skipping one"
     )
 
 
