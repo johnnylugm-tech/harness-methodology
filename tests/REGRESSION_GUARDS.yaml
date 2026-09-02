@@ -4646,3 +4646,27 @@
 - test: tests/test_phase_record_reaches_git.py::test_the_corpus_still_shows_who_paid_for_this
   bug: "four of seven completed corpus projects carry their final record only locally; kept executable so the number can be watched"
   fixed_in: "Round 90"
+
+- test: tests/test_ci_template_carries_preflight_credentials.py::test_the_run_phase_step_carries_the_token_preflight_needs
+  bug: "the shipped CI template passed no GH_TOKEN to the only step that runs preflight, so `gh run list` exited rc=4 inside Actions and submodule_pin_ci failed the whole preflight (taskq-cc run 32511120510)"
+  fixed_in: "Round 91"
+
+- test: tests/test_ci_template_carries_preflight_credentials.py::test_the_template_is_the_single_deployed_source
+  bug: "init-project and harness-init.sh both copy one template; a second copy would mean fixing one is fixing half, and the drift check compares against exactly this path"
+  fixed_in: "Round 91"
+
+- test: tests/test_ci_template_carries_preflight_credentials.py::test_run_phase_is_what_runs_the_preflight_pipeline
+  bug: "cmd_run_phase is the only caller of preflight_all(); the first version of this guard read direct calls only and reported that it does not, because cmd_run_phase is a tracing wrapper"
+  fixed_in: "Round 91"
+
+- test: tests/test_ci_template_carries_preflight_credentials.py::test_the_preflight_pipeline_asks_github_about_the_pin
+  bug: "submodule_pin_ci is in PREFLIGHT_CHECKS, which is what makes every phase reach the network and need the credential"
+  fixed_in: "Round 91"
+
+- test: tests/test_ci_template_carries_preflight_credentials.py::test_the_pin_check_reaches_gh
+  bug: "submodule_pin_verdict resolves through fetch_ci_verdict -> `gh run list`; remove that and the reason the template carries GH_TOKEN is gone"
+  fixed_in: "Round 91"
+
+- test: tests/test_ci_template_carries_preflight_credentials.py::test_an_unobtainable_verdict_still_fails_the_preflight
+  bug: "Round 37's rule is why a missing token was fatal rather than noisy: a verdict that could not be fetched is reported as a failure, not skipped"
+  fixed_in: "Round 91"
