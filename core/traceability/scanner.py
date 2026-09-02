@@ -182,6 +182,7 @@ def _absent_witnesses(
     absent: Dict[str, List[str]] = {}
     if not tests_dir or not tests_dir.is_dir():
         return absent
+    project = Path(project).resolve()  # Round 88 站1 — see scan_test_fr_coverage
     for test_file in iter_test_files(tests_dir, language or project_language(project)):
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
@@ -350,7 +351,12 @@ def scan_test_fr_coverage(
     fr_to_tests: Dict[str, List[str]] = {}
     if not tests_dir.is_dir():
         return fr_to_tests
-    project = project_root if project_root is not None else tests_dir.parent
+    # Round 88 站1: resolved. `scan_all` passes a resolved `tests_dir` (out of
+    # `ProjectLayout`) beside whatever `project` the caller had, so the two
+    # sides of `relative_to` below came from different resolutions and it
+    # raised on any project reached through a symlink — nine frozen corpus
+    # trees did. Four checks shared this defect; Round 87 站9 fixed one.
+    project = (project_root if project_root is not None else tests_dir.parent).resolve()
     language = language or project_language(project)
     for test_file in iter_test_files(tests_dir, language):
         rel = str(test_file.relative_to(project))
@@ -472,7 +478,7 @@ def scan_test_nfr_coverage(
     nfr_to_tests: Dict[str, List[str]] = {}
     if not tests_dir or not tests_dir.is_dir():
         return nfr_to_tests
-    project = project_root if project_root is not None else tests_dir.parent
+    project = (project_root if project_root is not None else tests_dir.parent).resolve()
     for test_file in iter_test_files(tests_dir, project_language(project)):
         try:
             text = test_file.read_text(encoding="utf-8", errors="replace")
@@ -528,6 +534,10 @@ def scan_all(
     scan outcome-aware; `None` preserves the previous presence-only
     behavior.
     """
+    # Round 88 站1: resolved once here so every scanner below relativises
+    # against the same root the walked paths came from (see
+    # scan_test_fr_coverage).
+    project = Path(project).resolve()
     if sad_path is None:
         sad_path = _find_sad(project)
 
@@ -576,6 +586,8 @@ def check_traceability(
         TraceStatus,
     )
     from core.quality_gate.test_suite_run import run_suite  # noqa: WPS433
+
+    project = Path(project).resolve()  # Round 88 站1 — see scan_test_fr_coverage
 
     # Defect A fix: outcome-aware coverage (see scan_test_fr_coverage's own
     # docstring). run_suite is memoized per-process (Round 25 SSOT), so this

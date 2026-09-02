@@ -904,7 +904,10 @@ def check_ac_deferral_targets(project: "str | Path") -> list[Violation]:
     )
     from core.utils.lang_patterns import project_language
 
-    project = Path(project)
+    # Round 88 站1: resolved — `ProjectLayout` resolves, so relativising the
+    # TEST_SPEC path against an unresolved root raised. Same defect as three
+    # siblings (see core/traceability/scanner.py::scan_test_fr_coverage).
+    project = Path(project).resolve()
     try:
         test_spec = ProjectLayout(project).test_spec_path
         if not test_spec.exists():

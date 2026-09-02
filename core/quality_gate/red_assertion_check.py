@@ -1038,7 +1038,11 @@ def spec_ambiguity_notes(project) -> list[dict]:
 
     from core.quality_gate.spec_coverage import _get_test_directories
 
-    root = Path(project)
+    # Round 88 站1: resolved. `_get_test_directories` returns resolved paths
+    # and `relative_to` against an unresolved root raised on two of the nine
+    # frozen corpus trees. Same defect as three siblings; Round 87 站9 fixed
+    # one of the four and did not sweep.
+    root = Path(project).resolve()
     out: list[dict] = []
     for test_dir in _get_test_directories(root):
         for path in sorted(Path(test_dir).rglob("*.py")):
