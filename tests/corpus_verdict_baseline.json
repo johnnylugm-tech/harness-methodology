@@ -20,7 +20,7 @@
   "run-all-by-workflow": {
     "_note": {
       "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict. Five of the six unmeasured entries here ran past P3 without leaving a P3 record, which is worth a round of its own and is not this one. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict. FOUR of the six unmeasured entries ran past P3 without leaving a P3 record (the other two, omnibot-new and taskq-final, simply have not reached P3). An earlier draft of this note said five; the recount is in the ledger. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
       "moved": "First recording, unmeasurable: phase_completed holds keys 1 and 2 at current_phase 9 \u2014 the same shape as taskq.",
       "why_right": "Two independent projects that completed nine phases and recorded only the first two makes this a property of when they ran, not of one project's state file."
     },

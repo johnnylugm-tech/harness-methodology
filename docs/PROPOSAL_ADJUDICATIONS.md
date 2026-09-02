@@ -4030,10 +4030,63 @@ baseline.py` 裡還有**三個各自手寫的 skip 條件**,各自指名一個�
 2. **六個 unmeasured 分三類**:`omnibot`/`tts-new` 到了 phase 8 而
    `phase_completed` **完全是空的**;`taskq`/`run-all-by-workflow` 跑完九個 phase
    只記到 P1/P2;只有 `taskq-final`(phase 2)是正常的「還沒到」。
-   **六個裡有五個跑過 P3 卻沒留下 P3 出口的 commit** —— 那是 R43 站4 與本輪重播
+   **六個裡有四個跑過 P3 卻沒留下 P3 出口的 commit**(另兩個是還沒到 P3)—— 那是 R43 站4 與本輪重播
    共同的依據。記為待查的觀察,本輪不追根因。
 3. `taskq-plus` / `taskq-renew` 的 committed gate result **沒有 `spec_declared`**,
    所以它們的漂移是**未知**,不是零。
+
+### phase_completed 的缺口:四個是歷史,一個還活著,而 67/73 是靠運氣進 git 的
+
+老闆令調查「跑過 P3 卻沒留下 P3 出口記錄」的專案。**先更正我自己的數字:是四個不是
+五個**(另兩個 `omnibot-new` phase 1、`taskq-final` phase 2 根本還沒到 P3)。
+
+**完整缺口掃描**(跑到 phase N 應有 `phase_completed` 1..N-1):27 筆缺口,三種形狀。
+
+| 形狀 | 專案 | P3 日期 | 解釋 |
+|---|---|---|---|
+| 1–7 全缺 | `omnibot` / `tts-new` | 2026-06-27 / 06-11 | 早於 push-checkpoint 開始寫 `phase_completed` |
+| 3–8 缺 | `taskq` / `run-all-by-workflow` | 2026-07-27 / 07-28 | 晚於 push-checkpoint(只寫 P1/P2)、早於 `48b4b1b2`(2026-07-29,讓 advance-phase 也寫) |
+| **只缺 5** | `taskq-super` | 2026-08-15 | **機制存在。這一筆是活的異常** |
+
+**前兩種形狀是時間線,零例外。** 九個記錄完整的專案 P3 全部在 2026-07-29 之後
+(最早 taskq-plus 07-31);四個有缺口的全部在之前。而 `cli/advance_steps.py:479`
+的註解**逐字點名過 run-all-by-workflow**:「reached Phase 9 with those two entries
+and nothing else」—— R24 站4a 診斷過、修好了,只是沒有回溯。
+
+#### taskq-super 缺 P5:已排除的與未定的
+
+`handover: advance to Phase 6` 這個 commit 存在,`last_milestone_command` 就是
+`advance-phase --completed-phase 5` —— **advance-phase 確實跑了**。而:
+
+- `"5": {` 在該專案**整個 git 歷史裡從未出現過**(`"4"` 與 `"6"` 都有);
+- P5 handover 之後 **5 小時 23 分**內下一個動 `state.json` 的 commit
+  (`5535033 release(P6)`)的 diff 裡沒有任何 `phase_completed` 變化
+  → 那一筆**根本沒被寫進工作樹**,不是寫了又被覆蓋;
+- degradation ledger **626 筆裡零筆** advance-phase —— 而寫入失敗的兩條路徑
+  都會 `record_degradation(..., owner="harness")`;
+- commit 失敗的 `return 6` 會回滾 FSM,而 FSM 推進了。
+
+**唯一符合所有觀察的路徑**是寫入所在的 `else` 分支整段被跳過 ——
+它掛在 `if os.environ.get("HARNESS_NO_GIT")` 的反面,而該分支被走時**不寫 ledger**。
+缺口:那條路也會跳過 commit,而 commit 存在。**根因未確定,誠實記為未定**,
+不硬套一個解釋。
+
+#### 順帶量到的活缺陷:寫入與 commit 之間有一個沒人保證的窗口
+
+`phase_completed[N]` 寫在 handover commit **之後**(程式碼順序:commit →
+`git rev-parse HEAD` → 寫 state.json),所以那筆記錄留在工作樹裡,要等**下一個
+任意 commit** 順手把它帶進 git。全語料實測:
+
+> **73 筆記錄裡 67 筆不在 handover commit 內**,只有 6 筆在。
+
+taskq-redo 的 P5 是被 `release(P6): Gate4 PASS` 帶走的,P6 是被
+`feat(FR-01): Gate1 PASS [phase=7]` 帶走的 —— 兩者都與那個 phase 無關。
+
+修法方向(**本輪未做,待裁示**):`push_cmds` 已經用 **pre-push HEAD** 寫同一個欄位,
+而 `advance_steps` 的註解自己寫著「Both satisfy the only consumer contract there
+is」。把 advance 端也改成先寫再 commit,那筆記錄就在 handover commit 裡。
+張力在 `delivered_tree_sha256`(R44 站2)需要 commit 後的 tree —— 要不要改、
+怎麼處理那個張力,是一個需要裁示的設計決定,不在本輪擅自做。
 
 ### 誠實邊界
 
