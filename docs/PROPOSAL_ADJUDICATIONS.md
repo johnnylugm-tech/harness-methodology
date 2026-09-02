@@ -3990,6 +3990,56 @@ high_score_count: 22` —— 滿分。`canonical_diff._best_match_ratio` 的 doc
 | 6 | `check_test_seams`:生產碼不得 runtime 分支於「測試是否動過手腳」 |
 | 7 | `SPEC_AMBIGUITY` 有了讀者(delivery fingerprint);弱化授權加上門檻界線 |
 | 8 | guards 1034→1063、10 條反證、賬本 |
+| 9 | 外部覆核的兩個盲點屬實 + 我的探針自己挖出第三個;guards →1067,4 條反證 |
+
+### 站9 — 覆核抓到的三個缺陷(兩個由外部報告指出,第三個由查證它們時挖出)
+
+**1. 參數化測試被誤判為 `not_collected`(屬實,嚴重)**
+
+`_parse_junit_outcomes` 逐字採用 pytest JUnit XML 的 `name` 屬性,而參數化案例的
+`name` 是帶括號的。實跑一份真的 junitxml 驗證:
+
+    classname='…test_demo'  name='test_param_case[1]'
+    classname='…test_demo'  name='test_param_case[2]'
+    classname='…test_demo.TestGrouped'  name='test_in_class[1]'
+
+所以 `test_outcomes` **從來不會有參數化測試的裸名**,而 `delivery_outcome` 拿裸名
+去比 → 每一個參數化的宣告都被讀成 `not_collected`。**一個跑過而且通過的測試被
+指控從來沒跑過**,而且方向是 fail-closed:它會擋住沒有缺陷的專案。
+
+`core/traceability/scanner.py:110-122` 的 docstring **一字不差地寫過這個陷阱**
+(「a bare function-name lookup would otherwise never match ANY parametrized
+test」)並用 `key + "["` 前綴處理掉了。站1 借了那個模組的**規則**,沒有借它的
+**id 比對**。母體再一次:知識在框架裡,而讀的那一半沒有拿到。
+
+實測影響:taskq-cc 124 條宣告中 6 條、taskq-cc-new 104 條中 5 條。修復前它們會被
+讀成 95.16% / 91.35%,修復後 100% / 96.15%(4 條是真的缺席)。
+
+括號要在 class 前綴**之前**剝掉:參數值可以含小數點(`test_foo[1.5]`),
+對未剝括號的 id 做 `rpartition(".")` 會得到 `5]`。並且是**等值比對不是前綴比對**
+—— `test_foo` 與 `test_foobar` 是兩條不同的宣告。
+
+**2. `is not` 是對稱的,規則不是(屬實)**
+
+`if _ORIGINAL is not service.Task.create:` —— 同一個分支把運算元對調,
+只讀 `node.comparators` 就完全看不到。改讀 `[node.left, *node.comparators]`。
+
+**這不會放寬 Alembic 的排除**:`config.config_file_name is not None` 左邊是
+Attribute、右邊是 Constant,兩邊都不是快照。全語料實測仍然 **1/12**,只有
+taskq-redo 的 `deps.py:181`。
+
+**3. `runtime_test_seams` 會 raise,而它的 docstring 說它不會(查證時挖出)**
+
+用 `tempfile.TemporaryDirectory()` 做探針時當場 `ValueError`:`ProjectLayout`
+會 resolve,所以 `rglob` 吐的是 resolved 路徑,而 `root` 是呼叫者傳進來的原樣路徑
+—— macOS 的 `/tmp` → `/private/tmp`,或任何經由 symlink 抵達的專案,
+`relative_to` 就炸。`preflight_artifact_consistency` 把任何例外變成
+`[BLOCKED] artifact-consistency scan error`,**所以失效模式是對一棵沒有缺陷的樹
+硬擋**。既有測試沒抓到是因為 pytest 的 `tmp_path` 已經是 resolved 的。
+
+「Never raises」必須是真的,不是寫在 docstring 裡的。
+
+四條反證(CP-11..14)各自轉紅、`cp` 還原逐位相同。self_check 8027 passed / 4 skipped。
 
 ### 站5 未做,以及為什麼不半做
 

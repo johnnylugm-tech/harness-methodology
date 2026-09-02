@@ -69,6 +69,62 @@ def test_the_shipped_seam_is_found(tmp_path: Path) -> None:
     assert "_ORIGINAL" in found[0]["code"]
 
 
+def test_the_seam_is_found_with_the_snapshot_on_either_side(tmp_path: Path) -> None:
+    """`is not` is symmetric; the check was not.
+
+    `if _ORIGINAL is not service.Task.create:` is the same branch as the
+    shipped one with the operands swapped, and the first version of this rule
+    looked only at `node.comparators`. Reversing the comparison was enough to
+    hide the defect entirely.
+
+    Alembic's `config.config_file_name is not None` stays excluded by the same
+    rule read on both sides: its left operand is an Attribute, not a Name, and
+    its right operand is a Constant — neither is the snapshot.
+    """
+    project = _src(tmp_path, (
+        "from pkg import service\n"
+        "_ORIGINAL = service.Task.create\n\n"
+        "def limit():\n"
+        "    if _ORIGINAL is not service.Task.create:\n"
+        "        reset_all()\n"
+    ))
+    found = runtime_test_seams(project)
+    assert len(found) == 1, f"the swapped-operand form is the same branch: {found}"
+    assert "_ORIGINAL" in found[0]["code"]
+
+
+def test_a_symlinked_project_path_does_not_raise(tmp_path: Path) -> None:
+    """"Never raises" has to be true, not documented.
+
+    `ProjectLayout` resolves the root, so `rglob` yields resolved paths; a
+    caller passing an unresolved path (macOS `/tmp` -> `/private/tmp`, and any
+    project reached through a symlink) made `relative_to` raise ValueError.
+    `preflight_artifact_consistency` wraps its checks in `except Exception` and
+    turns that into `[BLOCKED] artifact-consistency scan error`, so the failure
+    mode was a hard block on a tree with no defect in it.
+    """
+    real = tmp_path / "real"
+    _src(real, "X = 1\n")
+    link = tmp_path / "via_symlink"
+    link.symlink_to(real, target_is_directory=True)
+    assert runtime_test_seams(link) == []
+
+    _src(tmp_path / "real2", (
+        "from pkg import service\n"
+        "_ORIGINAL = service.Task.create\n\n"
+        "def limit():\n"
+        "    if service.Task.create is not _ORIGINAL:\n"
+        "        reset_all()\n"
+    ))
+    link2 = tmp_path / "via_symlink2"
+    link2.symlink_to(tmp_path / "real2", target_is_directory=True)
+    found = runtime_test_seams(link2)
+    assert len(found) == 1
+    assert not Path(found[0]["file"]).is_absolute(), (
+        f"the reported path must stay project-relative: {found[0]['file']!r}"
+    )
+
+
 def test_alembic_boilerplate_is_not_a_seam(tmp_path: Path) -> None:
     """`config.config_file_name is not None` — the first draft reported this.
 

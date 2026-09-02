@@ -73,6 +73,52 @@ def test_a_skipping_test_does_not_deliver_its_declaration() -> None:
     assert delivery_outcome("test_skips", _ACTUAL, _OUTCOMES) != "delivered"
 
 
+def test_a_parametrized_test_is_matched_by_its_bracketed_ids() -> None:
+    """`test_outcomes` never holds the bare name of a parametrized test.
+
+    pytest's JUnit XML writes `name="test_param_case[1]"`, so
+    `_parse_junit_outcomes` builds `<rel>::test_param_case[1]` and there is no
+    `<rel>::test_param_case` key at all. Comparing a bare declared name against
+    that reported EVERY parametrized declaration as `not_collected` — a
+    passing test accused of never having run.
+
+    `core.traceability.scanner` documented this exact trap in its own docstring
+    ("a bare function-name lookup would otherwise never match ANY parametrized
+    test") and handles it with a `key + "["` prefix. Round 87 站1 borrowed that
+    module's RULE and not its id matching. Measured on the corpus: 6 of
+    taskq-cc's 124 declarations and 5 of taskq-cc-new's 104.
+
+    The bracket is stripped BEFORE the class prefix, not after: a parameter
+    value may contain a dot (`test_foo[1.5]`), and `rpartition(".")` on the
+    unstripped id returns `5]`.
+    """
+    outcomes = {
+        "03-development/tests/t.py::test_param_case[1]": "passed",
+        "03-development/tests/t.py::test_param_case[2]": "passed",
+        "03-development/tests/t.py::TestGrouped.test_in_class[1]": "passed",
+        "03-development/tests/t.py::test_dotted_param[1.5]": "passed",
+        "03-development/tests/t.py::test_all_cases_skip[1]": "skipped",
+    }
+    actual = {"test_param_case", "test_in_class", "test_dotted_param",
+              "test_all_cases_skip"}
+    assert delivery_outcome("test_param_case", actual, outcomes) == "delivered"
+    assert delivery_outcome("test_in_class", actual, outcomes) == "delivered"
+    assert delivery_outcome("test_dotted_param", actual, outcomes) == "delivered"
+    assert delivery_outcome("test_all_cases_skip", actual, outcomes) == "skipped"
+
+
+def test_a_bracket_is_not_a_wildcard() -> None:
+    """Stripping the suffix must not make one name match another's prefix.
+
+    `test_foo` and `test_foobar` are different declarations; a rule that
+    matched on prefix rather than on the whole pre-bracket name would deliver
+    the first from the second's evidence.
+    """
+    outcomes = {"03-development/tests/t.py::test_foobar[1]": "passed"}
+    assert delivery_outcome("test_foo", {"test_foo", "test_foobar"},
+                            outcomes) == "not_collected"
+
+
 def test_no_outcomes_preserves_presence_only() -> None:
     """`None` is "not measured", and must not be read as "not delivered".
 

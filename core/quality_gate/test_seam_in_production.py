@@ -73,7 +73,14 @@ def runtime_test_seams(project: "str | Path") -> list[dict]:
     Never raises: a source tree that will not parse is another check's finding,
     and refusing to answer is better than answering wrong.
     """
-    root = Path(project)
+    # Resolved, because `ProjectLayout` resolves too and `rglob` therefore
+    # yields resolved paths. Without this, a caller passing an unresolved path
+    # — macOS `/tmp` -> `/private/tmp`, or any project reached through a
+    # symlink — made `relative_to` below raise ValueError, and
+    # `preflight_artifact_consistency` turns any exception into
+    # `[BLOCKED] artifact-consistency scan error`. "Never raises" has to be
+    # true, not documented.
+    root = Path(project).resolve()
     src_dir = ProjectLayout(root).phase3_development_dir / "src"
     if not src_dir.is_dir():
         return []
@@ -91,12 +98,21 @@ def runtime_test_seams(project: "str | Path") -> list[dict]:
                 continue
             if not any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops):
                 continue
-            # The snapshot must be what the runtime value is compared AGAINST.
-            # `config.config_file_name is not None` also reads a module-level
-            # attribute snapshot; its right operand is None, and it is Alembic
-            # boilerplate in two corpus projects.
-            if not any(isinstance(c, ast.Name) and c.id in snapshots
-                       for c in node.comparators):
+            # The snapshot must be one OPERAND of the identity test — either
+            # side. `is not` is symmetric and the first version of this rule
+            # was not: reading only `node.comparators` meant
+            # `if _ORIGINAL is not service.Task.create:` hid the same branch
+            # entirely.
+            #
+            # What this still excludes is what it always excluded, and reading
+            # both sides does not weaken it: Alembic's
+            # `config.config_file_name is not None` has an Attribute on the
+            # left and a Constant on the right, so neither operand is the
+            # snapshot. That boilerplate ships in two corpus projects and is
+            # why the operand rule exists at all.
+            operands = [node.left, *node.comparators]
+            if not any(isinstance(o, ast.Name) and o.id in snapshots
+                       for o in operands):
                 continue
             findings.append({
                 "file": str(path.relative_to(root)),

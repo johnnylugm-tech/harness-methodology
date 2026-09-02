@@ -111,7 +111,10 @@ def delivery_outcome(
     A name defined in two files counts as delivered when ANY occurrence passed.
     That matches the per-mention semantics of the scanner this borrows from,
     and the alternative (every occurrence) would charge a project for a
-    duplicated helper name it never declared twice.
+    duplicated helper name it never declared twice. The same is true across a
+    parametrized test's cases: one passing case is evidence the declaration
+    was exercised, and a case that skipped is reported by the row it belongs
+    to rather than by voiding the whole declaration.
     """
     if test_fn not in actual_fns:
         return "absent"
@@ -119,14 +122,38 @@ def delivery_outcome(
         return "delivered"
     seen: list[str] = []
     for nodeid, status in test_outcomes.items():
-        qualified = nodeid.partition("::")[2]
-        if qualified.rpartition(".")[2] == test_fn:
-            if status == _DELIVERING_OUTCOME:
-                return "delivered"
-            seen.append(status)
+        if _outcome_key_names(nodeid) != test_fn:
+            continue
+        if status == _DELIVERING_OUTCOME:
+            return "delivered"
+        seen.append(status)
     if not seen:
         return "not_collected"
     return seen[0]
+
+
+def _outcome_key_names(nodeid: str) -> str:
+    """The bare test-function name a `test_outcomes` key refers to.
+
+    `_parse_junit_outcomes` builds `"<rel>::<name>"` or
+    `"<rel>::<ClassName>.<name>"` from pytest's JUnit XML, and pytest writes a
+    parametrized case's `name` attribute WITH its bracket suffix — verified
+    against a real report: `name="test_param_case[1]"`. So `test_outcomes`
+    never holds the bare name of a parametrized test, and a bare comparison
+    reported every one of them as `not_collected`: a passing test accused of
+    never having run. `core.traceability.scanner._name_passed` documents the
+    same trap in its own docstring and handles it with a `key + "["` prefix;
+    Round 87 站1 borrowed that module's rule and not its id matching.
+
+    The bracket is stripped BEFORE the class prefix. A parameter value can
+    contain a dot (`test_foo[1.5]`), and `rpartition(".")` on the unstripped
+    id returns `5]`.
+
+    Equality, not prefix: `test_foo` and `test_foobar` are different
+    declarations, and a prefix rule would deliver the first out of the
+    second's evidence.
+    """
+    return nodeid.partition("::")[2].partition("[")[0].rpartition(".")[2]
 
 
 def _flatten_test_names(inventory: dict | None) -> set[str]:

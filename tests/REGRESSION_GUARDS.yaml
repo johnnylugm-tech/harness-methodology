@@ -4346,3 +4346,19 @@
 - test: tests/test_requirement_chain.py::test_the_parity_finding_reaches_the_report
   bug: "the first version of the machine-block guard called machine_block_parity directly, so replacing build_diff_report's field with a literal [] left it green — a producer with no reader, which is the shape this whole round is about. Found by the Round 87 counter-proof, not by review. The report is what Agent B reads as DOC 3; the function's return value is read by nothing on its own"
   fixed_in: "Round 87 站8"
+
+- test: tests/test_spec_coverage_delivery.py::test_a_parametrized_test_is_matched_by_its_bracketed_ids
+  bug: "test_outcomes never holds the bare name of a parametrized test — pytest's JUnit XML writes name=\"test_param_case[1]\", verified against a real report — so Round 87 站1's bare comparison reported every parametrized declaration as not_collected: a passing test accused of never having run. core.traceability.scanner documented the same trap in its own docstring and handles it with a `key + \"[\"` prefix; 站1 borrowed that module's rule and not its id matching. Measured: 6 of taskq-cc's 124 declarations, 5 of taskq-cc-new's 104. The bracket is stripped before the class prefix because a parameter value may contain a dot"
+  fixed_in: "Round 87 站9"
+
+- test: tests/test_spec_coverage_delivery.py::test_a_bracket_is_not_a_wildcard
+  bug: "stripping the parametrize suffix must not degrade to a prefix match — test_foo and test_foobar are different declarations, and a prefix rule would deliver the first out of the second's evidence"
+  fixed_in: "Round 87 站9"
+
+- test: tests/test_test_seam_in_production.py::test_the_seam_is_found_with_the_snapshot_on_either_side
+  bug: "`is not` is symmetric and the rule was not: reading only node.comparators meant `if _ORIGINAL is not service.Task.create:` — the same branch with its operands swapped — hid the defect entirely. Reading both operands does not weaken the Alembic exclusion, whose left is an Attribute and whose right is a Constant"
+  fixed_in: "Round 87 站9"
+
+- test: tests/test_test_seam_in_production.py::test_a_symlinked_project_path_does_not_raise
+  bug: "the module's docstring said 'never raises' and it raised: ProjectLayout resolves the root so rglob yields resolved paths, and an unresolved caller path (macOS /tmp -> /private/tmp, or any project reached through a symlink) made relative_to throw ValueError. preflight_artifact_consistency wraps its checks in `except Exception` and turns that into `[BLOCKED] artifact-consistency scan error` — a hard block on a tree with no defect in it"
+  fixed_in: "Round 87 站9"
