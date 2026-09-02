@@ -3843,6 +3843,153 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 91 — 交付的環境,跑不起交付它的那個檢查
+
+老闆令:**修復模板缺陷以及所有遺留問題。** 追加令(第四次):**再次驗證方案是否是
+正解且沒有引入副作用,任何問題與解法都要先驗證。**
+
+照做的結果:**站1 的判準被自己的量測換掉兩次**,站1 多出一半原本沒看到的
+(規則的反例就寫在既有測試裡),而盤點時的第三項診斷**被三次實測全部推翻**。
+
+基線 `5e95c991`。
+
+### 站0 — 模板缺 GH_TOKEN
+
+taskq-cc run `32511120510` 的 `gate-check` 逐字:
+
+```
+submodule_pin_ci: harness pin d922cf6c: CI verdict unavailable —
+gh run list failed (rc=4): gh: To use GitHub CLI in a GitHub Actions
+workflow, set the GH_TOKEN environment variable.
+PRE-FLIGHT: FAIL
+```
+
+鏈上每一環都實測過,而且每一環都承重:
+
+| 環 | 事實 |
+|---|---|
+| `templates/harness_quality_gate.yml` | `GH_TOKEN` 出現 **0 次** |
+| 部署 | `init-project`(`project_cmds.py:167`)與 `harness-init.sh:130` **共用這一份**,位元組複製 |
+| `run-phase` | 模板裡唯一跑 gate 的 step |
+| `cmd_run_phase` | 全 repo **唯一**呼叫 `preflight_all()` 的 |
+| `PREFLIGHT_CHECKS` | 裡面有 `submodule_pin_ci`,每個 phase 都跑 |
+| `submodule_pin_verdict` | → `fetch_ci_verdict` → `gh run list` |
+| R37 的規則 | 取不到的判定**不是**綠判定 → `passed: False` → 整個 preflight 失敗 |
+
+**老闆 2026-09-01 在 taskq-redo 手修過**:`b9276d3 ci: pass GH_TOKEN to Phase
+Preflight so submodule pin CI verdict can resolve`,那個副本 09-02 就綠了
+(`harness pin cf8cc0e9: all runs green`)。**模板沒學會** —— 與 Round 90 的
+`phase_completed` 同形,老闆手動補救而框架一個月沒動。
+
+**死結的另一半**:模板與那個修好的副本只差那一行,而 `ci_template_drift` 把它判為
+**DRIFT**;官方修復指令 `init-project --ci-only --overwrite` 會把修法洗掉。
+本輪逐字採用同一行 —— 不是風格選擇:寫成 `${{ github.token }}` 會讓那個副本繼續
+drift,寫成一樣的,實測 diff 為空、它的 drift 歸零。
+
+**不加 `permissions:` 區塊**:harness repo 實測是 **PUBLIC**,跨 repo 讀 public
+runs 不受當前 repo 的 `permissions` 限制,taskq-redo 那個 run 就是實證。為沒發生
+的情境加宣告是臆測性設計。
+
+**守衛用 yaml 讀 key**(不是字串比對),並分別釘住上面每一環。它第一版只讀直接
+呼叫,於是報「`cmd_run_phase` 不跑 preflight」—— 那是個 tracing wrapper,實作在
+`_cmd_run_phase_impl`。**停在第一層 wrapper 的守衛量的是 wrapper。**
+
+### 站1 — 分數的唯一背書,驗的是內容裡有沒有一個字
+
+上一則盤點把 GPL/LGPL/MPL 污染記為「未能查證 —— evidence 裡沒有可讀的 licence
+清單」。去讀那份 evidence,發現**它不可解析,而它拿滿分**:
+
+```
+taskq-redo/gate_evidence/gate4/license_compliance.json
+    22893 bytes,json.loads 在 line 1 column 1 失敗
+gate4_result.json.breakdown.license_compliance
+    score = 100.0,  score_source = artifact_verified
+_validate_tool_content(那份檔案) → []                    ← 實測復現
+```
+
+檔案裡**有**真的 scancode JSON(48 files / 0 errors),被 Python import 警告和
+`Scanning done.` 夾住。check 3 是 `license`/`SPDX`/`copyright`/`scan:` 四個字的
+OR,而進度行 `Scan files for: licenses` 含第一個。
+
+**為什麼只有這個維度**:`mutation_testing` 也在 skip list,但它的數字不靠
+tool_output —— `.methodology/mutation_score.json` 由框架寫、在讀 agent 宣稱之前
+就檢查(R35 站3,那段註解逐字寫著 `mutmut is the only member today`)。
+`license_compliance` 沒有對應物,**那份檔案就是全部**。
+
+#### 判準被自己的量測換掉兩次
+
+| 候選 | 量測 | 下場 |
+|---|---|---|
+| `.json` 副檔名必須是合法 JSON | `gate_evidence` 全部 **125** 個 `.json`,**32 個不是** —— 大多是正常的工具文字(pytest 的點、ruff 的 `All checks passed!`、gitleaks 的橫幅) | 否決 |
+| 能 `json.loads` + 有 scancode 頂層結構 | 仍放過 taskq-super 那份 **45 bytes** 的手寫摘要(它有 `license_detections`) | 否決 |
+| **`headers[0].tool_name == "scancode-toolkit"`** | 語料二十份 **9 pass / 11 block**,四類之間沒有模糊地帶 | 採用 |
+
+```
+9   scancode-toolkit        真的 --json-pp 輸出
+8   不是 JSON               stdout/stderr 混流,或被 head 截斷
+2   JSON 但沒有 headers     agent 自己整理的摘要(其一 45 bytes)
+1   JSON 但不是 object      是個 list
+```
+
+採用它的理由不是分數好看:**它問的是這份輸出的出處,不是內容裡有沒有某個字**
+—— R87 母體的反面。
+
+**病因在 prompt**。`evaluate_dimension.md:209` 原本是
+`scancode --license --processes 2 --json-pp - src/ | head -300` —— 沒有分流
+stderr,而 `head` 會把 pretty-print 的文件從中間截斷。同一份 prompt 的 bandit 寫
+`2>&1` 對它是**對的**(那是給人看的文字),對要被解析的 JSON 是錯的。
+只改這一條,另外六條不動:那些維度框架自己跑工具,分數不從 artifact 讀。
+
+#### R19 母體,就在本輪的相依裡
+
+兩支既有測試用 `"Scan completed. No license violations found."` 當合法的 scancode
+產出 —— **scancode 不可能吐出那句話**,而其中一支正是**建立 `artifact_verified`
+的那一輪**(R83 站1)。規則的正確性由一個不可能存在的樣本背書。
+兩處換成取自 taskq-cc committed Gate 4 的真實形狀,**刻意不從讀它的檢查推導** ——
+那才是閉環。
+
+### 撤銷 — attestation 那一項,三個假設全被自己的實測推翻
+
+盤點時看到 taskq-cc 的 `attestation: mismatch`,而 CI 說 `code changed since last
+attestation`,那個 commit 卻是 **1 file changed / 1 insertion / 1 deletion**,
+只有 submodule 指標。據此診斷「框架換版讓 attestation 失效」。三次實測:
+
+| 假設 | 實測 | |
+|---|---|---|
+| 框架換版改了掃描器 | `f6d984bc` vs `d922cf6c` 的 `core/traceability/`、`build_traceability.py`、`build_trace_attestation.py` **位元組相同** | ✗ |
+| CI 與本地算出不同值 | 本地用 pin 版重算 = CI 算的 `481c7cfb` | ✗ |
+| **R90 我的修法會造成同樣 mismatch** | 複本上改 `phase_completed` 後重算,**SHA 一字不變**(matrix 不讀 state.json) | ✗ |
+
+**診斷撤銷。** taskq-cc 的 attestation 確實過時,但成因需要那個專案的完整操作史,
+而它 08-22 之後凍結。**不是今天框架的活缺陷,成因未定。**
+順帶得到一個好結果:**R90 的修法沒有這個副作用,是實測不是推論。**
+
+### 明列不做(附理由)
+
+| 項目 | 理由 |
+|---|---|
+| 四個專案「記錄不在 git」/ 三個潛伏 pin / R89-R90 未經真實專案驗證 | **語料唯讀**。R90 已修根因,恢復要在各專案 repo 補 commit —— 老闆的決定。三個潛伏的(advance/api/super)現在綠只因為 pin 早於 `a3113866`(R53 站5,08-16 引入 entry gate 要求 `phase_completed[N]`),bump pin 就會跟 taskq-redo 一樣紅 |
+| NFR-04 縮小 `TASKQ_DB_URL` | 需先量 NFR 側誤判率,那是獨立一輪 |
+| taskq-super P5 根因 | 執行環境已不存在 —— 誠實狀態,不是待補的空格 |
+| CRG architecture 75.0 / 57.1 | R87 已裁決:該維度量模組聚合度,看不見 SAD/SPEC |
+| 另外六條 prompt 的 `2>&1` / mutmut 的出處判準 | 見站1 —— 分數不從那些 artifact 讀 |
+| `_TOOL_OUTPUT_MIN_BYTES = 5` 調高 | 全域常數會波及所有工具(R27 站1 已考慮過並否決);45 bytes 那份已被出處判準擋下 |
+
+### 反證
+
+| | 動作 | 結果 |
+|---|---|---|
+| CP-1 | 拿掉模板那一行 | 站0 守衛紅;還原後與專案副本位元組相同 |
+| CP-2 | 拿掉 scancode 出處判準 | 站1 守衛 5 紅;還原 11 綠 |
+| CP-3 | **自我證偽**:判準改回「內容含 `license` 字樣」 | 對混流檔與 45B 摘要**皆無感** |
+| CP-4 | fixture 換回那句英文 | 站1 守衛紅;還原後 sha256 逐位元組相同 |
+
+guards **1132 → 1149**。ratchet `harness/gate_checks.py` 823 → 897(+74,算術與
+理由在 ratchet note)。`god_file_split` golden 重新生成,只動
+`_validate_tool_content` 一個 key。語料十五專案全程唯讀。
+
+---
+
 ## Round 90 — 記錄留在工作樹,而 CI 讀的是 git
 
 老闆令:檢查 taskq-redo 最終報告與三專案對比報告,重新驗證缺失的真實性與根源性、
