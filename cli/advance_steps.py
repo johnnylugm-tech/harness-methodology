@@ -584,6 +584,67 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
                 f"git rev-parse HEAD failed: {_head.stderr.strip()}", owner="harness"
             )
 
+        # ── The record has to be IN a commit (Round 90) ──────────────────
+        #
+        # The write above lands in the working tree, because its `sha` is the
+        # handover commit and that commit has to exist before the sha does.
+        # Its only route into git was some later commit picking it up, and the
+        # pipeline ends at P8, so the last entry usually has no later commit.
+        #
+        # taskq-redo's CI: `[ENTRY GATE FAILED] Gate 4 —
+        # state.json.phase_completed[8] is absent`, on a project whose working
+        # tree holds 1..8 and whose HEAD — the commit CI checked out — holds
+        # 1..7. Round 88 measured this window and judged it harmless because
+        # every consumer reads the working tree through `load_state`; every
+        # consumer it checked was local, and CI checks out a commit.
+        #
+        # Of the seven corpus projects that reached P9 with a P8 entry, two got
+        # it into git by a HUMAN commit a month apart — "chore(state): commit
+        # phase 8 entry written after prior advance-phase commit" and
+        # "chore(harness): commit advance-phase phase_completed[8] ride-along"
+        # — one by an unrelated submodule bump, and four not at all. This is
+        # that hand-repair, done by the thing that created the need for it.
+        #
+        # A second commit rather than a different ordering: `sha` is pinned to
+        # the handover commit by tests/test_phase_completed_authority.py and
+        # `cli/phase_cmds.py` states "The ordering is left alone", so writing
+        # earlier would mean the entry could not name the commit it is about.
+        # This changes nothing that is already decided — it only stops the
+        # value from depending on what happens next.
+        _record_add = subprocess.run(
+            ["git", "-C", str(project), "add", ".methodology/state.json"],
+            capture_output=True, text=True,
+        )
+        if _record_add.returncode != 0:
+            record_degradation(
+                project, "advance-phase",
+                f"phase_completed[{args.completed_phase}] not committed",
+                f"git add failed: {_record_add.stderr.strip()}", owner="harness",
+            )
+        else:
+            _record_commit = subprocess.run(
+                ["git", "-C", str(project), "commit", "-m",
+                 f"chore(state): record phase {args.completed_phase} completion"],
+                capture_output=True, text=True,
+            )
+            _record_out = _record_commit.stdout + _record_commit.stderr
+            if _record_commit.returncode == 0:
+                print(f"[advance-phase] Committed phase_completed"
+                      f"[{args.completed_phase}] — the entry is in git, not "
+                      f"only in the working tree.")
+            elif "nothing to commit" in _record_out:
+                # A re-run whose state.json is byte-identical to the committed
+                # one. `git commit` exits non-zero on an empty index and that
+                # is the normal case here, not a failure.
+                pass
+            else:
+                record_degradation(
+                    project, "advance-phase",
+                    f"phase_completed[{args.completed_phase}] not committed",
+                    f"git commit failed: {_record_out.strip()[:200]}",
+                    owner="harness",
+                )
+
         # ── --push (Round 23 站1) ─────────────────────────────────────────
         # Opt-in publication of the handover commit this function just made.
         # Historically advance-phase always stopped at "commit locally", and

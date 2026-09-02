@@ -143,7 +143,17 @@ _CEILINGS: dict[str, int] = {
     # are inside the HARNESS_NO_GIT else-branch, and a check placed there is
     # skipped by exactly the condition it exists to survive. It cannot move to
     # a helper without moving that placement out of the reader's sight.
-    "cli/advance_steps.py::_advance_step_commit_and_push": 331,
+    # 2026-09-02: 331 -> 392 — Round 90. The record-commit: after writing
+    # phase_completed[N] this function now commits state.json, because the
+    # write lands in the working tree and CI checks out a commit
+    # (taskq-redo Gate 4: "phase_completed[8] is absent" on a project whose
+    # working tree held 1..8). 61 lines, of which ~30 are the comment
+    # carrying the seven-project measurement and the two HUMAN repair
+    # commits that did this by hand. It stays inline for the same reason
+    # the read-back above does: its position relative to the handover
+    # commit and to --push is the whole of what makes it correct, and a
+    # helper would move that ordering out of the reader's sight.
+    "cli/advance_steps.py::_advance_step_commit_and_push": 392,
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same

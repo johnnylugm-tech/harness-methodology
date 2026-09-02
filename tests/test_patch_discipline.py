@@ -164,6 +164,11 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # method and does not count. Not a new coupling — the fourth file on an
     # established seam.
     "tests/test_advance_reads_back_what_it_wrote.py": 2,
+    # 2026-09-02 Round 90: the same two cmd_advance_phase seams again —
+    # _advance_prechecks and _verify_entry_gate. What is under test is
+    # whether the phase_completed entry reaches a COMMIT (CI reads the
+    # commit, not the working tree); neither seam is the subject.
+    "tests/test_phase_record_reaches_git.py": 2,
     "tests/test_generate_full_plan.py": 1,
     "tests/test_harness_bridge_highs2.py": 1,
     "tests/test_kill_switch_complete.py": 1,

@@ -131,9 +131,14 @@ def test_the_record_it_writes_names_the_commit_and_the_tree(
     entry = json.loads(
         (proj / ".methodology" / "state.json").read_text()
     )["phase_completed"]["3"]
-    head = _git(proj, "rev-parse", "HEAD").stdout.strip()
-    assert entry["sha"] == head
-    assert entry["delivered_tree_sha256"] == committed_tree_digest(proj, head)
+    # Round 90: the record is committed by a second commit right after the
+    # handover, so HEAD is no longer the commit the entry names. Both facts
+    # are unchanged — they are asserted against that commit by name.
+    handover = _git(proj, "log", "-1", "--format=%H",
+                    "--grep=^handover: advance to Phase").stdout.strip()
+    assert handover, "no handover commit found"
+    assert entry["sha"] == handover
+    assert entry["delivered_tree_sha256"] == committed_tree_digest(proj, handover)
 
 
 def test_a_placeholder_record_is_named_as_a_defect(project_leaving_phase_3):

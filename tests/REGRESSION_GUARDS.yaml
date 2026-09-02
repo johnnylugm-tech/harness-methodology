@@ -4616,3 +4616,33 @@
 - test: tests/test_advance_reads_back_what_it_wrote.py::test_the_read_back_reuses_the_shared_record_contract
   bug: "phase_record_defects (Round 72 站1) already defines what a record looks like; a second copy here would be a second answer"
   fixed_in: "Round 89"
+
+# ── Round 90 — the record was in the working tree and not in the commit ──
+# taskq-redo CI: "[ENTRY GATE FAILED] Gate 4 — phase_completed[8] is absent",
+# on a project whose working tree held 1..8 and whose HEAD held 1..7. Round 88
+# measured this window and judged it harmless because every consumer reads the
+# working tree — every consumer it checked was local, and CI checks out a commit.
+
+- test: tests/test_phase_record_reaches_git.py::test_the_record_is_in_the_commit_not_only_the_working_tree
+  bug: "phase_completed[N] is written after the handover commit, so its only route into git was a later commit picking it up; the pipeline ends at P8 and the last entry usually has no later commit. Two of seven corpus projects got it in by a HUMAN repair commit, one by an unrelated submodule bump, four not at all"
+  fixed_in: "Round 90"
+
+- test: tests/test_phase_record_reaches_git.py::test_the_committed_record_names_a_commit_that_exists
+  bug: "committing the record must not change what it says — the sha stays the handover commit's own and remains an ancestor of HEAD"
+  fixed_in: "Round 90"
+
+- test: tests/test_phase_record_reaches_git.py::test_a_second_advance_does_not_fail_on_an_unchanged_state
+  bug: "`git commit` exits non-zero on an empty index; a re-run whose state.json is byte-identical is the normal case, not a failure"
+  fixed_in: "Round 90"
+
+- test: tests/test_phase_record_reaches_git.py::test_no_git_is_unchanged
+  bug: "HARNESS_NO_GIT=1 must still produce no commit"
+  fixed_in: "Round 90"
+
+- test: tests/test_phase_record_reaches_git.py::test_the_record_commit_happens_before_the_push
+  bug: "a record committed after --push is a record that push did not carry, which leaves CI reading the commit before it — the exact state this round fixes"
+  fixed_in: "Round 90"
+
+- test: tests/test_phase_record_reaches_git.py::test_the_corpus_still_shows_who_paid_for_this
+  bug: "four of seven completed corpus projects carry their final record only locally; kept executable so the number can be watched"
+  fixed_in: "Round 90"

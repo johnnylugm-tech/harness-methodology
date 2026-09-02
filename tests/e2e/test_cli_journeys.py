@@ -64,8 +64,13 @@ class TestAdvanceJourneys:
             (e2e_project / ".methodology" / "state.json").read_text()
         )
         assert state["current_phase"] == 2
-        subject = git(e2e_project, "log", "-1", "--format=%s").stdout.strip()
-        assert subject == "handover: advance to Phase 2"
+        # Round 90: advance makes TWO commits — the handover, then the
+        # phase_completed entry it could only write once the handover's sha
+        # existed. The second is what a CI checkout reads.
+        subjects = git(e2e_project, "log", "-2",
+                       "--format=%s").stdout.strip().splitlines()
+        assert subjects == ["chore(state): record phase 1 completion",
+                            "handover: advance to Phase 2"], subjects
         committed = git(
             e2e_project, "show", "HEAD:.methodology/state.json"
         ).stdout

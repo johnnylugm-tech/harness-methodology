@@ -123,10 +123,23 @@ def test_advance_phase_records_phase_completed_with_an_ancestor_sha(advance_proj
         capture_output=True,
     ).returncode
     assert rc == 0, "recorded SHA must be an ancestor of HEAD"
-    assert entry["sha"] == _git(proj, "rev-parse", "HEAD").stdout.strip(), (
+    # Round 90: still the handover commit, but no longer HEAD. The entry is
+    # now committed by a second commit right after it (the working tree held
+    # it and git did not, which is how taskq-redo's CI read
+    # `phase_completed[8] is absent` from a project whose working tree had
+    # 1..8). The sha's meaning is unchanged — this assertion names the commit
+    # instead of a position, which is what it was always about.
+    _handover = _git(proj, "log", "-1", "--format=%H",
+                     "--grep=^handover: advance to Phase").stdout.strip()
+    assert _handover, "no handover commit found"
+    assert entry["sha"] == _handover, (
         "advance-phase records the handover commit itself; push-checkpoint records "
         "its PRE-push HEAD. Both satisfy is-ancestor, and each names the repo "
         "state at which that phase completed."
+    )
+    assert entry["sha"] != _git(proj, "rev-parse", "HEAD").stdout.strip(), (
+        "the record must be committed AFTER the commit it names — if they are "
+        "the same commit, the entry could not have been inside it"
     )
 
 

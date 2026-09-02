@@ -3843,6 +3843,102 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 90 — 記錄留在工作樹,而 CI 讀的是 git
+
+老闆令:檢查 taskq-redo 最終報告與三專案對比報告,重新驗證缺失的真實性與根源性、
+**檢查 GitHub CI 的錯誤**,並明確是 harness bug 還是 workflow JS bug。
+追加令:**再次驗證方案是否是正解。** 結果:**方案第一版的站2 整個撤銷。**
+
+基線 `fd90af11`。
+
+### 站0 — CI 的錯誤,以及老闆已經手動補救過兩次
+
+taskq-redo CI run `33613833668` 紅在 `gate-check`:
+`[ENTRY GATE FAILED] Gate 4 — state.json.phase_completed[8] is absent`。
+
+| 量到的 | 值 |
+|---|---|
+| taskq-redo **工作樹** | `phase_completed` = `1..8` |
+| CI 跑的 commit `f354734` 的 **git** 版本 | `1..7` |
+| `f354734` | `handover: advance to Phase 9`,**同時是 HEAD** |
+
+**根源**:`phase_completed[N]` 寫在 handover commit **之後**(commit →
+`git rev-parse HEAD` → 寫 state.json),留在工作樹,**進 git 的唯一途徑是
+「之後還有 commit 順手帶走」**。管線在 P8 結束,最後一筆通常沒有那個機會。
+
+**七個跑到 P9 的專案,最後一筆的下場:**
+
+| 專案 | 怎麼進 git 的 |
+|---|---|
+| taskq-plus | **老闆手動**:`chore(state): commit phase 8 entry written after prior advance-phase commit`(08-01) |
+| taskq-cc | **老闆手動**:`chore(harness): commit advance-phase phase_completed[8] ride-along`(08-21) |
+| taskq-renew | 被無關的 `chore: bump harness submodule` 順手帶走 |
+| taskq-advance / taskq-api / **taskq-redo** / taskq-super | **沒進 git**(四個的 HEAD 全是 `handover: advance to Phase 9`) |
+
+**那兩個手動 commit 的訊息就是這個缺陷的名字。** 老闆 08-01 遇到、08-21 再遇到,
+框架一個月後仍未修,09-02 taskq-redo 的 CI 因此紅。**只有靠人或運氣才會進 git。**
+
+**harness bug**,不是 workflow JS bug:寫入與 commit 都在
+`cli/advance_steps.py::_advance_step_commit_and_push`。
+
+**修法**:寫完記錄後多一個 commit —— 就是老闆手動做過兩次的那件事。
+`sha` 語意不變(仍是 handover commit),`delivered_tree_sha256` 不變,
+R44 站4 的不變式與 `merge-base --is-ancestor` 都不動。
+**不改 ordering**:R89 已查證它有測試明文釘住,而 `phase_cmds.py:1706` 明說
+「The ordering is left alone」—— 多一個 commit 不撤銷任何既有決定。
+
+**pre-commit hook 不擋**:老闆那兩次手動補救就是 state.json-only 的 commit,
+都成功了 —— 實證,不是推論。
+
+### 我 R88/R89 兩輪的結論是錯的
+
+兩輪都說這個窗口「**零個已知受害者**」,理由是「消費者全部讀工作樹」。
+**每一個我檢查過的消費者都是本地的,而 CI 讀的是 checkout 出來的 commit。**
+
+**R89 的讀回檢查對它是盲的**:那支讀工作樹,記錄在工作樹裡,所以它通過。
+R89 修「沒寫進工作樹」,本輪修「沒進 git」。**反證 CP-3 把這件事變成可執行的**:
+把端對端守衛改讀工作樹,再拿掉本輪的修法 —— **仍然全綠**。
+
+### 兩支既有測試的斷言更新(不是放寬)
+
+`test_advance_phase_records_phase_completed_with_an_ancestor_sha` 斷言
+`sha == HEAD`,`test_healthy_advance_commits_state` 斷言 HEAD 的 subject 是
+handover —— 兩者紅的都是「HEAD 恰好是 handover commit」這個**副產物**,
+而不是它們保護的事實(前者自己的 docstring 說契約是 `is-ancestor`)。
+
+改成**指名那個 commit 而非位置**,並各自**加強**:前者多一條
+「`sha` 不得等於 HEAD」(等於就表示記錄不可能在它裡面),後者改成釘住
+**兩個 commit 都在且順序正確**。
+
+### 站2 撤銷 — 我又一次沒讀到框架已經做過的事
+
+第一版站2:「`license_compliance` 是 tier-1/threshold 100,而 `scancode` 在
+`tool_runners` 的 skip list 上,S3-A 只驗格式不算分 → 分數來自 agent 自報,
+推翻 R31『mutation 是唯一』」。**用 `score_source` 實測後全錯**:
+
+- taskq-redo 的 `license_compliance.score_source` = **`artifact_verified`**,
+  `mutation_testing` 也是 —— 不是 `agent_unverified`。
+- `harness/gate_result.py:114` 的 `SCORE_SOURCE_ARTIFACT_VERIFIED` 是
+  **R83 站1 專門為這兩個維度建的**,docstring 逐字寫著
+  「`license_compliance` and `mutation_testing` carrying 0.15 of Gate 4's weight
+  **with no recorded source**」—— 那正是我要指控的東西,六輪前就修了。
+- 我用來當旁證的「taskq-cc 的 `.json` 裡是 Python 警告文字」也**不能用**:
+  那份 gate result 的 `score_source` 是 `None`(早於 R83 站1)。
+  **拿一個規則生效前的樣本去證明規則失效。**
+
+第三次同一個教訓(R87 站5、R89、本輪):框架已經診斷並修過,而我沒讀到就當成新發現。
+
+### 報告其他項目
+
+| 項目 | 查證 |
+|---|---|
+| AC-7.1 語意縮小、`downgrade(): pass`、29 個空 stub、test seam、p95 只 import | **R87 已修**(站1/站5/站6) |
+| CRG 內聚度低 | R87 賬本已記明列不做 |
+| Makefile `PYTHON ?= python3` | **專案的 Makefile,不是框架產物**;規定專案的解譯器綁定是越界 |
+| 缺分散式擴展 / Dockerfile / K8s | **SPEC 沒有要求**。對沒要求的東西扣分會逼專案交付 SPEC 以外的內容(R42) |
+| NFR-04 縮小 `TASKQ_DB_URL` | 與 AC-7.1 同形,但 R87 站5 的 criteria review 是 **per-FR**,NFR 不在範圍。**待評估**,需先量 NFR 側誤判率 |
+| GPL/LGPL/MPL 污染 | **未能查證** —— evidence 裡沒有可讀的 licence 清單。不宣稱真或假 |
+
 ## Round 89 — 寫了之後沒有人回頭看寫進去了沒有
 
 老闆令:修復上一輪報告的缺陷。追加令:**再次驗證方案是否是正解且沒有引入副作用。**

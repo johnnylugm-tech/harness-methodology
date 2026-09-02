@@ -139,8 +139,13 @@ class TestAdvanceCommitRollback:
         assert rc == 0
         state = json.loads((proj / ".methodology" / "state.json").read_text())
         assert state["current_phase"] == 2
-        subject = _git(proj, "log", "-1", "--format=%s").stdout.strip()
-        assert subject == "handover: advance to Phase 2"
+        # Round 90: the advance now makes TWO commits — the handover, then the
+        # phase_completed entry it could only write once the handover's sha
+        # existed. Both are asserted, in order, because the second one is what
+        # a CI checkout reads and its absence is what turned taskq-redo red.
+        subjects = _git(proj, "log", "-2", "--format=%s").stdout.strip().splitlines()
+        assert subjects == ["chore(state): record phase 1 completion",
+                            "handover: advance to Phase 2"], subjects
         committed = _git(
             proj, "show", "HEAD:.methodology/state.json"
         ).stdout
