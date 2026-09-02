@@ -1,0 +1,119 @@
+{
+  "omnibot": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
+  "omnibot-new": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
+  "run-all-by-workflow": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
+  "taskq": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
+  "taskq-advance": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "81bbeb44e786",
+    "spec_alignment_violations": 5,
+    "spec_declared": 97,
+    "spec_undelivered": 31,
+    "spec_unread_rows": 2
+  },
+  "taskq-api": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "7e3113ecf131",
+    "spec_alignment_violations": 6,
+    "spec_declared": 113,
+    "spec_undelivered": 0,
+    "spec_unread_rows": 0
+  },
+  "taskq-cc": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "59489a184ad7",
+    "spec_alignment_violations": 0,
+    "spec_declared": 124,
+    "spec_undelivered": 47,
+    "spec_unread_rows": 1
+  },
+  "taskq-cc-new": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "5298d3ab760b",
+    "spec_alignment_violations": 5,
+    "spec_declared": 104,
+    "spec_undelivered": 15,
+    "spec_unread_rows": 0
+  },
+  "taskq-final": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
+  "taskq-new": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "c15966f250d7",
+    "spec_alignment_violations": 6,
+    "spec_declared": 116,
+    "spec_undelivered": 52,
+    "spec_unread_rows": 0
+  },
+  "taskq-plus": {
+    "frs_total": 8,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "21130712f632",
+    "spec_alignment_violations": 1,
+    "spec_declared": 113,
+    "spec_undelivered": 50,
+    "spec_unread_rows": 0
+  },
+  "taskq-redo": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 1,
+    "sha": "f58d68552567",
+    "spec_alignment_violations": 6,
+    "spec_declared": 130,
+    "spec_undelivered": 0,
+    "spec_unread_rows": 0
+  },
+  "taskq-renew": {
+    "frs_total": 8,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "7e9277dcbf17",
+    "spec_alignment_violations": 1,
+    "spec_declared": 89,
+    "spec_undelivered": 8,
+    "spec_unread_rows": 0
+  },
+  "taskq-super": {
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "2b74f46fb187",
+    "spec_alignment_violations": 5,
+    "spec_declared": 123,
+    "spec_undelivered": 51,
+    "spec_unread_rows": 0
+  },
+  "tts-new": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  }
+}

@@ -4464,3 +4464,101 @@
 - test: tests/test_criteria_review.py::test_a_stated_fr_is_still_blocked_when_another_is_skipped
   bug: "the no-requirement skip is per-FR, not a switch that turns the whole P3 check off"
   fixed_in: "Round 87 站5"
+
+# ── Round 88 — the framework had never been run against the trees it judges ──
+# Nine delivered trees, frozen at the commit each project's own
+# phase_completed["3"] names: seven are judged differently today than when they
+# were accepted, and the one whose quality degraded (taskq-redo, 130 named
+# stubs) is the only one that cannot move.
+
+- test: tests/test_unmeasured_suite_is_not_zero.py::test_a_suite_that_could_not_run_reports_no_outcomes
+  bug: "R87 站1's _live_test_outcomes returned run_suite's {} verbatim; _parse_junit_outcomes' own docstring forbids reading {} as 'zero tests ran' and two other consumers already guard it"
+  fixed_in: "Round 88 站0"
+
+- test: tests/test_unmeasured_suite_is_not_zero.py::test_delivery_falls_back_to_presence_when_the_suite_did_not_run
+  bug: "a pytest collection error (ran=True rc=2, outcomes={}) made every declared test read as not_collected — a suite that never started, charged as a suite where nothing passed"
+  fixed_in: "Round 88 站0"
+
+- test: tests/test_unmeasured_suite_is_not_zero.py::test_a_test_that_really_skipped_is_still_undelivered
+  bug: "the fix must not switch Round 87 站1 off — a suite that RAN and reported skipped still counts against delivery"
+  fixed_in: "Round 88 站0"
+
+- test: tests/test_unmeasured_suite_is_not_zero.py::test_an_empty_map_from_a_completed_run_is_still_a_measurement
+  bug: "the guard belongs in the fetch, not in delivery_outcome — a caller that genuinely measured a suite with no matching tests must still be able to say so"
+  fixed_in: "Round 88 站0"
+
+- test: tests/test_unmeasured_suite_is_not_zero.py::test_the_frozen_corpus_tree_is_not_charged_for_a_suite_that_never_started
+  bug: "taskq-cc-new's frozen P3 tree returned 35 blocking violations, 33 of them from a suite reporting ran=True rc=2; the project Round 87 held up as having done the work honestly was the one punished hardest"
+  fixed_in: "Round 88 站0"
+
+- test: tests/test_project_scanners_resolve_their_root.py::test_a_scanner_survives_a_symlinked_project
+  bug: "four checks relativised against a root the caller had not resolved while walking paths from a resolved ProjectLayout — check_traceability (9/9 frozen trees), spec_ambiguity_notes (2/9), check_ac_deferral_targets (1/9); Round 87 站9 fixed the fourth and did not sweep for its siblings"
+  fixed_in: "Round 88 站1"
+
+- test: tests/test_project_scanners_resolve_their_root.py::test_the_fixture_would_have_caught_the_defect
+  bug: "an empty fixture tree exits every scanner before it reaches a relative_to — the first draft of this guard passed on three sites for exactly that reason, and reported project-relative paths must stay relative"
+  fixed_in: "Round 88 站1"
+
+- test: tests/test_project_scanners_resolve_their_root.py::test_every_registered_scanner_exists
+  bug: "a registry entry naming a function nobody has is a guard over nothing"
+  fixed_in: "Round 88 站1"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_moved_number_with_no_note_is_a_defect
+  bug: "a tree that was already accepted could be re-judged with no trace anywhere; seven of nine corpus trees had been, one of them 25 points looser"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_all_four_parts_are_required
+  bug: "R73/R74/R83 could each have written parts 1 and 2 truthfully; nobody was asked for 3 (cheapest satisfaction) and 4 (discriminating signal), and the first project below the line answered the new bar with 29 named stubs"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_part_that_says_nothing_does_not_count
+  bug: "'n/a' is shorter than the anti-rubber-stamp minimum, deliberately"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_no_such_signal_is_a_valid_answer_when_it_says_so
+  bug: "a rule that cannot be satisfied honestly is a rule that gets worked around — 'there is no such signal' must be an accepted answer so the gap lands on the record instead of inside the next project"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_the_note_must_name_the_number_that_moved
+  bug: "a note about a different field is a note about nothing"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_creating_the_baseline_needs_no_note
+  bug: "there is no earlier verdict being overruled the first time; requiring a note to create the file would make the mechanism unbootstrappable"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_the_shipped_baseline_notes_are_complete
+  bug: "the shipped file must satisfy the contract it enforces"
+  fixed_in: "Round 88 站3"
+
+- test: tests/test_corpus_verdict_baseline.py::test_the_baseline_covers_every_corpus_project
+  bug: "Round 46 — a project dropped from the file is a tree this gate stopped watching; the three with no P3 verdict commit are recorded as unmeasured, which is a reading, not a zero"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_the_baseline_records_the_project_that_cannot_move
+  bug: "taskq-redo's 130/0 is the whole argument: every improvement to the thing that reads declarations is absorbed by the projects that left criteria honestly undelivered, and a project that answered each with a correctly-named stub is immune to all of them"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_the_shipped_baseline_matches_a_live_replay
+  bug: "the baseline is a recording of a measurement, not a hand-written table"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_replaying_leaves_the_corpus_untouched
+  bug: "the whole gate rests on git archive writing nothing to the source repository — status and worktree list must be identical before and after"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_metric_this_enforcer_cannot_compute_is_none_not_zero
+  bug: "the first corpus_vector imported every metric at the top, so replaying any enforcer predating criteria_review raised ModuleNotFoundError and produced no vector at all — eight of Round 87's nine commits. Rounds 32/35: could-not-measure is not zero"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_every_baseline_metric_is_a_pure_function_of_the_tree
+  bug: "check_ac_deferral_targets was in the first draft of the vector; it calls run_suite, and on an archived tree pytest exits 2 for want of a .venv — the baseline would have recorded whether the machine had the project's dependencies installed"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_corpus_verdict_baseline.py::test_a_moved_verdict_makes_the_replay_exit_nonzero
+  bug: "Round 43's shape — reporting a moved verdict without blocking on it; a printed warning inside a 400-line pre-push log is silence"
+  fixed_in: "Round 88 站2"
+
+- test: tests/test_project_scanners_resolve_their_root.py::test_the_scanner_registry_does_not_shrink_unnoticed
+  bug: "a registry entry removed is an entry point nobody asks the symlink question of; deliberately a name set rather than AST discovery over 97 relative_to sites whose false-positive rate is unmeasured"
+  fixed_in: "Round 88 站1"

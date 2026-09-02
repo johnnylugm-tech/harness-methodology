@@ -3843,6 +3843,151 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 88 — 框架從來沒有對它所判定的那些樹執行過
+
+老闆令:taskq-redo 在**軟體架構 / 軟體品質 / Production-ready** 三個維度嚴重退化,
+往後怎麼避免框架的改動再次造成這件事?可能造成退化的改動要不要**二次審查**?
+追加令:**再次驗證方案是否是正解且沒有引入副作用,任何問題與解法都要先驗證。**
+
+照做的結果:**方案本身有五處真錯誤,而驗證過程挖出一個活傷口,比原方案任何一站都嚴重。**
+
+基線 `96cc2603`。
+
+### 母體
+
+> **框架從來沒有對它所判定的那些樹執行過。** 每份判定都記著是誰判的
+> (`enforcer_surface`,R19 站3),每個專案都記著出口那一刻的 commit
+> (`phase_completed["3"].sha`),而沒有人把兩者放在一起問過:
+> **後來的判定器,對更早的那棵樹,說了什麼?**
+
+### 病灶(實測)
+
+用各專案自己記的 P3 出口 commit `git archive` 凍回當時的交付樹(對語料零寫入),
+用今天的判定器重算:
+
+| 專案 | 當時 decl/undeliv | 今天(同一棵樹) | Δ |
+|---|---|---|---|
+| taskq-super | 87 / 15 | 123 / 51 | **+36 / +36** |
+| taskq-new | 81 / 17 | 116 / 52 | **+35 / +35** |
+| taskq-api | 86 / 0 | 113 / 0 | +27 / 0 |
+| taskq-advance | 89 / 23 | 97 / 31 | +8 / +8 |
+| taskq-cc | 118 / 47 | 124 / 47 | +6 / 0 |
+| taskq-cc-new | 104 / 40 | 104 / **15** | 0 / **−25**(放鬆,沒人審過) |
+| **taskq-redo** | **130 / 0** | **130 / 0** | **0 / 0** |
+
+**九棵凍結的樹,七棵今天判得不一樣。** 而最後一行是全部的重點:
+
+> **被玩過的那個專案,是唯一穩定的。** taskq-redo 在每一次判定器改動下都是
+> 130/130,因為同名空殼滿足任何 parser。誠實把驗收準則留在未交付的專案,
+> 數字才會動;把它填成空殼的,動不了。**這就是三個維度為什麼會退化,
+> 而框架看不見的全部原因。**
+
+### 驗證方案時挖出的活傷口:`{}` 被當成「零個測試跑過」
+
+把 `check_ac_deferral_targets` 指向凍結樹,taskq-cc-new 回傳 **35 條硬阻擋** ——
+那棵樹當年通過 P3 出口,而且它正是 R87 反證裡「做對的那一個」。理由:
+
+```
+run_suite: ran=True rc=2 (pytest collection error — 凍結樹沒有 .venv)
+test_outcomes: dict, len=0        ← 空 dict,不是 None
+delivery_outcome(fn, actual, {}) → 找不到 nodeid → "not_collected"
+```
+
+**套件根本沒跑起來,框架卻把每一支宣告的測試判成「沒被收集」並硬擋。**
+
+`_parse_junit_outcomes` 的 docstring **逐字禁止**這件事:「callers must treat that
+the same as "no outcome data available", **never as "zero tests ran"**」。
+框架裡**已經有兩份正確實作**(`spec_tracking_checker.py:288`、`scanner.py:591`),
+**只有 R87 站1 的 `_live_test_outcomes` 沒有那個守衛** —— 它的 docstring 也寫著
+「an unmeasurable suite must degrade to presence-only」,實作只覆蓋了丟例外那一種。
+
+**修法(實測)**:套用既有守衛。taskq-cc-new **35 → 2**(2 條是真的 `[absent]`),
+其餘五專案 **0 → 0**。R35「量不出來不是零分」＋ R30「半座機制」,
+發生在我自己四天前的 commit 裡。
+
+### 同一個 `relative_to` 缺陷四處,我上輪修了一支
+
+| 模組 | 命中 | 來自 |
+|---|---|---|
+| `traceability/scanner.py::check_traceability` | **9/9** | 舊 |
+| `red_assertion_check.py::spec_ambiguity_notes` | 2/9 | **R87 站7(我)** |
+| `artifact_consistency.py::check_ac_deferral_targets` | 1/9 | R83 站3 / R87 站1 |
+| `test_seam_in_production.py::runtime_test_seams` | 0/9 | **R87 站9 已修** |
+
+**唯一讓它們現形的動作,就是把檢查指向一棵真的交付樹。**
+
+**更正我自己的陳述**:R87 站9 註解說這條路徑會經 `preflight_artifact_consistency`
+變成硬擋。實測 `ProjectLayout.root` 是 resolved 的,`phase_hooks` 傳的就是它,
+**經那條路徑不可達**。修法對,理由寫過頭了。
+
+### 方案自己的五個真錯誤(複核令的產物)
+
+| # | 第一版寫的 | 實測 | 處置 |
+|---|---|---|---|
+| 1 | 基準用 `spec_coverage_report(tree)` | 那是 presence-only 路徑,**對 R87 站1 那類改動完全不敏感** | 不能靠「帶 outcomes」補:`run_suite` 量到的是**環境**不是框架版本。**基準保持純的 + 明寫盲區**;盲區本身揭露了活傷口 |
+| 2 | 基準納入 `check_ac_deferral_targets` | AST 掃描:五個候選裡**唯一不純的** | 排除,並加一支守衛釘住「基準只收純函式」 |
+| 3 | 「重播傳未 resolve 路徑,成為那四支的執法者」 | 站1 修好後重播只是通過 —— **那是發現工具不是守衛**(R43 的反面) | 執法者改成 symlink 參數化守衛 + 入口 registry |
+| 4 | note「算術要閉合」 | ratchet 的 note 是單一數字;基準是每專案一個向量,「閉合」沒有定義 | 改成:note 的 `moved` 必須**指名**實際移動的 metric,四段各有最小長度 |
+| 5 | `CORPUS_PROJECTS` 硬編十二個專案名 | **框架自己的 `test_no_hardcoded_paths` 當場擋下** | 改成從 repo 的兄弟目錄**動態發現**(有 `.methodology/state.json` 者)。順帶多涵蓋五個專案 |
+
+**外加兩次我自己的量測錯誤**:
+- 第一次量「基準依賴檔被碰到的比率」得 0/120(shell 變數展開錯),實際 **48/120**。
+- symlink 守衛第一版有 **三個假綠**(fixture 沒觸發它們的分支、`tests_dir` 傳了未
+  resolve 的路徑而真實呼叫者傳 resolved 的)。修正 fixture 後從 3 紅變 **6 紅**。
+
+### 閘門不是噪音:實測 1/9
+
+對 R87 自己的九個 commit 各開一個 git worktree、各重播一次:
+
+| | 數量 |
+|---|---|
+| **移動了真樹判定** | **1**(站4,新增一個對八個專案報紅的檢查 —— 正是該被審的那種) |
+| 讓某個 metric 首次可量測 | 2(站6 的 test_seams、站5 的 criteria_review) |
+| 沒有移動 | 6 |
+
+對照:`ENFORCER_SURFACE_PATHS` 被碰到的是 **120/120**。
+**用結果當觸發器,不用路徑。**
+
+### 落地
+
+| 站 | 做了什麼 |
+|---|---|
+| 0 | `_live_test_outcomes` 套用框架既有的 `ran and outcomes` 守衛;先做,因為它會被凍進基準 |
+| 1 | 四支同形 `relative_to` 全修;執法者是 symlink 參數化守衛 + `(module, function)` registry |
+| 2 | `scripts/corpus_replay.py` + `tests/corpus_verdict_baseline.json`;每 metric 獨立降級(缺的記 `None` 不記 0);接進 `self_check.sh`,3 秒 |
+| 3 | 移動判定必須帶四段陳述,`note_defects` 機械檢查 |
+
+### 二次審查的內容,以及它為什麼是那四段
+
+基準檔每個被移動的專案,同一個 commit 必須帶:
+**1. 數字(前→後,且 `moved` 要指名移動的欄位) 2. 方向為什麼對
+3. 最省力滿足 4. 鑑別訊號(附語料量測,或明寫沒有)**。
+
+R73/R74/R83 三輪**都能誠實通過 1 和 2**(「parser 修好了,這正是重點」),
+**沒有一輪被要求回答 3 和 4**;如果有,「29 個同名空殼」在 R73 就會被寫下來。
+第 4 段允許回答「沒有這種訊號」—— 一條無法誠實滿足的規則會被繞過,
+而把缺口寫在賬本上,好過讓它出現在下一個專案裡。
+
+### 明列不做
+
+| 項目 | 量測 | 再開條件 |
+|---|---|---|
+| 回溯 bisect(哪一輪移動了哪個專案) | 本輪只對 R87 九個 commit 做了,更早的沒有 | 需要時再跑,機制已在 |
+| `relative_to` 的 AST lint | 全 repo **97 個**呼叫點,誤判率未量測 | 出現 registry 涵蓋不到的入口時 |
+| **新入口自動入 registry** | 同上 —— registry 只擋「條目被移除」,擋不住「新入口沒登記」 | 同上 |
+| 語料重播進 CI | runner 上沒有語料 | 語料能以 fixture 形式攜帶時 |
+| 需要**執行**的維度進基準 | `run_suite` 量到的是環境不是框架版本(凍結樹 rc=2) | 有辦法把執行環境也凍結時 |
+| P1/P2/P4+ 的判定漂移 | 本輪只量 P3 出口一個時點 | — |
+
+### 誠實邊界
+
+1. **基準偵測「移動」,不判斷移動對不對。** 判斷在四段 note 裡,而 note 是人寫的。
+   買到的是「不可能安靜地移動一棵真樹的判定」,不是「不會做出壞的移動」。
+2. **第 3 段是散文,只能機械檢查它在,不能檢查它誠實。**
+3. **本地限定。** CI 沒有語料,這道閘門只在有語料的機器上生效。
+4. **活傷口的修法讓一個 blocking 檢查變寬鬆(35→2)。** 那 33 條建立在「套件沒跑
+   起來」之上,所以是修 bug 不是放寬政策 —— 但這是判定,擺在這裡而不是藏在站內。
+
 ## Round 87 — 宣告的驗證者存在，不等於驗收準則被驗證
 
 老闆令:taskq-redo 對比 taskq-cc / taskq-cc-new,在**軟體架構 / 軟體品質 /

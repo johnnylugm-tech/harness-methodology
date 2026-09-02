@@ -62,6 +62,13 @@ _step() {
 _step "Git hook wiring"                 bash "$REPO_ROOT/scripts/check_hook_wiring.sh" "$REPO_ROOT"
 _step "Lint (ruff)"                     "$PYTHON" -m ruff check .
 _step "Regression-guard registry check" "$PYTHON" scripts/verify_regression_guards.py
+# Round 88 站2: does this change re-judge work that was already accepted?
+# Nine delivered trees, frozen at the commit their own phase exit was taken
+# on, scored by the enforcer being pushed. Read-only on the corpus (git
+# archive writes nothing) and ~3s. Skips itself with a reason where the
+# corpus is absent, which is every CI runner — this gate is local by
+# construction, like the seven corpus tests that already skip there.
+_step "Corpus verdict replay"           "$PYTHON" scripts/corpus_replay.py
 _step "Unit tests"                      "$PYTHON" -m pytest tests/ -q
 
 echo ""
