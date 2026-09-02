@@ -372,6 +372,14 @@ def test_advance_phase_blocks_p3_without_a_review(tmp_path: Path, capsys) -> Non
     out = capsys.readouterr().out
     assert "[BLOCKED] Phase 3 criteria review incomplete" in out
     assert "review-fr-tests --fr-id FR-01 --phase 3 --project ." in out
+    # A reason has to read as one. `verify_agent_b_approvals_core`'s own
+    # bullets under "Missing approval files" are bare paths, and scraping them
+    # into this block printed `• /…/FR-01.json` with no sentence attached —
+    # measured against taskq-cc, which produced ten of them.
+    assert "no review on record" in out
+    assert not re.search(r"^\s+• /.*\.json$", out, re.M), (
+        f"a bullet here must be a reason, not a bare path:\n{out}"
+    )
 
 
 def test_advance_phase_passes_p3_with_a_complete_review(tmp_path: Path) -> None:

@@ -475,21 +475,27 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
     problems: list[tuple[str, list[str]]] = []
     for fr_id in fr_ids:
         approval_path = (project / ".methodology" / "agent_b_approvals" / f"{fr_id}.json")
+        reasons: list[str] = []
+        if not approval_path.is_file():
+            # Said here rather than scraped out of the sub-report below, whose
+            # bullets under "Missing approval files" are bare paths — a reason
+            # has to read as one (Round 24 站1).
+            reasons.append(f"no review on record ({approval_path.name} does not exist)")
+            problems.append((fr_id, reasons))
+            continue
         passed, report = agent_b_approvals.verify_agent_b_approvals_core(
             project, 3, [fr_id]
         )
-        reasons: list[str] = []
         if not passed:
             reasons = [ln.strip() for ln in report.splitlines()
                        if ln.strip().startswith("•")] or [report.strip()]
-        if approval_path.is_file():
-            try:
-                approval = json.loads(approval_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                reasons.append(f"approval JSON unreadable: {exc}")
-                approval = None
-            if isinstance(approval, dict):
-                reasons += criteria_review.approval_defects(project, fr_id, approval)
+        try:
+            approval = json.loads(approval_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            reasons.append(f"approval JSON unreadable: {exc}")
+            approval = None
+        if isinstance(approval, dict):
+            reasons += criteria_review.approval_defects(project, fr_id, approval)
         if reasons:
             problems.append((fr_id, reasons))
 

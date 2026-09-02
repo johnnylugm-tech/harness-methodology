@@ -4109,7 +4109,7 @@ taskq-redo 的 `deps.py:181`。
 | `core/quality_gate/criteria_review.py` | `review_sources` / `review_prompt` / `approval_defects` —— **一個定義,兩個讀者**(生產者與執法者共用同一次呼叫) |
 | `review-fr-tests`(`cli/checks/approvals.py`) | 組 sources → 派 stateless reviewer → **框架自己**補上 `criteria_review` 區塊(digests 由框架算,不採信 agent 回報的任何數字)→ atomic 寫入 → 立刻用執法用的同一對檢查自我驗證。`--print-prompt` 是不叫 LLM 也能檢查 prompt 的接縫 |
 | `REQUIRED_EMBEDDED_DOCS[3] = []` | **存在且為空**是刻意的:缺 key 會讓 `.get(phase, ["SRS.md","SAD.md"])` 去要求一份 reviewer 根本沒讀過的 SAD.md。P3 要求哪份文件是動態的,規則放在解析得出來源的那一邊 |
-| `_precheck_p3_criteria_review`(P3 出口) | 逐 FR 跑 `verify_agent_b_approvals_core` + `approval_defects`,擋下時**指名缺陷並印出每個 FR 該跑的那一行**,回傳既有的 exit 13(`fault_owner` 已對到 `Owner.PROJECT`,不新增 exit code) |
+| `_precheck_p3_criteria_review`(P3 出口) | 逐 FR 跑 `verify_agent_b_approvals_core` + `approval_defects`,擋下時**指名缺陷並印出每個 FR 該跑的那一行**,回傳既有的 exit 13(`fault_owner` 已對到 `Owner.PROJECT`,不新增 exit code)。「沒有紀錄」這個理由自己說,不從 `verify_agent_b_approvals_core` 的報告刮 —— 它在 `Missing approval files` 底下的 bullet 是**裸路徑**,實測對 taskq-cc 印出十行沒有句子的路徑(R24 站1:阻擋訊息要說出它真正的理由) |
 | `spec_phase3.py` / `plangen/blocks.py` | ORCH-POST 新增同一步;`.claude/workflows/*.js` 全部由 `--write` 重生 |
 
 `approval_defects` 的五條規則全部是框架自己算的,沒有一條讀 agent 的散文

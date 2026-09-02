@@ -4438,7 +4438,7 @@
   fixed_in: "Round 87 站5"
 
 - test: tests/test_criteria_review.py::test_advance_phase_blocks_p3_without_a_review
-  bug: "the enforcing half (Round 30: both halves or neither) — P3 exit blocks with exit 13 and names the exact review-fr-tests command per FR"
+  bug: "the enforcing half (Round 30: both halves or neither) — P3 exit blocks with exit 13, names the exact review-fr-tests command per FR, and states a REASON rather than the bare approval path scraped out of verify_agent_b_approvals_core's own report (measured on taskq-cc: ten bullets, all bare paths)"
   fixed_in: "Round 87 站5"
 
 - test: tests/test_criteria_review.py::test_advance_phase_passes_p3_with_a_complete_review
