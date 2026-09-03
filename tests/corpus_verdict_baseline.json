@@ -105,12 +105,20 @@
   },
   "taskq-final": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "It is itself the control for the other five: a project mid-pipeline with the record it should have at this point. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: phase_completed holds key 1 at current_phase 2 \u2014 this project has not reached P3 either.",
-      "why_right": "The only one of the six unmeasured entries whose absence is simply 'not yet'. Distinguishing it from the five that ran past P3 without a record is the reason each entry carries its own reason."
+      "cheapest_satisfaction": "Same shape as its 10-FR siblings: naming the 31 undelivered declarations as tests would close this without writing an assertion.",
+      "discriminating_signal": "None distinctive on the numbers alone \u2014 0 unread rows, 0 alignment violations, 0 runtime_test_seams. What distinguishes this entry is external to them: it is the corpus's newest P3 exit.",
+      "moved": "First recording, now measurable: phase_completed[3].sha gained a real 40-char sha (9ccd4135) between the 2026-09-02 baseline freeze and this one \u2014 118 declared / 31 undelivered on that P3-exit tree. Discovered while verifying an unrelated round's test suite; confirmed unrelated to that round's own changes \u2014 replaying with those changes present moved this one entry and left the other nine byte-identical.",
+      "why_right": "The corpus's former could-not-measure control \u2014 its previous note called it \"a project mid-pipeline with the record it should have at this point\" \u2014 is retired the moment the record exists. It is now an ordinary measured entry, not a special case."
     },
-    "unmeasured": "no 40-char sha in phase_completed[3]"
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "9ccd4135cd01",
+    "spec_alignment_violations": 0,
+    "spec_declared": 118,
+    "spec_undelivered": 31,
+    "spec_unread_rows": 0
   },
   "taskq-new": {
     "_note": {
