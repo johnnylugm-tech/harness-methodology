@@ -4714,3 +4714,43 @@
 - test: tests/test_licence_evidence_names_its_producer.py::test_the_fixtures_standing_in_for_scancode_are_real_shapes
   bug: "two tests — one of them the test that BUILT artifact_verified — stood in for scancode output with the sentence 'Scan completed. No license violations found.', which scancode cannot emit"
   fixed_in: "Round 91"
+
+- test: tests/test_secrets_scan_canary.py::test_the_template_silences_taskq_finals_exact_p5_halt
+  bug: "taskq-final's P5 verification-docs halted on generic-api-key firing over the test NAME test_invalid_api_key_returns_401 inside the framework's own committed .methodology/gate1_result.json — not a credential"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_the_allowlist_path_matches_regardless_of_source_being_absolute
+  bug: "the first draft of templates/.gitleaks.toml anchored its allowlist path at the string start (^\\.methodology...); gitleaks matches against the path it REPORTS, which is absolute whenever --source is absolute — true for the S4 tool run and the P5 verification prompt, so the fix silently did nothing for either of the two most common invocations and only worked for advance_prechecks.py's relative --source ."
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_a_config_with_extend_comment_but_no_usedefault_is_reported_dead
+  bug: "taskq-plus's .gitleaks.toml has [extend] with only a comment underneath (no useDefault = true) — loads ZERO rules, so gitleaks detect always reports clean regardless of the tree, and secrets_scanning scored 100 across Gate 2/3/4 on a scanner that could not see"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_a_config_with_no_extend_section_is_reported_dead
+  bug: "taskq-renew's .gitleaks.toml has no [extend] section at all — same zero-rules failure as taskq-plus, independently arrived at"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_s4_blocks_on_a_dead_canary_even_when_the_real_scan_reports_clean
+  bug: "S4's independent gitleaks run trusted a 'no leaks found' from a scanner whose config loads no rules; the agent's self-reported 100 and the harness's own re-run agreed with each other while both were blind"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_advance_precheck_blocks_on_a_dead_canary
+  bug: "cli/advance_prechecks.py's P3+ gate ran the real (misconfigured) gitleaks scan and accepted its clean exit code with no check that the scanner could detect anything first"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_the_canary_bait_is_still_caught_by_the_default_ruleset
+  bug: "a degraded canary bait (the first draft used an AWS-official EXAMPLEKEY, which gitleaks' own default config allowlists) would report every project's scanner as alive, including a genuinely dead one"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_the_framework_repo_has_no_live_gitleaks_finding
+  bug: "the framework shipped no .gitleaksignore and ran gitleaks nowhere in its own CI; tests/test_constitution_runner.py's commit 6c6dcd62 carried a live generic-api-key finding for four months with nothing to catch it"
+  fixed_in: "Round 92"
+
+- test: tests/test_secrets_scan_canary.py::test_gitleaks_toml_is_a_registered_exclusion_file
+  bug: "three corpus projects moved their secrets_scanning score with a hand-authored .gitleaks.toml, none of it digested into any verdict — DIMENSION_EXCLUSION_FILES only knew about .gitleaksignore"
+  fixed_in: "Round 92"
+
+- test: tests/cli/test_project_cmds_cli.py::TestInitProjectGitleaksConfig::test_never_overwrites_a_project_owned_config
+  bug: "unlike the CI workflow, .gitleaks.toml is a file projects already hand-author with their own allowlist entries — an --overwrite escape hatch here would clobber taskq-cc/plus/renew's own configs the moment they re-ran init-project"
+  fixed_in: "Round 92"

@@ -3843,6 +3843,130 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 92 — 掃描範圍由被判定方宣告,框架不驗證
+
+老闆令:檢查 taskq-final 卡住的節點,找根源與正解,不要 workaround,不破壞共通性。
+追加令(第五次):**任何問題與解法都要先驗證。**
+
+老闆提供的兩項診斷,查證結果分歧:
+
+| 診斷 | 結果 |
+|---|---|
+| gitleaks 在 `.methodology/gate1_result.json:29,90` 誤判測試名稱 `test_invalid_api_key_returns_401` | **屬實**,逐字復現(`generic-api-key`,entropy 3.94,commit `8bb7b79e`) |
+| pyright 在 `v3_split_results.py:70` 報 `No parameter named "name"` | **不成立**。`_shared.utc_now(name: str = "created_at")` 本來就有該參數;四種環境組合實跑全 0 errors;肇因 commit `ba6471a` 沒動過那個檔案 |
+
+老闆提的修法(在 `.gitleaksignore` 補指紋)是 **workaround,實測證偽**:
+`gate1_result.json` 每個 FR 覆寫一次(taskq-final 該檔 31 個 commit),
+同一個 FR-03 兩次覆寫的指紋行號從 29/83 變成 29/90 —— **指紋追不上覆寫頻率**。
+
+### 根源:框架把掃描範圍完全交給被判定方,既不交付預設,也不驗證掃描器還活著
+
+查 taskq-final 為什麼卡住的過程中,量到**更嚴重的東西**:兩個其他語料專案的
+`secrets_scanning` 滿分是假的。
+
+| 專案 | `.gitleaks.toml` | 量到的後果 |
+|---|---|---|
+| taskq-final | 無 | 被框架自己寫進 `.methodology/` 的稽核記錄擋住 → P5 卡住 |
+| **taskq-plus** | 有,`[extend]` 下只有註解,沒有 `useDefault = true` | **零規則載入**,13 個 finding 消音,Gate 2/3/4 各拿 100 |
+| **taskq-renew** | 有,無 `[extend]` 區塊 | **零規則載入**,5 個 finding 消音,Gate 2/3/4 各拿 100 |
+| taskq-cc | 有,`useDefault = true` | 合法 |
+
+實測(每專案跑兩次:讀自己的 config / 強制 default ruleset):
+
+```
+taskq-cc      own-config: no leaks        default-rules: no leaks
+taskq-plus    own-config: no leaks        default-rules: leaks found: 13
+taskq-renew   own-config: no leaks        default-rules: leaks found: 5
+```
+
+taskq-plus 的 Gate 2 evidence 逐字寫著 `gitleaks detect --config .gitleaks.toml
+→ 0 leaks` —— **agent 誠實回報自己用了 config,框架照樣給 100,因為那份 config
+載入零條規則。**
+
+框架自己也沒過:`gitleaks detect --source .` 命中
+`tests/test_constitution_runner.py`(commit `6c6dcd62`,`test_hardcoded_
+secrets_penalize_security` 的測試 fixture),**四個月**,框架沒有
+`.gitleaksignore`、CI 不跑 gitleaks。
+
+### 方案
+
+- **站0(核心)** `harness/tool_runners.scanner_is_alive`:用專案當下生效的
+  同一份 config,掃三個誘餌(`generic-api-key`/`private-key`/`github-pat`
+  各一)。誘餌沒被全部抓到 → 判定「掃描器是死的」,`harness_bridge.py`
+  的 S4 loop(比照既有 `if tool == "mutmut":` 的形狀)與
+  `cli/advance_prechecks.py` 的 P3+ precheck 都在跑真掃描**之前**呼叫它,
+  死掉就直接擋,不理會真掃描回報什麼。
+- **站1** `templates/.gitleaks.toml`:只關 `generic-api-key` 這一條規則,
+  範圍限定在 `.methodology/`(含 `-archive`),其餘規則照常生效。
+  `init-project` 新增 `[2a/11]` 交付,**永遠 SKIP、不受 `--overwrite`
+  影響**——taskq-cc/plus/renew 都已經有手寫的 `.gitleaks.toml`。
+- **站2** `DIMENSION_EXCLUSION_FILES["secrets_scanning"]` 從單一字串改成
+  `(".gitleaksignore", ".gitleaks.toml")` tuple——三個語料專案早就在用
+  `.gitleaks.toml` 移動這個維度的分數,從沒被指紋過。
+- **站3** 框架自己補 `.gitleaksignore`(一條指紋)+ CI 的 Install
+  dependencies 步驟加裝 gitleaks(沿用 CI 模板既有的版本 pin,不新增
+  CI step——走 `scripts/self_check.sh` 單一清單)。
+
+### 站1 施工中段自己抓到的活 bug:規則的錨點在絕對路徑下失效
+
+第一版 `.gitleaks.toml` 寫 `paths = ['''^\.methodology(-archive)?/''']`
+(`^` 錨點在字串開頭)。寫「復現 taskq-final 原始 P5 halt」的測試時
+(`tmp_path` 是絕對路徑)發現它**沒有**被站1 的規則消音——隔離重現後確認:
+
+**gitleaks 的 allowlist 比對的是它自己回報的路徑,`--source` 給絕對路徑時,
+回報的就是絕對路徑,`^` 錨點永遠不會命中。** 而框架的三個真實呼叫點裡,
+兩個(S4 的 `run_tool`、P5 verification-docs prompt 的 `gitleaks detect
+--source {REPO}`)給的都是絕對路徑,只有 `cli/advance_prechecks.py` 的
+`--source .`(相對、cwd-scoped)不受影響。**照第一版寫法,站1 對兩個最常
+觸發的路徑完全沒用。**
+
+修法:`(^|/)\.methodology(-archive)?/`(容許路徑分隔符前綴)。已隔離驗證
+四項:相對 `--source .`、絕對 `--source /abs/path`(兩種 cwd)下都正確消音;
+一個名稱恰好以 `.methodology` 開頭的無關目錄(`foo.methodology-archive-
+nope/`)**不會**被誤觸;taskq-final 的原始兩筆(commit `8bb7b79e` 那份的
+形狀)在絕對路徑下確認歸零。
+
+### commit 落地後,框架自己的 CI 守衛立刻抓到第二個活 bug
+
+`tests/test_secrets_scan_canary.py` 第一版把誘餌內容(`sk-...`/`ghp_...`/
+private-key 區塊,以及 taskq-final 那個測試名稱)直接當整串字面量寫進
+測試檔——正是 `_CANARY_BAIT` 分段拼接要避免的錯誤,自己在別的檔案犯了
+一次。跑 `self_check.sh` 時站3 新加的自掃守衛(`test_the_framework_repo_
+has_no_live_gitleaks_finding`)立刻抓到:框架自己的倉庫多了 7 個活
+finding,全部在那個新檔案裡。
+
+那個帶問題的 commit(`7fe30017`)**從未 push 過**,`git rev-list
+--left-right --count origin/main...HEAD` 確認 0 behind。用
+`git reset --soft` 撤掉本輪四個本地 commit(全部改動保留在 staged 狀態,
+零資料流失),把測試檔的誘餌改成重用 `_CANARY_BAIT` 的組裝值、taskq-final
+測試名稱同法分段,重新以同樣結構分四次 commit——**不用 `.gitleaksignore`
+永久豁免自己剛犯的手誤**:那份檔案是全新內容,不是既有歷史,遮蔽本可避免
+的錯誤與遮蔽三個月前已發生且不可逆的錯誤(`6c6dcd62` 那條)是兩回事。
+
+### 驗證
+
+`self_check.sh` 全綠:8141 passed / 4 skipped(基線 8114)。guards 1149 → 1159。
+`corpus_replay.py` 對 Round 92 觸碰的檔案**零移動**(唯一移動的 taskq-final
+`phase_completed[3]` 是專案自身在框架基線凍結後獨立推進的既有事實,與本輪
+程式碼無關——已用時間戳與逐專案 diff 個別驗證,另開一個不掛在本輪 commit 上
+的獨立 commit 更新基線快照)。
+
+反證:CP-1(拿掉 canary → S4/precheck 兩處守衛紅)、CP-2(誘餌換成 AWS 官方
+example key,連 default ruleset 都不抓 → 誘餌自檢守衛紅,證明機制本身受測,
+不只是誘餌測機制)、CP-3(`DIMENSION_EXCLUSION_FILES` 改回字串 → 守衛紅)、
+CP-4(拿掉框架 `.gitleaksignore` → 框架自掃守衛紅)、CP-5(站1 規則錨點退回
+`^\.methodology...` → 絕對路徑測試紅,證明上面那個活 bug 修復是真的)。
+
+### 明列不做
+
+pyright 診斷(見上,不可復現)、`.gitleaks.toml` 的 drift 檢查(比照 R40
+`ci_template_drift`,本輪先確立交付/驗活/指紋三件,drift 是第四個機制)、
+`05-verification/*.md`/`TEST_SPEC.md` 的排除(churn 1–2 commit,指紋本來就
+穩定)、taskq-plus/taskq-renew 兩專案本身的修復(唯讀,需各自 repo 補 commit,
+老闆決定時機)。
+
+---
+
 ## Round 91 — 交付的環境,跑不起交付它的那個檢查
 
 老闆令:**修復模板缺陷以及所有遺留問題。** 追加令(第四次):**再次驗證方案是否是
