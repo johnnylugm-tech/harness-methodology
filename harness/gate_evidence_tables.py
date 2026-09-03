@@ -278,7 +278,12 @@ _INFRA_FAIL_EVIDENCE_SIGNATURES = (
 # and recording that here is what stops the next reader assuming it was
 # forgotten. A new scored dimension belongs in this table with one or the other.
 DIMENSION_EXCLUSION_FILES: "dict[str, str | tuple[str, ...] | None]" = {
-    "secrets_scanning": ".gitleaksignore",
+    # Round 92: `.gitleaks.toml` moves this dimension's score the same way
+    # `.gitleaksignore` does, and more completely — a config can disable
+    # whole rules, not just fingerprint one finding at a time. Measured on
+    # three corpus projects carrying their own `.gitleaks.toml`, none of it
+    # digested into any verdict before this round.
+    "secrets_scanning": (".gitleaksignore", ".gitleaks.toml"),
     "license_compliance": None,
     # Round 31 站4: setup.cfg's [mutmut] section carries BOTH halves of the
     # mutation denominator — paths_to_mutate (what is in scope) and

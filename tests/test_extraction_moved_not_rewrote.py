@@ -70,6 +70,14 @@ _EXTRACTED: "dict[str, dict]" = {
         # something that does not match `prefix` games the guard, and removing
         # the whole entry deletes three live claims to retire one.
         "reconstructible": False,
+        # Round 92 removed `_precheck_p3_security_and_quality` from this
+        # tuple: it now calls `scanner_is_alive` before the gitleaks
+        # subprocess, to block on a config that disables every rule before
+        # trusting a "no leaks found" that config would produce regardless
+        # of what is in the tree. That is new code inside the moved body,
+        # not a relocation of it — "this is the code that was there" has
+        # expired for this one helper. The other eight claims are untouched
+        # and still run.
         "helpers": (
             "_precheck_cleared_dir_evidence",
             "_precheck_backup_artifacts",
@@ -78,7 +86,6 @@ _EXTRACTED: "dict[str, dict]" = {
             "_precheck_early_stage_pass",
             "_precheck_deliverable_anchors",
             "_precheck_scope_violations",
-            "_precheck_p3_security_and_quality",
             "_precheck_stage_pass_staging",
         ),
     },

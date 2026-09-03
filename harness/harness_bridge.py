@@ -620,7 +620,7 @@ def _run_harness_cross_validation(
 
 
     try:
-        from harness.tool_runners import run_tool, compute_tool_score
+        from harness.tool_runners import run_tool, compute_tool_score, scanner_is_alive
     except ImportError as exc:
         print(f"  [S4-WARN] cross-validation disabled: harness.tool_runners unavailable: {exc}")
         return [], []
@@ -705,6 +705,19 @@ def _run_harness_cross_validation(
             )
             violations.extend(_mut_fab)
             unverifiable.extend(_mut_infra)
+
+        # Round 92: gitleaks trusts whatever config resolves for its
+        # `--source` scan (no call site passes --config), and a clean run is
+        # indistinguishable from a run under a config that disables every
+        # rule. Measured: two corpus projects' own `.gitleaks.toml` loaded
+        # ZERO rules (`[extend]` with no `useDefault = true` line) and scored
+        # secrets_scanning 100 nine times across Gate 2/3/4. Checked before
+        # the real scan below and blocks independently of what it reports —
+        # "no leaks found" from a blind scanner is not evidence of anything.
+        if tool == "gitleaks":
+            _gl_dead = scanner_is_alive(ctx.project_root)
+            if _gl_dead:
+                violations.append(f"{dim_name}: {_gl_dead}")
 
         # No early exit on a self-reported FAIL. Round 35 站3, immediately
         # above, already named the flaw this used to have for mutmut: "the

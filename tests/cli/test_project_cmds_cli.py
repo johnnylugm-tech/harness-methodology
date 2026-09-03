@@ -869,6 +869,33 @@ class TestInitProjectRootWrapper:
         )
 
 
+class TestInitProjectGitleaksConfig(TestInitProjectRootWrapper):
+    """init-project step [2a/11]: templates/.gitleaks.toml delivery (Round 92).
+
+    Reuses TestInitProjectRootWrapper's `_run_init` harness (same heavyweight
+    stubs), since this step sits right after [2/11]'s CI workflow write and
+    needs the same minimal project skeleton.
+    """
+
+    def test_writes_gitleaks_config_for_a_fresh_project(self, tmp_path, monkeypatch):
+        self._minimal_project(tmp_path)
+        rc = self._run_init(tmp_path, monkeypatch)
+        assert rc == 0
+        cfg = tmp_path / ".gitleaks.toml"
+        assert cfg.is_file()
+        assert "generic-api-key" in cfg.read_text()
+
+    def test_never_overwrites_a_project_owned_config(self, tmp_path, monkeypatch):
+        """Unlike the CI workflow, this file is one projects already
+        hand-author with their own allowlist entries (three corpus projects
+        did before this template existed) — no --overwrite escape hatch."""
+        self._minimal_project(tmp_path)
+        own_content = "# hand-authored, project-specific\n[allowlist]\npaths = ['x']\n"
+        (tmp_path / ".gitleaks.toml").write_text(own_content)
+        self._run_init(tmp_path, monkeypatch, overwrite=True)
+        assert (tmp_path / ".gitleaks.toml").read_text() == own_content
+
+
 # =============================================================================
 # cmd_load_context template-stub warning (regression for SKILL.md §0.3.1)
 # =============================================================================

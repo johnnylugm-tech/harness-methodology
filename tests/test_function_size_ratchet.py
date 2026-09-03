@@ -175,7 +175,13 @@ _CEILINGS: dict[str, int] = {
     # move was a move — tests/test_god_file_split_safety.py's fingerprint for
     # it did not change, and this key changing while that digest does not is
     # what a relocation looks like from here.
-    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 279,
+    # 290 at Round 92 站0c, from 279: +11 for a `scanner_is_alive` canary
+    # call and its [BLOCKED] branch, placed before the gitleaks subprocess.
+    # Measured: two corpus projects' `.gitleaks.toml` loaded ZERO rules
+    # (`[extend]` with no `useDefault = true`), so `gitleaks detect` always
+    # reported "no leaks found" regardless of what was in the tree — the
+    # canary proves the scanner can still see before that result is trusted.
+    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 290,
     # 614 at Round 87 站2, from 606: +8 for the `denominator_provenance` patch
     # into the committed gate result. R73/R74's parser fix moved taskq-redo's
     # declarations 97 -> 130 on the same bytes, taking 65/97 = 67.01% (PASS at
@@ -195,9 +201,18 @@ _CEILINGS: dict[str, int] = {
     # why it is not `framework` — mutmut and scancode are not re-run here, the
     # branch validates their committed artifact, and leaving it blank is what
     # put 0.15 of taskq-cc-new's Gate 4 weight inside `weight_covered: 1.0`.
-    "harness/harness_bridge.py::_run_harness_cross_validation": 493,
+    # 506 at Round 92 站0b, from 493: +13 for the `if tool == "gitleaks":`
+    # canary hook, mirroring the `if tool == "mutmut":` block immediately
+    # above it — same shape, different question (can the scanner still see,
+    # not is there a framework-produced number). Blocks independently of
+    # what the real scan below it reports.
+    "harness/harness_bridge.py::_run_harness_cross_validation": 506,
 
-    "cli/project_cmds.py::cmd_init_project": 417,
+    # 432 at Round 92 站1, from 417: +15 for step [2a/11], delivering
+    # templates/.gitleaks.toml the same way [2/11] delivers the CI workflow —
+    # except never overwritten: three corpus projects already hand-author
+    # this file with their own allowlist entries.
+    "cli/project_cmds.py::cmd_init_project": 432,
     "core/quality_gate/security_design.py::check_security_design": 322,
     "core/agent_spawner.py::AgentSpawner.spawn": 316,
     "detection/drift_detector.py::DriftDetector.detect_sab_drift": 310,

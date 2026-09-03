@@ -172,6 +172,21 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             return 1
         print(f"   OK — wrote {workflow_path}")
 
+    # 2a. Write gitleaks scope config (Round 92). Unlike the CI workflow this
+    # file is one projects already hand-author with their own allowlist
+    # entries — SKIP unconditionally (no --overwrite escape hatch) so a
+    # project's own config is never clobbered.
+    print("\n[2a/11] Writing gitleaks scope config...")
+    gitleaks_cfg_path = project / ".gitleaks.toml"
+    gitleaks_cfg_template = ci_template_path().parent / ".gitleaks.toml"
+    if gitleaks_cfg_path.exists():
+        print(f"   SKIP: {gitleaks_cfg_path} already exists (project-owned, never overwritten)")
+    elif not gitleaks_cfg_template.exists():
+        print(f"   WARN: {gitleaks_cfg_template} not found — skipping")
+    else:
+        gitleaks_cfg_path.write_text(gitleaks_cfg_template.read_text())
+        print(f"   OK — wrote {gitleaks_cfg_path}")
+
     # 3. Git hooks
     print("\n[3/11] Git hooks...")
     hooks_script = harness_root / "scripts" / "setup-git-hooks.sh"

@@ -577,6 +577,17 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
         # What survives is in harness_bridge: the exclusion file must be tracked
         # (Round 29) and its digest travels with the verdict (this round).
         if shutil.which("gitleaks"):
+            # Round 92: a clean gitleaks run is only evidence of "no leaks"
+            # if the config it resolved can catch a leak at all. Measured on
+            # two corpus projects: a `.gitleaks.toml` with `[extend]` and no
+            # `useDefault = true` loads ZERO rules, so this call always
+            # reports "no leaks found" regardless of what is in the tree.
+            from harness.tool_runners import scanner_is_alive
+            _gl_dead = scanner_is_alive(str(project))
+            if _gl_dead:
+                print("\n[BLOCKED] Secrets Scanning (gitleaks) config does not detect anything.")
+                print(f"  {_gl_dead}")
+                return 20
             try:
                 _gl_r = subprocess.run(
                     ["gitleaks", "detect", "--source", "."],

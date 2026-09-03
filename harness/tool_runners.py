@@ -363,6 +363,107 @@ def _score_gitleaks(output: str, returncode: int) -> float:
     return 0.0
 
 
+# Round 92. Three fragments each, not one literal: a whole secret-shaped
+# string sitting in this file would be exactly what the framework's own
+# secrets scan (its .gitleaksignore has no entry for this file) exists to
+# catch — measured, the assembled string trips gitleaks and the split
+# source does not.
+_CANARY_BAIT: dict[str, str] = {
+    "b1.txt": 'api_key = "' + "sk-" + "abcdef1234567890zz" + '"\n',
+    "b2.txt": (
+        "-----BEGIN RSA PRIVATE " + "KEY-----\n"
+        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n"
+        "-----END RSA PRIVATE " + "KEY-----\n"
+    ),
+    "b3.txt": 'gh = "' + "ghp_" + "016C7869F7A0E4F2C8B1D3E5A79B0C2D4E6F81" + '"\n',
+}
+#: The default-ruleset rule each bait file is designed to trip.
+#: tests/test_secrets_scan_canary.py pins that the default ruleset still
+#: catches all three — a bait that stops working would make this function
+#: pass for the wrong reason.
+_CANARY_EXPECTED_RULES = frozenset({"generic-api-key", "private-key", "github-pat"})
+
+
+def scanner_is_alive(project_root: str) -> "str | None":
+    """Prove gitleaks can still catch a secret under *project_root*'s own
+    config, before trusting a clean run of it as evidence of no leaks.
+
+    Round 92. Neither call site that runs gitleaks passes `--config`, so
+    resolution follows gitleaks' own precedence (GITLEAKS_CONFIG(_TOML) env
+    vars, then `<source>/.gitleaks.toml`, then the default ruleset). Measured
+    on two corpus projects whose `.gitleaks.toml` had `[extend]` with no
+    `useDefault = true` line: gitleaks loads ZERO rules, `gitleaks detect`
+    always reports "no leaks found", and secrets_scanning scored 100 nine
+    times across Gate 2/3/4 — one project's own evidence said `--config
+    .gitleaks.toml` was used. A clean run and a blind run are indistinguishable
+    from the *output* alone; this asks the scanner to prove it can still see.
+
+    Copies *project_root*'s `.gitleaks.toml` (if any) into the canary's own
+    tempdir and points `--source` at that dir with no `--config` flag, so
+    gitleaks' dot-file auto-discovery resolves the SAME file the real scan
+    would resolve (verified: resolution follows `--source`, not cwd). Env-var
+    precedence (the two levels above the dot-file) is identical for free —
+    canary and real scan run in the same process environment.
+
+    Returns None when the canary is alive OR inconclusive (gitleaks missing,
+    timed out, or its report unreadable — Round 32's rule that a measurement
+    which could not be taken is not a failing one; `run_tool`'s own -2/-3
+    paths already report a missing/timed-out gitleaks, so this stays out of
+    that lane). Returns a message only on a POSITIVE finding: the canary ran
+    to completion and a rule that should have fired did not.
+    """
+    import json
+    import os
+    import shutil
+    import tempfile
+
+    from core.utils.subprocess_group import run_isolated
+
+    project_config = os.path.join(str(project_root), ".gitleaks.toml")
+    cfg_desc = (
+        project_config if os.path.isfile(project_config)
+        else "the default ruleset (no .gitleaks.toml)"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="gitleaks-canary-") as tmp:
+        for name, content in _CANARY_BAIT.items():
+            with open(os.path.join(tmp, name), "w", encoding="utf-8") as fh:
+                fh.write(content)
+        if os.path.isfile(project_config):
+            shutil.copy2(project_config, os.path.join(tmp, ".gitleaks.toml"))
+
+        report_path = os.path.join(tmp, "_canary_report.json")
+        try:
+            run_isolated(
+                ["gitleaks", "detect", "--source", tmp, "--no-git",
+                 "--report-format", "json", "--report-path", report_path,
+                 "--no-banner"],
+                timeout=30, cwd=tmp, env=os.environ.copy(),
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
+
+        try:
+            with open(report_path, encoding="utf-8") as fh:
+                findings = json.load(fh)
+        except (OSError, ValueError):
+            return None  # report unreadable — inconclusive, not a positive finding
+
+    caught: set[str] = set()
+    for _finding in findings:
+        if isinstance(_finding, dict) and isinstance(_finding.get("RuleID"), str):
+            caught.add(_finding["RuleID"])
+    missing = _CANARY_EXPECTED_RULES - caught
+    if not missing:
+        return None
+    return (
+        f"secrets-scan canary failed: {sorted(missing)} rule(s) did not catch "
+        f"a known synthetic secret under {cfg_desc}. This config would let a "
+        f"real credential of that shape pass through as 'no leaks found' — "
+        f"fix .gitleaks.toml so it does not disable detection entirely."
+    )
+
+
 def _score_pyright(output: str, _returncode: int) -> float:
     """Score pyright --outputjson.  0 errors → 100; each error costs 5 pts."""
     import json as _json
