@@ -1,0 +1,12 @@
+# Round 92. Framework had no .gitleaksignore before this round — the
+# framework's own `gitleaks detect --source .` finding below sat unfixed for
+# four months because nothing ever ran the check (station 3 of this round
+# wires it into CI/self_check.sh).
+#
+# tests/test_constitution_runner.py:110 at this commit is
+# test_hardcoded_secrets_penalize_security's fixture string, exercising the
+# constitution runner's OWN secrets-detection heuristic (_scan_file_compliance)
+# — not a real credential. That test was later rewritten/removed from the
+# current file; the fingerprint stays because gitleaks scans git history and
+# the commit is still reachable from HEAD.
+6c6dcd62314d106b77ccacbb5fda4cd55b4254f9:tests/test_constitution_runner.py:generic-api-key:110
