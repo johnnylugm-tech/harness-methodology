@@ -236,7 +236,7 @@ def _render_phase6_tag_advance() -> str:
         + "    'YOU ARE THE PHASE-6 EXIT ORCHESTRATOR. Tag the Gate 4 release + advance to Phase 7. ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
-        + "    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo \"current_phase=$PHASE\"; [ \"$PHASE\" -ge 7 ]`. Also check: `git -C ' + REPO + ' tag -l \"harness-v4-*\" | head -1`. If Phase 7 is confirmed OR tag already exists, report \"ADVANCE: PASS (already advanced)\" and stop.\\n'\n"
+        + "    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo \"current_phase=$PHASE\"; [ \"$PHASE\" -ge 7 ]`. If Phase 7 is confirmed, report \"ADVANCE: PASS (already advanced)\" and stop. Separately (for step 2 only): `git -C ' + REPO + ' tag -l \"harness-v4-*\" | head -1` — remember this to skip re-creating the tag in step 2. Tag existence alone does NOT mean advance-phase ran; you MUST still execute steps 1-3 unless Phase 7 was confirmed above.\\n'\n"
         # Round 69 站1: this phase is the reason the rule exists — Release Docs
         # writes two root deliverables AFTER the Gate 4 verdict is recorded.
         # Rendered, not typed, so it stays equal to what render_advance_loop

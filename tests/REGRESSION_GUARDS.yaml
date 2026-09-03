@@ -4754,3 +4754,11 @@
 - test: tests/cli/test_project_cmds_cli.py::TestInitProjectGitleaksConfig::test_never_overwrites_a_project_owned_config
   bug: "unlike the CI workflow, .gitleaks.toml is a file projects already hand-author with their own allowlist entries — an --overwrite escape hatch here would clobber taskq-cc/plus/renew's own configs the moment they re-ran init-project"
   fixed_in: "Round 92"
+
+- test: tests/test_workflowgen_golden.py::test_composite_output_matches_golden[run-all]
+  bug: "spec_phase6.py's Tag & Advance step 0 GUARD OR'd two unrelated signals into one 'already advanced, stop the round' verdict: current_phase >= 7 (the only thing that actually means advance-phase ran) OR a harness-v4-* tag existing (only proof that the earlier, independent git-tag step ran). gate4-tag (step 2) runs BEFORE advance-phase (step 3) in the same round; a round that creates the tag and is then cut short before step 3 (session/rate limit, agent stopping early) leaves the tag on disk permanently. Every retry round after that hit the tag half of the OR at step 0 and reported 'ADVANCE: PASS (already advanced)' without ever calling advance-phase — state.json.current_phase stayed stuck at 6 through all 5 rounds, on taskq-final observed twice across separate workflow runs (wf_569d50b0-c17, wf_b1c8e5c8-94c) with the tag `harness-v4-20260904-score98` already on disk. P3/P4/P5/P7's shared js_blocks.render_advance_loop guards on current_phase alone (js_blocks.py's own comment on that function admits 'the phase that needs it most (P6) does not even use this renderer') — P6 hand-rolled a near-copy for the git-tag step and the OR clause was the drift. Fix keeps the tag-existence check (still needed so step 2 does not try to re-create an existing tag) but removes it from the round-stop verdict, which now matches the other four phases: current_phase >= 7 alone."
+  fixed_in: "Round 93"
+
+- test: tests/test_workflowgen_golden.py::test_generated_output_matches_golden[6]
+  bug: "same root cause as the run-all.js entry above — phase6-quality.js is generated from the same spec_phase6.py source and carried the identical OR-guard defect."
+  fixed_in: "Round 93"
