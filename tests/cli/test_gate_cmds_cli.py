@@ -2560,3 +2560,86 @@ class TestRunGateAutoAmendSab:
             f"path-form 'seed' entry must not be duplicated as 'app.seed': {modules_after}"
         )
 
+
+
+class TestGate4TagIdempotency:
+    """Round 95. `gate4-tag` was not idempotent, and P6's prompt paid for it.
+
+    Round 93 fixed the step-0 GUARD (a `harness-v4-*` tag on disk no longer
+    means advance-phase ran) and added "you MUST still execute steps 1-3" —
+    but step 2 still read `GIT-TAG (skip if step 0 found an existing tag)`.
+    An agent that obeys step 0 runs `gate4-tag` on a tag that already exists;
+    `git tag -a` exits 128 and this command printed `[ERROR] git tag failed`
+    and returned 1, burning the retry round Round 93 had just unblocked. An
+    agent that obeys step 2 skips the whole step — including the
+    `git push origin --tags` inside it, which is the only place the release
+    tag is pushed (`advance-phase` pushes `origin HEAD`, no `--tags`).
+
+    Making the command idempotent removes the reason step 2 needed a skip
+    clause at all, so the push runs every round, and the protection lives in
+    the CLI where a human or CI caller also gets it.
+    """
+
+    def _repo(self, tmp_path: Path, score: float = 98.0) -> Path:
+        subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=str(tmp_path), check=True)
+        (tmp_path / "a.txt").write_text("x\n", encoding="utf-8")
+        subprocess.run(["git", "add", "a.txt"], cwd=str(tmp_path), check=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=str(tmp_path), check=True)
+        (tmp_path / ".methodology").mkdir(exist_ok=True)
+        (tmp_path / ".methodology" / "gate4_result.json").write_text(
+            json.dumps({"composite_score": score}), encoding="utf-8"
+        )
+        return tmp_path
+
+    def _tags(self, project: Path) -> list[str]:
+        out = subprocess.run(
+            ["git", "-C", str(project), "tag", "-l"],
+            capture_output=True, text=True, check=True,
+        ).stdout.split()
+        return sorted(out)
+
+    def test_a_second_call_with_the_same_tag_succeeds(self, tmp_path, capsys):
+        from cli.gate_cmds import cmd_gate4_tag
+        project = self._repo(tmp_path)
+        args = argparse.Namespace(project=str(project))
+
+        assert cmd_gate4_tag(args) == 0
+        first = self._tags(project)
+        assert len(first) == 1, first
+
+        rc = cmd_gate4_tag(args)
+        out = capsys.readouterr().out
+        assert rc == 0, (
+            "a round that already created this tag and was cut short before "
+            "advance-phase must be able to re-run step 2 — this returning 1 "
+            f"is the dead end Round 93 unblocked and step 2 re-created. Output:\n{out}"
+        )
+        assert self._tags(project) == first, "the existing tag must not be moved or duplicated"
+        assert "already exists" in out
+
+    def test_a_different_score_still_creates_its_own_tag(self, tmp_path):
+        """Idempotency is per tag NAME, not "any harness-v4-* tag exists"."""
+        from cli.gate_cmds import cmd_gate4_tag
+        project = self._repo(tmp_path, score=98.0)
+        args = argparse.Namespace(project=str(project))
+        assert cmd_gate4_tag(args) == 0
+
+        (project / ".methodology" / "gate4_result.json").write_text(
+            json.dumps({"composite_score": 99.0}), encoding="utf-8"
+        )
+        assert cmd_gate4_tag(args) == 0
+        assert len(self._tags(project)) == 2, self._tags(project)
+
+    def test_the_push_hint_is_still_printed_when_the_tag_already_existed(self, tmp_path, capsys):
+        """The skip-clause removal in spec_phase6 relies on this: step 2 always
+        reaches `git push origin --tags`, so the no-op path must not read as
+        "nothing left to do"."""
+        from cli.gate_cmds import cmd_gate4_tag
+        project = self._repo(tmp_path)
+        args = argparse.Namespace(project=str(project))
+        cmd_gate4_tag(args)
+        capsys.readouterr()
+        cmd_gate4_tag(args)
+        assert "git push origin --tags" in capsys.readouterr().out

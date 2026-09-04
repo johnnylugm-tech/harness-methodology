@@ -717,24 +717,70 @@ class TestRunFrStep:
         store_dir.joinpath("store.py").write_text("def save(): pass\n", encoding="utf-8")
 
         prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
-        # Round 94: the prompt now uses `pytest --cov=... --cov-report=term-missing`
-        # (same form as the sibling fallback test below). The previous
-        # `coverage run -m pytest ... && coverage report --include=...` form
-        # silently collected no data when combined with pytest-cov's inner
-        # instrumentation — see evaluate_dimension.md / gate_cmds.py / fix.py
-        # for the full root-cause write-up.
+        # Round 95: the runner is pytest-cov (Round 94 was right about that —
+        # `coverage run -m pytest --cov=X` double-instruments and collects
+        # nothing), but the FR scope is back, as a second step reading the
+        # same .coverage. Round 94 dropped the scope along with the runner,
+        # and the two are independent: the removed `coverage run -m pytest T
+        # -q && coverage report --include=...` never passed `--cov=` to
+        # pytest, so it never hit the conflict Round 94 measured.
         scoped_cmd = (
             "python3 -m pytest tests/test_fr01.py --cov=03-development/src "
-            "--cov-report=term-missing -q"
+            "--cov-report= -q "
+            '&& python3 -m coverage report '
+            '--include="03-development/src/taskq/storage/store.py" -m'
         )
         assert scoped_cmd in prompt
         assert "coverage run -m pytest tests/test_fr01.py" not in prompt
+        # The scope must reach the agent, not only the command: Round 94's
+        # comment claimed "the `_cf_include` list is in this prompt's context
+        # already" and it was not — measured, `"store.py" in prompt` was False.
+        assert "store.py" in prompt
+        # And it must NOT be the fallback command. Without this the test below
+        # asserts the same substring and the two can never disagree, which is
+        # what Round 94 left behind.
+        assert (
+            "python3 -m pytest tests/test_fr01.py --cov=03-development/src "
+            "--cov-report=term-missing -q"
+        ) not in prompt
 
     def test_prompt_coverage_fix_falls_back_to_whole_tree_when_unresolvable(self, tmp_path):
         """No fr_module_traceability entry and no resolvable imports → today's
         whole-tree fallback command is unchanged."""
         prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
         assert "pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q" in prompt
+        assert "--include=" not in prompt, (
+            "the fallback has no FR scope to include — if it renders one, the "
+            "scoped branch and this one are the same string again"
+        )
+
+    def test_prompt_coverage_fix_scoped_and_fallback_are_not_the_same_string(self, tmp_path):
+        """Round 95. Round 94 left both branches of `if _cf_src_files:`
+        producing byte-identical text: the scoped branch was dead, and the
+        `load_quality_manifest` + `resolve_fr_scoped_src_files` work above it
+        (a file read, a manifest lookup, a src glob and an AST parse) ran on
+        every prompt build to choose between two equal literals.
+
+        Asserting on each branch separately cannot see that — both assertions
+        pass on a dead branch. This compares the two outputs."""
+        (tmp_path / ".methodology").mkdir()
+        (tmp_path / ".methodology" / "quality_manifest.json").write_text(
+            json.dumps({"fr_module_traceability": {"FR-01": "taskq.storage.store"}}),
+            encoding="utf-8",
+        )
+        store_dir = tmp_path / "03-development" / "src" / "taskq" / "storage"
+        store_dir.mkdir(parents=True)
+        store_dir.joinpath("store.py").write_text("def save(): pass\n", encoding="utf-8")
+        scoped = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
+
+        bare = tmp_path / "no_manifest"
+        bare.mkdir()
+        fallback = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, bare, None)
+
+        assert scoped != fallback, (
+            "the resolved-scope and unresolvable-scope prompts are identical, "
+            "so the resolver above them decides nothing"
+        )
 
     def test_prompt_coverage_fix_pragma_allowlist_matches_gate1_audit(self, tmp_path):
         """Regression (pragma-allowlist drift): COVERAGE-FIX's ESCAPE HATCH

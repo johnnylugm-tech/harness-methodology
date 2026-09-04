@@ -125,9 +125,32 @@ validator needs the marker.
 # still returning exit code 0. The `coverage json` step then emitted `No data
 # to report.` and per-FR coverage was scored as 0% (LOW_COVERAGE → COVERAGE-FIX
 # → no-progress → BLOCKED). The single command below is the same form
-# `core.quality_gate.test_suite_run.run_suite` uses internally.
+# `core.quality_gate.test_suite_run._measure` uses internally.
+#
+# Round 95: the JSON report is back, as pytest-cov's own reporter rather than a
+# chained `coverage json`. Round 94 left only the term table, and score.py's
+# `_parse_coverage_percent` recognises exactly two schemas — coverage.py's JSON
+# and istanbul's coverage-summary.json. Anything else returns None and R9,
+# the ONE rule that re-derives the percentage from `tool_outputs` at write
+# time, skips in silence. Measured on the same claim: with the term table, an
+# agent reporting 100.0 against a true 45.0 produced no R9 issue at all; with
+# the JSON, R9 fires. A rule that stops running looks exactly like a rule with
+# nothing to report.
+#
+# It writes into `.sessi-work/` (in the framework's own _GITIGNORE_ENTRIES),
+# not the project root: Round 53 is the round about the framework leaving
+# files in the tree it is judging.
+#
+# `PYTHONPATH=.` went with the two dropped variants and is NOT restored:
+# measured, it does not help the layout the framework itself ships — on
+# `03-development/src` both no-PYTHONPATH and `PYTHONPATH=.` fail identically
+# with ModuleNotFoundError, and only `PYTHONPATH=<src dir>` works. Where the
+# package lives is the project's own pytest config's answer (pytest.ini
+# `pythonpath`, conftest.py); the mechanical run gets it from
+# `ProjectLayout.active_src_dir` in harness/tool_runners.py. A third statement
+# of it here would be one more place for the three to disagree.
 COV_TARGET=$(python3 -c "from core.quality_gate.test_suite_run import resolve_targets; print(resolve_targets('.')[1])")
-python3 -m pytest --cov="$COV_TARGET" --cov-report=term-missing
+python3 -m pytest --cov="$COV_TARGET" --cov-report=term-missing --cov-report=json:.sessi-work/coverage.json
 
 # javascript / typescript (vitest):
 npx --no-install vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text
@@ -145,9 +168,17 @@ cat coverage/coverage-summary.json
 
 These are **advisory findings** — they do NOT change the tool-scored coverage percentage.
 
-> **If all variants return 0% or fail**: evaluation is **SUSPENDED** for `test_coverage`.
+> **`tool_outputs` for `test_coverage` MUST be the JSON report** the command above writes
+> (`.sessi-work/coverage.json` for python, `coverage/coverage-summary.json` for JS/TS).
+> score.py R9 re-derives the true percentage from that file and rejects a `tool_score` that
+> disagrees with it; pointing `tool_outputs` at a terminal-table capture instead makes R9
+> skip silently, which is the one thing that cannot be told apart from a passing check.
+
+> **If the command returns 0% or fails**: evaluation is **SUSPENDED** for `test_coverage`.
 > Do NOT write a score file. Fix the pytest/coverage configuration and restart from Step 1.
 > (`tool_score=null` is not accepted for Tier 1 — score.py R8 will block gate scoring.)
+> ("all variants" until Round 95: the fallback chain this sentence was written for was
+> removed in Round 94 and the wording outlived it. There is one command.)
 
 ### test_assertion_quality (Tier 2 — framework tool: ast-assertions)
 

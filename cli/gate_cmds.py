@@ -517,6 +517,36 @@ def cmd_gate4_tag(args: argparse.Namespace) -> int:
     tag_name = f"harness-v4-{today}-score{score_str}"
     tag_msg = f"Gate 4 PASS (score {score_str})"
 
+    # Round 95: idempotent on the tag NAME. `git tag -a` exits 128 on an
+    # existing tag, and this command turned that into `return 1`, which is
+    # what made P6's Tag & Advance prompt carry a skip clause — "2. GIT-TAG
+    # (skip if step 0 found an existing tag)" — that also skipped the
+    # `git push origin --tags` inside the same step. advance-phase pushes
+    # `origin HEAD` with no `--tags`, so the release tag stayed local; and
+    # Round 93's "you MUST still execute steps 1-3" then contradicted the
+    # skip clause, leaving an agent to pick which instruction to disobey.
+    #
+    # Making the command safe to repeat removes the reason the prompt needed
+    # either, and puts the protection where a human or CI caller also gets it
+    # rather than in one prompt's step numbering.
+    #
+    # `rev-parse --verify`, not `git tag -l <name>`: the latter takes a glob
+    # pattern and answers by printing, so it needs stdout parsing and would
+    # misread a name containing pattern characters.
+    _existing = subprocess.run(  # nosec B603 B607
+        ["git", "-C", str(project), "rev-parse", "-q", "--verify",
+         f"refs/tags/{tag_name}"],
+        capture_output=True, text=True,
+    )
+    if _existing.returncode == 0:
+        # Deliberately NOT `git tag -f`: this tag records "Gate 4 passed at
+        # this score on this date", and moving it would rewrite that record
+        # to point somewhere else. If the name is taken, the release it names
+        # is already tagged.
+        print(f"[OK] Tag already exists: {tag_name} — not re-created.")
+        print("  To push: git push origin --tags")
+        return 0
+
     result = subprocess.run(  # nosec B603 B607
         ["git", "-C", str(project), "tag", "-a", tag_name, "-m", tag_msg],
         capture_output=True, text=True,
@@ -799,6 +829,7 @@ def _print_fr_scoped_overrides_py(
         return
 
     if src_files:
+        include_flag = ",".join(src_files)
         # A declared source file can be owned by more than one FR (e.g. a
         # shared CLI dispatch file) — see shared_owner_test_files()'s
         # docstring. Run every co-owning FR's test file alongside this FR's
@@ -809,18 +840,44 @@ def _print_fr_scoped_overrides_py(
             if (Path(project) / t).exists()
         ]
         test_targets = " ".join([test_file] + sibling_tests)
-        # Round 94: dropped the original 3-fallback chain. The first two
-        # variants used `coverage run -m pytest {t} && coverage json
-        # --include=...` which silently collected no data when combined
-        # with pytest-cov's inner instrumentation — see the comment block
-        # above this function for the full root-cause write-up. The agent
-        # filters the term output to the FR scope (`include_flag`) per the
-        # prompt context it already has.
+        # Round 95. Round 94 collapsed a 3-variant chain to one command and
+        # took two things with it that the chain's bug had nothing to do with.
+        #
+        # The bug is real but narrow: `coverage run -m pytest --cov=X`
+        # double-instruments and collects nothing. The variant removed HERE
+        # never passed `--cov=` to pytest — measured, `coverage run -m pytest
+        # T && coverage json --include=...` reports the FR's own number with
+        # no warning — so the runner swap is right and the two losses are not:
+        #
+        #   SCOPE  a whole-tree `--cov-report=term-missing` is not this FR's
+        #          number. Gate 1 is single_fr and the harness re-scores from
+        #          .coverage itself (harness_bridge `s4_rescopes_to_fr`), so
+        #          the RECORDED score survives — but `s4_score_verdict`'s
+        #          `fabrication` is `harness < threshold <= agent`, and an
+        #          agent reading a whole-tree TOTAL of 85 while its own two
+        #          modules sit at 70 gets blocked for fabricating a number
+        #          this file printed the command for.
+        #   SCHEMA score.py R9 re-derives the percentage from `tool_outputs`
+        #          and only recognises coverage/istanbul JSON. Term output
+        #          returns None and R9 skips in silence.
+        #
+        # So: pytest-cov runs the suite (single instrumentation), then
+        # `coverage json --include` reads the same .coverage back at this FR's
+        # scope into a file — pytest writes its own summary to stdout, so a
+        # report chained onto stdout is not parseable evidence. `.sessi-work/`
+        # is gitignored by the framework's own _GITIGNORE_ENTRIES (Round 53).
+        _fr_report = f".sessi-work/coverage_{fr_id}.json"
         cov_cmd = (
             f"  python3 -m pytest {test_targets} "
-            f"--cov={src_dir} --cov-report=term-missing"
+            f"--cov={src_dir} --cov-report= \\\n"
+            f"    && python3 -m coverage json --include=\"{include_flag}\" "
+            f"-o {_fr_report}"
         )
-        cov_note = f"  (FR source files detected: {', '.join(src_files)}; filter term output to these paths)"
+        cov_note = (
+            f"  (FR source files detected: {', '.join(src_files)})\n"
+            f"  (record tool_outputs = {_fr_report} — score.py R9 re-derives "
+            f"the % from it)"
+        )
         if sibling_tests:
             cov_note += (
                 f"\n  (shared source file(s) also owned by other FRs — "
@@ -828,18 +885,30 @@ def _print_fr_scoped_overrides_py(
             )
     else:
         # Fallback: test file absent or no imports matched — use full src dir.
-        # Round 94: same root cause as the src_files branch above.
+        # Round 94's runner swap is kept here unchanged: with no FR scope to
+        # filter to, the whole-tree number IS the answer this branch has, so
+        # neither of the two losses above applies to it.
         cov_cmd = (
             f"  python3 -m pytest {test_file} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
         cov_note = f"  (fallback: {src_dir} — test file not found or no imports detected)"
 
+    # Round 95: the heading says what the command below it does. It read
+    # "measure only <FR>'s source files" over both branches, which is false
+    # over the fallback — and was false over BOTH of them for the length of
+    # Round 94, while the six tests that check this function still passed
+    # because `cache.py` had moved from the command into the note beside it.
+    cov_heading = (
+        f"test_coverage — measure only {fr_id}'s source files:"
+        if src_files else
+        f"test_coverage — no FR scope resolved; measuring all of {src_dir}:"
+    )
     print(
         f"\n[FR-SCOPED TOOL OVERRIDES — {fr_id}]\n"
         f"Gate 1 scope is single_fr. Replace the project-wide defaults in\n"
         f"evaluate_dimension.md with these FR-scoped commands:\n\n"
-        f"test_coverage — measure only {fr_id}'s source files:\n"
+        f"{cov_heading}\n"
         f"{cov_cmd}\n"
         f"{cov_note}\n\n"
         f"linting — lint only the FR source directory:\n"
