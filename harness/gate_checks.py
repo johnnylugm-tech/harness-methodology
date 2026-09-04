@@ -521,6 +521,63 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
 #: every time was COVERAGE-FIX.
 RED_SUITE_DETAIL_KEY = "fr_tests_red"
 
+#: The `details` key a below-default architecture floor blocks under.
+CRG_FLOOR_DETAIL_KEY = "crg_floor_lowered"
+
+
+def lowered_cohesion_floor_reason(calibration: "dict | None") -> "str | None":
+    """None unless the architecture score was measured on a floor this project
+    moved, for a reason the framework does not give.
+
+    Round 97. `crg_analysis.COHESION_HEALTHY` is 0.3, and `core/harness_config`
+    states the one legitimate reason to go below it: a package small enough
+    that Leiden community detection over-fragments — at most
+    `CRG_SMALL_PACKAGE_FILES` source files. Round 42 站4 already put both
+    numbers into the gate result's `calibration` block. Nothing compared them.
+
+    Measured across the corpus: 11 of 11 projects had lowered the floor
+    (0.15-0.25), every one of them at 41-65 source files, and no
+    QUALITY_REPORT.md said so — taskq-final's lists communities at 0.22 and
+    0.29 beside an architecture score of 100.0 and never mentions the 0.2 that
+    makes those two statements consistent.
+
+    Blocking therefore reds the whole corpus. That is a decision taken with
+    the number in hand, and what it produces is evidence about the default
+    rather than about eleven projects; the ledger says so. Nothing here
+    invents a replacement default — a floor reverse-engineered from the
+    projects it judges is the ruler fitted to the data.
+
+    Silent when either number is absent: a gate result written before
+    `calibration` existed is not a project that lowered anything (Round 32).
+    """
+    if not isinstance(calibration, dict):
+        return None
+    from core.harness_config import CRG_SMALL_PACKAGE_FILES
+    from harness.ssi.scripts.crg_analysis import COHESION_HEALTHY
+
+    floor = calibration.get("cohesion_healthy")
+    files = calibration.get("source_files")
+    if not isinstance(floor, (int, float)) or isinstance(floor, bool):
+        return None
+    if not isinstance(files, int) or isinstance(files, bool):
+        return None
+    if float(floor) >= COHESION_HEALTHY or files <= CRG_SMALL_PACKAGE_FILES:
+        return None
+    return (
+        f"architecture was scored against a cohesion floor of {floor}, below "
+        f"the framework's {COHESION_HEALTHY} default, on a project delivering "
+        f"{files} source files. The framework's own reason for calibrating "
+        f"below the default is Leiden over-fragmentation in a small package — "
+        f"at most {CRG_SMALL_PACKAGE_FILES} source files — which this project "
+        f"is not. A score measured on a moved floor is a score of a different "
+        f"question.\n"
+        f"    Fix: restore `crg_cohesion_healthy` to {COHESION_HEALTHY} in "
+        f".methodology/harness_config.json and raise the cohesion the score "
+        f"reports, by reducing cross-package coupling so the communities the "
+        f"graph finds are the ones the architecture claims. Removing the key "
+        f"entirely uses the default."
+    )
+
 
 def _check_tests_failed(
     raw: dict, fr_id: "str | None" = None,

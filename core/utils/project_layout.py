@@ -120,14 +120,36 @@ class ProjectLayout:
     def test_spec_path(self) -> Path:          return self._get_file_path("TEST_SPEC.md", self.phase2_architecture_dir)
     @property
     def adr_path(self) -> Path:
-        """02-architecture/ADR.md — the architecture decision record.
+        """The architecture decision record — the existing one, or where one goes.
 
         Round 26: `amend-sab --resolve-phantom` appends its amendment here, and a
         writer needs the canonical path even when the file does not exist yet, so
-        this is a plain join rather than `_get_file_path`'s exists-first lookup
-        (which would silently retarget a first write to the project root).
+        this is not `_get_file_path`'s exists-first lookup (which would silently
+        retarget a first write to the project root).
+
+        Round 97: it was a plain join to `02-architecture/ADR.md`, and that is
+        not where the framework puts the ADR. `init-project`'s artifact map
+        deploys `templates/ADR.md` to `02-architecture/adr/ADR.md` and
+        `legal_artifacts.DELIVERABLE_ANCHORS` keys the anchor on that path, so
+        on all eleven corpus projects the real document (277-1069 lines) is in
+        the sub-directory and this property pointed at nothing. `amend-sab`
+        then CREATED something there: taskq-final's `02-architecture/ADR.md` is
+        eight lines holding one amendment, beside an 893-line ADR the framework
+        wrote elsewhere; taskq-new's is thirty-six. The required-artifact check
+        is satisfied by the stub, and a reader coming through this API gets an
+        amendment log instead of the architecture decisions.
+
+        Both layouts stay supported — a project that keeps its ADR directly in
+        the architecture dir is not asked to move it. Only the fallback moved,
+        to where the framework itself deploys. `artifact_consistency._adr_path`
+        was the only resolver that knew both and now calls this one, so the
+        writer and the reader cannot point at different files again.
         """
-        return self.phase2_architecture_dir / "ADR.md"
+        arch = self.phase2_architecture_dir
+        for candidate in (arch / "adr" / "ADR.md", arch / "ADR.md"):
+            if candidate.is_file():
+                return candidate
+        return arch / "adr" / "ADR.md"
 
     @property
     def test_plan_path(self) -> Path:              return self.phase4_testing_dir / "TEST_PLAN.md"

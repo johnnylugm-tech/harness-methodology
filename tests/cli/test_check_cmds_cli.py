@@ -492,14 +492,23 @@ class TestGenerateVerificationReport:
             json.dumps(manifest), encoding="utf-8"
         )
 
-        # SRS with AC-FR-XX-N acceptance criteria
+        # SRS in the shape the framework's own Phase 1 template produces —
+        # Round 97: the generator reads criteria through
+        # `artifact_consistency.srs_acceptance_criteria`, which is what the
+        # rest of the framework uses, and its contract is a bolded
+        # `**Acceptance criteria**` block. The bare `AC-FR-01-1:` lines this
+        # fixture used are a shape no corpus project writes, which is how the
+        # generator's private parser could return zero on all eleven of them
+        # and still have a green test here.
         srs = (
             "# SRS - taskq\n\n"
-            "### FR-01: submit\n"
-            "AC-FR-01-1: accepts valid command\n"
-            "AC-FR-01-2: rejects empty command\n\n"
-            "### FR-02: run\n"
-            "AC-FR-02-1: executes via subprocess\n"
+            "### FR-01: submit\n\n"
+            "**Acceptance criteria**\n\n"
+            "- AC-FR-01-1: accepts valid command\n"
+            "- AC-FR-01-2: rejects empty command\n\n"
+            "### FR-02: run\n\n"
+            "**Acceptance criteria**\n\n"
+            "- AC-FR-02-1: executes via subprocess\n"
         )
         (tmp_path / "01-requirements" / "SRS.md").write_text(srs, encoding="utf-8")
 

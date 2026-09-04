@@ -32,9 +32,13 @@ The top-level ``crg_*`` value keys calibrate the framework-owned CRG
 architecture score (see ``get_crg_settings``):
 
 * ``crg_cohesion_healthy`` — per-project cohesion floor for a community
-  to count as healthy (float in (0, 1]). Small packages (≤ ~10 source
-  files) may calibrate below the 0.3 default because Leiden community
-  detection over-fragments at that scale.
+  to count as healthy (float in (0, 1]). Small packages (at most
+  ``CRG_SMALL_PACKAGE_FILES`` source files) may calibrate below the 0.3
+  default because Leiden community detection over-fragments at that scale.
+  Round 97 made that boundary a constant rather than a sentence, because a
+  gate now blocks on it: measured across the corpus, 11 of 11 projects had
+  lowered the floor (0.15–0.25) at 41–65 source files, so the reason stated
+  here matched none of the projects invoking it.
 * ``crg_excludes`` — fnmatch globs over repo-relative file paths; a
   community whose files are majority-matched is excluded from scoring
   (project tooling such as workflow scripts is not product code).
@@ -314,6 +318,12 @@ def value_is_configured(project: "str | Path", key: str) -> bool:
     values = _read_raw(project).get("values", {})
     return isinstance(values, dict) and key in values and _valid_value(key, values[key])
 
+
+#: The largest package for which calibrating below `COHESION_HEALTHY` is the
+#: framework's own documented answer. Round 97: it was prose in this module's
+#: docstring and a gate now reads it, so it is a value with one spelling.
+#: Round 60's rule — a number a verdict depends on is not documentation.
+CRG_SMALL_PACKAGE_FILES = 10
 
 _CRG_VALUE_DEFAULTS: dict[str, Any] = {
     "cohesion_healthy": None,  # None → crg_analysis falls back to env/0.3

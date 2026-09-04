@@ -193,6 +193,257 @@ def check_test_count_reconciliation(
     } for total, line in totals]
 
 
+#: A coverage percentage a document claims for itself. Two spellings, both
+#: live: pytest-cov's own `TOTAL <stmts> <miss> <pct>%` table row, and the
+#: prose `Line coverage: N%`.
+#:
+#: Round 97 — the prose one was the only one read, and it matches ONE of the
+#: eleven COVERAGE_REPORT.md files in the corpus. All eleven state the number
+#: as a TOTAL row, which `check_coverage_report` already parses twelve lines
+#: below for the ACTUAL side of the very same comparison. So ten of eleven
+#: projects had a coverage report whose number nothing ever read — the defect
+#: `check_test_count_reconciliation`'s docstring names ("returns nothing when
+#: it finds no numeric claim") and blames on this function by name.
+_COV_CLAIM_PHRASE = re.compile(
+    r'(?im)^[\s\-*]*Line coverage[^\d]*(\d{2,3}(?:\.\d)?)\s*%')
+_COV_CLAIM_TOTAL = re.compile(
+    r'(?im)^[\s|*>]*\**TOTAL\**[\s|]+\d+[\s|]+\d+[\s|]+\**(\d{1,3}(?:\.\d+)?)\s*%')
+
+
+def coverage_claim(text: str) -> "float | None":
+    """The coverage percentage a document claims, or None if it claims none."""
+    for pattern in (_COV_CLAIM_PHRASE, _COV_CLAIM_TOTAL):
+        m = pattern.search(text)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def _recorded_measurement(project_root: Path) -> "tuple[int, float | None, int] | None":
+    """(tests passed, coverage %, gate) from the newest recorded gate run.
+
+    Round 97. The framework runs the suite at every exit gate and leaves the
+    output at `.methodology/gate_evidence/gate{N}/test_coverage.txt`. Reading
+    it costs nothing, which is the whole point: the reason
+    `check_test_count_reconciliation` confined itself to Phase 4 is that
+    Phase 5-8 has no warm suite memo and calling it there would execute the
+    project's tests again. It does not need to — the run already happened and
+    was recorded.
+
+    None when there is no evidence, or none of it parses. Round 32: a
+    measurement that could not be taken is not a failing measurement.
+    """
+    root = Path(project_root) / ".methodology" / "gate_evidence"
+    if not root.is_dir():
+        return None
+    for gate in (4, 3, 2, 1):
+        path = root / f"gate{gate}" / "test_coverage.txt"
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        summaries = [ln.strip() for ln in _PYTEST_SUMMARY_RE.findall(text)]
+        if not summaries:
+            continue
+        counts = {k: int(v) for v, k in _PYTEST_COUNT_RE.findall(summaries[-1])}
+        if not counts:
+            continue
+        return (sum(counts.values()), coverage_claim(text), gate)
+    return None
+
+
+def check_delivered_report_freshness(
+    project_root: Path, phase: int
+) -> List[Dict[str, str]]:
+    """Phase 4's documents, against the tree the LATER gates measured.
+
+    Round 97. `check_test_count_reconciliation` above reconciles
+    TEST_RESULTS.md once, at Phase 4, and is right to block on any mismatch
+    there — it is judging a document the phase is writing against a run it can
+    take. After that the document ships through four more phases while the
+    tree changes underneath it, and nothing looks again. Measured on the seven
+    corpus projects that carry gate evidence, five of their Phase-4 documents
+    disagree with the last recorded run: taskq-final ships `227 passed / 97%`
+    against a delivered `267 passed / 100%`, and the audit of that project
+    read the 97% straight out of the document and reported it as the delivery's
+    coverage.
+
+    The two disagreements are not one defect. Tests added after Phase 4 are
+    what a pipeline does (taskq-cc: 283 against 287), and blocking on that
+    charges a project for working — Round 42. A count ABOVE the whole suite
+    the framework measured cannot be a description of this tree at all
+    (taskq-super: 7563 against 331, a run from the repository root that also
+    collected the vendored harness). That one needs no tolerance to state, so
+    it is the one that blocks; the rest is recorded with both numbers beside
+    each other, which is what a reader of the delivery needs and did not have.
+    """
+    if phase < 5:
+        return []          # Phase 4 owns its own documents, against a live run.
+    measured = _recorded_measurement(Path(project_root))
+    if measured is None:
+        return []
+    measured_tests, measured_cov, gate = measured
+    layout = ProjectLayout(project_root)
+    violations: List[Dict[str, str]] = []
+
+    results = layout.phase4_testing_dir / "TEST_RESULTS.md"
+    if results.is_file():
+        try:
+            text = results.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        seen: set = set()
+        for line in [ln.strip() for ln in _PYTEST_SUMMARY_RE.findall(text)]:
+            counts = {k: int(v) for v, k in _PYTEST_COUNT_RE.findall(line)}
+            claimed = sum(counts.values())
+            # One row per distinct claim. Measured: taskq-new's document
+            # repeats its summary five times and taskq-cc's twice, and five
+            # identical rows is how the row that matters gets scrolled past.
+            if claimed == measured_tests or claimed in seen:
+                continue
+            seen.add(claimed)
+            # `claimed > measured` only proves a different tree when the
+            # measurement IS of the delivered tree — Gate 4. Measured on
+            # taskq-cc-new, whose newest evidence is Gate 3: its document
+            # claims 241 against that gate's 236, which is five tests added
+            # after Gate 3, not a run over another tree. Charging it would be
+            # the Round 42 defect this rule exists to avoid.
+            over = claimed > measured_tests and gate == 4
+            violations.append({
+                "file": layout.get_relative_str(results),
+                "issue": (
+                    f"reports {claimed} test(s); the framework's own Gate {gate} "
+                    f"run of the delivered tree measured {measured_tests}"
+                ),
+                "severity": "CRITICAL" if over else "HIGH",
+                "suggestion": (
+                    "A count above the delivered suite means the run was not "
+                    "scoped to this project — `pytest` from the repository "
+                    "root also collects the vendored harness suite. Re-run "
+                    "scoped to the project and re-record the summary line."
+                    if over else
+                    "The document and the delivered tree describe different "
+                    "runs. Re-record it so the delivery's own test report "
+                    "describes the delivery — and check any prose explaining "
+                    "the numbers, which may describe failures that are fixed."
+                ),
+            })
+
+    cov_report = layout.phase4_testing_dir / "COVERAGE_REPORT.md"
+    if cov_report.is_file() and measured_cov is not None:
+        try:
+            claimed_cov = coverage_claim(
+                cov_report.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            claimed_cov = None
+        if claimed_cov is not None and claimed_cov != measured_cov:
+            violations.append({
+                "file": layout.get_relative_str(cov_report),
+                "issue": (
+                    f"claims {claimed_cov}% coverage; the framework's own "
+                    f"Gate {gate} run measured {measured_cov}%"
+                ),
+                "severity": "HIGH",
+                "suggestion": (
+                    "Re-record the report against the delivered tree. A reader "
+                    "of the delivery has no other source for this number, and "
+                    "any prose explaining the gap describes a tree that is gone."
+                ),
+            })
+    return violations
+
+
+#: A dotted path inside a backtick span that names a python module: the
+#: `pkg.mod:attr` an ASGI/WSGI server takes, and `python -m pkg.mod`.
+_NAMED_MODULE_ATTR = re.compile(
+    r"`[^`]*?\b([a-z_][\w]*(?:\.[a-z_][\w]*)+):[A-Za-z_]\w*[^`]*`")
+_NAMED_MODULE_DASH_M = re.compile(
+    r"`[^`]*?(?:^|\s)-m\s+([a-z_][\w]*(?:\.[a-z_][\w]*)*)")
+#: A trailing segment that is a file extension makes it a filename, not a
+#: module. Round 97's first draft flagged `config.py` in a corpus project for
+#: exactly this reason — `config.py` matches a dotted path perfectly.
+_FILE_SUFFIXES = frozenset(
+    ("py", "md", "json", "toml", "cfg", "txt", "yml", "yaml", "db", "sh",
+     "ini", "lock", "log", "env", "js", "ts", "sql", "html", "csv"))
+
+
+def _named_modules(text: str) -> List[str]:
+    found = set(_NAMED_MODULE_ATTR.findall(text)) | set(_NAMED_MODULE_DASH_M.findall(text))
+    return sorted(d for d in found if d.rsplit(".", 1)[-1] not in _FILE_SUFFIXES)
+
+
+def _module_file(project_root: Path, dotted: str) -> "Path | None":
+    layout = ProjectLayout(project_root)
+    roots = [layout.active_src_dir, Path(project_root) / "src", Path(project_root)]
+    for src in roots:
+        if not src.is_dir():
+            continue
+        base = src.joinpath(*dotted.split("."))
+        for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def check_named_modules_resolve(project_root: Path, phase: int) -> List[Dict[str, str]]:
+    """A start command the delivery documents must name a module that is there.
+
+    Round 97. `08-config/CONFIG_RECORDS.md` is where a delivery states how it
+    is run, and it is the last artefact anyone reads before running it.
+    taskq-final's says `uvicorn taskq_api.main:app`; that package ships
+    `app.py` and `__main__.py` and no `main.py`, so following the document
+    raises ModuleNotFoundError before the process exists. Round 52's subject —
+    nothing executes the product — at the layer that tells a human how to.
+
+    Filesystem resolution only: importing would execute the project's code
+    inside a gate. So this catches a module that is not there and does not
+    catch an attribute that is not there; the `:app` half is unverified and
+    that limit is the honest price of not running anything.
+
+    Measured across the corpus: one project names a module that resolves
+    (`taskq_api.app`), one names one that does not, nine name none.
+    """
+    if phase != 8:
+        return []
+    layout = ProjectLayout(project_root)
+    records = layout.phase8_config_dir / "CONFIG_RECORDS.md"
+    if not records.is_file():
+        return []
+    try:
+        text = records.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    violations: List[Dict[str, str]] = []
+    for dotted in _named_modules(text):
+        if _module_file(Path(project_root), dotted) is not None:
+            continue
+        package, _, missing = dotted.rpartition(".")
+        siblings: List[str] = []
+        pkg_dir = layout.active_src_dir.joinpath(*package.split(".")) if package else None
+        if pkg_dir is not None and pkg_dir.is_dir():
+            siblings = sorted(p.name for p in pkg_dir.glob("*.py"))[:6]
+        violations.append({
+            "file": layout.get_relative_str(records),
+            "issue": (
+                f"names the python module `{dotted}`, which is not in the "
+                f"delivered tree"
+            ),
+            "severity": "CRITICAL",
+            "suggestion": (
+                "Following this record raises ModuleNotFoundError before the "
+                "process starts. "
+                + (f"`{package}` ships {', '.join(siblings)} — `{missing}.py` "
+                   f"is not among them. " if siblings else "")
+                + "Correct the record to the module that is delivered, or "
+                  "deliver the module the record names."
+            ),
+        })
+    return violations
+
+
 def check_unfilled_placeholders(project_root: Path, phase: int) -> List[Dict[str, str]]:
     """A delivered artifact may not still carry its template's placeholders.
 
@@ -430,13 +681,13 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
     except Exception:
         return violations
 
-    # Extract claimed coverage percentage
-    # Match only on the "Line coverage" line to avoid picking up target/other %.
-    # Allow optional leading bullet/indentation ("- Line coverage: 85%").
-    claimed_match = re.search(
-        r'(?im)^[\s\-*]*Line coverage[^\d]*(\d{2,3}(?:\.\d)?)\s*%',
-        cov_content,
-    )
+    # Extract claimed coverage percentage. Round 97: through `coverage_claim`,
+    # which reads pytest-cov's own TOTAL row as well as the prose phrase this
+    # used to require — measured, the phrase appears in 1 of the 11 corpus
+    # reports and the TOTAL row in all 11, so ten projects had a coverage
+    # report whose number this function never read.
+    _claimed = coverage_claim(cov_content)
+    claimed_match = _claimed is not None
     if not claimed_match:
         # Bare percentage: "Overall: 85%" or "Total: 95%"
         bare_m = re.search(
@@ -446,8 +697,10 @@ def check_coverage_report(project_root: Path, _phase: int) -> List[Dict[str, str
         if not bare_m:
             return violations  # No numeric claim to validate
         claimed_pct = float(bare_m.group(1))
+    elif _claimed is not None:
+        claimed_pct = float(_claimed)
     else:
-        claimed_pct = float(claimed_match.group(1))
+        return violations
 
     # Try running pytest --cov to get actual coverage.
     # Costs up to 120s per finalize-gate call, so it is opt-in: the
@@ -573,6 +826,19 @@ def run_cross_artifact_checks(
         violations.extend(check_coverage_report(project_root, phase))
         violations.extend(check_test_count_reconciliation(project_root, phase))
         ran += 3
+
+    # Round 97. The narrowing above is right about cost and wrong about
+    # jurisdiction: Phase 5-8 does not write these documents, but it SHIPS
+    # them, and the tree they describe keeps changing. Measured on the seven
+    # corpus projects with gate evidence, five of their Phase-4 documents
+    # disagree with the last recorded run — taskq-final ships `227 passed /
+    # 97%` against a delivered `267 / 100%`, and an audit of that project
+    # reported the 97% as the delivery's coverage. This reads the run the
+    # later gate already took and recorded, so the objection the narrowing was
+    # protecting (a second execution of the whole suite) does not apply.
+    violations.extend(check_delivered_report_freshness(project_root, phase))
+    violations.extend(check_named_modules_resolve(project_root, phase))
+    ran += 2
 
     criticals = [v for v in violations if v.get("severity") == "CRITICAL"]
     highs = [v for v in violations if v.get("severity") == "HIGH"]

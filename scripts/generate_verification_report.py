@@ -50,30 +50,29 @@ def _load_text(path: Path) -> str | None:
         return None
 
 
-def _extract_acceptance_criteria(srs_path: Path) -> dict[str, list[str]]:
-    """Extract per-FR acceptance criteria from SRS.md (AC-FR-XX-N: lines)."""
-    text = _load_text(srs_path)
-    if not text:
-        return {}
+def _extract_acceptance_criteria(project: Path) -> dict[str, list[str]]:
+    """Per-requirement acceptance criteria — the framework's own answer.
 
-    import re
-    # Find each FR block and the ACs under it
-    # Bug M11 fix: accept any separator after FR-N (colon, em-dash, space,
-    # or end of line). The previous regex required ":" and silently
-    # skipped em-dash / space variants, causing ACs to attach to wrong FR.
-    fr_header_re = re.compile(r"^###\s+FR-(\d+)\s*(?:[:\-—]|\s|$)")
-    ac_line_re = re.compile(r"^\s*(AC-FR-\d+-\d+)\s*[:\-—]\s*(.+)$")
-    fr_blocks: dict[str, list[str]] = {}
-    current_fr: str | None = None
-    for line in text.splitlines():
-        m_fr = fr_header_re.match(line)
-        m_ac = ac_line_re.match(line)
-        if m_fr:
-            current_fr = f"FR-{m_fr.group(1)}"
-            fr_blocks.setdefault(current_fr, [])
-        elif m_ac and current_fr:
-            fr_blocks[current_fr].append(f"{m_ac.group(1)}: {m_ac.group(2).strip()}")
-    return fr_blocks
+    Round 97. This used to carry its own regex — a dashed identifier form on
+    a plain line — and it had never matched anything. Measured across the
+    eleven corpus
+    projects: `artifact_consistency.srs_acceptance_criteria` finds 1,004
+    criteria (28-134 per project) and this function found ZERO on every one of
+    them — so all eleven shipped a VERIFICATION_REPORT.md whose every per-FR
+    section reads "_No acceptance criteria extracted from SRS.md — verify
+    manually._" for the whole of Phase 5.
+
+    Every SRS in the corpus writes `#### AC-1.1` headings, which is what the
+    Phase 1 prompt produces and what the canonical parser was written for. It
+    also reads the bullet spelling, so nothing is traded away by deferring to
+    it.
+
+    Not a better regex — one place where the framework decides what an
+    acceptance criterion is. Round 17 / Round 33: one contract, one statement.
+    """
+    from core.quality_gate.artifact_consistency import srs_acceptance_criteria
+
+    return srs_acceptance_criteria(project)
 
 
 def _get_fr_gate1_status(
@@ -137,7 +136,7 @@ def generate_verification_report(project_root: str | Path) -> Path:
     manifest = _load_json(manifest_path)
     fr_ids: list[str] = manifest.get("fr_ids", []) or []
     gate_results: dict[str, Any] = manifest.get("gate_results", {}) or {}
-    ac_map = _extract_acceptance_criteria(srs_path)
+    ac_map = _extract_acceptance_criteria(project)
 
     if not fr_ids:
         # Fallback: derive from SRS.md headers
@@ -243,7 +242,8 @@ def main() -> int:
         description=(
             "Generate 05-verification/VERIFICATION_REPORT.md from "
             ".methodology/quality_manifest.json (gate1/gate3) and "
-            "01-requirements/SRS.md (AC-FR-XX-N acceptance criteria)."
+            "01-requirements/SRS.md (acceptance criteria, read through\n"
+            "core.quality_gate.artifact_consistency.srs_acceptance_criteria)."
         ),
     )
     parser.add_argument("--project", default=".", help="Project path")

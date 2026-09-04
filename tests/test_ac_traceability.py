@@ -310,9 +310,9 @@ def test_a_qualified_acceptance_criteria_label_is_read(tmp_path):
     clean bill — which is how AC-N7.2 (`08-config/SBOM.json` must exist) went
     from the SRS to delivery without ever being cited by a TEST_SPEC case.
     """
-    from core.quality_gate.artifact_consistency import _srs_acceptance_criteria
+    from core.quality_gate.artifact_consistency import srs_acceptance_criteria
 
-    criteria = _srs_acceptance_criteria(_project(tmp_path, _SRS_QUALIFIED_LABEL))
+    criteria = srs_acceptance_criteria(_project(tmp_path, _SRS_QUALIFIED_LABEL))
     assert "NFR-07" in criteria, (
         "the bolded label carried the requirement id and the parser read the "
         "section as having no acceptance criteria at all"
@@ -383,7 +383,7 @@ def test_the_prompt_describes_a_label_the_parser_accepts(tmp_path):
     import re
 
     from core.quality_gate.artifact_consistency import (
-        _srs_acceptance_criteria,
+        srs_acceptance_criteria,
         ac_label_shape,
     )
 
@@ -393,7 +393,7 @@ def test_the_prompt_describes_a_label_the_parser_accepts(tmp_path):
 
     for i, label in enumerate(examples):
         srs = f"# SRS\n\n### FR-01: Task submission\n\n{label}\n\n- **AC-1.1**: ok.\n"
-        criteria = _srs_acceptance_criteria(_project(tmp_path / str(i), srs))
+        criteria = srs_acceptance_criteria(_project(tmp_path / str(i), srs))
         assert "FR-01" in criteria, (
             f"the prompt tells the agent {label!r} is legal and the parser "
             f"reads that section as having no acceptance criteria"
@@ -601,7 +601,7 @@ def test_a_wrapped_acceptance_criterion_is_read_past_its_first_line(tmp_path):
     """Round 83 站3 — `(.+)$` under MULTILINE stops at the newline.
 
     An acceptance criterion long enough to be a sentence wraps, and every
-    consumer of `_srs_acceptance_criteria` was handed its first line only.
+    consumer of `srs_acceptance_criteria` was handed its first line only.
     Measured on taskq-cc-new: 95 bullets parsed, and every one of the 95
     clauses `check_ac_verifier_is_nameable` looks for sits on a continuation
     line — so that check saw zero of its 95 subjects while a plain grep over
@@ -610,9 +610,9 @@ def test_a_wrapped_acceptance_criterion_is_read_past_its_first_line(tmp_path):
 
     The bullet boundary still has to hold: two criteria must not become one.
     """
-    from core.quality_gate.artifact_consistency import _srs_acceptance_criteria
+    from core.quality_gate.artifact_consistency import srs_acceptance_criteria
 
-    criteria = _srs_acceptance_criteria(_project(tmp_path, _SRS_WRAPPED_AC))
+    criteria = srs_acceptance_criteria(_project(tmp_path, _SRS_WRAPPED_AC))
     bullets = criteria["FR-01"]
     assert len(bullets) == 2, (
         f"the continuation swallowed the next bullet: {bullets}")

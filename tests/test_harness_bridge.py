@@ -520,6 +520,95 @@ class TestFinalizeGate:
         arch = next(d for d in result.dimensions if d.name == "architecture")
         assert arch.score == 91.7
 
+    def _crg_writing(self, cohesion_threshold, source_files):
+        """A fake CRG run whose metrics carry a given calibration."""
+        def _fake_crg(project_root, work_dir):
+            Path(work_dir, "crg_metrics.json").write_text(
+                json.dumps({
+                    "architecture_score": 100.0,
+                    "community_cohesion": {
+                        "score": 100.0, "unhealthy": [],
+                        "_cohesion_threshold": cohesion_threshold,
+                        "_community_oversized": 50,
+                    },
+                    "large_functions_penalty": 0,
+                    "_graph_files": source_files,
+                    "_source_files": source_files,
+                    "_unparsed_files": [],
+                }),
+                encoding="utf-8")
+            return {}
+        return _fake_crg
+
+    def _arch_ctx(self, tmp_path):
+        from core.quality_gate.constitution.profile import DimensionConfig, GateConfig
+        config = GateConfig(
+            gate_num=2, score_gate=80.0, max_rounds=3,
+            dimensions=[DimensionConfig(name="linting", threshold=75.0),
+                        DimensionConfig(name="architecture", threshold=80.0,
+                                        weight=0.0)],
+        )
+        ctx = self._make_context(tmp_path, gate_num=2, config=config)
+        self._write_result(ctx, {
+            "overall_score": 90.0, "quality_complete": True,
+            "open_critical_count": 0, "open_high_count": 0,
+            "breakdown": {"linting": {"score": 90.0, "threshold": 75.0,
+                                      "score_source": "framework"}},
+        })
+        return ctx
+
+    def test_a_floor_below_the_default_blocks_at_the_gate(
+        self, tmp_path, monkeypatch
+    ):
+        """Round 97, station 3, measured through `finalize_gate` itself.
+
+        The first version of this asserted that the string
+        `lowered_cohesion_floor_reason` appears somewhere in
+        `harness_bridge.py`. Its counter-proof — deleting the call — left it
+        green, because the import line still carried the name: the guard was
+        reading an import, which is Round 68 CP-10's finding recurring in the
+        guard written to prevent it. Round 43 / Round 47: a predicate with no
+        executor is the shape, so the executor is what has to be observed.
+
+        taskq-final's numbers: cohesion floor 0.2 against the framework's 0.3,
+        on 54 delivered source files, architecture 100.0.
+        """
+        self._patch_gate_config(tmp_path, monkeypatch)
+        ctx = self._arch_ctx(tmp_path)
+
+        bridge = HarnessBridge()
+        with patch("harness.crg_independent.run_independent_crg",
+                   self._crg_writing(0.2, 54)):
+            with pytest.raises(GateBlockedError) as blocked:
+                bridge.finalize_gate(ctx)
+
+        details = blocked.value.details or {}
+        assert "crg_floor_lowered" in details, (
+            "architecture scored 100.0 on a floor the project moved to 0.2 and "
+            f"the gate passed it through — details were {sorted(details)}"
+        )
+        rendered = json.dumps(details["crg_floor_lowered"])
+        assert "0.2" in rendered and "0.3" in rendered and "54" in rendered
+
+    def test_a_small_package_below_the_default_still_scores(
+        self, tmp_path, monkeypatch
+    ):
+        """Negative control, same path: the framework's own stated reason for
+        calibrating below 0.3 is a package small enough that Leiden
+        over-fragments, and a project inside it is not accused."""
+        from core.harness_config import CRG_SMALL_PACKAGE_FILES
+
+        self._patch_gate_config(tmp_path, monkeypatch)
+        ctx = self._arch_ctx(tmp_path)
+
+        bridge = HarnessBridge()
+        with patch("harness.crg_independent.run_independent_crg",
+                   self._crg_writing(0.2, CRG_SMALL_PACKAGE_FILES)):
+            result = bridge.finalize_gate(ctx)
+
+        arch = next(d for d in result.dimensions if d.name == "architecture")
+        assert arch.score == 100.0
+
     def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path, monkeypatch):
         """Real JSON->DimResult path (not an injected DimResult bypassing
         construction, as the test above uses): a literal `"score": null` in

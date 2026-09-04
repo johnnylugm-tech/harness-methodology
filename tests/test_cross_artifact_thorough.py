@@ -189,12 +189,15 @@ def test_check_coverage_report_extracts_line_coverage_not_first_percentage(mock_
 
 
 def test_run_cross_artifact_checks_phase_3(tmp_path):
-    # Phase 3 does not check coverage or FR. Two checks run at every phase:
-    # phase-title, and (Round 55 站2) unfilled template placeholders.
+    # Phase 3 does not check coverage or FR. Four checks run at every phase:
+    # phase-title, (Round 55 站2) unfilled template placeholders, and
+    # (Round 97) the delivered-report freshness reconciliation and the
+    # named-module resolution — both of which return [] outside their own
+    # phases, and both of which are counted as having run.
     (tmp_path / "03-architecture").mkdir(parents=True)
     result = run_cross_artifact_checks(tmp_path, 3)
     assert result["passed"] is True
-    assert result["checks_ran"] == 2
+    assert result["checks_ran"] == 4
 
 @patch("core.quality_gate.cross_artifact.check_phase_title")
 @patch("core.quality_gate.cross_artifact.check_fr_coverage")
@@ -207,7 +210,9 @@ def test_run_cross_artifact_checks_phase_4(mock_cov, mock_fr, mock_title, tmp_pa
     result = run_cross_artifact_checks(tmp_path, 4)
     assert result["passed"] is False
     # 5 since Round 55 added check_unfilled_placeholders (站2) and
-    # check_test_count_reconciliation (站4).
-    assert result["checks_ran"] == 5
+    # check_test_count_reconciliation (站4); 7 since Round 97 added the
+    # delivered-report freshness reconciliation and named-module resolution,
+    # which run at every phase and decide for themselves whether they apply.
+    assert result["checks_ran"] == 7
     assert result["critical_count"] == 1
     assert result["high_count"] == 1

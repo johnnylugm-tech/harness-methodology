@@ -177,6 +177,39 @@ def _crg_call(project: Path, func: str, **kwargs) -> dict:
         return {}
 
 
+def _calibration_note(calibration: "dict | None") -> str:
+    """One line saying which floor the architecture score was measured on.
+
+    Round 97. Round 42 站4 put `cohesion_healthy` and `source_files` into the
+    gate result; they stopped there. Measured on taskq-final, whose report
+    lists communities at 0.22 and 0.29 beside an architecture score of 100.0
+    and never says the floor was moved to 0.2: the two statements only agree
+    because of a number the report does not contain. Eleven of eleven corpus
+    reports are like that.
+
+    Empty when the floor is the default or is unknown — a note that fires on
+    every delivery is not a note.
+    """
+    if not isinstance(calibration, dict):
+        return ""
+    from harness.ssi.scripts.crg_analysis import COHESION_HEALTHY
+
+    floor = calibration.get("cohesion_healthy")
+    if not isinstance(floor, (int, float)) or isinstance(floor, bool):
+        return ""
+    if float(floor) >= COHESION_HEALTHY:
+        return ""
+    files = calibration.get("source_files")
+    where = f" over {files} source file(s)" if isinstance(files, int) else ""
+    return (
+        f"> **Measured against a cohesion floor of {floor}**, below the "
+        f"framework default of {COHESION_HEALTHY}{where} "
+        f"(`crg_cohesion_healthy` in `.methodology/harness_config.json`). "
+        f"A community below {COHESION_HEALTHY} in the table above still counts "
+        f"as healthy under this calibration."
+    )
+
+
 def _build_architecture_section(project: Path) -> list[str]:
     """CRG architecture overview — communities + cross-community coupling warnings.
 
@@ -277,6 +310,16 @@ def generate_quality_report(project_root: str,
         "## Architecture (CRG)",
         "",
     ])
+    # Round 97: the floor the score was measured on, beside the score. The
+    # framework has recorded it in the gate result since Round 42 站4 and no
+    # human-facing artefact carried it — so a report listing communities below
+    # the default beside a perfect architecture score read as a contradiction.
+    _cal_note = _calibration_note(
+        (gate_result.get("breakdown", {}) or {}).get("architecture", {}).get("calibration")
+        if isinstance(gate_result.get("breakdown"), dict) else None
+    )
+    if _cal_note:
+        lines.extend([_cal_note, ""])
     lines.extend(_build_architecture_section(project))
 
     lines.extend([

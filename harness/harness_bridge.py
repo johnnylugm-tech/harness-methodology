@@ -17,10 +17,12 @@ from harness.gate_checks import (  # noqa: F401,E402  re-export after Round 80 �
     _TOOL_CONTENT_PATTERNS,
     _TOOL_OUTPUT_MIN_BYTES,
     _TOOL_REQUIRED_PATTERNS,
+    CRG_FLOOR_DETAIL_KEY,
     RED_SUITE_DETAIL_KEY,
     _check_infra_fail_pollution,
     _check_test_skip_ratio,
     _check_tests_failed,
+    lowered_cohesion_floor_reason,
     _check_tool_evidence,
     _gate_dimension_names,
     _parse_skip_counts,
@@ -2591,6 +2593,25 @@ class HarnessBridge(_FinalizeStages):
                 "graph_files": (_crg_m or {}).get("_graph_files"),
                 "source_files": (_crg_m or {}).get("_source_files"),
             }
+
+            # Round 97: and the floor is compared to the framework's own
+            # reason for allowing it to move. Round 42 站4 put both numbers
+            # here; nothing read them. Measured: 11 of 11 corpus projects had
+            # lowered `crg_cohesion_healthy` (0.15-0.25) at 41-65 source
+            # files, and the documented justification — Leiden
+            # over-fragmentation in a small package — fits none of them.
+            _floor_reason = lowered_cohesion_floor_reason(
+                ctx.architecture_calibration)  # type: ignore[attr-defined]
+            if _floor_reason:
+                raise GateBlockedError(
+                    ctx.gate_num,
+                    GateResult(
+                        gate_num=ctx.gate_num, score=0.0, dimensions=[],
+                        open_critical=1, open_high=0,
+                        quality_complete=False, rounds_used=0,
+                    ),
+                    details={CRG_FLOOR_DETAIL_KEY: [_floor_reason]},
+                )
 
         # ── PR 4 (audit F-1.1 fix): framework trace score override ─────
         # The agent cannot compute the trace dimension (no tool to scan

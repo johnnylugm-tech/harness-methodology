@@ -45,6 +45,7 @@ from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
 __all__ = ["ac_deferral_shape", "ac_label_shape", "check_ac_deferral_targets",
+           "srs_acceptance_criteria",
            "check_ac_identifiers",
            "check_ac_test_spec_coverage", "check_forward_refs",
            "check_nfr_adr_coverage", "check_module_fr_coverage",
@@ -86,11 +87,15 @@ def _strip_code_context(text: str) -> str:
 
 
 def _adr_path(project: Path) -> Path:
-    """ADR.md — under the canonical `adr/` sub-dir if present, else directly in
-    the architecture dir. Uses ProjectLayout (no hand-built phase-dir path)."""
-    arch = ProjectLayout(project).phase2_architecture_dir
-    sub = arch / "adr" / "ADR.md"
-    return sub if sub.exists() else arch / "ADR.md"
+    """ADR.md — whichever layout this project uses.
+
+    Round 97: the resolution moved into `ProjectLayout.adr_path`, which the
+    WRITER (`sab_amender`) also uses. Two functions answering "where is the
+    ADR" is how the writer ended up creating an eight-line stub at a path the
+    reader never looked at, on a project whose real 893-line ADR the framework
+    had itself deployed one directory down.
+    """
+    return ProjectLayout(project).adr_path
 
 
 def _scan_files(project: Path) -> list[Path]:
@@ -582,7 +587,7 @@ def ac_label_shape() -> str:
     )
 
 
-def _srs_acceptance_criteria(project: Path) -> dict[str, list[str]]:
+def srs_acceptance_criteria(project: Path) -> dict[str, list[str]]:
     """requirement id -> its acceptance-criteria lines, in document order.
 
     Reads both spellings. A returned line is the raw text; the caller looks
@@ -616,7 +621,7 @@ def check_ac_identifiers(project: Path) -> list[Violation]:
     lost the only clause anyone would have implemented.
     """
     project = Path(project)
-    criteria = _srs_acceptance_criteria(project)
+    criteria = srs_acceptance_criteria(project)
     violations: list[Violation] = []
     for req_id, bullets in sorted(criteria.items()):
         unnumbered = [b for b in bullets if not _AC_ID.search(b)]
@@ -707,7 +712,7 @@ def check_ac_test_spec_coverage(project: Path) -> list[Violation]:
     """
     project = Path(project)
     declared: dict[str, str] = {}
-    for req_id, bullets in _srs_acceptance_criteria(project).items():
+    for req_id, bullets in srs_acceptance_criteria(project).items():
         for bullet in bullets:
             for ac in _AC_ID.findall(bullet):
                 declared.setdefault(ac, req_id)
@@ -833,7 +838,7 @@ def check_ac_verifier_is_nameable(project: "str | Path") -> list[Violation]:
     """
     project = Path(project)
     try:
-        criteria = _srs_acceptance_criteria(project)
+        criteria = srs_acceptance_criteria(project)
     except OSError:
         return []
     violations: list[Violation] = []

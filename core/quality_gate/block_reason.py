@@ -164,6 +164,17 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "fix the code until the tool agrees with the claimed score, or write the "
         "score the tool actually produced into the gate result file.",
     ),
+    "crg_floor_lowered": (
+        "The architecture score was measured against a cohesion floor this "
+        "project moved below the framework's default",
+        "Restore `crg_cohesion_healthy` to the framework default in "
+        ".methodology/harness_config.json (or remove the key), then raise the "
+        "cohesion the score reports by reducing cross-package coupling. "
+        "Calibrating below the default is the framework's own answer for a "
+        "package small enough that Leiden community detection over-fragments; "
+        "on a larger tree the lowered floor changes what the score means "
+        "rather than what it measures.",
+    ),
     "fr_tests_red": (
         "This FR's own tests are failing in the harness's whole-suite run",
         "These tests may well pass when you run their file on its own — that is "

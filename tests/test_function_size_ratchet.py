@@ -117,7 +117,7 @@ _CEILINGS: dict[str, int] = {
     # 0.28/0.31/0.33 of gates 2/3/4 published beside `weight_covered: 1.0`).
     # It sits here rather than in a `_stage_*` because it reads `_cfg_dims`,
     # `dims` and `_overall_score`, all three of which are bound in this method.
-    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 984,  # 2026-09-05: 963 -> 984 — Round 96 站3. `_record_coverage_denominator`'s return value stops being discarded: the omit list goes into breakdown.test_coverage beside the percentage it qualifies, so the number ships with what it was taken over (Round 42 站4). 153 of taskq-final's 428 ledger rows came from this producer and nothing read one.
+    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 1003,  # 2026-09-05: 984 -> 1003 — Round 97 站3. The cohesion-floor raise site: the architecture calibration Round 42 站4 recorded is now compared against the framework's own reason for allowing it to move.  # 2026-09-05: 963 -> 984 — Round 96 站3. `_record_coverage_denominator`'s return value stops being discarded: the omit list goes into breakdown.test_coverage beside the percentage it qualifies, so the number ships with what it was taken over (Round 42 站4). 153 of taskq-final's 428 ledger rows came from this producer and nothing read one.
     # 770 at Round 81 站9, from 940: four runs extracted. The smallest
     # harvest of the four, because only 182 of its lines are extractable
     # under the rule — the rest threads state through the dispatch loop.

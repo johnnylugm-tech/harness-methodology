@@ -36,43 +36,49 @@ def module():
 # ---------------------------------------------------------------------------
 
 class TestM11ExtractAcceptanceCriteria:
+    """M11's property — an FR heading is recognised whatever separator follows
+    the id — restated against the framework's own parser.
+
+    Round 97 removed this module's private extractor: measured across the
+    eleven corpus projects it found ZERO acceptance criteria on every one,
+    while `artifact_consistency.srs_acceptance_criteria` found 1,004, so all
+    eleven shipped a VERIFICATION_REPORT.md reading "_No acceptance criteria
+    extracted_" for every FR. M11's fixtures used a bare `AC-FR-01-1:` line
+    under a bare FR heading — a shape no project in the corpus writes, which
+    is why the extractor could be broken and green at the same time. The
+    separator property is what M11 was actually about, and it survives: it is
+    `_REQ_HEADING` now, and these fixtures exercise it through the criteria
+    shape the SRS template produces.
+    """
+
+    @staticmethod
+    def _project(root, heading):
+        (root / "01-requirements").mkdir(parents=True, exist_ok=True)
+        (root / "01-requirements" / "SRS.md").write_text(
+            f"# SRS\n{heading}\n\n**Acceptance criteria**\n\n#### AC-1.1\nmust do X\n",
+            encoding="utf-8",
+        )
+        return root
+
     def test_em_dash_header_is_accepted(self, module, tmp_path):
         """Bug M11 regression: '### FR-01 — ...' (em-dash) header must be
         recognized as a new FR section."""
-        srs = tmp_path / "SRS.md"
-        srs.write_text(
-            "# SRS\n"
-            "### FR-01 — Description\n"
-            "AC-FR-01-1: must do X\n",
-            encoding="utf-8",
-        )
-        acs = module._extract_acceptance_criteria(srs)
+        acs = module._extract_acceptance_criteria(
+            self._project(tmp_path, "### FR-01 — Description"))
         assert "FR-01" in acs, f"M11: em-dash header skipped, got {list(acs)}"
-        assert any("AC-FR-01-1" in line for line in acs["FR-01"])
+        assert "AC-1.1" in acs["FR-01"]
 
     def test_space_header_is_accepted(self, module, tmp_path):
-        """Bug M11 regression: '### FR-01 ' (space only, no colon/dash)
+        """Bug M11 regression: '### FR-02 ' (space only, no colon/dash)
         header must still be recognized."""
-        srs = tmp_path / "SRS.md"
-        srs.write_text(
-            "# SRS\n"
-            "### FR-02 Description text\n"
-            "AC-FR-02-1: must do Y\n",
-            encoding="utf-8",
-        )
-        acs = module._extract_acceptance_criteria(srs)
+        acs = module._extract_acceptance_criteria(
+            self._project(tmp_path, "### FR-02 Description text"))
         assert "FR-02" in acs, f"M11: space header skipped, got {list(acs)}"
 
     def test_colon_header_still_works(self, module, tmp_path):
         """Sanity: traditional '### FR-03: foo' still works."""
-        srs = tmp_path / "SRS.md"
-        srs.write_text(
-            "# SRS\n"
-            "### FR-03: Classic colon\n"
-            "AC-FR-03-1: must do Z\n",
-            encoding="utf-8",
-        )
-        acs = module._extract_acceptance_criteria(srs)
+        acs = module._extract_acceptance_criteria(
+            self._project(tmp_path, "### FR-03: Classic colon"))
         assert "FR-03" in acs
 
 

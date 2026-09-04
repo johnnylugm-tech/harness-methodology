@@ -491,7 +491,13 @@ class TestResolvePhantom:
         proj = self._project(tmp_path)
         reason = "FR-05 is one click group; the declared split has no consumer"
         resolve_phantom(proj, "pkg.cli.main", to="pkg.cli", reason=reason)
-        adr = (proj / "02-architecture" / "ADR.md").read_text(encoding="utf-8")
+        # Round 97: through the layout, not a hand-built path. `adr_path` now
+        # resolves to the existing ADR (either layout) and otherwise to where
+        # init-project deploys the template — `02-architecture/adr/ADR.md`.
+        # Hard-coding the old join here is what let the writer and the reader
+        # point at different files on all eleven corpus projects.
+        from core.utils.project_layout import ProjectLayout
+        adr = ProjectLayout(proj).adr_path.read_text(encoding="utf-8")
         assert "Architecture Amendment" in adr
         assert reason in adr
         assert "pkg.cli.main" in adr and "pkg.cli" in adr
