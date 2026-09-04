@@ -717,12 +717,18 @@ class TestRunFrStep:
         store_dir.joinpath("store.py").write_text("def save(): pass\n", encoding="utf-8")
 
         prompt = _build_fr_step_prompt("COVERAGE-FIX", "FR-01", 3, tmp_path, None)
+        # Round 94: the prompt now uses `pytest --cov=... --cov-report=term-missing`
+        # (same form as the sibling fallback test below). The previous
+        # `coverage run -m pytest ... && coverage report --include=...` form
+        # silently collected no data when combined with pytest-cov's inner
+        # instrumentation — see evaluate_dimension.md / gate_cmds.py / fix.py
+        # for the full root-cause write-up.
         scoped_cmd = (
-            'python3 -m coverage run -m pytest tests/test_fr01.py -q '
-            '&& python3 -m coverage report --include="03-development/src/taskq/storage/store.py" -m'
+            "python3 -m pytest tests/test_fr01.py --cov=03-development/src "
+            "--cov-report=term-missing -q"
         )
         assert scoped_cmd in prompt
-        assert "--cov=03-development/src --cov-report=term-missing -q" not in prompt
+        assert "coverage run -m pytest tests/test_fr01.py" not in prompt
 
     def test_prompt_coverage_fix_falls_back_to_whole_tree_when_unresolvable(self, tmp_path):
         """No fr_module_traceability entry and no resolvable imports → today's

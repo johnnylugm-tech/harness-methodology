@@ -117,11 +117,17 @@ validator needs the marker.
 # measures coverage's own "." default (test files + any tmp fixtures the
 # test run creates), not just source, and can under-report a project that is
 # genuinely at 100% source coverage.
+#
+# Round 94: dropped the original 3-fallback chain. The first two variants
+# (`coverage run -m pytest --cov=X && coverage json -o -`) silently collected
+# no data — `coverage run` and pytest-cov's `--cov=` instrumentation conflict
+# when both are active, emitting `CoverageWarning: No data was collected` while
+# still returning exit code 0. The `coverage json` step then emitted `No data
+# to report.` and per-FR coverage was scored as 0% (LOW_COVERAGE → COVERAGE-FIX
+# → no-progress → BLOCKED). The single command below is the same form
+# `core.quality_gate.test_suite_run.run_suite` uses internally.
 COV_TARGET=$(python3 -c "from core.quality_gate.test_suite_run import resolve_targets; print(resolve_targets('.')[1])")
-# C1: retry with PYTHONPATH=. if default run returns 0% or fails (import errors)
-python3 -m coverage run -m pytest --cov="$COV_TARGET" && python3 -m coverage json -o - \
-  || PYTHONPATH=. python3 -m coverage run -m pytest --cov="$COV_TARGET" && python3 -m coverage json -o - \
-  || PYTHONPATH=. python3 -m pytest --cov="$COV_TARGET" --cov-report=term-missing
+python3 -m pytest --cov="$COV_TARGET" --cov-report=term-missing
 
 # javascript / typescript (vitest):
 npx --no-install vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text

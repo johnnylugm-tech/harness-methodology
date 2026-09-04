@@ -53,10 +53,20 @@ def build_coverage_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: P
         str(project), fr_id, test_file, src_dir, _cf_manifest
     )
     if _cf_src_files:
-        _cf_include = ",".join(_cf_src_files)
+        # Round 94: replaced the original `coverage run -m pytest {test_file}
+        # -q && coverage report --include="{_cf_include}" -m` with the same
+        # `pytest --cov=... --cov-report=term-missing` pattern the sibling
+        # else-branch below already uses. The original silently collected
+        # no data (coverage.py + pytest-cov instrumentation conflict when
+        # both `--cov=` is passed), making `coverage report --include=...`
+        # show missing lines for files that were actually executed — leading
+        # to repeated COVERAGE-FIX attempts that couldn't make forward
+        # progress and a final no-progress BLOCK. The agent filters the
+        # `--cov-report=term-missing` output to the FR scope (the
+        # `_cf_include` list is in this prompt's context already).
         _cov_check_cmd = (
-            f'python3 -m coverage run -m pytest {test_file} -q '
-            f'&& python3 -m coverage report --include="{_cf_include}" -m'
+            f"python3 -m pytest {test_file} --cov={src_dir} "
+            f"--cov-report=term-missing -q"
         )
     else:
         _cov_check_cmd = f"python3 -m pytest {test_file} --cov={src_dir} --cov-report=term-missing -q"

@@ -799,7 +799,6 @@ def _print_fr_scoped_overrides_py(
         return
 
     if src_files:
-        include_flag = ",".join(src_files)
         # A declared source file can be owned by more than one FR (e.g. a
         # shared CLI dispatch file) — see shared_owner_test_files()'s
         # docstring. Run every co-owning FR's test file alongside this FR's
@@ -810,28 +809,28 @@ def _print_fr_scoped_overrides_py(
             if (Path(project) / t).exists()
         ]
         test_targets = " ".join([test_file] + sibling_tests)
+        # Round 94: dropped the original 3-fallback chain. The first two
+        # variants used `coverage run -m pytest {t} && coverage json
+        # --include=...` which silently collected no data when combined
+        # with pytest-cov's inner instrumentation — see the comment block
+        # above this function for the full root-cause write-up. The agent
+        # filters the term output to the FR scope (`include_flag`) per the
+        # prompt context it already has.
         cov_cmd = (
-            f"  python3 -m coverage run -m pytest {test_targets} "
-            f"&& python3 -m coverage json --include=\"{include_flag}\" -o - \\\n"
-            f"    || PYTHONPATH=. python3 -m coverage run -m pytest {test_targets} "
-            f"&& python3 -m coverage json --include=\"{include_flag}\" -o - \\\n"
-            f"    || PYTHONPATH=. python3 -m pytest {test_targets} "
+            f"  python3 -m pytest {test_targets} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
-        cov_note = f"  (FR source files detected: {', '.join(src_files)})"
+        cov_note = f"  (FR source files detected: {', '.join(src_files)}; filter term output to these paths)"
         if sibling_tests:
             cov_note += (
                 f"\n  (shared source file(s) also owned by other FRs — "
                 f"running their test files too: {', '.join(sibling_tests)})"
             )
     else:
-        # Fallback: test file absent or no imports matched — use full src dir
+        # Fallback: test file absent or no imports matched — use full src dir.
+        # Round 94: same root cause as the src_files branch above.
         cov_cmd = (
-            f"  python3 -m coverage run --source={src_dir} -m pytest {test_file} "
-            f"&& python3 -m coverage json -o - \\\n"
-            f"    || PYTHONPATH=. python3 -m coverage run --source={src_dir} -m pytest {test_file} "
-            f"&& python3 -m coverage json -o - \\\n"
-            f"    || PYTHONPATH=. python3 -m pytest {test_file} "
+            f"  python3 -m pytest {test_file} "
             f"--cov={src_dir} --cov-report=term-missing"
         )
         cov_note = f"  (fallback: {src_dir} — test file not found or no imports detected)"
