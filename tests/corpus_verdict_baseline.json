@@ -103,6 +103,15 @@
     "spec_undelivered": 15,
     "spec_unread_rows": 0
   },
+  "taskq-done": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed is empty and current_phase is 1 \u2014 this project has not reached P3.",
+      "why_right": "Newly initialized project has not reached P3 exit yet, correctly recorded as unmeasurable rather than missing a record or dropped."
+    },
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
   "taskq-final": {
     "_note": {
       "cheapest_satisfaction": "Same shape as its 10-FR siblings: naming the 31 undelivered declarations as tests would close this without writing an assertion.",
