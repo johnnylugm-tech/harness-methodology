@@ -4790,3 +4790,51 @@
 - test: tests/test_ledger_has_no_holes.py::test_the_subject_scan_reads_the_forms_this_repo_actually_writes
   bug: "_IN_SUBJECT required `R<N>` to be followed by 站, so `fix(R93): ...` and `refactor(check-cmds): ... (R49-B 站3)` matched neither alternation and Rounds 49, 93 and 94 were invisible to both checks in this file — two of which had in fact shipped with no adjudication section, which is the one thing this file exists to notice. Third instance of the same defect: Round 84 had already fixed it once by swapping a required SPACE for a separator class, i.e. by requiring a different suffix rather than none. Widening was measured before it was made: three rounds newly seen, three holes, zero phantoms."
   fixed_in: "Round 95"
+
+- test: tests/test_red_suite_reaches_the_right_fixer.py::test_a_red_suite_routes_to_the_test_fixer_not_the_coverage_fixer
+  bug: "a test that fails ONLY in the whole-suite run sent the FR to COVERAGE-FIX for 22 rounds. `_capture_tool_snapshot` runs `pytest <one file>` while the harness blocks on `run_tool`'s whole-directory run, so the snapshot was green; `failing_dims` carried `test_coverage` (the prefix `_check_tests_failed`'s violation is written under) and `_classify_snapshot_failure` therefore returned LOW_COVERAGE. Measured on taskq-final Phase 8: FR-07, 22 identical `declared=0 measured=5` ledger rows over 9.5 hours (06:27-15:49), 67 of that run's 620 dispatches on one FR, closed by the project's own `test(FR-07): repair 5 spec cases erroring in whole-suite runs`. Same shape on FR-01 at P5 (x3) and P6 (x1). The classifier now takes the framework's own blocking reason ahead of every snapshot heuristic."
+  fixed_in: "Round 96"
+
+- test: tests/test_red_suite_reaches_the_right_fixer.py::test_the_framework_fact_outranks_every_snapshot_heuristic
+  bug: "ordering: the block kind must be read BEFORE the snapshot heuristics, because every one of them reads a run that cannot show a suite-order failure. Counter-proved by moving it after them — an unrelated import error in the same snapshot then routes to ENV."
+  fixed_in: "Round 96"
+
+- test: tests/test_red_suite_reaches_the_right_fixer.py::test_the_router_reads_the_block_the_framework_printed
+  bug: "`_extract_block_reason` required a line containing BOTH `[BLOCKED]` and a detail key. `_format_block_diagnostic` — the one function that renders a GateBlockedError — writes `GATE 1 BLOCKED` (no brackets) and `  [1] {kind}: {headline}`, and no line in the repository has both, so the scanner returned '' for every kind. Executed against the real renderer it captured NOTHING, which is what it returned for all 22 rounds of the FR-07 loop. Writer and reader are now pinned in one test, because they drifted by being edited in different files years apart with nothing feeding one into the other."
+  fixed_in: "Round 96"
+
+- test: tests/test_red_suite_reaches_the_right_fixer.py::test_a_red_suite_is_not_filed_as_a_fabricated_score
+  bug: "the red-suite block raised `details={'tool_score_fabrication': ...}`, whose registered headline reads 'Claimed dimension score could not be reproduced by running the tool' and whose remediation opens 'Do NOT re-run the gate'. The agent claimed nothing; its tests are red, and the correct action is precisely to run them. `core.lessons.record_gate_block` filed the cross-run memory under the same key. harness/gate_checks.py already records why Round 35 站3 split `infra_fail` out of that key — outcomes carrying opposite instructions must not share one — and this was that rule unapplied."
+  fixed_in: "Round 96"
+
+- test: tests/test_red_suite_reaches_the_right_fixer.py::test_the_test_fixer_prompt_carries_the_failing_tests_and_how_to_see_them
+  bug: "TEST-FIX's only isolation story was the 401/HMAC one and its verification step said `pytest {test_file} -q` — the command that shows a suite-order failure GREEN. A fixer verifying its own work with it cannot tell a fix from no fix. The prompt now carries the failing nodeids and the whole-suite command that reproduces them. The first version of this guard asserted `'03-development/tests' in prompt`, which the single-file path satisfies too; Round 96's own CP-4 counter-proof caught that and it now pins the exact command."
+  fixed_in: "Round 96"
+
+- test: tests/test_block_reason_registry.py::test_an_unresolvable_key_is_reported_not_dropped
+  bug: "the detail-key scan read literal dict keys only and silently dropped anything else. Two producers were invisible: a key written as a module constant, and the dict `harness/gate_result.py::s4_block_details` builds with `details['k'] = …` and passes in by name. `tool_score_fabrication` — the most-raised key in the tree — was seen only because ONE site happened to spell it inline, and vanished from the scan the moment that site used a constant. A scan that goes quiet on what it cannot read is abstaining."
+  fixed_in: "Round 96"
+
+- test: tests/test_gitleaks_scope_reaches_the_project.py::test_a_project_paying_the_fingerprint_tax_is_told_there_is_a_config
+  bug: "Round 92 shipped templates/.gitleaks.toml and taught init-project to write it. init-project runs once, at project creation, so no project that already existed could receive the fix. Measured on taskq-final, which bumped its submodule to Round 92's own commit (b4224a4, 09-03 23:36) and ran Phases 5-8 afterwards: no .gitleaks.toml, six .gitleaksignore fingerprints, TWO of them added after the bump (268ec46, 09-04 19:06) — the treadmill Round 92's ledger had just judged a workaround, walked because nothing offered the alternative. Round 40 站1 built this exact shape for the CI workflow and it served one template."
+  fixed_in: "Round 96"
+
+- test: tests/test_gitleaks_scope_reaches_the_project.py::test_a_project_with_its_own_config_is_left_alone
+  bug: "the predicate must be silent for a project that answered the question. `.gitleaks.toml` is project-owned (Round 92: SKIP, never overwrite, because three corpus projects hand-author their own allowlists), so unlike the CI workflow this is not a byte-equality check and must not nag a compliant project — Round 42's defect."
+  fixed_in: "Round 96"
+
+- test: tests/test_receipt_is_checked_against_its_own_phase.py::test_the_persisted_result_is_labelled_with_the_phase_that_ran_it
+  bug: "finalize-gate patched four harness-computed fields into the committed per-FR result and left `phase` as whatever the agent's .sessi-work copy carried. Measured on taskq-final: the Phase 6 run rewrote FR-01's result (enforcer_sha 0e9ce2e9 -> f4af8962, evidence_digest and enforcer_surface with it) and left `\"phase\": 3`. Round 45 站3 reads that field to decide whether to compare the receipt's digest at all, so a stale label INVERTS the check: the Phase-3 receipt (which can never match again) is the one compared, and the Phase 6/7/8 receipts describing the live verdict are all skipped. 22 doctor:gate1-evidence self-accusations on one run and zero verification of the verdict the next phase starts from."
+  fixed_in: "Round 96"
+
+- test: tests/test_coverage_denominator_is_read.py::test_an_unmeasurable_omit_is_none_not_zero
+  bug: "`coverage_denominator` reported `statements_omitted: 0` while its own ledger message said 'size unknown — this report was produced with the omit applied'. coverage.json is written by a run that already applied the omit, so the omitted files are usually absent from it and their size is unknowable from there; `0` reads as 'the omit costs nothing', the opposite of what is known. Measured on taskq-api, where the report DOES contain them: 63 of 839 statements, 7.5%, reported as 100% against a suite reaching at best 92.5%. Round 35: a measurement that could not be taken is not a zero."
+  fixed_in: "Round 96"
+
+- test: tests/test_coverage_denominator_is_read.py::test_the_omit_travels_with_the_score_not_only_into_a_ledger_row
+  bug: "`_record_coverage_denominator(ctx)`'s return value was discarded at the call site. It is the largest producer in the corpus — 153 of taskq-final's 428 degradation rows, one per gate run, all identical — and MEASUREMENT_SINKS.yaml filed it `unreviewed`. The denominator now travels into breakdown.test_coverage beside the percentage it qualifies (Round 42 站4: a percentage that cannot carry its own denominator cannot be checked)."
+  fixed_in: "Round 96"
+
+- test: tests/test_unattributed_halts_are_visible.py::test_doctor_says_a_halt_has_no_owner
+  bug: "`harness_owned_open_blocks` filters `owner == HARNESS` and is the ONLY reader that routes a stopped run to the harness repair workflow. Measured on taskq-final at the end of P1-P8: 3 open blocks, 0 harness-owned — and two of the three `unknown` ones were confirmed harness bugs fixed in this repository within two days (Round 92's gitleaks scope for the P5 verification-docs halt, Round 93's tag guard for the P6 tag-and-advance halt). The check whose whole purpose is 'do not point a fix agent at this project' never fired for either. `unknown` stays an honest owner (Round 92 refused to guess, Round 50 站4 kept it); what it must not be is silent."
+  fixed_in: "Round 96"

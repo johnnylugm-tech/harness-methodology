@@ -3843,6 +3843,78 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 96 — 判定量的那一次執行,沒有人跑得出來
+
+老闆令:檢視 taskq-final P1–P8 的紀錄與 git history、檢視 harness-methodology 的 history,
+**驗證前幾輪的修復是否到位**,找出其他根本性/結構性問題並展開成可執行方案(正解,不要 workaround)。
+追加令(第七次):**方案本身也要先驗證、確認沒有副作用。**
+
+資料(全部唯讀實測):taskq-final 230 commits(09-02 16:33 → 09-04 19:07)、
+`degradations.jsonl` **428 筆**、`workflow_blocks.jsonl` 5 筆、`sessions_spawn.log`
+**620 次 dispatch**、`.sessi-work/sentinels/` **63 份**收據。
+
+### 0. 先回答「前幾輪的修復是否到位」
+
+| 輪次 | 機制 | 實測結論 |
+|---|---|---|
+| **R44 站3** | `crg_graph_incomplete` 封鎖 | **完全到位**。09-03 08:13–09:18 殘差**擋了 9 次**,專案修好無法解析的檔,Gate 2 才在 09:34 通過,之後零筆殘差。**我第一版誤判成「記錄了照樣給分」,逐筆對時間戳後撤回** |
+| **R77 站1** | `_check_tests_failed` | **偵測完全到位**。FR-07 P8 的 22 次全部正確擋下;缺陷在下游路由(見 A) |
+| **R45 站3** | 收據 digest 比對 | **機制對,被上游的髒欄位反轉**(見 C) |
+| **R93** | P6 Tag & Advance GUARD | **到位**。04:06 bump 後 P6 於 05:02 推進 |
+| **R92** | gitleaks 掃描範圍 config | **只到一半**:交付管道到不了既有專案(見 B) |
+| **R48** | halt → harness-repair 路由 | **下游沒接上**(見 E) |
+
+### 裁決表
+
+| # | 主張 | 裁決 | 出處 |
+|---|---|---|---|
+| R96-A1 | 紅測試被歸檔成 `tool_score_fabrication` | **採納**。實跑 `derive_block_reasons` 渲染出的 headline 是「Claimed dimension score could not be reproduced」,remediation 開頭是「Do NOT re-run the gate」——而紅測試的正解正是重跑。`core/lessons.py` 也用同一個 key 寫跨輪記憶。`gate_checks.py` 自己記著 R35 站3 為何要把 `infra_fail` 拆出來,同一條規矩沒套用 | `harness/gate_checks.py::RED_SUITE_DETAIL_KEY` |
+| R96-A2 | `_extract_block_reason` 是死的 | **採納**。條件要求同一行同時有 `[BLOCKED]` 與 detail key;`_format_block_diagnostic` 印的是 `GATE 1 BLOCKED`(無方括號)與 `  [1] {kind}:`。實跑真實渲染輸出餵進去:**捕獲 NOTHING**。FR-07 那 22 回合的 `block_reason` 一直是 `""` | `cli/fr_cmds.py::BlockSignal` |
+| R96-A3 | 分類器只讀得到跑不出問題的那次執行 | **採納**。`_capture_tool_snapshot` 跑單檔,gate 擋在整個測試目錄。單跑綠 → `LOW_COVERAGE` → COVERAGE-FIX。**22 回合 / 9.5 小時 / 620 次 dispatch 裡的 67 次** | `_classify_snapshot_failure(block_kind=…)` |
+| R96-B | R92 的 `.gitleaks.toml` 到不了既有專案 | **採納**。taskq-final bump 到 R92 的 commit 之後**仍無此檔**,且在 bump **之後**又加了 2 筆指紋。R40 站1 為同一形狀建過解法,只服務一個檔案。R92 把它列進「明列不做」,理由是「沒有實證」——**現在有了** | `core/ci_template.py::gitleaks_scope_missing` |
+| R96-C | 落盤的 per-FR 結果沒有標對 phase | **採納,且與我第一版的診斷不同**。第一版要改 doctor 的 glob——那會**消音一個說真話的檢查**。真因在上游:P6 的 run 改寫了 FR-01 的結果(`enforcer_sha 0e9ce2e9→f4af8962`)卻留下 `"phase": 3`,而 R45 站3 靠這個欄位決定要不要比對,於是**永遠比對那份不可能相符的 P3 收據,永遠跳過描述現行判定的 P6/P7/P8 三份** | `cli/gate_cmds.py` `_gp_json["phase"]` |
+| R96-D | 分母沒人讀,且「量不到」寫成 0 | **採納**。回傳值在呼叫點被丟掉(153/428 筆,語料最大宗);散文寫「size unknown」而 `data` 寫 `0`。taskq-api 實測 63/839 = 7.5%,報成 100% | `cov_utils.coverage_denominator` |
+| R96-E | `unknown` 被當成「不是框架的問題」 | **採納**。`open_blocks`=3 / `harness_owned_open_blocks`=0,而其中 2 個後來確認是 harness bug(R92、R93)。**最需要那條路由的兩個 halt 對路由器完全隱形**。不猜 owner——R92 的裁決不動 | `unattributed_open_blocks` |
+| R96-F | CRG 架構分母(我第一版列為問題) | **撤回**。逐筆對時間戳:R44 站3 的封鎖擋了 9 次,專案修好才過,之後零殘差。**這是前輪修復到位的正面證據,不是問題** | 本條 |
+
+### 施工中被自己的量測改寫的三件
+
+1. **站2 的方案整個換掉。** 第一版寫好測試後**四支立刻通過**——因為 R45 站3 早就有 phase 守衛。
+   追進 taskq-final 的實際檔案才看見真因在上游的髒欄位。若照第一版做,會把一個**正確的**指控消音。
+2. **CP-4 沒紅。** 我的斷言寫 `'03-development/tests' in prompt`,單檔路徑
+   `03-development/tests/test_fr07.py` 也滿足它——守衛分不出缺陷與修復。已改成釘死完整指令後重跑轉紅。
+3. **CP-1 第一次沒紅**,是我只跑了自己的檔;實際由 `test_block_reason_registry.py` 兩支守住。
+   量測範圍是我的錯,不是缺口。
+
+### 順帶查到、與本輪無關的一件
+
+`RUNALL_MAX_BYTES` 的註記在 R95 寫 `Measured 394814`,而 R95 提交的 `run-all.js` 是 **394904**
+(用 `git archive HEAD` 還原的乾淨樹重生驗證:生成器與已交付檔在 394904 一致,只有註記不同)。
+生成器跨 process 與 hash seed 皆確定(已驗),R96 沒有動任何 workflow spec,而 R95 自己的
+self_check 回報這支守衛是綠的。**這 90 bytes 的落差我無法解釋,記為 unknown,不編故事。** 本輪重量並更正。
+
+### 明列不做
+
+- **不改 doctor 的收據 glob**(見 R96-C:那會消音一個說真話的檢查)。
+- **不把 `gate_results/gate1/` 改成 per-phase 儲存**。站2 讓現行判定重新受檢;
+  「歷史 phase 的證明不保留」是另一件事。**再開條件**:出現需要回頭稽核歷史 phase Gate-1 證據的實例。
+- **不為 `verification-docs` halt 增加 owner 歸因規則**。R92 已裁決那個 halt 真的不知道 owner;
+  站4 處理的是「未歸屬要被看見」,不是猜。
+- **不讓 gate 改用單檔 run 判定**。那 5 支紅測試是 FR-07 自己的,整套跑紅就是紅(R52)。
+- **不為 153 筆重複 ledger row 去重**。append-only 是刻意的;站3 讓它有讀者之後,重複不是缺陷。
+- **不註冊 `doctor:gate1-evidence` 到 MEASUREMENT_SINKS**。第一版這麼做並被守衛擋下:
+  該登記表的規約是 f-string 組出的 component 以字面前綴加 `*` 為 key,`doctor:*` 已經涵蓋它。
+  規約優先於我的方便。
+
+### 驗證
+
+復現測試先紅(站0 七支、站1 八支、站2 兩支、站3 四支、站4 兩支)再修。
+`self_check` 全套 **8204 passed / 5 skipped**,guards **1168 → 1180**,ruff clean。
+九條反證逐一 revert → 觀察 → 從 `cp` 備份還原 → **七個生產檔 sha256 與基線逐檔相同**。
+CP-9(自我證偽:把框架事實擺到 snapshot 啟發式之後)**轉紅**,證明順序是承重牆。
+
+---
+
 ## Round 95 — 判定讀不到它自己的證據(複核 R93 / R94)
 
 老闆令:`/code-review` 對 `62fd399f` 之後的三個 commit 出了 14 條發現,修「值得修復」的
