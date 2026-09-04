@@ -3924,9 +3924,28 @@ run-all.js `394928 → 394814`(−114),天花板 395054 不動,餘裕 126 → 24
 ### 驗證
 
 復現測試先紅(`TestGate4TagIdempotency` 2 紅、coverage-fix 守衛 2 紅、R9 守衛 4 紅)再修。
-七條反證(CP-1…CP-7)逐一 revert → 轉紅 → 從 `cp` 備份還原 → sha256 逐檔相同。
-其中 CP-5 是本輪的關鍵反證:把 OR 子句加回 `spec_phase6.py` **並跑 `REGEN_WORKFLOWS=1`**
-—— 兩支 golden 守衛照樣綠(重現 R95-G),站3 的語意守衛必須紅。
+七條反證逐一 revert → 觀察 → 從 `cp` 備份還原 → sha256 與基線逐檔相同(**不用 `git restore`**)。
+
+| | 動作 | 結果 |
+|---|---|---|
+| CP-1 | 拿掉 `gate_cmds` 的 `coverage json --include` 步驟 | 紅 ✓ |
+| CP-2 | 把 `fix.py` 兩個 coverage 分支改成相同字串 | 紅 ✓(2 支) |
+| CP-3 | `evaluate_dimension.md` 改回純 term 表 | 紅 ✓(2 支,含 R9 實際開罰那支) |
+| CP-4 | `cmd_gate4_tag` 還原成無條件 `git tag -a` | 紅 ✓(2 支) |
+| CP-5 | 把 OR 子句加回 `spec_phase6.py` **並跑 `REGEN_WORKFLOWS=1`** | **關鍵**:R93 登記的兩支 golden 守衛**照樣綠**(重現 R95-G),站3 的語意守衛紅 4 支(含掃已交付檔那支)✓ |
+| CP-6 | 還原 `_IN_SUBJECT` 的舊 regex | 紅 ✓(2 支,含 phantom 的鏡像失敗) |
+| CP-7 | **自我證偽**:`gate_cmds` 保留 json 步驟、把整棵樹的 term 表加回來 | **沒紅 —— 我的前提是錯的** |
+
+**CP-7 的結果推翻我自己計畫裡的一條假設。** 我原本以為「per-FR 指令的輸出只能有一個數字」
+是本輪守住的性質;實測 125 支測試全綠,**那條性質在 `gate_cmds` 這一側完全沒有守衛**。
+覆核後判定**不補守衛**,理由是它已經不是承重牆:R9 復活之後,一個 agent 若讀了整棵樹的
+TOTAL 當成 `tool_score`,它自己 `tool_outputs` 指的那份 FR-scoped JSON 會直接讓 R9 開罰。
+`--cov-report=` 在那裡是降噪的偏好,不是不變式,註解也沒有宣稱更多。
+
+**但同一個選擇在 `fix.py` 那一側是承重牆**,而且**有**被釘住:COVERAGE-FIX 沒有 score
+file、沒有 R9,agent 讀到什麼就是什麼,所以
+`test_prompt_coverage_fix_uses_fr_scoped_coverage_target` 逐字斷言含 `--cov-report= -q`
+的完整指令。同一個 flag,兩側的地位不同——這是 CP-7 逼出來的分辨,不是原計畫寫得出來的。
 
 ---
 
