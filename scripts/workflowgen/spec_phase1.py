@@ -388,8 +388,8 @@ def _render_phase1_preflight() -> str:
         # The two-candidate probe mirrors harness-init.sh's HARNESS_CLI walk:
         # the harness is at REPO/harness/ in a consumer project and at REPO/
         # when the framework dogfoods itself.
-        "    + '0. Build the project interpreter (this creates ' + PY + ' — do NOT use PY for this step):\\n'\n"
-        "    + '   for p in \"' + REPO + '/harness/scripts/bootstrap_env.py\" \"' + REPO + '/scripts/bootstrap_env.py\"; do [ -f \"$p\" ] && python3 \"$p\" --project \"' + REPO + '\" && break; done\\n'\n"
+        "    + '0. Ensure project initialization and dev environment (creates ' + PY + ' and runs init-project if needed):\\n'\n"
+        "    + '   for p in \"' + REPO + '/harness/scripts/ensure_project_init.py\" \"' + REPO + '/scripts/ensure_project_init.py\"; do [ -f \"$p\" ] && python3 \"$p\" --project \"' + REPO + '\" && break; done\\n'\n"
         "    + '   If it prints [BLOCKED]: report FAIL with that line verbatim. Every later step runs through the interpreter this creates.\\n'\n"
         "    + '1. ' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 1 --project ' + REPO + '\\n'\n"
         "    + '   If PASSES: note it. If FAILS: report FAIL — orchestrator retries per plan (max 3 total attempts).\\n'\n"

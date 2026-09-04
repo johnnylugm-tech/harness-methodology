@@ -865,8 +865,8 @@ for (let pfAttempt = 1; pfAttempt <= 3; pfAttempt++) {
     + 'REPO: ' + REPO + '\n'
     + 'PYTHON: ' + PY + '\n\n'
     + 'EXHAUSTIVE STEP LIST — run ONLY these 4 steps, in order:\n'
-    + '0. Build the project interpreter (this creates ' + PY + ' — do NOT use PY for this step):\n'
-    + '   for p in "' + REPO + '/harness/scripts/bootstrap_env.py" "' + REPO + '/scripts/bootstrap_env.py"; do [ -f "$p" ] && python3 "$p" --project "' + REPO + '" && break; done\n'
+    + '0. Ensure project initialization and dev environment (creates ' + PY + ' and runs init-project if needed):\n'
+    + '   for p in "' + REPO + '/harness/scripts/ensure_project_init.py" "' + REPO + '/scripts/ensure_project_init.py"; do [ -f "$p" ] && python3 "$p" --project "' + REPO + '" && break; done\n'
     + '   If it prints [BLOCKED]: report FAIL with that line verbatim. Every later step runs through the interpreter this creates.\n'
     + '1. ' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 1 --project ' + REPO + '\n'
     + '   If PASSES: note it. If FAILS: report FAIL — orchestrator retries per plan (max 3 total attempts).\n'
@@ -4788,12 +4788,9 @@ const PHASE_RUNNERS = {
 }
 
 phase('Phase Cursor')
-log('run-all: reading .methodology/state.json to find the starting phase')
-// Fail CLOSED. Defaulting to Phase 1 when the read fails would re-run the
-// whole requirements phase on an established project — far worse than
-// stopping and asking. state.json is the same authority advance-phase
-// writes and every phase's Advance box verifies.
-const cursorCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
+log('run-all: checking dev environment and reading starting phase from .methodology/state.json')
+// Fail CLOSED: state.json is the starting authority (advance-phase SSOT).
+const cursorCmd = 'for p in "' + REPO + '/harness/scripts/ensure_project_init.py" "' + REPO + '/scripts/ensure_project_init.py"; do [ -f "$p" ] && python3 "$p" -p "' + REPO + '" >&2 && break; done; ' + PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
 let cursor
 try {
   cursor = await dispatch(

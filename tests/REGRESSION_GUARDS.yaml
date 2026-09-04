@@ -4946,3 +4946,12 @@
 - test: tests/test_lowered_floor_and_named_modules.py::test_earlier_phases_are_not_judged_on_a_phase_eight_document
   bug: "negative control: CONFIG_RECORDS.md is Phase 8's artefact and earlier phases must not be judged on it."
   fixed_in: "Round 97"
+
+- test: tests/test_ensure_project_init.py::test_id_05_ensure_project_init_skips_when_clean
+  bug: "workflow startup must verify project initialization and development environment (or skip idempotently if clean) to prevent uninitialized execution"
+  fixed_in: "workflow-init-startup"
+
+- test: tests/test_ensure_project_init.py::test_id_06_ensure_project_init_executes_bootstrap_and_init
+  bug: "uninitialized project must trigger bootstrap_env and init-project at workflow startup"
+  fixed_in: "workflow-init-startup"
+

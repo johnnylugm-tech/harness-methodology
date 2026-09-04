@@ -513,6 +513,22 @@ def cmd_bootstrap_env(args: argparse.Namespace) -> int:
     return _bootstrap_main(argv)
 
 
+def cmd_ensure_init(args: argparse.Namespace) -> int:
+    """Check and ensure that target project and development environment are initialized.
+
+    If complete, skips and exits 0.
+    Otherwise, runs bootstrap_env, init-project, git hooks, and commits/pushes.
+    """
+    from scripts.ensure_project_init import main as _ensure_main
+
+    argv = ["--project", str(Path(args.project).resolve()), "--phase", str(getattr(args, "phase", 1))]
+    if getattr(args, "check_only", False):
+        argv.append("--check-only")
+    if getattr(args, "no_push", False):
+        argv.append("--no-push")
+    return _ensure_main(argv)
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Show current manifest + FSM state, phase progress, and optionally test stats."""
     project = Path(args.project).resolve()
@@ -2109,6 +2125,17 @@ def register(sub) -> None:
     be.add_argument("--project", default=".", help="Project root (default: .)")
     be.add_argument("--json", action="store_true", help="Machine-readable report")
     be.set_defaults(func=cmd_bootstrap_env)
+
+    # ensure-init
+    ei = sub.add_parser(
+        "ensure-init",
+        help="Check and ensure harness-methodology environment & project initialization",
+    )
+    ei.add_argument("-p", "--project", default=".", help="Project root (default: .)")
+    ei.add_argument("--phase", type=int, default=1, help="Current phase (default: 1)")
+    ei.add_argument("--check-only", action="store_true", help="Only check status; do not perform repairs")
+    ei.add_argument("--no-push", action="store_true", help="Do not git push committed changes")
+    ei.set_defaults(func=cmd_ensure_init)
 
     # status
     st = sub.add_parser("status", help="Show current manifest + FSM state")
