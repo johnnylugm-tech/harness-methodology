@@ -3843,6 +3843,165 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 95 — 判定讀不到它自己的證據(複核 R93 / R94)
+
+老闆令:`/code-review` 對 `62fd399f` 之後的三個 commit 出了 14 條發現,修「值得修復」的
+部分,要正解不要 workaround。追加令(第六次):**方案本身也要先驗證、確認沒有副作用。**
+
+**第二輪驗證改寫了我自己第一版計畫的三處。** 記在最前面,因為這是本輪最重要的一件事:
+依報告寫的方案有兩處是錯的,而報告漏掉的那一條才是最嚴重的。
+
+| | 第一版(依 review)| 實測後 |
+|---|---|---|
+| `gate_cmds.py` 的後果 | 「整棵樹的數字被記成 FR 的分數 → false PASS」 | **錯**。framework 自己 per-FR 重算並覆蓋(`s4_rescopes_to_fr` → `fr_coverage_record`)。真正的後果是**反向的 fabrication 封鎖** |
+| `evaluate_dimension.md` | 「R94 留的單一指令是對的」 | **錯**。它把 `coverage json` 換成 term 表,**score.py 的 R9 從此對每個 Python 專案靜音**。不在 review 的 14 條裡 |
+| F13 `PYTHONPATH=.` | 「還原被刪的前綴」 | **藥方錯**。實測那個前綴對框架自己出的佈局本來就沒用 |
+
+### 裁決表
+
+| # | 主張 | 裁決 | 出處 |
+|---|---|---|---|
+| R95-A | R94 的雙重 instrumentation 根因 | **屬實**,實測復現 `CoverageWarning: No data was collected` + rc=0。但**只對有傳 `--cov=` 的那一式成立** —— R94 改的三處有兩處的舊指令根本沒傳,是誤傷 | `cli/fr_prompts/fix.py`、`cli/gate_cmds.py::_print_fr_scoped_overrides_py` |
+| R95-B | ★ **R9 被靜音**(review 沒抓到)| **採納,本輪最嚴重**。`score.py::_parse_coverage_percent` 只認 coverage/istanbul 兩種 JSON schema,認不出就回 `None`、R9 跳過。R9 是唯一在寫入當下重算 `tool_score` 的規則。實測同一組主張:term 輸出 → R9 零 issue;`coverage json` → R9 開罰 | `tests/test_coverage_evidence_is_machine_readable.py` |
+| R95-C | `gate_cmds.py` 的 FR scope 被拿掉 | **採納,但理由與 review 不同**。被記錄的分數受 harness per-FR 重算保護;真正的傷是 `s4_score_verdict` 的 `fabrication = harness < threshold <= agent` —— agent 讀整棵樹的 TOTAL(可 ≥ 80)、framework 算該 FR 的(< 80)→ **照框架自己印的指令做的 agent 被指控偽造**(R42 母體) | `harness/harness_bridge.py`、`harness/gate_configs/gate1_per_fr.yaml` |
+| R95-D | `fix.py` 的死分支 | **屬實**。兩分支產生逐位元組相同的字串;上面的 manifest 讀檔 + glob + AST 每次都跑,只為在兩個相同字面量間二選一。註解宣稱「`_cf_include` 已在 prompt context 裡」→ 實測 `"store.py" in prompt` 為 `False` | 同上 |
+| R95-E | 守衛被改寫成背書 | **屬實**(R64 母體)。`test_prompt_coverage_fix_uses_fr_scoped_coverage_target` 的 docstring 一字未改而斷言換成整棵樹,負斷言被刪,與 fallback 測試斷言同一子字串 → 兩支再也不可能互相反對 | `tests/cli/test_fr_cmds_cli.py` |
+| R95-F | R93 的 F4/F5/F6 | **全部屬實**。訊息殘留 `/tagged`;step 2 的 skip 連 `git push origin --tags` 一起跳過(advance-phase 推的是 `origin HEAD`,無 `--tags`);`git tag -a` 對已存在 tag exit 128 → `cmd_gate4_tag` 回 1,與 step 0 新增的「MUST still execute steps 1-3」直接矛盾 | `scripts/workflowgen/spec_phase6.py`、`cli/gate_cmds.py::cmd_gate4_tag` |
+| R95-G | R93 登記的兩支守衛抓不到 bug 回來 | **屬實**。兩支都是 `REGEN_WORKFLOWS=1` 可一鍵重生的 golden byte-equality;全 repo 非 golden 的語意斷言零筆 | `tests/test_advance_guard_is_single_sourced.py` |
+| R95-H | F13 還原 `PYTHONPATH=.` | **否決,藥方錯**。實測:無 PYTHONPATH 與 `PYTHONPATH=.` 在 `03-development/src` 佈局上**同樣**死於 `ModuleNotFoundError`,只有 `PYTHONPATH=<src dir>` 有效。機械量測注入的是 `active_src_dir`,專案各自用 `pytest.ini pythonpath`/`conftest.py` 解決 —— 補前綴會是同一事實的第三份陳述 | 本條 |
+| R95-I | 把 P6 折進 `render_advance_loop`(review 的 altitude 建議)| **不做,改用更小的解**。折進去要為 renderer 加 `step_label` 參數、動 4 個既有呼叫點與 P6 全部標籤/halt 名稱。抽出 `render_advance_guard_step` 一個 helper 即消除漂移,**實測對 P3/P4/P5/P7 逐位元組零影響** | `scripts/workflowgen/js_blocks.py` |
+| R95-J | 賬本守衛的盲區(**我自己量到的,不在 review 裡**)| **採納**。`test_ledger_has_no_holes.py` 的 `_IN_SUBJECT` 認不出 `fix(R93):` 與 `(R49-B 站3)`,所以「R93/R94 沒寫賬本」這件事守衛看不見 —— 那支測試自己 docstring 記載的 Round 84 盲區,第三次現身。改寬後實測浮出 3 個洞、0 phantom | `tests/test_ledger_has_no_holes.py` |
+
+### 修法(五站)
+
+**站0 — 讓判定讀得到自己的證據。** 保留 R94 對 runner 的正確判斷(pytest-cov 單一
+instrumentation),把被誤刪的 scope 與 JSON schema 接回,三處三種形狀:
+
+- `evaluate_dimension.md`:`--cov-report=term-missing --cov-report=json:.sessi-work/coverage.json`
+  —— term 給人看,JSON 給 R9。
+- `gate_cmds.py`:`--cov-report=` + `coverage json --include="<fr files>" -o .sessi-work/coverage_<FR>.json`。
+  pytest-cov 的 `--cov-report=json:` **無法**套 `--include`,FR-scoped 的 JSON 只能兩步走。
+- `fix.py`:`--cov-report=` + `coverage report --include="<fr files>" -m`(修復迴圈要 Missing 行)。
+
+**兩件施工中段被自己的測試抓到的事**(都不是計畫預期):
+
+1. **報告不能寫到 stdout。** 第一版計畫寫 `coverage json -o -`,新守衛跑起來就紅 ——
+   pytest 自己的摘要行先佔了 stdout,鏈在後面的 JSON 於是不是 JSON,`json.loads` 失敗,
+   **R9 照樣靜音**。而這正是 pre-R94 的形狀,意思是那條路徑的 R9 可能從來沒活過。改寫進檔案。
+2. **不能寫進專案根目錄。** 量測:`coverage.json` 在 taskq-final 是**被 commit 追蹤**的、
+   且不在 `.gitignore`;`.coverage` 才是。改寫進 `.sessi-work/`(在框架自己的
+   `_GITIGNORE_ENTRIES` 裡)—— R53 的形狀,框架不往被判定的樹裡放東西。
+
+**站1 — 守衛恢復判別力。** 還原負斷言、新增「兩分支不得產生相同字串」、
+新增端到端守衛(**實跑**文件裡的指令再把產物餵給真的 parser,不是讀文字推論)。
+
+**站2 — `gate4-tag` 冪等(源頭)。** 用 `git rev-parse -q --verify refs/tags/<name>`
+(不用 `git tag -l`:後者把參數當 glob、要解析 stdout);命中就回 0 不重建。
+一改讓三件事同時成立:step 2 不再需要 skip 子句 → push 每回合都跑;step 0 的
+「MUST still execute steps 1-3」不再矛盾;保護從 prompt 層歸位到 CLI 層。
+**刻意不用 `git tag -f`**:這個 tag 記的是「某日某分數通過 Gate 4」,移動它等於改寫那筆記錄。
+
+**站3 — guard 從 SSOT render。** `render_advance_guard_step(next_phase)` +
+`advance_session_block_message(step_label)`,P3/P4/P5/P7/P6 共用。
+新守衛掃**生成輸出與已交付檔**(不掃生成器原始碼 —— 生成器 docstring 記載自己刪掉的
+子句是記錄不是指令,R39 站4 已經學過這一課),`REGEN_WORKFLOWS=1` 對它無效。
+run-all.js `394928 → 394814`(−114),天花板 395054 不動,餘裕 126 → 240。
+
+**站4/5 — 賬本盲區與三節補記**(見下方 Round 94 / 93 / 49),Round 95 本節,登記與 ratchet。
+
+### 明列不做
+
+- **不改 `spec_phase8.py:198` 用本機 `git tag -l` 判斷 tag 是否已推上 origin。**
+  同一類缺陷(量錯的樹,R90 形狀),但不是本輪 review 找到的,且正解要動 P8 的生成輸出。
+  站2 之後它退化為冗餘安全網。**再開條件**:出現 tag 停在本機且 P8 也沒補推的實例。
+- **不把 P6 折進 `render_advance_loop`**(見 R95-I)。
+- **不補 `PYTHONPATH` 前綴**(見 R95-H)。
+- **不修 `_coverage_record_for_paths` 寫死讀 `project/.coverage`**(不理 `.coveragerc`
+  的 `data_file`)。讀碼確認為真,但量測 9 個語料專案**無人**自訂 → 沒有活受害者。
+  **再開條件**:任一專案設了非預設 `data_file`。
+- **不重判既有 gate 結果、不動 `taskq*`**(唯讀)。
+
+### 驗證
+
+復現測試先紅(`TestGate4TagIdempotency` 2 紅、coverage-fix 守衛 2 紅、R9 守衛 4 紅)再修。
+七條反證(CP-1…CP-7)逐一 revert → 轉紅 → 從 `cp` 備份還原 → sha256 逐檔相同。
+其中 CP-5 是本輪的關鍵反證:把 OR 子句加回 `spec_phase6.py` **並跑 `REGEN_WORKFLOWS=1`**
+—— 兩支 golden 守衛照樣綠(重現 R95-G),站3 的語意守衛必須紅。
+
+---
+
+## Round 94 — 根因是真的,驗證打在別的指令上(Round 95 補記)
+
+**這一節是 Round 95 補的,不是當時寫的。** Round 94 (`510e586d`) shipped 四個檔案的
+改動、沒有登記任何 regression guard、也沒有寫賬本;`test_ledger_has_no_holes.py` 看不見
+它,因為那支守衛的 round 偵測 regex 認不出 `fix(R94):` 這種 commit subject
+(Round 95 站4 修掉)。
+
+Round 94 診斷的 bug 是真的:`coverage run -m pytest --cov=X && coverage json` 會
+double-instrument,coverage.py 警告 `No data was collected` 而 exit code 仍是 0,
+per-FR coverage 於是被記成 0%,走進 LOW_COVERAGE → COVERAGE-FIX → no-progress → BLOCKED。
+Round 95 實測復現,**這一半不推翻**。
+
+被推翻的是**適用範圍**:那個衝突只在 `--cov=` 被傳給 `coverage run` 底下的 pytest 時發生,
+而 Round 94 改的三處有兩處(`cli/gate_cmds.py`、`cli/fr_prompts/fix.py`)的舊指令
+**根本沒傳 `--cov=`**。commit message 的驗證段落自己記著 `coverage run -m pytest tests/
+--cov=03-development/src` —— 驗證的是第三個指令,結論套用到另外兩個身上。代價見上方
+R95-B/C/D/E:FR scope、R9 的 JSON schema、一個死分支、一支被改寫成背書的守衛。
+
+**告知不修**:Round 94 已經 push 且 CI 綠過,不 revert;Round 95 是它的更正,不是撤銷。
+
+---
+
+## Round 93 — P6 tag/advance GUARD 的假陽性(Round 95 補記)
+
+**這一節是 Round 95 補的,不是當時寫的。** 同一個 regex 盲區(見上方 Round 94 補記)。
+
+Round 93 (`f4af8962`) 的判定**成立**:`spec_phase6.py` 的 step 0 GUARD 把
+`current_phase >= 7` 與「`harness-v4-*` tag 存在」OR 成同一個「已經 advance 了,停」的
+結論,而 gate4-tag(step 2)跑在 advance-phase(step 3)**之前**。一個建了 tag 然後被
+session/rate limit 截斷的回合,會讓 tag 永久留在磁碟上,之後每個重試回合都在 step 0
+命中 OR 的 tag 那一半、回報 `ADVANCE: PASS (already advanced)` 而從未呼叫 advance-phase
+—— taskq-final 上兩次獨立 workflow run(`wf_569d50b0-c17`、`wf_b1c8e5c8-94c`)、
+5 個回合、`current_phase` 卡在 6。修法(判定只看 `current_phase >= 7`)是對的。
+
+Round 95 對它的三項補正,都是「修在來源、陳述沒跟上」:
+
+| | 事實 |
+|---|---|
+| 陳述殘留 | session-block 訊息仍寫 `already advanced/tagged`,已進 `phase6-quality.js:611` 與 `run-all.js:3979` |
+| 未 push 的 tag | step 2 的 `(skip if step 0 found an existing tag)` 連 `git push origin --tags` 一起跳過;advance-phase 推的是 `origin HEAD`,無 `--tags` |
+| 兩條指令互相矛盾 | step 0 新增的「MUST still execute steps 1-3」對上 step 2 的 skip;而 `git tag -a` 對已存在 tag exit 128,照 step 0 做會把剛解鎖的回合燒掉 |
+| 登記的守衛抓不到 | 兩筆都指向 `REGEN_WORKFLOWS=1` 可重生的 golden |
+
+**根因的根因**:P6 手抄了 `render_advance_loop` 的近似副本。Round 93 自己的 commit
+message 就指出了這件事,然後修的是副本。Round 95 站3 把那一行抽成共用來源。
+
+---
+
+## Round 49 — 遺留事項與兩個 god file 的拆分(Round 84/95 補記)
+
+**這一節是 Round 95 補的,不是當時寫的;內容由 4 個 commit message 考古得出。**
+它缺席三週而沒被 `test_ledger_has_no_holes.py` 抓到,是因為那支守衛的 regex 要求
+`R<N>` 後面緊接 `站`,而這四個 commit 寫的是 `(R49-B 站N)` —— `R49-B` 中間隔了一個字母。
+與 Round 84 補 Round 71 時的情況同形,只是換了一個字元。
+
+| commit | 動作 |
+|---|---|
+| `218eb386` | **先織網再動刀**:`tests/golden/god_file_split/surface.json` 釘住 45 個 function body 與 67 個 subcommand 的表面(+752 行,含 `tests/test_god_file_split_safety.py`) |
+| `cce42d0b` | `core/doctor.py` **923 → 251 行**,十四個檢查搬進 `core/doctor_checks/` 四個家族(config_drift / git_state / ledgers / verdicts),依「問的是什麼問題」分組而非寫作順序 |
+| `36947b9b` | `cli/check_cmds.py` **1682 → 354 行**,24 個 `cmd_*` body 搬進 `cli/checks/` 六個家族(specs / gates / trace / approvals / constitution / hunt)。依賴圖先量過:除 `cmd_verify_gate` 外沒有命令 import 另一個,所以 `cli/checks/__init__.py` 刻意不放共用碼 |
+| `da5aa961` | `register()` 的 24 個 `add_parser` 區塊各自搬回擁有該命令的家族,`cli/check_cmds.py` **354 → 81 行**。切法機械可查:每個區塊從 `<var> = sub.add_parser(...)` 到 `<var>.set_defaults(func=cmd_X)`,`cmd_X` 決定家族,並以斷言拒絕任何未歸屬或殘留的語句 |
+
+考古能確認的兩件旁證:`tests/test_crg_threshold_ssot.py` 的掃描需要重新指向
+`cli/checks/gates.py` 並把 `cli/checks/` 加進掃描目錄 —— 它自己的失敗訊息早就寫著
+「this scan can no longer find the parser it is meant to police」;`--help` 的 check
+子命令排序從「兩年來的書寫順序」變成依家族分組,沒有測試釘過那個順序。
+
+**無法還原的部分**:Round 49 A/C/B 三個方向當時的完整裁決與取捨理由,不在 commit
+message 裡,也沒有其他一手記錄。**不編造** —— 本節只記 commit 能證明的事。
+
+---
+
 ## Round 92 — 掃描範圍由被判定方宣告,框架不驗證
 
 老闆令:檢查 taskq-final 卡住的節點,找根源與正解,不要 workaround,不破壞共通性。

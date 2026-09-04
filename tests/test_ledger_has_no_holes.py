@@ -63,7 +63,39 @@ _HEADING = re.compile(r"^#{1,3} Round (\d+)", re.MULTILINE)
 #: nothing since the day it was added. It hid two rounds from both checks
 #: below: 84 (this one) and 71, whose single commit `ae68b7a5` shipped without
 #: ever being adjudicated. A separator class, not a space.
-_IN_SUBJECT = re.compile(r"[Rr]ound ?-?(\d+)\b|\bR(\d+)[ \-–—]站")
+#:
+#: Round 95: the same defect, third instance. `R(\d+)` still had to be followed
+#: by 站, so `fix(R93): ...` and `refactor(check-cmds): ... (R49-B 站3)` matched
+#: neither alternation, and both checks below were blind to Rounds 49, 93 and
+#: 94 — two of which had in fact shipped with no adjudication, which is the one
+#: thing this file exists to notice. Requiring a particular suffix was the bug
+#: in Round 84's fix as much as in the original: the round number is what is
+#: being read, and `_LEDGER_STARTS_AT <= n <= _MAX_ROUND` below is what keeps a
+#: version string or a byte count out of it. Measured on widening: three rounds
+#: newly seen, three holes, zero phantoms.
+_IN_SUBJECT = re.compile(r"[Rr]ound ?-?(\d+)\b|\bR(\d+)\b")
+
+
+def test_the_subject_scan_reads_the_forms_this_repo_actually_writes():
+    """Negative control for the widening above.
+
+    Twice now the scan has been fixed by adding a suffix no commit uses. The
+    fix is only a fix if it reads the forms in `git log`, so the forms are
+    named here — and a bare number, which must NOT be read as a round.
+    """
+    def _seen(subject: str) -> "set[int]":
+        return {
+            int(m.group(1) or m.group(2))
+            for m in _IN_SUBJECT.finditer(subject)
+            if _LEDGER_STARTS_AT <= int(m.group(1) or m.group(2)) <= _MAX_ROUND
+        }
+
+    assert _seen("fix(R93): P6 Tag & Advance GUARD false-positive") == {93}
+    assert _seen("refactor(doctor): 923 lines into a façade (R49-B 站1)") == {49}
+    assert _seen("test: ten proxies measured (Round 50 站0)") == {50}
+    assert _seen("docs(R92-站4/5): 賬本") == {92}
+    assert _seen("chore: bump to 394814 bytes") == set()
+    assert _seen("fix: handle 3 of 8 cases") == set()
 
 
 def _rounds_with_sections() -> "set[int]":
