@@ -81,6 +81,16 @@ class TestM11ExtractAcceptanceCriteria:
             self._project(tmp_path, "### FR-03: Classic colon"))
         assert "FR-03" in acs
 
+    def test_fallback_fr_ids_accepts_em_dash_header(self, module, tmp_path):
+        """When quality_manifest.json is absent, generate_verification_report's
+        fallback must recognize FR headers without requiring a colon."""
+        self._project(tmp_path, "### FR-01 — Description")
+        report_path = module.generate_verification_report(tmp_path)
+        content = report_path.read_text(encoding="utf-8")
+        assert "### FR-01" in content
+        assert "| Total FRs | 1 |" in content
+
+
 
 # ---------------------------------------------------------------------------
 # Bug M12: main() must print traceback on failure

@@ -139,14 +139,19 @@ def generate_verification_report(project_root: str | Path) -> Path:
     ac_map = _extract_acceptance_criteria(project)
 
     if not fr_ids:
-        # Fallback: derive from SRS.md headers
-        if srs_path.exists():
-            import re
-            text = srs_path.read_text(encoding="utf-8")
+        # Fallback: derive from acceptance criteria map, or directly from SRS
+        # headers via the framework's canonical _REQ_HEADING (one contract, one
+        # statement; no second regex with delimiter drift).
+        if ac_map:
+            fr_ids = [k for k in ac_map if k.startswith("FR-")]
+        elif srs_path.exists():
+            from core.quality_gate.artifact_consistency import _REQ_HEADING
+
+            text = srs_path.read_text(encoding="utf-8", errors="replace")
             fr_ids = [
-                f"FR-{n}" for n in re.findall(
-                    r"^###\s+FR-(\d+)\s*:", text, re.MULTILINE
-                )
+                m.group(1)
+                for m in _REQ_HEADING.finditer(text)
+                if m.group(1).startswith("FR-")
             ]
     fr_ids = sorted(set(fr_ids))
 

@@ -294,3 +294,20 @@ def test_no_config_records_is_not_an_accusation(tmp_path):
     from core.quality_gate.cross_artifact import check_named_modules_resolve
 
     assert check_named_modules_resolve(tmp_path, 8) == []
+
+
+def test_python_dash_m_stdlib_and_tooling_are_not_accused(tmp_path):
+    """Commands like `python -m venv .venv`, `python -m pip install`,
+    `python -m http.server 8000` are standard tooling / stdlib, not missing
+    project deliverables."""
+    from core.quality_gate.cross_artifact import check_named_modules_resolve
+
+    _config_records(tmp_path, (
+        "Setup:\n"
+        "- `python -m venv .venv`\n"
+        "- `python3 -m pip install -r requirements.txt`\n"
+        "- `python -m http.server 8000`\n"
+        "- `python -m unittest discover`\n"
+    ))
+    assert check_named_modules_resolve(tmp_path, 8) == []
+

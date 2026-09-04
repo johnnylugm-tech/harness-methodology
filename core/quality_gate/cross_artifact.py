@@ -207,7 +207,8 @@ def check_test_count_reconciliation(
 _COV_CLAIM_PHRASE = re.compile(
     r'(?im)^[\s\-*]*Line coverage[^\d]*(\d{2,3}(?:\.\d)?)\s*%')
 _COV_CLAIM_TOTAL = re.compile(
-    r'(?im)^[\s|*>]*\**TOTAL\**[\s|]+\d+[\s|]+\d+[\s|]+\**(\d{1,3}(?:\.\d+)?)\s*%')
+    r'(?im)^[\s|*>]*\**TOTAL\**[\s|]+(?:\d+[\s|]+){2,4}\**(\d{1,3}(?:\.\d+)?)\s*%')
+
 
 
 def coverage_claim(text: str) -> "float | None":
@@ -358,20 +359,36 @@ def check_delivered_report_freshness(
 #: A dotted path inside a backtick span that names a python module: the
 #: `pkg.mod:attr` an ASGI/WSGI server takes, and `python -m pkg.mod`.
 _NAMED_MODULE_ATTR = re.compile(
-    r"`[^`]*?\b([a-z_][\w]*(?:\.[a-z_][\w]*)+):[A-Za-z_]\w*[^`]*`")
+    r"`[^`\n]*?\b([a-z_][\w]*(?:\.[a-z_][\w]*)+):[A-Za-z_]\w*[^`\n]*`")
 _NAMED_MODULE_DASH_M = re.compile(
-    r"`[^`]*?(?:^|\s)-m\s+([a-z_][\w]*(?:\.[a-z_][\w]*)*)")
+    r"`[^`\n]*?(?:^|\s)-m\s+([a-z_][\w]*(?:\.[a-z_][\w]*)*)[^`\n]*`")
 #: A trailing segment that is a file extension makes it a filename, not a
 #: module. Round 97's first draft flagged `config.py` in a corpus project for
 #: exactly this reason — `config.py` matches a dotted path perfectly.
 _FILE_SUFFIXES = frozenset(
     ("py", "md", "json", "toml", "cfg", "txt", "yml", "yaml", "db", "sh",
      "ini", "lock", "log", "env", "js", "ts", "sql", "html", "csv"))
+#: Well-known external CLI tooling and runners invoked via `python -m`.
+#: Not project deliverables; following these instructions will not raise
+#: ModuleNotFoundError for missing project source code.
+_KNOWN_TOOLING_MODULES = frozenset((
+    "pip", "pytest", "uvicorn", "gunicorn", "celery", "build",
+    "coverage", "ruff", "mypy", "black", "flake8", "alembic",
+))
 
 
 def _named_modules(text: str) -> List[str]:
     found = set(_NAMED_MODULE_ATTR.findall(text)) | set(_NAMED_MODULE_DASH_M.findall(text))
     return sorted(d for d in found if d.rsplit(".", 1)[-1] not in _FILE_SUFFIXES)
+
+
+def _is_external_or_stdlib(dotted: str) -> bool:
+    top = dotted.split(".", 1)[0]
+    if top in getattr(sys, "stdlib_module_names", ()):
+        return True
+    if top in _KNOWN_TOOLING_MODULES:
+        return True
+    return False
 
 
 def _module_file(project_root: Path, dotted: str) -> "Path | None":
@@ -419,6 +436,8 @@ def check_named_modules_resolve(project_root: Path, phase: int) -> List[Dict[str
     violations: List[Dict[str, str]] = []
     for dotted in _named_modules(text):
         if _module_file(Path(project_root), dotted) is not None:
+            continue
+        if _is_external_or_stdlib(dotted):
             continue
         package, _, missing = dotted.rpartition(".")
         siblings: List[str] = []

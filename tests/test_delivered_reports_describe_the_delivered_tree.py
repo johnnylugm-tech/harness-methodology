@@ -89,6 +89,15 @@ def test_the_total_row_is_a_coverage_claim(tmp_path):
     ) == 97.0
 
 
+def test_the_total_row_with_branch_coverage_is_a_coverage_claim():
+    """Branch coverage (--cov-branch) adds Branch and BrPart columns (4 integer columns)."""
+    from core.quality_gate.cross_artifact import coverage_claim
+
+    assert coverage_claim("TOTAL    100    20    10    2    75%\n") == 75.0
+    assert coverage_claim("| TOTAL | 100 | 20 | 10 | 2 | 75% |\n") == 75.0
+
+
+
 def test_the_line_coverage_phrase_still_reads():
     """Negative control: the one shape that worked must keep working."""
     from core.quality_gate.cross_artifact import coverage_claim
