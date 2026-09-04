@@ -1,4 +1,4 @@
-"""Unit tests for scripts/ensure_project_init.py and harness_cli ensure-init subcommand.
+"""Unit tests for scripts/ensure_project_init.py.
 
 Atomic TDD Protocol:
   test_id_01_check_init_status_all_present: All required components exist -> returns True, []

@@ -58,10 +58,12 @@ def check_project_init(project_root: Path) -> tuple[bool, list[str]]:
         missing.append(".methodology/state.json")
     else:
         try:
+            # state-io-exempt: stdlib-only startup script runs before core or venv imports exist
             data = json.loads(state_file.read_text(encoding="utf-8"))
             if not isinstance(data.get("current_phase"), int):
                 missing.append(".methodology/state.json (invalid or missing current_phase)")
-        except Exception:
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"[ensure-init] state.json unparseable: {exc}", file=sys.stderr)
             missing.append(".methodology/state.json (unparseable JSON)")
 
     # 2. Trace Attestation (.methodology/trace/attestation.json)
@@ -96,11 +98,11 @@ def check_project_init(project_root: Path) -> tuple[bool, list[str]]:
             probe = subprocess.run(
                 [str(venv_py), "-c", "import yaml, pytest"],
                 capture_output=True,
-                timeout=10,
             )
             if probe.returncode != 0:
                 missing.append("python runtime dependencies (yaml, pytest)")
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError) as exc:
+            print(f"[ensure-init] python interpreter check failed: {exc}", file=sys.stderr)
             missing.append(f"python interpreter check failed: {exc}")
 
     # 6. Submodule root wrapper (if applicable)
@@ -118,12 +120,11 @@ def check_project_init(project_root: Path) -> tuple[bool, list[str]]:
                 ["git", "-C", str(project_root), "config", "core.hooksPath"],
                 capture_output=True,
                 text=True,
-                timeout=5,
             )
             if hp.returncode == 0:
                 hooks_path = (hp.stdout or "").strip()
-        except Exception:
-            pass
+        except (subprocess.SubprocessError, OSError) as exc:
+            print(f"[ensure-init] git config core.hooksPath check failed: {exc}", file=sys.stderr)
 
         legacy_hook = git_dir / "hooks" / "prepare-commit-msg"
         if not hooks_path and not legacy_hook.exists():
@@ -258,8 +259,8 @@ def ensure_project_init(
                             )
             else:
                 sys.stderr.write("[ensure-init] Working tree clean; nothing to commit.\n")
-        except Exception as exc:
-            sys.stderr.write(f"[ensure-init] [WARN] Git commit/push step encountered error: {exc}\n")
+        except (subprocess.SubprocessError, OSError) as exc:
+            print(f"[ensure-init] [WARN] Git commit/push step encountered error: {exc}", file=sys.stderr)
 
     # ── Final Verification ──────────────────────────────────────────────────
     still_ok, still_missing = check_project_init(project_root)
