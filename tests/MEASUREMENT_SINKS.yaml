@@ -258,7 +258,28 @@ sinks:
   "fr-step-no-progress": {sink: unreviewed}
   "gate1_evidence.record_gate1_score": {sink: unreviewed}
   "gate:S6-exclusion-vcs": {sink: unreviewed}
-  "gate:coverage-denominator": {sink: unreviewed}
+  "gate:coverage-denominator":
+    sink: report-only
+    why: >-
+      Round 96 read it because it is the largest producer in the corpus — 153
+      of taskq-final's 428 rows, one per gate run, all identical, and its
+      return value was discarded at the call site. Two things came of reading
+      it. The `statements_omitted` field said `0` where the message said "size
+      unknown" (coverage.json is written by a run that already applied the
+      omit, so the omitted files are usually absent from it); it is `None`
+      there now, because Round 35's rule is that a measurement which could not
+      be taken is not a zero. And the denominator now travels into
+      `breakdown.test_coverage.coverage_denominator`, so the percentage ships
+      with what it was taken over (Round 42 站4). Report-only rather than a
+      verdict: an omit is legal and taskq-advance's has a written rationale —
+      what was missing was the number being visible beside the score, not
+      permission to have one.
+    reopen_when: >-
+      a project's omit removes a share of the delivered tree large enough that
+      the reported percentage and the whole-tree percentage would land on
+      opposite sides of the threshold. That is now decidable from the field
+      this round put beside the score — measured on taskq-api it was 63/839 =
+      7.5 %, reported 100 % against at best 92.5 %, and nothing could see it.
   "gate:delivery-fingerprint": {sink: unreviewed}
   "gate:env-repair": {sink: unreviewed}
   "gate:evidence-not-persisted": {sink: unreviewed}

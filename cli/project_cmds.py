@@ -33,6 +33,33 @@ from scripts.file_loader import RELAY_MAX_BYTES as _RELAY_MAX_BYTES
 from harness import tool_checks
 
 
+def _write_gitleaks_config(project: Path) -> bool:
+    """Deploy the framework's gitleaks scope config. True unless it could not.
+
+    Round 92. Unlike the CI workflow this file is one projects already
+    hand-author with their own allowlist entries — SKIP unconditionally (no
+    `--overwrite` escape hatch) so a project's own config is never clobbered.
+
+    Round 96 gave it a second caller (`--gitleaks-only`, the repair command
+    doctor names for a project that predates the template) and therefore one
+    implementation: two copies of "where the file goes and when not to write
+    it" is two chances for the repair to disagree with the install.
+    """
+    from core.ci_template import deployed_gitleaks_path, gitleaks_template_path
+
+    target = deployed_gitleaks_path(project)
+    template = gitleaks_template_path()
+    if target.exists():
+        print(f"   SKIP: {target} already exists (project-owned, never overwritten)")
+        return True
+    if not template.exists():
+        print(f"   WARN: {template} not found — skipping")
+        return False
+    target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    print(f"   OK — wrote {target}")
+    return True
+
+
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
@@ -47,6 +74,19 @@ def cmd_init_project(args: argparse.Namespace) -> int:
     import subprocess  # imported here (not at module level) to keep startup cost low
 
     project = Path(args.project).resolve()
+
+    # Round 96: the repair path for a project that predates Round 92's gitleaks
+    # config. init-project runs once, at creation, so a project that adopted the
+    # fix by bumping its submodule never received the file — measured on
+    # taskq-final, which then added two more .gitleaksignore fingerprints.
+    # `doctor`'s gitleaks-scope WARN names this command, so it must write that
+    # one file and touch nothing else: a live project mid-pipeline cannot afford
+    # a re-init. Same shape as --ci-only, one file narrower.
+    if getattr(args, "gitleaks_only", False):
+        project.mkdir(parents=True, exist_ok=True)
+        print("Writing gitleaks scope config only (--gitleaks-only)...")
+        return 0 if _write_gitleaks_config(project) else 1
+
     phase = args.phase
     # `__file__` = harness/cli/project_cmds.py → `__file__.parent` = harness/cli/.
     # The actual harness root (containing scripts/, templates/, CLAUDE.md.template,
@@ -172,20 +212,9 @@ def cmd_init_project(args: argparse.Namespace) -> int:
             return 1
         print(f"   OK — wrote {workflow_path}")
 
-    # 2a. Write gitleaks scope config (Round 92). Unlike the CI workflow this
-    # file is one projects already hand-author with their own allowlist
-    # entries — SKIP unconditionally (no --overwrite escape hatch) so a
-    # project's own config is never clobbered.
+    # 2a. Write gitleaks scope config (Round 92).
     print("\n[2a/11] Writing gitleaks scope config...")
-    gitleaks_cfg_path = project / ".gitleaks.toml"
-    gitleaks_cfg_template = ci_template_path().parent / ".gitleaks.toml"
-    if gitleaks_cfg_path.exists():
-        print(f"   SKIP: {gitleaks_cfg_path} already exists (project-owned, never overwritten)")
-    elif not gitleaks_cfg_template.exists():
-        print(f"   WARN: {gitleaks_cfg_template} not found — skipping")
-    else:
-        gitleaks_cfg_path.write_text(gitleaks_cfg_template.read_text())
-        print(f"   OK — wrote {gitleaks_cfg_path}")
+    _write_gitleaks_config(project)
 
     # 3. Git hooks
     print("\n[3/11] Git hooks...")
@@ -2054,6 +2083,11 @@ def register(sub) -> None:
                          "from package.json; required when detection is ambiguous")
     ip.add_argument("--ci-only", action="store_true",
                     help="Write CI workflow only; skip git hooks")
+    ip.add_argument("--gitleaks-only", action="store_true",
+                    help="Write .gitleaks.toml only and exit — the repair for a "
+                         "project created before the framework shipped it "
+                         "(doctor's gitleaks-scope WARN names this). Never "
+                         "overwrites an existing config.")
     ip.add_argument("--overwrite", action="store_true",
                     help="Overwrite existing CI workflow and hooks")
     ip.add_argument("--setup-branch-protection", action="store_true",

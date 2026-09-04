@@ -2501,6 +2501,24 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         _gp_json["quality_complete"] = result.quality_complete
                         _gp_json["verdict"] = "PASS" if result.quality_complete else "FAIL"
                         _gp_json["passed"] = result.quality_complete
+                        # Round 96: and WHICH PHASE produced it. The framework
+                        # knows — it is the flag it was invoked with — and the
+                        # agent's copy carries whatever its predecessor left in
+                        # `.sessi-work/gate{N}_result.json`. Measured on
+                        # taskq-final: the Phase 6 run rewrote FR-01's result
+                        # (enforcer_sha 0e9ce2e9 -> f4af8962, evidence_digest
+                        # and enforcer_surface with it) and left `"phase": 3`.
+                        #
+                        # One reader depends on this field. Round 45 站3 skips
+                        # the receipt-vs-result digest comparison when the two
+                        # phases differ, because the slot is one-per-FR and a
+                        # later phase rewrites it legitimately. A stale label
+                        # inverts that: the Phase-3 receipt (which can never be
+                        # satisfied again) is the one compared, and the Phase
+                        # 6/7/8 receipts — the live verdict — are all skipped.
+                        # 22 self-accusations on one run, and nothing checking
+                        # the verdict the next phase starts from.
+                        _gp_json["phase"] = args.phase
                         # Round 42 站2: the spec-coverage percentage is already
                         # in this file (it is the `traceability` dimension's 4b
                         # component). The names it is a ratio of go in beside

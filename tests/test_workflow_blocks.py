@@ -113,13 +113,21 @@ def test_doctor_warns_on_a_harness_owned_block_and_names_the_route(project):
 
 def test_doctor_stays_quiet_about_blocks_it_does_not_own_the_route_for(project):
     """run-report lists every open block. doctor reports only the subset whose
-    route differs, so the two readers do not print the same rows."""
+    route differs, so the two readers do not print the same rows.
+
+    Round 96 split `unknown` out of this test, and the principle above is why:
+    a PROJECT-owned halt has a route and the project's own gate already named
+    it, but an UNATTRIBUTED halt has no route at all — which is a difference,
+    and the most consequential one. Measured on taskq-final: three open blocks,
+    zero harness-owned, and two of the three `unknown` ones were confirmed
+    harness bugs (Rounds 92 and 93) that this check never routed. See
+    tests/test_unattributed_halts_are_visible.py.
+    """
     from core.doctor import _check_open_workflow_blocks
     from core.fault_owner import Owner
     from core.workflow_blocks import record_block
 
     record_block(project, phase=4, step="Gate 3", owner=Owner.PROJECT, message="x")
-    record_block(project, phase=4, step="Preflight", owner=Owner.UNKNOWN, message="y")
     assert _check_open_workflow_blocks(project) == []
 
 

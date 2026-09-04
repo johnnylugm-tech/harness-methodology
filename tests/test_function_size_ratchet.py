@@ -117,11 +117,11 @@ _CEILINGS: dict[str, int] = {
     # 0.28/0.31/0.33 of gates 2/3/4 published beside `weight_covered: 1.0`).
     # It sits here rather than in a `_stage_*` because it reads `_cfg_dims`,
     # `dims` and `_overall_score`, all three of which are bound in this method.
-    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 963,
+    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 984,  # 2026-09-05: 963 -> 984 — Round 96 站3. `_record_coverage_denominator`'s return value stops being discarded: the omit list goes into breakdown.test_coverage beside the percentage it qualifies, so the number ships with what it was taken over (Round 42 站4). 153 of taskq-final's 428 ledger rows came from this producer and nothing read one.
     # 770 at Round 81 站9, from 940: four runs extracted. The smallest
     # harvest of the four, because only 182 of its lines are extractable
     # under the rule — the rest threads state through the dispatch loop.
-    "cli/fr_cmds.py::cmd_run_fr_step": 770,
+    "cli/fr_cmds.py::cmd_run_fr_step": 798,  # 2026-09-05: 770 -> 798 — Round 96 站0. The SUITE_TEST_FAILURE branch: a red whole-suite run now routes to TEST-FIX with the failing nodeids and the command that reproduces them, instead of to COVERAGE-FIX. 28 lines in the dispatch chain beside the eight branches already there. Measured cost of not having it: FR-07 on taskq-final Phase 8, 22 rounds and 9.5 hours, 67 of that run's 620 dispatches.
     # 413 at Round 81 站7, from 845: seven runs extracted. Harvested in the
     # same commit because test_no_ceiling_sits_above_the_function_it_covers
     # does not allow otherwise.
@@ -189,7 +189,7 @@ _CEILINGS: dict[str, int] = {
     # which parser produced either number. Measured 614 — the two block-site
     # remediation pointers this round also added live in
     # `_finalize_gate_cross_checks`, not here.
-    "cli/gate_cmds.py::_cmd_finalize_gate_impl": 614,
+    "cli/gate_cmds.py::_cmd_finalize_gate_impl": 632,  # 2026-09-05: 614 -> 632 — Round 96 站2. `_gp_json["phase"] = args.phase` and the comment saying why the field has a reader: Round 45 站3 decides whether to compare the receipt digest by it, so a label left at the agent's value inverts that check.
     # 485 at 2026-08-31, from 475: replaced the `agent_score < threshold`
     # early-continue with a comment explaining the removal and pointing at
     # the Round 35 站3 prior-art comment above it — see
@@ -212,7 +212,7 @@ _CEILINGS: dict[str, int] = {
     # templates/.gitleaks.toml the same way [2/11] delivers the CI workflow —
     # except never overwritten: three corpus projects already hand-author
     # this file with their own allowlist entries.
-    "cli/project_cmds.py::cmd_init_project": 432,
+    "cli/project_cmds.py::cmd_init_project": 434,  # 2026-09-05: 432 -> 434 — Round 96 站1. Net +2: the `--gitleaks-only` early return (+14) minus the gitleaks write moving into `_write_gitleaks_config` (-12), so the repair path and the install path are one implementation.
     "core/quality_gate/security_design.py::check_security_design": 322,
     "core/agent_spawner.py::AgentSpawner.spawn": 316,
     "detection/drift_detector.py::DriftDetector.detect_sab_drift": 310,
@@ -246,7 +246,7 @@ _CEILINGS: dict[str, int] = {
     # what the installed thing produced. `run_doctor` is a sequence of
     # `findings.extend(...)` lines by design: the list of what doctor asks is
     # meant to be readable top to bottom in one place.
-    "core/doctor.py::run_doctor": 219,
+    "core/doctor.py::run_doctor": 226,  # 2026-09-05: 219 -> 226 — Round 96 站1. Check 13b, the gitleaks-scope WARN, beside 13's CI-template drift: init-project ships two templates and only one had a reader that noticed a project never got it.
     "core/quality_gate/spec_tracking_checker.py::compute_trace_dimension": 201,
 }
 

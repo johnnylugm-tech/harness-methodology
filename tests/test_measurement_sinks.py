@@ -34,7 +34,13 @@ REGISTRY = Path(__file__).resolve().parent / "MEASUREMENT_SINKS.yaml"
 # Producers that are still `unreviewed`. Down only. Reviewing one means
 # deciding whether anything acts on it and saying so in the registry — not
 # moving this number.
-_UNREVIEWED_CEILING = 30
+#
+# 30 -> 29, Round 96: `gate:coverage-denominator` reviewed. It was the largest
+# producer in the corpus (153 of taskq-final's 428 rows) and its return value
+# was discarded at the call site; it is now report-only, its unmeasurable
+# `statements_omitted` is None rather than 0, and the denominator travels into
+# breakdown.test_coverage beside the percentage it qualifies.
+_UNREVIEWED_CEILING = 29
 
 _SKIP_DIRS = {".venv", "tests", ".git", "node_modules", "__pycache__"}
 

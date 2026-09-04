@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from cli import gate_cmds
@@ -606,7 +607,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         if _status in {"ERROR", "TIMEOUT"}:
             gate_pass = False
             failing_dims: list | None = None
-            block_reason = ""
+            block_reason = BlockSignal()
         else:
             gate_pass, failing_dims, block_reason = _parse_gate_output(result.get("output", ""))
         if not gate_pass:
@@ -639,9 +640,12 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     )
                 gate_pass = False
                 failing_dims = (failing_dims or []) + ["pragma-no-cover"]
-                block_reason = (
-                    f"pragma-no-cover: {len(_pf)} workaround(s) — "
-                    f"write unit tests and remove # pragma: no cover"
+                block_reason = BlockSignal(
+                    kind="pragma_no_cover",
+                    headline=(
+                        f"{len(_pf)} workaround(s) — write unit tests and "
+                        f"remove # pragma: no cover"
+                    ),
                 )
 
         max_fix_rounds = _fr_max_fix_rounds
@@ -668,7 +672,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             # CODE-FIX (source code fixer) cannot help — skip it and retry GATE1
             # directly with the block_reason injected so the evaluator understands
             # what went wrong with its predecessor's gate1_result.json.
-            is_s3 = bool(block_reason and "tool_evidence_missing" in block_reason)
+            # Round 96: the kind, not a substring of it. The old test read a
+            # prose line, which is why it could not tell `tool_evidence_missing`
+            # from a sentence that happens to mention it.
+            is_s3 = block_reason.kind == "tool_evidence_missing"
             if not is_s3:
                 # ── Pre-run tools at orchestration time ──────────────────────────
                 # Capture actual ruff + pytest output so fix agents target real errors.
@@ -689,7 +696,10 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 prev_snapshot_sig = curr_sig
 
                 # ── A: classify failure → route to the correct fixer ─────────────
-                failure_class = _classify_snapshot_failure(tool_snapshot, failing_dims=failing_dims)
+                failure_class = _classify_snapshot_failure(
+                    tool_snapshot, failing_dims=failing_dims,
+                    block_kind=block_reason.kind,
+                )
                 _last_failure_class = failure_class
 
                 if failure_class == "ENV":
@@ -697,7 +707,26 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                           f"  Hint: check PYTHONPATH / package installation")
                     break
 
-                if failure_class == "ISOLATION":
+                if failure_class == "SUITE_TEST_FAILURE":
+                    # Round 96. The nodeids travel from the framework's own run
+                    # into the prompt: the fixer's whole problem is that the
+                    # command it is used to running shows these tests green.
+                    _suite_red = [
+                        item.split(":", 1)[-1].strip() if item.startswith("test_coverage:")
+                        else item
+                        for item in block_reason.items
+                    ]
+                    print(f"[run-fr-step] {fr_id} SUITE_TEST_FAILURE "
+                          f"(round {fix_round}/{max_fix_rounds})"
+                          f" — dispatching TEST-FIX (red in the harness's "
+                          f"whole-suite run; may be green file-by-file)")
+                    fix_prompt = _build_fr_step_prompt(
+                        "TEST-FIX", fr_id, phase, project, srs_path,
+                        tool_snapshot=tool_snapshot,
+                        suite_only_failures=_suite_red,
+                    )
+                    fix_step_name = "TEST-FIX"
+                elif failure_class == "ISOLATION":
                     print(f"[run-fr-step] {fr_id} ISOLATION failure "
                           f"(round {fix_round}/{max_fix_rounds})"
                           f" — dispatching TEST-FIX (add autouse infra mock)")
@@ -915,7 +944,7 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             # Re-dispatch GATE1 (with block_reason if S3, otherwise clean)
             gate_prompt = _build_fr_step_prompt(
                 step, fr_id, phase, project, srs_path,
-                block_reason=block_reason if is_s3 else None,
+                block_reason=block_reason.as_prompt_text() if is_s3 else None,
             )
             result = spawner.spawn(
                 role="developer", prompt=gate_prompt,
@@ -1588,7 +1617,41 @@ def _extract_agent_output_json(text: str) -> "dict | None":
             pass
     return None
 
-def _parse_gate_output(out: str) -> tuple[bool, list, str]:
+@dataclass(frozen=True)
+class BlockSignal:
+    """What finalize-gate said blocked this gate, as a fact rather than a line.
+
+    Round 96. `kind` is a `block_reason._DETAIL_REGISTRY` key — the framework's
+    own name for the cause — so the router keys on it instead of matching
+    substrings in prose. `items` are the per-cause details the same renderer
+    printed (for a red suite, the failing nodeids).
+
+    Falsy when there was no block, so the existing `if block_reason:` sites read
+    the same as before.
+    """
+
+    kind: str = ""
+    headline: str = ""
+    items: tuple = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.kind)
+
+    def as_prompt_text(self) -> str:
+        """The reason as a re-dispatched agent should read it."""
+        lines = [f"{self.kind}: {self.headline}"] if self.headline else [self.kind]
+        lines += [f"  - {item}" for item in self.items]
+        return "\n".join(lines)
+
+
+#: `  [1] {kind}: {headline}` and `        • {item}` — the exact shapes
+#: `cli/gate_cmds.py::_format_block_diagnostic` writes. One producer, one
+#: consumer, and one test holding them together.
+_BLOCK_REASON_RE = re.compile(r"^\s{2}\[\d+\]\s+([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$")
+_BLOCK_ITEM_RE = re.compile(r"^\s+•\s+(.*)$")
+
+
+def _parse_gate_output(out: str) -> "tuple[bool, list, BlockSignal]":
     """Extract gate_pass, failing_dims, and block_reason from sub-agent output.
 
     Tries full-string JSON parse first, then scans for embedded JSON objects
@@ -1613,14 +1676,45 @@ def _parse_gate_output(out: str) -> tuple[bool, list, str]:
         # schema key ("failing_dimensions") — agents sometimes copy the wrong one.
         return obj.get("failing_dims") or obj.get("failing_dimensions") or []
 
-    def _extract_block_reason(text: str) -> str:
-        """Scan agent output for finalize-gate [BLOCKED] lines (S3/S4 errors)."""
-        for line in text.splitlines():
-            if "[BLOCKED]" in line and (
-                "tool_evidence_missing" in line or "tool_score_fabrication" in line
-            ):
-                return line.strip()
-        return ""
+    def _extract_block_reason(text: str) -> BlockSignal:
+        """The blocking reason finalize-gate printed, or an empty signal.
+
+        Round 96. This used to require a line containing BOTH `[BLOCKED]` and a
+        detail key, and named two keys by hand. No line in the repository has
+        both: `cli/gate_cmds.py::_format_block_diagnostic` — the one function
+        that renders a GateBlockedError — writes `GATE 1 BLOCKED` (no brackets)
+        and then `  [1] {kind}: {headline}`. Executed against that renderer's
+        real output, the old predicate returned "" for every kind, which is
+        what it returned for all 22 rounds of taskq-final's FR-07 Phase 8 loop.
+
+        So it reads the renderer's own shape instead of guessing at a token,
+        and it reads the `kind` rather than a hand-maintained list of two —
+        every key in `block_reason._DETAIL_REGISTRY` arrives, including the
+        ones added after this was written. `tests/test_red_suite_reaches_the_
+        right_fixer.py` feeds the renderer's actual output through here, so the
+        two ends cannot drift apart again without something turning red.
+        """
+        kind = ""
+        headline = ""
+        items: list[str] = []
+        for raw_line in text.splitlines():
+            reason = _BLOCK_REASON_RE.match(raw_line)
+            if reason:
+                if kind:
+                    break  # only the first (most specific) reason
+                kind, headline = reason.group(1), reason.group(2).strip()
+                continue
+            if kind:
+                item = _BLOCK_ITEM_RE.match(raw_line)
+                if item:
+                    items.append(item.group(1).strip())
+                elif raw_line.strip().startswith("→"):
+                    continue
+                elif raw_line.strip():
+                    break
+        if not kind:
+            return BlockSignal()
+        return BlockSignal(kind=kind, headline=headline, items=tuple(items))
 
     block_reason = _extract_block_reason(out)
 
@@ -1750,10 +1844,25 @@ def _capture_tool_snapshot(
     return "\n".join(lines)[:2000]
 
 
-def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) -> str:
+def _classify_snapshot_failure(
+    snapshot: str, failing_dims: list | None = None,
+    block_kind: str = "",
+) -> str:
     """Classify the root cause of a Gate 1 failure from tool snapshot output.
 
+    Round 96 — *block_kind* comes first, because it is the only input here that
+    was measured on the run the gate actually blocked on. Everything below it
+    reads `_capture_tool_snapshot`, which runs pytest over ONE file,
+    while the harness blocks on `run_tool`'s whole-directory run. A test that
+    fails only in the suite is green in the snapshot, so `failing_dims` says
+    `test_coverage`, the snapshot says `passed`, and the classification comes
+    out LOW_COVERAGE — a coverage fixer sent to a test-isolation defect.
+    Measured on taskq-final FR-07 Phase 8: 22 rounds, 9.5 hours, the same five
+    tests every round.
+
     Returns one of:
+      "SUITE_TEST_FAILURE" — the harness's own run found this FR's tests red
+                             (may be green when the file is run alone)
       "ENV"             — ModuleNotFoundError / ImportError (environment not set up)
       "ISOLATION"       — tests fail due to auth/HMAC short-circuit, not missing feature
       "ISOLATION_LIKELY" — v2.13.0: subprocess / ModuleNotFoundError / stdlib-shadow
@@ -1764,6 +1873,10 @@ def _classify_snapshot_failure(snapshot: str, failing_dims: list | None = None) 
       "MISSING_FEATURE" — AssertionError / genuine logic failure (CODE-FIX can help)
       "UNKNOWN"         — cannot classify (fall through to CODE-FIX)
     """
+    from harness.gate_checks import RED_SUITE_DETAIL_KEY
+
+    if block_kind == RED_SUITE_DETAIL_KEY:
+        return "SUITE_TEST_FAILURE"
     if not snapshot:
         return "UNKNOWN"
     s = snapshot.lower()

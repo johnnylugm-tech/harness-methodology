@@ -501,6 +501,27 @@ def _check_tool_evidence(ctx: "GateContext", raw: dict,
     return violations
 
 
+#: The `details` key a red suite blocks under.
+#:
+#: Round 96. It used to be `tool_score_fabrication`, whose registered headline
+#: reads "Claimed dimension score could not be reproduced by running the tool"
+#: — which is not what happened. The agent claimed nothing; its own tests are
+#: failing. `core.lessons.record_gate_block` files the block under the same
+#: key, so the cross-run memory recorded the wrong defect too.
+#:
+#: The rule this restores is already written forty lines below, in
+#: `_mutation_artifact_verdict`'s docstring: Round 35 站3 split `infra_fail`
+#: out of `tool_score_fabrication` "because the outcomes carry opposite
+#: instructions". `tool_score_fabrication` says do NOT re-run — the score is
+#: what failed. A red suite is the opposite instruction: run it, and run it
+#: the way the harness did.
+#:
+#: Measured on taskq-final's Phase 8: 22 rounds, 9.5 hours, twenty-two
+#: identical `declared=0 measured=5` ledger rows, and the fixer dispatched
+#: every time was COVERAGE-FIX.
+RED_SUITE_DETAIL_KEY = "fr_tests_red"
+
+
 def _check_tests_failed(
     raw: dict, fr_id: "str | None" = None,
     *, framework_run: "tuple[str, str, int] | None" = None,

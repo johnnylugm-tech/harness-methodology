@@ -88,8 +88,21 @@ def coverage_denominator(project_root: Path) -> dict:
     and reports three numbers rather than one:
 
       * ``statements_delivered``  every statement coverage.py saw
-      * ``statements_omitted``    the ones the project's `omit` removed
+      * ``statements_omitted``    the ones the project's `omit` removed, or
+                                  ``None`` when the report cannot say
       * ``statements_measured``   the denominator behind the reported %
+
+    Round 96 — ``statements_omitted`` is ``None``, not ``0``, when the project
+    omits files the report does not contain. coverage.json is written by a run
+    that already applied the omit, so for most projects the omitted files are
+    simply absent from it and their statement count is unknowable from there.
+    The ledger row has said "size unknown" since Round 51; the dict beside it
+    said ``0``, which reads as "the omit costs nothing" — the opposite of what
+    is known. Round 35: a measurement that could not be taken is not a zero.
+    It is knowable when the report does contain them: measured on taskq-api,
+    63 of 839 statements, 7.5 % reported as 100 %.
+
+    ``0`` still means zero: a project with no ``omit`` at all omits nothing.
 
     Same shape as Round 50 站5's `cost_entries_excluded_substrate`: report the
     population and report what was taken out of it, so a percentage carries
@@ -103,6 +116,10 @@ def coverage_denominator(project_root: Path) -> dict:
     """
     omitted = read_coveragerc_omit(project_root)
     delivered = measured = removed = 0
+    #: Did the report contain any of the omitted files? If the project omits
+    #: files and none of them are in the report, `removed` stayed 0 because
+    #: nothing was counted — not because nothing was removed.
+    saw_omitted = False
 
     report = project_root / "coverage.json"
     if report.is_file():
@@ -121,12 +138,15 @@ def coverage_denominator(project_root: Path) -> dict:
                 delivered += stmts
                 if name in omit_set:
                     removed += stmts
+                    saw_omitted = True
                 else:
                     measured += stmts
 
     return {
         "statements_delivered": delivered,
-        "statements_omitted": removed,
+        "statements_omitted": (
+            None if (omitted and report.is_file() and not saw_omitted) else removed
+        ),
         "statements_measured": measured,
         "omitted_files": omitted,
     }

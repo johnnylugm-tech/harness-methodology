@@ -210,6 +210,29 @@ def harness_owned_open_blocks(project: "str | Path") -> list[dict]:
     return [row for row in open_blocks(project) if row.get("owner") == Owner.HARNESS]
 
 
+def unattributed_open_blocks(project: "str | Path") -> list[dict]:
+    """Open blocks the framework could not attribute to anyone.
+
+    Round 96, and its own query for the reason the one above gives: a predicate
+    every reader re-derives is how two readers end up disagreeing about what
+    the word means.
+
+    Measured on taskq-final at the end of P1-P8: three open blocks, ZERO
+    harness-owned — and two of the three were `unknown` halts that this
+    repository confirmed as harness bugs within two days (Round 92's gitleaks
+    scope for P5 verification-docs, Round 93's tag guard for P6
+    tag-and-advance). The reader that exists to route a stopped run away from
+    the project and into the repair workflow asks `owner == HARNESS`, so
+    `unknown` reached it as "not ours" and neither halt was ever routed.
+
+    `unknown` stays an honest answer — Round 92 refused to invent an owner for
+    the P5 halt because the halt genuinely does not know one, and Round 50 站4
+    kept `unknown` for the same reason. What Round 50's other half says is that
+    it does not get permanence, and permanence is what silence buys it.
+    """
+    return [row for row in open_blocks(project) if row.get("owner") == Owner.UNKNOWN]
+
+
 def resolve_block(
     project: "str | Path", signature: str, *, resolution: str
 ) -> None:

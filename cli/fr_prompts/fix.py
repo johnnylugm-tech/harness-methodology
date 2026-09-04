@@ -16,31 +16,83 @@ from cli.fr_prompts._shared import (
 )
 
 
-def build_test_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str, src_dir: str, tool_snapshot: str | None = None) -> str:
-    """Build prompt for TEST-FIX step."""
+def build_test_fix_prompt(
+    fr_id: str, phase: int, project: Path, srs_path: Path, test_file: str,
+    src_dir: str, tool_snapshot: str | None = None, *,
+    suite_only_failures: "list[str] | None" = None,
+    test_dir: str = "",
+) -> str:
+    """Build prompt for TEST-FIX step.
+
+    Round 96 — `suite_only_failures` is the list the harness's own whole-suite
+    run produced. Until this round the only isolation story here was the
+    401/HMAC one, and every verification step said `pytest {test_file}`: the
+    command that shows a suite-order failure GREEN. Measured on taskq-final's
+    FR-07 Phase 8, that mismatch cost 22 rounds — the fixer could not see the
+    defect and could not tell a fix from no fix.
+    """
+    _suite = list(suite_only_failures or [])
+    _suite_dir = test_dir or str(Path(test_file).parent)
+    _reproduce = f"python3 -m pytest {_suite_dir} -q"
+    if _suite:
+        problem = (
+            f"The harness ran the WHOLE test suite and {len(_suite)} of {fr_id}'s "
+            f"own tests failed there. They may well PASS when you run "
+            f"`{test_file}` on its own — that is the usual shape of this defect, "
+            f"and it is why running the file alone will mislead you.\n"
+            f"A test that passes alone and fails in the suite depends on state a "
+            f"previous test left behind: a database table, a module-level cache, "
+            f"a singleton flag, a monkeypatch never undone. That is test "
+            f"pollution / shared state, not a missing feature.\n\n"
+            f"[FAILING IN THE SUITE RUN]\n"
+            + "".join(f"  - {n}\n" for n in _suite)
+        )
+        task = (
+            f"1. REPRODUCE FIRST — run the suite the way the harness did:\n"
+            f"   `{_reproduce}`\n"
+            f"   Running only `{test_file}` will not show these failures.\n"
+            f"2. Find what leaks between tests. Compare a passing solo run with the "
+            f"suite run: which test ran before, and what did it leave behind?\n"
+            f"3. Add an autouse fixture that RESETS the shared resource between "
+            f"tests (truncate the table, clear the cache, reset the seeded flag):\n"
+            f"   @pytest.fixture(autouse=True)\n"
+            f"   def _reset_shared_state():\n"
+            f"       yield\n"
+            f"       <undo whatever this test wrote>\n"
+            f"4. Re-run `{_reproduce}` — the tests above must pass IN THE SUITE.\n"
+            f"5. Commit: `git add {test_file} {_suite_dir}/conftest.py && "
+            f"git commit -m 'test({fr_id}): reset shared state between tests'`\n\n"
+        )
+    else:
+        problem = (
+            "Gate 1 tests are failing because of EXTERNAL SIDE-EFFECTS, not because the "
+            "feature is missing. Tests call real infrastructure (HMAC verification, DB "
+            "connections, HTTP calls) that short-circuits before feature logic is reached. "
+            "Every test returns the same infrastructure error (e.g. 401 Unauthorized).\n"
+        )
+        task = (
+            f"1. Identify the infrastructure call that intercepts (HMAC verifier, DB, HTTP).\n"
+            f"2. Add a pytest autouse fixture to `{test_file}` (or `tests/conftest.py`) "
+            f"that mocks it so tests reach the feature logic:\n"
+            f"   @pytest.fixture(autouse=True)\n"
+            f"   def _bypass_infra(monkeypatch):\n"
+            f"       monkeypatch.setattr(InfraClass, 'verify', lambda *a, **kw: True)\n"
+            f"3. Run `python3 -m pytest {test_file} -q` — tests must now fail for the RIGHT reason "
+            f"(AssertionError or NameError from missing feature, NOT 401/auth error).\n"
+            f"4. Commit: `git add {test_file} tests/conftest.py && "
+            f"git commit -m 'test({fr_id}): fix test isolation — add autouse infra mock'`\n\n"
+        )
     return (
         f"You are a test isolation fixer for {fr_id}.\n\n"
         f"[FORBIDDEN — read first]\n"
         f"- Modifying source files in `{src_dir}/`\n"
         f"- Deleting or xfail-marking tests\n\n"
         f"[PROBLEM]\n"
-        f"Gate 1 tests are failing because of EXTERNAL SIDE-EFFECTS, not because the "
-        f"feature is missing. Tests call real infrastructure (HMAC verification, DB "
-        f"connections, HTTP calls) that short-circuits before feature logic is reached. "
-        f"Every test returns the same infrastructure error (e.g. 401 Unauthorized).\n\n"
+        f"{problem}\n"
         f"[ACTUAL TOOL OUTPUT]\n"
         f"{tool_snapshot or '(not available)'}\n\n"
         f"[TASK]\n"
-        f"1. Identify the infrastructure call that intercepts (HMAC verifier, DB, HTTP).\n"
-        f"2. Add a pytest autouse fixture to `{test_file}` (or `tests/conftest.py`) "
-        f"that mocks it so tests reach the feature logic:\n"
-        f"   @pytest.fixture(autouse=True)\n"
-        f"   def _bypass_infra(monkeypatch):\n"
-        f"       monkeypatch.setattr(InfraClass, 'verify', lambda *a, **kw: True)\n"
-        f"3. Run `python3 -m pytest {test_file} -q` — tests must now fail for the RIGHT reason "
-        f"(AssertionError or NameError from missing feature, NOT 401/auth error).\n"
-        f"4. Commit: `git add {test_file} tests/conftest.py && "
-        f"git commit -m 'test({fr_id}): fix test isolation — add autouse infra mock'`\n\n"
+        f"{task}"
         f'[OUTPUT FORMAT]\nReturn JSON: {{"status": "DONE", "fixture_added": true, '
         f'"commit": "<hash>", "summary": "<under 50 chars>"}}'
     )

@@ -40,7 +40,8 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
                            project: Path, srs_path: Path | None,
                            failing_dims: list | None = None,
                            tool_snapshot: str | None = None,
-                           block_reason: str | None = None) -> str:
+                           block_reason: str | None = None,
+                           suite_only_failures: "list[str] | None" = None) -> str:
     """Build a minimal need-to-know prompt for a single FR TDD step.
 
     Dispatches to step-specific builders. Shared pre-computation (test_file,
@@ -69,7 +70,10 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
         return build_gate1_prompt(fr_id, phase, project, srs_path, test_file, block_reason)
 
     if step == "TEST-FIX":
-        return build_test_fix_prompt(fr_id, phase, project, srs_path, test_file, src_dir, tool_snapshot)
+        return build_test_fix_prompt(
+            fr_id, phase, project, srs_path, test_file, src_dir, tool_snapshot,
+            suite_only_failures=suite_only_failures, test_dir=test_dir_str,
+        )
 
     if step == "COVERAGE-FIX":
         return build_coverage_fix_prompt(fr_id, phase, project, srs_path, test_file, src_dir, tool_snapshot)

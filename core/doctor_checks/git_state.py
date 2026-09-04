@@ -44,6 +44,25 @@ def _check_ci_template_drift(project: Path) -> list[Finding]:
     return [Finding("ci-template", "WARN", drift)] if drift else []
 
 
+def _check_gitleaks_scope(project: Path) -> list[Finding]:
+    """WARN when a project pays the fingerprint tax for a config it never got.
+
+    Round 96, the same shape as the check above one template over. Round 92
+    shipped `templates/.gitleaks.toml` through `init-project`, which runs once
+    — so no project that already existed could receive it. Measured on
+    taskq-final, which bumped to Round 92's own commit and then added two more
+    `.gitleaksignore` fingerprints: the route Round 92's ledger had just judged
+    a workaround, taken because nothing named the alternative.
+
+    WARN, never ERROR, and silent for a project that has its own config or
+    whose `.methodology/` trips nothing: this is an offer, not a verdict.
+    """
+    from core.ci_template import gitleaks_scope_missing
+
+    report = gitleaks_scope_missing(project)
+    return [Finding("gitleaks-scope", "WARN", report)] if report else []
+
+
 def _check_hook_wiring(project: Path) -> list[Finding]:
     """WARN when git would run no pre-push hook in this project.
 

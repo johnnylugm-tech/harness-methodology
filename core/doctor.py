@@ -25,6 +25,7 @@ from core.doctor_checks.config_drift import (
 )
 from core.doctor_checks.git_state import (
     _check_ci_template_drift,
+    _check_gitleaks_scope,
     _check_git_sync,
     _check_head_ci_verdict,
     _check_hook_wiring,
@@ -232,6 +233,13 @@ def run_doctor(project_root: Path) -> list[Finding]:
     # inside a consumer repo with the harness beside it, so it can see both
     # files at once.
     findings.extend(_check_ci_template_drift(project))
+
+    # 13b. The second template the framework ships through init-project, and
+    # the only other one a project can be missing without knowing (Round 96).
+    # Same reader, same WARN level, different predicate: `.gitleaks.toml` is
+    # project-owned, so it asks whether this project is paying for not having
+    # one rather than whether its copy matches.
+    findings.extend(_check_gitleaks_scope(project))
 
     # 14a. And whether the commit this tree is SITTING ON is red
     # (Round 83 站4). Checks 14/14b ask what is installed; this asks

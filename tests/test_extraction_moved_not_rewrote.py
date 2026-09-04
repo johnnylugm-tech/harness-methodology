@@ -132,24 +132,19 @@ _EXTRACTED: "dict[str, dict]" = {
     # after its last reader: it is the recording of the tree at the moment of
     # Round 81 站8's move, and deleting it is the thing the docstring above
     # forbids doing indirectly.
-    "fr_cmds.cmd_run_fr_step": {
-        "module": "cli/fr_cmds.py",
-        "before": "fr_cmds.py.before",
-        "caller": "cmd_run_fr_step",
-        # `_frstep_`, chosen against the file's existing `_fr_step_already_done`
-        # and `_fr_prompt_*`: 站7 shipped a prefix that collided with three
-        # untouched functions and only the reconstruction assertion noticed.
-        "prefix": "_frstep_",
-        # This function's tail is not one of its extractable runs, so nothing
-        # generated a fall-through for it.
-        "generated_tail": False,
-        "helpers": (
-            "_frstep_skip_if_already_done",
-            "_frstep_route_dispatch_error",
-            "_frstep_gate1_paper_trail",
-            "_frstep_push_checkpoint",
-        ),
-    },
+    # REMOVED 2026-09-05, Round 96 — `fr_cmds.cmd_run_fr_step`.
+    #
+    # Its body was edited on purpose: the failure classifier now receives the
+    # blocking reason the framework itself printed (`block_kind`), and a new
+    # SUITE_TEST_FAILURE branch routes a red whole-suite run to TEST-FIX
+    # instead of COVERAGE-FIX. Measured on taskq-final Phase 8, that misroute
+    # cost FR-07 22 rounds and 9.5 hours, 67 of the run's 620 dispatches.
+    #
+    # The entry goes rather than the recording being refreshed, per this
+    # file's own rule: "this is the code that was there" has an expiry date,
+    # and re-recording it would delete the only evidence the Round 81 站8 move
+    # ever happened. tests/golden/extraction/fr_cmds.py.before stays on disk
+    # for the other entries and as that record.
 }
 
 

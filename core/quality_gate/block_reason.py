@@ -164,6 +164,19 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "fix the code until the tool agrees with the claimed score, or write the "
         "score the tool actually produced into the gate result file.",
     ),
+    "fr_tests_red": (
+        "This FR's own tests are failing in the harness's whole-suite run",
+        "These tests may well pass when you run their file on its own — that is "
+        "the usual shape, and it is what made this take 22 rounds on the project "
+        "it was measured on. The harness runs the whole test directory, so a "
+        "test that depends on state another test left behind fails there and "
+        "nowhere else. Reproduce it the way the harness did: "
+        "`python3 -m pytest <test dir> -q` over the WHOLE suite, not the single "
+        "file. Then fix the dependency — an autouse fixture that resets the "
+        "shared resource (database table, module-level cache, singleton flag) "
+        "between tests. Do NOT add coverage tests, and do NOT delete or skip "
+        "the failing tests.",
+    ),
     "tool_evidence_missing": (
         "Dimension claims a passing score with no tool evidence attached",
         "Add `tool_evidence` (inline tool output) or `evidence_file` (path to the "

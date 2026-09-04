@@ -26,6 +26,7 @@ because the *cause* is gone, not because a raise lost its details.
 from __future__ import annotations
 
 import ast
+import functools
 from pathlib import Path
 
 import pytest
@@ -55,15 +56,82 @@ def _bridge_source() -> str:
     return "\n".join(p.read_text(encoding="utf-8") for p in BRIDGE_FILES)
 
 
-def _dict_keys(node: ast.expr) -> list[str] | None:
+class UnreadableDetailKey(AssertionError):
+    """A key this scan saw and could not resolve to a string.
+
+    Round 96 — it used to drop those silently. Two producers were invisible:
+    a key written as a module constant (`details={RED_SUITE_DETAIL_KEY: …}`)
+    and a dict built by `harness/gate_result.py::s4_block_details` and passed
+    in by name. `tool_score_fabrication` — the single most-raised key in the
+    tree — was only ever seen because ONE site happened to spell it inline; it
+    vanished from the scan the day that site started using a constant. A scan
+    that goes quiet on what it cannot read is abstaining, and Round 30's rule
+    is that abstaining is not passing.
+    """
+
+
+def _module_constants(source: str) -> dict:
+    """Module-level `NAME = "literal"` bindings, for keys written as names."""
+    tree = ast.parse(source)
+    out: dict = {}
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                out[target.id] = value.value
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def _package_constants() -> dict:
+    """Every module-level string constant in harness/, read once."""
+    return _module_constants(_bridge_source())
+
+
+def _key_string(node: ast.expr, constants: dict) -> str:
+    """The string this dict key resolves to, or raise."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name) and node.id in constants:
+        return constants[node.id]
+    raise UnreadableDetailKey(
+        f"a GateBlockedError details key is written as "
+        f"{ast.dump(node)[:80]} and this scan cannot resolve it to a string. "
+        f"Spell it as a literal or as a module-level constant in harness/, or "
+        f"teach this scan the new shape — a key it cannot read is a block "
+        f"reason nothing can check for a remediation."
+    )
+
+
+def _dict_keys(node: ast.expr, constants: dict | None = None) -> list[str] | None:
     """Literal string keys of a dict node, or None if it isn't a literal dict."""
     if not isinstance(node, ast.Dict):
         return None
-    keys = []
-    for k in node.keys:
-        if isinstance(k, ast.Constant) and isinstance(k.value, str):
-            keys.append(k.value)
-    return keys
+    return [_key_string(k, constants or {}) for k in node.keys if k is not None]
+
+
+def _details_subscript_keys(tree: ast.AST, constants: dict) -> set[str]:
+    """Keys assigned as `details["k"] = …`.
+
+    `s4_block_details` builds its dict that way and hands it to the raise site
+    by name, so the raise-site scan below can never see inside it. Both of its
+    keys (`tool_score_fabrication`, `infra_fail`) are real block reasons.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if (isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "details"):
+                found.add(_key_string(target.slice, constants))
+    return found
 
 
 def scan_bridge_detail_keys(source: str) -> tuple[set[str], int, int]:
@@ -72,7 +140,13 @@ def scan_bridge_detail_keys(source: str) -> tuple[set[str], int, int]:
     Factored out so the negative test can prove the scan sees positional args.
     """
     tree = ast.parse(source)
-    keys: set[str] = set()
+    # The package's constants, not just this source's: a raise site may name a
+    # key defined in a sibling module and imported (RED_SUITE_DETAIL_KEY lives
+    # in harness/gate_checks.py and is raised from harness/harness_bridge.py).
+    # Where the constant is defined is a package fact, so the scan gets the
+    # package's map even when it is handed one file.
+    constants = {**_package_constants(), **_module_constants(source)}
+    keys: set[str] = _details_subscript_keys(tree, constants)
     total = 0
     with_details = 0
     for node in ast.walk(tree):
@@ -86,10 +160,10 @@ def scan_bridge_detail_keys(source: str) -> tuple[set[str], int, int]:
         found: list[str] | None = None
         for kw in node.exc.keywords:
             if kw.arg == "details":
-                found = _dict_keys(kw.value)
+                found = _dict_keys(kw.value, constants)
         if found is None and len(node.exc.args) >= 3:
             # GateBlockedError(gate_num, result, details) — positional third arg.
-            found = _dict_keys(node.exc.args[2])
+            found = _dict_keys(node.exc.args[2], constants)
         if found:
             with_details += 1
             keys.update(found)
@@ -318,3 +392,38 @@ def test_no_hint_is_the_generic_fallback_text():
     copied = sorted(k for k, v in DIMENSION_HINTS.items()
                     if v.strip() == _DEFAULT_DIMENSION_HINT.strip())
     assert not copied, copied
+
+
+def test_the_scan_sees_a_key_written_as_a_module_constant():
+    """Round 96 negative control. `RED_SUITE_DETAIL_KEY` is defined in
+    harness/gate_checks.py and raised from harness/harness_bridge.py; before
+    this the scan read literals only and lost it silently."""
+    from harness.gate_checks import RED_SUITE_DETAIL_KEY
+
+    keys, _, _ = scan_bridge_detail_keys(_bridge_source())
+    assert RED_SUITE_DETAIL_KEY in keys, (
+        "a details key spelled as a constant is invisible to this scan, so its "
+        "remediation goes unchecked"
+    )
+
+
+def test_the_scan_sees_keys_built_by_subscript_assignment():
+    """`s4_block_details` builds its dict with `details["k"] = …` and hands it
+    to the raise site by name. Both its keys are real block reasons, and the
+    raise-site scan can never look inside a variable."""
+    keys, _, _ = scan_bridge_detail_keys(_bridge_source())
+    assert {"tool_score_fabrication", "infra_fail"} <= keys, sorted(keys)
+
+
+def test_an_unresolvable_key_is_reported_not_dropped():
+    """The property that makes the two above trustworthy.
+
+    A scan that silently skips what it cannot read reports the same clean
+    result as a scan with nothing to find. Round 30: abstaining is not passing.
+    """
+    src = (
+        "def f():\n"
+        "    raise GateBlockedError(1, r, details={some_call(): ['x']})\n"
+    )
+    with pytest.raises(UnreadableDetailKey):
+        scan_bridge_detail_keys(src)

@@ -17,6 +17,7 @@ from harness.gate_checks import (  # noqa: F401,E402  re-export after Round 80 �
     _TOOL_CONTENT_PATTERNS,
     _TOOL_OUTPUT_MIN_BYTES,
     _TOOL_REQUIRED_PATTERNS,
+    RED_SUITE_DETAIL_KEY,
     _check_infra_fail_pollution,
     _check_test_skip_ratio,
     _check_tests_failed,
@@ -511,10 +512,10 @@ def _record_coverage_denominator(ctx: "GateContext") -> dict:
         return d
 
     delivered = d["statements_delivered"]
-    share = (d["statements_omitted"] / delivered * 100) if delivered else 0.0
-    if d["statements_omitted"]:
-        size = (f"{d['statements_omitted']}/{delivered} statements, "
-                f"{share:.1f}%")
+    _removed = d["statements_omitted"]
+    if _removed:
+        share = (_removed / delivered * 100) if delivered else 0.0
+        size = f"{_removed}/{delivered} statements, {share:.1f}%"
     else:
         # coverage.json is written by a run that already applied the omit, so
         # for most projects the omitted files are simply not in it and their
@@ -2160,7 +2161,22 @@ class HarnessBridge(_FinalizeStages):
         _boundary_findings = _mark_stubbed_boundary_dimensions(ctx, raw)
 
         # ── Round 51 站4: which files left the coverage denominator ─────────
-        _record_coverage_denominator(ctx)
+        # Round 96: and the answer goes beside the score it qualifies, not only
+        # into a ledger row. The return value was discarded here — 153 of
+        # taskq-final's 428 degradation rows, one per gate run, and nothing
+        # reading any of them. Round 42 站4's rule: a percentage that cannot
+        # carry its own denominator cannot be checked.
+        _cov_denominator = _record_coverage_denominator(ctx)
+        if _cov_denominator.get("omitted_files"):
+            _cov_dim = (raw.setdefault("breakdown", {})).setdefault(
+                "test_coverage", {})
+            if isinstance(_cov_dim, dict):
+                _cov_dim["coverage_denominator"] = {
+                    k: _cov_denominator[k] for k in (
+                        "statements_delivered", "statements_omitted",
+                        "statements_measured", "omitted_files",
+                    )
+                }
 
         # ── Round 52 站1: whether the verification target verifies anything ──
         # `execute_verification_target` is the only dimension that executes the
@@ -2262,7 +2278,13 @@ class HarnessBridge(_FinalizeStages):
                         quality_complete=False,
                         rounds_used=0,
                     ),
-                    details={"tool_score_fabrication": _s4b_violations},
+                    # Round 96: its own key, not `tool_score_fabrication`.
+                    # That key's registered remediation opens "Do NOT re-run
+                    # the gate — the score, not the run, is what failed", and
+                    # for a red suite the correct action is precisely to run
+                    # it, the way the harness did. Same split Round 35 站3 made
+                    # for `infra_fail`.
+                    details={RED_SUITE_DETAIL_KEY: _s4b_violations},
                 )
 
             # ── W1: High skip-ratio warning (non-blocking) ───────────────────

@@ -181,14 +181,42 @@ def _check_open_workflow_blocks(project: Path) -> list[Finding]:
     What earns a doctor line is the routing consequence, which run-report can
     describe but doctor is the command people run when something is wrong.
     """
-    from core.workflow_blocks import LEDGER_RELPATH, harness_owned_open_blocks
+    from core.workflow_blocks import (
+        LEDGER_RELPATH,
+        harness_owned_open_blocks,
+        unattributed_open_blocks,
+    )
+
+    # Round 96: a halt nobody attributed is a state, not an absence of one.
+    # Measured on taskq-final: three open blocks, zero harness-owned, and two
+    # of the three `unknown` ones were confirmed harness bugs within two days
+    # (Round 92's gitleaks scope, Round 93's tag guard). This check exists to
+    # route a stopped run to the repair workflow and it never fired for either.
+    # A separate sentence, because it carries a different instruction: the one
+    # below says which route to take, this one says the route has not been
+    # chosen. It does NOT guess an owner — Round 92's adjudication stands.
+    unattributed = unattributed_open_blocks(project)
+    unattributed_findings: list[Finding] = []
+    if unattributed:
+        _where = ", ".join(
+            f"P{r.get('phase')}/{r.get('step')}" for r in unattributed[:5])
+        unattributed_findings.append(Finding(
+            "workflow-blocks", "WARN",
+            f"{len(unattributed)} unresolved block(s) in {LEDGER_RELPATH} that "
+            f"no one has decided the owner of ({_where}). The framework could "
+            f"not attribute them from the halt message, which is an honest "
+            f"answer and not a closed question: until someone chooses, neither "
+            f"route runs — not the harness repair workflow, and not a fix agent "
+            f"pointed at the project. Read the message and evidence fields "
+            f"(harness_cli.py run-report --project {project}), then either "
+            f"record-block with --owner, or resolve it."))
 
     harness_owned = harness_owned_open_blocks(project)
     if not harness_owned:
-        return []
+        return unattributed_findings
     where = ", ".join(f"P{r.get('phase')}/{r.get('step')}" for r in harness_owned[:5])
     returned = [r for r in harness_owned if r.get("recurred_after_resolution")]
-    findings = [Finding(
+    findings = unattributed_findings + [Finding(
         "workflow-blocks", "WARN",
         f"{len(harness_owned)} unresolved harness-owned block(s) in "
         f"{LEDGER_RELPATH} ({where}) — the framework attributed these to its "
