@@ -4838,3 +4838,111 @@
 - test: tests/test_unattributed_halts_are_visible.py::test_doctor_says_a_halt_has_no_owner
   bug: "`harness_owned_open_blocks` filters `owner == HARNESS` and is the ONLY reader that routes a stopped run to the harness repair workflow. Measured on taskq-final at the end of P1-P8: 3 open blocks, 0 harness-owned — and two of the three `unknown` ones were confirmed harness bugs fixed in this repository within two days (Round 92's gitleaks scope for the P5 verification-docs halt, Round 93's tag guard for the P6 tag-and-advance halt). The check whose whole purpose is 'do not point a fix agent at this project' never fired for either. `unknown` stays an honest owner (Round 92 refused to guess, Round 50 站4 kept it); what it must not be is silent."
   fixed_in: "Round 96"
+
+- test: tests/test_verification_report_reads_the_real_criteria.py::test_the_report_and_the_framework_agree_on_what_a_criterion_is
+  bug: "the framework had two acceptance-criteria parsers. `generate_verification_report.py` carried a private regex for `AC-FR-\\d+-\\d+:` on a plain line; `artifact_consistency.srs_acceptance_criteria` reads the `#### AC-1.1` headings the Phase 1 prompt actually produces. Measured across the eleven corpus projects: the canonical parser finds 1,004 criteria (28-134 each) and the private one found ZERO on every single project, so all eleven shipped a VERIFICATION_REPORT.md whose every per-FR section reads '_No acceptance criteria extracted from SRS.md — verify manually._'. It had never worked anywhere. Round 17 / Round 33: one contract, two statements."
+  fixed_in: "Round 97"
+
+- test: tests/test_verification_report_reads_the_real_criteria.py::test_the_generator_holds_no_private_criteria_parser
+  bug: "a private regex that happens to agree today is the same defect with a longer fuse. The fix is single-sourcing, not a better pattern — both parsers looked fine in isolation for the whole life of the corpus."
+  fixed_in: "Round 97"
+
+- test: tests/test_verification_report_reads_the_real_criteria.py::test_a_project_with_no_criteria_still_says_so
+  bug: "negative control. Round 32: a project whose SRS states no acceptance criteria must still get the honest 'none extracted' line, not an empty section — the fix must not turn a real absence into silence."
+  fixed_in: "Round 97"
+
+- test: tests/test_adr_has_one_location.py::test_the_writer_and_the_reader_never_disagree
+  bug: "'where is the ADR' had two answers. `ProjectLayout.adr_path` (the WRITER, used by `sab_amender`) was a plain join to `02-architecture/ADR.md`; `artifact_consistency._adr_path` (the READER) preferred `02-architecture/adr/ADR.md` when present. `init-project` deploys to the sub-directory and `legal_artifacts.DELIVERABLE_ANCHORS` anchors on it, so on 11 of 11 corpus projects the real ADR (277-1069 lines) is in `adr/` and the writer pointed elsewhere. Two projects already paid: taskq-final's `02-architecture/ADR.md` is eight lines holding one amendment beside its 893-line real ADR, taskq-new's is thirty-six — both created by `amend-sab` writing to a path nothing else reads. The required-artifact check is satisfied by the stub."
+  fixed_in: "Round 97"
+
+- test: tests/test_adr_has_one_location.py::test_amend_sab_appends_to_the_real_adr_instead_of_creating_a_stub
+  bug: "the observable cost of the split resolver, driven through the writer itself: an amendment must land in the document that holds the architecture decisions, not create a second file next to it."
+  fixed_in: "Round 97"
+
+- test: tests/test_adr_has_one_location.py::test_amend_sab_still_creates_one_when_the_project_has_none
+  bug: "the docstring's stated reason for the plain join was real — a writer needs a canonical path before the file exists, and an exists-first lookup would silently retarget a first write. That requirement is preserved: the fallback moved to where `init-project` deploys, it did not become conditional."
+  fixed_in: "Round 97"
+
+- test: tests/test_adr_has_one_location.py::test_a_project_that_keeps_its_adr_in_the_architecture_dir_is_unmoved
+  bug: "negative control: both layouts stay supported. A project that keeps ADR.md directly in the architecture dir must not be asked to move it — Round 42, the compliant project must not pay for the fix."
+  fixed_in: "Round 97"
+
+- test: tests/test_adr_has_one_location.py::test_there_is_one_resolver
+  bug: "`_adr_path` existed because `adr_path` could not answer. Two functions answering one question is what put the writer and the reader on different files for eleven projects."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_the_total_row_is_a_coverage_claim
+  bug: "`check_coverage_report` required the literal phrase `Line coverage: N%` and so could not see the claim the corpus writes. Measured: the phrase matches 1 of 11 projects; the pytest-cov `TOTAL … N%` row matches 11 of 11 with an unambiguous number. The neighbouring `check_test_count_reconciliation`'s docstring criticises this exact behaviour — 'returns nothing when it finds no numeric claim'."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_a_count_above_the_whole_suite_blocks
+  bug: "TEST_RESULTS.md was reconciled once, at Phase 4, then shipped through four more phases while the tree changed underneath it. Measured on the seven corpus projects carrying gate evidence, five disagree with the last recorded run; taskq-super's document claims 7563 passed against a 331-test delivered suite — a run taken from the repository root that also collected the vendored harness. A count above the whole suite the framework measured cannot describe this tree, and needs no tolerance to say so."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_normal_growth_after_phase_four_is_reported_not_blocked
+  bug: "negative control, Round 42: tests added after Phase 4 are what a working pipeline does (taskq-cc, 283 documented against 287 delivered). Blocking on that charges a project for working. Both numbers are recorded side by side instead, which is what a reader of the delivery needs and did not have."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_no_recorded_measurement_is_not_an_accusation
+  bug: "Round 32: a project with no recorded gate run is a measurement that could not be taken, not a failing one."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_phase_four_keeps_its_own_check
+  bug: "negative control: Phase 4 reconciles against a live run and blocks on any mismatch, which is correct there. The later-phase check must not take that over or double-report it."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_the_newest_gate_is_the_one_compared
+  bug: "the delivered tree is the last one measured, not the first. Reading gate2 evidence when gate4 exists would reconcile the document against a tree that is two phases gone."
+  fixed_in: "Round 97"
+
+- test: tests/test_delivered_reports_describe_the_delivered_tree.py::test_the_caller_carries_both_answers_out
+  bug: "found by this round's own counter-proof. Replacing `violations.extend(check_…())` with a bare `check_…()` — running both new checks and discarding their answers — left every guard green: the per-check tests call the checks directly and `test_cross_artifact_thorough` reads only `checks_ran`. Round 24, a number computed and thrown away, inside guards written for Round 24. This one drives `run_cross_artifact_checks` and reads the violations back out."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_a_lowered_floor_on_a_project_that_is_not_small_blocks
+  bug: "`crg_analysis.COHESION_HEALTHY` is 0.3 and `harness_config` gives one legitimate reason to go below it — Leiden over-fragmentation in a package of at most CRG_SMALL_PACKAGE_FILES source files. Round 42 站4 had already put `cohesion_healthy` and `source_files` into the gate result's calibration block; no line of code compared them. Measured: 11 of 11 corpus projects had lowered the floor (0.15-0.25) at 41-65 source files, matching the documented reason 0 times, and 0 of 11 QUALITY_REPORT.md files said so. taskq-final lists communities at 0.22 and 0.29 beside an architecture score of 100.0."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_a_small_package_may_calibrate_below_the_default
+  bug: "the boundary is pinned from both sides. Found by this round's CP-8 self-falsification: the first version asserted only that CRG_SMALL_PACKAGE_FILES files stays silent, so replacing the predicate's boundary with an invented 12 left it green — one point inside a region cannot pin that region's edge."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_an_unmeasurable_calibration_is_not_a_finding
+  bug: "Round 32: a gate result written before `calibration` existed carries neither number, and is not a project that lowered anything."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_the_documented_reason_is_a_constant_not_prose
+  bug: "the boundary was prose ('~10 source files') in a docstring while a gate blocks on it — one contract, two statements. Scoped to `__doc__` after CP-10: the first version split the source on `def get_crg_settings`, and the constant's own assignment line sits above that def, so the search was satisfied by the definition rather than by the documentation it claimed to check."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_the_report_carries_the_floor_the_score_was_measured_on
+  bug: "Round 42 站4 one layer out: the calibration reaches the gate JSON and stops, so a reader of the delivery sees communities below the default beside a perfect architecture score with nothing saying the two agree because the floor moved. Rendered end to end after CP-5c2: the first version called `_calibration_note` directly and stayed green when the line emitting it was deleted from the report."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_a_report_on_the_default_floor_says_nothing
+  bug: "negative control: a note that fires on every delivery is not a note."
+  fixed_in: "Round 97"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_floor_below_the_default_blocks_at_the_gate
+  bug: "found by this round's CP-5b. The wiring guard was `assert 'lowered_cohesion_floor_reason' in harness_bridge.py`, and deleting the call left it green because the import line still carried the name — Round 68 CP-10's finding (a guard measuring an import) recurring inside the guard written to prevent it. Round 43 / Round 47: a predicate with no executor is the shape, so the executor is what has to be observed. Drives `finalize_gate` and reads the raised `crg_floor_lowered` details."
+  fixed_in: "Round 97"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_small_package_below_the_default_still_scores
+  bug: "negative control through the same path: a project inside the framework's own stated reason for calibrating below 0.3 scores normally and is not blocked."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_a_named_module_that_does_not_exist_is_reported
+  bug: "`08-config/CONFIG_RECORDS.md` is where the delivery states how to start, and nothing checked that what it names is there. taskq-final's says `uvicorn taskq_api.main:app`; the delivered package has `app.py` and `__main__.py` and no `main.py`, so following the document raises ModuleNotFoundError before the process starts. Measured across the corpus: one project names a module that resolves, one names one that does not, nine name none — zero false positives."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_a_named_module_that_exists_is_silent
+  bug: "negative control: taskq-cc-new names `taskq_api.app`, which resolves, and must stay silent."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_a_filename_where_a_module_goes_is_not_an_accusation
+  bug: "rewritten by CP-7. The first draft's probe took any dotted path inside backticks and flagged a corpus project's prose `config.py`; the shipped extractor requires `:attr` or `-m`, so that prose never reaches the suffix filter and the original fixture proved nothing — removing the filter left it green. What does reach it is a launch command spelled with the file rather than the module (`uvicorn main.py:app` yields `main.py`). Excluding those is the limit that keeps the corpus false-positive rate at zero, and it is this check's second blind spot beside the unverified `<attr>`."
+  fixed_in: "Round 97"
+
+- test: tests/test_lowered_floor_and_named_modules.py::test_earlier_phases_are_not_judged_on_a_phase_eight_document
+  bug: "negative control: CONFIG_RECORDS.md is Phase 8's artefact and earlier phases must not be judged on it."
+  fixed_in: "Round 97"

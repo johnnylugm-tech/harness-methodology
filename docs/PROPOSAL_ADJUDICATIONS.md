@@ -3843,6 +3843,76 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 97 — 框架自己寫的那一份,和沒有人再讀的那一份
+
+老闆令:複核一份對 taskq-final 的審計報告,**重新驗證問題的真實性與根源性**,對
+harness-methodology 提出具體改善;明確根源是 **harness bug 還是 workflow JS bug**,
+用正解不用 workaround,不破壞共通性。追加令(第八次):**方案本身也要先驗證。**
+
+全部量測唯讀,且**每一站都對 11 個語料專案量過**,不是只看 taskq-final。
+**沒有一條是 workflow JS bug,五條全部是 harness bug。**
+
+### 0. 先更正審計報告本身(四條)
+
+| 報告主張 | 實測裁決 |
+|---|---|
+| P4「真實覆蓋率僅 97%,`v3_split_results.py` 僅 66%」 | **對交付樹不成立**。gate4 框架自己的 run:`TOTAL 1203 0 100%`、`v3_split_results.py 64 0 100%`。97%/66% 來自**過期的 P4 交付物** —— 那份文件本身才是缺陷,見 R97-C |
+| P4「TEST_RESULTS 殘留草稿說 193 passed / 10 failed」 | **誇大**。那行是描述框架自己那支對賬檢查的散文。真缺陷是文件寫 **227**、交付樹是 **267** |
+| P2「根目錄 ADR.md 僅 8 行」 | 路徑不是 repo 根,是 `02-architecture/ADR.md`;而且那 8 行**是框架自己的 `amend-sab` 寫的**,見 R97-B |
+| P7「crg_cohesion_healthy 被調降」 | **屬實**,但**全語料 11/11 都降過**,見 R97-D |
+
+### 1. 五條裁決
+
+| # | 主張 | 裁決 | 出處 |
+|---|---|---|---|
+| R97-A | P5 的 `VERIFICATION_REPORT.md` 從來沒有列出過一條驗收準則 | **採納**。框架有**兩支 AC 解析器**:`generate_verification_report.py` 的私有 regex 找 `AC-FR-\d+-\d+:`,`artifact_consistency.srs_acceptance_criteria` 讀 `#### AC-1.1`(Phase 1 prompt 實際產生的形狀)。全語料:canonical **1,004 條**(28–134/案),私有那支 **11/11 全 0**,11 份已交付報告逐字印 `_No acceptance criteria extracted_`。**這支解析器在任何專案上都沒有work過。** 正解是刪掉私有那份改呼叫 canonical(R17/R33:一份合約一份陳述),不是換個更好的 regex | `scripts/generate_verification_report.py`、`tests/test_verification_report_reads_the_real_criteria.py` |
+| R97-B | 「ADR 在哪裡」寫入者與讀取者不同調 | **採納**。`ProjectLayout.adr_path`(**寫入者**,`sab_amender` 用)純 join 到 `02-architecture/ADR.md`;`artifact_consistency._adr_path`(**讀取者**)優先 `adr/ADR.md`。`init-project` 與 `DELIVERABLE_ANCHORS` 都用 `adr/`,故 **11/11 語料的真 ADR(277–1069 行)在 `adr/` 而寫入者指向根**。兩個專案已付代價:taskq-final 根目錄 **8 行**、taskq-new **36 行**,都是 `amend-sab` 造的殘根,而必要交付物檢查被殘根滿足。正解:`adr_path` 既有檔案優先、皆無時回落到**框架自己部署的位置**,`_adr_path` 改為呼叫它。docstring 記載的「寫入者需要檔案不存在時的 canonical path」需求**保留**,兩種佈局都繼續work | `core/utils/project_layout.py::adr_path`、`tests/test_adr_has_one_location.py` |
+| R97-C | 交付物的數字只被對賬一次,然後帶著過期的數字走完四個 phase | **採納,分兩半**。C1:`check_coverage_report` 要求字面 `Line coverage`,**11 案命中 1**;pytest-cov 的 `TOTAL … N%` **11 案命中 11**。只讓它看得見,不放寬失敗條件。C2:對賬限定 `phase != 4` 的理由(不重跑整套測試)是真的,但**後續 gate 早就跑過而且結果已落盤**在 `gate_evidence/`。7 個有 evidence 的專案 **5 個文件與交付樹對不上**。**判定強度依老闆裁定「只擋可證明量錯樹的」**:文件宣稱數 > 框架量到的整套規模才封鎖(taskq-super 7563 > 331,量到了含 vendored harness 的另一棵樹);其餘並列兩個數字,不指控 —— 等值會罰正常新增測試(R42),容差則是拿語料反推出來的數字 | `core/quality_gate/cross_artifact.py::check_delivered_report_freshness` |
+| R97-D | 框架的 CRG 預設,語料 11/11 都達不到 | **採納(老闆二次裁定:照原裁決擋)**。`gate{2,4}_result.json` 的 `calibration` **早就同時記著** `cohesion_healthy` 與 `source_files`(R42 站4 運作正常),沒有一行程式比較它們。全語料:**11/11 降過預設**(0.15–0.25)、source_files **41–65**、符合 docstring 唯一正當理由「小套件」的 **0/11**、`QUALITY_REPORT.md` 說了的 **0/11**。**我把 11/11 這個 blast radius 放到老闆面前,老闆在看過數字之後裁定要擋。** | `harness/gate_checks.py::lowered_cohesion_floor_reason` |
+| R97-E | P8 的 `CONFIG_RECORDS.md` 指名一個不存在的模組 | **採納**。taskq-final 寫 `uvicorn taskq_api.main:app`,交付樹只有 `app.py`/`__main__.py`,照文件上線即 ModuleNotFoundError。全語料:1 真陽性、1 真陰性(taskq-cc-new 的 `taskq_api.app` 解析得到)、9 靜默,零誤報。純檔案系統解析,不 import 不執行 | `core/quality_gate/cross_artifact.py::check_named_modules_resolve` |
+
+### 2. 本輪引入的新單一來源,與明列的極限
+
+- **`core/harness_config.py::CRG_SMALL_PACKAGE_FILES = 10`**:小套件界線原本只是 docstring 的
+  散文「≤ ~10」,現在一個 gate 靠它封鎖,所以它必須是程式碼(R60:判定依賴的數字不是文件)。
+- **本輪不為 CRG 發明新預設。** 站3 會讓 11/11 語料專案立刻紅,而它們紅的**不是新缺陷,是既有
+  交付的既有狀態**。那個 11/11 是「0.3 可能是錯的預設」的證據,不是十一個專案的罪狀;用語料反推
+  門檻就是把尺子配合資料。**再開條件**:本輪封鎖訊息累積出足夠樣本後,獨立一輪決定 0.3。
+- **既有的 8 行 / 36 行 ADR 殘根留在原地。** 框架不刪專案的檔案。那兩個專案的
+  `02-architecture/` 之後會有兩份 ADR,只是 amendment 不再往殘根寫。
+- **站4 抓「模組不存在」,抓不到「屬性不存在」**(驗 `<attr>` 要 import,會執行專案程式),
+  也**不判「把檔名寫在模組位置」**(`uvicorn main.py:app`)—— 那是對指令拼法的判斷,
+  而排除它正是零誤報的來源。
+
+### 3. 反證抓到我自己六個守衛是假的
+
+十四條反證(revert → 守衛必須轉紅 → 從備份還原 → sha256 逐檔比對)裡,**六條第一次沒紅**。
+全部是同一個形狀:**守衛觀察的東西不是它宣稱保護的性質**。
+
+| 反證 | 我原本寫的守衛 | 為什麼它沒紅 | 改成 |
+|---|---|---|---|
+| CP-5b | `assert "lowered_cohesion_floor_reason" in harness_bridge.py` | 刪掉呼叫之後 **import 那一行還留著名字** —— R68 CP-10 的發現,在為它寫的守衛裡再現一次 | 驅動 `finalize_gate`,讀 raise 出來的 `crg_floor_lowered` |
+| CP-5c2 | 直接呼叫 `_calibration_note` | 刪掉報告裡輸出它的那一行,守衛照樣綠 —— **note 存在 ≠ 報告帶著它** | 整份 `generate_quality_report` 渲染後讀回文字 |
+| CP-7 | fixture 用散文裡的 `` `config.py` `` | 那是我**第一版探針** regex 的誤報形狀;正式抽取器要求 `:attr` 或 `-m`,散文根本到不了副檔名過濾器 | 改成真的會到達的 `uvicorn main.py:app` |
+| CP-8(自我證偽) | 只斷言「界線內靜默」 | **一個點釘不住一個區間的邊** —— 把界線換成我編的 12,守衛全綠 | 兩側都釘:界線上靜默、界線 +1 封鎖 |
+| CP-9b | per-check 直接呼叫 + `checks_ran` 計數 | 把 `violations.extend(check())` 改成 `check()`(**跑了但把答案丟掉**),所有守衛全綠 —— R24 母體出現在為 R24 寫的守衛裡 | 驅動 `run_cross_artifact_checks`,把 violations 讀回來 |
+| CP-10 | `source.split("def get_crg_settings")[0]` 裡找常數名 | **常數自己的賦值行就在那個 def 上面**,搜尋被定義滿足,而不是被它宣稱檢查的文件滿足 | 縮到 `__doc__` |
+
+六條全部改完後重跑反證,全部轉紅。**這是本輪最重要的產出**:如果反證只做到「跑一次看它綠」,
+這六個守衛會以「已驗證」的身分入庫,而它們保護的性質一條都沒被釘住。
+
+### 4. 明列不做(附再開條件)
+
+| 項目 | 理由 |
+|---|---|
+| 攔截 C1–C5 程式缺陷(400 行函式、`except Exception: pass`、409/500、seed 汙染、ORM↔migration 型別分裂)| 專案缺陷,框架已有對應維度。ORM↔migration 的正解是「測試跑在 migrate 過的 schema 上」,那是專案 recipe 的內容;框架規定 domain 步驟會破壞共通性。**再開**:第二個專案出現同形 schema 分裂 |
+| D2 測試白名單 | 與 `test_assertion_quality` 的 `neutralised` 同類不同形。**再開**:第二個語料專案出現硬編碼豁免清單 |
+| H2 空白發布清單 | `check_unfilled_placeholders` 只認 `{{…}}`;空的 `- [ ]` 是另一種形狀。**再開**:第二個專案交付全空清單 |
+| A3 `invention_count: 34` | 需要先決定「多少算過度」——那是新門檻,不是修壞掉的機制 |
+| A1 NFR-99 / A2 SPEC_TRACKING↔TRACEABILITY | **未查證**(NFR-99 可能是框架注入的 placeholder),不憑報告寫進本輪 |
+| `get_crg_settings` 的型別驗證 | **已經建好**,taskq-mm 的 `True` 已被拒接退回預設 —— 我原本要修,量測後撤回 |
+| 動 `taskq*` 任何檔案 | 唯讀 |
+
 ## Round 96 — 判定量的那一次執行,沒有人跑得出來
 
 老闆令:檢視 taskq-final P1–P8 的紀錄與 git history、檢視 harness-methodology 的 history,
