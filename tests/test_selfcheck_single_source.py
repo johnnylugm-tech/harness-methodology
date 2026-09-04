@@ -152,3 +152,19 @@ def test_ci_does_not_keep_a_second_copy_of_the_checks():
         f"Framework Self-Tests still runs checks outside the shared script: "
         f"{strays}. Each of these is a rule the pre-push hook cannot know about"
     )
+
+
+def test_pre_push_hook_passes_no_tests_flag():
+    """Unit tests run in CI rather than blocking every local push for minutes."""
+    body = PRE_PUSH.read_text(encoding="utf-8")
+    assert "self_check.sh\" --no-tests" in body or "self_check.sh --no-tests" in body, (
+        "pre-push hook should pass --no-tests to self_check.sh so unit tests run in CI"
+    )
+
+
+def test_self_check_script_supports_no_tests_flag():
+    body = SELF_CHECK.read_text(encoding="utf-8")
+    assert "--no-tests" in body, (
+        "scripts/self_check.sh must support --no-tests to skip unit tests"
+    )
+

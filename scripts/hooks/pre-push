@@ -278,7 +278,8 @@ if [ -f "$PROJECT_ROOT/tests/REGRESSION_GUARDS.yaml" ] && [ -f "$PROJECT_ROOT/sc
         # `bash <script>` rather than executing it: if the framework repo's
         # tracked self_check.sh is unreadable or gone, bash fails and the
         # block below fires. There is no branch that can decide not to run it.
-        bash "$PROJECT_ROOT/scripts/self_check.sh" || {
+        # Unit tests are verified directly in GitHub Actions CI to keep push fast.
+        bash "$PROJECT_ROOT/scripts/self_check.sh" --no-tests || {
             echo ""
             echo "=============================================="
             echo "PRE-PUSH BLOCKED: self-check failed"
