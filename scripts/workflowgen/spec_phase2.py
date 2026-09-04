@@ -248,16 +248,17 @@ def _render_phase2_constitution_check_adr() -> str:
         "// \"PASS\" claim can't slip through to Push/Advance.\n"
         "{\n"
         "  const aciVerify = await agent(\n"
-        "    'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\\n'\n"
-        "    + 'Report ONLY: \"ACI: PASS\" if exit code 0, else \"ACI: FAIL — <first FAIL line>\".',\n"
-        "    { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose' },\n"
+        "    'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '; echo \"RC=$?\"`\\n'\n"
+        "    + 'Report via StructuredOutput: verify_rc = RC= line integer; detail = the [check-artifact-consistency] / [BLOCKED] line.',\n"
+        "    { label: 'aci-verify', phase: 'Constitution Check — ADR', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },\n"
         "  )\n"
-        "  if (!(typeof aciVerify === 'string' && /ACI:\\s*PASS/.test(aciVerify))) {\n"
+        "  if (!(aciVerify && aciVerify.verify_rc === 0)) {\n"
         + S.render_session_block_guard(
             'aciVerify', 'artifact-consistency', 2,
             message='Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.',
+            payload='object',
         )
-        + "    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })\n"
+        + "    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: JSON.stringify(aciVerify ?? null).slice(-500) })\n"
         "  }\n"
         "}\n"
     )
@@ -383,16 +384,17 @@ def _render_phase2_constitution_check() -> str:
         + "// AFTER SAB Generation.\n"
         + "log('check-artifact-consistency (post-SAB SEC-VALIDATE)')\n"
         + "const aciPostSab = await agent(\n"
-        + "  'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\\n'\n"
-        + "  + 'Return the verbatim exit code line: \"[check-artifact-consistency] OK\" or \"[BLOCKED] ...\".',\n"
-        + "  { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose' },\n"
+        + "  'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '; echo \"RC=$?\"`\\n'\n"
+        + "  + 'Report via StructuredOutput: verify_rc = RC= line integer; detail = the [check-artifact-consistency] / [BLOCKED] line.',\n"
+        + "  { label: 'aci-post-sab', phase: 'Constitution Check', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },\n"
         + ")\n"
-        + "if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {\n"
+        + "if (!(aciPostSab && aciPostSab.verify_rc === 0)) {\n"
         + S.render_session_block_guard(
             'aciPostSab', 'artifact-consistency', 2,
             message='Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.',
+            payload='object',
         )
-        + "  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })\n"
+        + "  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: JSON.stringify(aciPostSab ?? null).slice(-500) })\n"
         + "}\n"
     )
 
@@ -587,7 +589,7 @@ def generate_phase2() -> str:
         B.render_doc_block(),
         B.render_structured_b_review(default_phase_num=2),
         B.render_generic_ab_loop(b_role="TECH_LEAD", phase_num=2),
-        B.render_schemas(["VERDICT_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA"]),
         B.render_persist_approval(synthesize_reason=True, use_schema_verdict=True),
         B.render_load_file_via_python(),
         _render_phase2_entry_preflight(),

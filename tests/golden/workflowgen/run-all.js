@@ -1599,6 +1599,7 @@ async function abLoop(cfg) {
 
 
 
+
 async function persistApproval(deliverableId, b2) {
   const rawReason = String(b2.reason ?? '').trim()
   const synthReason = 'Agent B approved ' + deliverableId + ' (review_status=' + (b2.review_status ?? 'APPROVE')
@@ -1896,16 +1897,16 @@ if (!(typeof adrConstReport === 'string' && /ADR-CONSTITUTION:\s*PASS/.test(adrC
 }
 {
   const aciVerify = await dispatch(
-    'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
-    + 'Report ONLY: "ACI: PASS" if exit code 0, else "ACI: FAIL — <first FAIL line>".',
-    { label: 'aci-verify', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose' },
+    'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '; echo "RC=$?"`\n'
+    + 'Report via StructuredOutput: verify_rc = RC= line integer; detail = the [check-artifact-consistency] / [BLOCKED] line.',
+    { label: 'aci-verify', phase: 'P2 · Constitution Check — ADR', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
   )
-  if (!(typeof aciVerify === 'string' && /ACI:\s*PASS/.test(aciVerify))) {
-if (aciVerify === null || aciVerify === undefined || aciVerify === '' || typeof aciVerify !== 'string') {
+  if (!(aciVerify && aciVerify.verify_rc === 0)) {
+if (aciVerify === null || aciVerify === undefined || typeof aciVerify !== 'object') {
   log('  artifact-consistency agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency. Resume after quota reset — state.json is untouched.' }
 }
-    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: String(aciVerify ?? '').slice(-500) })
+    return halt('artifact-consistency', { error: 'check-artifact-consistency did not PASS after ADR constitution check', raw: JSON.stringify(aciVerify ?? null).slice(-500) })
   }
 }
 
@@ -2019,16 +2020,16 @@ if (!constPass) return halt('constitution', { error: 'Phase 2 constitution check
 
 log('check-artifact-consistency (post-SAB SEC-VALIDATE)')
 const aciPostSab = await dispatch(
-  'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '`\n'
-  + 'Return the verbatim exit code line: "[check-artifact-consistency] OK" or "[BLOCKED] ...".',
-  { label: 'aci-post-sab', phase: 'P2 · Constitution Check', agentType: 'general-purpose' },
+  'Run: `' + PY + ' ' + REPO + '/harness_cli.py check-artifact-consistency --project ' + REPO + '; echo "RC=$?"`\n'
+  + 'Report via StructuredOutput: verify_rc = RC= line integer; detail = the [check-artifact-consistency] / [BLOCKED] line.',
+  { label: 'aci-post-sab', phase: 'P2 · Constitution Check', agentType: 'general-purpose', schema: GATE_VERIFY_SCHEMA },
 )
-if (typeof aciPostSab !== 'string' || !aciPostSab.includes('OK')) {
-if (aciPostSab === null || aciPostSab === undefined || aciPostSab === '' || typeof aciPostSab !== 'string') {
+if (!(aciPostSab && aciPostSab.verify_rc === 0)) {
+if (aciPostSab === null || aciPostSab === undefined || typeof aciPostSab !== 'object') {
   log('  artifact-consistency agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'artifact-consistency', message: 'Agent hit session/rate limit during artifact-consistency (post-SAB). Resume after quota reset — state.json is untouched.' }
 }
-  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: String(aciPostSab ?? '').slice(-500) })
+  return halt('artifact-consistency', { error: 'check-artifact-consistency (post-SAB SEC-VALIDATE) FAIL', raw: JSON.stringify(aciPostSab ?? null).slice(-500) })
 }
 
 
