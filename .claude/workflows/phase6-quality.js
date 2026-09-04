@@ -580,8 +580,10 @@ log('git tag (Gate 4 score) + advance-phase --completed 6')
 // changes one. advance-phase is idempotent (preflight runs before any
 // FSM/state write), so the robust fix is an outer retry loop where the
 // agent reads advance-phase's own [BLOCKED] output each round instead of
-// guessing in advance. The git-tag step is separately GUARDed (step 0
-// checks for an existing tag), so it stays safe to repeat across rounds.
+// guessing in advance. The git-tag step is safe to repeat because
+// gate4-tag is itself idempotent (Round 95: it exits 0 without
+// re-creating a tag whose name is already taken), not because a step
+// here remembers to skip it.
 let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
@@ -596,9 +598,9 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     'YOU ARE THE PHASE-6 EXIT ORCHESTRATOR. Tag the Gate 4 release + advance to Phase 7. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 7 ]`. If Phase 7 is confirmed, report "ADVANCE: PASS (already advanced)" and stop. Separately (for step 2 only): `git -C ' + REPO + ' tag -l "harness-v4-*" | head -1` — remember this to skip re-creating the tag in step 2. Tag existence alone does NOT mean advance-phase ran; you MUST still execute steps 1-3 unless Phase 7 was confirmed above.\n'
+    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 7 ]`. If Phase 7 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. RE-VERIFY GATE 4 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 4 --phase 6 --spec-threshold 90.0`\n   The earlier Gate 4 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
-    + '2. GIT-TAG (skip if step 0 found an existing tag): `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it. Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\n'
+    + '2. GIT-TAG: `' + PY + ' ' + REPO + '/harness_cli.py gate4-tag --project ' + REPO + '` then `git -C ' + REPO + ' push origin --tags`. gate4-tag reads composite_score from gate4_result.json (the same score finalize-gate computed and persisted), formats the tag, and creates it — it exits 0 without re-creating when that tag already exists, so run BOTH commands every round: the push is the only place the release tag reaches origin (advance-phase pushes HEAD, not tags). Do NOT hand-build the tag command — gate4-tag is the single source of truth for tag naming and score extraction.\n'
     + '3. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 6 --project ' + REPO + '`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
     + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 7 (advance-phase atomically writes state.json when complete).\n\n'
@@ -608,7 +610,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   )
 if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
   log('  tag-advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-  return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced/tagged.' }
+  return { session_limit_blocked: true, phase: 6, step: 'tag-advance', message: 'Agent hit session/rate limit during Tag & Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
 }
   // AUTHORITATIVE Advance verdict: advance-phase atomically writes
   // state.json current_phase=7 on success. Read it via a schema proxy —

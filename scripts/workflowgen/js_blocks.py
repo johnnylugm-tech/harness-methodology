@@ -1076,6 +1076,45 @@ def render_exit_gate_reverify_step(phase: int) -> "str | None":
     )
 
 
+def render_advance_guard_step(next_phase: int) -> str:
+    """Step 0 of every advance prompt: the ONE thing that means "already done".
+
+    Round 95. `state.json.current_phase >= next_phase` is the whole test,
+    because advance-phase is the only thing that writes it. P6 did not use
+    this text — it hand-rolled a near-copy for its interleaved git-tag step
+    and the copy grew a second clause, `OR a harness-v4-* tag exists`, which
+    a round that tagged and then died left permanently true. Five retry
+    rounds reported "ADVANCE: PASS (already advanced)" without calling
+    advance-phase (taskq-final, two separate workflow runs). Round 93 removed
+    that clause from P6's copy; this removes the copy.
+
+    Measured before extracting: this one f-string reproduces P3/P4/P5/P7's
+    existing guard line byte-for-byte, so the four of them do not move.
+    """
+    return (
+        f"    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' "
+        f"+ REPO + '/.methodology/state.json 2>/dev/null); echo "
+        f"\"current_phase=$PHASE\"; [ \"$PHASE\" -ge {next_phase} ]`. If Phase "
+        f"{next_phase} is confirmed, report \"ADVANCE: PASS (already "
+        f"advanced)\" and stop.\\n'\n"
+    )
+
+
+def advance_session_block_message(step_label: str) -> str:
+    """The session-limit message for an advance-shaped step.
+
+    Round 95. P6's copy said "skips if already advanced/tagged" — the tag half
+    of a guard that Round 93 had already deleted from the machine, still being
+    described to the operator in `phase6-quality.js` and `run-all.js`. The
+    tail is the part that describes the guard, so the guard's single source
+    owns it and only the step's own name varies.
+    """
+    return (
+        f"Agent hit session/rate limit during {step_label}. "
+        f"Resume after quota reset — the GUARD step skips if already advanced."
+    )
+
+
 def render_advance_loop(
     *,
     phase: int,
@@ -1157,7 +1196,7 @@ def render_advance_loop(
         + f"    'YOU ARE THE PHASE-{phase} EXIT ORCHESTRATOR. Advance to Phase {next_phase}. ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "    + 'Steps:\\n'\n"
-        + f"    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo \"current_phase=$PHASE\"; [ \"$PHASE\" -ge {next_phase} ]`. If Phase {next_phase} is confirmed, report \"ADVANCE: PASS (already advanced)\" and stop.\\n'\n"
+        + render_advance_guard_step(next_phase)
         + numbered
         + f"    + 'Report final line: \"ADVANCE: PASS|FAIL — <details>\". If still FAIL after exhausting this round\\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_{next_phase}_PLAN: ' + REPO + '/.methodology/phase{next_phase}_plan.md\\n\\n'\n"
         + f"    + 'SCOPE RULES:\\n{scope_extra}- DO NOT use --no-verify.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY {only_extra}advance-phase + verify HANDOVER.md + the specific fixes advance-phase\\'s own output asked for.\\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',\n"
@@ -1165,8 +1204,7 @@ def render_advance_loop(
         + "  )\n"
         + render_session_block_guard(
             'advanceReport', 'advance', phase,
-            message='Agent hit session/rate limit during Advance. '
-                    'Resume after quota reset — the GUARD step skips if already advanced.',
+            message=advance_session_block_message('Advance'),
             indent='  ',
         )
         + "  // AUTHORITATIVE Advance verdict: advance-phase atomically writes\n"
