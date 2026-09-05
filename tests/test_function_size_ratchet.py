@@ -121,7 +121,7 @@ _CEILINGS: dict[str, int] = {
     # 770 at Round 81 站9, from 940: four runs extracted. The smallest
     # harvest of the four, because only 182 of its lines are extractable
     # under the rule — the rest threads state through the dispatch loop.
-    "cli/fr_cmds.py::cmd_run_fr_step": 798,  # 2026-09-05: 770 -> 798 — Round 96 站0. The SUITE_TEST_FAILURE branch: a red whole-suite run now routes to TEST-FIX with the failing nodeids and the command that reproduces them, instead of to COVERAGE-FIX. 28 lines in the dispatch chain beside the eight branches already there. Measured cost of not having it: FR-07 on taskq-final Phase 8, 22 rounds and 9.5 hours, 67 of that run's 620 dispatches.
+    "cli/fr_cmds.py::cmd_run_fr_step": 810,  # 2026-09-06: 798 -> 810 — fix(fr-step-no-progress): wire diff_sig and block_sig into the lateral variation detector so file content changes and block item reductions register as progress.  # 2026-09-05: 770 -> 798 — Round 96 站0. The SUITE_TEST_FAILURE branch: a red whole-suite run now routes to TEST-FIX with the failing nodeids and the command that reproduces them, instead of to COVERAGE-FIX. 28 lines in the dispatch chain beside the eight branches already there. Measured cost of not having it: FR-07 on taskq-final Phase 8, 22 rounds and 9.5 hours, 67 of that run's 620 dispatches.
     # 413 at Round 81 站7, from 845: seven runs extracted. Harvested in the
     # same commit because test_no_ceiling_sits_above_the_function_it_covers
     # does not allow otherwise.

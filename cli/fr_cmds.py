@@ -691,8 +691,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 # as no-progress (FR-01 actual case, score=100 / quality_complete
                 # =true still aborted with RC=2).
                 diff_sig = _capture_diff_sig(project)
+                _block_sig = f"{block_reason.kind}:{len(block_reason.items)}" if block_reason.kind else ""
                 no_progress_count_delta, prev_snapshot_sig = _progress_signal(
-                    prev_snapshot_sig, tool_snapshot, diff_sig
+                    prev_snapshot_sig, tool_snapshot, diff_sig, _block_sig
                 )
                 if no_progress_count_delta:
                     no_progress_count += 1
@@ -1795,7 +1796,7 @@ def _resolve_phase3_context(project: Path) -> dict:
     return result
 
 def _progress_signal(
-    prev: str, tool_snapshot: str, diff_sig: str
+    prev: str, tool_snapshot: str, diff_sig: str, block_sig: str = ""
 ) -> "tuple[int, str]":
     """Decide if this round is a no-progress round.
 
@@ -1806,10 +1807,14 @@ def _progress_signal(
 
     A GREEN-pass idle round whose agent edited no files and whose ruff+pytest
     output is unchanged fires no-progress. A GREEN-pass round where the agent
-    DID edit a file is correctly classified as progress (the FR-01 actual
-    case: file changes, identical tool output -> progress).
+    DID edit files or reduced block items is correctly classified as progress
+    (the FR-01 actual case: file changes, identical tool output -> progress).
     """
-    combined = f"{diff_sig}|{tool_snapshot[:300]}"
+    combined = (
+        f"{diff_sig}|{block_sig}|{tool_snapshot[:300]}"
+        if block_sig
+        else f"{diff_sig}|{tool_snapshot[:300]}"
+    )
     if not combined.strip("|"):  # both diff_sig and tool_snapshot empty
         return 0, prev
     if combined == prev:
@@ -1818,24 +1823,39 @@ def _progress_signal(
 
 
 def _capture_diff_sig(project: Path) -> str:
-    """Short hash of working-tree status (tracked changes + untracked).
+    """Short hash of working-tree diff (tracked changes + untracked files).
 
     Falls back to "" if git fails — caller treats empty as "no signal".
-    Layout-agnostic: uses ``git status --porcelain``, no hardcoded paths.
+    Combines `git diff HEAD` (actual content changes to tracked files)
+    and `git status --porcelain` (presence of untracked or staged files)
+    so consecutive edits to the same file alter the signature.
     """
-    import subprocess as _sp
     import hashlib as _hl
+    import subprocess as _sp
     try:
-        r = _sp.run(
+        r_diff = _sp.run(
+            ["git", "-C", str(project), "diff", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r_diff.returncode != 0:
+            r_diff = _sp.run(
+                ["git", "-C", str(project), "diff"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r_diff.returncode != 0:
+                return ""
+        r_status = _sp.run(
             ["git", "-C", str(project), "status", "--porcelain"],
             capture_output=True, text=True, timeout=5,
         )
-        if r.returncode != 0:
+        if r_status.returncode != 0:
             return ""
-        return _hl.sha1(r.stdout.encode()).hexdigest()[:40]
+        combined = f"{r_diff.stdout}\n---\n{r_status.stdout}"
+        return _hl.sha1(combined.encode("utf-8")).hexdigest()[:40]
     except Exception as exc:
         print(f"[WARN] _capture_diff_sig failed: {exc}", file=sys.stderr)
         return ""
+
 
 
 def _capture_tool_snapshot(

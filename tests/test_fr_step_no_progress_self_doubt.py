@@ -188,3 +188,63 @@ def test_capture_diff_sig_returns_empty_in_non_git_dir(tmp_path):
     assert sig == "", (
         f"non-git working dir must return empty sig (fail-soft), got {sig!r}"
     )
+
+
+def test_capture_diff_sig_changes_on_consecutive_edits_to_same_file(tmp_path):
+    """Consecutive edits to the same tracked file must produce distinct diff sigs.
+
+    git status --porcelain emits ' M foo.py' on both edits, failing to
+    differentiate consecutive changes. The canonical content diff must change
+    its hash so an agent trying two different fixes on the same file is not
+    misclassified as no-progress.
+    """
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "t@t"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "t"],
+        check=True,
+    )
+    target = tmp_path / "target.py"
+    target.write_text("def run(): return 0\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "target.py"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-m", "init", "-q"],
+        check=True,
+    )
+
+    # Edit 1
+    target.write_text("def run(): return 1\n", encoding="utf-8")
+    sig1 = fr_cmds._capture_diff_sig(tmp_path)
+
+    # Edit 2 (different change to same file)
+    target.write_text("def run(): return 2\n", encoding="utf-8")
+    sig2 = fr_cmds._capture_diff_sig(tmp_path)
+
+    assert sig1 != sig2, (
+        f"consecutive edits to same file must produce different diff sigs, "
+        f"got identical {sig1!r}"
+    )
+
+
+def test_progress_signal_block_sig_reduction_returns_zero():
+    """GREEN-pass idle round where block signal changes must register as progress.
+
+    When ruff+pytest output is static pass and file diff is unchanged,
+    a reduction in the blocker count (e.g. pragma_no_cover:3 -> pragma_no_cover:2)
+    is progress towards clearing the gate.
+    """
+    delta, new_prev = fr_cmds._progress_signal(
+        "diff1|pragma_no_cover:3|ruff pass + pytest 17 passed",
+        "ruff pass + pytest 17 passed",
+        "diff1",
+        "pragma_no_cover:2",
+    )
+    assert delta == 0, "reduction in block items must be classified as progress"
+    assert new_prev == "diff1|pragma_no_cover:2|ruff pass + pytest 17 passed"
+
+
