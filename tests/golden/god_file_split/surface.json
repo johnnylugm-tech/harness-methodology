@@ -579,7 +579,7 @@
     "cli.phase_cmds::_precheck_deliverable_anchors": "a8154dce33fd1808",
     "cli.phase_cmds::_precheck_early_stage_pass": "8ad43800c6949432",
     "cli.phase_cmds::_precheck_manifest_and_p1_baselines": "b155d67590e9ac7f",
-    "cli.phase_cmds::_precheck_p3_security_and_quality": "0ee9a3643bbcd7ce",
+    "cli.phase_cmds::_precheck_p3_security_and_quality": "c7de1afe237563ba",
     "cli.phase_cmds::_precheck_per_fr_gate1_and_phase_truth": "55f30c1c8cfe8fb6",
     "cli.phase_cmds::_precheck_scope_violations": "c9499da14650364f",
     "cli.phase_cmds::_precheck_stage_pass_staging": "9a2f18f5b925f395",

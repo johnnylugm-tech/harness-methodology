@@ -443,6 +443,27 @@ def _layer_segments(module_path: str) -> list[str]:
     return [s for s in re.split(r"[./\\]", stem) if s]
 
 
+def is_fallback_placement(sab: dict, module_path: str) -> bool:
+    """True when *module_path*'s own name states no declared layer.
+
+    `_heuristic_layer_choice` answers "which layer" for every module; this
+    answers "did the module say so, or did we pick one". They are two halves of
+    the same decision and the caller that reports a violation needs the second
+    half: taskq-redo's `taskq_api.app` sits in the `config` layer because
+    `config` happens to be the last one declared, so `config -> api is not an
+    allowed dependency` reads as a project defect when the remedy may be a line
+    in SAD.md §2.
+
+    Round 98. `amend_sab` has computed exactly this expression inline since
+    Round 26 to print its guesses; `cli/advance_prechecks.py` needs the same
+    verdict at the moment it blocks. One definition, two readers — restating
+    it at the block is the shape this round exists to remove.
+    """
+    declared = {str(layer.get("name")) for layer in (sab.get("layers") or [])
+                if layer.get("name")}
+    return not (set(_layer_segments(module_path)) & declared)
+
+
 def _heuristic_layer_choice(sab: dict, module_path: str) -> str:
     """Pick the layer for a new module, preferring what its own name says.
 
@@ -511,10 +532,9 @@ def amend_sab(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR,
     # Group additions by chosen layer to keep modules ordered within layer.
     by_layer: dict[str, list[str]] = {}
     _guessed: list[str] = []
-    _layer_names = {str(_l.get("name")) for _l in sab["layers"] if _l.get("name")}
     for module_path in added:
         layer_name = _heuristic_layer_choice(sab, module_path)
-        if not (set(_layer_segments(module_path)) & _layer_names):
+        if is_fallback_placement(sab, module_path):
             _guessed.append(f"{module_path} -> {layer_name}")
         by_layer.setdefault(layer_name, []).append(module_path)
 

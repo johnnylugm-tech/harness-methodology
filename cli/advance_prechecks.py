@@ -22,9 +22,11 @@ tests/test_mypy_excludes_harness_submodule.py's import keep working.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 from cli import _shared
 from cli.advance_checks import _check_gate1_live_coverage, _regen_traceability_views
@@ -546,6 +548,93 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
     return EX_AGENT_B_APPROVALS_INCOMPLETE
 
 
+def _precheck_sab_consistency(completed_phase, project) -> "int | None":
+    """Every SAB finding advance-phase can act on, not just the missing files.
+
+    Round 98. This block used to filter `_item.actual == "not found"`, which is
+    only ever true of Check 1's missing-file item: Check 3 (architecture
+    violations) writes `imports X (layer Y)` and Check 2 (unregistered files)
+    writes `unregistered`, so both were discarded 100% of the time under a
+    headline reading "SAB architecture violations". Measured on taskq-wow: a
+    tree synthesised to produce 15 CRITICAL architecture violations put 0 of
+    them through the filter. With the resolver fixed (Round 98 station 1) the
+    twelve corpus projects produce 147.
+
+    Three kinds, three remedies, so they are reported apart:
+
+      * a declared file that is not on disk — write it, or drop the declaration
+      * a delivered file in no layer — register it in SAD.md §2
+      * an import the dependency matrix forbids — fix the import, or the matrix
+
+    The third carries one more fact when `sab_amender.is_fallback_placement`
+    says so: the source layer in that message was chosen by amend-sab's
+    fallback heuristic, not stated by the module, so the line to change may be
+    in SAD.md rather than in the code. 57 of the 147 are that shape. The
+    finding is still charged — 老闆's adjudication for this round — and the
+    provenance is told, not discounted.
+
+    Extracted from `_precheck_p3_security_and_quality`, which is at its
+    function-size ceiling, and it is the block that had to grow.
+    """
+    if completed_phase < 3:
+        return None
+    try:
+        from core.quality_gate.sab_amender import (
+            is_fallback_placement,
+            normalize_sab_module_to_dotted,
+        )
+        from detection.drift_detector import DriftDetector
+
+        _sab_result = DriftDetector(str(project)).detect_sab_drift()
+        _blocking = [_item for _item in _sab_result.drift_items
+                     if _item.severity.value in ("MEDIUM", "HIGH", "CRITICAL")]
+        if not _blocking:
+            return None
+
+        _missing = [i for i in _blocking if i.actual == "not found"]
+        _unregistered = [i for i in _blocking if i.actual == "unregistered"]
+        _arch = [i for i in _blocking
+                 if i not in _missing and i not in _unregistered]
+
+        print(f"\n[BLOCKED] SAB architecture violations — {len(_blocking)} "
+              f"finding(s) between SAD.md §2's baseline and the delivered tree:")
+        for _item in _missing:
+            print(f"  [{_item.location}] declared, not on disk: {_item.expected}")
+            print("    → Create the file OR remove its declaration from SAD.md")
+        for _item in _unregistered:
+            print(f"  [{_item.location}] delivered, in no SAB layer")
+            print("    → Add it to a layer in SAD.md §2, then re-run "
+                  "`python3 harness_cli.py amend-sab --project .`")
+        _sab = {}
+        if _arch:
+            try:
+                _sab = json.loads(
+                    (Path(project) / ".methodology" / "SAB.json").read_text(
+                        encoding="utf-8"))
+            except Exception as _sab_read_err:
+                # The findings below stand either way — this only decides
+                # whether each one can say who chose its source layer.
+                print(f"  [WARN] could not re-read SAB.json for placement "
+                      f"provenance ({_sab_read_err}); the findings below do not "
+                      f"say whether their source layer was declared or "
+                      f"chosen by amend-sab's fallback")
+        for _item in _arch:
+            print(f"  [{_item.location}] {_item.description}")
+            _mod = normalize_sab_module_to_dotted(
+                str(_item.location).split(" (")[0])
+            if _sab and _mod and is_fallback_placement(_sab, _mod):
+                print("    ! that source layer was chosen by amend-sab's "
+                      "fallback heuristic (the module's path names no declared "
+                      "layer), so SAD.md §2 may be what is wrong, not the import")
+            print(f"    → Fix the import OR widen {_item.expected} in SAD.md §2")
+        return 12
+    except ImportError:
+        print("  [WARN] DriftDetector not available — skipping SAB pre-advance check")
+    except Exception as _sab_err:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] SAB pre-advance check error: {_sab_err}")
+    return None
+
+
 def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
     """P3 security and quality — extracted verbatim from `_advance_prechecks`.
 
@@ -587,6 +676,12 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
             if _gl_dead:
                 print("\n[BLOCKED] Secrets Scanning (gitleaks) config does not detect anything.")
                 print(f"  {_gl_dead}")
+                # Round 98: this message reached an agent with nothing to act
+                # on. `scanner_is_alive` reports only what the canary observed;
+                # the remedy is a config line and only this site knows it.
+                print("    → Add `useDefault = true` under `[extend]` in "
+                      "`.gitleaks.toml`, or delete the file to fall back to "
+                      "gitleaks' default ruleset, then re-run advance-phase")
                 return 20
             try:
                 _gl_r = subprocess.run(
@@ -754,31 +849,9 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
             return 10
 
     # ── P2-A: SAB consistency pre-check (MEDIUM violations block advance) ────
-    # Catches "architecture declared file X but not in codebase" before git push
-    # fails.  Gives an actionable message + the specific missing files.
-    if completed_phase >= 3:
-        try:
-            from detection.drift_detector import DriftDetector
-            _dd = DriftDetector(str(project))
-            _sab_result = _dd.detect_sab_drift()
-            _sab_medium = [
-                _item for _item in _sab_result.drift_items
-                if _item.severity.value in ("MEDIUM", "HIGH", "CRITICAL")
-                and _item.actual == "not found"
-            ]
-            if _sab_medium:
-                print(
-                    f"\n[BLOCKED] SAB architecture violations — "
-                    f"{len(_sab_medium)} declared file(s) missing from codebase:"
-                )
-                for _item in _sab_medium:
-                    print(f"  [{_item.location}] expected: {_item.expected}")
-                    print("    → Create the file OR remove its declaration from SAD.md")
-                return 12
-        except ImportError:
-            print("  [WARN] DriftDetector not available — skipping SAB pre-advance check")
-        except Exception as _sab_err:  # pylint: disable=broad-exception-caught
-            print(f"  [WARN] SAB pre-advance check error: {_sab_err}")
+    _sab_rc = _precheck_sab_consistency(completed_phase, project)
+    if _sab_rc is not None:
+        return _sab_rc
 
     # Round 39 Station 1b: structural SAB validation at advance-phase.
     # preflight_sab_check (phase_hooks.py:613-691) already validates per-layer

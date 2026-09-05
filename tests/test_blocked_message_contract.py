@@ -38,6 +38,21 @@ _TARGET_FILES = (
     "cli/gate_cmds.py",
     "cli/fr_cmds.py",
     "cli/push_cmds.py",
+    # Round 98: advance-phase is one of the four hot paths this contract names,
+    # and its messages stopped living in cli/phase_cmds.py. Rounds 80 站7/7c/7d
+    # and 82 站2 moved the nine `_precheck_*`, the nine tree checks, the seven
+    # advance steps and the commit helpers into these four files; the tuple
+    # above was written in Round 13 and never followed. Measured at the moment
+    # it was noticed: 8 [BLOCKED] sites left in cli/phase_cmds.py against 35 in
+    # the four below, i.e. the contract was reading a fifth of its own subject
+    # and staying green — the same shape as this round's main finding (a
+    # population defined by file path, the code moves, the guard keeps
+    # passing). Adding all four produced exactly one violation, fixed in the
+    # same commit.
+    "cli/advance_prechecks.py",
+    "cli/advance_checks.py",
+    "cli/advance_steps.py",
+    "cli/advance_commit.py",
 )
 
 _REMEDIATION_RE = re.compile(

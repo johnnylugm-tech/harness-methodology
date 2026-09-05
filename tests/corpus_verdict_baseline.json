@@ -103,15 +103,6 @@
     "spec_undelivered": 15,
     "spec_unread_rows": 0
   },
-  "taskq-done": {
-    "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: phase_completed is empty and current_phase is 1 \u2014 this project has not reached P3.",
-      "why_right": "Newly initialized project has not reached P3 exit yet, correctly recorded as unmeasurable rather than missing a record or dropped."
-    },
-    "unmeasured": "no 40-char sha in phase_completed[3]"
-  },
   "taskq-final": {
     "_note": {
       "cheapest_satisfaction": "Same shape as its 10-FR siblings: naming the 31 undelivered declarations as tests would close this without writing an assertion.",
@@ -213,6 +204,15 @@
     "spec_declared": 123,
     "spec_undelivered": 51,
     "spec_unread_rows": 0
+  },
+  "taskq-wow": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record - `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 station 1 found a project shipping the literal string PLACEHOLDER there. That is the same cheap path every other unmeasured entry here names.",
+      "discriminating_signal": "This is the one unmeasured shape that carries its own evidence: phase_completed holds real records for 1 and 2 while current_phase is 3, so the missing P3 record is the pipeline's position rather than a dropped or fabricated one. A P3 record appearing while current_phase is still 3 would be the signal worth reading.",
+      "moved": "First recording, unmeasurable: phase_completed carries 1 and 2 and current_phase is 3 - this project is mid-P3 and has not reached the P3 exit this replay freezes.",
+      "why_right": "A project still inside Phase 3 has no P3-exit tree to replay. Unmeasurable is the honest reading; replaying HEAD instead would judge bytes the framework never accepted (Round 32/35: a measurement that could not be taken is not a finding)."
+    },
+    "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "tts-new": {
     "_note": {

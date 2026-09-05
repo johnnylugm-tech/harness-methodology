@@ -664,7 +664,16 @@ class DriftDetector:
             #   not application modules tracked in SAB layers.
             # - Root-level wrapper files (e.g. harness_cli.py) are emitted by
             #   init-project and never belong to a project layer.
-            if rel.endswith("__init__.py") or rel.endswith("__main__.py"):
+            # - conftest.py is pytest's per-directory fixture module. Round 98:
+            #   same category as `scripts/` above and for the same reason —
+            #   `discover_modules`/`amend_sab` only ever scan src_dir, so a
+            #   conftest at 03-development/ can never legitimately be
+            #   registered in a layer, and reporting it is a finding with no
+            #   way to clear it. Harmless until this round, because the only
+            #   consumer discarded every `unregistered` item; two corpus
+            #   projects (taskq, taskq-new) carry one.
+            if rel.endswith("__init__.py") or rel.endswith("__main__.py") \
+                    or rel.endswith("conftest.py"):
                 continue
             if "/" not in rel:
                 continue
@@ -729,6 +738,14 @@ class DriftDetector:
                     mods.add(dotted)
             layer_to_modules[layer_name] = mods
 
+        # Round 98: the delivered source tree — the population Check 3 judges,
+        # read through the same ProjectLayout abstraction sab_amender's own
+        # module discovery uses, so "what the check covers" and "what the SAB
+        # can register" are one statement.
+        _resolved_src = ProjectLayout(self.project_path).active_src_dir
+        _src_dir: Optional[Path] = _resolved_src if _resolved_src.is_dir() else None
+        unjudged: list[str] = []
+
         for py_file in self.project_path.rglob("*.py"):
             if "venv" in str(py_file) or "__pycache__" in str(py_file):
                 continue
@@ -760,6 +777,23 @@ class DriftDetector:
                 if dotted_rel else None
             )
             if source_layer is None:
+                # Round 98. Skipping is right — a layer that cannot be named
+                # must not be guessed — but the skip used to be the whole of
+                # it, and `score = 1 - drifted/checked` counts a skipped module
+                # in neither term. A project whose layering half never ran read
+                # 100.0%, which is how the defect this round found survived on
+                # twelve projects at once. Recorded, not charged, and
+                # deliberately NOT added to `checked`: a measurement that could
+                # not be taken is not one that passed (Round 32/35), and an
+                # absent witness is not a passing one (Round 46).
+                #
+                # Scoped to the delivered source tree, which is the population
+                # Check 3 is about. The loop above also walks tests, conftest,
+                # scripts and migrations — none of which `discover_modules_at`
+                # can register in a layer, so reporting them would be 11-673
+                # rows per corpus project of noise around the signal.
+                if _src_dir is not None and py_file.is_relative_to(_src_dir):
+                    unjudged.append(rel)
                 continue  # not registered in any SAB layer — already flagged in Check 2
 
             allowed = set(allowed_deps.get(source_layer, []))
@@ -801,6 +835,24 @@ class DriftDetector:
                         actual=f"imports {imported} (layer {target_layer})",
                     ))
 
+        if unjudged:
+            _shown = ", ".join(sorted(unjudged)[:5])
+            items.append(DriftItem(
+                drift_type="sab",
+                severity=DriftSeverity.LOW,
+                location="SAB dependencies",
+                description=(
+                    f"Architecture check abstained on {len(unjudged)} delivered "
+                    f"source file(s): their SAB layer cannot be named from the "
+                    f"declarations (unmatched, or claimed by two layers at the "
+                    f"same specificity), so their imports were not judged "
+                    f"against the dependency matrix — {_shown}"
+                    + (", ..." if len(unjudged) > 5 else "")
+                ),
+                expected="every delivered source file resolves to one SAB layer",
+                actual=f"{len(unjudged)} unresolved",
+            ))
+
         score = 1.0 - (drifted / max(checked, 1))
         return DriftResult(
             drift_type="sab",
@@ -813,31 +865,62 @@ class DriftDetector:
 
     def _resolve_import_layer(self, import_path: str,
                               layer_to_modules: dict[str, set[str]]) -> Optional[str]:
-        """Map an import path to a SAB layer name. Returns None if unmatched or ambiguous."""
+        """Map an import path to a SAB layer name, most specific claim first.
+
+        Three tiers, tried in order, and a tie is only a tie WITHIN a tier:
+
+          1. exact — the SAB names this module
+          2. ancestor — the SAB names a package this module lives under; the
+             NEAREST such package answers (`pkg.api` beats `pkg` for
+             `pkg.api.metrics`)
+          3. descendant — the import is a package the SAB only names parts of
+             (`import pkg` against a declared `pkg.cli`)
+
+        A single, unique layer at the first non-empty tier is the answer;
+        anything else abstains, because the path genuinely does not say.
+
+        Round 98. The ambiguity guard below used to run over all three rules at
+        once, and every project in the corpus registers its bare top-level
+        package as a module of some layer — `sab_amender.discover_modules_at`
+        emits it, so `src/taskq_api/__init__.py` becomes the SAB entry
+        `"taskq_api"`. Under one flat pass that entry matches rule 3 against
+        EVERY module in the project, so every module was ambiguous with its own
+        layer and `detect_sab_drift`'s Check 3 skipped it: measured 62%-91% of
+        delivered source modules on 12 of 12 corpus projects, and 21 of
+        taskq-wow's 23. Ranking by specificity answers those without guessing —
+        the module's own layer is a strictly nearer claim than the root
+        package's — while the tie inside a tier still abstains, which is what
+        the flat guard was protecting and what
+        tests/test_drift_detector.py::test_resolve_import_layer_shared_top_level_package_is_ambiguous
+        pins.
+
+        Refusing single-segment entries outright would be the wrong repair:
+        `{"Bridge": {"harness"}}` is a legitimate declaration that a whole
+        top-level package IS a layer, pinned by
+        test_resolve_import_layer_directory, and it resolves through tier 2.
+        """
         # Canonicalize BOTH sides to dotted form so modules stored as
         # "core.quality_gate" still match an `import_path` of "core/quality_gate/sab_parser".
         normalized = import_path.replace("/", ".")
-        matched_layers: set[str] = set()
+        exact: set[str] = set()
+        nearest: set[str] = set()
+        nearest_len: int = -1
+        descendant: set[str] = set()
         for layer_name, modules in layer_to_modules.items():
             for mod in modules:
                 mod_norm = mod.replace("/", ".")
-                # 1. Exact match
-                # 2. Parent-directory match (e.g. from core import quality_gate matches core.quality_gate.sab_parser)
-                # 3. Child-object match (e.g. from core.quality_gate.sab_parser import SABSpec)
-                if (normalized == mod_norm
-                        or mod_norm.startswith(normalized + ".")
-                        or normalized.startswith(mod_norm + ".")):
-                    matched_layers.add(layer_name)
-                    break
-        # A bare top-level package shared by every layer (e.g. "taskq" in a
-        # taskq.cli/taskq.executor/taskq.store split) matches rule 2 against
-        # every layer's submodules — returning the first hit silently picked
-        # whichever layer iterated first, regardless of what was actually
-        # imported. Only trust a match when it names a single, unique layer;
-        # otherwise the import is genuinely unresolvable from this path alone
-        # and must not be guessed.
-        if len(matched_layers) == 1:
-            return next(iter(matched_layers))
+                if normalized == mod_norm:
+                    exact.add(layer_name)
+                elif normalized.startswith(mod_norm + "."):
+                    if len(mod_norm) > nearest_len:
+                        nearest_len, nearest = len(mod_norm), {layer_name}
+                    elif len(mod_norm) == nearest_len:
+                        nearest.add(layer_name)
+                elif mod_norm.startswith(normalized + "."):
+                    descendant.add(layer_name)
+        for tier in (exact, nearest, descendant):
+            if tier:
+                return next(iter(tier)) if len(tier) == 1 else None
         return None
 
 

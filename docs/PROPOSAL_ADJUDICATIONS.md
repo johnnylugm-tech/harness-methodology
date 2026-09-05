@@ -3843,6 +3843,154 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 98 — 解析不出來的沉默,和「沒有違規」是同一個值
+
+老闆令:複核一份對 **taskq-wow P1/P2 產出物**的審計報告,重新驗證三項「不足」的
+**真實性與根源性**;明確根源是 **harness bug 還是 workflow JS bug**,用正解不用
+workaround,不破壞共通性。追加令(第九次):**方案本身也要先驗證,不能有副作用。**
+
+全部量測唯讀(`taskq*` 一個位元組未寫)。**沒有一條是 workflow JS bug,本輪零 JS 變更。**
+
+### 一、審計三項的裁決
+
+| 報告主張 | 裁決 | 實測 |
+|---|---|---|
+| Item 1「SAB 允許 api 直通 repository,與 `api>service>repository>models_layering` **自相矛盾**」 | **事實真、推論偽** | `import-linter` 的 `layers` 契約語意是「higher 可依賴 lower」,**明確允許跳層**(`importlinter/contracts/layers.py:97`)。taskq-wow 的 `.importlinter` 就是那個 4 層契約,SAB 的 `dependencies` 與它完全一致 |
+| Item 2「STRIDE 缺 Repudiation」 | **屬實但計分不改** | 12 專案中 **6 個做到 6/6**,不是結構性障礙;R42(本檔 §「不改 STRIDE 計分」)已裁決框架刻意只要求 per-boundary 覆蓋。真缺陷在別處,見三 |
+| Item 3「boundary 只有 2 / 缺 3 篇 ADR」 | **數字真、不做** | boundary 語料分布 0–11,定一個數就是拿尺配合資料;「該有哪三篇 ADR」是內容判斷。`check_nfr_adr_coverage` 對 taskq-wow 已 0 violations |
+
+另更正報告三處數字:taskq-final 的 boundary 是 **3** 不是 5、security 是 **7** 不是 17;
+taskq-wow 的 ADR 在 `02-architecture/adr/ADR.md`(R97 修好的 `adr_path` 讀得到)。
+
+### 二、根源:框架寫進 SAB 的條目,關掉了框架自己的架構檢查
+
+`detect_sab_drift` 的 Check 3 是框架**唯一**拿真實 import 比對宣告層契約的檢查。
+它有兩個各自獨立、都足以讓它全滅的斷點,合起來的效果是 **12/12 語料專案零產出**。
+
+**斷點 1 —— 解析不出來就 `continue`。** `_resolve_import_layer` 把三條匹配規則放在
+一次平掃裡,>1 層就回 `None`(歧義守衛本身對),caller 收到就跳過。而
+`sab_amender.discover_modules_at:144-147` 會把 `src/<pkg>/__init__.py` 註冊成 SAB 條目
+`"<pkg>"`(R6 站3 為修 phantom-module 誤報而加),那個 bare 條目用規則 3 命中專案裡
+**每一個**模組。實測:交付原始碼未解析 **62%–91%**,taskq-wow 23 個應用模組中 **21 個**。
+
+**斷點 2 —— 唯一的生產消費者把架構違規全部丟掉。** `cli/advance_prechecks.py` 過濾
+`_item.actual == "not found"`,而 Check 3 寫 `imports X (layer Y)`、Check 2 寫
+`unregistered`,只有 Check 1 的缺檔是 `"not found"`。那段標題寫
+`[BLOCKED] SAB architecture violations`,卻 100% 只報缺檔。
+
+**第三個後果:沉默被算成通過。** `score = 1 - drifted/checked`,跳過的模組不進分子
+也不進分母,所以架構那一半從沒跑過的專案 SAB 分數讀起來是 100.0%。
+
+**位元組級證明**(taskq-wow,全程記憶體內,無寫入):保留 bare root + 相鄰層矩陣 → **0**
+筆架構違規;拿掉 bare root + 同一個矩陣 → **15** 筆;那 15 筆通過既有 filter 後 → **0**。
+單一變數各一次。
+
+**修好之後**:12 專案 **147 筆 CRITICAL**(88 筆來源層由專案宣告、57 筆由
+`_heuristic_layer_choice` 的 fallback 猜)。抽驗兩筆是真的**反向依賴**,兩個執法者都沒抓到:
+`taskq-cc-new repository/rate_repo.py:44 → taskq_api.service.ratelimit`、
+`taskq-renew storage/breaker_store.py:28 → taskq_plus.service.breaker`
+(cc-new 的 `.importlinter` layers 契約裡沒有 `service` 這層;renew 沒有 layers 契約)。
+
+### 三、Step 1c 的 MANDATORY 規則沒有執行者
+
+`derive_test_cases.md:143-150` 把六個 STRIDE 類別對應到 forced NP pattern,並無條件要求
+「Add ONE row to the owning FR's TEST_SPEC table using that exact name」,而它指名的
+執行者是 **「an Agent B REJECT」**。實測「SAD §6 宣告的 `verified_by` 有幾個出現在 P2 的
+TEST_SPEC.md」:
+
+| 100% | taskq 7/7、taskq-api 11/11、taskq-cc 8/8、taskq-final 15/15、taskq-plus 9/9、taskq-redo 10/10 |
+|---|---|
+| **0%** | advance、cc-new、new、renew、super、wow |
+
+**六個 100%、六個 0,中間沒有任何一個** —— 那是「有沒有人執法」的分布。
+`SEC-R8` 在 phase>=5 才抓;taskq-wow 現在 P3,10 個名字在交付樹裡 0 個存在。
+
+### 四、落地(站0 + 四站)
+
+| 站 | 做了什麼 |
+|---|---|
+| 站0 | `tests/corpus_verdict_baseline.json`:補 `taskq-wow`(P3 未完成 → `unmeasured`)、移除 `taskq-done`(本 session 期間該目錄從語料根消失,非本輪所為)。**本輪自我驗證的前提**,那三支在本機是既有紅 |
+| 站1 | `_resolve_import_layer` 改為三階特異度排序:exact > **最近**祖先 > 唯一後代,歧義只在**同一階之內**判定 |
+| 站2 | Check 3 對 `active_src_dir` 下解不出層的交付檔產出**一筆** LOW 棄權 item;**刻意不進 `checked`**(R32/R35)、**刻意不寫 ledger**(見六) |
+| 站3 | `_precheck_sab_consistency` 從 `_precheck_p3_security_and_quality` 抽出,不再過濾 `actual`,三類 finding 各給自己的 remediation;補 `conftest.py` 排除;provenance 由新的公開 `sab_amender.is_fallback_placement` 決定(`amend_sab` 的 R26 行內判斷式改讀同一支——**移除一份重複,不是新增**);`test_blocked_message_contract._TARGET_FILES` 補回四個檔 |
+| 站4 | `SEC-R9`:每個 threat 的 `verified_by` 必須出現在 `TEST_SPEC.md`,phase>=3(與 R1–R7 同規);不動 R8、不動 STRIDE 計分 |
+
+**已知後果(實測,老闆裁定 147 筆全部計分,不分來源)。** 阻擋讀的是 `detect_all()`
+四項的**平均**對 `drift_threshold=85`(P4+):**2/12 新跌破**
+(taskq-advance 91.7→81.5、taskq-cc-new 91.7→80.9);**item 路徑 10/12 有 ≥1 筆 CRITICAL**。
+SEC-R9:**6/12 專案共 60 筆**,從 P3 preflight 起阻擋。
+
+### 五、方案驗證推翻我自己的四處
+
+老闆在核准前要求先驗證方案,四項因此被改寫:
+
+1. **站1 的原規則會弄紅既有測試。** 我原本寫「單段模組名完全不參與解析」,
+   實跑 `test_resolve_import_layer_directory` 轉紅:`{"Bridge": {"harness"}}` 是合法的
+   「整個 top-level package 就是一層」宣告。改為純特異度排序後兩者同時滿足。
+2. **站2 的 ledger 寫入會造成每趟 16 筆重複。** `record_degradation` 只對 stderr 去重,
+   JSONL 每次都 append,而 `detect_sab_drift` 經 `detect_all()` 在每個 phase 的
+   preflight+postflight 各跑一次。改為只產出 DriftItem。
+   另:全專案範圍的棄權計數是 11–673 筆/專案(噪音),縮到交付原始碼範圍後是 **0**。
+3. **站3 解除 filter 會製造無法解除的阻擋。** Check 2 會把 `03-development/conftest.py`
+   送進阻擋(taskq、taskq-new 各一筆),而 `discover_modules` 只掃 `src_dir`,
+   conftest 永遠不可能登記進任何層 —— 正是既有 `scripts/` 排除註解逐字寫的那個缺陷。
+4. **我報給老闆的計分表量錯了對象。** 我給的是 SAB 單項分數(9/12 跌破),
+   而阻擋讀的是四項平均(2/12);總數是 147 不是我提問時說的 146。
+   裁決不受影響,但成本比我當時陳述的低,據實更正。
+
+### 六、順手查到、本輪不做(附再開條件)
+
+- **`checked` 的分母語意不一致**:Check 3 只把「違規」計入分母,Check 1/2 計入的是
+  「檢查過的東西」。實測若改成計入每一條 import 邊,taskq-wow 會從 83.3 升到 93.8,
+  **把 Check 1 的 6 筆真缺檔沖掉**。**再開**:站3 的 item 路徑穩定後,分數路徑可獨立重審。
+- **`_heuristic_layer_choice` 的 fallback 歸屬**:R26 已裁決 print-only,老闆本輪裁定
+  57 筆照樣計分,所以只加 provenance 訊息不改放置演算法。**再開**:阻擋訊息累積顯示
+  fallback 是主要噪音源。
+- **`classify_constraints` 的 `>`-鏈拼法漏判**:taskq-cc 的
+  `'api > service > repository > models'` 被判 `declared_only`,而它**有** layers 契約 ——
+  假棄權,與本輪母體同形但屬 R73 已知的關鍵字歸納問題,1 個實例。**再開**:第二個專案同形。
+- **`corpus_verdict_baseline.json` 隨語料根目錄變動而紅**:本 session 內紅了兩次
+  (taskq-wow 出現、taskq-done 消失),而 CI 沒有語料所以只會在本機發生。
+  機制是 R88 刻意建的。**再開**:第三次因目錄變動而紅。
+- **不改 STRIDE 計分 / 不定 boundary 下限 / 不代寫 ADR 內容 / 不動 `taskq*` / 不動任何 JS。**
+
+### 七、驗證
+
+十一條反證(CP-1…CP-11)逐一 revert → 轉紅 → 從 `cp` 備份還原 → 五個檔 sha256 逐檔相同:
+
+| # | 反轉的東西 | 轉紅的守衛 |
+|---|---|---|
+| CP-1 | resolver 改回平掃 | 站1 四支 |
+| CP-2 | 祖先階拿掉長度排序 | `test_the_nearest_declared_ancestor_wins` + 棄權負控 |
+| CP-3 | 棄權記錄刪掉 | 站2 兩支 |
+| CP-4 | 棄權計入 `checked` | `test_an_abstention_does_not_improve_the_score` |
+| CP-5 | `actual == "not found"` 加回 | 站3 三支 |
+| CP-6 | conftest 排除刪掉 | `test_a_conftest_is_not_an_unregistered_module` |
+| CP-7 | provenance 行刪掉 | `test_the_block_names_a_framework_placed_source_layer` |
+| CP-8 | `_TARGET_FILES` 改回四檔 | `test_the_blocked_contract_covers_where_the_messages_live` |
+| CP-9 | R9 刪掉 | 站4 |
+| CP-10 | R9 phase 改 >=5 | `test_it_does_not_fire_before_the_test_spec_is_due` |
+| CP-11 | provenance 改成本地第二份實作 | `test_the_provenance_verdict_has_one_definition` |
+
+**反證抓到我自己兩個守衛是假的:**
+
+- **CP-2 第一版反轉了個寂寞。** 我把 tier tuple 併成聯集,但排序發生在迴圈裡不在 tuple 裡,
+  所以什麼都沒變、全綠。改成拿掉長度比較才真的轉紅。
+- **CP-11 揭出 `test_the_provenance_verdict_has_one_definition` 在量 import。**
+  它原本斷言 `"is_fallback_placement" in src`,而把呼叫點改寫成本地複製後**仍然綠**
+  —— import 那一行還帶著那個名字。與 R97 CP-5b 同形,第二次。改成用
+  `monkeypatch` 覆寫 `sab_amender.is_fallback_placement` 並要求訊息跟著消失。
+
+`tests/golden/god_file_split/surface.json` 依其自身契約重生
+(`REGEN_SPLIT_GOLDEN=1`,同 commit,**只有 `cli.phase_cmds::_precheck_p3_security_and_quality`
+一個 fingerprint 變動**,CLI surface 零變動)。
+
+pytest **8283 passed / 5 skipped**、guards 1209→**1232**、
+三個 function ratchet 與兩個新 file ratchet 條目同 commit 附算式、
+`generate_workflows.py --check` 與 sim 全程未動(本輪零 JS)。
+
+---
+
 ## Round 97 — 框架自己寫的那一份,和沒有人再讀的那一份
 
 老闆令:複核一份對 taskq-final 的審計報告,**重新驗證問題的真實性與根源性**,對

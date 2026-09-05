@@ -181,7 +181,21 @@ _CEILINGS: dict[str, int] = {
     # (`[extend]` with no `useDefault = true`), so `gitleaks detect` always
     # reported "no leaks found" regardless of what was in the tree — the
     # canary proves the scanner can still see before that result is trusted.
-    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 290,
+    # 274 at Round 98 站3, from 290: the SAB consistency block (26 lines) left
+    # for `_precheck_sab_consistency`, which is where it had to grow — it stops
+    # filtering `_item.actual == "not found"`, a predicate only Check 1's
+    # missing-file item ever satisfies, so Check 2's and Check 3's findings were
+    # discarded 100% of the time under a headline reading "SAB architecture
+    # violations". Harvested down in the same commit, because
+    # test_no_ceiling_sits_above_the_function_it_covers does not allow otherwise.
+    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 274,
+    # The extracted block, plus what it needed to become useful: three per-kind
+    # remediation branches (a declared file not on disk, a delivered file in no
+    # layer, an import the matrix forbids — three findings with three different
+    # fixes) and the placement-provenance line that 57 of the corpus's 147
+    # architecture violations carry. Its docstring is roughly half of it and
+    # holds the measurement the whole station rests on.
+    "cli/advance_prechecks.py::_precheck_sab_consistency": 85,
     # 614 at Round 87 站2, from 606: +8 for the `denominator_provenance` patch
     # into the committed gate result. R73/R74's parser fix moved taskq-redo's
     # declarations 97 -> 130 on the same bytes, taking 65/97 = 67.01% (PASS at
@@ -213,9 +227,25 @@ _CEILINGS: dict[str, int] = {
     # except never overwritten: three corpus projects already hand-author
     # this file with their own allowlist entries.
     "cli/project_cmds.py::cmd_init_project": 434,  # 2026-09-05: 432 -> 434 — Round 96 站1. Net +2: the `--gitleaks-only` early return (+14) minus the gitleaks write moving into `_write_gitleaks_config` (-12), so the repair path and the install path are one implementation.
-    "core/quality_gate/security_design.py::check_security_design": 322,
+    # 369 at Round 98 站4, from 322: +47 for SEC-R9 — every `verified_by` name
+    # declared in SAD.md §6 must be a case in TEST_SPEC.md, from phase 3, the
+    # same phase rule R1-R7 use. 12 lines are the check; the other 35 record
+    # why it exists at all: `derive_test_cases.md` Step 1c states the rule
+    # unconditionally and names "an Agent B REJECT" as its enforcer, and across
+    # the corpus six projects wrote 100% of those rows and six wrote zero, with
+    # nothing in between. It sits inside this function rather than beside it
+    # because `verified_by_names` is bound here by R5's own validation, and a
+    # second collection pass would be a second answer to the same question.
+    "core/quality_gate/security_design.py::check_security_design": 369,
     "core/agent_spawner.py::AgentSpawner.spawn": 316,
-    "detection/drift_detector.py::DriftDetector.detect_sab_drift": 310,
+    # 362 at Round 98 站1+站2, from 310: +52 for the specificity-ranked resolve
+    # of each file's own layer and the record of the delivered source files
+    # Check 3 had to abstain on. Almost all of it is comment carrying the
+    # measurement — the bare top-level package the framework's own
+    # `discover_modules_at` writes into every corpus SAB made 62%-91% of
+    # delivered modules ambiguous with their own layer, so the check skipped
+    # them and `score = 1 - drifted/checked` counted the skip in neither term.
+    "detection/drift_detector.py::DriftDetector.detect_sab_drift": 362,
     "core/quality_gate/constitution/profile.py::_build_defaults": 304,
     # 310 at Round 80 站11, from 302 at 站2 and 261 before that: the mutmut
     # version precondition, the zero-mutant refusal, and 站11's correction that

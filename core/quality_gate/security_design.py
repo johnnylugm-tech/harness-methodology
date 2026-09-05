@@ -477,4 +477,51 @@ def check_security_design(project, phase: Optional[int] = None) -> list[Violatio
                     file=str(sad_path), severity="error",
                 ))
 
+    # R9: every verified_by name must be a declared case in TEST_SPEC.md.
+    #
+    # Round 98. `derive_test_cases.md` Step 1c maps all six STRIDE categories
+    # to forced NP patterns and says, without condition, "Add ONE row to the
+    # owning FR's TEST_SPEC table using that exact name". Its stated enforcer
+    # was "an Agent B REJECT" — an LLM. Measured over the thirteen corpus
+    # projects: six wrote 100% of their names into TEST_SPEC.md and seven wrote
+    # zero, with nothing in between, which is the distribution of a rule with
+    # no reader rather than one projects find hard.
+    #
+    # R8 above already catches this, at Phase 5, against the test sources. The
+    # cost of arriving there is three phases: taskq-wow sits at Phase 3 with
+    # ten declared names, none in TEST_SPEC.md and none on disk. This asks the
+    # same question of the document that was supposed to carry the answer, at
+    # the first phase that document is due — the same phase convention R1-R7
+    # and check_nfr_adr_coverage use, and for the same reason.
+    #
+    # Every STRIDE category maps in that table, and R5 above has already
+    # rejected any category that is not one, so `verified_by_names` IS the
+    # forced population; a second copy of the category list here would be this
+    # round's own defect. Round 42 declined to change STRIDE *scoring* and this
+    # does not: no threshold, no number, no new vocabulary — the name is the
+    # project's own and TEST_SPEC.md is a document `check_ac_test_spec_coverage`
+    # already reads.
+    #
+    # Substring, not table-structure: this catches "the row was never written",
+    # not "the row is in the wrong FR's table or typed something other than
+    # nfr_pattern". Reading the table structure is a strictly larger claim and
+    # is deliberately not made here.
+    if (phase is None or phase >= 3) and verified_by_names:
+        spec_path = layout.test_spec_path
+        if spec_path.is_file():
+            spec_text = spec_path.read_text(encoding="utf-8", errors="replace")
+            for name in verified_by_names:
+                if name not in spec_text:
+                    violations.append(Violation(
+                        check_type="security_design", rule_id="SEC-R9",
+                        message=(
+                            f"threat verification test {name!r} is declared in "
+                            f"SAD.md §6 but no case in {spec_path.name} names "
+                            f"it — add the row (Type: nfr_pattern, Derivation: "
+                            f"Q6/1c) to the owning FR's table, or the test is "
+                            f"first demanded at Phase 5 by SEC-R8."
+                        ),
+                        file=str(sad_path), severity="error",
+                    ))
+
     return violations

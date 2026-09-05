@@ -4955,3 +4955,95 @@
   bug: "uninitialized project must trigger bootstrap_env and init-project at workflow startup"
   fixed_in: "workflow-init-startup"
 
+
+- test: tests/test_architecture_check_that_never_ran.py::test_a_module_is_named_by_its_own_layer_not_by_the_root_package
+  bug: "_resolve_import_layer ran its three match rules in one flat pass, so the bare top-level package every corpus SAB registers (the framework's own discover_modules_at emits it) matched every module in the project and made each one ambiguous with its own layer"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_the_nearest_declared_ancestor_wins
+  bug: "an ancestor tier with no length ranking is ambiguous between a module's own package and the project root package"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_a_layer_registered_as_a_whole_top_level_package_still_resolves
+  bug: "regression guard: a SAB layer declared as a whole top-level package ({'Bridge': {'harness'}}) must keep resolving — the first draft of the fix refused single-segment entries outright and reddened test_resolve_import_layer_directory"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_a_genuine_tie_still_abstains
+  bug: "counter-control: the ambiguity guard is narrowed by specificity ranking, not removed — two layers declaring the same ancestor must still abstain"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_a_bare_package_import_shared_by_two_layers_still_abstains
+  bug: "counter-control: `import pkg` where two layers hold pkg's submodules names no layer and must not be guessed"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_the_violation_the_corpus_hid_is_reported
+  bug: "detect_sab_drift Check 3 reported zero architecture violations on 12 of 12 corpus projects because every module's source layer resolved to None and the caller treated that as 'no violation'"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_a_delivered_module_the_check_could_not_judge_is_reported
+  bug: "a delivered source file whose layer could not be resolved was skipped silently, so a project whose layering half never ran read score 100.0%"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_an_abstention_does_not_improve_the_score
+  bug: "counter-control: an abstention must not enter `checked` — a measurement that could not be taken is not one that passed (Round 32/35)"
+  fixed_in: "Round 98"
+
+- test: tests/test_architecture_check_that_never_ran.py::test_a_project_the_check_fully_judged_reports_no_abstention
+  bug: "negative control: the abstention tripwire must be silent when every delivered source file resolved (measured: all 12 corpus projects after the resolver fix)"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_an_architecture_violation_reaches_the_block
+  bug: "advance-phase's SAB block filtered `_item.actual == \"not found\"`, which only Check 1's missing-file item ever satisfies, so 100% of architecture violations were discarded under a headline reading 'SAB architecture violations'"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_the_block_names_a_framework_placed_source_layer
+  bug: "57 of the corpus's 147 architecture violations have a source layer amend-sab's fallback heuristic chose, and the message did not say so — the project cannot tell whether to fix the import or SAD.md §2"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_a_declared_source_layer_is_not_labelled_a_guess
+  bug: "counter-control: a module that states its own layer must not carry the fallback-placement note"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_the_provenance_verdict_has_one_definition
+  bug: "the 'this placement was a guess' judgement must be sab_amender.is_fallback_placement, not a second copy at the block; driven by overriding that function because the first draft asserted the NAME was present and a local reimplementation left it green (the import line carried it)"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_a_conftest_is_not_an_unregistered_module
+  bug: "unfiltering the advance block let Check 2 report 03-development/conftest.py as unregistered — discover_modules only scans src_dir, so it can never be registered in a layer and the block had no way to clear"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_a_real_unregistered_module_is_still_reported
+  bug: "counter-control for the conftest exclusion: a delivered source file in no SAB layer must still be reported"
+  fixed_in: "Round 98"
+
+- test: tests/test_the_advance_block_reads_every_finding.py::test_the_blocked_contract_covers_where_the_messages_live
+  bug: "Rounds 80/82 moved advance-phase's checks out of cli/phase_cmds.py and test_blocked_message_contract._TARGET_FILES was not updated, so 35 of 43 agent-facing [BLOCKED] messages left the contract's population while it stayed green"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_a_declared_verification_test_missing_from_test_spec_is_an_error
+  bug: "derive_test_cases.md Step 1c states unconditionally that each threat's verified_by name is added to TEST_SPEC.md and names 'an Agent B REJECT' as its enforcer; six corpus projects wrote 100% of those rows and six wrote zero, with nothing in between"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_a_declared_verification_test_present_in_test_spec_is_silent
+  bug: "negative control: the six projects that did write the Step-1c rows must not be charged"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_it_does_not_fire_before_the_test_spec_is_due
+  bug: "SEC-R9 must follow R1-R7's phase rule (the SEC block is a P2 deliverable, enforced from P3), not demand the rows at P1/P2"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_an_honest_none_is_silent
+  bug: "a project declaring applicability: none has no threats and must not acquire a TEST_SPEC obligation from SEC-R9"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_a_missing_test_spec_is_not_an_accusation
+  bug: "a TEST_SPEC.md that is not there yet is not one that dropped the row (Round 32/35); its existence is the handoff validator's question"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_r8_still_owns_phase_five
+  bug: "counter-control: SEC-R9 is an additional reader at P3, not a replacement for SEC-R8's phase>=5 test-existence rule"
+  fixed_in: "Round 98"
+
+- test: tests/test_step_1c_has_an_executor.py::test_the_canonical_template_satisfies_its_own_new_rule
+  bug: "the canonical SEC template is what P2 pastes; a rule its example threat could not satisfy would teach projects to fail"
+  fixed_in: "Round 98"
