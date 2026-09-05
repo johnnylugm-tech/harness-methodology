@@ -326,6 +326,96 @@ def _parse_sad_targeted(sad_path: Path) -> tuple[list[str], list[str]]:
     return _filter_known(raw_deps, warnings, "SAD.md targeted"), warnings
 
 
+_SCAFFOLD_BANNER = "AUTO-SCAFFOLDED FROM SSOT"
+_SCAFFOLD_LEDGER = "SSOT scaffold wrote "
+# A requirement line that names its own version, or is a pip option / a
+# direct URL reference. Anything else is a bare package name.
+_PINNED_LINE = re.compile(r"[=<>~!]=|===|\s@\s|^-|\bfile:|\bgit\+")
+
+
+def _framework_scaffolded_the_manifest(project: Path, manifest: Path) -> bool:
+    """Did this framework write that file?
+
+    Two witnesses, in this order. The degradation ledger row
+    `gate:env-repair` / "SSOT scaffold wrote <name>" is the framework's own
+    record of authorship and survives editing of the file. The banner
+    comment inside the file is the fallback, for a tree whose ledger was
+    reset — and it is only a fallback, because one line removes it, and a
+    check a comment can clear is a check whose cheapest satisfaction is
+    deleting the warning rather than doing the work.
+    """
+    ledger = project / ".methodology" / "degradations.jsonl"
+    if ledger.is_file():
+        try:
+            for line in ledger.read_text(
+                    encoding="utf-8", errors="replace").splitlines():
+                if _SCAFFOLD_LEDGER + manifest.name in line:
+                    return True
+        except OSError:
+            pass  # fall through to the banner; an unreadable ledger is not a verdict
+    try:
+        return _SCAFFOLD_BANNER in manifest.read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
+def unfinished_scaffolded_manifest(project: "str | Path") -> "str | None":
+    """Why a framework-written manifest is not finished, or None.
+
+    Round 99 站4. `scaffold_project_manifest_from_ssot` writes
+    `requirements.txt` for a project that has none and stamps it "REVIEW AND
+    PIN VERSIONS BEFORE COMMIT", then records a `gate:env-repair` row owned
+    by `harness`. Neither statement had a reader. Measured over the 17
+    corpus projects: 8 carry the ledger row, 5 of those ship every
+    dependency unpinned (omnibot-new 1/1, taskq-cc-new 12/12, taskq-redo
+    10/10, taskq-super 11/11, taskq-wow 10/10), and 3 did the review — cc,
+    final and new are fully pinned, which is what makes the obligation
+    satisfiable rather than a new tax.
+
+    What is enforced is the sentence the framework already wrote, about the
+    file the framework already wrote. Not whether the manifest is right: a
+    project declaring PostgreSQL and shipping no DBAPI driver is the
+    finding this came from, and detecting THAT needs a
+    technology-to-package table, which is domain knowledge and is
+    deliberately not here.
+
+    Python-only by construction, not by a language branch: the scaffolder
+    returns early for any other language, so nothing else can carry either
+    witness.
+    """
+    project = Path(project)
+    manifest = project / "requirements.txt"
+    if not manifest.is_file():
+        return None
+    if not _framework_scaffolded_the_manifest(project, manifest):
+        return None
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    unpinned = [
+        line.strip() for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+        and not _PINNED_LINE.search(line.strip())
+    ]
+    if not unpinned:
+        return None
+    shown = ", ".join(unpinned[:8]) + ("…" if len(unpinned) > 8 else "")
+    return (
+        f"{len(unpinned)} dependenc(ies) in requirements.txt carry no "
+        f"version. This framework scaffolded that file from the project's "
+        f"own SSOTs and marked it 'REVIEW AND PIN VERSIONS BEFORE COMMIT'; "
+        f"nothing has reviewed it since: {shown}\n"
+        f"    → read the extracted list against SAD.md / SPEC.md / SRS.md — "
+        f"a runtime the SSOT declares and the scaffold could not name is "
+        f"missing from it, not just unpinned — then pin each line "
+        f"(`pip-compile --output-file=requirements.lock requirements.txt`, "
+        f"or by hand) and re-run. Deleting the banner comment does not "
+        f"clear this."
+    )
+
+
 def scaffold_project_manifest_from_ssot(
     project_root: "str | Path",
     language: str = "python",

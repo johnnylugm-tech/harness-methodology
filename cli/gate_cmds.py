@@ -1852,7 +1852,7 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
 
     # I-4: Spec Coverage (Gate 1, threshold 40%)
     if args.gate == 1 and fr_id and (ProjectLayout(project_path).test_spec_path).exists():
-        _sc1_code, _sc1_pct = spec_coverage._run_spec_coverage_check(
+        _sc1_code, _ = spec_coverage._run_spec_coverage_check(
             project_path, 40.0, fr_id=fr_id, verbose=True
         )
         if _sc1_code != 0:
@@ -1863,9 +1863,14 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
             # uncovered TEST_SPEC.md sections" — three statements of one
             # instruction, and the cheapest way to obey it was a correctly
             # named stub, which is exactly what the check then scored.
-            print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] {_sc1_pct:.1f}% < 40% threshold")
-            print("  → the undelivered criteria and what closes them are listed "
-                  "above, under [spec-coverage]; then re-run.")
+            # Round 99 站2: the percentage went too. Round 87 took the
+            # remedy out of this line and left the CAUSE in, and the cause is
+            # not knowable here — three of the four ways this returns 1 are
+            # structural and report 0.0 as a placeholder, so "0.0% < 40%"
+            # describes a measurement that was never taken.
+            print(f"\n[BLOCKED] Gate 1 spec-coverage [{fr_id}] did not pass")
+            print("  → the reason and what closes it are listed above, "
+                  "under [spec-coverage]; then re-run.")
             return 1
 
     return None
@@ -2218,7 +2223,7 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
         # either side is updated independently.
         from core.quality_gate.spec_tracking_checker import SPEC_COV_THRESHOLDS
         _sc_threshold = SPEC_COV_THRESHOLDS.get(args.gate, 60.0)
-        _sc_code, _sc_pct = spec_coverage._run_spec_coverage_check(
+        _sc_code, _ = spec_coverage._run_spec_coverage_check(
             project_path, _sc_threshold, verbose=True
         )
         # Round 42 站2: the names travel with the number. The percentage
@@ -2231,9 +2236,12 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
         _record_undelivered_tests(args, project_path)
         if _sc_code != 0:
             # Round 87 站2 — see the Gate 1 site: one producer, one remedy.
-            print(f"\n[BLOCKED] Gate {args.gate} spec-coverage {_sc_pct:.1f}% < {_sc_threshold}%")
-            print("  → the undelivered criteria and what closes them are listed "
-                  "above, under [spec-coverage]; then re-run.")
+            # Round 99 站2 — and one cause. This wrote the comparison without
+            # the word "threshold", which is why the first draft of that
+            # round's guard, keyed on the word, would have left it standing.
+            print(f"\n[BLOCKED] Gate {args.gate} spec-coverage did not pass")
+            print("  → the reason and what closes it are listed above, "
+                  "under [spec-coverage]; then re-run.")
             return 1
 
     # ── Round 31 站2: mutation_testing's score is the framework's ────

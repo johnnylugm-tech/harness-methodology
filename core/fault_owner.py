@@ -166,6 +166,13 @@ OWNER_BY_EXIT: dict[int, str] = {
     37: Owner.PROJECT,  # entry obligations at the phase being entered
     38: Owner.PROJECT,  # delivered files differ from HEAD
     40: Owner.HARNESS,  # a record only the framework writes, and it did not land
+    # 41 is PROJECT even though the framework wrote the file. The scaffold is
+    # a documented fallback the project's own missing manifest triggered, it
+    # transcribed that project's SSOTs, and it said in the file what remained
+    # to be done. Only the project can decide which versions it wants, so
+    # routing this to repair-harness would send the repair to the one party
+    # that cannot make it.
+    41: Owner.PROJECT,
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

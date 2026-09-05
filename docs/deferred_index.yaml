@@ -1429,3 +1429,43 @@ entries:
     line: 8715
     kind: bullet
     text: "- **不改 taskq-\\* 任何檔案、不重判既有 gate 結果。**"
+  - round: 99
+    line: 8867
+    kind: table_row
+    item: "判 `forbidden` 合約的外部目標存不存在"
+    reason: "見 §E-8。taskq-wow 的 `nonexistent_module_for_coverage` **本輪修不掉**。**再開**:第二個專案寫出「目標在整棵交付樹的 import 裡一次都沒出現」的 forbidden 合約"
+  - round: 99
+    line: 8868
+    kind: table_row
+    item: "`spec_tracking_checker.py:410` 的 `# noqa: F841` 丟棄 exit code"
+    reason: "它讓 4 條返回路徑在該站點全部塌成 `4b = 0.0`。修它要改 `4b_test_spec_pct` 的欄位語意,影響 3 條**既有**返回路徑與所有 4b 消費者。**再開**:站2 落地後單獨評估 4b 的 could-not-measure 表示法"
+  - round: 99
+    line: 8869
+    kind: table_row
+    item: "讀 SAD §2.1 的合約表做三方對賬"
+    reason: "§2.1 不是框架規定的結構"
+  - round: 99
+    line: 8870
+    kind: table_row
+    item: "在 TEST_SPEC 模板加 AC 欄位"
+    reason: "站1 之後兩種寫法都讀得懂;加欄位會讓 13 個既有專案的表格全部不合模板"
+  - round: 99
+    line: 8871
+    kind: table_row
+    item: "「宣告 PostgreSQL 就必須有 DBAPI driver」"
+    reason: "見 §C"
+  - round: 99
+    line: 8872
+    kind: table_row
+    item: "Top 1 的「補回 core 層 / 補 forbidden-sqlalchemy 合約」"
+    reason: "`core/` 在交付樹裡不存在;要不要有那些合約是專案決定"
+  - round: 99
+    line: 8873
+    kind: table_row
+    item: "`taskq-mm` 納入語料"
+    reason: "沒有 `.methodology/state.json`,`corpus_projects()` 正確地不收它"
+  - round: 99
+    line: 8874
+    kind: table_row
+    item: "拆分 `spec_coverage.py`(943 行,新 god file)"
+    reason: "本輪加的每一行都是「解析」或「對解析的判定」,是這個檔的本業;而在同一個 commit 裡既改行為又拆檔,正是 `test_god_file_split_safety.py` 存在要擋的事。已登記 ceiling 與算式"

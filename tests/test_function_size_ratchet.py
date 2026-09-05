@@ -188,7 +188,17 @@ _CEILINGS: dict[str, int] = {
     # discarded 100% of the time under a headline reading "SAB architecture
     # violations". Harvested down in the same commit, because
     # test_no_ceiling_sits_above_the_function_it_covers does not allow otherwise.
-    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 274,
+    # 312 at Round 99 站2/站4, from 274: +38. Two changes at the P3 site.
+    # 站4 (+27) wires `unfinished_scaffolded_manifest` — the framework writes
+    # a project's requirements.txt when it has none, stamps it "REVIEW AND PIN
+    # VERSIONS BEFORE COMMIT" and files a ledger row owned by `harness`, and
+    # nothing read either statement: 8 of 17 corpus projects carry the row and
+    # 5 of those ship every dependency unpinned. The decision itself lives in
+    # harness/ssot_manifest.py beside the writer, so this is a call, two prints
+    # and a return. 站2 (+11) stops this site rendering the spec-coverage block
+    # as "0.0% < threshold": three of the four ways that check returns 1 are
+    # structural and report 0.0 as a placeholder.
+    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 312,
     # The extracted block, plus what it needed to become useful: three per-kind
     # remediation branches (a declared file not on disk, a delivered file in no
     # layer, an import the matrix forbids — three findings with three different

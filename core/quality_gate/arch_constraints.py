@@ -53,6 +53,7 @@ __all__ = [
     "contract_coverage_blocking_reason",
     "contract_coverage_gap",
     "read_bandit_config",
+    "contract_decides",
     "read_import_contracts",
     "record_constraint_status",
     "unconfigured_blocking_reason",
@@ -206,6 +207,53 @@ def _config_sources(project: Path) -> list[Path]:
     return [project / ".importlinter", project / "setup.cfg"]
 
 
+def contract_decides(kind: str, sources: list, targets: list) -> bool:
+    """Can this contract produce a violation, whatever the code does?
+
+    Round 99 站3. The rule and its wording are Round 55's, moved here from
+    inside `classify_constraints` so that both readers of this parse get the
+    same answer: "a `layers` contract IS a statement about ordering, and one
+    element has none. Two layers is not a threshold." Its two siblings say
+    the same thing about a different relation — `independence` is a
+    statement about pairs, `forbidden` about targets — and a statement with
+    no second term cannot be false.
+
+    `contract_coverage_gap` never asked the question at all, which is why
+    naming the bare root package in a one-module `independence` stanza took
+    a project's gap to zero: taskq-new's 13 uncovered modules (every
+    `migrations/*`, `security.redact`) are "covered" by
+    `modules = taskq`, taskq-redo's root and `__main__` likewise.
+
+    Deliberately not asked: whether a `forbidden` contract's named target
+    is reachable. taskq-wow's `forbidden_modules =
+    nonexistent_module_for_coverage` cannot fail, and it is structurally
+    identical to a deliberate "this project must never import django" guard
+    — import-linter accepts both without complaint when
+    `include_external_packages = True`. Judging it would be a false
+    accusation of the other (Round 46), so it is written down in
+    docs/PROPOSAL_ADJUDICATIONS.md rather than decided.
+
+    An unrecognised contract type answers True: this framework does not
+    have standing to call a contract it does not understand vacuous.
+
+    Public because it is a seam, not because anything outside this module
+    calls it. Counter-proof CP-13b showed the "one statement, two consumers"
+    claim was unpinned — a faithful second implementation inside
+    `contract_coverage_gap` passed every test — and the two tests that now
+    pin it replace this definition and assert both consumers move. Round 55
+    put the same judgement inline; `tests/test_patch_discipline.py` is
+    right that the answer to "I need to replace this to test it" is a public
+    seam rather than a patched private name.
+    """
+    if kind == "layers":
+        return len(sources) >= 2
+    if kind == "independence":
+        return len(sources) >= 2
+    if kind == "forbidden":
+        return len(targets) >= 1
+    return True
+
+
 def read_import_contracts(project: "str | Path") -> dict:
     """Parse the project's import-linter configuration.
 
@@ -254,16 +302,23 @@ def read_import_contracts(project: "str | Path") -> dict:
             # `layers` names its modules under `layers`; `forbidden` and
             # `independence` name theirs under `source_modules` /
             # `modules`. `forbidden_modules` is the target of the ban, not a
-            # module the contract constrains, so it is deliberately not read.
+            # module the contract constrains, so it is not among `sources` —
+            # it is read only to answer `decides` below.
             raw = "\n".join(
                 parser.get(section, key, fallback="")
                 for key in ("layers", "source_modules", "modules")
             )
             sources = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            targets = [
+                ln.strip() for ln in
+                parser.get(section, "forbidden_modules", fallback="").splitlines()
+                if ln.strip()
+            ]
             contracts.append({
                 "name": parser.get(section, "name", fallback=section).strip(),
                 "type": kind,
                 "sources": sources,
+                "decides": contract_decides(kind, sources, targets),
             })
         break
 
@@ -352,10 +407,17 @@ def _evaluate(candidate: dict, project: "str | Path | None") -> "tuple[str, str]
         # switching its checker off — could be cleared by switching it back on
         # over an empty domain. Two layers is not a threshold: a `layers`
         # contract IS a statement about ordering, and one element has none.
-        sources: list = next(
-            (c["sources"] for c in contracts if c["type"] == want and c["name"] == name),
-            [])
-        if want == "layers" and len(sources) < 2:
+        #
+        # Round 99 站3 moved that judgement into `contract_decides`, where
+        # the contract is parsed, because `contract_coverage_gap` reads the
+        # same parse and never asked it. The branch below is unchanged in
+        # behaviour — verified byte-for-byte against all 17 corpus projects
+        # — and now reads the shared answer instead of re-deriving it.
+        _this: dict = next(
+            (c for c in contracts if c["type"] == want and c["name"] == name),
+            {})
+        sources: list = _this.get("sources", [])
+        if want == "layers" and not _this.get("decides", True):
             return STATUS_UNCONFIGURED, (
                 f"{candidate['executor']} contract {name!r} names "
                 f"{len(sources)} layer(s); a `layers` contract states an "
@@ -517,11 +579,13 @@ def contract_coverage_blocking_reason(project: "str | Path") -> "str | None":
         f"contract, so `lint-imports` reports the contract kept no matter "
         f"what they import:\n"
         + "\n".join(f"  {m}" for m in gap)
-        + "\n    fix: add these to an existing contract's source modules (or "
-          "name a package above them), or write a contract that covers them. "
-          "Do NOT delete the contracts to clear this — a project with no "
-          "contract is not blocked here, but it also stops claiming a "
-          "boundary it is not keeping."
+        + "\n    fix: add these to the source modules of a contract that "
+          "constrains them, or write one that does. Two shortcuts do not "
+          "count and the framework used to name the second of them here: "
+          "deleting the contracts (a project with no contract is not blocked "
+          "here, but it also stops claiming a boundary it is not keeping), "
+          "and naming the root package, which covers every module you will "
+          "ever add and retires this check for the project."
     )
 
 
@@ -594,9 +658,16 @@ def contract_coverage_gap(project: "str | Path") -> list[str]:
     if not root_package or not parsed["contracts"]:
         return []
 
+    # Round 99 站3: only contracts that can produce a violation constrain
+    # anything. Round 55 asked this of `layers` in `classify_constraints` and
+    # this function, reading the same parse twenty lines below it, never
+    # asked it at all — so a one-module `independence` stanza naming the root
+    # package took three projects' gaps to zero. `contract_decides` is now
+    # the one place the question is answered.
     covered: set[str] = set()
     for contract in parsed["contracts"]:
-        covered.update(contract["sources"])
+        if contract.get("decides", True):
+            covered.update(contract["sources"])
 
     gap = []
     for module in _delivered_modules(project, root_package):

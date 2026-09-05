@@ -212,6 +212,49 @@ def _header_columns(header: str) -> dict:
     return out if "fn" in out else {}
 
 
+def _cell_identifier(cell: str) -> str:
+    """The identifier a table cell names, with markdown code-span backticks
+    and any trailing bracketed annotation removed — in whichever order the
+    author wrote them.
+
+    Round 99 站1. This was one expression, `re.sub(r"\\[.*\\]$", "",
+    cell.strip("`").strip())`, and its two steps were order-dependent in a
+    way nothing declared. `str.strip` removes characters only at the ENDS of
+    a string, so a cell written ``  `test_x` [AC-1.1]  `` — which ends in
+    `]` — keeps its CLOSING backtick, and after `re.sub` takes the
+    annotation off, what is left is ``test_x` `` with a trailing space. The
+    caller's `" " not in name` then rejects it. The row declared a test and
+    was counted as declaring none.
+
+    That is not a rare spelling. The framework asks for those ids: Step 1d
+    of derive_test_cases.md and `check_ac_test_spec_coverage` require every
+    declared AC-id to appear in TEST_SPEC.md, and the table template
+    (derive_test_cases.md:389) has five columns and no AC column, so beside
+    the test name is where they land. Measured on taskq-done: 109 of 120
+    declaration rows dropped, `declared=11`, and the P1 Naming Authority
+    check reported 91 of 91 TEST_INVENTORY.yaml names "missing in
+    TEST_SPEC.md" — every one of them present and correctly spelled — with
+    the remedy "Agent A may have hallucinated names. Re-run
+    derive_test_cases.md", which regenerates the same file.
+
+    The fix is a fixed point rather than a longer expression: strip both
+    forms until nothing more comes off, so no order is privileged. Each
+    pass either shortens the string or changes nothing, so it terminates.
+    Removing a trailing `[...]` is load-bearing on its own — `test_x[case1]`
+    must read as `test_x` (Round 87 站9: parametrized declarations were
+    being reported `not_collected`) — and is kept exactly as it was.
+
+    A/B over the 13 corpus TEST_SPEC.md files: twelve produce a
+    byte-identical name list, taskq-done goes 11 → 119 with nothing lost.
+    """
+    name = cell.strip()
+    while True:
+        nxt = re.sub(r"\[.*\]$", "", name).strip().strip("`").strip()
+        if nxt == name:
+            return name
+        name = nxt
+
+
 def _row_test_fn(cols: list, header_index: "int | None") -> str:
     """The test function named by one table row, or "".
 
@@ -233,7 +276,7 @@ def _row_test_fn(cols: list, header_index: "int | None") -> str:
     """
     candidates = []
     for i, cell in enumerate(cols):
-        name = re.sub(r"\[.*\]$", "", cell.strip("`").strip())
+        name = _cell_identifier(cell)
         if name.startswith("test_") and len(name) > 6 and " " not in name:
             candidates.append((i, name))
     if not candidates:
@@ -494,6 +537,33 @@ def spec_coverage_report(
     }
 
 
+_DECLARED_NAME = re.compile(r"(?<![A-Za-z0-9_])test_[A-Za-z0-9_]{3,}")
+
+
+def unreadable_declarations(unread: list) -> list:
+    """The `unread` rows that name a test, out of the rows that name none.
+
+    Round 99 站2. `_report_unread_rows` below is deliberately report-only,
+    and its reason holds for one half of the population: taskq-advance's
+    `(cross-cutting tooling)` and taskq-cc's `(none declared for this
+    round …)` are a project saying the truth in the only column it has, and
+    blocking those charges it for obeying the substance (Round 42).
+
+    The other half is not that. A row reading ``| 2 | `test_x` (see NFR-03)
+    | … |`` declares a test in a shape the parser dropped, and it is exactly
+    as invisible to the denominator as a row that declares nothing — the
+    defect this round is repairing. The two are decidable apart by asking
+    whether the row names a `test_`-prefixed identifier. Measured over the
+    13 corpus TEST_SPEC.md files: taskq-advance 2 unread / 0 naming a test,
+    taskq-cc 1 / 0, taskq-done 109 / 108, ten others 0 / 0.
+
+    `test_` with at least three more characters, and not preceded by a word
+    character, so that prose in a Title column ("this is tested downstream",
+    "integration test coverage") is not read as a declaration.
+    """
+    return [row for row in unread if _DECLARED_NAME.search(row.get("text", ""))]
+
+
 def _report_unread_rows(project: Path, spec_path: Path, unread: list,
                         *, verbose: bool = True) -> None:
     """Say which TEST_SPEC rows the denominator did not include.
@@ -584,6 +654,49 @@ def _run_spec_coverage_check(
     items = _parse_test_spec(spec_path, unread)
     if unread:
         _report_unread_rows(project, spec_path, unread, verbose=verbose)
+
+    # ── Round 99 站2: a row that names a test nobody can read ─────────────
+    # Ahead of the naming-authority check below, and that ordering is the
+    # point. Both facts are computed in this function and only the second
+    # was ever spoken: on taskq-done, 109 rows were dropped here and the
+    # check twenty lines down reported 91 of 91 TEST_INVENTORY.yaml names
+    # "missing in TEST_SPEC.md — Agent A may have hallucinated names",
+    # about names that were present and correctly spelled in those rows,
+    # with a remedy that regenerates the same file. Every unreadable row
+    # hiding an inventory name contains that name, so this population is a
+    # superset and one message is enough.
+    #
+    # Not scoped to `fr_id`: `unread` is collected over the whole file
+    # before the per-FR filter, and a file with rows the parser cannot read
+    # is a fact about every FR in it, not only the one being asked about.
+    _unreadable = unreadable_declarations(unread)
+    if _unreadable:
+        if verbose:
+            print(f"\n[BLOCKED] {len(_unreadable)} TEST_SPEC.md row(s) name a "
+                  f"test the parser could not read, so those declarations are "
+                  f"not in the coverage denominator:")
+            for row in _unreadable[:10]:
+                print(f"  - {spec_path.name}:{row['line']}  {row['text'][:110]}")
+            if len(_unreadable) > 10:
+                print(f"  ... and {len(_unreadable) - 10} more")
+            print("  → Fix the shape of those cells, then re-run. The Test "
+                  "Function cell must resolve to one identifier: a bare or "
+                  "`backticked` name, optionally followed by a [bracketed] "
+                  "annotation. Anything else after the name (a parenthesised "
+                  "note, a second name, prose) leaves the cell unreadable. "
+                  "Do NOT delete the rows — that removes the declaration "
+                  "instead of the ambiguity.")
+        from core.degradation_ledger import record_degradation
+        record_degradation(
+            str(project), "spec-coverage:unreadable-declaration",
+            f"{len(_unreadable)} TEST_SPEC.md row(s) name a test the parser "
+            f"could not read; first at line {_unreadable[0]['line']}",
+            why="those declarations are absent from the coverage denominator "
+                "and indistinguishable there from rows that declare nothing",
+            owner="project",
+        )
+        return (1, 0.0)
+
     if fr_id:
         items = [i for i in items if i["fr_id"] == fr_id]
 

@@ -8730,3 +8730,153 @@ payload 以 `gate` 為鍵），並由 inventory 測試釘住 1 producer + 2 exce
 pytest 7385 passed / 4 skipped、guards 647→655、ruff clean、`--check` 10/10、
 `node --check` 8/8、sim 106/106、run-all.js 348301 ≤ ceiling 348608、
 九個語料專案未提交檔案 mtime 全部早於本輪第一個 commit。
+
+---
+
+## Round 99 — 讀不到的宣告,和沒有宣告是同一個值
+
+**來源**:老闆令複核一份對 taskq-done P1/P2 產出物的審計報告(三項),重新驗證真實性與根源性。
+**日期**:2026-09-06。**JS 變更:零**(九支 workflow JS 只 dispatch `spec-coverage-check` CLI,
+不實作任何判定)。
+
+### §0 對審計報告的六項更正
+
+| 報告主張 | 裁決 |
+|---|---|
+| Top 1「`taskq_api.core` 未出現在 `.importlinter`」 | **前提假**。交付樹裡沒有 `core/`;`_delivered_modules` 列出的 14 個模組沒有一個屬於它 |
+| Top 1「加覆蓋合約解除 `arch_contract_coverage`」 | **拒**。那正是拆掉檢查的路,見 §B。taskq-wow 已照做(`forbidden_modules = nonexistent_module_for_coverage`),**taskq-done 在本輪實作期間也照做了**(見 §B 活標本) |
+| Top 2「`cell.strip("")` 導致 `startswith` 為 False」 | **結論真、機制假**。原始碼是 `cell.strip("`")`,開頭的反引號有被移掉;死因是運算順序讓**收尾**反引號與一個空格留下,`" " not in name` 判 False |
+| Top 2「規範專案只准寫純識別碼」 | **拒(workaround)**。框架自己的 Step 1d + `check_ac_test_spec_coverage` 要求 AC-id 出現在 TEST_SPEC.md,模板五欄沒有 AC 欄。成本轉嫁給每個專案,解析器照樣讀不懂下一個形狀 |
+| Top 3「缺 PostgreSQL driver」 | **事實真、歸屬錯**。那個檔是框架寫的;SSOT 三處提到 PostgreSQL、沒有一處命名 driver 套件,抽取器沒東西可抽。harness 側的缺陷是 §C |
+| Top 3 的併發分析(FOR UPDATE / SQLite 鎖) | **不做**。專案的領域設計,框架不代寫也不評分 |
+
+另查證不做:taskq-done 的 SAD §2.1 宣告 3 條合約、`.importlinter` 設 1 條、SAB
+`architecture_constraints` 只有一個字串,三份陳述無人對賬 —— 但 §2.1 不是框架規定的結構
+(prompt 從沒提過),去讀專案自創的表格會把一個專案的寫法變成所有專案的義務。
+
+### §A 站1 — 識別碼的正規化取決於未宣告的運算順序
+
+`spec_coverage.py::_row_test_fn` 用 `re.sub(r"\[.*\]$", "", cell.strip("`").strip())`。
+`str.strip` 只動兩端,所以 `` `test_x` [AC-1.1] `` 的收尾反引號不在端點、活了下來,
+`re.sub` 拿掉標註後剩 ``test_x` `` 帶一個尾空格,被 `" " not in name` 拒絕。
+
+三層後果(框架本體量出來,taskq-done):
+
+| 層 | 今天 | 真值 |
+|---|---|---|
+| D4 分母 | `declared=11  unread=109` | 120 |
+| Gate 1 per-FR cap | FR-01 讀到 1 個名字 | 11 |
+| **P1 Naming Authority** | **91/91** 個名字「missing in TEST_SPEC.md — Agent A may have hallucinated names. Re-run derive_test_cases.md」 | **0** |
+
+第三層是假指控:那 91 個名字全在檔案裡、拼字正確,而 remedy 會重新產生同一份檔案。
+
+**修法**:`_cell_identifier` 不動點正規化。副作用實測:13 份 TEST_SPEC A/B **12 份位元組相同**,
+taskq-done `11 → 119`(+108 / −0);17 專案 naming-authority `91→0` 與 `0→0`;全套 8333 passed。
+
+### §B 站3 — 不可能失敗的合約不構成覆蓋(規則框架已有,只寫在兩個消費者之一)
+
+`arch_constraints.py`(R55)已寫著「Two layers is not a threshold: a `layers` contract IS a
+statement about ordering, and one element has none」—— 在 `classify_constraints` 裡,只問 `layers`。
+`contract_coverage_gap` 讀同一份解析,**完全沒問**。
+
+`block_reason.py:206` 的 remedy 逐字教出逃生門:
+「or name a package above them (**naming the root package covers everything under it**)」。
+
+13 個有 `.importlinter` 的專案,gap 為 0 的 5 個全都命名了 bare root;3 個用不可能失敗的合約
+(taskq-redo 兩條 1 模組 `independence`、taskq-new 一條)。taskq-new 有 **13 個**交付模組
+(含全部 `migrations/*`、`security.redact`)只被那條合約「覆蓋」。
+
+> **活標本(本輪實作期間產生)。** taskq-done 被 `arch_contract_coverage` 擋住後,今天自己寫了:
+> ```ini
+> [importlinter:contract:composition-root]
+> name = Composition root package (taskq_api) reaches all sub-modules
+> type = independence
+> modules =
+>     taskq_api
+> ```
+> 合約名字宣稱它 "reaches all sub-modules";它一個配對都沒有,永遠不會失敗。
+> 修前它會把 gap 從 1 變 0 並讓這個 gate 對整個套件永久失明;修後 gap = `['taskq_api',
+> 'taskq_api.__main__']`,阻擋維持。第四個實例,即時產生,由讀了那句 remedy 的專案寫出來。
+
+**修法**:把 R55 的判斷提升到 `read_import_contracts` 成為 `decides`,兩個消費者共讀
+(移除重複,非新增規則);remedy 停止推薦 root-package。
+副作用實測:13 專案 A/B **10 個不變**,new `0→13`、redo `0→2`、renew `14→15`;
+`classify_constraints` 17 專案逐列**位元組相同**。
+
+### §C 站4 — 框架寫了一份自稱未完成的檔案交付出去
+
+`ssot_manifest.py:434` 的 banner(`REVIEW AND PIN VERSIONS BEFORE COMMIT`)與
+`env_repair.py:406` 的 `owner="harness"` ledger 列,兩份陳述都沒有讀者。
+17 專案:**8 個**有 ledger 列,其中 **5 個**每一行都沒釘版
+(omnibot-new 1/1、taskq-cc-new 12/12、taskq-redo 10/10、taskq-super 11/11、taskq-wow 10/10);
+**3 個正對照**(cc 11/11、final 12/12、new 10/10)已審過並釘版 —— 規則可滿足。
+
+**老闆裁定:阻擋未釘版。**「只揭露不阻擋」被否決,理由與本輪 §C 的指控一致。
+定位靠 ledger 列(banner 是註解,一行就刪得掉),判準是釘版(實質,不可用刪註解規避)。
+新 exit code **41**,`fault_owner` 判 `PROJECT`(框架寫的檔,但只有專案能決定要哪些版本)。
+實作後實測:**6 個被擋**(taskq-done 的 requirements.txt 在實作期間被該專案重新產生)。
+
+**明列不做**:「宣告 PostgreSQL 就必須有 DBAPI driver」需要 技術名→套件名 的領域知識表,
+寫進框架就是把一個生態綁進通用流程。**再開條件**:量到 SSOT 有可解析的「runtime → package」宣告路徑。
+
+### §D 站2 — 判定必須帶著自己的理由(整站被驗證改寫)
+
+原設計(unread 非空就擋)被實測推翻兩次:站1 之後 13 專案全部零觸發(純絆線),
+且會落在 `spec_tracking_checker.py:410` 那個 `# noqa: F841` 丟棄 exit code 的呼叫端,
+唯一效果是把 `4b = 0.0` —— 把「讀不出來」寫成「零分」,R35 反過來的錯誤。
+
+改為三件事:
+1. `unreadable_declarations` 把 unread 拆成兩半(有沒有 `test_` token),阻擋只打後者。
+   全語料實測:advance 2/0、cc 1/0、taskq-done 109/108、其餘 0/0。
+   `MEASUREMENT_SINKS.yaml` 新增 `spec-coverage:unreadable-declaration` 為 `verdict`,
+   原 `spec-coverage:unread-row` 維持 `report-only`(它辯護的那兩個形狀正是 token 為 0 的那半)。
+2. 阻擋放在 **naming-authority 之前**。兩個事實在同一函式算出來,只有第二個被說出口。
+   每一列藏著 inventory 名字的不可讀列都必然含有那個名字,所以這裡的母體是超集,一則訊息就夠 ——
+   不需要在 naming-authority 站點再寫一份(那會是重複)。
+3. **三個**阻擋呼叫端停止陳述它們不知道的原因。`_run_spec_coverage_check` 有 4 條返回 1 的路徑,
+   只有 1 條是門檻;另外 3 條回 `0.0` 佔位。`advance_prechecks` 印
+   「spec-coverage 0.0% < threshold 80%」+「implement missing test cases」,
+   `gate_cmds` 兩站點各印一個比較 —— 其中 Gate 2-4 那站**連 `threshold` 這個字都沒寫**,
+   所以我第一版用關鍵字寫的守衛會放它過。
+
+### §E 方案驗證與反證推翻我自己的八處
+
+1. **站2 整站改寫**(見 §D)。
+2. **站2a 併入站2c**:實作時發現把阻擋放在 naming-authority 之前就完全覆蓋了它,
+   另寫一份訊息會是重複。原計畫的 2a 撤銷。
+3. **站4 定位鍵錯兩次**:`step` → 正確是 `component`;`data.manifest_path` → 8 個 scaffold 列
+   只有 1 個有 `data` 欄位。第一次量出「0 個專案有 ledger 列」是我的過濾錯誤。
+4. **站4 影響面算小了**:原本只掃 `taskq*`,漏掉 omnibot-new。全語料 17 個不是 13 個。
+5. **站2 的守衛第一版兩處在配合程式碼**:用 `threshold` 關鍵字(放過 Gate 2-4 那站)
+   加上 `"gate 1" not in low` 的例外(放過 Gate 1 那站)。改成比對 `% <` 的形狀後,兩站都是真的。
+6. **CP-6/CP-7 第一次沒紅**:守衛用 `[^.\n]*` 界定「同一句」,跨不過 `0.0` 的小數點,
+   字面寫出數字就逃得掉。改成 80 字元距離界定後,CP-6/6b/7 全紅。
+7. **CP-13b 揭出我的 SSOT 主張沒被釘住**:在 `contract_coverage_gap` 裡寫一份忠實的第二實作、
+   完全不讀 `decides`,8 支測試全過。R97 CP-5b / R98 CP-11 同形**第三次**。
+   補兩支行為測試(monkeypatch `_contract_decides`,斷言兩個消費者的答案都跟著變),
+   CP-13b/13c 重跑後都紅。
+8. **站3 原本想連「forbidden 目標不存在」一起判** —— 撤銷:
+   `forbidden` 指向專案不依賴的外部套件,和「刻意禁止未來引入 django」結構完全相同,
+   import-linter 在 `include_external_packages = True` 下兩者都接受
+   (`contracts/forbidden.py:220-233` 逐字查過)。判它就是 R46 的假指控。
+
+### §F 明列不做(附再開條件)
+
+| 項目 | 理由 |
+|---|---|
+| 判 `forbidden` 合約的外部目標存不存在 | 見 §E-8。taskq-wow 的 `nonexistent_module_for_coverage` **本輪修不掉**。**再開**:第二個專案寫出「目標在整棵交付樹的 import 裡一次都沒出現」的 forbidden 合約 |
+| `spec_tracking_checker.py:410` 的 `# noqa: F841` 丟棄 exit code | 它讓 4 條返回路徑在該站點全部塌成 `4b = 0.0`。修它要改 `4b_test_spec_pct` 的欄位語意,影響 3 條**既有**返回路徑與所有 4b 消費者。**再開**:站2 落地後單獨評估 4b 的 could-not-measure 表示法 |
+| 讀 SAD §2.1 的合約表做三方對賬 | §2.1 不是框架規定的結構 |
+| 在 TEST_SPEC 模板加 AC 欄位 | 站1 之後兩種寫法都讀得懂;加欄位會讓 13 個既有專案的表格全部不合模板 |
+| 「宣告 PostgreSQL 就必須有 DBAPI driver」 | 見 §C |
+| Top 1 的「補回 core 層 / 補 forbidden-sqlalchemy 合約」 | `core/` 在交付樹裡不存在;要不要有那些合約是專案決定 |
+| `taskq-mm` 納入語料 | 沒有 `.methodology/state.json`,`corpus_projects()` 正確地不收它 |
+| 拆分 `spec_coverage.py`(943 行,新 god file) | 本輪加的每一行都是「解析」或「對解析的判定」,是這個檔的本業;而在同一個 commit 裡既改行為又拆檔,正是 `test_god_file_split_safety.py` 存在要擋的事。已登記 ceiling 與算式 |
+
+### §G 量測期間 taskq-done 被重置(記錄)
+
+它是 live RUNNING 專案。我開始量測後,`requirements.txt` 與 `.methodology/degradations.jsonl`
+一度消失(HEAD 退回 P2 commit `11e408f`),稍後 `requirements.txt` 又被該專案重新產生,
+`.importlinter` 也長出了 §B 那條新合約。**全程我只有讀。**
+§A 的核心數字在重置後重量仍成立(`declared=11 / unread=109`);
+§C 的專案清單以實作後量測為準(6 個而非計畫的 5 個)。

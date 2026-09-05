@@ -49,6 +49,22 @@ sinks:
       arch_contract_coverage (Round 67 站7) for delivered modules no contract
       reaches. The declared_only rows in the same component are report-only
       by adjudication R54; see docs/PROPOSAL_ADJUDICATIONS.md.
+  "spec-coverage:unreadable-declaration":
+    sink: verdict
+    where: >-
+      spec_coverage._run_spec_coverage_check returns (1, 0.0) when a row
+      inside a declaration table names a `test_`-prefixed identifier the
+      parser could not resolve. Round 99 站2. This is the other half of
+      spec-coverage:unread-row's population, split off by asking whether the
+      row names a test: that entry stays report-only because taskq-advance's
+      `(cross-cutting tooling)` and taskq-cc's `(none declared for this
+      round)` are a project stating the truth in the only column it has, and
+      those rows name no test. Measured over the 13 corpus TEST_SPEC.md
+      files: advance 2 unread / 0 naming a test, cc 1 / 0, taskq-done
+      109 / 108, ten others 0 / 0. The check runs ahead of the P1 Naming
+      Authority block, which on taskq-done reported 91 of 91 inventory names
+      "missing in TEST_SPEC.md — Agent A may have hallucinated names" about
+      names present in exactly those rows.
   "gate:ac-deferred":
     sink: report-only
     why: >-

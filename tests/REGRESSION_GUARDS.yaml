@@ -5047,3 +5047,151 @@
 - test: tests/test_step_1c_has_an_executor.py::test_the_canonical_template_satisfies_its_own_new_rule
   bug: "the canonical SEC template is what P2 pastes; a rule its example threat could not satisfy would teach projects to fail"
   fixed_in: "Round 98"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_a_backticked_name_followed_by_an_ac_id_is_read
+  bug: "taskq-done line 50 verbatim: `strip(backtick)` ran before the trailing [AC-1.1] was removed, so the closing backtick was never at an end and survived — 109 of 120 declaration rows dropped, declared=11"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_an_unbackticked_name_followed_by_an_ac_id_is_read
+  bug: "the unbackticked form failed too, on the trailing space re.sub left behind — wider than the shape first reported"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_a_plain_backticked_name_still_reads
+  bug: "regression guard: the shape 12 of 13 corpus TEST_SPECs are written in must be byte-identical after the change"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_a_parametrized_id_is_still_stripped
+  bug: "regression guard: removing a trailing [case1] is load-bearing (Round 87 站9 — parametrized declarations were read as not_collected) and must survive the reordering"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_a_parametrized_id_carrying_an_ac_id_reads_the_bare_name
+  bug: "both annotations at once is the case a single normalisation pass cannot resolve, whichever order it picks"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_a_row_naming_no_test_still_names_none
+  bug: "counter-control: taskq-advance's (cross-cutting tooling) and taskq-cc's (none declared) rows must keep naming no test, or the fix becomes a false positive"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_two_candidates_are_still_arbitrated_by_the_header
+  bug: "counter-control: a Title column repeating the name is genuine ambiguity and the header still decides it"
+  fixed_in: "Round 99"
+
+- test: tests/test_declaration_cell_reads_the_identifier.py::test_the_normalisation_does_not_depend_on_write_order
+  bug: "the defect in one sentence — one identifier written four ways produced two answers, and nothing declared the ordering the code depended on"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_a_row_naming_a_test_is_separated_from_a_row_naming_none
+  bug: "unread rows were one undifferentiated population, so the half that declares a test could not be blocked without charging the half that legitimately declares none (Round 42)"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_a_bare_word_test_does_not_count_as_a_declaration
+  bug: "counter-control: prose in a Title column (tested downstream / integration test coverage) must not be read as a dropped declaration"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_an_unreadable_declaration_blocks
+  bug: "a declaration the parser could not read was scored identically to one that does not exist — recorded since Round 74 and read by no verdict"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_the_block_shows_the_row_the_parser_could_not_read
+  bug: "a count with no rows behind it cannot be acted on; the block has to name the line"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_a_row_that_declares_nothing_does_not_block
+  bug: "counter-control for MEASUREMENT_SINKS.yaml's own reasoning: the two shapes it defends must stay non-blocking"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_the_unreadable_row_is_reported_before_the_hallucination_verdict
+  bug: "taskq-done: 91 of 91 TEST_INVENTORY names reported missing and blamed on Agent A hallucinating, about names present in rows the parser dropped, with a remedy that regenerates the same file"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_a_genuinely_absent_name_still_reads_as_a_naming_violation
+  bug: "counter-control on the ordering: with nothing unreadable the naming-authority verdict must be unchanged"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_an_unread_row_does_not_enter_the_denominator
+  bug: "score reverse-control (Round 98 站2's rule): an abstention must move neither the numerator nor the denominator"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_the_blocking_half_writes_its_own_ledger_row
+  bug: "the blocking half needs its own component name so MEASUREMENT_SINKS.yaml can register it verdict while unread-row stays report-only"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_unreadable_declaration_names_itself.py::test_no_caller_states_a_cause_for_the_spec_coverage_block
+  bug: "three call sites rendered every non-zero return as a percentage below a threshold; three of the four returns are structural and report 0.0 as a placeholder"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_a_one_module_independence_contract_covers_nothing
+  bug: "taskq-redo, taskq-new and (written during this round) taskq-done cleared arch_contract_coverage with a one-module independence stanza naming the bare root package"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_a_two_module_independence_contract_does_cover
+  bug: "counter-control: the rule must not read as 'independence never counts'"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_a_one_layer_layers_contract_covers_nothing
+  bug: "Round 55 asked this of layers in classify_constraints and contract_coverage_gap, reading the same parse, never asked it at all"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_a_forbidden_contract_with_no_targets_covers_nothing
+  bug: "a forbidden contract is a statement about targets, and one with none cannot be false"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_a_forbidden_contract_with_a_target_does_cover
+  bug: "counter-control, and the boundary this round declines to cross: whether a named target is reachable is not decidable apart from a deliberate never-import guard"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_the_verdict_travels_on_the_parse_not_in_each_consumer
+  bug: "the judgement lived inline in one of two consumers of read_import_contracts; one statement, read by both"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_the_remedy_no_longer_offers_the_root_package
+  bug: "block_reason.py told the project to name the root package, which clears this gate for every module it will ever add"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_nothing_in_the_tree_still_advertises_the_root_package_escape
+  bug: "the sentence was in two files; a guard on one of them is how this repository's oldest defect keeps recurring"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_a_scaffolded_manifest_with_unpinned_deps_is_named
+  bug: "the framework writes requirements.txt, stamps it REVIEW AND PIN VERSIONS BEFORE COMMIT and files a ledger row it owns, and neither statement had a reader — 5 of 17 corpus projects ship it fully unpinned"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_the_ledger_row_locates_it_after_the_banner_is_deleted
+  bug: "the banner is a comment; a check one line clears is a check whose cheapest satisfaction is deleting the warning"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_the_banner_alone_locates_it_when_the_ledger_is_gone
+  bug: "a ledger can be reset mid-run — taskq-done's was, during this round — so the banner stays as the fallback witness"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_a_scaffolded_manifest_that_was_pinned_is_silent
+  bug: "counter-control (taskq-new's shape): banner still present, every version pinned — the obligation is the pinning, not the marker"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_a_project_authored_manifest_is_not_judged
+  bug: "counter-control: a manifest this framework did not write carries no obligation it never stated to that project"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_a_project_with_no_manifest_is_not_judged
+  bug: "an absent manifest is the scaffolder's trigger, not a violation"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_a_line_carrying_a_version_or_an_option_is_not_unpinned
+  bug: "a pip option line, a URL requirement and an extras spec are not missing a version; reading them as unpinned blocks a project for naming an exact artifact"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_comments_and_blank_lines_are_not_requirements
+  bug: "the scaffold writes nine comment lines above the dependencies; counting them would block every project it ever wrote for"
+  fixed_in: "Round 99"
+
+- test: tests/test_the_scaffolded_manifest_is_not_delivered_unfinished.py::test_the_message_says_it_was_the_framework_that_wrote_the_file
+  bug: "a block reading 'your manifest is wrong' sends the agent to audit a file it did not author"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_the_coverage_gap_reads_that_answer_rather_than_recomputing_it
+  bug: "counter-proof CP-13b: a faithful second implementation of the rule inside contract_coverage_gap, never reading `decides`, passed all 8 other tests — the SSOT claim was unpinned (Round 97 CP-5b / Round 98 CP-11, third occurrence)"
+  fixed_in: "Round 99"
+
+- test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_the_constraint_classifier_reads_that_answer_too
+  bug: "counter-proof CP-13c: the other consumer had the same hole — restoring Round 55's inline `len(sources) < 2` left every test green"
+  fixed_in: "Round 99"

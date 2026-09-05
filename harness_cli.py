@@ -129,6 +129,11 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     40  advance-phase: the phase advanced and the handover commit was made,
         but state.json carries no phase_completed[N] record. That fact is
         the framework's to write; re-run advance-phase for that phase.
+    41  advance-phase: requirements.txt was scaffolded by this framework from
+        the project's SSOTs and stamped "REVIEW AND PIN VERSIONS BEFORE
+        COMMIT", and still ships dependencies with no version. Read the
+        extracted list against the SSOTs — a declared runtime the scaffold
+        could not name is missing, not just unpinned — pin it, re-run.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

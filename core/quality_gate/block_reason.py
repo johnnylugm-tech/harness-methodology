@@ -210,11 +210,14 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "kept regardless of what these modules import, so the boundary is "
         "claimed and not enforced — the composition root importing the "
         "database driver directly is the usual shape. Add the named modules "
-        "to an existing contract's sources, or name a package above them "
-        "(naming the root package covers everything under it), then re-run "
-        "the gate. Deleting the contracts also clears this, and is the wrong "
-        "fix: a project with no contract is not blocked here, but it has "
-        "stopped claiming a boundary rather than started keeping one.",
+        "to the sources of a contract that actually constrains them, then "
+        "re-run the gate. Two ways of clearing this are the wrong fix and "
+        "the entry says so because both were taken: deleting the contracts "
+        "(a project with no contract is not blocked here, but it has stopped "
+        "claiming a boundary rather than started keeping one), and naming "
+        "the root package so that everything beneath it counts as covered "
+        "for the life of the project — a contract has to be one this gate "
+        "could see fail.",
     ),
     "required_artifact_missing": (
         "A file the SAB declares this project must ship is not at the declared path",

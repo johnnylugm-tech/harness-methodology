@@ -79,6 +79,13 @@ EX_RETIRED_FEATURE_FLAG = 39
 # exactly the remedy — same owner, different remediation channel, which is
 # Round 25's condition for a number of its own rather than sharing 70.
 EX_PHASE_RECORD_NOT_WRITTEN = 40
+# Round 99 站4. Not folded into 12: that code's owner is the project and its
+# channel is "change what you wrote". Here the framework wrote the file and
+# stamped it unfinished, so the block has to say whose output is being
+# handed back — Round 48's rule that an abort names an owner. The
+# remediation channel is also its own: read a transcription against the
+# SSOTs it came from, which is not what any other precondition asks for.
+EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED = 41
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -124,6 +131,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_UNCOMMITTED_DELIVERABLES: "advance-phase: delivered files differ from HEAD, so the commit about to record this phase does not contain the tree the phase's checks were measured on — the [BLOCKED] list names each file. Harness bookkeeping and the files this command rewrites itself are excluded. Commit the listed work (or gitignore it, if it is generated at runtime) and re-run",
     EX_RETIRED_FEATURE_FLAG: "run-gate: .methodology/harness_config.json still switches a dimension off (features.<key>: false). No dimension can be excluded from a gate any more — a dimension is measured, or the gate blocks and the run routes to repair. Remove the named key; if the tool genuinely cannot run here, that is an INFRA block with a repair route, not a scoring exemption",
     EX_PHASE_RECORD_NOT_WRITTEN: "advance-phase: the phase advanced and the handover commit was made, but state.json carries no phase_completed[N] record — the fact naming the commit, the enforcer and the tree it was judged on is the framework's to write and it is not there. A project reached its terminal phase missing one such entry this way. Re-run advance-phase for that phase",
+    EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED: "advance-phase: requirements.txt was scaffolded by this framework from the project's own SSOTs, stamped 'REVIEW AND PIN VERSIONS BEFORE COMMIT', and still ships dependencies with no version. Read the extracted list against SAD.md/SPEC.md/SRS.md — a runtime the SSOT declares that the scaffold could not name is missing from it, not merely unpinned — pin every line, then re-run",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",

@@ -842,11 +842,49 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
 
         # 2. D4 traceability: TEST_SPEC.md → tests/ (spec-coverage — unified)
         #    TEST_SPEC.md is the single source of truth (v2.6).
-        sc_rc, sc_pct = spec_coverage._run_spec_coverage_check(project, sc_thresh, verbose=True)
+        sc_rc, _ = spec_coverage._run_spec_coverage_check(project, sc_thresh, verbose=True)
         if sc_rc != 0:
-            print(f"\n[BLOCKED] spec-coverage {sc_pct:.1f}% < threshold {sc_thresh:.0f}%.")
-            print("  Fix: implement missing test cases from TEST_SPEC.md in tests/, then re-run.")
+            # Round 99 站2. This said "spec-coverage {pct}% < threshold {t}%"
+            # and "implement missing test cases". `_run_spec_coverage_check`
+            # returns 1 from four places and only one is the threshold; the
+            # other three (no TEST_SPEC.md, 0 parseable rows, naming
+            # authority, and now unreadable declarations) return 0.0 as a
+            # placeholder. On taskq-done the run was told coverage was 0.0%
+            # and to write the missing tests, while the tests existed and
+            # 109 declaration rows simply could not be parsed. The producer
+            # prints a self-sufficient message on every path — including the
+            # threshold one, verbatim — so naming a cause here was a guess
+            # that was wrong three times out of four, and a duplicate the
+            # fourth. Same rule cli/gate_cmds.py took in Round 87 站2.
+            print("\n[BLOCKED] spec-coverage did not pass.")
+            print("  → the reason and what closes it are printed above, "
+                  "under [spec-coverage]; fix that, then re-run advance-phase.")
             return 10
+
+    # ── Round 99 站4: the framework's own manifest, still unfinished ──────
+    # `scaffold_project_manifest_from_ssot` writes requirements.txt for a
+    # project that has none, stamps it "REVIEW AND PIN VERSIONS BEFORE
+    # COMMIT" and records a `gate:env-repair` row owned by `harness`.
+    # Neither statement had a reader: 8 of the 17 corpus projects carry the
+    # ledger row and 5 of those ship every dependency unpinned. The reader
+    # lives beside the writer (harness/ssot_manifest.py) so the sentence and
+    # its executor cannot drift apart.
+    if completed_phase >= 3:
+        from cli.exit_codes import EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED
+        from harness.ssot_manifest import unfinished_scaffolded_manifest
+
+        _manifest_why = unfinished_scaffolded_manifest(project)
+        if _manifest_why:
+            # The remedy is produced by the function that computed the
+            # finding (Round 87 站2), and it arrives as a runtime value, so
+            # the literal line below names where it is — Round 87 站8's
+            # shape, and what `test_blocked_message_contract` reads.
+            print("\n[BLOCKED] requirements.txt is this framework's scaffold, "
+                  "not a reviewed manifest:")
+            print(f"  {_manifest_why}")
+            print("  → the unpinned lines and what closes them are named "
+                  "above; fix them, then re-run advance-phase.")
+            return EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED
 
     # ── P2-A: SAB consistency pre-check (MEDIUM violations block advance) ────
     _sab_rc = _precheck_sab_consistency(completed_phase, project)
