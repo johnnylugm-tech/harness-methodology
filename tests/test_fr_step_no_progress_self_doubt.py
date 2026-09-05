@@ -102,3 +102,89 @@ def test_detects_a_realistic_passing_score_not_just_a_perfect_100(tmp_path):
         "diagnostic; requiring >=100 silently missed most real recovery cases"
     )
     assert diag["score"] == 95.0
+
+
+# ── Round 28: progress-signal helper regression suite ───────────────────
+# The fix-round loop's no-progress detector fired RC=2 on a GREEN-pass idle
+# round when the agent's tool output happened to be identical to the
+# previous round (FR-01 actual). _progress_signal adds a file-diff hash
+# alongside the tool snapshot so a round whose agent actually edited files
+# is correctly classified as progress even when ruff+pytest output is
+# unchanged. These tests pin all four signal-comparison cases so a future
+# regression cannot roll back to "tool output only" without flipping them.
+
+
+def test_progress_signal_empty_inputs_return_zero_delta():
+    """Empty tool_snapshot + empty diff_sig -> delta=0, prev preserved.
+
+    Avoids the false-positive no-progress signal that the trivial
+    ``f"{''}|{''}"`` -> ``"|"`` would otherwise induce on real empty-signal
+    rounds.
+    """
+    delta, new_prev = fr_cmds._progress_signal("", "", "")
+    assert delta == 0
+    assert new_prev == "", "empty inputs must preserve previous combined sig"
+
+
+def test_progress_signal_identical_combined_returns_one():
+    delta, new_prev = fr_cmds._progress_signal(
+        "abc|ruff pass", "ruff pass", "abc"
+    )
+    assert delta == 1, "identical combined sig must register as no-progress"
+    assert new_prev == "abc|ruff pass"
+
+
+def test_progress_signal_different_combined_returns_zero():
+    """Either side differing -> progress; combined sig updates for next round."""
+    delta, new_prev = fr_cmds._progress_signal(
+        "prev-snap", "different-tool-output", "abc"
+    )
+    assert delta == 0
+    assert new_prev == "abc|different-tool-output"
+
+
+def test_progress_signal_file_changed_same_tool_returns_zero():
+    """FR-01 actual scenario: tool output identical BUT file diff differs.
+
+    This is the root-cause fix: a round where the agent edited files but
+    ruff+pytest output stayed identical (a GREEN-pass idle round) must be
+    classified as progress, not no-progress.
+    """
+    delta, new_prev = fr_cmds._progress_signal(
+        "abc|ruff pass + pytest 17 passed",  # previous combined
+        "ruff pass + pytest 17 passed",       # tool sig: identical
+        "def",                                 # diff_sig: changed
+    )
+    assert delta == 0, (
+        "agent edited files but tool output stayed identical -> must be "
+        "progress, not no-progress (the FR-01 root-cause fix)"
+    )
+    assert new_prev == "def|ruff pass + pytest 17 passed"
+
+
+def test_capture_diff_sig_returns_hash_in_git_repo(tmp_path):
+    """In a git repo with dirty working tree -> non-empty hash."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=str(tmp_path), check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "t@t"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "t"],
+        check=True,
+    )
+    (tmp_path / "foo.py").write_text("x = 1\n", encoding="utf-8")
+    sig = fr_cmds._capture_diff_sig(tmp_path)
+    assert isinstance(sig, str) and len(sig) > 0, (
+        f"expected non-empty diff sig in a dirty git repo, got {sig!r}"
+    )
+
+
+def test_capture_diff_sig_returns_empty_in_non_git_dir(tmp_path):
+    """Outside a git repo -> "" (fail-soft, no signal)."""
+    sig = fr_cmds._capture_diff_sig(tmp_path)
+    assert sig == "", (
+        f"non-git working dir must return empty sig (fail-soft), got {sig!r}"
+    )

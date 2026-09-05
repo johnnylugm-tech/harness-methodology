@@ -682,18 +682,29 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                 tool_snapshot = _capture_tool_snapshot(project, src_dir, test_file)
 
                 # ── B: lateral variation detection ───────────────────────────────
-                curr_sig = tool_snapshot[:300] if tool_snapshot else ""
-                if curr_sig and curr_sig == prev_snapshot_sig:
+                # Round 28: include git status --porcelain hash alongside the
+                # tool snapshot so a GREEN-pass idle round whose agent DID
+                # edit a file (file diff differs, tool output identical) is
+                # correctly classified as progress. Without diff_sig, an agent
+                # that legitimately reached a GREEN PASS state but whose next
+                # round's tools produced identical output was misclassified
+                # as no-progress (FR-01 actual case, score=100 / quality_complete
+                # =true still aborted with RC=2).
+                diff_sig = _capture_diff_sig(project)
+                no_progress_count_delta, prev_snapshot_sig = _progress_signal(
+                    prev_snapshot_sig, tool_snapshot, diff_sig
+                )
+                if no_progress_count_delta:
                     no_progress_count += 1
                     print(f"[run-fr-step] {fr_id} NO PROGRESS detected (round {fix_round})"
-                          f" — same error signature as previous round")
+                          f" — same files + same tool output as previous round")
                     if no_progress_count >= 2:
                         return _abort_no_progress_with_self_doubt(
-                            fr_id, step, phase, project, _last_failure_class, curr_sig
+                            fr_id, step, phase, project, _last_failure_class,
+                            tool_snapshot[:300]
                         )
                 else:
                     no_progress_count = 0
-                prev_snapshot_sig = curr_sig
 
                 # ── A: classify failure → route to the correct fixer ─────────────
                 failure_class = _classify_snapshot_failure(
@@ -1782,6 +1793,50 @@ def _resolve_phase3_context(project: Path) -> dict:
                 break
 
     return result
+
+def _progress_signal(
+    prev: str, tool_snapshot: str, diff_sig: str
+) -> "tuple[int, str]":
+    """Decide if this round is a no-progress round.
+
+    Returns (delta, new_prev):
+        delta = 1 if no-progress (combined sig identical to prev)
+        delta = 0 if progress (anything differs, or signal effectively empty)
+        new_prev = current combined sig, ready for next round's comparison.
+
+    A GREEN-pass idle round whose agent edited no files and whose ruff+pytest
+    output is unchanged fires no-progress. A GREEN-pass round where the agent
+    DID edit a file is correctly classified as progress (the FR-01 actual
+    case: file changes, identical tool output -> progress).
+    """
+    combined = f"{diff_sig}|{tool_snapshot[:300]}"
+    if not combined.strip("|"):  # both diff_sig and tool_snapshot empty
+        return 0, prev
+    if combined == prev:
+        return 1, combined
+    return 0, combined
+
+
+def _capture_diff_sig(project: Path) -> str:
+    """Short hash of working-tree status (tracked changes + untracked).
+
+    Falls back to "" if git fails — caller treats empty as "no signal".
+    Layout-agnostic: uses ``git status --porcelain``, no hardcoded paths.
+    """
+    import subprocess as _sp
+    import hashlib as _hl
+    try:
+        r = _sp.run(
+            ["git", "-C", str(project), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode != 0:
+            return ""
+        return _hl.sha1(r.stdout.encode()).hexdigest()[:40]
+    except Exception as exc:
+        print(f"[WARN] _capture_diff_sig failed: {exc}", file=sys.stderr)
+        return ""
+
 
 def _capture_tool_snapshot(
     project: Path, src_dir: str, test_file: str
