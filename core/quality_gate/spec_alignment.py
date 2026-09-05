@@ -258,9 +258,11 @@ def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list
     the code graph's community cohesion, which cannot see a spec.
 
     Self-gating by artifact presence, the same way `check_spec_alignment`
-    decides everything else: no source directory means Phase 3 has not run and
-    there is nothing to have read the key yet, so no finding. Once the tree
-    exists the question is answerable and the answer is blocking.
+    decides everything else: no source directory — or a source directory
+    that exists but contains no Python source files — means Phase 3 has not
+    yet produced code that could have read the key, so no finding. Once the
+    tree exists with at least one source file the question is answerable
+    and the answer is blocking.
 
     Measured over the eight corpus projects, all built from the same twelve-key
     SPEC.md: taskq-cc reads all twelve; taskq-renew misses one; taskq-cc-new,
@@ -273,7 +275,7 @@ def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list
     if not keys:
         return []
     src_dir = layout.phase3_development_dir / "src"
-    if not src_dir.is_dir():
+    if not src_dir.is_dir() or not any(src_dir.rglob("*.py")):
         return []
     seen: set[str] = set()
     for path in src_dir.rglob("*"):

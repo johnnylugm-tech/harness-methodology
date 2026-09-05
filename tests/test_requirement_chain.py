@@ -144,6 +144,39 @@ def test_no_source_tree_is_not_a_finding(tmp_path: Path) -> None:
             if v.check_type == "unread_config_key"] == []
 
 
+def _empty_src_project(tmp_path: Path) -> Path:
+    """Build a project whose `03-development/src/` exists but is empty.
+
+    Companion setup to `_project(src=None)`: that helper covers the
+    "no source directory" case; this one covers "directory exists but
+    no Python source files" — the boundary `init-project` actually
+    scaffolds today and the boundary every previous corpus project
+    silently skipped.
+    """
+    (tmp_path / "01-requirements").mkdir(parents=True)
+    (tmp_path / "01-requirements" / "SRS.md").write_text(
+        "## 3. Requirements\n\n### FR-01: config\n\nAC-1.1 reads config.\n",
+        encoding="utf-8")
+    (tmp_path / "SPEC.md").write_text(
+        "### FR-01: config\n\n" + _SPEC_TABLE, encoding="utf-8")
+    (tmp_path / "03-development" / "src").mkdir(parents=True)
+    return tmp_path
+
+
+def test_empty_src_tree_is_not_a_finding(tmp_path: Path) -> None:
+    """Self-gating must NOT fire when the src dir exists but is empty.
+
+    Companion to `test_no_source_tree_is_not_a_finding`. `init-project`
+    scaffolds an empty `03-development/src/`, and without this guard
+    every project would fail at P2-entry for work Phase 3 has not
+    started — `taskq-done`'s first P1→P2 attempt blocked exactly here
+    (wf_ea662c2c-3ce halt_step=advance-phase).
+    """
+    project = _empty_src_project(tmp_path)
+    assert [v for v in check_spec_alignment(project)
+            if v.check_type == "unread_config_key"] == []
+
+
 def test_the_report_and_the_gate_share_one_extractor() -> None:
     """One document, one answer to "which keys does it declare".
 
