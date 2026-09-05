@@ -933,6 +933,29 @@ def _mutation_artifact_violations(
             f"measurement anything here performed. {_how}"
         ]
 
+    # Round 99 (found on taskq-wow's Gate 2): `enforcer_sha` presence alone is
+    # not enough — a hand-written file can carry a plausible-looking one too.
+    # The two functions that actually write this artifact
+    # (mutation_enforcer._write_score_artifact / _write_unmeasured_artifact)
+    # each emit one fixed, small key set; nothing else in this codebase writes
+    # MUTATION_SCORE_ARTIFACT. This is deliberately an allowlist of those two
+    # shapes, not a rigid single-schema check — the "presence not shape"
+    # rationale above (taskq-new, missing enforcer_sha when git was
+    # unavailable) still holds for fields those two writers may legitimately
+    # omit; this only rejects a payload that is missing EVERY field either
+    # writer's success path always includes.
+    _is_success_shape = {"killed", "survived", "cache_sha256"} <= data.keys()
+    _is_unmeasured_shape = "could_not_measure" in data
+    if not (_is_success_shape or _is_unmeasured_shape):
+        return [], [
+            f"{dim_name}: {MUTATION_SCORE_ARTIFACT} carries "
+            f"`{MUTATION_SCORE_PROVENANCE_KEY}` but not the shape either writer "
+            f"produces (`_write_score_artifact` always includes "
+            f"killed/survived/cache_sha256; `_write_unmeasured_artifact` always "
+            f"includes could_not_measure) — a plausible provenance key is not "
+            f"proof this framework wrote the rest of the file. {_how}"
+        ]
+
     # Round 31 站4: the score is only meaningful over the scope it was taken
     # on. The generator runs once at the P2→P3 handoff, so a SAB corrected
     # mid-P3 — the normal way a missing scope_layers gets noticed, since Gate 2

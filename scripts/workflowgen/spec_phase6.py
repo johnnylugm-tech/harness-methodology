@@ -52,18 +52,34 @@ _GATE4_STEPS = [
         "3. G4b: Evaluate ALL Gate 4 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md → .sessi-work/gate4_result.json.\\n"
         f"{S.render_dimension_table(4)}"
         "   Fix failing dims at ROOT CAUSE in code.\\n"
-        "   CITATION REQUIRED: any tool_evidence sentence that names a specific NFR/FR as the CAUSE of a skip or failure (e.g. \"N skipped for feature-flagged NFR-08\") must be verified per-skip against the actual docstring/name tag of that test before being written — do NOT attribute a whole skip count to one NFR without checking each skipped test individually; a wrong blanket attribution is a fabrication, not a summary."
+        "   CITATION REQUIRED: any tool_evidence sentence that names a specific NFR/FR as the CAUSE of a skip or failure (e.g. \"N skipped for feature-flagged NFR-08\") must be verified per-skip against the actual docstring/name tag of that test before being written — do NOT attribute a whole skip count to one NFR without checking each skipped test individually; a wrong blanket attribution is a fabrication, not a summary.\\n"
+        "   mutation_testing re-run MUST be BACKGROUNDED (mutmut can take up to 3600s; a synchronous call is silently truncated at ~10min, which is exactly how a fabricated score happens):\\n"
+        "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py mutation-test-score --project ' + REPO + ' > /tmp/mutation_g4_r' + round + '.log 2>&1 & echo $!` — note the PID.\\n"
+        f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.mutation_poll_cap()} polls / ~60min). Past cap → `kill <PID>`, record TIMEOUT for mutation_testing — never hand-write a score.\\n"
+        "   c. DONE → `cat /tmp/mutation_g4_r' + round + '.log`; this already wrote ' + REPO + '/.methodology/mutation_score.json — read it back, never author it."
     ),
-    f"4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P6}`. FAIL → add tests, re-run. Runs BEFORE G4c so any fix here is captured by the G4c commit (Round 26: a D4 fix landing AFTER finalize-gate committed had no downstream commit step and was left uncommitted).",
+    (
+        "4. D4 — run BACKGROUNDED (can exceed the Bash tool\\'s ~10-min synchronous default; a truncated call must not be read as passing/excluded). Runs BEFORE G4c so any fix lands in the G4c commit (Round 26: a D4 fix landing AFTER finalize-gate committed was left uncommitted):\\n"
+        f"   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P6} > /tmp/d4_g4_r' + round + '.log 2>&1 & echo $!` — note the PID.\\n"
+        f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.d4_poll_cap()} polls / ~20min). Past cap → `kill <PID>`, report D4 as TIMEOUT — never invent a test\\'s delivered/excluded status.\\n"
+        "   c. DONE → `cat /tmp/d4_g4_r' + round + '.log`. FAIL → add tests, re-run this backgrounded step."
+    ),
     "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 4 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run. Also runs BEFORE G4c so any fix lands in the G4c commit.",
     (
-        "6. G4c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 4 --phase 6 --project ' + REPO + '` (writes QUALITY_REPORT.md + HANDOVER.md + pushes on PASS; also the commit point for any code/test fixes from steps 3-5 above).\\n"
+        "6. G4c — run BACKGROUNDED (writes QUALITY_REPORT.md + HANDOVER.md + pushes on PASS; also the commit point for any code/test fixes from steps 3-5 above — same class of risk as GATE2\\'s G2c, a single opaque Bash call with no visible output until it returns is exactly the shape the 180s stall watchdog kills):\\n"
+        "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 4 --phase 6 --project ' + REPO + ' > /tmp/gate4_finalize_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\\n"
+        "   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report \"GATE4: TIMEOUT\".\\n"
+        "   c. Once DONE: `cat /tmp/gate4_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\\n"
     ),
 ]
 
 _GATE4_SCOPE_RULES = (
     "- DO NOT generate RELEASE_NOTES/FINAL_SIGN_OFF (next phase) or run advance-phase / git tag.\\n"
-    "- DO NOT edit gate4_result.json scores to fake them — fix code (DA evidence is the only hand-authored part).\\n"
+    "- DO NOT edit gate4_result.json, mutation_score.json, or any evidence file to "
+    "fake/reconstruct a score — fix code (DA evidence is the only hand-authored "
+    "part), or record TIMEOUT if a backgrounded call genuinely times out.\\n"
+    "- DO NOT cite a framework exclusion/deferral rule you cannot point to in "
+    "harness source — an uncited shortfall is real.\\n"
     "- DO NOT hand-write or rewrite 06-quality/QUALITY_REPORT.md — finalize-gate is its sole author and now renders DA-waiver dimensions correctly (raw score + PASS (DA-waiver)); a hand-edited copy only creates an uncommitted second source.\\n"
     "- DO NOT run scripts/build_traceability.py directly against the project root, and DO NOT hand-author TRACEABILITY_MATRIX.overlay.yaml overrides — the canonical matrix is 01-requirements/TRACEABILITY_MATRIX.md, auto-refreshed by advance-phase; a root-level copy or a hand-written overlay only creates an untracked duplicate with no effect on this gate.\\n"
     "- DO NOT modify harness/ (HR-17).\\n"

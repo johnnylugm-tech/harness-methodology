@@ -164,7 +164,7 @@ def is_per_fr_gate(gate_num: int) -> bool:
 def framework_owned_dimensions(gate_num: int) -> dict[str, str]:
     """Return ``{dimension: tool}`` for the dimensions the harness scores itself.
 
-    Two shapes, both derived from the YAML rather than from a list kept here:
+    Three shapes, all derived from the YAML rather than from a list kept here:
 
     * ``requires_tool_execution: false`` — traceability and adversarial_review;
       finalize_gate patches their scores in (harness_bridge's S4 skips them).
@@ -173,6 +173,13 @@ def framework_owned_dimensions(gate_num: int) -> dict[str, str]:
       computes the score in finalize_gate and overrides whatever the agent
       wrote. harness_bridge's ``_TOOL_OUTPUT_PATTERNS`` states the same
       exception for the same reason.
+    * ``tool: mutmut`` — mutation_testing. Also framework-computed: gate_cmds's
+      ``_patch_mutation_score`` unconditionally overwrites whatever the agent
+      wrote with the framework's own `compute_mutation_score` measurement
+      (`framework_override: true` in the persisted result) — this function
+      omitted it before, so ``render_framework_owned_note`` never warned the
+      agent, which is one reason a live Gate 2 round hand-wrote a mutation
+      score under time pressure instead of trusting the framework to score it.
 
     An agent that self-scores one of these is writing a number the framework is
     about to replace, so every prompt that enumerates dimensions has to say
@@ -185,6 +192,7 @@ def framework_owned_dimensions(gate_num: int) -> dict[str, str]:
         for d in _read_gate_dimensions(gate_num)
         if d.get("requires_tool_execution") is False
         or d.get("tool") == "code-review-graph"
+        or d.get("tool") == "mutmut"
     }
 
 

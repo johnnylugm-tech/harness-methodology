@@ -643,10 +643,21 @@ MUTATION_SCORE_ARTIFACT = ".methodology/mutation_score.json"
 # in gate4_result.json as `"framework: compute_mutation_score → killed=256
 # survived=99 score=72.1"` with `framework_override: true`.
 #
-# Presence, not shape: `enforcer_sha()` legitimately returns "unknown" when git
-# is unavailable, and a value-shape rule would fail those runs. Measured across
-# the corpus, the five projects whose artifact this code actually wrote all
-# carry the key and no extra keys; taskq-new is the only one missing it.
+# Presence, not a rigid single shape: `enforcer_sha()` legitimately returns
+# "unknown" when git is unavailable, and a check demanding one exact field set
+# would fail those runs. Measured across the corpus, the five projects whose
+# artifact this code actually wrote all carry the key and no extra keys;
+# taskq-new is the only one missing it.
+#
+# Round 99 (taskq-wow's Gate 2): presence of this key alone still isn't
+# enough — a hand-written file can carry a plausible copy of it too, while
+# using field names neither writer below ever emits (e.g. a `message` string
+# with `killed=/survived=/timeout=/untested=` terms — mutmut's own console
+# vocabulary, not this module's `format_score_message`, and a `cache_path`
+# key where `_write_score_artifact` always writes `cache_sha256`).
+# `gate_checks._mutation_artifact_violations` now allowlists the two shapes
+# these two writers can actually produce, on top of the presence check here —
+# narrower than "presence only", still not a single rigid schema.
 MUTATION_SCORE_PROVENANCE_KEY = "enforcer_sha"
 
 

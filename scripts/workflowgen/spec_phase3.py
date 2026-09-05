@@ -415,7 +415,11 @@ _GATE2_STEPS = [
         "2. G2b: Evaluate ALL Gate 2 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate2_result.json.\\n"
         "   Dims: use the exact `dimensions:` list G2a just printed (it is computed from gate2_p3_exit.yaml, filtered by enabled feature flags — always current, do NOT hand-copy a dim list here).\\n"
         f"{S.render_framework_owned_note(2)}"
-        "   For any failing dim: fix the ROOT CAUSE in code (ruff/pyright/add tests/bandit/mutation), re-run the tool, update the score. (No auto-fix engine.)"
+        "   For any failing dim: fix the ROOT CAUSE in code (ruff/pyright/add tests/bandit/mutation), re-run the tool, update the score. (No auto-fix engine.)\\n"
+        "   mutation_testing re-run MUST be BACKGROUNDED (mutmut can take up to 3600s; a synchronous call is silently truncated at ~10min, which is exactly how a fabricated score happens):\\n"
+        "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py mutation-test-score --project ' + REPO + ' > /tmp/mutation_r' + round + '.log 2>&1 & echo $!` — note the PID.\\n"
+        f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.mutation_poll_cap()} polls / ~60min). Past cap → `kill <PID>`, record TIMEOUT for mutation_testing — never hand-write a score.\\n"
+        "   c. DONE → `cat /tmp/mutation_r' + round + '.log`; this already wrote ' + REPO + '/.methodology/mutation_score.json — read it back, never author it."
     ),
     (
         "3. G2c — run BACKGROUNDED (finalize-gate\\'s own git push triggers the local pre-push hook, plus CRG refresh: bounded on this project today, but a single opaque Bash call with no visible output until it returns is exactly the shape the 180s stall watchdog kills — same class of risk as GATE1, same fix):\\n"
@@ -423,13 +427,22 @@ _GATE2_STEPS = [
         "   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report \"GATE2: TIMEOUT\".\\n"
         "   c. Once DONE: `cat /tmp/gate2_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\\n"
     ),
-    f"4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P3}`. FAIL → add missing test implementations, re-run.",
+    (
+        "4. D4 — run BACKGROUNDED (this check has measured past the Bash tool\\'s ~10-min synchronous default on this project; a truncated call must not be read as passing/excluded):\\n"
+        f"   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P3} > /tmp/d4_r' + round + '.log 2>&1 & echo $!` — note the PID.\\n"
+        f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.d4_poll_cap()} polls / ~20min). Past cap → `kill <PID>`, report D4 as TIMEOUT — never invent a test\\'s delivered/excluded status.\\n"
+        "   c. DONE → `cat /tmp/d4_r' + round + '.log`. FAIL → add missing test implementations, re-run this backgrounded step."
+    ),
     "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push from Phase 3 onward, independent of the Gate 2/3/4 composite score — a low architecture sub-score can still let the composite pass, but this check will not. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
 _GATE2_SCOPE_RULES = (
     "- DO NOT run advance-phase or push-milestone p3-post-gate2 (next phase does that).\\n"
-    "- DO NOT edit .sessi-work/gate2_result.json to fake scores — fix the code.\\n"
+    "- DO NOT edit gate2_result.json, mutation_score.json, or any evidence file to "
+    "fake/reconstruct a score — fix the code, or record TIMEOUT if a backgrounded "
+    "call genuinely times out.\\n"
+    "- DO NOT cite a framework exclusion/deferral rule you cannot point to in "
+    "harness source — an uncited shortfall is real.\\n"
     "- DO NOT modify harness/ (HR-17).\\n"
     "- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes."
 )

@@ -399,6 +399,17 @@ STALL_TIMEOUTS: dict[str, int] = {
     "task_dev": 1200,
     "fr_step": 600,
     "mutation": 3600,
+    # D4 spec-coverage-check (core/quality_gate/spec_coverage.py) delegates to
+    # test_suite_run.run_suite, whose own pytest sub-call defaults to 300s
+    # (DEFAULT_SUITE_TIMEOUT) — but the CLI's total wall time also includes
+    # AST/JUnit-XML parsing and traceability cross-referencing on top of that,
+    # and a live Gate 2 round already measured the whole call exceeding the
+    # Bash tool's ~10-min synchronous-call auto-background threshold (see
+    # .methodology/last_block.md on the project where this was found). No
+    # project has emitted a clean end-to-end measurement past that point yet
+    # — 1200s is a conservative 2x-margin starting budget, not a calibrated
+    # number; tighten or raise it once a real run reports its actual wall time.
+    "spec_coverage": 1200,
     "state_alert_min": 180,
     "gitleaks": 300,
 }

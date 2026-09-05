@@ -122,18 +122,34 @@ _GATE3_STEPS = [
     (
         "2. G3b: Evaluate ALL Gate 3 dimensions inline per ' + REPO + '/harness/harness/ssi/prompts/evaluate_dimension.md. Write ' + REPO + '/.sessi-work/gate3_result.json.\\n"
         f"{S.render_dimension_table(3)}"
-        "   For any failing dim: fix ROOT CAUSE in code (ruff/pyright/tests/bandit/readability_v2/ast-error-handling/pytest-benchmark), re-run the tool, update score. (readability tool is `python3 -m harness.toolchains.readability_v2` — NOT `radon mi` — per phase3/4/6_plan.md v2.12.0.) A low architecture score has no waiver route (Round 38): fix the structure, or — only for a genuine CRG false positive — calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json, which is committed and therefore applies to CI too."
+        "   For any failing dim: fix ROOT CAUSE in code (ruff/pyright/tests/bandit/readability_v2/ast-error-handling/pytest-benchmark), re-run the tool, update score. (readability tool is `python3 -m harness.toolchains.readability_v2` — NOT `radon mi` — per phase3/4/6_plan.md v2.12.0.) A low architecture score has no waiver route (Round 38): fix the structure, or — only for a genuine CRG false positive — calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json, which is committed and therefore applies to CI too.\\n"
+        "   mutation_testing re-run MUST be BACKGROUNDED (mutmut can take up to 3600s; a synchronous call is silently truncated at ~10min, which is exactly how a fabricated score happens):\\n"
+        "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py mutation-test-score --project ' + REPO + ' > /tmp/mutation_g3_r' + round + '.log 2>&1 & echo $!` — note the PID.\\n"
+        f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.mutation_poll_cap()} polls / ~60min). Past cap → `kill <PID>`, record TIMEOUT for mutation_testing — never hand-write a score.\\n"
+        "   c. DONE → `cat /tmp/mutation_g3_r' + round + '.log`; this already wrote ' + REPO + '/.methodology/mutation_score.json — read it back, never author it."
     ),
     (
-        "3. G3c: `' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + '`.\\n"
+        "3. G3c — run BACKGROUNDED (same class of risk as GATE2\\'s G2c — a single opaque Bash call with no visible output until it returns is exactly the shape the 180s stall watchdog kills):\\n"
+        "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 3 --phase 4 --project ' + REPO + ' > /tmp/gate3_finalize_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\\n"
+        "   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report \"GATE3: TIMEOUT\".\\n"
+        "   c. Once DONE: `cat /tmp/gate3_finalize_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\\n"
     ),
-    f"4. D4: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P4}`. FAIL → add missing tests, re-run.",
+    (
+        "4. D4 — run BACKGROUNDED (this check can exceed the Bash tool\\'s ~10-min synchronous default; a truncated call must not be read as passing/excluded):\\n"
+        f"   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P4} > /tmp/d4_g3_r' + round + '.log 2>&1 & echo $!` — note the PID.\\n"
+        f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.d4_poll_cap()} polls / ~20min). Past cap → `kill <PID>`, report D4 as TIMEOUT — never invent a test\\'s delivered/excluded status.\\n"
+        "   c. DONE → `cat /tmp/d4_g3_r' + round + '.log`. FAIL → add missing tests, re-run this backgrounded step."
+    ),
     "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 3 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run.",
 ]
 
 _GATE3_SCOPE_RULES = (
     "- DO NOT run advance-phase.\\n"
-    "- DO NOT edit gate3_result.json to fake scores — fix the code.\\n"
+    "- DO NOT edit gate3_result.json, mutation_score.json, or any evidence file to "
+    "fake/reconstruct a score — fix the code, or record TIMEOUT if a backgrounded "
+    "call genuinely times out.\\n"
+    "- DO NOT cite a framework exclusion/deferral rule you cannot point to in "
+    "harness source — an uncited shortfall is real.\\n"
     "- DO NOT modify harness/ (HR-17).\\n"
     "- ONLY run-gate/eval/finalize/spec-coverage/crg-arch-check + code fixes."
 )

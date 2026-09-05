@@ -659,7 +659,7 @@
     "harness.harness_bridge::_gate_dimension_names": "5e7161efd17b5bef",
     "harness.harness_bridge::_mark_framework_na": "14173713c429025b",
     "harness.harness_bridge::_mark_stubbed_boundary_dimensions": "62a96d3615bfca5e",
-    "harness.harness_bridge::_mutation_artifact_violations": "20a45c0b39f7f848",
+    "harness.harness_bridge::_mutation_artifact_violations": "05c635a055545fa5",
     "harness.harness_bridge::_override_adversarial_review_dim_score": "9a7cf29e521a0b4f",
     "harness.harness_bridge::_override_traceability_dim_score": "ddf5a7eea889ee28",
     "harness.harness_bridge::_parse_skip_counts": "eb3d1eda37d80cf7",

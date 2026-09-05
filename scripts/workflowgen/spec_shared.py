@@ -51,6 +51,33 @@ def render_phase_complete_marker() -> str:
 D4_THRESHOLDS: "dict[int, float]" = {3: 60.0, 4: 80.0, 6: 90.0}
 
 
+# Poll-loop budgets for the G*c/D4/mutation "run BACKGROUNDED" steps inside
+# render_gate_loop (nohup ... & echo $!, then `kill -0 <PID>` every
+# POLL_INTERVAL_S seconds until DONE or the cap is hit — see _GATE2_STEPS'
+# G2c for the canonical wording this mirrors). Unlike D4_THRESHOLDS above
+# (a hand-copied literal only because spec-coverage-check's floor has no
+# YAML source to read), core/harness_config.py::STALL_TIMEOUTS DOES exist as
+# a real importable table — so this reads it live, the same lazy-import-in-
+# function convention _gate_dimension_tokens/render_framework_owned_note use
+# a few lines down, rather than hand-copying 3600/1200 a second time.
+POLL_INTERVAL_S = 15
+
+
+def _poll_cap(stall_timeout_key: str) -> int:
+    """Poll-loop iteration cap for a STALL_TIMEOUTS budget, at POLL_INTERVAL_S cadence."""
+    from core.harness_config import STALL_TIMEOUTS
+
+    return STALL_TIMEOUTS[stall_timeout_key] // POLL_INTERVAL_S
+
+
+def mutation_poll_cap() -> int:
+    return _poll_cap("mutation")
+
+
+def d4_poll_cap() -> int:
+    return _poll_cap("spec_coverage")
+
+
 # Round 39 站3 — the dimension list a prompt states is the one the gate scores.
 #
 # Round 18 站2 made the gate_configs YAML the only authority on a *threshold*,
