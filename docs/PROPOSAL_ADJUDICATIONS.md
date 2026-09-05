@@ -3843,6 +3843,32 @@ Round 84 站5 把它改成分隔符字元類並補上本節。
 
 ---
 
+## Round 99 — 門禁長時命令改為非同步執行與突變測試證據防偽
+
+taskq-wow 於 Gate 2 實測發現：`render_gate_loop` 中的 D4 (`spec-coverage-check`) 與 `mutation-test-score` 重跑原本為同步 Bash 呼叫，未採用 G2c / advance-phase 已使用的 nohup+poll 機制。`spec-coverage-check` 在真實專案上已超過 Bash 工具約 10 分鐘的預設同步上限，而 mutmut (`STALL_TIMEOUTS['mutation']=3600s`) 常態需要遠超 10 分鐘。呼叫被截斷導致 agent 合理化並手寫偽造 `mutation_score.json`（其欄位結構既不符合 `_write_score_artifact` 亦不符合 `_write_unmeasured_artifact`），並捏造引用本代碼庫不存在的 `deferred_to_downstream_phase` 測試排除規則。
+
+### 一、裁決與修改事項
+
+| # | 項目 | 判定與動作 | 出處 |
+|---|---|---|---|
+| R99-1 | Gate 2/3/4 D4 與突變重跑同步阻塞導致超時截斷 | **採納，改為 nohup+poll**：比照 G2c 模式，D4（3 個 gate）與 mutation-test-score（3 個 gate）改為背景執行並定期輪詢。G3c/G4c finalize-gate 亦補齊相同機制。輪詢上限統一定義自 `STALL_TIMEOUTS`（mutation: 3600s/240 次，spec_coverage: 1200s/80 次），經 `spec_shared` 統一導出 | `scripts/workflowgen/spec_shared.py`、`spec_phase3.py`、`spec_phase4.py`、`spec_phase6.py` |
+| R99-2 | FRAMEWORK-OWNED 未揭露 mutmut 工具所有權 | **採納，補齊警告**：`framework_owned_dimensions()` 納入 `tool: mutmut`，在 Prompt 明確告知 agent 不得自行計分 mutation_testing（該維度由框架 gate_cmds._patch_mutation_score 無條件覆蓋） | `core/quality_gate/gate_thresholds.py` |
+| R99-3 | 偽造的 `mutation_score.json` 繞過門禁 | **採納，格式白名單校驗**：`gate_checks._mutation_artifact_violations` 增加對產出形狀的校驗，僅放行 `_write_score_artifact`（含 `killed`/`survived`/`cache_sha256`）與 `_write_unmeasured_artifact`（含 `could_not_measure`）兩種真實產出格式，封堵手寫包含偽造 `enforcer_sha` 的檔案 | `harness/gate_checks.py`、`core/quality_gate/mutation_enforcer.py` |
+| R99-4 | SCOPE RULES 缺少防手寫與防虛構規範 | **採納，收緊規則**：Gate 2/3/4 的 SCOPE RULES 擴充明定：嚴禁手寫/偽造任何 evidence 檔案，且嚴禁引用在 harness 原始碼中 grep 不到的框架排除/延後規則 | `scripts/workflowgen/spec_phase3.py`、`spec_phase4.py`、`spec_phase6.py` |
+
+### 二、門禁與天花板調整
+
+- `RUNALL_MAX_BYTES` 上限由 395054 調升至 400705（實測 400405）。
+- 行數門禁調整：`gate_checks.py` (975->998)，`mutation_enforcer.py` (1555->1566)。
+- 重生工作流 goldens（`REGEN_WORKFLOWS=1`）與 god-file-split surface 指紋（`REGEN_SPLIT_GOLDEN=1`）。
+
+### 三、驗證
+
+- 全量 pytest（8279 passed）。
+- ruff、mypy、`list-modules.py --validate`、`validate_cross_refs.py` 均通過。
+
+---
+
 ## Round 98 — 解析不出來的沉默,和「沒有違規」是同一個值
 
 老闆令:複核一份對 **taskq-wow P1/P2 產出物**的審計報告,重新驗證三項「不足」的
