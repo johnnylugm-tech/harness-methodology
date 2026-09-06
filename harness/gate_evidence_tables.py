@@ -269,6 +269,23 @@ _INFRA_FAIL_EVIDENCE_SIGNATURES = (
     "phantom module",
     "Phantom modules",
 )
+# Round 100 站1. The legacy tuple above is the UNION of the two directions
+# `gate_cmds._check_sab_module_alignment` may print; the classifier that
+# routes them to a halt code (`cli/fr_cmds._classify_infra_or_harness_bug`)
+# now distinguishes them. Both lists deliberately include "Architecture
+# Amendment Protocol violation" because that signature is direction-ambiguous
+# — the gate prints it on BOTH branches (`gate_cmds.py:1183` UNREG and
+# `:1199` PHANTOM). The classifier must check direction-specific signatures
+# FIRST and only fall back to AAP last; see cli/fr_cmds.py for the order.
+_INFRA_UNREGISTERED_EVIDENCE_SIGNATURES = (
+    "Architecture Amendment Protocol violation",
+    "Unregistered modules detected",
+)
+_INFRA_PHANTOM_EVIDENCE_SIGNATURES = (
+    "Architecture Amendment Protocol violation",
+    "phantom module",
+    "Phantom modules",
+)
 
 
 # Round 30 站6 — dimensions whose score can be moved by an exclusion file, and

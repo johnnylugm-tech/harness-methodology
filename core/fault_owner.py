@@ -146,6 +146,14 @@ OWNER_BY_EXIT: dict[int, str] = {
     # part of that round that never landed: the number carries the answer now,
     # and asking the message for it could only re-open the ambiguity.
     25: Owner.INFRA,
+    # Round 100 站1. PHANTOM direction (SAB→code). Same owner-class as 25
+    # was historically — both halves of the two-way drift — but a different
+    # *remediation channel*: amend-sab --resolve-phantom ... --reason
+    # (human-in-the-loop, Round 26's mandate), not plain amend-sab. Splitting
+    # the code splits the row too, so a [PHANTOM] block is attributed to
+    # PROJECT (the project's SAB declares what is not on disk) rather than
+    # silently resolving to UNKNOWN.
+    45: Owner.PROJECT,
     # REGISTRY says it outright: "project data corruption, NOT a
     # harness-methodology bug". The remedy is to restore the file.
     26: Owner.PROJECT,

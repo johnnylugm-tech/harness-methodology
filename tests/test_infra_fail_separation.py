@@ -193,7 +193,16 @@ class TestBlockedReportSurvivesToTheGuard:
             "dropped from `output` again, which routes an unmet precondition into "
             "CODE-FIX at healthy code"
         )
-        assert verdict[0] == "INFRA"
+        # Round 100 站1: AGENT_REPLY contains direction-specific PHANTOM substrings
+        # ("phantom module"/"Phantom modules"), so the classifier routes to PHANTOM,
+        # distinct from UNREGISTERED. The PRE-100 contract asserted INFRA here —
+        # the direction-agnostic signature ("Architecture Amendment Protocol
+        # violation") alone produced "INFRA". The new direction-specific-first
+        # classifier returns "PHANTOM" for this fixture because PHANTOM substrings
+        # match before the catch-all. The OLD behaviour left the run disabled in
+        # the right way; the NEW behaviour does it via a different (more correct)
+        # classifier verdict.
+        assert verdict[0] == "PHANTOM"
 
     def test_the_synthetic_diagnostic_is_still_there_for_the_reader(self):
         err = self._validated(self.AGENT_REPLY)

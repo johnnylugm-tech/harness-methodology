@@ -25,6 +25,7 @@ from cli.fr_cmds import (
     _classify_infra_or_harness_bug,
 )
 from harness.harness_bridge import _INFRA_FAIL_EVIDENCE_SIGNATURES
+# Round 100 站1: the new PHANTOM direction.
 
 
 def test_classify_detects_harness_bug_banner():
@@ -36,13 +37,37 @@ def test_classify_detects_harness_bug_banner():
     assert "[HARNESS-BUG] ValueError: something broke" == evidence
 
 
-def test_classify_detects_each_infra_fail_signature():
-    for sig in _INFRA_FAIL_EVIDENCE_SIGNATURES:
+def test_classify_detects_each_legacy_infra_fail_signature():
+    """Round 100 站1. The legacy 4-tuple still classifies everything as either
+    INFRA (UNREGISTERED direction) or PHANTOM (SAB→code direction). Each
+    signature has its own class now — direction-specific substrings classify
+    as PHANTOM, direction-ambiguous as INFRA. The legacy tuple is preserved
+    for backward-compat consumers but the per-class semantics are now split."""
+    # Direction-specific: classify as PHANTOM.
+    for sig in ("phantom module", "Phantom modules"):
         out = f"GATE1 evaluation output:\n{sig}\nscore=0"
         result = _classify_infra_or_harness_bug(out)
         assert result is not None, f"signature {sig!r} was not detected"
         cls, evidence = result
-        assert cls == "INFRA"
+        assert cls == "PHANTOM", f"signature {sig!r} now classifies as PHANTOM (was INFRA)"
+        assert evidence == sig
+    # Direction-specific UNREG: classify as UNREGISTERED.
+    for sig in ("Unregistered modules detected",):
+        out = f"GATE1 evaluation output:\n{sig}\nscore=0"
+        result = _classify_infra_or_harness_bug(out)
+        assert result is not None, f"signature {sig!r} was not detected"
+        cls, evidence = result
+        assert cls == "UNREGISTERED", f"signature {sig!r} classifies as UNREGISTERED, distinct from PHANTOM"
+        assert evidence == sig
+    # Direction-ambiguous AAP: classify as UNREGISTERED (fallback default
+    # — both gates print it, so it does not disambiguate; UNREG is the more
+    # common direction in the corpus).
+    for sig in ("Architecture Amendment Protocol violation",):
+        out = f"GATE1 evaluation output:\n{sig}\nscore=0"
+        result = _classify_infra_or_harness_bug(out)
+        assert result is not None, f"signature {sig!r} was not detected"
+        cls, evidence = result
+        assert cls == "UNREGISTERED"
         assert evidence == sig
 
 
@@ -125,3 +150,52 @@ def test_abort_message_includes_resume_command(capsys):
     assert "resume-fr-step" in err
     assert "--phase 5" in err
     assert "--fr-id FR-02" in err
+
+
+# Round 100 站1: PHANTOM direction is its own code (45) and its own
+# remediation channel (`amend-sab --resolve-phantom ... --reason`).
+def test_a_phantom_class_exits_with_a_distinct_code(capsys):
+    """Round 100 站1. PHANTOM and UNREG are now distinct classes producing
+    distinct codes (45 vs 25) — Round 25's rule that opposite remediation
+    channels get distinct codes holds. HARNESS_BUG stays 70."""
+    from cli.exit_codes import EX_FR_STEP_PHANTOM_ABORT
+    phantom = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/p"), "PHANTOM", "Phantom modules"
+    )
+    err = capsys.readouterr().err
+    assert phantom == EX_FR_STEP_PHANTOM_ABORT, (
+        f"PHANTOM class returned {phantom}, expected {EX_FR_STEP_PHANTOM_ABORT} (45)"
+    )
+    assert "[FATAL]" in err
+    assert "PHANTOM" in err
+    assert "not a code-quality problem" in err
+
+
+def test_the_three_classes_have_three_distinct_codes(capsys):
+    """Same property as `test_the_two_classes_do_not_share_one_exit_code`,
+    extended to three classes: HARNESS_BUG / UNREGISTERED / PHANTOM get
+    codes 70 / 25 / 45."""
+    harness_bug = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/p"), "HARNESS_BUG", "[HARNESS-BUG] x"
+    )
+    unregistered = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/p"), "UNREGISTERED", "Unregistered modules detected: foo"
+    )
+    phantom = _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/p"), "PHANTOM", "Phantom modules declared"
+    )
+    capsys.readouterr()
+    assert harness_bug != unregistered != phantom
+    assert harness_bug != phantom
+
+
+def test_phantom_abort_message_names_resolve_phantom_channel(capsys):
+    """The PHANTOM abort message names the operator command that resolves
+    it, distinct from the plain `amend-sab` of the UNREG channel."""
+    _abort_dispatch_infra_or_harness_bug(
+        "FR-01", "GATE1", 3, Path("/tmp/project"), "PHANTOM", "Phantom modules declared"
+    )
+    err = capsys.readouterr().err
+    assert "--resolve-phantom" in err
+    assert "--reason" in err
+    assert "amend-sab" in err

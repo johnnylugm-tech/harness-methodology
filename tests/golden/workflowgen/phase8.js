@@ -495,7 +495,15 @@ for (const frId of deltaTodo) {
   // agent aimed at code. Separate from 70 since 站2, because the remedy is.
   if (frRc === 25) {
     log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-    return { infra_abort: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    return { infra_abort: true, phase: 8, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  // 45 — PHANTOM precondition block: SAB.json declares a module the codebase
+  // does not implement. Same halt shape but different owner (project,
+  // per fault_owner.py mapping) and a different remediation channel
+  // (the resolve-phantom CLI form, not plain append).
+  if (frRc === 45) {
+    log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
+    return { phantom_abort: true, phase: 8, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
   }
   // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness
   // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A

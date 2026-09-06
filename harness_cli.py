@@ -76,6 +76,12 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         aborted before dispatching a fix agent; repair project state
         (amend-sab) and re-run. A [HARNESS-BUG] banner in the same output
         is code 70, not this one: the remedies are opposite.
+    45  run-fr-step: PHANTOM-module signature found in sub-agent output
+        (Round 100 站1) — SAB.json declares a module the codebase does not
+        implement. Resolve each phantom with `harness_cli.py amend-sab
+        --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`,
+        then re-run. Distinct from exit 25 (the UNREGISTERED direction's
+        `amend-sab` no-flag channel); same operator, two distinct codes.
     26  [FATAL] .methodology/state.json or quality_manifest.json exists but
         is not readable/parseable JSON — project data corruption, NOT a
         harness-methodology bug (see core/state_io.py's StateCorruptError)

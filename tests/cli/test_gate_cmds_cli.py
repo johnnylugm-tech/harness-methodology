@@ -1745,8 +1745,15 @@ class TestSabPhantomPerFrScoping:
         assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") is None
 
     def test_phantom_owned_by_current_fr_still_blocks(self, tmp_path):
-        """A module the FR BEING GATED owns is still its own responsibility."""
+        """A module the FR BEING GATED owns is still its own responsibility.
+        Round 100 站1: PHANTOM direction (SAB→code) returns
+        `EX_FR_STEP_PHANTOM_ABORT` (45) so run-fr-step's wrapper classifies it
+        via `_abort_dispatch_infra_or_harness_bug` with cls='PHANTOM' and
+        propagates 45 through to the workflow driver — a distinct code from
+        the UNREGISTERED 25, matching the Round 25 rule that opposite
+        remediation channels get distinct codes."""
         from cli.gate_cmds import _check_sab_module_alignment
+        from cli.exit_codes import EX_FR_STEP_PHANTOM_ABORT
         self._make_sab(tmp_path, ["taskq.cli"])
         self._make_src(tmp_path)  # taskq.cli itself missing
         self._make_manifest(
@@ -1754,12 +1761,14 @@ class TestSabPhantomPerFrScoping:
             traceability={"FR-01": "taskq.cli"},
             gate1={},
         )
-        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == EX_FR_STEP_PHANTOM_ABORT
 
     def test_phantom_owned_by_already_passed_fr_still_blocks(self, tmp_path):
         """A module owned by an FR that already passed Gate 1 going missing
-        is a real regression, not a sequencing artifact — must still block."""
+        is a real regression, not a sequencing artifact — must still block.
+        Round 100 站1: same 45-exit code as `test_phantom_owned_by_current_fr_still_blocks`."""
         from cli.gate_cmds import _check_sab_module_alignment
+        from cli.exit_codes import EX_FR_STEP_PHANTOM_ABORT
         self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
         self._make_src(tmp_path, "taskq.cli")  # taskq.cache (FR-04, already PASS) missing
         self._make_manifest(
@@ -1767,7 +1776,7 @@ class TestSabPhantomPerFrScoping:
             traceability={"FR-01": "taskq.cli", "FR-04": "taskq.cache"},
             gate1={"FR-04": {"score": 97.0, "quality_complete": True}},
         )
-        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == EX_FR_STEP_PHANTOM_ABORT
 
     def test_phantom_unowned_module_is_skipped_at_fr_gate1(self, tmp_path):
         """A module with no FR owner in fr_module_traceability at all (e.g.
@@ -1789,17 +1798,26 @@ class TestSabPhantomPerFrScoping:
 
     def test_phantom_manifest_unreadable_falls_back_to_unscoped(self, tmp_path):
         """No quality_manifest.json at all — can't determine ownership, stay
-        conservative and block (same as fr_id=None)."""
+        conservative and block (same as fr_id=None). Round 100 站1: the
+        `fr_id is not None` arm of `_check_sab_module_alignment` returns
+        EX_FR_STEP_PHANTOM_ABORT (45) so run-fr-step can route the halt into
+        the PHANTOM branch of `_abort_dispatch_infra_or_harness_bug`; the
+        whole-gate arm keeps returning 1 so cmd_run_gate's own caller still
+        gets a discriminator."""
         from cli.gate_cmds import _check_sab_module_alignment
+        from cli.exit_codes import EX_FR_STEP_PHANTOM_ABORT
         self._make_sab(tmp_path, ["taskq.cli", "taskq.cache"])
         self._make_src(tmp_path, "taskq.cli")
         # no manifest written at all
-        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == EX_FR_STEP_PHANTOM_ABORT
 
     def test_phantom_list_traceability_entry(self, tmp_path):
         """fr_module_traceability entries may be list[str] (an FR owning
-        multiple modules), not just str — ownership lookup must handle both."""
+        multiple modules), not just str — ownership lookup must handle both.
+        Round 100 站1: 45 on PHANTOM direction, distinct from the legacy 1
+        that this assertion used to expect."""
         from cli.gate_cmds import _check_sab_module_alignment
+        from cli.exit_codes import EX_FR_STEP_PHANTOM_ABORT
         self._make_sab(tmp_path, ["taskq.cli", "taskq.store"])
         self._make_src(tmp_path)  # both missing
         self._make_manifest(
@@ -1807,7 +1825,7 @@ class TestSabPhantomPerFrScoping:
             traceability={"FR-01": ["taskq.cli", "taskq.store"]},
             gate1={},
         )
-        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == 1
+        assert _check_sab_module_alignment(str(tmp_path), gate=1, fr_id="FR-01") == EX_FR_STEP_PHANTOM_ABORT
 
 
 # =============================================================================

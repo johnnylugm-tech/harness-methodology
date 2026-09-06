@@ -86,6 +86,14 @@ EX_PHASE_RECORD_NOT_WRITTEN = 40
 # remediation channel is also its own: read a transcription against the
 # SSOTs it came from, which is not what any other precondition asks for.
 EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED = 41
+# Round 100 站1. Not folded into 25: that code's direction is code→SAB
+# (UNREGISTERED) and its channel is `amend_sab` (no flag set). PHANTOM is the
+# reverse direction (SAB→code) and its channel is
+# `amend-sab --resolve-phantom <declared> --to <target>|--drop
+# --reason ">=20 chars"`, which is the human-in-the-loop discipline Round 26
+# added (`core/quality_gate/sab_amender.py:resolve_phantom` requires the
+# reason) — distinct remediation channel ⇒ own code per the Round 25 rule.
+EX_FR_STEP_PHANTOM_ABORT = 45
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -115,7 +123,7 @@ REGISTRY: dict[int, str] = {
     EX_GHOST_DETECTED: "GHOST_DETECTED — agent claimed work but made no substantive code change (see .sessi-work/ghost_detected/)",
     EX_DISPATCH_STRUCTURALLY_BROKEN: "Sub-agent dispatch is structurally broken (e.g. claude.ai connectors disabled) — not a retryable failure",
     EX_SUBSTRATE_PREFLIGHT_FAIL: "run-phase: spawn-substrate preflight probe FAILED — sub-agents cannot run pytest/git in this environment",
-    EX_FR_STEP_INFRA_ABORT: "run-fr-step: an INFRA_FAIL precondition-block signature was found in the sub-agent's GATE1 output — aborted before dispatching a fix agent at a problem no code change can resolve; repair project state (amend-sab) and re-run",
+    EX_FR_STEP_INFRA_ABORT: "run-fr-step: an INFRA_FAIL precondition-block signature was found in the sub-agent's GATE1 output — aborted before dispatching a fix agent at a problem no code change can resolve; repair project state (amend-sab) and re-run. NOTE: this code is the UNREGISTERED direction only (code→SAB). The PHANTOM direction (SAB→code) is exit 45, not this one — see EX_FR_STEP_PHANTOM_ABORT below",
     EX_STATE_CORRUPT: "[FATAL] .methodology/state.json or quality_manifest.json exists but is not readable/parseable JSON — project data corruption, NOT a harness-methodology bug (see core/state_io.py's StateCorruptError)",
     EX_ADVANCE_MANIFEST_CORRUPT: "advance-phase: quality_manifest.json parses but its structure is corrupt (truncated fr_ids / cleared traceability / wiped gate1) — refusing to commit it; restore from HEAD and re-run",
     EX_ADVANCE_PUSH_FAILED: "advance-phase --push: the handover commit landed locally but `git push` failed — NOT rolled back; fix connectivity/remote and re-run the push command printed in the [BLOCKED] message",
@@ -132,6 +140,7 @@ REGISTRY: dict[int, str] = {
     EX_RETIRED_FEATURE_FLAG: "run-gate: .methodology/harness_config.json still switches a dimension off (features.<key>: false). No dimension can be excluded from a gate any more — a dimension is measured, or the gate blocks and the run routes to repair. Remove the named key; if the tool genuinely cannot run here, that is an INFRA block with a repair route, not a scoring exemption",
     EX_PHASE_RECORD_NOT_WRITTEN: "advance-phase: the phase advanced and the handover commit was made, but state.json carries no phase_completed[N] record — the fact naming the commit, the enforcer and the tree it was judged on is the framework's to write and it is not there. A project reached its terminal phase missing one such entry this way. Re-run advance-phase for that phase",
     EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED: "advance-phase: requirements.txt was scaffolded by this framework from the project's own SSOTs, stamped 'REVIEW AND PIN VERSIONS BEFORE COMMIT', and still ships dependencies with no version. Read the extracted list against SAD.md/SPEC.md/SRS.md — a runtime the SSOT declares that the scaffold could not name is missing from it, not merely unpinned — pin every line, then re-run",
+    EX_FR_STEP_PHANTOM_ABORT: "run-fr-step: a PHANTOM-module signature was found in the sub-agent's GATE1 output — SAB.json declares a module the codebase does not implement. Resolve each phantom by either (a) implementing the module and re-running, or (b) `python3 harness_cli.py amend-sab --project <REPO> --resolve-phantom <declared> --to <target>|--drop --reason \">=20 chars\"`, then re-run. This is NOT the UNREGISTERED direction (exit 25) — the two have distinct remediation channels; see EX_FR_STEP_INFRA_ABORT for the code→SAB direction",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",

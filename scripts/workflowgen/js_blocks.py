@@ -702,9 +702,15 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
     them with the `; echo "RC=$?"` idiom this file already uses at six other
     sites (`render_env_check` is the same shape, down to the `nohup bash -c`
     quoting). 23 = EX_DISPATCH_STRUCTURALLY_BROKEN, 70 = EX_HARNESS_BUG,
-    25 = EX_FR_STEP_INFRA_ABORT — three classes, three codes since 站2, and
-    three exits here rather than two, because INFRA has a repair route the
-    other two do not (`amend-sab`, then re-run).
+    25 = EX_FR_STEP_INFRA_ABORT, 45 = EX_FR_STEP_PHANTOM_ABORT — four
+    classes, four codes since Round 100 站1: 25 is the UNREGISTERED
+    direction (code→SAB), 45 is the PHANTOM direction (SAB→code). The
+    remedies are distinct: 25 routes to plain `amend-sab`, 45 routes to
+    `amend-sab --resolve-phantom ... --reason ">=20 chars"` (human-in-the-
+    loop, Round 26 mandate in `core/quality_gate/sab_amender.py`). Both 25
+    and 45 carry a `condition_class` field on the abort shape so the JS
+    driver at `spec_runall.py:316+` can route `owner=infra` vs `owner=project`
+    correctly.
 
     Round 79 站3: 25's message names the relaunch form too. The repair mutates
     the project tree and nothing else, so the next launch's prompts are
@@ -743,10 +749,25 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"{i}// agent aimed at code. Separate from 70 since 站2, because the remedy is.\n"
         f"{i}if (frRc === 25) {{\n"
         f"{i}  log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')\n"
-        f"{i}  return {{ infra_abort: true, phase: {phase}, fr_id: frId, gate1Pass, "
-        f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: an INFRA precondition failed "
+        f"{i}  return {{ infra_abort: true, phase: {phase}, fr_id: frId, condition_class: 'UNREGISTERED', "
+        f"gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: an INFRA precondition failed "
         f"(exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project "
         f"state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: "
+        f"Workflow({{scriptPath, args: {{repo, run_tag}}}}). amend-sab changes no prompt, "
+        f"so without one the cache can replay this halt.' }}\n"
+        f"{i}}}\n"
+        f"{i}// 45 — PHANTOM precondition block: SAB.json declares a module the codebase\n"
+        f"{i}// does not implement. Same halt shape but different owner (project,\n"
+        f"{i}// per fault_owner.py mapping) and a different remediation channel\n"
+        f"{i}// (the resolve-phantom CLI form, not plain append).\n"
+        f"{i}if (frRc === 45) {{\n"
+        f"{i}  log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module "
+        f"that does not exist on disk), aborting remaining FRs')\n"
+        f"{i}  return {{ phantom_abort: true, phase: {phase}, fr_id: frId, condition_class: 'PHANTOM', "
+        f"gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: a PHANTOM precondition failed "
+        f"(exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either "
+        f"implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> "
+        f"--to <target>|--drop --reason \">=20 chars\"`, then re-run with a NEW run_tag: "
         f"Workflow({{scriptPath, args: {{repo, run_tag}}}}). amend-sab changes no prompt, "
         f"so without one the cache can replay this halt.' }}\n"
         f"{i}}}\n"

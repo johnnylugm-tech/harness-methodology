@@ -20,6 +20,7 @@ from pathlib import Path
 from cli import gate_cmds
 from cli.exit_codes import (
     EX_FR_STEP_INFRA_ABORT,
+    EX_FR_STEP_PHANTOM_ABORT,
     EX_HARNESS_BUG,
     EX_STEP_REPEATED_FAILURE,
 )
@@ -1242,8 +1243,38 @@ def _classify_infra_or_harness_bug(out: str) -> "tuple[str, str] | None":
             if "[HARNESS-BUG]" in line:
                 return "HARNESS_BUG", line.strip()
         return "HARNESS_BUG", "[HARNESS-BUG] banner present"
-    from harness.harness_bridge import _INFRA_FAIL_EVIDENCE_SIGNATURES
-    for sig in _INFRA_FAIL_EVIDENCE_SIGNATURES:
+    # Round 100 站1. The previous version returned "INFRA" for any of the
+    # four legacy signatures, conflating two directions whose remedies differ.
+    # The new version checks direction-specific substrings first; the
+    # direction-ambiguous "Architecture Amendment Protocol violation" is the
+    # LAST fallback. Note: "phantom module" / "Phantom modules" are
+    # PHANTOM-specific; "Unregistered modules detected" is UNREG-specific.
+    from harness.gate_evidence_tables import (
+        _INFRA_PHANTOM_EVIDENCE_SIGNATURES,
+        _INFRA_UNREGISTERED_EVIDENCE_SIGNATURES,
+    )
+    # Direction-specific first.
+    for sig in ("phantom module", "Phantom modules"):
+        if sig in out:
+            return "PHANTOM", sig
+    if "Unregistered modules detected" in out:
+        return "UNREGISTERED", "Unregistered modules detected"
+    # AAP fallback: gates print it on BOTH directions, so it does not
+    # disambiguate by itself. Default to UNREGISTERED here — it is the more
+    # common direction in the corpus, and a sub-agent's output that echoes
+    # AAP but not direction-specific substrings is a truncated INFRA block
+    # in the common case. _abort_dispatch_infra_or_harness_bug routes both
+    # UNREG and AAP-fallback to the same code (25).
+    if "Architecture Amendment Protocol violation" in out:
+        return "UNREGISTERED", "Architecture Amendment Protocol violation"
+    # Defensive: if a future gate adds a new direction-specific substring,
+    # the AAP fallback catches it as INFRA rather than silently routing to
+    # UNKNOWN. This is the conservative choice; the two unhandled PHANTOM
+    # signatures above are exhaustive for the current gate print paths.
+    for sig in _INFRA_PHANTOM_EVIDENCE_SIGNATURES:
+        if sig in out and sig not in ("phantom module", "Phantom modules"):
+            return "PHANTOM", sig
+    for sig in _INFRA_UNREGISTERED_EVIDENCE_SIGNATURES:
         if sig in out:
             return "INFRA", sig
     return None
@@ -1303,19 +1334,38 @@ def _abort_dispatch_infra_or_harness_bug(
     banner surfacing through a sub-agent's output is the same fact by a
     different route.
     """
-    kind = ("a bug in harness-methodology itself" if cls == "HARNESS_BUG"
-            else "an infrastructure precondition failure (the tool never ran)")
+    if cls == "HARNESS_BUG":
+        kind = "a bug in harness-methodology itself"
+    elif cls == "PHANTOM":
+        kind = ("a PHANTOM-module precondition failure (SAB.json declares a "
+                "module the codebase does not implement)")
+        repair = ("  Repair: for each PHANTOM, run `harness_cli.py amend-sab "
+                  "--project <REPO> --resolve-phantom <declared> --to <target>|--drop "
+                  "--reason \">=20 chars\"`.\n")
+    else:
+        kind = ("an infrastructure precondition failure (UNREGISTERED direction "
+                "— code→SAB drift; the codebase has a module SAB.json does not "
+                "declare, or a tool that never ran)")
+        repair = ("  Repair: run `harness_cli.py amend-sab --project <REPO>`, "
+                  "then re-run this FR.\n")
+    if cls == "HARNESS_BUG":
+        repair = ""
     print(
         f"\n[FATAL] {fr_id} {step}: {cls} detected in sub-agent output — {kind}, "
         f"not a code-quality problem. Not dispatching a fix agent.\n"
         f"  Evidence: {evidence}\n"
+        f"{repair}"
         "  Escalate to a human operator; re-run after the underlying issue "
         "is fixed:\n"
         f"    python harness_cli.py resume-fr-step --phase {phase} "
         f"--fr-id {fr_id} --project {project}",
         file=sys.stderr,
     )
-    return EX_HARNESS_BUG if cls == "HARNESS_BUG" else EX_FR_STEP_INFRA_ABORT
+    if cls == "HARNESS_BUG":
+        return EX_HARNESS_BUG
+    if cls == "PHANTOM":
+        return EX_FR_STEP_PHANTOM_ABORT
+    return EX_FR_STEP_INFRA_ABORT
 
 
 def _abort_no_progress_with_self_doubt(

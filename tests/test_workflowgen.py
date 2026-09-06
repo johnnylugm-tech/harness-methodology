@@ -266,9 +266,14 @@ class TestOrchPostIsPerPhaseNotPerFr:
             # a prompt — no agent reads it, so it cannot cause the repeat
             # dispatch this guard exists to prevent. Excluded by the flag it
             # carries rather than by loosening the count.
+            # Round 100 站1: same logic applies to the PHANTOM abort (exit 45) —
+            # its message names `amend-sab --resolve-phantom ... --reason` as the
+            # operator's repair route. That is the same kind of return-payload
+            # string, never a dispatch site.
             lines = [
                 ln for ln in generate(phase).splitlines()
                 if "infra_abort: true" not in ln
+                and "phantom_abort: true" not in ln
             ]
             mentions = "\n".join(lines).count("amend-sab")
             assert mentions == 1, (

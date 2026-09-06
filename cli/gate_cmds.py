@@ -33,7 +33,11 @@ from core.quality_gate import gate1_evidence
 from core.quality_gate.block_reason import derive_block_reasons
 from core.quality_gate.quality_report_verify import verify_quality_report
 from core.degradation_ledger import record_degradation
-from cli.exit_codes import EX_HARNESS_BUG, EX_RETIRED_FEATURE_FLAG
+from cli.exit_codes import (
+    EX_FR_STEP_PHANTOM_ABORT,
+    EX_HARNESS_BUG,
+    EX_RETIRED_FEATURE_FLAG,
+)
 from core.quality_gate.da_waiver import WAIVABLE_DIMENSIONS
 from core.quality_gate import spec_coverage
 from core.quality_gate.cov_utils import resolve_fr_scoped_src_files
@@ -1206,7 +1210,15 @@ def _check_sab_module_alignment(
                 f"Phantom drift caught here (Gate 1) so recovery is still cheap — "
                 f"otherwise P4 preflight will block on the same drift with no path back to P2 amendment."
             )
-            return 1
+            # Round 100 站1. Distinguish PHANTOM direction (SAB→code) from
+            # the legacy UNREGISTERED 25: `_abort_dispatch_infra_or_harness_bug`
+            # in cli/fr_cmds.py routes this code to `_abort_dispatch_infra...`
+            # with cls="PHANTOM", which returns EX_FR_STEP_PHANTOM_ABORT (45).
+            # When `fr_id` is absent (whole-gate run, not a run-fr-step
+            # dispatch path) the framework caller has no aggregator and the
+            # gate must surface its own discriminator — keep returning 1 so
+            # cmd_run_gate's downstream surfaces the BLOCKED line above.
+            return EX_FR_STEP_PHANTOM_ABORT if fr_id else 1
     except Exception as e:
         print(f"Warning: SAB Module Alignment Check failed to parse: {e}")
     return None

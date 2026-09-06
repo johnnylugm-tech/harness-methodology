@@ -2448,7 +2448,11 @@ for (const frId of frIds) {
     }
     if (frRc === 25) {
       log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-      return { infra_abort: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+      return { infra_abort: true, phase: 3, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    }
+    if (frRc === 45) {
+      log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
+      return { phantom_abort: true, phase: 3, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
     }
     const verifyResult = await dispatch(
       'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -2948,7 +2952,11 @@ for (const frId of deltaTodo) {
   }
   if (frRc === 25) {
     log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-    return { infra_abort: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    return { infra_abort: true, phase: 4, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 45) {
+    log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
+    return { phantom_abort: true, phase: 4, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -3428,7 +3436,11 @@ for (const frId of deltaTodo) {
   }
   if (frRc === 25) {
     log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-    return { infra_abort: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    return { infra_abort: true, phase: 5, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 45) {
+    log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
+    return { phantom_abort: true, phase: 5, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -4188,7 +4200,11 @@ for (const frId of deltaTodo) {
   }
   if (frRc === 25) {
     log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-    return { infra_abort: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    return { infra_abort: true, phase: 7, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 45) {
+    log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
+    return { phantom_abort: true, phase: 7, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -4564,7 +4580,11 @@ for (const frId of deltaTodo) {
   }
   if (frRc === 25) {
     log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-    return { infra_abort: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    return { infra_abort: true, phase: 8, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 45) {
+    log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
+    return { phantom_abort: true, phase: 8, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -4832,13 +4852,32 @@ for (let n = startPhase; n <= 8; n++) {
     await recordBlock(n, String(outcome.halt_step || 'phase-error'), String(outcome.error), outcome.owner)
     return halt(String(outcome.halt_step || 'phase-error'), { error: 'run-all stopped in Phase ' + n + ': ' + outcome.error, phase: n, phases_run: phasesRun, detail: outcome })
   }
-  // Round 28 — fail CLOSED, like the cursor read above. The two branches
-  // above name the outcomes this driver recognises; this one covers every
+  // Round 100 站1: PHANTOM abort (exit 45, the SAB→code direction). The phase
+  // returns `{ phantom_abort: true, condition_class: 'PHANTOM', ... }` from
+  // render_terminal_abort_detectors in js_blocks.py; it has no `error` key
+  // (carries `message` instead), so this branch must come BEFORE the
+  // catch-all below — without it the prior run-all recorded the halt as
+  // `phase-incomplete` with `owner=unknown` (the catch-all's lost `owner` arg).
+  if (outcome && outcome.phantom_abort) {
+    await recordBlock(n, 'phantom-abort', String(outcome.message || 'PHANTOM precondition failed'), 'project')
+    return halt('phantom-abort', { error: 'run-all stopped in Phase ' + n + ': ' + String(outcome.message || 'PHANTOM precondition failed'), phase: n, phases_run: phasesRun, detail: outcome, note: 'PHANTOM direction (exit 45): SAB.json declares a module the codebase does not implement. Resolve each phantom with `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' })
+  }
+  // Round 100 站1: INFRA abort (exit 25, the UNREGISTERED code→SAB direction).
+  // Same shape as phantom_abort but routes to `amend-sab` (no flags) and `owner=infra`.
+  if (outcome && outcome.infra_abort) {
+    await recordBlock(n, 'infra-abort', String(outcome.message || 'INFRA precondition failed'), 'infra')
+    return halt('infra-abort', { error: 'run-all stopped in Phase ' + n + ': ' + String(outcome.message || 'INFRA precondition failed'), phase: n, phases_run: phasesRun, detail: outcome, note: 'INFRA direction (exit 25, UNREGISTERED): code→SAB drift or a tool that never ran. Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' })
+  }
+  // Round 28 — fail CLOSED, like the cursor read above. The four branches
+  // above (session_limit_blocked, outcome.error, phantom_abort, infra_abort) name
+  // the outcomes this driver recognises; this one covers every
   // outcome it does not. runPhase3 returns `harness_bug_detected` and
   // `dispatch_structurally_broken` for conditions no later phase can
   // recover from, and neither carries an `error` key — so before this,
   // a run in which harness itself crashed on FR-01 walked on through P4-P8
-  // and reported `phases_run: [3,4,5,6,7,8]` with no error at all.
+  // and reported `phases_run: [3,4,5,6,7,8]` with no error at all. Round 100 站1
+  // added the two abort branches above; Round 28's `phase-incomplete` catch-all
+  // stays as defense-in-depth for any future unrecognised terminal flag.
   if (!outcome || outcome.phase_complete !== true) {
     await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'))
     return halt(String((outcome && outcome.halt_step) || 'phase-incomplete'), { error: 'run-all stopped in Phase ' + n + ': the phase returned without reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || 'no message'), phase: n, phases_run: phasesRun, detail: outcome, note: 'A phase sets phase_complete only on its single success exit. Anything else — a terminal abort such as a harness crash or a broken dispatch environment, or a shape this driver does not recognise — stops the run rather than advancing on an unfinished phase.' })
