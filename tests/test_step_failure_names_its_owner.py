@@ -46,6 +46,7 @@ def _record(project, **result):
         ("INFRA_ERROR", "infra"),
         ("TURN_BUDGET", "infra"),
         ("HARNESS_BUG", "harness"),     # same fact as exit 70
+        ("GATE1_BLOCKED", "project"),   # rc-2 blocked exits (Round 102 站2)
     ],
 )
 def test_the_row_owns_what_its_own_class_says(tmp_path, error_class, expected_owner):

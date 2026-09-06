@@ -358,6 +358,19 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
             str(result.get("output") or "")
         ):
             return False
+        # Round 102 站2: a budget kill is also a step failure with a CANONICAL
+        # (empty-output) signature, so a later process that hits the same
+        # ceiling against the same tree is recognised by repeated_failure and
+        # refused with exit 36 before another dispatch is spent. The
+        # escalation sets below are per-process — measured on taskq-done
+        # FR-01, three separate GATE1 invocations each escalated CODE-FIX
+        # 50 -> 100 and each died at 51 turns, and no cross-process stop
+        # existed because these rows carried no signature.
+        step_memory.record_step_failure(
+            project, fr_id, step_name,
+            {"error_class": "TURN_BUDGET", "status": "ERROR", "output": ""},
+            _tree,
+        )
         step = step_name.upper()
         if step in _turn_budget_escalated:
             print(f"[run-fr-step] {fr_id} {step}: turn budget exhausted AGAIN at the "
@@ -413,6 +426,15 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
         longer. Returns True when this failure was a timeout."""
         if result.get("status") != "TIMEOUT":
             return False
+        # Round 102 站2: same canonical-signature rule as the turn-budget
+        # recorder above — a timeout is a budget kill, and the second process
+        # timing out on the same step against the same tree must be refused
+        # up front rather than re-dispatched into the same wall.
+        step_memory.record_step_failure(
+            project, fr_id, step_name,
+            {"error_class": "TIMEOUT", "status": "TIMEOUT", "output": ""},
+            _tree,
+        )
         step = step_name.upper()
         if step in _wallclock_escalated:
             print(f"[run-fr-step] {fr_id} {step}: timed out AGAIN at the escalated "
@@ -818,6 +840,19 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     )
                     fix_step_name = "CODE-FIX"
 
+                # Round 102 站2: refuse to buy the same fix dispatch again.
+                # The in-process retry is bounded by max_fix_rounds; the outer
+                # re-invocations were bounded by nothing, because budget-kill
+                # rows used to carry no signature (see _note_turn_budget_kill).
+                # Two identical budget-killed fix dispatches against the same
+                # tree now exit 36 before a third is spent.
+                _fix_seen = step_memory.repeated_failure(
+                    project, fr_id, fix_step_name, _tree, _STEP_RETRY_ATTEMPTS
+                )
+                if _fix_seen is not None:
+                    return _abort_repeated_failure(
+                        fr_id, fix_step_name, phase, project, _fix_seen)
+
                 fix_result = spawner.spawn(
                     role="developer", prompt=fix_prompt,
                     context={"phase": phase, "fr_id": fr_id, "step": fix_step_name},
@@ -1004,6 +1039,17 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                     ".methodology/degradations.jsonl and .methodology/crash/ for a "
                     "harness-side cause before re-running CODE-FIX."
                 )
+            # Round 102 站2: a blocked-human exit is a step outcome too. Write it
+            # with a canonical signature so a second full GATE1 invocation
+            # against the unchanged tree is refused up front (exit 36, zero
+            # agent sessions) instead of silently re-dispatching the fix rounds
+            # that already failed — taskq-done FR-01's workflow re-dispatch
+            # after RC=2 fired no sessions and moved on without saying why.
+            step_memory.record_step_failure(
+                project, fr_id, step,
+                {"error_class": "GATE1_BLOCKED", "status": "ERROR", "output": ""},
+                _tree,
+            )
             return 2  # BLOCKED
 
     # P0-B: record gate timestamp so advance-phase _check_gate1_live_coverage
@@ -1436,6 +1482,13 @@ def _abort_no_progress_with_self_doubt(
             f"    python harness_cli.py finalize-gate --gate 1 --phase {phase} "
             f"--fr-id {fr_id} --project {project}"
         )
+    # Round 102 站2: same canonical blocked-human row as the fix-round exit —
+    # this function is module-level, so the fingerprint is computed here.
+    step_memory.record_step_failure(
+        project, fr_id, step,
+        {"error_class": "GATE1_BLOCKED", "status": "ERROR", "output": ""},
+        step_memory.tree_fingerprint(project),
+    )
     return 2
 
 

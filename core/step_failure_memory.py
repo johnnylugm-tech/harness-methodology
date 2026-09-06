@@ -11,6 +11,14 @@ step invocation. So each retry meets its predecessor's failure as a first
 occurrence, and the framework's whole capacity to notice repetition lasts
 exactly as long as a single command.
 
+Round 102 站2 narrows that hole for the failures with no text to vary:
+budget kills (turn ceiling / wall clock) and the blocked-human exit now write
+rows here with a CANONICAL empty-output signature (`record_step_failure` with
+`output=""`), so the signature is byte-stable per (FR, step, tree, class) no
+matter which process wrote it. A second process that meets the same wall
+against the same tree is therefore refused up front (exit 36) instead of
+re-escalating 50 -> 100 turns for the third time.
+
 taskq-api's FR-04 priced it. Between 06:51 and 09:14 on 2026-08-06, TDD-GREEN
 then TDD-IMPROVE failed EIGHT times with byte-identical output —
 `subtype=success API Error: Stream idle timeout - no chunks received` — for

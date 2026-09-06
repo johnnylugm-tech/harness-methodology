@@ -9024,3 +9024,29 @@ taskq-done 是活專案。本輪量測開始時它在 FR-01,`requirements.txt` �
 (`taskq_api`、`taskq_api.__main__`、`taskq_api.errors`、`taskq_api.schemas`、
 `taskq_api.schemas.task` 全部被 amend-sab 塞進 `models`),
 語料總數 42 → **45** —— 這個缺陷在本輪撰寫期間仍在即時發生。
+
+---
+
+## Round 102 — per-FR Gate 1 不再為全專案 artifacts 硬擋;state-locked FR 改為 park/回訪 (2026-09-07)
+
+老闆令(調查 taskq-done FR-01 為何無法在 workflow 內完成):先驗證根因真假,再以最新版 harness 修復;方案須先驗證為正解且無副作用。
+
+**定調(實測)**:P2 agent 於 Phase-2 exit 前 3 分鐘宣告 SAB `required_artifacts`(8 paths),其中 6 個檔案是 P3 才會交付的產物;Round 68 enforcer 只活在 `finalize_gate`(gate-agnostic),P2 exit 跑的是 phase-truth 沒跑它 → 宣告與第一個可交付點之間,任何 per-FR gate 的執行都是結構性假失敗 by construction(taskq-done FR-01:code dims 全 100、finalize 被 6 個缺檔擋死、CODE-FIX 三次 50→100 turns 空燒、FR-02 的 run 交付後無人回驗 FR-01)。反證 Shape-2「機器自動交付」:env-repair/ssot 只 scaffold requirements.txt,其餘 6 檔無 writer 無模板 → 不可通用實作;Round 68 remediation 本身就是「project 一 edit:deliver or drop」。
+
+| # | 主張 / 選項 | 裁決 | 出處 |
+|---|---|---|---|
+| R102-A | required-artifacts 硬擋的作用域 | **採納 scope 修正**:`_stage_required_artifacts` 只在 gate ≥ 2(phase-exit/final,workflow 能交付或 drop 宣告路徑)raise;per-FR gate-1 finalize 仍 `record_required_artifacts`(ledger 可見性保留)但不 block。與 Round 54「declared_only 永不 block」、Round 67「caller 決定缺契約對其 gate 的意義」同一 philosophy;taskq-cc 型事件(Gate 4 缺 .env.example)仍被 phase-exit/final gates 擋住 | `harness/harness_bridge.py` finalize_gate |
+| R102-B | per-FR scope 出現 project-state precondition 時的路由 | **採納結構化路由的前提,但本輪最小化**:S1 使 `required_artifact_missing` 不再可能於 gate-1 raise;`arch_contract_coverage` 不列入新 vocabulary(FR 內 agent 可修:amend-sab/.importlinter)—— 不引入新 exit code,以 S1 + failure-memory + park/回訪涵蓋殘餘 case(Simplicity First) | `harness/gate_evidence_tables.py` 維持現狀 |
+| R102-C | budget-kill / blocked-human 的跨 process 記憶 | **採納 canonical signature**:turn ceiling/wall-clock kills 與兩個 blocked-human exits 以空 output 寫 step-failure rows → 同 (FR,step,tree,class) 位元組穩定 → `repeated_failure`(exit 36)跨 process 觸發;per-process escalation(三次 invocation 各自 50→100)被終結。`GATE1_BLOCKED` owner = project | `cli/fr_cmds.py`、`core/fault_owner.py`、`core/step_failure_memory.py` |
+| R102-D | gate1Fail 永不回訪(修好 state 無人重驗) | **採納 park/回訪**(僅 phase 3):rc 25/36 → park(不 fail)、其餘 FR 續跑、loop 後對 parked FR 重跑 GATE1(其 TDD steps 已落地)、仍卡 → `halt('gate1-parked')` owner project + resume 指令。delta phases(4/5/7/8)無 park loop → rc 36 改為可見 terminal shape(`repeated_failure`),run-all driver 以 owner infra 記錄;phase-incomplete catch-all 不再掉 owner | `scripts/workflowgen/spec_phase3.py`、`js_blocks.py`、`spec_runall.py` |
+| R102-E | rc 2(blocked-human)是否加 workflow 分支 | **本輪不新增**:phase 3 的 rc 2 走既有 attempt-2 →(S3 canonical row)→ rc 36 → park/回訪;tree 有變時 attempt-2 仍有真實修復機會。delta 的 rc 2 維持 gate1Fail halt(owner project) | 本條 |
+
+**驗證**:S1 下 gate-1 finalize 遇缺檔 → PASS + ledger row(gate-2 同 fixture 仍 GateBlockedError);雙 process budget-kill/blocked → 第三次 pre-dispatch exit 36、tree 變更解鎖;生成器輸出(phase3 park + 回訪、delta rc36 shape、driver owner threading)以 pure-string tests + golden + sim testbed(145/145)鎖定;全 suite 8394 passed(1 個 corpus 測試為環境性 pre-existing 失敗,HEAD~1 同失敗)。
+
+**re-open 條件**:
+- R102-A:若出現「per-FR gate 想擋住 SAB 與 tree 矛盾的即時發現」的需求,重新評估在 gate-1 finalize 加非阻斷性 scoring penalty 而非純 record。
+- R102-D:若 delta phases(4/5/7/8)實測出現 state-locked FR 需要 in-run 回訪(而非 terminal halt),把 park/回訪 loop 移入共享 renderer 的 `render_per_fr_delta`。
+- R102-E:若 rc 2 在 phase 3 的 attempt-2 被證實無益(每次都是 state cause),改為 attempt-1 rc 2 即 park。
+
+---
+

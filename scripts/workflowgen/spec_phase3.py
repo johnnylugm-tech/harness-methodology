@@ -178,6 +178,7 @@ def _render_per_fr_tdd() -> str:
         B.render_phase_header("Per-FR TDD")
         + "const gate1Pass = []\n"
         + "const gate1Fail = []\n"
+        + "const gate1Parked = []  // Round 102 站3: FRs parked on state preconditions (rc 25/36), re-attempted after the loop\n"
         + "let p3MidPushed = false\n"
         + "const p3MidThreshold = Math.max(1, Math.floor(frIds.length / 2))  // PUSH ③ trigger: ≥50% FRs Gate 1 PASS (phase3_plan.md, harness push_cmds.py)\n"
         + "for (const frId of frIds) {\n"
@@ -188,6 +189,7 @@ def _render_per_fr_tdd() -> str:
         + "        log('  === ' + frId + ' (' + (frTitle[frId] || '') + ') — TDD chain ===')\n"
         + "    const frNum = frId.match(/\\d+/)[0].padStart(2, '0')\n"
         + "    let passed = false\n"
+        + "    let parked = null  // Round 102 站3: set by the park branches of the terminal-rc detectors\n"
         + "    for (let frAttempt = 1; frAttempt <= 2; frAttempt++) {\n"
         + "    if (frAttempt > 1) log('  ' + frId + ' — Gate 1 FAILED on attempt 1, retrying this FR once before moving on (dispatch prompt is resume-aware: re-checks git log, skips already-landed RED/MIRROR/GREEN/IMPROVE commits)')\n"
         + "    const frReport = await agent(\n"
@@ -219,7 +221,8 @@ def _render_per_fr_tdd() -> str:
         + "      + '   The RC decides what happens next, and the workflow reads the integer — not your wording, so paraphrase the reason however you like:\\n'\n"
         + "      + '   - RC=23 (dispatch structurally broken, claude.ai connectors disabled): STOP. Do NOT unset env vars, do NOT retry — every retry fails identically.\\n'\n"
         + "      + '   - RC=70 (harness-methodology itself crashed): NOT your code or tests. STOP, do not retry, do not modify project code. The log names a crash bundle path; quote it in your reason.\\n'\n"
-        + "      + '   - RC=25 (INFRA precondition block): project state, not code. STOP this chain; the workflow routes it to `amend-sab`.\\n'\n"
+        + "      + '   - RC=25 (INFRA precondition block): project state, not code. STOP this chain; the workflow parks this FR and re-attempts it after the remaining FRs run (an intervening FR may repair the state; if it persists, run-fr-step\\'s own log tells you how — amend-sab).\\n'\n"
+        + "      + '   - RC=36 (repeated-failure refusal): run-fr-step refuses an identical failure already seen N times on this exact tree — a state lock, not a code verdict. STOP this chain; the workflow parks this FR and re-attempts it after the remaining FRs run. Read .methodology/degradations.jsonl for the signature; only a tree change re-opens the step.\\n'\n"
         + "      + '   - Any other nonzero RC = an ordinary Gate 1 FAIL → fix failing dims and repeat the a/b/c procedure (max 3 rounds, as above).\\n'\n"
         + "      + '   - AAP block: log contains \"Unregistered modules detected: {…}\" — step 5 amend-sab didn\\'t run. Verify .methodology/SAB.json committed; else run `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` + manual `git add ... && git commit`, repeat GATE1. Max 1 amend round per FR.\\n'\n"
         + "      + '   run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-phase --phase 3 --project ' + REPO + '`.\\n'\n"
@@ -248,7 +251,8 @@ def _render_per_fr_tdd() -> str:
             indent='    ',
             payload='object',
         )
-        + B.render_terminal_abort_detectors(phase=3, indent="    ", step="GATE1")
+        + B.render_terminal_abort_detectors(phase=3, indent="    ", step="GATE1",
+                                            park_rcs=frozenset({25, 36}))
         + "    // AUTHORITATIVE Gate 1 verdict: read the harness quality_manifest (bridge writes\n"
         + "    // gate_results.gate1[fr].quality_complete on every finalize-gate, pass OR fail) —\n"
         + "    // NOT the sub-agent's self-reported \"GATE1: PASS\" string. A sub-agent can report\n"
@@ -300,6 +304,15 @@ def _render_per_fr_tdd() -> str:
         + B.render_fr_step_timeout_exit(phase=3, step="GATE1", indent="    ")
         + "    if (passed) break\n"
         + "    }\n"
+        + "    // Round 102 站3: a parked FR is not a FAIL — the attempt loop broke on a\n"
+        + "    // state precondition (rc 25/36). Set it aside, continue with the remaining\n"
+        + "    // FRs, and re-attempt it after the loop, by which point an intervening FR\n"
+        + "    // may have repaired the state it was parked on.\n"
+        + "    if (parked) {\n"
+        + "      gate1Parked.push(parked)\n"
+        + "      log('  ' + frId + ' parked (rc ' + parked.rc + '): state precondition — continuing with remaining FRs; re-attempted after the loop')\n"
+        + "      continue\n"
+        + "    }\n"
         + "    if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }\n"
         + "    else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }\n"
         + "  }\n"
@@ -324,6 +337,68 @@ def _render_per_fr_tdd() -> str:
         + "if (gate1Fail.length) {\n"
         + "  return halt('gate1', { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', owner: 'project', gate1Pass, gate1Fail })\n"
         + "}\n"
+        + "\n"
+        + "  // Round 102 站3 — re-attempt FRs parked on state preconditions (rc 25/36).\n"
+        + "  // Their TDD steps landed before parking, so a re-attempt only re-runs GATE1:\n"
+        + "  // intervening FRs may have repaired the state they were parked on. Measured:\n"
+        + "  // one FR's required-artifact blockers were delivered by the NEXT FR's own run,\n"
+        + "  // and nothing ever re-checked the parked FR afterwards.\n"
+        + "  if (gate1Parked.length) {\n"
+        + "    log('  Re-attempting ' + gate1Parked.length + ' parked FR(s) after the remaining FRs ran')\n"
+        + "    const stillParked = []\n"
+        + "    for (const parkedFr of gate1Parked) {\n"
+        + "      log('  === ' + parkedFr.fr + ' — GATE1 re-attempt (was parked on rc ' + parkedFr.rc + ') ===')\n"
+        + "      const retryReport = await agent(\n"
+        + "        'YOU ARE THE GATE1 RE-ATTEMPT for ' + parkedFr.fr + ': this FR was parked earlier because a project-state precondition (rc ' + parkedFr.rc + ') blocked its Gate 1. Intervening FRs may have repaired that state — find out by re-running GATE1.\\n'\n"
+        + "        + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + "        + 'Run GATE1 ONLY, backgrounded, with the same a/b/c procedure as the main chain:\\n'\n"
+        + "        + '   a. `nohup bash -c \\'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + parkedFr.fr + ' --step GATE1 --project ' + REPO + '; echo \"RC=$?\"\\' > /tmp/gate1_' + parkedFr.fr + '.log 2>&1 & echo $!`\\n'\n"
+        + "        + '   b. Poll with BACKOFF intervals 5,10,20,30,60, then `fr_step_poll_interval_s` — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls (phase3_ctx.json); still RUNNING past the cap → `kill <PID>`, report rc -1.\\n'\n"
+        + "        + '   c. DONE → `tail -200 /tmp/gate1_' + parkedFr.fr + '.log`; the LAST line matching `RC=<integer>` is the exit code — report that integer verbatim.\\n'\n"
+        + "        + 'The TDD steps for ' + parkedFr.fr + ' already landed (run-fr-step is idempotent and skips them) — do NOT re-run RED/GREEN/IMPROVE/amend-sab.\\n\\n'\n"
+        + "        + 'SCOPE RULES:\\n- DO NOT modify code, tests, harness/ (HR-17), .methodology/quality_manifest.json, or .sessi-work/gate1_result.json.\\n- ONLY the single GATE1 run above.',\n"
+        + "        { label: 'gate1-retry-' + parkedFr.fr, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: FR_STEP_SCHEMA },\n"
+        + "      )\n"
+        + S.render_session_block_guard(
+            'retryReport', '', 3,
+            step_js='parkedFr.fr',
+            extra_fields='fr_id: parkedFr.fr, gate1Pass',
+            message="Agent hit session/rate limit during the GATE1 re-attempt of ' + parkedFr.fr + '. Resume after quota reset — the manifest read is idempotent.",
+            indent='        ',
+            payload='object',
+        )
+        + "      const frRc = (retryReport && typeof retryReport.rc === 'number') ? retryReport.rc : null\n"
+        + "      if (frRc === 25 || frRc === 36) {\n"
+        + "        log('  ' + parkedFr.fr + ' still parked on rc ' + frRc + ' — the state precondition persists')\n"
+        + "        stillParked.push({ fr: parkedFr.fr, rc: frRc })\n"
+        + "      } else if (frRc === 23) {\n"
+        + "        return { dispatch_structurally_broken: true, phase: 3, fr_id: parkedFr.fr, gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL, then re-run.' }\n"
+        + "      } else if (frRc === 70) {\n"
+        + "        return { harness_bug_detected: true, phase: 3, fr_id: parkedFr.fr, gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: harness-methodology itself crashed (exit 70).' }\n"
+        + "      } else if (frRc === 45) {\n"
+        + "        return { phantom_abort: true, phase: 3, fr_id: parkedFr.fr, condition_class: 'PHANTOM', gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: PHANTOM precondition (exit 45).' }\n"
+        + "      } else if (frRc === -1) {\n"
+        + "        return { fr_step_timeout: true, halt_step: 'fr-step-timeout', phase: 3, fr_id: parkedFr.fr, gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: killed at the poll cap — no verdict.' }\n"
+        + "      } else {\n"
+        + "        const retryVerify = await agent(\n"
+        + "          'You MUST use the Bash tool. Run EXACTLY this single command (single line):\\n'\n"
+        + "          + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + parkedFr.fr + ' --project ' + REPO + '\\n'\n"
+        + "          + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly \"GATE1_VERIFIED_PASS\"; reason = the verbatim stdout (do NOT paraphrase).',\n"
+        + "          { label: 'gate1-retry-verify-' + parkedFr.fr, phase: 'Per-FR TDD', agentType: 'general-purpose', schema: VERDICT_SCHEMA }\n"
+        + "        )\n"
+        + "        if (retryVerify && String((retryVerify && retryVerify.reason) || '').trim().startsWith('GATE1_VERIFIED_PASS')) {\n"
+        + "          gate1Pass.push(parkedFr.fr)\n"
+        + "          log('  ' + parkedFr.fr + ' Gate 1 PASS on re-attempt (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]')\n"
+        + "        } else {\n"
+        + "          log('  ' + parkedFr.fr + ' still not Gate-1-complete after re-attempt (rc ' + frRc + ')')\n"
+        + "          stillParked.push({ fr: parkedFr.fr, rc: frRc })\n"
+        + "        }\n"
+        + "      }\n"
+        + "    }\n"
+        + "    if (stillParked.length) {\n"
+        + "      return halt('gate1-parked', { error: 'Phase 3: Gate 1 still state-blocked for FR(s): ' + stillParked.map(p => p.fr + ' (rc ' + p.rc + ')').join(', ') + ' — not a code-quality failure; deliver the SAB-declared paths / repair the state, then resume (python harness_cli.py resume-fr-step --phase 3 --fr-id <id> --step GATE1 --project ' + REPO + ')', owner: 'project', gate1Pass, gate1Parked: stillParked })\n"
+        + "    }\n"
+        + "  }\n"
     )
 
 

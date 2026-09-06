@@ -68,6 +68,7 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # finalize_gate from real manifest/log/effort/tool I/O; not a new
     # coupling, one more instance of the established pattern.
     "tests/test_harness_bridge.py": 83,
+    "tests/test_required_artifacts_reach_the_verdict.py": 3,  # 2026-09-07 Round 102 站1: +3 — _finalize_over patches HarnessBridge._update_quality_manifest / _log / _effort, the same three seams test_harness_bridge.py TestFinalizeGate patches to ask what the VERDICT does rather than patching the stage internals (test_patch_discipline's own precedent).
     # 2026-07-29 (+6): 2 new finalize_gate regression tests for the null-score
     # Gate-2+ blocking fix (test_finalize_gate_null_breakdown_score_does_not_
     # block, test_finalize_gate_da_waiver_branch_excludes_none_score), each

@@ -231,6 +231,11 @@ OWNER_BY_ERROR_CLASS: dict[str, str] = {
     # This framework's own defect, by whichever route it surfaced. Same fact as
     # exit 70 above.
     "HARNESS_BUG": Owner.HARNESS,
+    # A GATE1 fix loop exhausted every round and exited BLOCKED (rc 2) — the
+    # verdict is decided against the project's own manifest and fix rounds,
+    # so the tree that must change is the project's. Written by fr_cmds at
+    # the blocked exits (Round 102 站2), never by _classify_dispatch_error.
+    "GATE1_BLOCKED": Owner.PROJECT,
 }
 
 

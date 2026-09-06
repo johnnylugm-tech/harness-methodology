@@ -272,24 +272,44 @@ test('phase3 TDD loop: a structurally-broken dispatch is rc 23, not a phrase', a
   assert.equal(result.dispatch_structurally_broken, true, JSON.stringify(result).slice(0, 200))
 })
 
-test('phase3 TDD loop: an INFRA abort is rc 25 and is not a harness bug', async () => {
+// Round 102 站3 — rc 25 no longer aborts phase 3: the FR is PARKED (not
+// failed), the loop continues, and parked FRs are re-attempted after the
+// remaining FRs run — an intervening FR may have repaired the state
+// (taskq-done FR-01: its blockers were delivered by FR-02's own run, and
+// nothing ever re-checked FR-01). The re-attempt label is `gate1-retry-*`.
+test('phase3 TDD loop: rc 25 parks the FR; a repaired state lets it pass on re-attempt', async () => {
   const overrides = [
+    // The main chain keeps hitting the precondition; the re-attempt finds it
+    // repaired (happy responder) and passes.
     { match: /^tdd-/, respond: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' } },
     ...happyOverrides(),
   ]
   const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
-  assert.equal(result.infra_abort, true, JSON.stringify(result).slice(0, 200))
+  assert.equal(result.infra_abort, undefined,
+    'rc 25 is parked in phase 3, not an abort — got ' + JSON.stringify(result).slice(0, 200))
   assert.notEqual(result.harness_bug_detected, true, 'INFRA is project state, not a harness defect')
-  // Round 79 站3. This is the one halt whose remedy leaves every prompt in the
-  // next launch byte-identical to this one's — the repair mutates the project
-  // tree and nothing else — which is exactly when the runtime can serve the
-  // halt back from cache. The operator is holding that problem here and
-  // nowhere else, so this is where run_tag has to be named (Round 48: a halt
-  // names its own remedy). The message is the deliverable, not a proxy for it.
-  assert.match(result.message, /run_tag/,
-    'the INFRA halt tells the operator to repair project state but not how to '
-    + 'relaunch without being replayed the verdict they just repaired')
-  assert.match(result.message, /amend-sab/)
+  assert.ok(Array.isArray(result.gate1_pass) && result.gate1_pass.includes('FR-01'),
+    'the parked FR must pass when the re-attempt finds the state repaired — got '
+    + JSON.stringify(result).slice(0, 200))
+  assert.equal(result.phase_complete, true, JSON.stringify(result).slice(0, 200))
+})
+
+test('phase3 TDD loop: rc 25 with the state still broken halts as gate1-parked, not a quality fail', async () => {
+  const overrides = [
+    { match: /^tdd-/, respond: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' } },
+    // The re-attempt hits the same wall: the state was NOT repaired.
+    { match: /^gate1-retry-/, respond: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' } },
+    ...happyOverrides(),
+  ]
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), makeHappyResponder(overrides))
+  assert.match(String(result.halt_step || ''), /gate1-parked/,
+    'a still-parked FR must halt the phase with the gate1-parked shape — got '
+    + JSON.stringify(result).slice(0, 300))
+  assert.notEqual(result.harness_bug_detected, true)
+  assert.match(String(result.error || ''), /still state-blocked/,
+    'the halt must say the FRs are still state-blocked, not code-failed')
+  assert.match(String(result.error || ''), /resume-fr-step/,
+    'the halt must carry the resume command for a human')
 })
 
 test('phase3 TDD loop: an ordinary Gate 1 failure (rc 1) is not an abort', async () => {
@@ -1140,34 +1160,53 @@ test('round26: every workflow routes its dispatches through the wrapper', async 
 // prompt (spec_phase3.py's R66 clause forbids writing the tags verbatim, and
 // its GATE1 failure case asks for a sentence containing none of them) — the
 // only shape the four regex revisions were ever tested against.
+// Round 102 站3: phase 3 no longer RETURNS infra_abort for rc 25 — it parks
+// the FR and re-attempts it after the loop, so an rc 25 that survives the
+// re-attempt stops the run through the `gate1-parked` halt (owner project,
+// error branch) instead. The delta phases (4/5/7/8) keep return-semantics:
+// their rc 36 stops the run through the new `repeated_failure` driver branch.
 const TERMINAL_FLAG_CASES = [
   {
     flag: 'harness_bug_detected',
+    cursor: 3, label: /^tdd-/,
     reply: { rc: 70, final_line: 'FR-01 GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)' },
     why: 'harness-methodology itself crashed — no later phase can be trusted',
   },
   {
     flag: 'dispatch_structurally_broken',
+    cursor: 3, label: /^tdd-/,
     reply: { rc: 23, final_line: 'FR-01 GATE1: FAIL — escalate to human, the dispatch environment is unusable' },
     why: 'no sub-agent can be dispatched at all — every later phase would fail identically',
   },
   {
-    flag: 'infra_abort',
+    flag: 'gate1-parked',
+    cursor: 3, label: [/^tdd-/, /^gate1-retry-/],
     reply: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' },
-    why: 'an INFRA precondition failed — the fix is amend-sab, not a code-fix agent',
+    why: 'an INFRA precondition survived the parked-FR re-attempt — the fix is amend-sab, not a code-fix agent',
+  },
+  {
+    flag: 'repeated_failure',
+    cursor: 4, label: /^delta-/,
+    reply: { rc: 36, final_line: 'FR-01 GATE1: FAIL — repeated-failure refusal (exit 36)' },
+    why: 'run-fr-step refuses an identical failure already seen on this tree — a state lock, not a code verdict',
   },
 ]
 
-for (const { flag, reply, why } of TERMINAL_FLAG_CASES) {
-  test(`round28: run-all stops when Phase 3 returns ${flag}`, async () => {
+for (const { flag, cursor, label, reply, why } of TERMINAL_FLAG_CASES) {
+  test(`round28: run-all stops when Phase ${cursor} returns ${flag}`, async () => {
+    const labels = Array.isArray(label) ? label : [label]
+    const overrides = labels.map((l) => ({ match: l, respond: reply }))
     const { result, events } = await runWorkflow(RUNALL, makeHappyResponder(
-      [cursorAt(3), { match: /^tdd-/, respond: reply }, ...happyOverrides()]))
-    const laterBoxes = events.phases.filter((p) => /^P[4-8] · /.test(p))
+      [cursorAt(cursor), ...overrides, ...happyOverrides()]))
+    // "Later" means after the phase that aborted: P4's own pre-loop boxes ran
+    // before its FR loop hit the terminal rc, so only P(cursor+1)-P8 count.
+    const laterPhaseRe = new RegExp(`^P[${cursor + 1}-8] · `)
+    const laterBoxes = events.phases.filter((p) => laterPhaseRe.test(p))
     assert.deepEqual(laterBoxes, [],
       `${flag}: ${why}, yet run-all entered ${laterBoxes.length} later-phase box(es) `
       + `(${laterBoxes.slice(0, 3).join(', ')})`)
     assert.deepEqual(result.phases_run, [],
-      `${flag}: Phase 3 aborted, so it must not be recorded as run — got `
+      `${flag}: the phase aborted, so it must not be recorded as run — got `
       + JSON.stringify(result.phases_run))
     assert.ok(result.error || result[flag],
       `${flag}: run-all returned a success shape after a terminal abort — `
@@ -1189,8 +1228,19 @@ const DELTA_PHASE_FILES = {
   8: 'phase8-config.js',
 }
 
+// Round 102 站3: the delta hosts have no park/revisit loop, so their terminal
+// set differs from phase 3's — rc 25 still RETURNS infra_abort there (in
+// phase 3 it parks), and rc 36 returns repeated_failure. The `gate1-parked`
+// run-all case above is phase-3-only and deliberately not in this list.
+const DELTA_TERMINAL_CASES = [
+  { flag: 'harness_bug_detected', reply: { rc: 70, final_line: 'FR-01 GATE1: FAIL — harness-methodology itself crashed, escalate to human (see crash bundle path)' } },
+  { flag: 'dispatch_structurally_broken', reply: { rc: 23, final_line: 'FR-01 GATE1: FAIL — escalate to human, the dispatch environment is unusable' } },
+  { flag: 'infra_abort', reply: { rc: 25, final_line: 'FR-01 GATE1: FAIL — infra-class fatal, amend project state' } },
+  { flag: 'repeated_failure', reply: { rc: 36, final_line: 'FR-01 GATE1: FAIL — repeated-failure refusal (exit 36)' } },
+]
+
 for (const [n, file] of Object.entries(DELTA_PHASE_FILES)) {
-  for (const { flag, reply } of TERMINAL_FLAG_CASES) {
+  for (const { flag, reply } of DELTA_TERMINAL_CASES) {
     test(`round28: ${file} per-FR loop aborts on ${flag}`, async () => {
       const { result } = await runWorkflow(WF(file), makeHappyResponder(
         [{ match: /^delta-FR-/, respond: { ...reply, final_line: reply.final_line.replace('GATE1', 'GATE1-DELTA') } }, ...happyOverrides()]))

@@ -2861,7 +2861,7 @@
   bug: "a SAB key that exists in the parser and not on SABSpec never reaches the canonical template, so no project would ever learn to write one"
   fixed_in: "R68-站1"
 
-- test: tests/test_required_artifacts_reach_the_verdict.py::test_a_missing_declared_deliverable_stops_the_gate
+- test: tests/test_required_artifacts_reach_the_verdict.py::test_phase_exit_finalize_still_blocks_on_a_missing_deliverable
   bug: "the pure decision function existing is not the verdict reading it — R67's mother defect. This runs a real finalize"
   fixed_in: "R68-站1"
 

@@ -155,6 +155,13 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^delta-fastpath$", "judgment", "schema",
      "classification of FRs into pass/fail lists (DELTA_FAST_SCHEMA); "
      "misclassification self-corrects — fails fall into the full loop"),
+    (r"^gate1-retry-$", "judgment", "js-regex",
+     "GATE1 re-attempt of a Round 102 站3 parked FR (backgrounded, "
+     "run-fr-step rc only — the FR's TDD steps already landed); "
+     "gate1-retry-verify is the verdict"),
+    (r"^gate1-retry-verify-$", "carrier", "js-regex",
+     "verify_gate1_qc.py canonical stdout on the re-attempt; 站2a verdict "
+     "from echoed stdout ONLY, same rule as gate1-verify"),
     (r"^(gate2-r|gate3-r|gate4-r)$", "judgment", "text-token",
      "gate orchestrator scores dims inline + fixes; its prose is "
      "narrative only — the -verify-r carrier is authoritative"),

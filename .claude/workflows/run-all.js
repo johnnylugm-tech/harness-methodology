@@ -2376,6 +2376,7 @@ if (alreadyDone.size > 0) log('  sentinel pre-check: Gate 1 (Phase 3) already PA
 phase('P3 · Per-FR TDD')
 const gate1Pass = []
 const gate1Fail = []
+const gate1Parked = []  // Round 102 站3: FRs parked on state preconditions (rc 25/36), re-attempted after the loop
 let p3MidPushed = false
 const p3MidThreshold = Math.max(1, Math.floor(frIds.length / 2))  // PUSH ③ trigger: ≥50% FRs Gate 1 PASS (phase3_plan.md, harness push_cmds.py)
 for (const frId of frIds) {
@@ -2386,6 +2387,7 @@ for (const frId of frIds) {
         log('  === ' + frId + ' (' + (frTitle[frId] || '') + ') — TDD chain ===')
     const frNum = frId.match(/\d+/)[0].padStart(2, '0')
     let passed = false
+    let parked = null  // Round 102 站3: set by the park branches of the terminal-rc detectors
     for (let frAttempt = 1; frAttempt <= 2; frAttempt++) {
     if (frAttempt > 1) log('  ' + frId + ' — Gate 1 FAILED on attempt 1, retrying this FR once before moving on (dispatch prompt is resume-aware: re-checks git log, skips already-landed RED/MIRROR/GREEN/IMPROVE commits)')
     const frReport = await dispatch(
@@ -2417,7 +2419,8 @@ for (const frId of frIds) {
       + '   The RC decides what happens next, and the workflow reads the integer — not your wording, so paraphrase the reason however you like:\n'
       + '   - RC=23 (dispatch structurally broken, claude.ai connectors disabled): STOP. Do NOT unset env vars, do NOT retry — every retry fails identically.\n'
       + '   - RC=70 (harness-methodology itself crashed): NOT your code or tests. STOP, do not retry, do not modify project code. The log names a crash bundle path; quote it in your reason.\n'
-      + '   - RC=25 (INFRA precondition block): project state, not code. STOP this chain; the workflow routes it to `amend-sab`.\n'
+      + '   - RC=25 (INFRA precondition block): project state, not code. STOP this chain; the workflow parks this FR and re-attempts it after the remaining FRs run (an intervening FR may repair the state; if it persists, run-fr-step\'s own log tells you how — amend-sab).\n'
+      + '   - RC=36 (repeated-failure refusal): run-fr-step refuses an identical failure already seen N times on this exact tree — a state lock, not a code verdict. STOP this chain; the workflow parks this FR and re-attempts it after the remaining FRs run. Read .methodology/degradations.jsonl for the signature; only a tree change re-opens the step.\n'
       + '   - Any other nonzero RC = an ordinary Gate 1 FAIL → fix failing dims and repeat the a/b/c procedure (max 3 rounds, as above).\n'
       + '   - AAP block: log contains "Unregistered modules detected: {…}" — step 5 amend-sab didn\'t run. Verify .methodology/SAB.json committed; else run `' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + frId + ' --step amend-sab --project ' + REPO + '` + manual `git add ... && git commit`, repeat GATE1. Max 1 amend round per FR.\n'
       + '   run-fr-step auto-pushes on completion (idempotent). Crash recovery: `resume-fr-phase --phase 3 --project ' + REPO + '`.\n'
@@ -2447,12 +2450,18 @@ for (const frId of frIds) {
       return { harness_bug_detected: true, phase: 3, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: harness-methodology itself crashed (exit 70 — see the crash bundle path in the log). This is not a project quality issue; a human must diagnose and fix the harness bug before this FR can proceed.' }
     }
     if (frRc === 25) {
-      log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')
-      return { infra_abort: true, phase: 3, fr_id: frId, condition_class: 'UNREGISTERED', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: an INFRA precondition failed (exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+      log('  ' + frId + ' exited 25 — INFRA precondition block, parking (re-attempted after the remaining FRs)')
+      parked = { fr: frId, rc: frRc }
+      break
     }
     if (frRc === 45) {
       log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
       return { phantom_abort: true, phase: 3, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+    }
+    if (frRc === 36) {
+      log('  ' + frId + ' exited 36 — repeated-failure refusal, parking (re-attempted after the remaining FRs)')
+      parked = { fr: frId, rc: frRc }
+      break
     }
     const verifyResult = await dispatch(
       'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -2471,6 +2480,11 @@ for (const frId of frIds) {
       return { fr_step_timeout: true, halt_step: 'fr-step-timeout', phase: 3, fr_id: frId, gate1Pass, gate1Fail, message: frId + ' GATE1: killed at the poll cap with run-fr-step still running, so no gate verdict was reached — this is NOT a code-quality failure and no fix agent should be sent at it. Re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}); a recurrence means the step is hung past the budget computed from fr_step timeout and max_fix_rounds.' }
     }
     if (passed) break
+    }
+    if (parked) {
+      gate1Parked.push(parked)
+      log('  ' + frId + ' parked (rc ' + parked.rc + '): state precondition — continuing with remaining FRs; re-attempted after the loop')
+      continue
     }
     if (passed) { gate1Pass.push(frId); log('  ' + frId + ' Gate 1 PASS (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]') }
     else { gate1Fail.push(frId); log('  ' + frId + ' Gate 1 FAIL [harness manifest qc != true; sub-agent self-report ignored]') }
@@ -2495,6 +2509,59 @@ for (const frId of frIds) {
 if (gate1Fail.length) {
   return halt('gate1', { error: 'Phase 3: Gate 1 FAILED for FR(s): ' + gate1Fail.join(', ') + ' (escalate — fix code/tests, resume-fr-phase)', owner: 'project', gate1Pass, gate1Fail })
 }
+
+  if (gate1Parked.length) {
+    log('  Re-attempting ' + gate1Parked.length + ' parked FR(s) after the remaining FRs ran')
+    const stillParked = []
+    for (const parkedFr of gate1Parked) {
+      log('  === ' + parkedFr.fr + ' — GATE1 re-attempt (was parked on rc ' + parkedFr.rc + ') ===')
+      const retryReport = await dispatch(
+        'YOU ARE THE GATE1 RE-ATTEMPT for ' + parkedFr.fr + ': this FR was parked earlier because a project-state precondition (rc ' + parkedFr.rc + ') blocked its Gate 1. Intervening FRs may have repaired that state — find out by re-running GATE1.\n'
+        + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+        + 'Run GATE1 ONLY, backgrounded, with the same a/b/c procedure as the main chain:\n'
+        + '   a. `nohup bash -c \'' + PY + ' ' + REPO + '/harness_cli.py run-fr-step --phase 3 --fr-id ' + parkedFr.fr + ' --step GATE1 --project ' + REPO + '; echo "RC=$?"\' > /tmp/gate1_' + parkedFr.fr + '.log 2>&1 & echo $!`\n'
+        + '   b. Poll with BACKOFF intervals 5,10,20,30,60, then `fr_step_poll_interval_s` — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls (phase3_ctx.json); still RUNNING past the cap → `kill <PID>`, report rc -1.\n'
+        + '   c. DONE → `tail -200 /tmp/gate1_' + parkedFr.fr + '.log`; the LAST line matching `RC=<integer>` is the exit code — report that integer verbatim.\n'
+        + 'The TDD steps for ' + parkedFr.fr + ' already landed (run-fr-step is idempotent and skips them) — do NOT re-run RED/GREEN/IMPROVE/amend-sab.\n\n'
+        + 'SCOPE RULES:\n- DO NOT modify code, tests, harness/ (HR-17), .methodology/quality_manifest.json, or .sessi-work/gate1_result.json.\n- ONLY the single GATE1 run above.',
+        { label: 'gate1-retry-' + parkedFr.fr, phase: 'P3 · Per-FR TDD', agentType: 'general-purpose', schema: FR_STEP_SCHEMA },
+      )
+        if (retryReport === null || retryReport === undefined || typeof retryReport !== 'object') {
+          log('  ' + parkedFr.fr + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+          return { session_limit_blocked: true, phase: 3, step: parkedFr.fr, fr_id: parkedFr.fr, gate1Pass, message: 'Agent hit session/rate limit during the GATE1 re-attempt of ' + parkedFr.fr + '. Resume after quota reset — the manifest read is idempotent.' }
+        }
+      const frRc = (retryReport && typeof retryReport.rc === 'number') ? retryReport.rc : null
+      if (frRc === 25 || frRc === 36) {
+        log('  ' + parkedFr.fr + ' still parked on rc ' + frRc + ' — the state precondition persists')
+        stillParked.push({ fr: parkedFr.fr, rc: frRc })
+      } else if (frRc === 23) {
+        return { dispatch_structurally_broken: true, phase: 3, fr_id: parkedFr.fr, gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: dispatch is structurally broken (env: ANTHROPIC_API_KEY overrides claude.ai login). Human must unset ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/ANTHROPIC_BASE_URL/ANTHROPIC_DEFAULT_HAIKU_MODEL, then re-run.' }
+      } else if (frRc === 70) {
+        return { harness_bug_detected: true, phase: 3, fr_id: parkedFr.fr, gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: harness-methodology itself crashed (exit 70).' }
+      } else if (frRc === 45) {
+        return { phantom_abort: true, phase: 3, fr_id: parkedFr.fr, condition_class: 'PHANTOM', gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: PHANTOM precondition (exit 45).' }
+      } else if (frRc === -1) {
+        return { fr_step_timeout: true, halt_step: 'fr-step-timeout', phase: 3, fr_id: parkedFr.fr, gate1Pass, gate1Fail, message: parkedFr.fr + ' GATE1 re-attempt: killed at the poll cap — no verdict.' }
+      } else {
+        const retryVerify = await dispatch(
+          'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
+          + PY + ' ' + REPO + '/harness/scripts/verify_gate1_qc.py --fr-id ' + parkedFr.fr + ' --project ' + REPO + '\n'
+          + 'Then report via the StructuredOutput tool: pass = true ONLY if the FIRST line of stdout is exactly "GATE1_VERIFIED_PASS"; reason = the verbatim stdout (do NOT paraphrase).',
+          { label: 'gate1-retry-verify-' + parkedFr.fr, phase: 'P3 · Per-FR TDD', agentType: 'general-purpose', schema: VERDICT_SCHEMA }
+        )
+        if (retryVerify && String((retryVerify && retryVerify.reason) || '').trim().startsWith('GATE1_VERIFIED_PASS')) {
+          gate1Pass.push(parkedFr.fr)
+          log('  ' + parkedFr.fr + ' Gate 1 PASS on re-attempt (' + gate1Pass.length + '/' + frIds.length + ') [harness-verified]')
+        } else {
+          log('  ' + parkedFr.fr + ' still not Gate-1-complete after re-attempt (rc ' + frRc + ')')
+          stillParked.push({ fr: parkedFr.fr, rc: frRc })
+        }
+      }
+    }
+    if (stillParked.length) {
+      return halt('gate1-parked', { error: 'Phase 3: Gate 1 still state-blocked for FR(s): ' + stillParked.map(p => p.fr + ' (rc ' + p.rc + ')').join(', ') + ' — not a code-quality failure; deliver the SAB-declared paths / repair the state, then resume (python harness_cli.py resume-fr-step --phase 3 --fr-id <id> --step GATE1 --project ' + REPO + ')', owner: 'project', gate1Pass, gate1Parked: stillParked })
+    }
+  }
 
 
 
@@ -2930,7 +2997,7 @@ for (const frId of deltaTodo) {
     + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase4_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
     + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — report that integer verbatim. It is NOT the Bash tool\'s rc; do not compute or infer it.\n'
     + '   - RC=0 → done.\n'
-    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
+    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block) / RC=36 (repeated-failure refusal — an identical failure already seen N times on this tree): STOP — none of the four is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
     + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }.\n\n'
@@ -2957,6 +3024,10 @@ for (const frId of deltaTodo) {
   if (frRc === 45) {
     log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
     return { phantom_abort: true, phase: 4, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 36) {
+    log('  ' + frId + ' exited 36 — repeated-failure refusal, aborting remaining FRs')
+    return { repeated_failure: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: exit 36 — run-fr-step refuses to re-dispatch an identical failure already seen on this exact tree. Read .methodology/degradations.jsonl for the signature; any change to the tree re-opens the step. This is not a code-quality verdict on this FR\'s implementation.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -3414,7 +3485,7 @@ for (const frId of deltaTodo) {
     + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase5_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
     + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — report that integer verbatim. It is NOT the Bash tool\'s rc; do not compute or infer it.\n'
     + '   - RC=0 → done.\n'
-    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
+    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block) / RC=36 (repeated-failure refusal — an identical failure already seen N times on this tree): STOP — none of the four is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
     + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }.\n\n'
@@ -3441,6 +3512,10 @@ for (const frId of deltaTodo) {
   if (frRc === 45) {
     log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
     return { phantom_abort: true, phase: 5, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 36) {
+    log('  ' + frId + ' exited 36 — repeated-failure refusal, aborting remaining FRs')
+    return { repeated_failure: true, phase: 5, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: exit 36 — run-fr-step refuses to re-dispatch an identical failure already seen on this exact tree. Read .methodology/degradations.jsonl for the signature; any change to the tree re-opens the step. This is not a code-quality verdict on this FR\'s implementation.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -4178,7 +4253,7 @@ for (const frId of deltaTodo) {
     + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase7_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
     + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — report that integer verbatim. It is NOT the Bash tool\'s rc; do not compute or infer it.\n'
     + '   - RC=0 → done.\n'
-    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
+    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block) / RC=36 (repeated-failure refusal — an identical failure already seen N times on this tree): STOP — none of the four is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
     + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }.\n\n'
@@ -4205,6 +4280,10 @@ for (const frId of deltaTodo) {
   if (frRc === 45) {
     log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
     return { phantom_abort: true, phase: 7, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 36) {
+    log('  ' + frId + ' exited 36 — repeated-failure refusal, aborting remaining FRs')
+    return { repeated_failure: true, phase: 7, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: exit 36 — run-fr-step refuses to re-dispatch an identical failure already seen on this exact tree. Read .methodology/degradations.jsonl for the signature; any change to the tree re-opens the step. This is not a code-quality verdict on this FR\'s implementation.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -4558,7 +4637,7 @@ for (const frId of deltaTodo) {
     + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase8_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
     + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — report that integer verbatim. It is NOT the Bash tool\'s rc; do not compute or infer it.\n'
     + '   - RC=0 → done.\n'
-    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
+    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block) / RC=36 (repeated-failure refusal — an identical failure already seen N times on this tree): STOP — none of the four is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
     + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }.\n\n'
@@ -4585,6 +4664,10 @@ for (const frId of deltaTodo) {
   if (frRc === 45) {
     log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
     return { phantom_abort: true, phase: 8, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  if (frRc === 36) {
+    log('  ' + frId + ' exited 36 — repeated-failure refusal, aborting remaining FRs')
+    return { repeated_failure: true, phase: 8, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: exit 36 — run-fr-step refuses to re-dispatch an identical failure already seen on this exact tree. Read .methodology/degradations.jsonl for the signature; any change to the tree re-opens the step. This is not a code-quality verdict on this FR\'s implementation.' }
   }
   const verdict = await dispatch(
     'You MUST use the Bash tool. Run EXACTLY this single command (single line):\n'
@@ -4868,18 +4951,35 @@ for (let n = startPhase; n <= 8; n++) {
     await recordBlock(n, 'infra-abort', String(outcome.message || 'INFRA precondition failed'), 'infra')
     return halt('infra-abort', { error: 'run-all stopped in Phase ' + n + ': ' + String(outcome.message || 'INFRA precondition failed'), phase: n, phases_run: phasesRun, detail: outcome, note: 'INFRA direction (exit 25, UNREGISTERED): code→SAB drift or a tool that never ran. Repair project state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' })
   }
-  // Round 28 — fail CLOSED, like the cursor read above. The four branches
-  // above (session_limit_blocked, outcome.error, phantom_abort, infra_abort) name
-  // the outcomes this driver recognises; this one covers every
-  // outcome it does not. runPhase3 returns `harness_bug_detected` and
+  // Round 102 站3: repeated-failure refusal (exit 36) — the delta phases'
+  // per-FR loops return `{ repeated_failure: true, ... }` when run-fr-step
+  // refuses an identical (FR, step, tree, signature) failure past its retry
+  // allowance (phase 3 parks 36 instead and re-attempts in-run, so this
+  // branch serves the phases without a park/revisit loop). The cause is
+  // whatever failed identically N times — measured: budget kills and quota
+  // INFRA_ERRORs (owner infra) — so the workflow row records infra; the
+  // ledger rows keep the class-derived owners (fault_owner.py maps 36 to
+  // UNKNOWN by design; the split is documented in
+  // js_blocks.render_terminal_abort_detectors).
+  if (outcome && outcome.repeated_failure) {
+    await recordBlock(n, 'repeated-failure', String(outcome.message || 'repeated-failure refusal (exit 36)'), 'infra')
+    return halt('repeated-failure', { error: 'run-all stopped in Phase ' + n + ': ' + String(outcome.message || 'repeated-failure refusal (exit 36)'), phase: n, phases_run: phasesRun, detail: outcome, note: 'exit 36 — run-fr-step refuses to re-dispatch an identical failure already seen on this tree. Read the consuming project\'s .methodology/degradations.jsonl for the signature; any change to the tree re-opens the step, then re-run.' })
+  }
+  // Round 28 — fail CLOSED, like the cursor read above. The branches
+  // above (session_limit_blocked, outcome.error, phantom_abort, infra_abort,
+  // repeated_failure) name the outcomes this driver recognises; this one covers
+  // every outcome it does not. runPhase3 returns `harness_bug_detected` and
   // `dispatch_structurally_broken` for conditions no later phase can
   // recover from, and neither carries an `error` key — so before this,
   // a run in which harness itself crashed on FR-01 walked on through P4-P8
   // and reported `phases_run: [3,4,5,6,7,8]` with no error at all. Round 100 站1
   // added the two abort branches above; Round 28's `phase-incomplete` catch-all
-  // stays as defense-in-depth for any future unrecognised terminal flag.
+  // stays as defense-in-depth for any future unrecognised terminal flag. The
+  // owner arg is forwarded like the outcome.error branch does (Round 102 站3):
+  // recordBlock's `owner != null` guard keeps shapes that carry no owner
+  // recorded exactly as before — fail-closed, no semantics broken.
   if (!outcome || outcome.phase_complete !== true) {
-    await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'))
+    await recordBlock(n, 'phase-incomplete', String((outcome && (outcome.message || outcome.error)) || 'no message'), outcome && outcome.owner)
     return halt(String((outcome && outcome.halt_step) || 'phase-incomplete'), { error: 'run-all stopped in Phase ' + n + ': the phase returned without reporting completion — ' + String((outcome && (outcome.message || outcome.error)) || 'no message'), phase: n, phases_run: phasesRun, detail: outcome, note: 'A phase sets phase_complete only on its single success exit. Anything else — a terminal abort such as a harness crash or a broken dispatch environment, or a shape this driver does not recognise — stops the run rather than advancing on an unfinished phase.' })
   }
   phasesRun.push(n)

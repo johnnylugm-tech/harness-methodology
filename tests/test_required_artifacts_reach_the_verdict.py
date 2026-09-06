@@ -34,12 +34,13 @@ that making none is a ledger row instead of free.
 
 from __future__ import annotations
 
-import io
 import json
 from pathlib import Path
 
+import pytest
+
 import harness_cli as _hc_entry  # noqa: F401  entry-first before cli imports
-from harness_cli import cmd_finalize_gate
+from harness.harness_bridge import GateBlockedError, GateContext, HarnessBridge
 
 
 def _tree_with_a_relocated_deliverable(tmp_path: Path) -> Path:
@@ -183,79 +184,153 @@ def test_required_artifacts_survives_the_sab_round_trip():
     )
 
 
-def _finalize_over(monkeypatch, project: Path, sab: dict, *, phase=3):
-    """A real Gate 1 finalize over *project*. Returns (exit_code, stdout).
+def _make_ctx(tmp_path: Path, gate_num: int, *, fr_id: "str | None" = None) -> GateContext:
+    """A real GateContext over tmp_path, config with no tool-execution dims.
 
-    Fixture shape is tests/test_stubbed_boundary_reaches_the_verdict.py's,
-    for the same reason it gives there: the question is what the VERDICT does,
-    and patching finalize_gate's private seams to ask it would be the thing
-    tests/test_patch_discipline.py refuses.
+    Fixture shape is tests/test_harness_bridge.py TestFinalizeGate's: the
+    question is what the VERDICT does, and patching finalize_gate's private
+    seams to ask it would be the thing tests/test_patch_discipline.py refuses.
     """
-    sessi = project / ".sessi-work"
-    (sessi / "sentinels").mkdir(parents=True, exist_ok=True)
-    (sessi / "gate1_result.json").write_text(json.dumps({
-        "gate": 1, "phase": phase, "fr_id": "FR-01",
-        "score": 95.0, "quality_complete": True,
-        "open_critical_count": 0, "open_high_count": 0,
-        "breakdown": {
-            "linting": {"score": 100.0, "threshold": 90},
-            "type_safety": {"score": 98.5, "threshold": 85},
-        },
-    }))
-    (sessi / "sentinels" / f"g1_p{phase}_fr01.flag").write_text("test")
+    from core.quality_gate.constitution.profile import DimensionConfig, GateConfig
 
-    meth = project / ".methodology"
-    meth.mkdir(parents=True, exist_ok=True)
-    (meth / "quality_manifest.json").write_text(
-        json.dumps({"fr_ids": ["FR-01"], "gate_results": {"gate1": {}}}))
-    (meth / "state.json").write_text(
-        json.dumps({"state": "ACTIVE", "current_phase": phase}))
-    (meth / "SAB.json").write_text(json.dumps(sab))
+    config = GateConfig(
+        gate_num=gate_num, score_gate=80.0, max_rounds=3,
+        dimensions=[
+            DimensionConfig(name="linting", threshold=75.0),
+            DimensionConfig(name="type_safety", threshold=75.0),
+        ],
+    )
+    ssi_dir = Path(__file__).parent.parent / "harness" / "ssi"
+    work_dir = tmp_path / ".sessi-work"
+    work_dir.mkdir(exist_ok=True)
+    return GateContext(
+        gate_num=gate_num, config=config, project_root=str(tmp_path),
+        phase=3, fr_id=fr_id,
+        ssi_scripts_dir=str(ssi_dir / "scripts"),
+        ssi_prompts_dir=str(ssi_dir / "prompts"),
+        ssi_schemas_dir=str(ssi_dir / "schemas"),
+        work_dir=str(work_dir),
+    )
 
-    import core.quality_gate.gate_thresholds as _gt
+
+def _write_result(ctx: GateContext, data: dict) -> None:
+    (Path(ctx.work_dir) / f"gate{ctx.gate_num}_result.json").write_text(
+        json.dumps(data), encoding="utf-8")
+
+
+def _patch_gate_config(tmp_path: Path, monkeypatch) -> None:
+    """Monkeypatch gate_config_path to a config with no
+    requires_tool_execution:true dimensions, so _check_tool_evidence finds
+    nothing to validate (same reason as test_harness_bridge.py)."""
     import yaml as _yaml
-    cfg = project / "gate1_minimal.yaml"
-    cfg.write_text(_yaml.dump({
-        "gate": 1,
+    import core.quality_gate.gate_thresholds as _gt
+
+    _minimal_cfg = tmp_path / "gate_minimal.yaml"
+    _minimal_cfg.write_text(_yaml.dump({
+        "gate": 2,
         "dimensions": [
-            {"name": "linting", "threshold": 90, "weight": 0.5},
-            {"name": "type_safety", "threshold": 85, "weight": 0.5},
+            {"name": "linting", "threshold": 75},
+            {"name": "type_safety", "threshold": 75},
         ],
     }))
-    monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg)
-
-    class Args:
-        pass
-    a = Args()
-    a.gate = 1  # type: ignore[attr-defined]
-    a.phase = phase  # type: ignore[attr-defined]
-    a.project = str(project)  # type: ignore[attr-defined]
-    a.fr_id = "FR-01"  # type: ignore[attr-defined]
-    a.force = False  # type: ignore[attr-defined]
-    a.no_git = True  # type: ignore[attr-defined]
-
-    captured = io.StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-    try:
-        code = cmd_finalize_gate(a)  # type: ignore[arg-type]
-    except SystemExit as exc:
-        code = exc.code
-    return code, captured.getvalue()
+    monkeypatch.setattr(_gt, "gate_config_path", lambda g: _minimal_cfg)
 
 
-def test_a_missing_declared_deliverable_stops_the_gate(monkeypatch, tmp_path):
-    """The half that does not exist yet.
+def _passing_result() -> dict:
+    """Every dimension at 100, framework-measured — the shape of the FR-01
+    gate evaluations that measured all code dims at 100 while the artifact
+    stage alone blocked the finalize."""
+    return {
+        "overall_score": 100.0, "meets_target": True, "quality_complete": True,
+        "open_critical_count": 0, "open_high_count": 0,
+        "breakdown": {
+            "linting": {"score": 100.0, "threshold": 75.0,
+                        "score_source": "framework"},
+            "type_safety": {"score": 100.0, "threshold": 75.0,
+                            "score_source": "framework"},
+        },
+    }
 
-    taskq-cc published Gate 4 PASS at 95.28 with `.env.example` absent and its
-    SAD asserting the tree matches a layout it does not match.
+
+def _project_with_a_missing_declared_deliverable(tmp_path: Path) -> Path:
+    """The tree from above plus a SAB declaring `.env.example` (absent) and
+    the two relocated deliverables.
+
+    The Makefile is dropped: its `@true` recipe is exactly the tautological
+    verify-system shape Round 52 blocks on, and this fixture's question is
+    the artifact stage — not verify_target. With no Makefile that stage
+    returns None by design, and the declared Makefile joins the absent list
+    (both finalize tests below only care that SOMETHING declared is absent).
     """
     project = _tree_with_a_relocated_deliverable(tmp_path)
-    code, out = _finalize_over(monkeypatch, project, _SAB)
+    (project / "Makefile").unlink()
+    meth = project / ".methodology"
+    meth.mkdir(exist_ok=True)
+    (meth / "SAB.json").write_text(json.dumps(_SAB), encoding="utf-8")
+    return project
 
-    assert code != 0, (
-        "the gate passed with a declared deliverable missing from the tree "
-        "and two more shipped somewhere other than where they were declared"
+
+def _finalize_over(ctx: GateContext, bridge: HarnessBridge):
+    from unittest.mock import patch
+
+    with patch.object(bridge, "_update_quality_manifest"), \
+            patch.object(bridge, "_log"), patch.object(bridge, "_effort"):
+        return bridge.finalize_gate(ctx)
+
+
+def test_gate1_finalize_records_a_missing_deliverable_without_blocking(
+        monkeypatch, tmp_path):
+    """Round 102 站1 scope — a per-FR gate-1 finalize does not hard-block on
+    whole-project SAB required_artifacts.
+
+    The declared artifacts a project names at Phase 2 (alembic.ini, Makefile,
+    requirements.lock, ...) are products of the implementation phase, so the
+    first per-FR gate of Phase 3 fails by construction: the tree cannot ship
+    what the phase that produces it has not run yet, and no FR owns another
+    FR's or the project's scaffolding. taskq-done measured it: FR-01's code
+    dims all 100 while 6 Phase-3-era declared files were absent, and the
+    block stranded the FR until FR-02's run happened to deliver them. The
+    finding must stay visible — a tree that contradicts its SAB is recorded
+    at every gate — but it must not stop an FR whose own quality is done.
+    """
+    project = _project_with_a_missing_declared_deliverable(tmp_path)
+    _patch_gate_config(tmp_path, monkeypatch)
+    ctx = _make_ctx(tmp_path, gate_num=1, fr_id="FR-01")
+    _write_result(ctx, _passing_result())
+
+    result = _finalize_over(ctx, HarnessBridge())
+
+    assert result.quality_complete is True, (
+        "gate 1 finalize blocked on whole-project artifacts that no single "
+        "FR can be asked to deliver"
     )
-    assert ".env.example" in out, (
-        f"the block did not name the file. Got:\n{out[-1500:]}"
+    ledger = project / ".methodology" / "degradations.jsonl"
+    assert ledger.is_file(), "a missing declared deliverable left no trace"
+    assert "gate:required-artifacts" in ledger.read_text(encoding="utf-8"), (
+        "the finding has to stay visible even when it does not block"
+    )
+
+
+def test_phase_exit_finalize_still_blocks_on_a_missing_deliverable(
+        monkeypatch, tmp_path):
+    """The Round 68 block survives where it means something.
+
+    taskq-cc published Gate 4 PASS at 95.28 with `.env.example` absent and its
+    SAD asserting the tree matches a layout it does not match. Phase-exit and
+    final gates (gate >= 2) are the first points whose workflows can deliver
+    (or drop) the declared paths, so the hard block stays there.
+    """
+    _project_with_a_missing_declared_deliverable(tmp_path)
+    _patch_gate_config(tmp_path, monkeypatch)
+    ctx = _make_ctx(tmp_path, gate_num=2)
+    _write_result(ctx, _passing_result())
+
+    with pytest.raises(GateBlockedError) as exc:
+        _finalize_over(ctx, HarnessBridge())
+    details = exc.value.details
+    assert "required_artifact_missing" in details, (
+        f"the phase-exit block did not name its kind: {details}"
+    )
+    assert ".env.example" in str(details), (
+        f"the phase-exit block did not name the file: {details}"
     )

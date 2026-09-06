@@ -2145,6 +2145,22 @@ class HarnessBridge(_FinalizeStages):
         # that a declaration which IS made is decided by something that always
         # runs — unlike the `declared_only` constraints above, `Path.exists()`
         # needs no configuration and no guess at a module name.
+        #
+        # Round 102 站1 (scope): the hard block fires only at phase-exit
+        # finalizes (gate >= 2), never at a per-FR gate-1 finalize. A project
+        # declares its must-ship artifacts during Phase 2, but the files it
+        # names (alembic.ini, Makefile, requirements.lock, ...) are products
+        # of the implementation phase — so enforcing the declaration on the
+        # first per-FR gate of Phase 3 fails by construction: the tree cannot
+        # ship what the phase that produces it has not run yet, and no FR
+        # owns another FR's or the project's scaffolding. The block is
+        # truthful only from the phase exit whose workflow can deliver (or
+        # drop) the declared paths; per-FR finalizes still record the
+        # findings to the ledger, so a tree that contradicts its SAB stays
+        # visible at every gate — it just no longer strands the first FR on
+        # debt it cannot pay. (Measured on taskq-done 2026-09: FR-01 code
+        # dims 100 while 6 Phase-3-era declared files were absent; FR-02's
+        # run delivered them and every subsequent gate passed.)
         from core.quality_gate.required_artifacts import (
             record_required_artifacts,
             required_artifacts_blocking_reason,
@@ -2152,7 +2168,8 @@ class HarnessBridge(_FinalizeStages):
         _artifact_reason = required_artifacts_blocking_reason(
             record_required_artifacts(ctx.project_root)
         )
-        self._stage_required_artifacts(_artifact_reason, ctx)
+        if ctx.gate_num >= 2:
+            self._stage_required_artifacts(_artifact_reason, ctx)
 
         # ── Round 51 站3: a number measured over a suite that removed the
         # thing it measures ──────────────────────────────────────────────────

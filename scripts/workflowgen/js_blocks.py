@@ -669,7 +669,10 @@ def render_load_frs(phase: int, *, include_fr_titles: bool = False) -> str:
     )
 
 
-def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> str:
+def render_terminal_abort_detectors(
+    *, phase: int, indent: str, step: str,
+    park_rcs: "frozenset[int]" = frozenset(),
+) -> str:
     """The three per-FR conditions no fix agent can resolve (Round 13 站0/站2).
 
     Both were written for Phase 3's TDD loop and stayed there. P4, P5, P7 and P8
@@ -719,11 +722,7 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
     it, and this is the only place an operator holds the problem it solves.
     """
     i = indent
-    return (
-        f"{i}// L1.5-L1.7: the three terminal aborts, read from run-fr-step's own exit code\n"
-        f"{i}// (launch line's `; echo \"RC=$?\"`, carried by FR_STEP_SCHEMA). Prose is not\n"
-        f"{i}// load-bearing — see render_terminal_abort_detectors' docstring (Round 70 站3).\n"
-        f"{i}const frRc = (frReport && typeof frReport.rc === 'number') ? frReport.rc : null\n"
+    _rc23 = (
         f"{i}// 23 — dispatch structurally broken; every retry fails identically.\n"
         f"{i}if (frRc === 23) {{\n"
         f"{i}  log('  ' + frId + ' exited 23 — dispatch is structurally broken "
@@ -735,6 +734,8 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"in the shell that launches this process, then re-run via "
         f"Workflow({{scriptPath, resumeFromRunId}}).' }}\n"
         f"{i}}}\n"
+    )
+    _rc70 = (
         f"{i}// 70 — harness crashed. Not a project defect; no re-run clears it.\n"
         f"{i}if (frRc === 70) {{\n"
         f"{i}  log('  ' + frId + ' exited 70 — harness-methodology crashed, "
@@ -745,17 +746,27 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"quality issue; a human must diagnose and fix the harness bug before this FR can "
         f"proceed.' }}\n"
         f"{i}}}\n"
-        f"{i}// 25 — INFRA precondition block: project state, repairable, but not by a fix\n"
-        f"{i}// agent aimed at code. Separate from 70 since 站2, because the remedy is.\n"
-        f"{i}if (frRc === 25) {{\n"
-        f"{i}  log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')\n"
-        f"{i}  return {{ infra_abort: true, phase: {phase}, fr_id: frId, condition_class: 'UNREGISTERED', "
-        f"gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: an INFRA precondition failed "
-        f"(exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project "
-        f"state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: "
-        f"Workflow({{scriptPath, args: {{repo, run_tag}}}}). amend-sab changes no prompt, "
-        f"so without one the cache can replay this halt.' }}\n"
-        f"{i}}}\n"
+    )
+    if 25 in park_rcs:
+        _rc25 = _park_block(
+            25, "INFRA precondition block",
+            "project state the host parks and re-attempts (code→SAB "
+            "drift or a tool that never ran)", i)
+    else:
+        _rc25 = (
+            f"{i}// 25 — INFRA precondition block: project state, repairable, but not by a fix\n"
+            f"{i}// agent aimed at code. Separate from 70 since 站2, because the remedy is.\n"
+            f"{i}if (frRc === 25) {{\n"
+            f"{i}  log('  ' + frId + ' exited 25 — INFRA precondition block, aborting remaining FRs')\n"
+            f"{i}  return {{ infra_abort: true, phase: {phase}, fr_id: frId, condition_class: 'UNREGISTERED', "
+            f"gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: an INFRA precondition failed "
+            f"(exit 25 — modules missing from SAB.json, or a tool that never ran). Repair project "
+            f"state with `harness_cli.py amend-sab`, then re-run with a NEW run_tag: "
+            f"Workflow({{scriptPath, args: {{repo, run_tag}}}}). amend-sab changes no prompt, "
+            f"so without one the cache can replay this halt.' }}\n"
+            f"{i}}}\n"
+        )
+    _rc45 = (
         f"{i}// 45 — PHANTOM precondition block: SAB.json declares a module the codebase\n"
         f"{i}// does not implement. Same halt shape but different owner (project,\n"
         f"{i}// per fault_owner.py mapping) and a different remediation channel\n"
@@ -770,6 +781,62 @@ def render_terminal_abort_detectors(*, phase: int, indent: str, step: str) -> st
         f"--to <target>|--drop --reason \">=20 chars\"`, then re-run with a NEW run_tag: "
         f"Workflow({{scriptPath, args: {{repo, run_tag}}}}). amend-sab changes no prompt, "
         f"so without one the cache can replay this halt.' }}\n"
+        f"{i}}}\n"
+    )
+    if 36 in park_rcs:
+        _rc36 = _park_block(
+            36, "repeated-failure refusal",
+            "run-fr-step refusing an identical (FR, step, tree, "
+            "signature) failure past its retry allowance — a state "
+            "lock, not a code verdict", i)
+    else:
+        _rc36 = (
+            f"{i}// 36 — repeated-failure refusal (exit 36, EX_STEP_REPEATED_FAILURE):\n"
+            f"{i}// run-fr-step refuses to spend another dispatch on an identical failure\n"
+            f"{i}// it has already seen on this exact tree (Round 102 站3). The cause is\n"
+            f"{i}// whatever failed identically N times — measured: budget kills and quota\n"
+            f"{i}// INFRA_ERRORs (owner infra). This driver records the row as infra;\n"
+            f"{i}// fault_owner.py keeps 36 = UNKNOWN by design for the class-derived\n"
+            f"{i}// ledger owners (GATE1_BLOCKED -> project, TURN_BUDGET/TIMEOUT -> infra).\n"
+            f"{i}if (frRc === 36) {{\n"
+            f"{i}  log('  ' + frId + ' exited 36 — repeated-failure refusal, aborting remaining FRs')\n"
+            f"{i}  return {{ repeated_failure: true, phase: {phase}, fr_id: frId, gate1Pass, "
+            f"gate1Fail: [...gate1Fail, frId], message: frId + ' {step}: exit 36 — run-fr-step refuses to "
+            f"re-dispatch an identical failure already seen on this exact tree. Read "
+            f".methodology/degradations.jsonl for the signature; any change to the tree re-opens "
+            f"the step. This is not a code-quality verdict on this FR\\'s implementation.' }}\n"
+            f"{i}}}\n"
+        )
+    return (
+        f"{i}// L1.5-L1.7: the per-FR terminal aborts, read from run-fr-step's own exit code\n"
+        f"{i}// (launch line's `; echo \"RC=$?\"`, carried by FR_STEP_SCHEMA). Prose is not\n"
+        f"{i}// load-bearing — see render_terminal_abort_detectors' docstring (Round 70 站3).\n"
+        f"{i}// Round 102 站3 added 36 and made 25/36 parkable via `park_rcs`.\n"
+        f"{i}const frRc = (frReport && typeof frReport.rc === 'number') ? frReport.rc : null\n"
+        + _rc23 + _rc70 + _rc25 + _rc45 + _rc36
+    )
+
+
+def _park_block(rc: int, label: str, why: str, indent: str) -> str:
+    """Round 102 站3 — a host that opts in via `park_rcs` turns a terminal
+    abort rc into a PARK: the FR is set aside (not failed), the FR loop
+    continues with the remaining FRs, and the host re-attempts parked FRs
+    after the loop — by which point an intervening FR may have repaired the
+    project state the FR was parked on (taskq-done FR-01 measured it: its
+    blockers were delivered by FR-02's own run and nothing ever re-checked
+    FR-01). Emitted only for hosts whose loop declares `let parked = null`
+    before the attempt loop and a `gate1Parked` accumulator; the emitted
+    lines carry the host's `indent` like every other branch here.
+    """
+    i = indent
+    return (
+        f"{i}// {rc} — {label}: {why}. When a host opts in via park_rcs this rc\n"
+        f"{i}// parks the FR instead of aborting the run: the loop continues with the\n"
+        f"{i}// remaining FRs and re-attempts parked FRs after them (Round 102 站3).\n"
+        f"{i}if (frRc === {rc}) {{\n"
+        f"{i}  log('  ' + frId + ' exited {rc} — {label}, parking (re-attempted after the remaining FRs)')\n"
+        f"{i}  parked = {{ fr: frId, rc: frRc }}\n"
+        f"{i}  break\n"
         f"{i}}}\n"
     )
 
@@ -934,7 +1001,7 @@ def render_per_fr_delta(
         + f"    + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase{phase}_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\\n'\n"
         + "    + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\\'s own exit code — report that integer verbatim. It is NOT the Bash tool\\'s rc; do not compute or infer it.\\n'\n"
         + "    + '   - RC=0 → done.\\n'\n"
-        + "    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\\n'\n"
+        + "    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block) / RC=36 (repeated-failure refusal — an identical failure already seen N times on this tree): STOP — none of the four is a code-quality problem and no retry clears any of them. Report the rc and stop.\\n'\n"
         + "    + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\\n'\n"
         + "    + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\\n\\n'\n"
         + "    + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\\'s last RC= line>, final_line: \"' + frId + ' GATE1: PASS\" or \"' + frId + ' GATE1: FAIL — <reason>\" }.\\n\\n'\n"

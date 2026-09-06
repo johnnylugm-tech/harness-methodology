@@ -482,7 +482,7 @@ for (const frId of deltaTodo) {
     + '   b. Poll with BACKOFF intervals, in seconds: 5, 10, 20, 30, 60, then `fr_step_poll_interval_s` for every further iteration — `sleep <interval> && kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Cap `fr_step_poll_cap` polls — both from ' + REPO + '/.sessi-work/phase4_ctx.json (absent ⇒ re-run load-context). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report rc -1 (TIMEOUT, not a gate verdict).\n'
     + '   c. DONE → `tail -200 /tmp/gate1delta_' + frId + '.log`. The LAST line matching `RC=<integer>` is run-fr-step\'s own exit code — report that integer verbatim. It is NOT the Bash tool\'s rc; do not compute or infer it.\n'
     + '   - RC=0 → done.\n'
-    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block): STOP — none of the three is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
+    + '   - RC=23 (dispatch structurally broken) / RC=70 (harness-methodology crashed) / RC=25 (INFRA precondition block) / RC=36 (repeated-failure refusal — an identical failure already seen N times on this tree): STOP — none of the four is a code-quality problem and no retry clears any of them. Report the rc and stop.\n'
     + '   - Any other nonzero RC → full TDD auto-triggered: TDD-RED → TDD-GREEN → TDD-IMPROVE → GATE1 (each for ' + frId + '). Max 3 rounds. Still failing → report the final rc.\n'
     + '   If ' + frId + '’s code is unchanged since last Gate 1 PASS, this passes immediately.\n\n'
     + 'Report via the StructuredOutput tool: { rc: <the integer from step 1c\'s last RC= line>, final_line: "' + frId + ' GATE1: PASS" or "' + frId + ' GATE1: FAIL — <reason>" }.\n\n'
@@ -496,9 +496,10 @@ for (const frId of deltaTodo) {
     log('  ' + frId + ' agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
     return { session_limit_blocked: true, phase: 4, step: frId, fr_id: frId, gate1Pass, message: 'Agent hit session/rate limit during ' + frId + ' GATE1-DELTA. Resume after quota reset — completed FRs skip via DELTA auto-satisfy.' }
   }
-  // L1.5-L1.7: the three terminal aborts, read from run-fr-step's own exit code
+  // L1.5-L1.7: the per-FR terminal aborts, read from run-fr-step's own exit code
   // (launch line's `; echo "RC=$?"`, carried by FR_STEP_SCHEMA). Prose is not
   // load-bearing — see render_terminal_abort_detectors' docstring (Round 70 站3).
+  // Round 102 站3 added 36 and made 25/36 parkable via `park_rcs`.
   const frRc = (frReport && typeof frReport.rc === 'number') ? frReport.rc : null
   // 23 — dispatch structurally broken; every retry fails identically.
   if (frRc === 23) {
@@ -523,6 +524,17 @@ for (const frId of deltaTodo) {
   if (frRc === 45) {
     log('  ' + frId + ' exited 45 — PHANTOM precondition block (SAB declares a module that does not exist on disk), aborting remaining FRs')
     return { phantom_abort: true, phase: 4, fr_id: frId, condition_class: 'PHANTOM', gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: a PHANTOM precondition failed (exit 45 — SAB.json declares a module the codebase does not implement). For each phantom, either implement the module or run `harness_cli.py amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`, then re-run with a NEW run_tag: Workflow({scriptPath, args: {repo, run_tag}}). amend-sab changes no prompt, so without one the cache can replay this halt.' }
+  }
+  // 36 — repeated-failure refusal (exit 36, EX_STEP_REPEATED_FAILURE):
+  // run-fr-step refuses to spend another dispatch on an identical failure
+  // it has already seen on this exact tree (Round 102 站3). The cause is
+  // whatever failed identically N times — measured: budget kills and quota
+  // INFRA_ERRORs (owner infra). This driver records the row as infra;
+  // fault_owner.py keeps 36 = UNKNOWN by design for the class-derived
+  // ledger owners (GATE1_BLOCKED -> project, TURN_BUDGET/TIMEOUT -> infra).
+  if (frRc === 36) {
+    log('  ' + frId + ' exited 36 — repeated-failure refusal, aborting remaining FRs')
+    return { repeated_failure: true, phase: 4, fr_id: frId, gate1Pass, gate1Fail: [...gate1Fail, frId], message: frId + ' GATE1-DELTA: exit 36 — run-fr-step refuses to re-dispatch an identical failure already seen on this exact tree. Read .methodology/degradations.jsonl for the signature; any change to the tree re-opens the step. This is not a code-quality verdict on this FR\'s implementation.' }
   }
   // AUTHORITATIVE Gate 1 verdict (ported from phase3, 9fe2036): read the harness
   // quality_manifest — NOT the sub-agent's self-reported "GATE1: PASS" string. A

@@ -347,13 +347,14 @@ class TestPollBackoff:
         cannot be a number typed into a prompt.
         """
         # Counted, not just present: the delta renderer has two poll sites (the
-        # batched fast probe and the full per-FR loop) and phase3 has one. A
-        # literal typed back into any of them removes its placeholder, so the
-        # count is what makes this a scan rather than a spot check.
+        # batched fast probe and the full per-FR loop) and phase3 has two (the
+        # main chain and the Round 102 站3 parked-FR re-attempt). A literal
+        # typed back into any of them removes its placeholder, so the count is
+        # what makes this a scan rather than a spot check.
         for label, text, sites in (
             ("render_per_fr_delta",
              B.render_per_fr_delta(phase=7, forbidden_note=""), 2),
-            ("phase3", generate(3), 1),
+            ("phase3", generate(3), 2),
         ):
             assert text.count("Cap `fr_step_poll_cap` polls") == sites, label
             assert text.count("`fr_step_poll_interval_s`") == sites, label
