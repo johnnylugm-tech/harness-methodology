@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "harness-methodology"
 version = "2.12.0"
 description = "Full-lifecycle software development pipeline orchestration with 12-dimension quality gates, A/B collaboration, and proactive auto-repair"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -22,7 +22,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Quality Assurance",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
@@ -32,7 +31,7 @@ include = ["core*", "harness*", "enforcement*", "detection*", "gap_detector*", "
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]

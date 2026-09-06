@@ -31,6 +31,7 @@ it for new projects is a one-line addition to `_KNOWN_PYPI_PACKAGES`.
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -468,7 +469,6 @@ def _declared_manifest_names(project: Path) -> "set[str]":
         except OSError:
             continue
         if filename == "pyproject.toml":
-            import tomllib
             try:
                 data = tomllib.loads(text)
             except Exception:  # pylint: disable=broad-exception-caught
@@ -479,8 +479,20 @@ def _declared_manifest_names(project: Path) -> "set[str]":
             deps = list(proj.get("dependencies") or [])
             for group in (proj.get("optional-dependencies") or {}).values():
                 deps += list(group)
-            deps += list((((data.get("tool") or {}).get("poetry") or {})
-                          .get("dependencies") or {}).keys())
+            poetry = ((data.get("tool") or {}).get("poetry") or {})
+            # `python` is poetry's interpreter constraint, not a distribution.
+            deps += [k for k in (poetry.get("dependencies") or {})
+                     if k != "python"]
+            # Poetry 1.2+ puts dev/test dependencies in named groups; PEP 735
+            # is the same statement in the standard spelling. Reading half of
+            # a format this function opens turns a declaration it cannot see
+            # into a missing one, and the caller then accuses the project of
+            # not declaring what it did declare (Round 46).
+            for _grp in (poetry.get("group") or {}).values():
+                deps += [k for k in (_grp.get("dependencies") or {})
+                         if k != "python"]
+            for _grp in (data.get("dependency-groups") or {}).values():
+                deps += [d for d in _grp if isinstance(d, str)]
             lines = [str(d) for d in deps]
         else:
             lines = [ln.split("#", 1)[0] for ln in text.splitlines()]
@@ -578,8 +590,10 @@ def manifest_missing_declared_tools(project: "str | Path") -> "list[str]":
 
     project = Path(project)
     contract = project / ".methodology" / "env_contract.json"
-    interpreter = project / ".venv" / "bin" / "python"
-    if not contract.is_file() or not interpreter.exists():
+    from core.utils.venv_env import find_venv_python
+
+    interpreter = find_venv_python(project)
+    if not contract.is_file() or interpreter is None:
         return []
     try:
         tools = _json.loads(contract.read_text(encoding="utf-8")).get("cli_tools")

@@ -206,7 +206,11 @@ _CEILINGS: dict[str, int] = {
     # `pytestmark = pytest.mark.asyncio`, and requirements.txt does not name
     # it. The check itself lives in harness/ssot_manifest.py beside the
     # scaffolder; what is here is a call, a print and a return.
-    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 337,
+        # 2026-09-07: 337 -> 330 (Round 104 站1). Harvested, not granted: removing the
+    # `sys.version_info < (3, 11)` async-coverage hint — dead once the floor is 3.11,
+    # because harness_cli.py refuses to start below it — left 7 lines of slack, and a
+    # ceiling above the function pre-authorises growth nobody asked for.
+"cli/advance_prechecks.py::_precheck_p3_security_and_quality": 330,
     # The extracted block, plus what it needed to become useful: three per-kind
     # remediation branches (a declared file not on disk, a delivered file in no
     # layer, an import the matrix forbids — three findings with three different

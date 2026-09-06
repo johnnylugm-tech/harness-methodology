@@ -56,7 +56,7 @@ __all__ = [
 
 # Same floor harness_cli.py enforces. Stated here too because this script runs
 # on the interpreter that has not been vetted yet — that is its whole job.
-_MIN_PYTHON = (3, 10)
+_MIN_PYTHON = (3, 11)
 
 
 def _pip_env_with_icu() -> dict:
@@ -186,22 +186,11 @@ class BootstrapReport:
         }
 
 
-def _bin_dir() -> str:
-    return "Scripts" if os.name == "nt" else "bin"
-
-
-def _python_name() -> str:
-    return "python.exe" if os.name == "nt" else "python"
-
-
 def venv_python(project: "Path | str") -> "Path | None":
     """The project's venv interpreter, if one already exists."""
-    root = Path(project)
-    for venv_dir in (".venv", "venv"):
-        candidate = root / venv_dir / _bin_dir() / _python_name()
-        if candidate.exists():
-            return candidate
-    return None
+    from core.utils.venv_env import find_venv_python
+
+    return find_venv_python(Path(project))
 
 
 def ensure_venv(

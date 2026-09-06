@@ -27,6 +27,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from core.utils.venv_env import find_venv_python  # noqa: E402  (after sys.path)
+
 
 def _find_harness_root(project_root: Path) -> Path:
     """Find the harness framework root directory."""
@@ -84,13 +88,9 @@ def check_project_init(project_root: Path) -> tuple[bool, list[str]]:
         missing.append(".gitleaks.toml")
 
     # 5. Python virtual environment and core packages
-    venv_py = project_root / ".venv" / "bin" / "python"
-    if sys.platform == "win32":
-        win_py = project_root / ".venv" / "Scripts" / "python.exe"
-        if win_py.exists():
-            venv_py = win_py
+    venv_py = find_venv_python(project_root)
 
-    if not venv_py.exists():
+    if venv_py is None:
         missing.append(".venv/bin/python")
     else:
         # Verify basic runtime dependencies in that interpreter
@@ -179,12 +179,8 @@ def ensure_project_init(
         sys.stderr.write("[ensure-init] [WARN] bootstrap_env.py not found; skipping venv bootstrap step\n")
 
     # ── Step 2: Run init-project ────────────────────────────────────────────
-    venv_py = project_root / ".venv" / "bin" / "python"
-    if sys.platform == "win32":
-        win_py = project_root / ".venv" / "Scripts" / "python.exe"
-        if win_py.exists():
-            venv_py = win_py
-    py_exec = str(venv_py) if venv_py.exists() else sys.executable
+    venv_py = find_venv_python(project_root)
+    py_exec = str(venv_py) if venv_py is not None else sys.executable
 
     harness_cli = project_root / "harness" / "harness_cli.py"
     if not harness_cli.exists():

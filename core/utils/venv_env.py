@@ -26,6 +26,27 @@ def find_venv_bin_dir(project_root: Path) -> Path | None:
     return None
 
 
+def find_venv_python(project_root: Path) -> Path | None:
+    """The project's own interpreter inside its venv, or None.
+
+    The other half of `find_venv_bin_dir`. Eight call sites needed an
+    interpreter path and each appended the last segment itself, disagreeing on
+    three things: whether `venv/` counts, whether Windows exists, and whether
+    the executable is `python` or `python3` (`env_verify` spelled it both ways
+    fifty lines apart). Deliberately the UNION of all eight — every name any of
+    them accepted is still accepted — so adopting it cannot turn any site's
+    "found" into "not found".
+    """
+    bin_dir = find_venv_bin_dir(project_root)
+    if bin_dir is None:
+        return None
+    for name in (("python.exe",) if os.name == "nt" else ("python", "python3")):
+        candidate = bin_dir / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def venv_scoped_env(
     project_root: Path, base_env: dict[str, str] | None = None
 ) -> dict[str, str]:

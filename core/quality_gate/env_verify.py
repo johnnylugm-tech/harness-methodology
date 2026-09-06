@@ -230,11 +230,9 @@ def _is_venv_python_semantic_name(name: str, project: Path) -> bool:
     try:
         if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
             return True
-        exe_name = "python.exe" if os.name == "nt" else "python3"
-        bindir = _bin_dir()
-        for venv_dir in (".venv", "venv"):
-            if (project / venv_dir / bindir / exe_name).exists():
-                return True
+        from core.utils.venv_env import find_venv_python
+        if find_venv_python(project) is not None:
+            return True
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"[WARN] tool-check: venv-Python semantic-name probe for "
               f"'{name}' failed: {exc}", file=sys.stderr)
@@ -280,12 +278,12 @@ def _import_probe_spec(name: str, project: Path) -> "tuple[str, dict, list[str]]
         print(f"[WARN] tool-check: could not resolve active_src_dir for "
               f"PYTHONPATH (import probe for '{name}' may miss src-layout "
               f"packages): {exc}", file=sys.stderr)
+    from core.utils.venv_env import find_venv_python
+
     interps = [sys.executable]
-    py_exe = "python.exe" if os.name == "nt" else "python"
-    for vd in (".venv", "venv"):
-        vp = project / vd / _bin_dir() / py_exe
-        if vp.exists():
-            interps.append(str(vp))
+    _vp = find_venv_python(project)
+    if _vp is not None:
+        interps.append(str(_vp))
     return probe_src, import_env, interps
 
 

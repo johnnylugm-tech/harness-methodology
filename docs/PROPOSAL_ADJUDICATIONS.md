@@ -9115,3 +9115,111 @@ Round 101 站1b 的 `container_packages`(單段名字)對不上它。
 全套 **8389 passed / 5 skipped**,guards 1294 → **1302**。
 兩支既有測試按行為變更改寫而非刪除:Round 99 的 remedy 測試改用有誠實答案的模組當觸發,
 Round 67 站0 的測試改成斷言「生產端仍算得出來、阻擋不再列它」並在 docstring 記下為什麼。
+
+---
+
+## Round 104 — 地板是一句從沒有人執行過的話 (2026-09-07)
+
+老闆令:複核一份對 Round 101 的 code review(3 條發現),重新驗證真實性與根源性,
+正解不用 workaround,不破壞共通性。追加令:**方案本身也要先驗證,不能有副作用。**
+
+**三條全屬實,全是 harness bug,零 workflow JS bug。本輪零 JS 變更。**
+
+### §0 三條逐條裁決
+
+| # | 主張 | 裁決 |
+|---|---|---|
+| 1 | `tomllib` 頂層 import 在 3.10 崩潰 | **屬實,已復現** —— 但報告開的**藥方是錯的** |
+| 2 | `.venv/bin/python` 硬編碼 | **屬實,比報告說的嚴重**:8 份實作不是 2 份;今天零活實例 |
+| 3 | poetry group 依賴沒被讀 | **屬實**,零活實例;同段還有兩個同形缺口 |
+
+**主張 1 復現**:封鎖 `tomllib` import(不需要 3.10 直譯器),
+`_declared_manifest_names` 與公開入口 `manifest_missing_declared_tools`
+**都是 `ModuleNotFoundError` 逃出**,`cli/advance_prechecks.py:948` 無保護,
+只在 `harness_cli.py:433` 的 crash boundary 被接住 → **exit 70**。
+`harness_cli.py:168` 明文放行 3.10,`bootstrap_env.py:59` 會拿 3.10 建 venv,
+而每支 workflow 的 `PY` 就是那個 venv。
+
+**更正報告的一個推論**:報告把 mypy 當成本來該攔住它的機制。
+實測 mypy `--python-version 3.10` 對**兩個檔案都**報 `import-not-found`,
+包括寫法正確的 `testpaths_scope.py` —— 它分不出「有守衛」和「沒守衛」。
+
+**報告的藥方是錯的(本輪最重要的更正)**:報告舉
+`testpaths_scope._toml_testpaths` 的 `except ImportError: return None` 當正確實作。
+它的呼叫端 `declared_testpaths` 的 docstring 自己寫著
+「None means "no file here says which tests count" — never "the answer is the empty set"」,
+而在 3.10 上,一個**確實宣告了 testpaths 的專案**會被讀成什麼都沒宣告 →
+`testpaths_drift` 永遠回 None。**「量不到」被靜默記成「沒有宣告」**(R35 / R46)。
+抄進 `ssot_manifest` 後果更糟:pyproject 宣告的依賴整批消失在 `declared` 裡 →
+反而報**更多**缺失 → **假指控阻擋**。
+
+### §1 根源
+
+**根 A —— 地板是一句從沒有人執行過的話。**
+八處陳述(`pyproject.toml` ×3、`harness_cli.py:168`、`bootstrap_env.py:59`、
+`test_spec_contract.py:61`、`verify_tools.py:53`、`USER_MANUAL.md:56`)
+**今天完全一致,全是 3.10**。缺陷不在陳述之間,而在那個一致的答案
+**沒有任何東西執行過**:CI 五個 job 全跑 3.11,框架自己的 venv 3.11.15,
+19 個語料 venv 全 3.11.15,而 `templates/harness_quality_gate.yml` ——
+**框架交付給專案的 CI** —— 四處已經要求 3.11。
+3.10 上已知兩處是壞的:一處崩潰,一處靜默給錯答案。
+
+**根 B —— SSOT 只做了一半。** `venv_env.py` 提供 bin 目錄不提供直譯器,
+八個呼叫端各自補完最後一段,在 `venv/`、Windows、`python` vs `python3` 三件事上不一致
+(`env_verify.py` 的兩份相隔 50 行,拼法不同)。該模組 docstring 自己寫著
+「so a third call site does not duplicate it again」。
+
+### §2 修法
+
+* **站1** 地板 3.11(八處),移除 `testpaths_scope` 的 ImportError 分支與
+  `advance_prechecks.py:893` 的 3.10 專屬提示(兩者都是 R39 倖存者),
+  `import tomllib` 提到模組頂層。
+* **站2** `core/utils/venv_env.find_venv_python()` —— 刻意是八種現行行為的**聯集**,
+  七個呼叫端全部改讀它;`bootstrap_env` 的 `_bin_dir`/`_python_name` 折成孤兒後刪除。
+* **站3** `_declared_manifest_names` 補讀 poetry group 與 PEP 735,排除 key `python`。
+
+**守衛三條規則,不等價**(prototype 在對照樹實跑):
+規則1「八處一致」**修前就是綠的** —— 它是鎖,不是找出這個 bug 的機制;
+規則2「地板必須是 CI 執行過的版本」**修前紅** —— 這才是缺的機制;
+規則3「`version_info < X` 且 `X ≤ 地板` = 死分支」在**地板拉到 3.11 時才紅**,
+它抓出了 `advance_prechecks.py:893`。
+
+### §3 方案驗證(對照組 vs 改動組,完整副本)
+
+* 全套測試兩邊皆 **36 failed / 8361 passed / 9 skipped**,失敗集合逐項相同,**新增 0**。
+  那 36 支是 `/tmp` 副本沒有 `.git`/語料造成 —— 同 8 檔在真 repo 為 83 passed。
+* **中途抓到我兩支新失敗**:移除死分支後 `test_no_ceiling_sits_above_the_function_it_covers`
+  要求函式 ratchet **下修** 337→330(不是放寬),`test_every_split_function_moved_without_being_rewritten`
+  要求 golden 重生成。第一版計畫兩件都沒有,照做會讓 CI 變紅。
+* 公開 gate 函式 `manifest_missing_declared_tools` 在 **25 個專案上 old == new,零判定改變**。
+* 站2 行為等價:25 專案 × 5 種舊實作,**回歸 0、放寬 0** —— 今天零行為改變,純結構。
+* 站2 掃描守衛:對照樹 **9 hits**(7 站點),改動樹 **0**;
+  `env_verify:162`、`agent_spawner:466` **零誤報**。
+* 手造 `venv/` 樹(語料沒有):新 SSOT 找得到,**R101 舊碼回 None**。
+
+### §4 明列不做
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| requirements `-r`/`-c` include 展開 | 量過:語料兩實例都指向已被直接讀的檔,零收益 | `-r` 指向 `_MANIFEST_FILES` 以外的檔 |
+| `agent_spawner.py:466` 折進 `venv_scoped_env` | 是 bin 目錄不是直譯器,且 `venv_scoped_env` 會多設 `VIRTUAL_ENV`,改變子 agent 環境 | 量到子 agent 因缺 `VIRTUAL_ENV` 出錯 |
+| `env_verify.py` 其餘 venv 重複(`_bin_dir` 等) | 本輪判準是「直譯器路徑」;擴到所有 venv 重複是失控重構 | — |
+| 加 3.10 到 CI matrix / 加 `tomli` | 老闆裁定地板拉到 3.11 | 出現實際 3.10 消費者 |
+
+### §5 我自己被量測改寫的地方
+
+1. 原本寫「八處陳述互相漂移」—— 實測**完全一致**,並撤回我對
+   `bootstrap_env.py:59` 註解的指控(它是真的)。
+2. 原本要加 `-r` include 展開 —— 量完零收益,自己否決。
+3. **第一次版本掃描是漏的**(只 grep `3\.10`,漏掉 `py310`/`(3, 10)`/`python-version`),
+   補完才看到 templates 已是 3.11、以及那個會變死碼的分支。
+4. **「ratchet 只在跨門檻時動」是錯的** —— 程式碼縮小一樣會紅,而且要求下修。
+5. 守衛規則 3 是老闆退回後才長出來的;沒有它,死分支要靠我記得去找,而我第一次沒找到。
+6. 守衛規則 1 自己的 parser 第一版把 `py310` 讀成 **3.310** —— 被它自己的規則 2/3 連帶報錯抓到。
+
+### 已知缺口(不假裝沒有)
+
+* 站2 守衛掃字面值,`vd = ".venv"` 再組路徑的寫法看不到。AST 跨語句常數折疊做不到。
+* 地板日後若降回 3.10,`testpaths_scope` 的錯答案會無聲回來 ——
+  守衛只比對「陳述一致 + CI 跑過」,不會發現「地板降了但 tomllib 還在」。
+* 主張 2、3 今天**零活實例**:站2 修的是「下一個呼叫端會不會再接錯」,不是誰現在壞了。

@@ -165,11 +165,11 @@ from pathlib import Path
 # Common mistake: agents or shells use /usr/bin/python3 (macOS system 3.9)
 # instead of the project's .venv/bin/python. The error otherwise propagates
 # as a cryptic ImportError deep inside the call stack.
-if sys.version_info < (3, 10):  # type: ignore[reportUnreachable]
+if sys.version_info < (3, 11):  # type: ignore[reportUnreachable]
     print(
-        f"ERROR: harness-methodology requires Python 3.10+. "
+        f"ERROR: harness-methodology requires Python 3.11+. "
         f"Got {sys.version.split()[0]} at {sys.executable}\n"
-        "  Fix: run with .venv/bin/python or python3.10+ "
+        "  Fix: run with .venv/bin/python or python3.11+ "
         "instead of /usr/bin/python3 (macOS system Python 3.9)"
     )
     sys.exit(1)

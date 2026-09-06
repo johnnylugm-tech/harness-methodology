@@ -50,7 +50,7 @@ CORE_COMMON = {
 # Per-language gate toolchain requirements (state.json `language`).
 CORE_BY_LANG = {
     "python": {
-        "python3": ("python3 --version", "Python 3.10+"),
+        "python3": ("python3 --version", "Python 3.11+"),
         "pip3": ("pip3 --version", "pip 20+"),
         # All six are pinned in requirements.txt; one install brings them all,
         # at the versions the scores were calibrated against.

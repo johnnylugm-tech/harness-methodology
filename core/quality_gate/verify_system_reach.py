@@ -347,13 +347,9 @@ def write_reach_unmeasured(project: "str | Path", reason: str) -> Path:
 
 
 def _venv_python(project: Path) -> "Path | None":
-    from core.utils.venv_env import find_venv_bin_dir
+    from core.utils.venv_env import find_venv_python
 
-    bin_dir = find_venv_bin_dir(project)
-    if bin_dir is None:
-        return None
-    exe = bin_dir / ("python.exe" if os.name == "nt" else "python")
-    return exe if exe.exists() else None
+    return find_venv_python(project)
 
 
 def _site_packages(python: Path) -> "Path | None":

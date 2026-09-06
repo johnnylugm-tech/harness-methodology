@@ -889,13 +889,6 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
                 print(f"  {PRAGMA_NO_COVER_GUIDANCE}")
                 print("  Allowed pragma exemptions: "
                       + ", ".join(PRAGMA_NO_COVER_ALLOWLIST))
-                # P3-A: Python < 3.11 async coverage hint
-                if sys.version_info < (3, 11):  # type: ignore[reportUnreachable]
-                    print(
-                        f"  [Python {sys.version_info.major}.{sys.version_info.minor} note] "
-                        "async function bodies called via asyncio.run() may not be tracked."
-                    )
-                    print("  Add '# pragma: no cover' to the 'async def' line to exclude it.")
                 return 9
 
         # 2. D4 traceability: TEST_SPEC.md → tests/ (spec-coverage — unified)

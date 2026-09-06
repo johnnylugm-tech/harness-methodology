@@ -53,7 +53,7 @@ P1 Requirements → P2 Architecture → P3 Implementation → P4 Testing
 ### 2.1 Required
 
 ```bash
-# Python 3.10+
+# Python 3.11+
 python3 --version
 
 # The interpreter and the pinned toolchain. Round 47 站2: this ONE command

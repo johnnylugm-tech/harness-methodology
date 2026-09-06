@@ -28,6 +28,7 @@ that can move a score travels with the verdict.
 from __future__ import annotations
 
 import configparser
+import tomllib
 from pathlib import Path
 
 __all__ = ["declared_testpaths", "testpaths_drift", "declaring_file"]
@@ -119,10 +120,6 @@ def _read_testpaths(path: Path) -> "list[str] | None":
 
 
 def _toml_testpaths(text: str) -> "str | list | None":
-    try:
-        import tomllib
-    except ImportError:  # pragma: no cover — Python < 3.11
-        return None
     try:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError:

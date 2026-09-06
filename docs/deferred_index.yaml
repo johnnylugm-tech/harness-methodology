@@ -1511,3 +1511,27 @@ entries:
     item: "把「目前沒有任何 import 的模組」排除出 gap"
     reason: "實測會移除 68 個裡的 **19 個**,而且與 `contract_coverage_gap` 自己寫的理由相牴觸 ——「this reports the contract's shape and not the violation: by the time there is a violation the contract has already stopped being the thing that would have caught it」。空的 `__init__.py` 日後長出 import,正是那句話存在的理由。根套件不同,不是因為它今天沒有 import,而是因為它**根本沒有答案**"
     reopen: "—"
+  - round: 104
+    line: 9204
+    kind: table_row
+    item: "requirements `-r`/`-c` include 展開"
+    reason: "量過:語料兩實例都指向已被直接讀的檔,零收益"
+    reopen: "`-r` 指向 `_MANIFEST_FILES` 以外的檔"
+  - round: 104
+    line: 9205
+    kind: table_row
+    item: "`agent_spawner.py:466` 折進 `venv_scoped_env`"
+    reason: "是 bin 目錄不是直譯器,且 `venv_scoped_env` 會多設 `VIRTUAL_ENV`,改變子 agent 環境"
+    reopen: "量到子 agent 因缺 `VIRTUAL_ENV` 出錯"
+  - round: 104
+    line: 9206
+    kind: table_row
+    item: "`env_verify.py` 其餘 venv 重複(`_bin_dir` 等)"
+    reason: "本輪判準是「直譯器路徑」;擴到所有 venv 重複是失控重構"
+    reopen: "—"
+  - round: 104
+    line: 9207
+    kind: table_row
+    item: "加 3.10 到 CI matrix / 加 `tomli`"
+    reason: "老闆裁定地板拉到 3.11"
+    reopen: "出現實際 3.10 消費者"

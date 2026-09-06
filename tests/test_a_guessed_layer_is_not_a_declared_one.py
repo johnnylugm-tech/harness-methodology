@@ -455,6 +455,62 @@ def test_pyproject_dependencies_count_as_declared(tmp_path) -> None:
     assert _declared_manifest_names(project) == {"pytest-asyncio", "ruff"}
 
 
+def test_every_place_pyproject_can_declare_a_dependency_is_read(tmp_path) -> None:
+    """Round 104 站3 — reading half a format accuses the project of the half.
+
+    `_declared_manifest_names` opens `pyproject.toml` and read three of the
+    five places a dependency can be declared in it. The two it missed are
+    where dev and test dependencies actually live: Poetry 1.2+ puts them in
+    `[tool.poetry.group.<name>.dependencies]`, and PEP 735 spells the same
+    statement `[dependency-groups]`. A name it cannot see is a name it reports
+    as undeclared, and the one consumer of that list blocks P3 exit over it —
+    so a project that declared `pytest-asyncio` in its dev group would have
+    been told it had not (Round 46's rule, on the accusing side).
+
+    No corpus project uses either spelling today, so nothing is currently
+    being accused. It is fixed because the direction of the error is a false
+    accusation, not because anyone hit it.
+
+    `python` is excluded on purpose: Poetry's dependency table carries the
+    interpreter constraint as a key, and the unfixed code counted it as a
+    distribution named `python`.
+    """
+    from harness.ssot_manifest import _declared_manifest_names
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[project]\n'
+        'name = "x"\n'
+        'dependencies = ["httpx>=0.27"]\n'
+        '[project.optional-dependencies]\n'
+        'dev = ["ruff>=0.5"]\n'
+        '[tool.poetry.dependencies]\n'
+        'python = "^3.11"\n'
+        'fastapi = "^0.110"\n'
+        '[tool.poetry.group.dev.dependencies]\n'
+        'pytest-asyncio = "^0.23"\n'
+        '[dependency-groups]\n'
+        'test = ["pytest-cov"]\n',
+        encoding="utf-8")
+
+    assert _declared_manifest_names(project) == {
+        "httpx", "ruff", "fastapi", "pytest-asyncio", "pytest-cov"}
+
+
+def test_the_interpreter_constraint_is_not_a_distribution(tmp_path) -> None:
+    """Reverse control for the exclusion above, on its own so that a change
+    which drops the whole poetry branch cannot pass by reporting nothing."""
+    from harness.ssot_manifest import _declared_manifest_names
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        '[tool.poetry.dependencies]\npython = "^3.11"\nfastapi = "^0.110"\n',
+        encoding="utf-8")
+    assert _declared_manifest_names(project) == {"fastapi"}
+
+
 def test_the_remedy_names_the_document_that_decides_layers() -> None:
     assert "SAD.md" in UNPLACEABLE_REMEDY
     assert "generate_sab.py" in UNPLACEABLE_REMEDY

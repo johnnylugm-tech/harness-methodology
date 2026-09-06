@@ -5335,3 +5335,55 @@
 - test: tests/test_workflowgen_parked_fr.py::test_phase3_continues_after_a_park_and_reattempts
   bug: "a Gate-1-failed FR was never revisited in-run: after another FR repaired the state it was parked on nobody re-checked it, so it stayed Pending forever (Round 102 站3)"
   fixed_in: "R102-站3"
+
+- test: tests/test_the_floor_is_a_version_something_runs.py::test_every_statement_of_the_floor_names_the_same_version
+  bug: "the Python floor is stated in eight files and nothing compared them; they happened to agree (all 3.10) but bootstrap_env.py's \"Same floor harness_cli.py enforces\" was a hand-maintained cross-reference with no checker, so the eight-literal fix could be applied to one and not the rest"
+  fixed_in: "Round 104"
+
+- test: tests/test_the_floor_is_a_version_something_runs.py::test_the_floor_is_an_interpreter_ci_runs_the_suite_on
+  bug: "requires-python said >=3.10 and CI ran only 3.11, so nothing ever executed this framework on the version it claimed to support; harness/ssot_manifest.py imported tomllib (3.11+) unguarded and P3 exit crashed to exit 70 for any project with a pyproject.toml, while testpaths_scope silently read a declared testpaths as 'none declared'"
+  fixed_in: "Round 104"
+
+- test: tests/test_the_floor_is_a_version_something_runs.py::test_no_branch_is_stranded_below_the_floor
+  bug: "raising the floor strands code that only ran beneath it; cli/advance_prechecks.py:893 printed an async-coverage caveat for Python < 3.11 that harness_cli.py's own gate makes unreachable"
+  fixed_in: "Round 104"
+
+- test: tests/test_the_floor_is_a_version_something_runs.py::test_the_floor_gates_themselves_are_not_reported
+  bug: "reverse control — harness_cli.py and bootstrap_env.py compare against the floor on an unvetted interpreter and must keep doing so; a stranded-branch rule without this exemption would delete the only enforcement there is"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_nothing_builds_a_venv_interpreter_path_by_hand
+  bug: "\"where is this project's Python\" had eight implementations disagreeing on venv/ vs .venv, on Windows, and on python vs python3 (env_verify.py spelled it both ways fifty lines apart); venv_env.py's own docstring says it exists 'so a third call site does not duplicate it again'"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_the_ssot_is_what_the_callers_actually_use
+  bug: "a scan that only checks 'nobody spells it out' passes when every caller keeps its own correct-but-separate helper; replacing the single definition must change what a consumer says (Round 97 CP-5b / 98 CP-11 / 99 CP-13b)"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_it_finds_the_dot_venv_layout
+  bug: "the SSOT's basic contract, pinned so the seven folded call sites have something to rely on"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_it_finds_the_plain_venv_layout
+  bug: "Round 101's copy resolved only .venv/bin/python, so a project using venv/ got a silent abstention from the exit-47 toolchain check and an ambient-interpreter fallback from ensure_project_init; no corpus project uses this layout, so this is the only place it is exercised"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_it_accepts_python3_when_python_is_absent
+  bug: "env_verify.py:233 looked for python3 and its neighbour at :283 for python; the union keeps both so folding them cannot make either stop finding a venv it used to find"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_no_virtualenv_is_none_not_a_guess
+  bug: "reverse control — a project with no virtualenv has no interpreter to name, and abstaining is the answer rather than returning a path that does not exist"
+  fixed_in: "Round 104"
+
+- test: tests/test_one_answer_to_where_the_python_is.py::test_a_bin_dir_without_an_interpreter_is_none
+  bug: "find_venv_bin_dir says a directory exists, which is a different claim; a half-built venv must not be reported as an interpreter"
+  fixed_in: "Round 104"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_every_place_pyproject_can_declare_a_dependency_is_read
+  bug: "_declared_manifest_names read three of the five places pyproject.toml can declare a dependency, missing [tool.poetry.group.<name>.dependencies] and PEP 735 [dependency-groups] — exactly where dev and test dependencies live — so a project that declared pytest-asyncio would be blocked at P3 exit for not declaring it"
+  fixed_in: "Round 104"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_interpreter_constraint_is_not_a_distribution
+  bug: "[tool.poetry.dependencies] carries the interpreter constraint as a key, and the unfixed code counted `python` as a declared distribution"
+  fixed_in: "Round 104"
