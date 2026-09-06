@@ -1469,3 +1469,33 @@ entries:
     kind: table_row
     item: "拆分 `spec_coverage.py`(943 行,新 god file)"
     reason: "本輪加的每一行都是「解析」或「對解析的判定」,是這個檔的本業;而在同一個 commit 裡既改行為又拆檔,正是 `test_god_file_split_safety.py` 存在要擋的事。已登記 ceiling 與算式"
+  - round: 101
+    line: 8990
+    kind: table_row
+    item: "SAB `allowed_dependencies` ↔ `.importlinter` `layers` 對賬"
+    reason: "兩份都是 BINDING,語意不同(矩陣 vs 順序)。實證:taskq-done 剩下的 4 條 CRITICAL 對應 `lint-imports` 的 `layering KEPT`"
+    reopen: "第二個專案因兩份陳述矛盾而阻擋振盪"
+  - round: 101
+    line: 8991
+    kind: table_row
+    item: "`arch_contract_coverage` 認可**當下就是壞的**合約"
+    reason: "已實證:taskq-done 把 bare `taskq_api` 放進 forbidden sources → `contract_coverage_gap` = `[]`;複製到 /tmp 跑 `lint-imports` 得 `Contracts: 1 kept, 1 broken`, exit 1。R99 站3 的 `contract_decides` 只問「形狀能不能失敗」。**同一逃生門第五個實例,由讀了 R99 remedy 的專案造出來**"
+    reopen: "第二個專案用同樣手法把 gap 歸零,或 gate 路徑已有現成 lint-imports 結果"
+  - round: 101
+    line: 8992
+    kind: table_row
+    item: "`required_artifacts`(全專案宣告)在 per-FR Gate 1 阻擋"
+    reason: "已實證:taskq-done 在 FR-01 被 `alembic.ini`(FR-07)、`Makefile`(NFR-12)、`requirements.lock`(NFR-07)擋住,6/8 缺席;最便宜的出口是「drop the entry」;語料 11/17 宣告 0 筆(宣告 0 筆不擋)。phantom 分支**已經有** `_filter_phantoms_for_fr`,這裡沒有"
+    reopen: "R57 家族,獨立一輪"
+  - round: 101
+    line: 8993
+    kind: table_row
+    item: "5 個專案完全沒有依賴 manifest"
+    reason: "run-all-by-workflow / taskq / taskq-advance / taskq-plus / taskq-renew,全部已到 P9。站4 算成 0 個宣告名字,不是逃生門"
+    reopen: "有活專案在 P3 出口撞到"
+  - round: 101
+    line: 8994
+    kind: table_row
+    item: "缺陷 2 / 4 / 6 / 7 / 8"
+    reason: "見 §0"
+    reopen: "—"
