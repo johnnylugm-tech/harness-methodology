@@ -178,10 +178,46 @@ def _flatten_registered(sab: dict, src_dir: str = _DEFAULT_SRC_DIR) -> set[str]:
     return out
 
 
+def container_packages(discovered: Iterable[str]) -> "set[str]":
+    """The top-level packages in *discovered* — containers, not layer members.
+
+    `discover_modules_at` registers a package under its own dotted name so a
+    package-style SAB entry is not read as phantom (Round 6 站3). For a SUB
+    package that is right. For the tree's own root package it asks the project
+    which layer the container of all its layers belongs to, and there is no
+    answer: measured, fourteen of the seventeen corpus projects carry the bare
+    root package in a SAB layer and NOT ONE of them declared it in SAD.md §5 —
+    every one was put there by `amend_sab`'s last-layer fallback, and
+    `drift_detector._resolve_import_layer`'s ancestor tier then resolves every
+    module with no nearer claim to whichever layer that was.
+
+    Computed from the discovered set alone and exact: a single-segment name
+    that is the prefix of another discovered name IS a package. A flat-layout
+    leaf (`src/foo.py` with no `foo.*` siblings) is not one and stays a member
+    — taskq-super's `sitecustomize` and taskq-wow's
+    `_p2_preflight_config_keys` are that shape and are still demanded.
+
+    Deliberately here and not in `discover_modules_at`: `phantom_modules` is
+    `registered - discovered`, so removing these from what the scan reports
+    would turn every root package already sitting in a SAB layer into a
+    phantom. What they are exempt from is being *demanded*, not from existing.
+    """
+    names = set(discovered)
+    return {m for m in names
+            if "." not in m and any(o.startswith(m + ".") for o in names)}
+
+
 def missing_modules(sab: dict, discovered: Iterable[str], src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
-    """Modules present on disk but not yet in any SAB layer."""
+    """Modules present on disk but not yet in any SAB layer.
+
+    Top-level packages are containers rather than members and are never
+    missing — see `container_packages`.
+    """
+    discovered = list(discovered)
     registered = _flatten_registered(sab, src_dir)
-    return [m for m in discovered if m not in registered]
+    containers = container_packages(discovered)
+    return [m for m in discovered
+            if m not in registered and m not in containers]
 
 
 def phantom_modules(sab: dict, discovered: Iterable[str], src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
@@ -446,7 +482,7 @@ def _layer_segments(module_path: str) -> list[str]:
 def is_fallback_placement(sab: dict, module_path: str) -> bool:
     """True when *module_path*'s own name states no declared layer.
 
-    `_heuristic_layer_choice` answers "which layer" for every module; this
+    `layer_for_module` answers "which layer" for every module; this
     answers "did the module say so, or did we pick one". They are two halves of
     the same decision and the caller that reports a violation needs the second
     half: taskq-redo's `taskq_api.app` sits in the `config` layer because
@@ -464,8 +500,8 @@ def is_fallback_placement(sab: dict, module_path: str) -> bool:
     return not (set(_layer_segments(module_path)) & declared)
 
 
-def _heuristic_layer_choice(sab: dict, module_path: str) -> str:
-    """Pick the layer for a new module, preferring what its own name says.
+def layer_for_module(sab: dict, module_path: str) -> "str | None":
+    """The layer this module's own name states, or None when it states none.
 
     Order:
       1. A dotted/path segment that matches a declared layer name. Projects name
@@ -474,7 +510,16 @@ def _heuristic_layer_choice(sab: dict, module_path: str) -> str:
          nothing needs to be guessed. Deepest match wins, so
          `a/storage/cache/x.py` picks `cache` over `storage` when both exist.
       2. Private helpers (leading `_`) → the first `core`/`domain`/`business` layer.
-      3. Last layer, as before.
+      3. None — the module says nothing and this framework does not know.
+
+    Round 101 removed the third rule, which was `return layers[-1]["name"]`.
+    Measured over the 478 layer placements in the seventeen corpus projects:
+    rule 1 accounts for 394, rule 2 for **zero**, and the last-layer fallback
+    for 84. Those 84 are not placements, they are the name of whichever layer
+    the project happened to declare last, and `drift_detector`'s Check 3 then
+    charges import violations against them: on taskq-done, 7 of 11 CRITICAL
+    findings existed only because `taskq_api.errors` and `taskq_api` had been
+    filed under `models` — the last layer in that project's list.
 
     Round 26 — step 1 is new, and it is a bug fix rather than a refinement. The
     old first rule for every non-underscore module was "append to the LAST layer
@@ -486,9 +531,24 @@ def _heuristic_layer_choice(sab: dict, module_path: str) -> str:
     models` layering that project's NFR-06 enforces via `.importlinter`. Two
     architecture records, one codebase, silently disagreeing.
 
-    Callers that want to see a guess: `amend_sab` reports which modules took the
-    fallback, because a guess nobody is told about is indistinguishable from a
-    decision.
+    Round 26 said that of the last-layer rule and then kept it, with the whole
+    remedy being a print: "the operator can then re-run scripts/generate_sab.py
+    from SAD.md, which is authoritative". This step is automatic and there is no
+    operator in it. Returning None is what the framework actually knows.
+
+    Callers that want to see a guess: `amend_sab` reports which modules it could
+    not place, because a guess nobody is told about is indistinguishable from a
+    decision — and one that IS written into the baseline stops being
+    distinguishable at all.
+
+    Public (it was `_heuristic_layer_choice`) because it is a seam, not
+    because anything outside this module calls it. Counter-proof CP-2 showed
+    the "one function decides which layer" claim was unpinned: a faithful
+    second implementation inside `amend_sab` that never called this passed
+    every test. The two tests that now pin it replace this definition and
+    assert both consumers move, and `tests/test_patch_discipline.py` is right
+    that the answer to "I need to replace this to test it" is a public seam
+    rather than a patched private name.
     """
     layers = sab.get("layers") or []
     if not layers:
@@ -502,13 +562,69 @@ def _heuristic_layer_choice(sab: dict, module_path: str) -> str:
         for layer in layers:
             if layer.get("name") in ("core", "domain", "business"):
                 return layer["name"]
-    return layers[-1]["name"]
+    return None
+
+
+#: What a module that names no declared layer needs, in the document that
+#: decides layers. Printed by `amend_sab` and by every caller that reports its
+#: refusals, so the instruction has one wording — `amend_sab` does not read
+#: SAD.md, so "re-run amend-sab" is not the remedy and never was.
+UNPLACEABLE_REMEDY = (
+    "declare a layer for them in SAD.md §5's SAB block, then re-run "
+    "`python3 scripts/generate_sab.py --project . --overwrite`"
+)
+
+
+def _record_unplaceable(project_root: Path, modules: list[str]) -> None:
+    """One ledger row for the modules this framework declined to place.
+
+    A print survives the terminal it was written to and nothing else; the row
+    is what a later reader can find. Owner is the PROJECT for the same reason
+    exit 41 routes there: the framework is the one that noticed, and only the
+    project's architecture document can say which layer these belong to.
+    Never raises — failing to record a refusal must not turn the refusal into
+    an exception on the amend path.
+    """
+    try:
+        from core.degradation_ledger import record_degradation
+        record_degradation(
+            project_root, "sab:unplaceable-module",
+            f"{len(modules)} delivered module(s) name no declared SAB layer, "
+            f"so amend-sab registered none of them",
+            "a layer chosen by this framework is not a layer the project "
+            "declared, and drift detection charges import violations against "
+            f"whatever layer was chosen — {UNPLACEABLE_REMEDY}",
+            data={"modules": sorted(modules)}, owner="project",
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[amend-sab] WARN: could not record the unplaceable modules in "
+              f"the degradation ledger ({exc}); the list above is the only "
+              f"copy of this finding")
+
+
+def unplaceable_modules(sab: dict, discovered: Iterable[str],
+                        src_dir: str = _DEFAULT_SRC_DIR) -> list[str]:
+    """Missing modules whose own name states no layer this SAB declares.
+
+    The third of the trio: `missing_modules` is disk − SAB, `phantom_modules`
+    is SAB − disk, and this is the part of the first that `amend_sab` must
+    not answer for the project. One definition, read by the writer and by
+    everything that reports what the writer would not do.
+    """
+    return [m for m in missing_modules(sab, discovered, src_dir)
+            if layer_for_module(sab, m) is None]
 
 
 def amend_sab(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR,
               dry_run: bool = False) -> list[str]:
-    """Discover missing modules, append them to the heuristic layer,
-    atomically write SAB.json. Returns the list of added modules.
+    """Discover missing modules, append them to the layer their own name
+    states, atomically write SAB.json. Returns the list of added modules.
+
+    A module whose name states no declared layer is NOT added: it is reported,
+    recorded in the degradation ledger, and left for SAD.md §5 to decide.
+    Round 101 — the last-layer fallback this used to apply is why taskq-done's
+    `taskq_api.errors` sat in the `models` layer and drew seven CRITICAL
+    architecture violations that its own SAD.md never claimed.
 
     Idempotent: running twice adds nothing on the second call.
     No-op (returns []) when SAB.json is absent or no modules are missing.
@@ -522,32 +638,42 @@ def amend_sab(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR,
         return []
 
     discovered = discover_modules(project_root, src_dir)
-    added = missing_modules(sab, discovered, src_dir)
-    if not added:
+    candidates = missing_modules(sab, discovered, src_dir)
+    if not candidates:
         return []
 
-    if dry_run:
-        return added
-
-    # Group additions by chosen layer to keep modules ordered within layer.
+    # Group additions by the layer the module names, keeping order within it.
     by_layer: dict[str, list[str]] = {}
+    unplaceable: list[str] = []
     _guessed: list[str] = []
-    for module_path in added:
-        layer_name = _heuristic_layer_choice(sab, module_path)
+    for module_path in candidates:
+        layer_name = layer_for_module(sab, module_path)
+        if layer_name is None:
+            unplaceable.append(module_path)
+            continue
         if is_fallback_placement(sab, module_path):
+            # Rule 2 (leading `_` → core/domain/business) fired: the path names
+            # no layer, so this IS a guess even though a rule produced it.
             _guessed.append(f"{module_path} -> {layer_name}")
         by_layer.setdefault(layer_name, []).append(module_path)
+    added = [m for m in candidates if m not in unplaceable]
 
-    # Round 26: name the guesses. A module whose own path names no declared layer
-    # lands wherever the heuristic put it, and taskq-plus is the evidence that a
-    # silent placement can leave SAB.json contradicting the project's own
-    # .importlinter layering. Printing is the whole remedy — the operator can then
-    # re-run scripts/generate_sab.py from SAD.md, which is authoritative.
+    if unplaceable:
+        print(f"[amend-sab] {len(unplaceable)} module(s) NOT registered — their "
+              f"names state no layer this SAB declares:")
+        for module_path in unplaceable:
+            print(f"  ? {module_path}")
+        print(f"  → {UNPLACEABLE_REMEDY}")
+        _record_unplaceable(project_root, unplaceable)
+
     if _guessed:
         print(f"[amend-sab] {len(_guessed)} module(s) placed by fallback heuristic "
               f"(their path names no declared layer) — verify against SAD.md §2:")
         for line in _guessed:
             print(f"  ? {line}")
+
+    if dry_run or not added:
+        return added
 
     for layer in sab["layers"]:
         if layer["name"] in by_layer:
@@ -558,6 +684,86 @@ def amend_sab(project_root: Path, src_dir: str = _DEFAULT_SRC_DIR,
 
     atomic_write_json(sab_path, sab)
     return added
+
+
+def _layer_placements(layers: "list | None") -> "dict[str, set[str]]":
+    """`{dotted module: {layer name, ...}}` from a list of SAB layers."""
+    out: dict[str, set[str]] = {}
+    for layer in (layers or []):
+        name = str(layer.get("name"))
+        for mod in (layer.get("modules") or []):
+            dotted = normalize_sab_module_to_dotted(mod)
+            if dotted is not None:
+                out.setdefault(dotted, set()).add(name)
+    return out
+
+
+def undeclared_layer_placements(project_root: Path) -> list[dict]:
+    """SAB.json placements that SAD.md §5 neither states nor implies.
+
+    SAD.md §5 is the source and `.methodology/SAB.json` is what
+    `scripts/generate_sab.py` renders from it — this module's own header says
+    so ("re-derived from SAD.md by scripts/generate_sab.py"). `amend_sab`
+    writes the rendered file directly, which is the rule this repository
+    enforces on its own generated workflow JS, inverted.
+
+    A placement is legitimate when SAD.md declares it, OR when it is what
+    `layer_for_module` derives from the project's own layer names —
+    that is a transcription of the project's naming, not a decision this
+    framework made. Anything else was invented here.
+
+    Measured over the seventeen corpus projects: 117 placements exist in
+    SAB.json and not in SAD.md, and 42 of those are neither declared nor
+    derivable — fourteen of the 42 are the bare root package, which
+    `drift_detector._resolve_import_layer`'s ancestor tier then uses to
+    resolve every module with no nearer claim.
+
+    Returns `[{"module", "layer"}]`, sorted. Empty — an abstention, not a
+    pass — when SAD.md has no SAB block or SAB.json cannot be read: a
+    comparison with one side missing has not been made (Rounds 32/35).
+    """
+    from core.quality_gate.sab_parser import extract_sab_from_sad
+    from core.utils.project_layout import ProjectLayout
+
+    project_root = Path(project_root)
+    sab_path = project_root / ".methodology" / "SAB.json"
+    if not sab_path.is_file():
+        return []
+    try:
+        spec = extract_sab_from_sad(ProjectLayout(project_root).sad_path)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] undeclared_layer_placements: SAD.md §5 unreadable "
+              f"({exc}); SAB.json is not compared against it this run")
+        return []
+    if spec is None or not getattr(spec, "layers", None):
+        return []
+
+    declared = _layer_placements(spec.layers)
+    sad_sab = {"layers": spec.layers}
+    rendered = _layer_placements((_safe_load(sab_path) or {}).get("layers"))
+
+    findings: list[dict] = []
+    for module in sorted(rendered):
+        for layer in sorted(rendered[module]):
+            if layer in declared.get(module, set()):
+                continue
+            if layer_for_module(sad_sab, module) == layer:
+                continue
+            findings.append({"module": module, "layer": layer})
+    return findings
+
+
+def undeclared_placements_blocking_reason(findings: list[dict]) -> "str | None":
+    """Why the gate stops over SAB.json's extra placements, or None."""
+    if not findings:
+        return None
+    lines = "\n".join(
+        f"  {f['module']}  →  layer {f['layer']}" for f in findings)
+    return (
+        f"{len(findings)} module placement(s) in .methodology/SAB.json are "
+        f"neither declared in SAD.md §5 nor derivable from your own layer "
+        f"names — this framework put them there:\n{lines}"
+    )
 
 
 def _safe_load(path: Path) -> dict:

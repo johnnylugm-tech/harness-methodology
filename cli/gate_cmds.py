@@ -1138,10 +1138,18 @@ def _check_sab_module_alignment(
                 if dotted is not None:
                     sab_modules.add(dotted)
 
-        from core.quality_gate.sab_amender import discover_modules_at
+        from core.quality_gate.sab_amender import (
+            container_packages, discover_modules_at,
+        )
         actual_modules: set[str] = set(discover_modules_at(src_dir))
+        # Round 101: the tree's own root package is the container of all the
+        # layers, not a member of one. `missing_modules` reads the same
+        # function; this block computes the difference itself, so it has to
+        # read it too or Gate 1 demands a layer for `taskq_api` on every
+        # project while `amend_sab` refuses to invent one.
+        _containers = container_packages(actual_modules)
 
-        unregistered = actual_modules - sab_modules
+        unregistered = actual_modules - sab_modules - _containers
         if unregistered:
             if auto_amend:
                 from core.quality_gate.sab_amender import amend_sab
@@ -1167,19 +1175,23 @@ def _check_sab_module_alignment(
                     for dotted in [_normalize_sab_module_to_dotted(mod)]
                     if dotted is not None
                 }
-                unregistered = actual_modules - sab_modules
+                unregistered = actual_modules - sab_modules - _containers
                 if not unregistered:
                     # Auto-amend fully closed the gap — continue to phantom check.
                     pass
                 else:
-                    # amend_sab did not close the gap (e.g. heuristic layer choice
-                    # rejected all candidates). Surface as BLOCKED for the operator.
+                    # amend_sab did not close the gap: from Round 101 that is
+                    # the ONLY way to get here, and it means those modules name
+                    # no layer this SAB declares. Re-running amend-sab produces
+                    # the same refusal — it never reads SAD.md — so the remedy
+                    # names the document that decides layers.
+                    from core.quality_gate.sab_amender import UNPLACEABLE_REMEDY
                     print(
                         f"\n[BLOCKED] run-gate: Architecture Amendment Protocol violation.\n"
                         f"Unregistered modules detected after auto-amend: {unregistered}\n"
-                        f"Fix: amend-sab failed to register (likely heuristic layer mismatch — "
-                        f"see `cmd_amend_sab` output above). Run `harness_cli.py amend-sab "
-                        f"--project {project}` manually to investigate."
+                        f"Fix: their names state no layer this SAB declares, so this "
+                        f"framework did not choose one for them — "
+                        f"{UNPLACEABLE_REMEDY}"
                     )
                     return 1
             else:

@@ -140,6 +140,15 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         COMMIT", and still ships dependencies with no version. Read the
         extracted list against the SSOTs — a declared runtime the scaffold
         could not name is missing, not just unpinned — pin it, re-run.
+    46  advance-phase: .methodology/SAB.json places modules in layers that
+        SAD.md §5 neither declares nor implies from your own layer names.
+        This framework wrote them there and drift detection charges import
+        violations against the layer it picked. Declare it in SAD.md §5 (or
+        drop the module), regenerate with scripts/generate_sab.py, re-run.
+    47  advance-phase: .methodology/env_contract.json names tools this
+        project needs that no delivered manifest installs — the environment
+        the gate measured in cannot be rebuilt from what the project ships.
+        Add each named distribution to a manifest, then re-run.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

@@ -217,6 +217,19 @@ class DriftSeverity(Enum):
     CRITICAL = "CRITICAL"
 
 
+#: The severities `cli/advance_prechecks.py::_precheck_sab_consistency` acts
+#: on. Named here, beside the emission sites, because a severity chosen in
+#: this file and a threshold written as a literal tuple in the consumer are
+#: two statements of one decision: Round 98 gave the `unregistered` finding a
+#: reporting branch and a remedy while it was still emitted at LOW, which that
+#: filter drops — measured across the corpus, 21 unregistered findings and
+#: zero of them at MEDIUM or above, so the branch had never run.
+ADVANCE_BLOCKING_SEVERITIES: tuple = (
+    DriftSeverity.MEDIUM.value, DriftSeverity.HIGH.value,
+    DriftSeverity.CRITICAL.value,
+)
+
+
 @dataclass
 class DriftItem:
     """A single drift finding."""
@@ -707,7 +720,12 @@ class DriftDetector:
                 drifted += 1
                 items.append(DriftItem(
                     drift_type="sab",
-                    severity=DriftSeverity.LOW,
+                    # Round 101: MEDIUM, so the branch Round 98 wrote for this
+                    # finding can reach it — see ADVANCE_BLOCKING_SEVERITIES.
+                    # A delivered module in no layer is the same defect as a
+                    # declared module that is not on disk, which has been
+                    # MEDIUM since Check 1 was written.
+                    severity=DriftSeverity.MEDIUM,
                     location=rel,
                     description=f"New file {rel} not registered in any SAB layer",
                     expected="SAB layer assignment",

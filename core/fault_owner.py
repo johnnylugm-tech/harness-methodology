@@ -181,6 +181,15 @@ OWNER_BY_EXIT: dict[int, str] = {
     # routing this to repair-harness would send the repair to the one party
     # that cannot make it.
     41: Owner.PROJECT,
+    # 46/47 (Round 101) route the same way and for the same reason as 41. In
+    # both the framework is the party that wrote the thing being complained
+    # about — a layer placement, a scaffolded manifest — but the decision the
+    # block asks for is one only the project can make: which layer a module
+    # belongs to, and which distributions it ships. repair-harness cannot
+    # answer either, and sending it there would be a repair aimed at the one
+    # party that has no standing to make it.
+    46: Owner.PROJECT,
+    47: Owner.PROJECT,
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

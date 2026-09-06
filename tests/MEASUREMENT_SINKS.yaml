@@ -65,6 +65,19 @@ sinks:
       Authority block, which on taskq-done reported 91 of 91 inventory names
       "missing in TEST_SPEC.md — Agent A may have hallucinated names" about
       names present in exactly those rows.
+  "sab:unplaceable-module":
+    sink: verdict
+    where: >-
+      cli/gate_cmds.py::_check_sab_module_alignment returns 1 when a delivered
+      module is in no SAB layer and amend-sab did not close the gap, which
+      from Round 101 is what happens whenever the module's own name states no
+      declared layer. amend_sab used to file those under `layers[-1]` instead:
+      measured over the seventeen corpus projects, 84 of 478 placements came
+      from that rule, and on taskq-done `taskq_api` and `taskq_api.errors`
+      landing in `models` produced 7 of the 11 CRITICAL architecture
+      violations its P3 exit reported. The ledger row is written at the
+      refusal so the list survives the terminal it was printed to; the block
+      itself is the pre-existing Gate 1 branch, not a new stop.
   "gate:ac-deferred":
     sink: report-only
     why: >-

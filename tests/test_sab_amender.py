@@ -323,7 +323,10 @@ class TestAmendSab:
         src.mkdir(parents=True)
         # Create one .py file per dotted module — flattened to the leaf
         # segment is enough because discover_modules only reads the leaf.
-        for m in sab_modules + ["taskq.cache", "taskq.breaker"]:
+        # `taskq.core` names the `core` layer and is placed; `taskq.breaker`
+        # names neither layer and, from Round 101, is refused rather than
+        # filed under whichever layer happens to be last.
+        for m in sab_modules + ["taskq.core", "taskq.breaker"]:
             leaf = m.split(".")[-1] + ".py"
             (src / leaf).write_text("")
         return sab
@@ -334,22 +337,42 @@ class TestAmendSab:
             ["taskq.cli", "taskq.executor"],
         )
         added1 = amend_sab(tmp_path)
-        assert sorted(added1) == sorted(["taskq.cache", "taskq.breaker"])
+        assert added1 == ["taskq.core"]
         # Verify on disk — written in dotted form (matches discover output).
         sab = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
         all_modules = [m for layer in sab["layers"] for m in layer["modules"]]
-        assert "taskq.cache" in all_modules
-        assert "taskq.breaker" in all_modules
+        assert "taskq.core" in all_modules
 
         # Second call: idempotent, nothing added.
         added2 = amend_sab(tmp_path)
         assert added2 == []
 
+    def test_a_module_that_names_no_layer_is_not_written(self, tmp_path, capsys):
+        """Round 101. `taskq.breaker` names neither `cli` nor `core`.
+
+        The old rule filed it under `layers[-1]`, and `drift_detector`'s
+        ancestor-tier resolution then charged import violations against that
+        layer — 7 of taskq-done's 11 CRITICAL findings were that shape. What
+        the framework knows is "not this one"; what it does not know is where.
+        """
+        self._setup_project(tmp_path, ["taskq.cli", "taskq.executor"])
+        added = amend_sab(tmp_path)
+        assert "taskq.breaker" not in added
+        sab = json.loads((tmp_path / ".methodology" / "SAB.json").read_text())
+        all_modules = [m for layer in sab["layers"] for m in layer["modules"]]
+        assert "taskq.breaker" not in all_modules, (
+            "a module whose name states no declared layer was written into the "
+            f"baseline anyway: {all_modules}")
+        out = capsys.readouterr().out
+        assert "taskq.breaker" in out and "SAD.md" in out, out
+
     def test_amend_dry_run_does_not_write(self, tmp_path):
         self._setup_project(tmp_path, ["taskq.cli"])
         before = (tmp_path / ".methodology" / "SAB.json").read_text()
         added = amend_sab(tmp_path, dry_run=True)
-        assert len(added) == 2  # cache + breaker would be added
+        # `taskq.core` names the `core` layer; `taskq.breaker` names none, so a
+        # dry run reports what a real run would actually write, not both.
+        assert added == ["taskq.core"]
         after = (tmp_path / ".methodology" / "SAB.json").read_text()
         assert before == after, "dry_run must not modify SAB.json"
 
@@ -406,26 +429,33 @@ class TestLayerChoiceFollowsTheModuleName:
         ("taskq_plus/storage/models/row.py", "models"),
     ])
     def test_a_declared_layer_in_the_path_wins(self, module_path, expected):
-        from core.quality_gate.sab_amender import _heuristic_layer_choice
-        assert _heuristic_layer_choice(self.LAYERS, module_path) == expected
+        from core.quality_gate.sab_amender import layer_for_module
+        assert layer_for_module(self.LAYERS, module_path) == expected
 
     def test_the_taskq_plus_regression_specifically(self):
         """`taskq_plus.cli` must not land in `config` again."""
-        from core.quality_gate.sab_amender import _heuristic_layer_choice
-        assert _heuristic_layer_choice(self.LAYERS, "taskq_plus.cli") != "config"
+        from core.quality_gate.sab_amender import layer_for_module
+        assert layer_for_module(self.LAYERS, "taskq_plus.cli") != "config"
 
     def test_underscore_helper_still_prefers_core(self):
-        from core.quality_gate.sab_amender import _heuristic_layer_choice
+        from core.quality_gate.sab_amender import layer_for_module
         sab = {"layers": [{"name": "core"}, {"name": "infra"}]}
-        assert _heuristic_layer_choice(sab, "pkg/_helper.py") == "core"
+        assert layer_for_module(sab, "pkg/_helper.py") == "core"
 
-    def test_unmatched_path_still_falls_back_to_the_last_layer(self):
-        from core.quality_gate.sab_amender import _heuristic_layer_choice
-        assert _heuristic_layer_choice(self.LAYERS, "taskq_plus/util/misc.py") == "config"
+    def test_an_unmatched_path_states_no_layer_and_answers_none(self):
+        """Round 101 replaced the last-layer fallback this used to pin.
+
+        `taskq_plus/util/misc.py` names no declared layer, and `config` was
+        only ever the answer because it is written last. Measured over the
+        seventeen corpus projects: 84 of 478 placements came from that rule
+        and 42 of them are still in SAB.json files no SAD.md agrees with.
+        """
+        from core.quality_gate.sab_amender import layer_for_module
+        assert layer_for_module(self.LAYERS, "taskq_plus/util/misc.py") is None
 
     def test_no_layers_returns_core(self):
-        from core.quality_gate.sab_amender import _heuristic_layer_choice
-        assert _heuristic_layer_choice({}, "pkg/x.py") == "core"
+        from core.quality_gate.sab_amender import layer_for_module
+        assert layer_for_module({}, "pkg/x.py") == "core"
 
 
 class TestResolvePhantom:

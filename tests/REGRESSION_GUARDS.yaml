@@ -5195,3 +5195,103 @@
 - test: tests/test_a_contract_that_cannot_fail_covers_nothing.py::test_the_constraint_classifier_reads_that_answer_too
   bug: "counter-proof CP-13c: the other consumer had the same hole — restoring Round 55's inline `len(sources) < 2` left every test green"
   fixed_in: "Round 99"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_path_that_names_no_layer_answers_none
+  bug: "layer_for_module returned `layers[-1][\"name\"]` for a module whose path names no declared layer; 84 of the 478 placements in the seventeen corpus projects came from that rule, and on taskq-done it filed `taskq_api.errors` under `models` because `models` is declared last"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_path_that_names_a_layer_still_answers_it
+  bug: "reverse control — the rule must not read as 'amend-sab never places anything'; rule 1 accounts for 394 of the 478 corpus placements"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_amend_does_not_write_a_module_it_cannot_place
+  bug: "amend_sab wrote the guess into .methodology/SAB.json and the whole remedy was a print aimed at an operator; the step is automatic and there is no operator in it"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_amend_reads_that_answer_rather_than_recomputing_it
+  bug: "counter-proof CP-2: a faithful second implementation of rule 1 inside amend_sab, never calling layer_for_module, passed all 88 other tests — the SSOT claim was unpinned (Round 97 CP-5b / Round 98 CP-11 / Round 99 CP-13b, fourth occurrence)"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_placement_check_reads_that_answer_too
+  bug: "the other consumer had the same hole — undeclared_layer_placements could re-derive 'was this transcribed or invented' locally and drift from the writer"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_root_package_is_a_container
+  bug: "discover_modules_at emits the tree's own root package, so refusing to place it would ask every project which layer the container of all its layers is in; fourteen of seventeen corpus projects carry it in a SAB layer and none declared it"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_flat_leaf_with_no_children_is_still_a_member
+  bug: "false-accusation control: taskq-super's `sitecustomize` and taskq-wow's `_p2_preflight_config_keys` are single-segment names with no children — modules, not containers, and still owed a layer"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_container_is_not_removed_from_what_the_scan_reports
+  bug: "phantom_modules is registered - discovered; applying the container exemption to the scan instead of to the demand would turn every root package already in a SAB layer into a phantom"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_unregistered_is_emitted_at_a_severity_the_consumer_acts_on
+  bug: "drift_detector emitted `unregistered` at LOW while _precheck_sab_consistency filtered MEDIUM and above; measured 21 unregistered findings across the corpus and 0 at MEDIUM+, so the branch Round 98 wrote for that finding had never run"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_advance_block_actually_reports_an_unregistered_module
+  bug: "the behavioural half — a severity constant proves nothing about whether the finding travels; the old remedy also told the project to re-run amend-sab, which reads SAB.json and never SAD.md"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_placement_only_sab_json_has_is_reported
+  bug: ".methodology/SAB.json is rendered from SAD.md §5 by generate_sab.py and amend_sab writes the rendered file directly; 117 placements across 15 corpus projects exist in SAB.json and in no SAD.md"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_placement_sad_declares_is_not_reported
+  bug: "false-accusation control, taskq-final's real shape: it declares `taskq_api.app` in a layer called `support`, which that module's path does not name — a check that only asked 'is this derivable' would charge every deliberate placement"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_derivable_placement_is_not_reported
+  bug: "transcribing what the project's own layer names say is not an invention; without this control the check would report all 117 SAB.json-only placements instead of the 42 that were guessed"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_no_sab_block_in_the_sad_abstains
+  bug: "Rounds 32/35 — a comparison with one side missing has not been made; a SAD.md with no SAB block must not read as 'every placement is invented'"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_advance_block_stops_before_the_drift_findings
+  bug: "7 of taskq-done's 11 CRITICAL drift findings are consequences of the placement, so reporting them first sends the project to fix an import its own SAD.md never forbade"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_declared_tool_no_manifest_installs_is_reported
+  bug: "env_contract.json's cli_tools and the delivered manifest are both written by this framework and nothing compared them; on taskq-done the first names pytest_asyncio, the tests are pytest.mark.asyncio, and requirements.txt does not name it"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_this_frameworks_own_tools_are_not_charged_to_the_project
+  bug: "Round 42 control — charging a project for `ruff`/`bandit`/`radon` is charging it for this framework's toolchain; without the exclusion all 15 corpus projects with a venv report a gap"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_direct_requirement_of_our_toolchain_is_not_charged_either
+  bug: "`coverage` arrives with `pytest-cov`; one hop and not the transitive closure, because the closure from this framework's seeds covers 149 of the ~150 distributions in a corpus venv and swallows pytest-asyncio itself"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_name_that_is_not_an_installed_distribution_is_not_reported
+  bug: "`make`, `sqlite3` and `python3.11` are in every env_contract's cli_tools and are not pip distributions; demanding them in requirements.txt would block every project"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_no_project_venv_abstains
+  bug: "Rounds 32/35 — the project's own interpreter is what knows which distributions are installed; without it no reading was taken, and no reading is not a finding"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_a_project_with_no_manifest_file_declares_nothing
+  bug: "if an absent manifest abstained, deleting requirements.txt would clear the check — five corpus projects reached P9 with no dependency manifest at all"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_setup_cfg_is_not_read_as_a_dependency_manifest
+  bug: "every corpus project with a setup.cfg uses it for import-linter contracts; reading its section keys as package names invented thirteen declarations on taskq-advance, which ships no dependency manifest"
+  fixed_in: "Round 101"
+
+- test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_remedy_names_the_document_that_decides_layers
+  bug: "the remedy Round 98 wrote for the unregistered finding said 'then re-run amend-sab'; amend_sab reads .methodology/SAB.json and never SAD.md, so following it produces the same refusal"
+  fixed_in: "Round 101"
+
+- test: tests/test_sab_amender.py::TestAmendSab::test_a_module_that_names_no_layer_is_not_written
+  bug: "the writer's half of the same defect, in the file that owns amend_sab's behaviour"
+  fixed_in: "Round 101"
+
+- test: tests/test_sab_amender.py::TestLayerChoiceFollowsTheModuleName::test_an_unmatched_path_states_no_layer_and_answers_none
+  bug: "replaces test_unmatched_path_still_falls_back_to_the_last_layer, which pinned the rule this round removes"
+  fixed_in: "Round 101"

@@ -8897,3 +8897,130 @@ taskq-done 首次推進 Phase 3 / FR-01 / GATE1 時，因 Exit 25 混淆了兩�
 2. `_classify_infra_or_harness_bug` 採方向優先匹配，PHANTOM 優先，UNREGISTERED 次之，AAP violation 作為 fallback。
 3. `spec_runall.py` 與 `js_blocks.py` 補齊 `outcome.phantom_abort` 與 `outcome.infra_abort` 攔截器，分別記錄 `phantom-abort` (owner='project') 與 `infra-abort` (owner='infra')。
 
+
+---
+
+## Round 101 — 框架替專案填了它不知道的答案,然後拿那個答案判專案有罪 (2026-09-06)
+
+複核一份對 **taskq-done P1/P2 產出物**的審計報告(3 領域 8 缺陷),題目是
+「為什麼所有產出品質反而退化了」。全部量測唯讀,`taskq*` 一個位元組都沒寫;
+需要真跑 `lint-imports` 時複製到 `/tmp` 再跑。**零 workflow JS 變更** ——
+四個機制(`sab_amender`、`drift_detector`、`env_contract`、`ssot_manifest`)
+都在 Python CLI 裡,JS 只 dispatch。
+
+> **編號**:本輪原名 Round 100。實作期間另一個 session 以「Round 100 站1」
+> 提交了 `6bedfd9b`(exit 45 / PHANTOM 解耦)並 `git reset --hard` 清掉我的工作樹。
+> 老闆裁定改名 **Round 101**,exit code 讓開 45 改用 **46 / 47**。
+> 我的原始碼有 5 支在 `/tmp` 備份下倖存,其餘重建。
+
+### §0 審計報告逐條裁決
+
+| # | 報告主張 | 實測 |
+|---|---|---|
+| 1 | requirements.txt 10 個依賴 0 釘版 | **真**。這正是 Round 99 站4,機制已在,不重做 |
+| 2 | 缺 PostgreSQL DBAPI driver | **事實真、不可判定**。程式碼從不 `import psycopg2`(SQLAlchemy 由 URL 載入),乾淨環境跑測試也撞不到(測試用 SQLite)。R99 裁決成立,再開條件未達成 |
+| 3 | 缺 pytest-asyncio | **真,而且框架自己已經知道**。`tests/test_fr01.py:65` 是 `pytestmark = pytest.mark.asyncio`;`.venv` 有 `pytest_asyncio 1.4.0`;**框架寫的 `.methodology/env_contract.json` 的 `cli_tools` 明列 `pytest_asyncio`**,而框架寫的 `requirements.txt` 沒有。兩份框架落盤的依賴宣告互相矛盾,沒有讀者比對 → **站4** |
+| 4 | 缺 fastapi 向內隔離合約 | **屬實但框架無立場**。SPEC / SRS / SAD 逐字 grep,零宣告。R57 母體(不宣告就不會被擋),已明列為未解 |
+| 5 | SAB 只有 4 層,漏 config 與 errors | **一半真、根源完全不同**。`taskq_api.config` **不在交付樹**(第二次:R99 §0 是 `taskq_api.core`)。`errors` 是真漏 —— **而框架自己把它補進 SAB.json 並猜了一個層** → **站1/站3** |
+| 6 | SAD 全文 pool 出現 0 次 | **前提假**。SPEC.md:128 規定 `pool_size=TASKQ_DB_POOL_SIZE, pool_pre_ping=True`;SRS.md:147/155 **AC-6.5** 指名驗證測試 `test_fr06_pool_config`;SRS:584 風險 R10 |
+| 7 | 缺 graceful shutdown / sigterm 0 次 | **前提假**。SPEC.md:147 與 §8 #25;SRS.md:191 + **AC-8.1** 指名 `test_fr08_graceful_drain_marks_interrupted`;**SAD.md:148「Lifespan must `await runner.drain(timeout=settings.DRAIN_TIMEOUT)` on shutdown (FR-08)」**。用 lifespan 表達 SIGTERM 是正解,數 "sigterm" 這個字不是判準 |
+| 8 | STRIDE 缺 `controls:` 陣列 | **拒**。schema 沒這個鍵,加了就是加一個沒有讀者的鍵。威脅⇄測試閉環**已存在且已執行**:`security_design.py` **SEC-R8**(phase≥5,落地於 tests/)與 **SEC-R9**(phase≥3,必須在 TEST_SPEC.md)。10 個威脅都有 `verified_by` + `nfr` + `owner_module` |
+
+### §1 因果鏈(逐步用框架本體量出來)
+
+1. `taskq_api/errors.py` 交付了,**SAD.md §5 的 SAB 區塊沒有任何層收它**。
+2. Gate 1 的 `_check_sab_module_alignment` 偵測到未註冊,呼叫 `amend_sab`。
+3. `_heuristic_layer_choice` 找不到能對上的層名 → **`return layers[-1]["name"]`**;
+   taskq-done 的最後一層剛好叫 `models`。同一次也把**根套件 `taskq_api`** 放進 `models`。
+4. `amend_sab` 把兩者寫進 `.methodology/SAB.json`(commit `447eb85`),
+   **SAD.md §5 沒有這兩筆**;而 `sab_amender` 的 docstring 自己寫著
+   「deliberately does NOT touch SAD.md ... re-derived from SAD.md by `generate_sab.py`」。
+5. `drift_detector._resolve_import_layer` 的 tier 2(祖先套件)因此把
+   **每一個沒有更近宣告的模組都解析到 `models`**。Round 98 為了修
+   「62%–91% 模組因歧義被跳過」而改成依特異性排序 —— 那個修法是對的,
+   **但它同時讓根套件的那個猜測變成可運作的預設值**。
+6. Check 3 判 **11 條 CRITICAL**。
+7. 框架在第 3 步印過 `[amend-sab] 2 module(s) placed by fallback heuristic`,
+   **印給一個不存在的人看**(這一步是自動跑的)。
+
+**反事實(複製樹上實跑,四種組合)**:
+
+```
+as amend-sab left it                  CRITICAL=11  unregistered=4
+drop only taskq_api.errors            CRITICAL=11  unregistered=5
+drop only taskq_api (root container)  CRITICAL=11  unregistered=4
+drop both                             CRITICAL= 4  unregistered=5
+```
+
+**7 / 11 條只因為框架猜了層,而且兩個猜測必須一起拿掉才會消失。**
+
+**語料規模(17 專案)**
+
+| 量測 | 數字 |
+|---|---|
+| SAB.json 有、SAD.md §5 沒有的層放置 | **117**(15 專案) |
+| 其中不可由專案自己的層名推導(= 猜的) | **42**(其中 14 筆是裸根套件) |
+| `layer_for_module` 三規則命中 | rule1 **394** / rule2 **0** / rule3 **84** |
+| `unregistered` 發現 / 其中 ≥ MEDIUM | **21 / 0** |
+
+### §2 四站
+
+* **站1** `layer_for_module`(原 `_heuristic_layer_choice`)刪掉 `layers[-1]` 的猜測,
+  回傳 `str | None`;`amend_sab` 只寫有層可回的模組,其餘印出 + 寫
+  `sab:unplaceable-module` ledger 列。新增 `container_packages`:
+  「單段、且是另一個 discovered 名字的前綴」= 頂層套件 = 容器,不是層成員,
+  `missing_modules` 與 `_check_sab_module_alignment` 共讀。
+  **代價實測:3 個模組 / 2 個專案。**
+* **站2** `unregistered` 的 severity `LOW → MEDIUM`,並把消費端門檻抽成
+  `ADVANCE_BLOCKING_SEVERITIES`(兩端一個常數)。同時修那條做不到的 remedy
+  ——「re-run amend-sab」:`amend_sab` 從不讀 SAD.md,照做沒有任何效果。
+* **站3** `undeclared_layer_placements`:SAB.json 每一筆放置必須在 SAD.md §5
+  宣告過,或等於 `layer_for_module(SAD 的層集合, 模組)`;兩者皆非 → P3 出口
+  阻擋(**exit 46**),排在 DriftDetector **之前**。SAD 無 SAB 區塊 → 棄權。
+* **站4** `manifest_missing_declared_tools`:`env_contract.json` 的 `cli_tools` 裡,
+  凡是在專案自己的 venv 解析得到已安裝 distribution、不是本框架 toolchain、
+  不是那些 tool 的**直接**依賴(one-hop)、不是 `pip`/`setuptools`/`wheel` 的,
+  都必須出現在某份交付 manifest(**exit 47**)。無 env_contract 或無 venv → 棄權;
+  **manifest 檔不存在不是棄權**(否則刪檔就能逃)。
+
+### §3 明列不做(附再開條件)
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| SAB `allowed_dependencies` ↔ `.importlinter` `layers` 對賬 | 兩份都是 BINDING,語意不同(矩陣 vs 順序)。實證:taskq-done 剩下的 4 條 CRITICAL 對應 `lint-imports` 的 `layering KEPT` | 第二個專案因兩份陳述矛盾而阻擋振盪 |
+| `arch_contract_coverage` 認可**當下就是壞的**合約 | 已實證:taskq-done 把 bare `taskq_api` 放進 forbidden sources → `contract_coverage_gap` = `[]`;複製到 /tmp 跑 `lint-imports` 得 `Contracts: 1 kept, 1 broken`, exit 1。R99 站3 的 `contract_decides` 只問「形狀能不能失敗」。**同一逃生門第五個實例,由讀了 R99 remedy 的專案造出來** | 第二個專案用同樣手法把 gap 歸零,或 gate 路徑已有現成 lint-imports 結果 |
+| `required_artifacts`(全專案宣告)在 per-FR Gate 1 阻擋 | 已實證:taskq-done 在 FR-01 被 `alembic.ini`(FR-07)、`Makefile`(NFR-12)、`requirements.lock`(NFR-07)擋住,6/8 缺席;最便宜的出口是「drop the entry」;語料 11/17 宣告 0 筆(宣告 0 筆不擋)。phantom 分支**已經有** `_filter_phantoms_for_fr`,這裡沒有 | R57 家族,獨立一輪 |
+| 5 個專案完全沒有依賴 manifest | run-all-by-workflow / taskq / taskq-advance / taskq-plus / taskq-renew,全部已到 P9。站4 算成 0 個宣告名字,不是逃生門 | 有活專案在 P3 出口撞到 |
+| 缺陷 2 / 4 / 6 / 7 / 8 | 見 §0 | — |
+
+### §4 方案驗證與反證
+
+* 站1+1b+2 先在本 repo 的完整 `/tmp` 副本上實作並跑**全套 8332 支**:
+  只有 2 支紅,且都是釘住「被移除的那個行為」的測試;對照組(未 patch 的同一份副本)
+  證明另外 3 支 `test_corpus_verdict_baseline` 是 `/tmp` 環境造成
+  (`CORPUS_ROOT = HARNESS_ROOT.parent`),不是 patch 造成。
+* 最終 `scripts/self_check.sh` **8381 passed / 5 skipped**,guards **1269 → 1294**。
+* **11 條反證全部轉紅**,revert → 紅 → 從 `cp` 備份還原 → sha256 比對通過。
+* **CP-2 第一次是綠的** —— 在 `amend_sab` 裡寫一份忠實的第二實作、完全不呼叫
+  `layer_for_module`,88 支測試全過。**R97 CP-5b / R98 CP-11 / R99 CP-13b 同形第四次。**
+  修法:把 seam 公開(`_heuristic_layer_choice` → `layer_for_module`),
+  加兩支行為測試 monkeypatch 那個定義並斷言兩個消費者都跟著變。
+* **CP-4 第一次只被既有測試抓到** —— 我的守衛自己餵 `discovered` 清單,
+  跨不過 `discover_modules_at`。改成走真實掃描後才轉紅。
+* **順帶修一個既有的測試衛生缺陷**:`tests/cli/test_fr_cmds_cli.py` 的
+  `finally` 無條件 `sys.modules.pop("core.quality_gate.sab_amender")`,
+  把生產模組逐出 `sys.modules`,之後 `import ... as sa` 拿到新模組物件而
+  collection 期就綁定的函式仍讀舊模組的 globals —— 我的兩支 monkeypatch 守衛
+  因此**單跑綠、全套紅**。改成還原真正的模組物件;我的守衛同時改成
+  透過同一個模組物件呼叫,不依賴那個修復。
+
+### §5 誠實記錄:量測期間標本自己關閉
+
+taskq-done 是活專案。本輪量測開始時它在 FR-01,`requirements.txt` 沒有
+`pytest-asyncio`,站4 對它回報 `['pytest-asyncio']`。實作完成時它已推進到 FR-04,
+並新增了 `requirements-dev.txt`(內含 `pytest-asyncio==1.4.0`),站4 因此正確回報 `[]`。
+**發現在被量到時是真的,而檢查在專案修好之後也正確地說它好了** —— 正對照成立。
+同一時間它的站3 讀數從 2 筆漲到 **5 筆**
+(`taskq_api`、`taskq_api.__main__`、`taskq_api.errors`、`taskq_api.schemas`、
+`taskq_api.schemas.task` 全部被 amend-sab 塞進 `models`),
+語料總數 42 → **45** —— 這個缺陷在本輪撰寫期間仍在即時發生。

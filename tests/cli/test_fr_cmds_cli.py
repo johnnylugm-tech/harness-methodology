@@ -2968,8 +2968,6 @@ class TestAmendSabWritesSessionsSpawnLogEntry:
         def _boom(*a, **kw):
             raise RuntimeError("synthetic failure for test")
 
-        original = pc.amend_sab if hasattr(pc, "amend_sab") else None
-
         class _BoomModule:
             amend_sab = staticmethod(_boom)
             discover_modules = staticmethod(lambda *a, **kw: [])
@@ -2979,6 +2977,15 @@ class TestAmendSabWritesSessionsSpawnLogEntry:
         monkeypatch_patch["amend_sab"] = _boom
         # Easier: use sys.modules injection
         import sys
+        # Round 101: capture the real MODULE, not `pc.amend_sab` (a function).
+        # The cleanup below used to `pop` unconditionally, which evicted
+        # core.quality_gate.sab_amender from sys.modules for the rest of the
+        # session — so a later test that did `import ... as sa` got a fresh
+        # module object while a function imported at collection time still
+        # read the old one's globals, and `monkeypatch.setattr(sa, ...)` had
+        # no effect. Two of Round 101's guards passed alone and failed in the
+        # full suite because of it.
+        _real_sab_amender = sys.modules.get("core.quality_gate.sab_amender")
         sys.modules["core.quality_gate.sab_amender"] = _BoomModule
 
         (tmp_path / ".methodology").mkdir(exist_ok=True)
@@ -2992,10 +2999,10 @@ class TestAmendSabWritesSessionsSpawnLogEntry:
         try:
             rc = cmd_amend_sab(self._build_args(tmp_path))
         finally:
-            if original is not None:
-                sys.modules["core.quality_gate.sab_amender"] = original
-            # Best-effort cleanup of cache.
-            sys.modules.pop("core.quality_gate.sab_amender", None)
+            if _real_sab_amender is not None:
+                sys.modules["core.quality_gate.sab_amender"] = _real_sab_amender
+            else:
+                sys.modules.pop("core.quality_gate.sab_amender", None)
 
         assert rc == 1
         entries = self._read_log_entries(tmp_path)

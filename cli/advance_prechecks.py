@@ -548,6 +548,47 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
     return EX_AGENT_B_APPROVALS_INCOMPLETE
 
 
+def _precheck_sab_placements_are_declared(project) -> "int | None":
+    """SAB.json may not place a module where SAD.md §5 never put it.
+
+    Round 101 站3. `.methodology/SAB.json` is what `scripts/generate_sab.py`
+    renders from SAD.md §5 — `sab_amender`'s own header says the file is
+    "re-derived from SAD.md, which is authoritative" — and `amend_sab` writes
+    the rendered file directly. Measured over the seventeen corpus projects:
+    117 placements exist only in SAB.json, and 42 of them are not even
+    derivable from the project's own layer names.
+
+    The check is here and the rule is in `sab_amender`, next to the writer,
+    so the answer to "may this placement exist" has one definition. Wrapped
+    the same way the block below is: a comparison that cannot be made is not
+    a violation.
+    """
+    try:
+        from cli.exit_codes import EX_ADVANCE_SAB_PLACEMENT_UNDECLARED
+        from core.quality_gate.sab_amender import (
+            undeclared_layer_placements,
+            undeclared_placements_blocking_reason,
+        )
+
+        _reason = undeclared_placements_blocking_reason(
+            undeclared_layer_placements(Path(project)))
+        if not _reason:
+            return None
+        print("\n[BLOCKED] SAB.json places modules SAD.md §5 does not:")
+        print(f"  {_reason}")
+        print("  → declare each one in SAD.md §5's SAB block (or drop the "
+              "module from the baseline), then re-run "
+              "`python3 scripts/generate_sab.py --project . --overwrite` "
+              "and advance-phase.")
+        return EX_ADVANCE_SAB_PLACEMENT_UNDECLARED
+    except ImportError as _imp_err:
+        print(f"  [WARN] SAB placement check unavailable ({_imp_err}); "
+              f"SAB.json is not compared against SAD.md §5 this run")
+    except Exception as _plc_err:  # pylint: disable=broad-exception-caught
+        print(f"  [WARN] SAB placement check error: {_plc_err}")
+    return None
+
+
 def _precheck_sab_consistency(completed_phase, project) -> "int | None":
     """Every SAB finding advance-phase can act on, not just the missing files.
 
@@ -575,19 +616,31 @@ def _precheck_sab_consistency(completed_phase, project) -> "int | None":
 
     Extracted from `_precheck_p3_security_and_quality`, which is at its
     function-size ceiling, and it is the block that had to grow.
+
+    Round 101 puts `undeclared_layer_placements` FIRST, and the order is the
+    point: 7 of taskq-done's 11 CRITICAL findings below exist only because
+    `amend_sab` filed `taskq_api` and `taskq_api.errors` under `models`, so
+    reporting them before the project has been told who wrote that placement
+    sends it to fix an import its own SAD.md never forbade.
     """
     if completed_phase < 3:
         return None
+    _placement_rc = _precheck_sab_placements_are_declared(project)
+    if _placement_rc is not None:
+        return _placement_rc
     try:
         from core.quality_gate.sab_amender import (
+            UNPLACEABLE_REMEDY as _UNPLACEABLE_REMEDY,
             is_fallback_placement,
             normalize_sab_module_to_dotted,
         )
-        from detection.drift_detector import DriftDetector
+        from detection.drift_detector import (
+            ADVANCE_BLOCKING_SEVERITIES, DriftDetector,
+        )
 
         _sab_result = DriftDetector(str(project)).detect_sab_drift()
         _blocking = [_item for _item in _sab_result.drift_items
-                     if _item.severity.value in ("MEDIUM", "HIGH", "CRITICAL")]
+                     if _item.severity.value in ADVANCE_BLOCKING_SEVERITIES]
         if not _blocking:
             return None
 
@@ -603,8 +656,13 @@ def _precheck_sab_consistency(completed_phase, project) -> "int | None":
             print("    → Create the file OR remove its declaration from SAD.md")
         for _item in _unregistered:
             print(f"  [{_item.location}] delivered, in no SAB layer")
-            print("    → Add it to a layer in SAD.md §2, then re-run "
-                  "`python3 harness_cli.py amend-sab --project .`")
+            # Round 101: the old remedy here said "then re-run amend-sab".
+            # `amend_sab` reads `.methodology/SAB.json` and never SAD.md, so
+            # editing SAD.md and re-running it changes nothing — and from this
+            # round amend-sab refuses to place a module whose name states no
+            # layer, which is how most of these arrive. `generate_sab.py` is
+            # the step that carries SAD.md §5 into SAB.json.
+            print(f"    → {_UNPLACEABLE_REMEDY}")
         _sab = {}
         if _arch:
             try:
@@ -869,9 +927,34 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
     # ledger row and 5 of those ship every dependency unpinned. The reader
     # lives beside the writer (harness/ssot_manifest.py) so the sentence and
     # its executor cannot drift apart.
+    #
+    # ── Round 101 站4: and it must install what the project says it needs ──
+    # The second block compares two things this framework wrote —
+    # env_contract.json's declared toolchain and the delivered manifest — and
+    # fires whether or not the manifest was scaffolded. On taskq-done the
+    # first names `pytest_asyncio`, the tests are `pytest.mark.asyncio`, and
+    # the second does not name it.
     if completed_phase >= 3:
-        from cli.exit_codes import EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED
-        from harness.ssot_manifest import unfinished_scaffolded_manifest
+        from cli.exit_codes import (
+            EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL,
+            EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED,
+        )
+        from harness.ssot_manifest import (
+            manifest_missing_declared_tools,
+            manifest_tool_gap_reason,
+            unfinished_scaffolded_manifest,
+        )
+
+        _tool_gap = manifest_tool_gap_reason(
+            manifest_missing_declared_tools(project))
+        if _tool_gap:
+            print("\n[BLOCKED] the delivered manifest cannot rebuild the "
+                  "environment this gate measured in:")
+            print(f"  {_tool_gap}")
+            print("  → add each distribution named above to requirements.txt "
+                  "(or requirements-dev.txt / pyproject.toml) with a pinned "
+                  "version, then re-run advance-phase.")
+            return EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL
 
         _manifest_why = unfinished_scaffolded_manifest(project)
         if _manifest_why:

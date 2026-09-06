@@ -416,6 +416,208 @@ def unfinished_scaffolded_manifest(project: "str | Path") -> "str | None":
     )
 
 
+#: Manifests a Python project can declare a dependency in. `setup.cfg` is not
+#: here on purpose: every corpus project that has one uses it for
+#: import-linter contracts, and reading its section keys as package names
+#: produced thirteen imaginary "declarations" on taskq-advance, which ships no
+#: dependency manifest at all.
+_MANIFEST_FILES = ("requirements.txt", "requirements-dev.txt",
+                   "requirements.lock", "pyproject.toml")
+
+#: Present in every virtualenv because `python -m venv` puts them there, so
+#: their presence is not a declaration anyone made about this project.
+_VENV_BOOTSTRAP = frozenset({"pip", "setuptools", "wheel"})
+
+_REQ_NAME = re.compile(r'^\s*(?!-)["\']?([A-Za-z0-9][A-Za-z0-9._-]*)')
+
+#: Asked of the PROJECT's interpreter, so the answer is about the environment
+#: the gate measured in and not about this framework's own. Prints one JSON
+#: object: which distribution provides each importable name, every installed
+#: distribution, and the direct requirements of the tool names it is given.
+_DIST_PROBE = r'''
+import json, re, sys
+from importlib.metadata import packages_distributions, distributions, requires
+seeds = set(json.loads(sys.argv[1]))
+name_of = {}
+for d in distributions():
+    n = (d.metadata.get("Name") or "")
+    if n:
+        name_of[n.lower().replace("_", "-")] = n
+one_hop = set()
+for s in seeds & set(name_of):
+    for r in (requires(name_of[s]) or []):
+        if "extra ==" in r:
+            continue
+        m = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", r)
+        if m:
+            one_hop.add(m.group(0).lower().replace("_", "-"))
+print(json.dumps({"i2d": packages_distributions(),
+                  "dists": sorted(name_of), "one_hop": sorted(one_hop)}))
+'''
+
+
+def _declared_manifest_names(project: Path) -> "set[str]":
+    """Every distribution name any delivered manifest declares."""
+    names: set[str] = set()
+    for filename in _MANIFEST_FILES:
+        path = project / filename
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if filename == "pyproject.toml":
+            import tomllib
+            try:
+                data = tomllib.loads(text)
+            except Exception:  # pylint: disable=broad-exception-caught
+                print(f"[WARN] {filename} is not parseable TOML; its "
+                      f"dependencies are not counted as declared")
+                continue
+            proj = data.get("project") or {}
+            deps = list(proj.get("dependencies") or [])
+            for group in (proj.get("optional-dependencies") or {}).values():
+                deps += list(group)
+            deps += list((((data.get("tool") or {}).get("poetry") or {})
+                          .get("dependencies") or {}).keys())
+            lines = [str(d) for d in deps]
+        else:
+            lines = [ln.split("#", 1)[0] for ln in text.splitlines()]
+        for line in lines:
+            match = _REQ_NAME.match(line)
+            if match:
+                names.add(match.group(1).lower().replace("_", "-"))
+    return names
+
+
+def _framework_tool_names() -> "set[str]":
+    """This framework's own toolchain, by tool id and by command name."""
+    from harness.toolchains.registry import TOOL_SPECS
+
+    out: set[str] = set()
+    for tool_id, spec in TOOL_SPECS.items():
+        out.add(tool_id.lower().replace("_", "-"))
+        cmd = getattr(spec, "cmd", None)
+        if cmd:
+            out.add(str(cmd[0]).lower().replace("_", "-"))
+    return out
+
+
+def undeclared_tool_distributions(
+    tools: "list", probe: dict, framework_seeds: "set[str]",
+    declared: "set[str]",
+) -> "list[str]":
+    """The decision, with the I/O taken out.
+
+    *probe* is what `_DIST_PROBE` printed: `i2d` (import name → providing
+    distributions), `dists` (everything installed), `one_hop` (the direct
+    requirements of *framework_seeds*). Public because it is the seam this
+    round's tests replace — the alternative is a test that depends on which
+    packages happen to be installed on the machine running it.
+    """
+    installed = set(probe.get("dists") or [])
+    by_import = probe.get("i2d") or {}
+    excluded = set(probe.get("one_hop") or []) | framework_seeds | _VENV_BOOTSTRAP
+
+    missing: set[str] = set()
+    for tool in tools:
+        key = str(tool).lower().replace("_", "-")
+        if key in excluded:
+            continue
+        candidates = {key} & installed
+        for dist in (by_import.get(str(tool), [])
+                     + by_import.get(str(tool).replace("-", "_"), [])):
+            candidates.add(str(dist).lower().replace("_", "-"))
+        candidates &= installed
+        if not candidates or (candidates & excluded):
+            continue
+        if not (candidates & declared):
+            missing.add(sorted(candidates)[0])
+    return sorted(missing)
+
+
+def manifest_missing_declared_tools(project: "str | Path") -> "list[str]":
+    """Distributions this project says it needs that no manifest installs.
+
+    Round 101 站4. Two artifacts this framework writes describe the same
+    thing and nothing compared them. `.methodology/env_contract.json` holds
+    the toolchain the project declared and this framework probes for on every
+    run (Round 20 站1); `requirements.txt` is what
+    `scaffold_project_manifest_from_ssot` extracted from the SSOT text. On
+    taskq-done the first names `pytest_asyncio`, the project's tests are
+    `pytestmark = pytest.mark.asyncio`, `pytest_asyncio 1.4.0` is installed
+    in the venv the gate measured in — and the second does not name it. The
+    audit that opened this round found that by hand.
+
+    A name is reported when the project's own interpreter resolves it to an
+    installed distribution AND no manifest declares it. Three exclusions,
+    each measured rather than assumed:
+
+      * this framework's own tool ids and commands — charging a project for
+        `ruff` is charging it for our toolchain (Round 42);
+      * their DIRECT requirements — `coverage` arrives with `pytest-cov`.
+        One hop, not the transitive closure: the closure from this
+        framework's seeds covers 149 of the ~150 distributions in a corpus
+        venv, `pytest-asyncio` among them, which is measured and rejected;
+      * `pip`/`setuptools`/`wheel`, which `python -m venv` creates.
+
+    Abstains (empty list) when there is no `env_contract.json` or no project
+    virtualenv: a comparison with one side missing has not been made
+    (Rounds 32/35). A project with no manifest FILE is not an abstention —
+    it declares zero names, or deleting the file would clear the check.
+
+    What this does not do: find a dependency nobody declared. taskq-done's
+    missing PostgreSQL driver stays missing, because the SSOT names the
+    database and never names a package, and bridging that needs a
+    technology-to-package table.
+    """
+    import json as _json
+
+    from core.utils.subprocess_group import run_isolated
+
+    project = Path(project)
+    contract = project / ".methodology" / "env_contract.json"
+    interpreter = project / ".venv" / "bin" / "python"
+    if not contract.is_file() or not interpreter.exists():
+        return []
+    try:
+        tools = _json.loads(contract.read_text(encoding="utf-8")).get("cli_tools")
+    except (OSError, ValueError) as exc:
+        print(f"[WARN] env_contract.json unreadable ({exc}); the manifest is "
+              f"not compared against the declared toolchain this run")
+        return []
+    if not isinstance(tools, list) or not tools:
+        return []
+
+    seeds = _framework_tool_names()
+    try:
+        probe = run_isolated(
+            [str(interpreter), "-c", _DIST_PROBE, _json.dumps(sorted(seeds))],
+            timeout=60)
+        info = _json.loads(probe.stdout)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] could not ask {interpreter} what it has installed "
+              f"({exc}); the manifest is not compared against the declared "
+              f"toolchain this run")
+        return []
+
+    return undeclared_tool_distributions(
+        tools, info, seeds, _declared_manifest_names(project))
+
+
+def manifest_tool_gap_reason(missing: "list[str]") -> "str | None":
+    """Why the gate stops over the manifest's missing declarations, or None."""
+    if not missing:
+        return None
+    return (
+        f"{len(missing)} distribution(s) this project's own "
+        f".methodology/env_contract.json says it needs are installed in the "
+        f"venv the gate measured in and named by no delivered manifest: "
+        f"{', '.join(missing)}"
+    )
+
+
 def scaffold_project_manifest_from_ssot(
     project_root: "str | Path",
     language: str = "python",

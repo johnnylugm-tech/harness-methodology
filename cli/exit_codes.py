@@ -94,6 +94,19 @@ EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED = 41
 # added (`core/quality_gate/sab_amender.py:resolve_phantom` requires the
 # reason) — distinct remediation channel ⇒ own code per the Round 25 rule.
 EX_FR_STEP_PHANTOM_ABORT = 45
+# Round 101 站3. Same family as 41 and separated for the same reason: the
+# framework wrote the placement into a file it renders, so the block has to
+# say whose output is being handed back. Distinct from 12, whose SAB branch
+# reports what the DELIVERED TREE contradicts — this one reports what
+# .methodology/SAB.json says that SAD.md §5 never did, and the remediation
+# channel is `generate_sab.py`, not an edit to the code.
+EX_ADVANCE_SAB_PLACEMENT_UNDECLARED = 46
+# Round 101 站4. Distinct from 41: that one is "the scaffold is unreviewed",
+# a statement about the file's own banner. This one is a comparison between
+# two things the framework wrote — env_contract.json's declared toolchain and
+# the delivered manifest — and it fires whether or not the manifest was
+# scaffolded, including when there is no manifest at all.
+EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL = 47
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -141,6 +154,8 @@ REGISTRY: dict[int, str] = {
     EX_PHASE_RECORD_NOT_WRITTEN: "advance-phase: the phase advanced and the handover commit was made, but state.json carries no phase_completed[N] record — the fact naming the commit, the enforcer and the tree it was judged on is the framework's to write and it is not there. A project reached its terminal phase missing one such entry this way. Re-run advance-phase for that phase",
     EX_ADVANCE_SCAFFOLDED_MANIFEST_UNFINISHED: "advance-phase: requirements.txt was scaffolded by this framework from the project's own SSOTs, stamped 'REVIEW AND PIN VERSIONS BEFORE COMMIT', and still ships dependencies with no version. Read the extracted list against SAD.md/SPEC.md/SRS.md — a runtime the SSOT declares that the scaffold could not name is missing from it, not merely unpinned — pin every line, then re-run",
     EX_FR_STEP_PHANTOM_ABORT: "run-fr-step: a PHANTOM-module signature was found in the sub-agent's GATE1 output — SAB.json declares a module the codebase does not implement. Resolve each phantom by either (a) implementing the module and re-running, or (b) `python3 harness_cli.py amend-sab --project <REPO> --resolve-phantom <declared> --to <target>|--drop --reason \">=20 chars\"`, then re-run. This is NOT the UNREGISTERED direction (exit 25) — the two have distinct remediation channels; see EX_FR_STEP_INFRA_ABORT for the code→SAB direction",
+    EX_ADVANCE_SAB_PLACEMENT_UNDECLARED: "advance-phase: .methodology/SAB.json places modules in layers that SAD.md §5 neither declares nor implies from your own layer names — this framework wrote them there, and drift detection charges import violations against whichever layer it chose. Declare the layer in SAD.md §5's SAB block (or drop the module from the baseline), regenerate SAB.json with scripts/generate_sab.py --overwrite, then re-run",
+    EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL: "advance-phase: .methodology/env_contract.json names tools this project needs that no delivered manifest installs — the environment the gate measured in cannot be rebuilt from what the project ships. Add each named distribution to requirements.txt (or requirements-dev.txt / pyproject.toml), then re-run",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",

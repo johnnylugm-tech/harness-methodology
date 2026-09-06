@@ -198,14 +198,27 @@ _CEILINGS: dict[str, int] = {
     # and a return. 站2 (+11) stops this site rendering the spec-coverage block
     # as "0.0% < threshold": three of the four ways that check returns 1 are
     # structural and report 0.0 as a placeholder.
-    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 312,
+    # 337 at Round 101 站4, from 312: the manifest block gains a second
+    # comparison. `env_contract.json`'s `cli_tools` and the delivered manifest
+    # are both artifacts this framework writes and nothing read one against
+    # the other — taskq-done's contract names `pytest_asyncio`, its tests are
+    # `pytestmark = pytest.mark.asyncio`, and requirements.txt does not name
+    # it. The check itself lives in harness/ssot_manifest.py beside the
+    # scaffolder; what is here is a call, a print and a return.
+    "cli/advance_prechecks.py::_precheck_p3_security_and_quality": 337,
     # The extracted block, plus what it needed to become useful: three per-kind
     # remediation branches (a declared file not on disk, a delivered file in no
     # layer, an import the matrix forbids — three findings with three different
     # fixes) and the placement-provenance line that 57 of the corpus's 147
     # architecture violations carry. Its docstring is roughly half of it and
     # holds the measurement the whole station rests on.
-    "cli/advance_prechecks.py::_precheck_sab_consistency": 85,
+    # 102 at Round 101, from 85: the docstring records why
+    # `_precheck_sab_placements_are_declared` is called first (7 of taskq-done's
+    # 11 CRITICAL findings below are consequences of two placements this
+    # framework wrote), and the `unregistered` branch's remedy stops telling
+    # the project to re-run amend-sab — which reads SAB.json and never SAD.md,
+    # so following it produced the same refusal.
+    "cli/advance_prechecks.py::_precheck_sab_consistency": 102,
     # 614 at Round 87 站2, from 606: +8 for the `denominator_provenance` patch
     # into the committed gate result. R73/R74's parser fix moved taskq-redo's
     # declarations 97 -> 130 on the same bytes, taking 65/97 = 67.01% (PASS at
@@ -255,7 +268,10 @@ _CEILINGS: dict[str, int] = {
     # `discover_modules_at` writes into every corpus SAB made 62%-91% of
     # delivered modules ambiguous with their own layer, so the check skipped
     # them and `score = 1 - drifted/checked` counted the skip in neither term.
-    "detection/drift_detector.py::DriftDetector.detect_sab_drift": 362,
+    # 367 at Round 101 站2, from 362: five comment lines on the `unregistered`
+    # emission recording why it is MEDIUM — the severity the only consumer
+    # acts on, which for 21 corpus findings it had never been.
+    "detection/drift_detector.py::DriftDetector.detect_sab_drift": 367,
     "core/quality_gate/constitution/profile.py::_build_defaults": 304,
     # 310 at Round 80 站11, from 302 at 站2 and 261 before that: the mutmut
     # version precondition, the zero-mutant refusal, and 站11's correction that
