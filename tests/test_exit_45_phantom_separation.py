@@ -108,7 +108,6 @@ def test_check_sab_module_alignment_returns_45_for_phantom_under_fr_id():
     so run-fr-step's wrapper classifies it via _abort_dispatch_infra_or_harness_bug
     with cls='PHANTOM' and propagates 45 through to the workflow driver."""
     from cli.exit_codes import EX_FR_STEP_PHANTOM_ABORT
-    import cli.gate_cmds as _gc
 
     def _stub_phantoms(_phantoms: list[str]) -> None:
         # Module alignment needs SAB.json + src layout; rather than a full

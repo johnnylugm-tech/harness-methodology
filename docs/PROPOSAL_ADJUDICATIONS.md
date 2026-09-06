@@ -8880,3 +8880,20 @@ statement about ordering, and one element has none」—— 在 `classify_constr
 `.importlinter` 也長出了 §B 那條新合約。**全程我只有讀。**
 §A 的核心數字在重置後重量仍成立(`declared=11 / unread=109`);
 §C 的專案清單以實作後量測為準(6 個而非計畫的 5 個)。
+
+---
+
+## Round 100 — PHANTOM Precondition 與 Exit 25/45 解耦 (2026-09-06)
+
+### 背景與缺陷
+taskq-done 首次推進 Phase 3 / FR-01 / GATE1 時，因 Exit 25 混淆了兩相反向的修復管道：
+1. UNREGISTERED (代碼→SAB 漂移)：修復渠道為 `amend-sab` (無 flag)，責任為 INFRA。
+2. PHANTOM (SAB→代碼漂移)：修復渠道為 `amend-sab --resolve-phantom <declared> --to <target>|--drop --reason ">=20 chars"`，責任為 PROJECT。
+
+混淆導致 sub-agent 在 PHANTOM 模組上被指引執行無效的 `amend-sab`，外層 run-all.js driver 因無專屬分支而掉入 Round 28 的 catch-all，標記為 `phase-incomplete / owner=unknown` 並空轉 4.4 小時。
+
+### 裁決與修復
+1. 新增 `EX_FR_STEP_PHANTOM_ABORT = 45`，於 `core/fault_owner.py` 映射至 `Owner.PROJECT`。
+2. `_classify_infra_or_harness_bug` 採方向優先匹配，PHANTOM 優先，UNREGISTERED 次之，AAP violation 作為 fallback。
+3. `spec_runall.py` 與 `js_blocks.py` 補齊 `outcome.phantom_abort` 與 `outcome.infra_abort` 攔截器，分別記錄 `phantom-abort` (owner='project') 與 `infra-abort` (owner='infra')。
+

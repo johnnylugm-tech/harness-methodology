@@ -24,7 +24,6 @@ from cli.fr_cmds import (
     _abort_dispatch_infra_or_harness_bug,
     _classify_infra_or_harness_bug,
 )
-from harness.harness_bridge import _INFRA_FAIL_EVIDENCE_SIGNATURES
 # Round 100 站1: the new PHANTOM direction.
 
 
