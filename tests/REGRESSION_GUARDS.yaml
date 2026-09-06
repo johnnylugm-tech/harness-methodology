@@ -5327,3 +5327,11 @@
 - test: tests/test_the_gate_asked_for_the_root_package.py::test_the_taskq_done_shape_no_longer_demands_the_root
   bug: "the fifth instance, reproduced from taskq-done at 698b4a8: gap ['taskq_api','taskq_api.app','taskq_api.errors'] matching its ledger row verbatim; answering all three in one forbidden stanza took the gap to zero and lint-imports on that tree reports 'Contracts: 1 kept, 1 broken'"
   fixed_in: "Round 103"
+
+- test: tests/test_step_failure_budget_memory.py::test_turn_budget_kills_are_refused_across_processes
+  bug: "budget kills and blocked-human exits left no canonical step-failure row, so repeated_failure (exit 36) never fired across processes — each GATE1 invocation re-escalated CODE-FIX 50 -> 100 turns and died at 51 again (Round 102 站2)"
+  fixed_in: "R102-站2"
+
+- test: tests/test_workflowgen_parked_fr.py::test_phase3_continues_after_a_park_and_reattempts
+  bug: "a Gate-1-failed FR was never revisited in-run: after another FR repaired the state it was parked on nobody re-checked it, so it stayed Pending forever (Round 102 站3)"
+  fixed_in: "R102-站3"
