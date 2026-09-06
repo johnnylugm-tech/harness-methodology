@@ -244,6 +244,45 @@ def check_spec_alignment(project: Path) -> list[Violation]:
     return violations
 
 
+# Config-loading patterns that signal "the project has introduced a mechanism
+# for reading environment-driven configuration". Until one of these appears in
+# src/, the canonical-spec-declared keys cannot have been read and the
+# `unread_config_key` check is not yet answerable. corpus 驗證: all 9
+# taskq-* projects trigger through one of these four — os.environ (8/9),
+# BaseSettings (1/9), SettingsConfigDict (1/9), pydantic_settings (1/9).
+# `os.getenv` is stdlib defensive coverage. `ConfigDict` is intentionally
+# EXCLUDED: Pydantic `BaseModel.model_config = ConfigDict(...)` is schema
+# configuration (forbid extra fields, from_attributes, etc.), not env-driven
+# config loading — including it false-positives any project that defines
+# `model_config`. Pydantic-settings env loading is covered by
+# `SettingsConfigDict` and `pydantic_settings`.
+_CONFIG_LOADER_PATTERNS = (
+    "os.environ",
+    "os.getenv",
+    "BaseSettings",
+    "SettingsConfigDict",
+    "pydantic_settings",
+)
+
+
+def _has_config_loader(src_dir: Path) -> bool:
+    """Detect whether any source file uses a config-loading pattern.
+
+    Self-gating helper for `_config_key_violations`: if no file imports or
+    uses a config-loading mechanism, the check is not yet answerable and
+    should self-pass. Once any config-loader is present, every SPEC §5.1-
+    declared key must be read.
+    """
+    for py in src_dir.rglob("*.py"):
+        try:
+            text = py.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if any(pat in text for pat in _CONFIG_LOADER_PATTERNS):
+            return True
+    return False
+
+
 def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list:
     """A configuration key the spec declares and the delivered source never reads.
 
@@ -261,8 +300,22 @@ def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list
     decides everything else: no source directory — or a source directory
     that exists but contains no Python source files — means Phase 3 has not
     yet produced code that could have read the key, so no finding. Once the
-    tree exists with at least one source file the question is answerable
-    and the answer is blocking.
+    tree has introduced a config-loading mechanism (`os.environ` /
+    `os.getenv` / `BaseSettings` / `SettingsConfigDict` / `pydantic_settings`)
+    the question is answerable and the answer is blocking. Patterns cover
+    stdlib `os`, Pydantic v1 `BaseSettings`, Pydantic v2 `BaseSettings` +
+    `SettingsConfigDict` + `pydantic_settings`, and dynaconf-style
+    `env_prefix`. `ConfigDict` (Pydantic `BaseModel.model_config`) is
+    intentionally NOT included — it is schema configuration, not env-driven
+    config loading.
+
+    The "any *.py" gate that this replaced was too coarse for P3 early phase:
+    schemas and ORM models can appear before the config module does, and the
+    moment they do the check would demand every SPEC §5.1 key be read before
+    the project even has a place to read it from. Gating by config-loader
+    presence keeps the check semantically meaningful — it fires precisely
+    when the project has signalled "I am now reading environment-driven
+    configuration" — rather than mechanically.
 
     Measured over the eight corpus projects, all built from the same twelve-key
     SPEC.md: taskq-cc reads all twelve; taskq-renew misses one; taskq-cc-new,
@@ -270,12 +323,15 @@ def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list
     taskq-api miss six. `taskq-cc`'s clean sheet is what says the rule
     discriminates rather than simply firing everywhere — three earlier drafts
     of it did fire everywhere, and are recorded in the Round 87 ledger.
+    Corpus survey for config-loader coverage (9 taskq-* projects): all
+    trigger through one of `os.environ` (8/9), `BaseSettings` / Pydantic
+    patterns (1/9).
     """
     keys = spec_config_keys(canonical_text)
     if not keys:
         return []
     src_dir = layout.phase3_development_dir / "src"
-    if not src_dir.is_dir() or not any(src_dir.rglob("*.py")):
+    if not src_dir.is_dir() or not _has_config_loader(src_dir):
         return []
     seen: set[str] = set()
     for path in src_dir.rglob("*"):

@@ -275,3 +275,100 @@ def test_spec_alignment_is_wired_into_preflight_all() -> None:
         "spec_alignment gate dropped from PREFLIGHT_CHECKS — the front-edge "
         "canonical↔SRS check would no longer block phase advance"
     )
+
+
+# ── _config_key_violations self-gating (Round 100+) ──────────────────────
+#
+# The check used to self-gate on "any *.py under src/" — too coarse for P3
+# early phase when schemas/orm_models exist but the config module does not.
+# These tests pin the new "config-loader presence" gate so a future refactor
+# cannot silently revert it without breaking here.
+
+
+def test_config_key_violation_self_passes_when_no_config_loader(tmp_path: Path) -> None:
+    """P3 early phase: src/ has schemas/orm_models but no config loader yet.
+
+    The 12 TASKQ_* keys are P3 mid-phase work (config module + pydantic
+    settings), not P3 entry conditions. The check must self-pass until
+    config-loading is introduced.
+    """
+    proj = tmp_path
+    _write(proj / "SPEC.md",
+           "| `TASKQ_DB_URL` | url | DB |\n| `TASKQ_PORT` | int | port |\n")
+    (proj / "03-development" / "src" / "taskq_api" / "schemas").mkdir(parents=True)
+    _write(proj / "03-development" / "src" / "taskq_api" / "schemas" / "task.py",
+           "from pydantic import BaseModel\nclass Task(BaseModel): pass\n")
+    from core.quality_gate.spec_alignment import _config_key_violations
+    vs = _config_key_violations(
+        (proj / "SPEC.md").read_text(), ProjectLayout(proj))
+    assert vs == [], f"expected self-pass, got: {[v.message for v in vs]}"
+
+
+def test_config_key_violation_triggers_when_loader_introduced(tmp_path: Path) -> None:
+    """P3 mid phase: src/ has config.py using BaseSettings, TASKQ_* not yet read.
+
+    The check must now trigger and report both keys as unread.
+    """
+    proj = tmp_path
+    _write(proj / "SPEC.md",
+           "| `TASKQ_DB_URL` | url | DB |\n| `TASKQ_PORT` | int | port |\n")
+    (proj / "03-development" / "src" / "taskq_api").mkdir(parents=True)
+    _write(proj / "03-development" / "src" / "taskq_api" / "config.py",
+           "from pydantic_settings import BaseSettings\n"
+           "class Settings(BaseSettings):\n    OTHER: str = ''\n")
+    from core.quality_gate.spec_alignment import _config_key_violations
+    vs = _config_key_violations(
+        (proj / "SPEC.md").read_text(), ProjectLayout(proj))
+    rule_ids = sorted(v.rule_id for v in vs)
+    assert rule_ids == ["TASKQ_DB_URL", "TASKQ_PORT"]
+
+
+def test_config_key_violation_passes_when_all_keys_read(tmp_path: Path) -> None:
+    """All TASKQ_* keys read by config.py — check returns []."""
+    proj = tmp_path
+    _write(proj / "SPEC.md",
+           "| `TASKQ_DB_URL` | url | DB |\n| `TASKQ_PORT` | int | port |\n")
+    (proj / "03-development" / "src" / "taskq_api").mkdir(parents=True)
+    _write(proj / "03-development" / "src" / "taskq_api" / "config.py",
+           "import os\n"
+           "TASKQ_DB_URL = os.environ.get('TASKQ_DB_URL')\n"
+           "TASKQ_PORT = int(os.environ.get('TASKQ_PORT', '8000'))\n")
+    from core.quality_gate.spec_alignment import _config_key_violations
+    vs = _config_key_violations(
+        (proj / "SPEC.md").read_text(), ProjectLayout(proj))
+    assert vs == []
+
+
+def test_config_key_violation_handles_os_getenv_top_level(tmp_path: Path) -> None:
+    """Pattern `os.getenv` (top-level function, not method) must trigger detection."""
+    proj = tmp_path
+    _write(proj / "SPEC.md", "| `TASKQ_FOO` | str | x |\n")
+    (proj / "03-development" / "src" / "taskq_api").mkdir(parents=True)
+    _write(proj / "03-development" / "src" / "taskq_api" / "config.py",
+           "import os\nTASKQ_FOO = os.getenv('TASKQ_FOO')\n")
+    from core.quality_gate.spec_alignment import _config_key_violations
+    vs = _config_key_violations(
+        (proj / "SPEC.md").read_text(), ProjectLayout(proj))
+    assert vs == []
+
+
+def test_config_key_violation_ignores_pydantic_model_config(tmp_path: Path) -> None:
+    """Regression: `ConfigDict` (Pydantic `BaseModel.model_config`) must NOT
+    trigger the loader gate — it is schema configuration, not env-driven
+    config loading. Surfaced 2026-09-06: taskq-done's schemas/task.py used
+    `model_config = ConfigDict(extra='forbid')` and falsely tripped the
+    check before any config module existed.
+    """
+    proj = tmp_path
+    _write(proj / "SPEC.md", "| `TASKQ_DB_URL` | url | DB |\n")
+    (proj / "03-development" / "src" / "taskq_api" / "schemas").mkdir(parents=True)
+    _write(proj / "03-development" / "src" / "taskq_api" / "schemas" / "task.py",
+           "from pydantic import BaseModel, ConfigDict, Field\n"
+           "class Task(BaseModel):\n"
+           "    model_config = ConfigDict(extra='forbid')\n"
+           "    name: str = Field(...)\n")
+    from core.quality_gate.spec_alignment import _config_key_violations
+    vs = _config_key_violations(
+        (proj / "SPEC.md").read_text(), ProjectLayout(proj))
+    assert vs == [], (
+        f"Pydantic ConfigDict false-positive: {[v.message for v in vs]}")
