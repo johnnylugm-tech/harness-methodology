@@ -5,7 +5,7 @@
   "description": "Kill-switch circuit breaker (M1) with health monitoring, audit logging, and interrupt engine for systemic failure detection",
   "depends_on": [],
   "compat": {
-    "python": ">=3.10",
+    "python": ">=3.11",
     "harness-methodology": ">=2.3.0"
   }
 }

@@ -1,5 +1,5 @@
 # harness-methodology development helpers
-# Requires Python 3.10+ (pyproject.toml: requires-python = ">=3.10")
+# Requires Python 3.11+ (pyproject.toml: requires-python = ">=3.11")
 #
 # Usage:
 #   make test          — check Python version, then run full test suite
@@ -13,7 +13,7 @@
 #   make PYTHON=/opt/homebrew/bin/python3.11 test
 
 PYTHON     ?= python3
-PYTHON_MIN := 3.10
+PYTHON_MIN := 3.11
 
 .PHONY: help check-python test lint mutation attest setup-hooks setup
 

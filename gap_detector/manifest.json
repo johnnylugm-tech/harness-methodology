@@ -5,7 +5,7 @@
   "description": "Gap analysis engine (M3) for detecting missing requirements, orphaned code, and spec-implementation gaps",
   "depends_on": ["detection"],
   "compat": {
-    "python": ">=3.10",
+    "python": ">=3.11",
     "harness-methodology": ">=2.3.0"
   }
 }

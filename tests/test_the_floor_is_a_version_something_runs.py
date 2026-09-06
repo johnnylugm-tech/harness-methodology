@@ -120,7 +120,7 @@ def floor_statements() -> "dict[str, tuple[int, int] | None]":
         if (m := re.fullmatch(r"Programming Language :: Python :: (\d+\.\d+)", c))
         and (v := _version_tuple(m.group(1))))
 
-    return {
+    out: dict[str, tuple[int, int] | None] = {
         "pyproject.toml::requires-python":
             _version_tuple(pyproject["project"]["requires-python"]),
         "pyproject.toml::classifiers (lowest)":
@@ -139,7 +139,26 @@ def floor_statements() -> "dict[str, tuple[int, int] | None]":
                          r'"Python (\d+\.\d+)\+"'),
         "docs/USER_MANUAL.md":
             _first_match("docs/USER_MANUAL.md", r"#\s*Python (\d+\.\d+)\+"),
+        "Makefile::PYTHON_MIN":
+            _first_match("Makefile", r"PYTHON_MIN\s*:=\s*(\d+\.\d+)"),
+        "CONTRIBUTING.md::manifest schema":
+            _first_match("CONTRIBUTING.md", r'"python":\s*">=(\d+\.\d+)"'),
     }
+
+    import json
+    for manifest_path in sorted(REPO.rglob("manifest.json")):
+        if any(part.startswith(".") for part in manifest_path.parts):
+            continue
+        rel = str(manifest_path.relative_to(REPO))
+        try:
+            mdata = json.loads(manifest_path.read_text(encoding="utf-8"))
+            compat_py = (mdata.get("compat") or {}).get("python")
+            if compat_py:
+                out[f"{rel}::compat.python"] = _version_tuple(compat_py)
+        except Exception:
+            out[f"{rel}::compat.python"] = None
+
+    return out
 
 
 def declared_floor() -> "tuple[int, int]":

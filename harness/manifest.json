@@ -5,7 +5,7 @@
   "description": "Pipeline bridge, git strategy, CRG integration, effort tracker, FR progress tracker, handover generator, reviewer router, and language toolchain registry",
   "depends_on": ["quality_gate", "auto_fix"],
   "compat": {
-    "python": ">=3.10",
+    "python": ">=3.11",
     "harness-methodology": ">=2.3.0"
   }
 }

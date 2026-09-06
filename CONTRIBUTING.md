@@ -117,7 +117,7 @@ Every module in this repo follows the same minimal shape:
   "description": "<one-line description, at least 20 chars>",
   "depends_on": ["<other_module_name>", ...],
   "compat": {
-    "python": ">=3.10",
+    "python": ">=3.11",
     "harness-methodology": ">=2.3.0"
   }
 }

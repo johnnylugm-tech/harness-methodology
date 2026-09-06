@@ -105,10 +105,10 @@
   },
   "taskq-done": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all — this project has not reached P3 (not even P1 is recorded yet).",
-      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name — same reasoning as omnibot-new's entry above."
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all \u2014 this project has not reached P3 (not even P1 is recorded yet).",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name \u2014 same reasoning as omnibot-new's entry above."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
@@ -128,6 +128,15 @@
     "spec_declared": 118,
     "spec_undelivered": 31,
     "spec_unread_rows": 0
+  },
+  "taskq-forever": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: state.json shows current_phase 2 with phase_completed holding only key 1 — this project has not reached P3.",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name — same reasoning as omnibot-new's entry above."
+    },
+    "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq-new": {
     "_note": {
@@ -196,6 +205,15 @@
     "spec_declared": 89,
     "spec_undelivered": 8,
     "spec_unread_rows": 0
+  },
+  "taskq-sn": {
+    "_note": {
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all — this project is at initial scaffold and has not reached P3.",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name — same reasoning as omnibot-new's entry above."
+    },
+    "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq-super": {
     "_note": {

@@ -5,7 +5,7 @@
   "description": "Drift detection, ensemble scoring, and pattern matching for spec-code divergence",
   "depends_on": [],
   "compat": {
-    "python": ">=3.10",
+    "python": ">=3.11",
     "harness-methodology": ">=2.3.0"
   }
 }

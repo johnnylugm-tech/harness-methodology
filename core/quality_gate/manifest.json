@@ -5,7 +5,7 @@
   "description": "12-dimension quality gate scoring engine with constitution profiles, phase truth verification, and gate evaluation",
   "depends_on": [],
   "compat": {
-    "python": ">=3.10",
+    "python": ">=3.11",
     "harness-methodology": ">=2.3.0"
   }
 }
