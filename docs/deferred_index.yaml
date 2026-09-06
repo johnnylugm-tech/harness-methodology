@@ -1499,3 +1499,15 @@ entries:
     item: "缺陷 2 / 4 / 6 / 7 / 8"
     reason: "見 §0"
     reopen: "—"
+  - round: 103
+    line: 9108
+    kind: table_row
+    item: "拒絕由 `lint-imports` 判 BROKEN 的合約所給的覆蓋"
+    reason: "`architecture_constraints` 是 tier 1、threshold 100、`requires_tool_execution: true`,壞掉的合約已經 0 分並阻擋。同一件事再擋一次是**沒有活效果的絆線**(Round 30)"
+    reopen: "gate 路徑上出現不需額外執行成本的 lint-imports 判定"
+  - round: 103
+    line: 9109
+    kind: table_row
+    item: "把「目前沒有任何 import 的模組」排除出 gap"
+    reason: "實測會移除 68 個裡的 **19 個**,而且與 `contract_coverage_gap` 自己寫的理由相牴觸 ——「this reports the contract's shape and not the violation: by the time there is a violation the contract has already stopped being the thing that would have caught it」。空的 `__init__.py` 日後長出 import,正是那句話存在的理由。根套件不同,不是因為它今天沒有 import,而是因為它**根本沒有答案**"
+    reopen: "—"

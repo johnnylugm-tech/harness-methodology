@@ -9050,3 +9050,68 @@ taskq-done 是活專案。本輪量測開始時它在 FR-01,`requirements.txt` �
 
 ---
 
+## Round 103 — 阻擋清單列出一個模組,而同一段 remedy 禁止唯一能覆蓋它的做法 (2026-09-07)
+
+老闆令:把 Round 101 §3 裡記為「不做」的 `arch_contract_coverage` 第五個實例修掉。
+
+### 缺陷
+
+`_delivered_modules` 把 `src/taskq_api/__init__.py` 解析成 dotted name `taskq_api`
+—— 樹自己的**根套件**在交付模組清單裡。於是 `contract_coverage_blocking_reason`
+把它列進「要加進某份合約 sources 的模組」,而同一段訊息往下兩行寫著:
+
+> "Two shortcuts do not count ... deleting the contracts ... and **naming the
+> root package**, which covers every module you will ever add and retires this
+> check for the project."
+
+**沒有第三條路。** 任何能觸及根套件的合約都觸及它底下的一切。
+阻擋要求一件事,又禁止唯一的答法。
+
+Round 99 站3 寫了那句 remedy 並加了 `contract_decides`(不可能失敗的合約不構成覆蓋),
+但沒有移除產生這個形狀的**需求**。taskq-done 四天後走了進去 ——
+這個逃生門的第五個實例,也是第一個由讀過修正後 remedy 的專案造出來的。
+
+### 實證(從 taskq-done 的 `698b4a8` 樹逐字重現)
+
+```
+gap  ['taskq_api', 'taskq_api.app', 'taskq_api.errors']
+```
+
+三個,與它 ledger 那列 "3 delivered module(s) are outside every import-linter
+contract" 逐字相符,**根套件排第一**。專案把三個一起寫進一條 `forbidden` stanza;
+因為其中一個是根,合約覆蓋了整棵樹,gap 歸零,而同一棵樹上跑 `lint-imports` 得
+**`Contracts: 1 kept, 1 broken`** —— 根套件經由 `repository` 觸及 SQLAlchemy,
+而 `repository` 正是那條合約要豁免的層。
+
+語料 11 個(有合約且 root_package 讀得出來)專案:gap 共 **68** 個模組,
+裸根套件在其中 **8 個**專案的 gap 裡。taskq-redo 已完成到 P9,現在仍被要求覆蓋 `taskq_api`。
+
+### 修法:記錄,不阻擋(Round 54 的分法)
+
+`contract_coverage_blocking_reason` 過濾掉 `module == root_package`。
+**生產端不動** —— `record_constraint_status` 仍把**整份** gap 寫進 ledger 的
+`uncovered_modules`,`delivery_fingerprint` 仍記 `modules_outside_every_contract`,
+所以 Round 67 站0 的發現(套件自己的 `__init__.py` 可以有沒人約束的 import)完整保留。
+改變的只是:一個「唯一的滿足方式會讓專案的合約更不真」的要求,不再是停止點。
+
+比對的是合約檔自己宣告的 `root_package`,不是形狀規則 ——
+taskq-advance 寫的是 `03-development.src.taskq_api`,
+Round 101 站1b 的 `container_packages`(單段名字)對不上它。
+
+**實測**:8 個專案的 block 各少一項(5→4、5→4、3→2、13→12、5→4、2→1、15→14、20→19),
+沒有任何專案因此不再阻擋 —— 每個都還有能誠實回答的模組。
+
+### 明列不做
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| 拒絕由 `lint-imports` 判 BROKEN 的合約所給的覆蓋 | `architecture_constraints` 是 tier 1、threshold 100、`requires_tool_execution: true`,壞掉的合約已經 0 分並阻擋。同一件事再擋一次是**沒有活效果的絆線**(Round 30) | gate 路徑上出現不需額外執行成本的 lint-imports 判定 |
+| 把「目前沒有任何 import 的模組」排除出 gap | 實測會移除 68 個裡的 **19 個**,而且與 `contract_coverage_gap` 自己寫的理由相牴觸 ——「this reports the contract's shape and not the violation: by the time there is a violation the contract has already stopped being the thing that would have caught it」。空的 `__init__.py` 日後長出 import,正是那句話存在的理由。根套件不同,不是因為它今天沒有 import,而是因為它**根本沒有答案** | — |
+
+### 驗證
+
+4 條反證全部轉紅(其中 CP-2「把豁免搬到生產端」同時打紅 Round 67 站0 的測試與
+「仍被記錄」守衛,證明記錄/阻擋的分法真的被釘住),還原後 sha256 相同。
+全套 **8389 passed / 5 skipped**,guards 1294 → **1302**。
+兩支既有測試按行為變更改寫而非刪除:Round 99 的 remedy 測試改用有誠實答案的模組當觸發,
+Round 67 站0 的測試改成斷言「生產端仍算得出來、阻擋不再列它」並在 docstring 記下為什麼。

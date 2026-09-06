@@ -124,24 +124,40 @@ def test_a_contract_that_covers_the_tree_does_not_block(tmp_path):
 
 
 def test_the_package_itself_is_a_delivered_module(tmp_path):
-    """`shopfront/__init__.py` ships, so `shopfront` is a module a contract
-    has to reach — naming every submodule and not the package leaves the
-    composition root unconstrained.
+    """`shopfront/__init__.py` ships, so `shopfront` is a module no contract
+    reaches when only its submodules are named — naming every submodule and
+    not the package leaves the composition root unconstrained.
 
     This is not hypothetical: taskq-cc's ledger reports the gap as
     `["taskq_api", "taskq_api.__main__", "taskq_api.cli"]`, and the first of
     those is exactly this case — `contract_coverage_gap`'s own docstring
     records `taskq_api.app` importing SQLAlchemy directly while the contract
     read as kept.
+
+    Round 103 kept the finding and moved where it lands. The producer still
+    reports it, so `record_constraint_status`'s `uncovered_modules` row and
+    `delivery_fingerprint`'s `modules_outside_every_contract` both still carry
+    it; what stopped is the BLOCK naming it. The reason is in
+    `contract_coverage_blocking_reason`'s docstring and it is not a
+    disagreement with this test's claim: a contract that reaches the root
+    package reaches everything under it, so the block was listing a module
+    two lines above a remedy forbidding the only way to cover it, and
+    taskq-done took that route and produced a contract `lint-imports` reports
+    broken. Recorded and not blocked is Round 54's split.
     """
-    from core.quality_gate.arch_constraints import contract_coverage_blocking_reason
+    from core.quality_gate.arch_constraints import (
+        contract_coverage_blocking_reason, contract_coverage_gap,
+    )
 
     project = _project_with_a_partial_contract(tmp_path)
     _rewrite_contract(project, "shopfront.api", "shopfront.service",
                       "shopfront.cli")
 
-    reason = contract_coverage_blocking_reason(project)
-    assert reason and "shopfront" in reason, (
+    assert "shopfront" in contract_coverage_gap(project), (
         f"every submodule is named and the package itself is not, and the "
-        f"gate did not say so: {reason}"
+        f"framework did not compute it: {contract_coverage_gap(project)}"
+    )
+    assert contract_coverage_blocking_reason(project) is None, (
+        "the root package must be recorded, not blocked — there is no "
+        "contract that reaches it and reaches nothing else"
     )

@@ -570,15 +570,61 @@ def contract_coverage_blocking_reason(project: "str | Path") -> "str | None":
     project with no layering contract is not a project with a leaky one, and
     `contract_coverage_gap` returns [] there by design (Round 46's rule that
     an absent witness is absent, not failing).
+
+    ROUND 103 — THE ROOT PACKAGE IS RECORDED AND NOT BLOCKED
+
+    `src/taskq_api/__init__.py` resolves to the dotted name `taskq_api`, so
+    the bare root package is in the gap, and this block listed it among the
+    modules to cover — directly above a remedy that names covering it as one
+    of the two wrong fixes. There is no third option: a contract that reaches
+    the root package reaches everything under it, for the life of the
+    project. The block asked for something and forbade the only answer.
+
+    taskq-done walked into it four days after Round 99 站3 wrote that remedy —
+    the fifth instance of this escape and the first by a project that had
+    read the corrected wording. Reproduced from its tree at 698b4a8 with the
+    layering-only contract it had then:
+
+        gap   ['taskq_api', 'taskq_api.app', 'taskq_api.errors']
+
+    three, matching its ledger row verbatim. It answered all three in one
+    `forbidden` stanza; because one of them is the root, the gap went to zero
+    and `lint-imports` on that same tree reports `Contracts: 1 kept, 1
+    broken` — the root reaches SQLAlchemy through `repository`, the layer
+    that contract exists to exempt. Measured over the eleven corpus projects
+    with a contract and a readable root package: the bare root is in eight of
+    the eleven gaps, taskq-redo's included, and that project finished at P9.
+
+    Recorded, not blocked, is Round 54's split and it is exact here:
+    `record_constraint_status` writes the WHOLE gap to the ledger as
+    `uncovered_modules`, and `delivery_fingerprint` records it as
+    `modules_outside_every_contract`, so nothing is lost — Round 67 站0's
+    finding that a package's own `__init__.py` can hold imports no contract
+    reaches survives in both. What changes is that a demand whose only
+    satisfaction makes the project's contract less true stops being a stop.
+    That is the same judgement Round 54 made for `declared_only`, and this
+    docstring's paragraph above saying "this is not Round 54's adjudication
+    reopened" still holds for every OTHER module in the gap: the contract
+    exists, the tool runs, and adding `taskq_api.app` to a contract's sources
+    is one edit that constrains exactly it.
+
+    Deliberately NOT done here: refusing coverage credited by a contract
+    `lint-imports` reports BROKEN. `architecture_constraints` is tier 1 with
+    threshold 100 and `requires_tool_execution: true`, so a broken contract
+    already scores 0 and blocks — a second stop on the same fact would be a
+    tripwire with no live effect (Round 30). Recorded in
+    docs/PROPOSAL_ADJUDICATIONS.md with its reopen condition.
     """
     gap = contract_coverage_gap(project)
-    if not gap:
+    root_package = read_import_contracts(project)["root_package"]
+    blocking = [m for m in gap if m != root_package]
+    if not blocking:
         return None
     return (
-        f"{len(gap)} delivered module(s) are outside every import-linter "
+        f"{len(blocking)} delivered module(s) are outside every import-linter "
         f"contract, so `lint-imports` reports the contract kept no matter "
         f"what they import:\n"
-        + "\n".join(f"  {m}" for m in gap)
+        + "\n".join(f"  {m}" for m in blocking)
         + "\n    fix: add these to the source modules of a contract that "
           "constrains them, or write one that does. Two shortcuts do not "
           "count and the framework used to name the second of them here: "

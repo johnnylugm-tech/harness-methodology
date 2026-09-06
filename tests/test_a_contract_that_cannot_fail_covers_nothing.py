@@ -222,7 +222,14 @@ def test_the_constraint_classifier_reads_that_answer_too(
 
 
 def test_the_remedy_no_longer_offers_the_root_package(tmp_path) -> None:
-    """The block used to name the one action that silences it forever."""
+    """The block used to name the one action that silences it forever.
+
+    Round 103 moved the fixture's uncovered module: this used to rely on the
+    bare root package being the thing that blocks, and the root is now
+    recorded rather than blocked (`contract_coverage_blocking_reason`'s
+    docstring says why). `pkg.app` is a module with an honest answer, so the
+    block still fires and the remedy wording is still what this asserts.
+    """
     project = _project(tmp_path, """\
 [importlinter]
 root_package = pkg
@@ -233,9 +240,10 @@ type = layers
 layers =
     pkg.api
     pkg.repo
-""")
+""", modules=("api/a.py", "repo/b.py", "app.py"))
     reason = contract_coverage_blocking_reason(project)
-    assert reason, "a project with an uncovered root package must still block"
+    assert reason and "pkg.app" in reason, (
+        f"a delivered module outside every contract must still block: {reason}")
     assert "covers everything under it" not in reason, reason
 
 

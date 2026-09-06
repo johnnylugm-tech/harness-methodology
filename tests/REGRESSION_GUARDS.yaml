@@ -5295,3 +5295,35 @@
 - test: tests/test_sab_amender.py::TestLayerChoiceFollowsTheModuleName::test_an_unmatched_path_states_no_layer_and_answers_none
   bug: "replaces test_unmatched_path_still_falls_back_to_the_last_layer, which pinned the rule this round removes"
   fixed_in: "Round 101"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_the_block_does_not_name_the_root_package
+  bug: "contract_coverage_blocking_reason listed the bare root package among the modules to add to a contract's sources, two lines above a remedy calling that the wrong fix — a contract that reaches the root reaches everything under it, so the block asked for something and forbade the only answer"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_the_root_package_is_still_recorded
+  bug: "Round 54's split — the producer is unchanged so record_constraint_status's uncovered_modules row and delivery_fingerprint's modules_outside_every_contract still carry the root; only the stop moved"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_a_module_outside_every_contract_is_still_blocked
+  bug: "reverse control — the rule must not read as 'nothing blocks'; the count in the message must describe what is being blocked on, not the gap it was filtered from"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_a_sub_package_is_still_blocked
+  bug: "only the root is exempt; a sub-package can be named in a contract without covering everything, so it keeps its honest answer"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_the_root_is_exempt_in_the_projects_own_spelling
+  bug: "taskq-advance writes root_package = 03-development.src.taskq_api; a rule keyed on 'a single dotted segment' (sab_amender.container_packages) misses it, so the exemption compares against what the contract file declares"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_naming_the_root_still_covers_what_is_under_it
+  bug: "false-accusation control (Round 46) — a deliberate whole-tree forbidden ban is a real boundary and still confers coverage; this round stops the framework ASKING for it, not the project choosing it"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_a_project_whose_only_gap_was_the_root_stops_blocking
+  bug: "a project that covers every module it can answer for was held open by the one question it cannot answer truthfully"
+  fixed_in: "Round 103"
+
+- test: tests/test_the_gate_asked_for_the_root_package.py::test_the_taskq_done_shape_no_longer_demands_the_root
+  bug: "the fifth instance, reproduced from taskq-done at 698b4a8: gap ['taskq_api','taskq_api.app','taskq_api.errors'] matching its ledger row verbatim; answering all three in one forbidden stanza took the gap to zero and lint-imports on that tree reports 'Contracts: 1 kept, 1 broken'"
+  fixed_in: "Round 103"
