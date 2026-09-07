@@ -49,14 +49,26 @@ pytestmark = [pytest.mark.core]
 
 
 def _project(tmp_path: Path, importlinter: str) -> Path:
-    """A delivered tree with four modules and the given contract file."""
+    """A delivered tree with five modules and the given contract file.
+
+    `orphan` is named by no contract in any fixture here, and every assertion
+    below requires it to BE reported. Without it these tests pass vacuously
+    when import-linter is absent: the abstention empties the gap, and "config
+    is not in the gap" is then true because nothing is. The gap has to be
+    exactly `['taskq_api.orphan']` — proof that the check ran AND that the
+    grammar was read.
+    """
     root = tmp_path / "proj"
     pkg = root / "taskq_api"
     pkg.mkdir(parents=True)
-    for name in ("app", "config", "exceptions", "service"):
+    for name in ("app", "config", "exceptions", "service", "orphan"):
         (pkg / f"{name}.py").write_text("", encoding="utf-8")
     (root / ".importlinter").write_text(importlinter, encoding="utf-8")
     return root
+
+
+#: The one delivered module no fixture's contract names.
+_ORPHAN = ["taskq_api.orphan"]
 
 
 _HEADER = "[importlinter]\nroot_package = taskq_api\n\n"
@@ -83,10 +95,11 @@ def test_pipe_separated_siblings_are_two_sources(tmp_path) -> None:
         "    taskq_api.app\n"
         "    taskq_api.service\n"
         "    taskq_api.config | taskq_api.exceptions\n"))
-    gap = contract_coverage_gap(project)
-    assert "taskq_api.config" not in gap and "taskq_api.exceptions" not in gap, (
+    assert contract_coverage_gap(project) == _ORPHAN, (
         "`a | b` names two independent sibling layers (import-linter "
-        f"contracts/layers.py:19); both were reported outside every contract: {gap}")
+        "contracts/layers.py:19); both must be covered, and `orphan` — which "
+        "no layer names — must still be reported, so an abstention cannot "
+        f"pass for a parse: {contract_coverage_gap(project)}")
 
 
 def test_colon_separated_siblings_are_two_sources(tmp_path) -> None:
@@ -98,8 +111,7 @@ def test_colon_separated_siblings_are_two_sources(tmp_path) -> None:
         "    taskq_api.app\n"
         "    taskq_api.service\n"
         "    taskq_api.config : taskq_api.exceptions\n"))
-    gap = contract_coverage_gap(project)
-    assert "taskq_api.config" not in gap and "taskq_api.exceptions" not in gap, gap
+    assert contract_coverage_gap(project) == _ORPHAN, contract_coverage_gap(project)
 
 
 def test_an_optional_layer_is_still_a_named_module(tmp_path) -> None:
@@ -110,8 +122,9 @@ def test_an_optional_layer_is_still_a_named_module(tmp_path) -> None:
     project = _project(tmp_path, _layers(
         "    taskq_api.app\n"
         "    taskq_api.service\n"
+        "    taskq_api.exceptions\n"
         "    (taskq_api.config)\n"))
-    assert "taskq_api.config" not in contract_coverage_gap(project)
+    assert contract_coverage_gap(project) == _ORPHAN, contract_coverage_gap(project)
 
 
 def test_containers_prefix_every_layer(tmp_path) -> None:
@@ -123,12 +136,10 @@ def test_containers_prefix_every_layer(tmp_path) -> None:
     project = _project(tmp_path, _layers(
         "    app\n    service\n    config\n    exceptions\n",
         extra="containers =\n    taskq_api\n"))
-    gap = contract_coverage_gap(project)
-    for module in ("taskq_api.app", "taskq_api.service",
-                   "taskq_api.config", "taskq_api.exceptions"):
-        assert module not in gap, (
-            f"{module} is `containers` + a layer tail and was reported "
-            f"outside every contract: {gap}")
+    assert contract_coverage_gap(project) == _ORPHAN, (
+        "each layer is `containers` + a tail; reading a tail as a full module "
+        "name leaves every delivered module outside every contract: "
+        f"{contract_coverage_gap(project)}")
 
 
 # ── what the framework may not decide ───────────────────────────────────────

@@ -27,6 +27,25 @@ jobs:
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
             | sudo tar -xz -C /usr/local/bin gitleaks
 
+      # Round 105 站1a. core/quality_gate/arch_constraints.layer_module_tails
+      # reads `.importlinter` through import-linter's own field parser, because
+      # the grammar is import-linter's and a second copy of it here is what let
+      # `a | b` be read as one module name. The framework already declares this
+      # dependency — harness/toolchains/bootstrap.PINS — and installs it into a
+      # project's venv as PIP_STEPS "gate-extras"; that whole step is NOT run
+      # here, because its other two members (scancode-toolkit, code-review-graph)
+      # need host ICU and a separate resolve. So just this one, and the version
+      # is READ from PINS rather than written again: the pin has one home
+      # (bootstrap.py's own comment says so) and this would have been its third.
+      #
+      # Without it, tests/test_the_contract_grammar_belongs_to_import_linter.py
+      # fails four of nine here — measured, not assumed. It fails rather than
+      # skips on purpose (Round 46): a guard that stands down when its subject
+      # is missing reports a clean bill for a check that did not run.
+      - name: Install the import-linter parser (pin read from the install SSOT)
+        run: |
+          pip install "$(python -c 'from harness.toolchains.bootstrap import PINS; print("import-linter==" + PINS["import-linter"])')"
+
       # Round 67 站5: one list of checks, run here and by scripts/hooks/pre-push.
       # Splitting it back into per-step `run:` lines re-creates the drift this
       # replaced — the hook cannot see a step that exists only in this file.
