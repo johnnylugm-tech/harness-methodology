@@ -45,6 +45,9 @@ from typing import Optional
 import yaml
 
 from core.quality_gate.gate_thresholds import load_gate_thresholds
+from core.quality_gate.legal_artifacts import (
+    TEMPLATE_EXAMPLE_MARKER as _EXAMPLE_MARKER,
+)
 
 
 @dataclass
@@ -483,7 +486,7 @@ def render_canonical_sab_template(
         if f.name in _RENDERED_FIRST:
             continue
         if f.name == "layers":
-            lines.append("  layers:  # EXAMPLE — replace with your project's layers")
+            lines.append(f"  layers:  # {_EXAMPLE_MARKER} with your project's layers")
             lines.append(f"    - name: {layer_example}")
             lines.append("      modules:")
             lines.append(f'        - name: "{module_example}"')
@@ -503,10 +506,18 @@ def render_canonical_sab_template(
             lines.append(f"    - from: {layer_example}")
             lines.append("      to: service")
         elif f.name == "quality_targets":
+            # Round 105 站3: marked, like `layers` above. These three numbers
+            # are this framework's, not the project's, and `min_coverage`
+            # reaches `advance_checks._check_gate1_live_coverage` through
+            # `min_coverage_floor` — taskq-sn inherited 80 and ran its Gate 1
+            # coverage check there while its own SPEC.md required 100.
+            # The marker text is `legal_artifacts.TEMPLATE_EXAMPLE_MARKER`, so
+            # the wording the guard looks for and the wording a reader sees
+            # cannot drift apart.
             lines.append("  quality_targets:")
-            lines.append("    max_complexity: 15")
-            lines.append("    min_coverage: 80")
-            lines.append("    max_coupling: 0.3")
+            for _target in ("max_complexity: 15", "min_coverage: 80",
+                            "max_coupling: 0.3"):
+                lines.append(f"    {_target}  # {_EXAMPLE_MARKER}")
         elif f.name == "nfr_dimension_mapping":
             lines.append("  nfr_dimension_mapping: {}  # OPTIONAL — auto-derived from nfr_traceability.type")
         elif f.name == "nfr_traceability":

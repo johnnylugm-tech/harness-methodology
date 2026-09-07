@@ -366,9 +366,9 @@ are not re-opened. This bounds backtracking to a single step.
         to: service
   
     quality_targets:
-      max_complexity: 15
-      min_coverage: 80
-      max_coupling: 0.3
+      max_complexity: 15  # EXAMPLE — replace
+      min_coverage: 80  # EXAMPLE — replace
+      max_coupling: 0.3  # EXAMPLE — replace
   
     nfr_dimension_mapping: {}  # OPTIONAL — auto-derived from nfr_traceability.type
   

@@ -27,6 +27,12 @@ def test_legal_artifacts_exports() -> None:
         # the template in four of seven cases while being hand-written three
         # times per deliverable in the spec renderers.
         "DELIVERABLE_ANCHORS", "anchor_for",
+        # Round 105 站3 — the inverse registry: the text a template ships and
+        # the project must REPLACE, rather than keep. Same module for the same
+        # reason, and the guard over it is
+        # tests/test_a_template_example_says_it_is_one.py.
+        "SAB_TEMPLATE_EXAMPLE_VALUES", "TEMPLATE_EXAMPLE_MARKER",
+        "TEMPLATE_EXAMPLE_VALUES",
     }
 
 

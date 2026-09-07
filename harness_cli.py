@@ -149,6 +149,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         project needs that no delivered manifest installs — the environment
         the gate measured in cannot be rebuilt from what the project ships.
         Add each named distribution to a manifest, then re-run.
+    48  advance-phase --completed-phase 2: the SAB declares an architecture
+        constraint a tool this framework runs decides, and this project has
+        not configured that tool to decide it. Write the config the block
+        names (or drop the declaration), then re-run.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

@@ -107,6 +107,13 @@ EX_ADVANCE_SAB_PLACEMENT_UNDECLARED = 46
 # the delivered manifest — and it fires whether or not the manifest was
 # scaffolded, including when there is no manifest at all.
 EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL = 47
+# Round 105 站1b. Phase 2 exit only. Distinct from 12 and 46, which compare
+# the SAB against the delivered tree: this one compares the SAB's declared
+# architecture constraints against the CONFIG the tool that decides them
+# reads, and it fires at the boundary that closes the phase which produced
+# the declaration. finalize_gate has raised the same fact since Round 54, but
+# Phase 2 has no gate, so the first time anyone heard it was Phase 3.
+EX_ADVANCE_CONSTRAINT_UNCONFIGURED = 48
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -156,6 +163,7 @@ REGISTRY: dict[int, str] = {
     EX_FR_STEP_PHANTOM_ABORT: "run-fr-step: a PHANTOM-module signature was found in the sub-agent's GATE1 output — SAB.json declares a module the codebase does not implement. Resolve each phantom by either (a) implementing the module and re-running, or (b) `python3 harness_cli.py amend-sab --project <REPO> --resolve-phantom <declared> --to <target>|--drop --reason \">=20 chars\"`, then re-run. This is NOT the UNREGISTERED direction (exit 25) — the two have distinct remediation channels; see EX_FR_STEP_INFRA_ABORT for the code→SAB direction",
     EX_ADVANCE_SAB_PLACEMENT_UNDECLARED: "advance-phase: .methodology/SAB.json places modules in layers that SAD.md §5 neither declares nor implies from your own layer names — this framework wrote them there, and drift detection charges import violations against whichever layer it chose. Declare the layer in SAD.md §5's SAB block (or drop the module from the baseline), regenerate SAB.json with scripts/generate_sab.py --overwrite, then re-run",
     EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL: "advance-phase: .methodology/env_contract.json names tools this project needs that no delivered manifest installs — the environment the gate measured in cannot be rebuilt from what the project ships. Add each named distribution to requirements.txt (or requirements-dev.txt / pyproject.toml), then re-run",
+    EX_ADVANCE_CONSTRAINT_UNCONFIGURED: "advance-phase --completed-phase 2: the SAB declares an architecture constraint that a tool this framework runs decides, and this project has not configured that tool to decide it — most often a constraint about layering or a forbidden import with no matching [importlinter:contract:…] section. Write the config the block names (or drop the declaration from SAD.md §5's SAB block), then re-run. Phase 3 onward raises the same fact inside finalize-gate",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",

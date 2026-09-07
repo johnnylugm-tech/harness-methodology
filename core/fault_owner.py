@@ -190,6 +190,11 @@ OWNER_BY_EXIT: dict[int, str] = {
     # party that has no standing to make it.
     46: Owner.PROJECT,
     47: Owner.PROJECT,
+    # Round 105 站1b. The project's, and unambiguously so: the constraint is
+    # one the project declared in its own SAB, the tool that decides it is one
+    # this framework already installs, and the block names the config file and
+    # section to write. Nothing here is the framework's to fix.
+    48: Owner.PROJECT,
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

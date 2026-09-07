@@ -44,6 +44,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from core.quality_gate import artifact_consistency  # noqa: E402
 from core.quality_gate.spec_alignment import (  # noqa: E402
     spec_config_keys, structural_fr_ids,
 )
@@ -226,8 +227,20 @@ def compute_over_spec_score(
 ) -> dict:
     """Score a single AC against the canonical spec.
 
-    Returns dict {over_spec_score, best_match_ratio, derived_present, verdict}
-    where verdict ∈ {'verbatim', 'interpreted', 'invention'}.
+    Returns dict {over_spec_score, best_match_ratio, derived_present, verdict,
+    verdict_basis} where verdict ∈ {'verbatim', 'interpreted', 'invention'}
+    and verdict_basis ∈ {'token_overlap', 'derived_tag'}.
+
+    Round 105 站2 adds `verdict_basis`, and adds nothing else: no threshold
+    moves and no verdict changes. `interpreted` names two different events and
+    the report said one word for both — a clause this framework MEASURED as
+    overlapping the canonical text, and a clause with no measurable overlap
+    that carries a `DERIVED:` tag the project wrote. Across the thirteen
+    corpus projects, 378 of 479 `interpreted` verdicts (79%) are the second
+    kind, only 114 of 669 clauses clear the ratio on their own, and 658 of the
+    661 tags already name a canonical location — so demanding a resolvable
+    citation would change nothing. Agent B's job is to check what A declared;
+    it cannot do that while the declaration is laundered into a measurement.
     """
     ratio = _best_match_ratio(ac_text, canonical_sentences)
     # score = (1 - ratio) + penalty if interpretive choices without DERIVED
@@ -247,18 +260,26 @@ def compute_over_spec_score(
 
     score = min(1.0, (1.0 - ratio) + penalty)
 
+    # The `ratio >= 0.45 or derived_present` branch, split so the report can
+    # say which half fired. Order and outcome are unchanged: a clause the
+    # overlap already decides keeps `token_overlap` whether or not a tag is
+    # also present, which `test_the_tag_does_not_change_a_verdict_the_overlap
+    # _already_decided` pins.
     if ratio >= 0.85:
-        verdict = "verbatim"
-    elif ratio >= 0.45 or derived_present:
-        verdict = "interpreted"
+        verdict, basis = "verbatim", "token_overlap"
+    elif ratio >= 0.45:
+        verdict, basis = "interpreted", "token_overlap"
+    elif derived_present:
+        verdict, basis = "interpreted", "derived_tag"
     else:
-        verdict = "invention"
+        verdict, basis = "invention", "token_overlap"
 
     return {
         "over_spec_score": round(score, 3),
         "best_match_ratio": round(ratio, 3),
         "derived_present": derived_present,
         "verdict": verdict,
+        "verdict_basis": basis,
     }
 
 
@@ -300,6 +321,18 @@ def build_diff_report(
         record = {
             "label": c["label"],
             "fr_id": c["fr_id"],
+            # Round 105 站2: which unit this score covers. The Phase 1 prompt
+            # authorises two shapes for an acceptance criterion — its own
+            # `#### AC-x.y` heading, or a bolded bullet under an
+            # `**Acceptance criteria**` label — and `_split_ac_clauses` slices
+            # on headings, so taskq-sn (95 AC headings) is scored once per
+            # criterion and taskq-done (84 bullets, 0 headings) once per
+            # REQUIREMENT, its FR-01 body running to 2,689 characters over
+            # eight criteria. Both are read; the numbers are not comparable,
+            # and a longer unit has more token overlap and needs one
+            # `DERIVED:` for the whole section.
+            "unit": ("criterion" if c["label"].upper().startswith("AC")
+                     else "requirement"),
             "score": score,
         }
         per_ac.append(record)
@@ -308,6 +341,14 @@ def build_diff_report(
 
     summary = {
         "total_ac": len(per_ac),
+        # What the SRS actually declares, from the parser that reads both
+        # authorised shapes. `total_ac` is the count of units the splitter
+        # produced and has been published under this name since the report
+        # existed; for taskq-done that is 22 against 84 real criteria.
+        "total_acceptance_criteria": sum(
+            len(v) for v in
+            artifact_consistency.acceptance_criteria_from_text(
+                _without_machine_block(srs_text)).values()),
         "verbatim_count": sum(1 for r in per_ac if r["score"]["verdict"] == "verbatim"),
         "interpreted_count": sum(1 for r in per_ac if r["score"]["verdict"] == "interpreted"),
         "invention_count": high_count,

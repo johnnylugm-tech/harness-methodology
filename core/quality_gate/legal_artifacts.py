@@ -35,7 +35,57 @@ This module is the authoritative list for both runtime gates.
 
 from __future__ import annotations
 
-__all__ = ["LEGAL_ARTIFACTS", "PHASE_DELIVERABLES", "DELIVERABLE_ANCHORS", "anchor_for"]
+__all__ = ["LEGAL_ARTIFACTS", "PHASE_DELIVERABLES", "DELIVERABLE_ANCHORS", "anchor_for",
+           "SAB_TEMPLATE_EXAMPLE_VALUES", "TEMPLATE_EXAMPLE_MARKER",
+           "TEMPLATE_EXAMPLE_VALUES"]
+
+
+# ── the inverse of DELIVERABLE_ANCHORS ──────────────────────────────────────
+# That registry names the text a template ships and the project must KEEP.
+# This one names the text a template ships and the project must REPLACE.
+#
+# Round 105 站3. Both registries exist for the same reason: this framework
+# writes files into the tree it later judges, and every value it invents in
+# one of them is an answer the project was supposed to give. Measured across
+# the corpus, whether the project actually replaces it turns on one thing —
+# whether the line says it is an example:
+#
+#     SAB `layers` (app.api.routes, …)      marked     0 / 13 shipped as-is
+#     SAB quality_targets.min_coverage: 80  UNMARKED   2 / 13 shipped as-is
+#     TEST_INVENTORY `*_example_*` names    UNMARKED   3 / 13 shipped as-is
+#
+# `min_coverage` is not decoration: `advance_checks._check_gate1_live_coverage`
+# reads it through `min_coverage_floor`, so taskq-sn's Gate 1 live-coverage
+# check ran at 80% while its own SPEC.md required TOTAL 100%.
+#
+# The marker is checked at the TEMPLATE end only. "The delivered file still
+# says 80" is not a defect — a project that considered the question and chose
+# 80 must not be accused of inheriting it, and nothing here can tell those two
+# apart (Round 46).
+TEMPLATE_EXAMPLE_MARKER = "EXAMPLE — replace"
+
+#: The invented values in the SAB block, which `sab_parser` renders and
+#: `templates/SAD.md` / `docs/P2_SOP.md` hand-copy. Listed once here so the
+#: generator and both copies are held to the same rule.
+SAB_TEMPLATE_EXAMPLE_VALUES: tuple[str, ...] = (
+    "max_complexity: 15",
+    "min_coverage: 80",
+    "max_coupling: 0.3",
+)
+
+#: Repo-relative file -> the values in it this framework invented. Every line
+#: containing one must carry TEMPLATE_EXAMPLE_MARKER.
+TEMPLATE_EXAMPLE_VALUES: dict[str, tuple[str, ...]] = {
+    # Copied into every new project's root by cli/project_cmds.py.
+    "templates/TEST_INVENTORY.yaml": (
+        "test_fr01_example_integration",
+        "test_fr01_example_unit",
+        "test_security_example",
+        "test_deployment_example",
+    ),
+    "templates/SAD.md": SAB_TEMPLATE_EXAMPLE_VALUES,
+    "docs/P2_SOP.md": SAB_TEMPLATE_EXAMPLE_VALUES,
+}
 
 
 # Forward-reference whitelist, keyed by stage directory.

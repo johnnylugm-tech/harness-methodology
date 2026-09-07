@@ -34,13 +34,13 @@ test_inventory:
       fr: FR-01
       ac: AC-1.1
       layer: integration
-      test_function: test_fr01_example_integration
+      test_function: test_fr01_example_integration  # EXAMPLE — replace
       test_file: tests/integration/test_fr01.py
     - tc_id: TC-FR01-02
       fr: FR-01
       ac: AC-1.2
       layer: unit
-      test_function: test_fr01_example_unit
+      test_function: test_fr01_example_unit  # EXAMPLE — replace
       test_file: tests/unit/test_fr01.py
       cross_ref_nfrs: [NFR-02]
     # An NFR whose verifier is a unit or static check belongs here with its
@@ -49,13 +49,13 @@ test_inventory:
       nfr: NFR-02
       ac: AC-N2.1
       layer: static
-      test_function: test_security_example
+      test_function: test_security_example  # EXAMPLE — replace
       test_file: tests/static/test_nfr02.py
     - tc_id: TC-N09-01
       nfr: NFR-09
       ac: AC-N9.1
       layer: integration
-      test_function: test_deployment_example
+      test_function: test_deployment_example  # EXAMPLE — replace
       test_file: tests/integration/test_nfr09.py
   coverage_summary:
     total_test_cases: 4
@@ -76,12 +76,12 @@ test_inventory:
 fr_tests:
   FR-01:
     unit:
-      - test_fr01_example_unit
+      - test_fr01_example_unit  # EXAMPLE — replace
     integration:
-      - test_fr01_example_integration
+      - test_fr01_example_integration  # EXAMPLE — replace
 
 cross_cutting:
   security:
-    - test_security_example
+    - test_security_example  # EXAMPLE — replace
   deployment:
-    - test_deployment_example
+    - test_deployment_example  # EXAMPLE — replace

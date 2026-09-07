@@ -107,6 +107,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _MYPY_EXCLUDE_ARGS,
     _precheck_backup_artifacts,
     _precheck_cleared_dir_evidence,
+    _precheck_declared_constraints_are_configured,
     _precheck_deliverable_anchors,
     _precheck_early_stage_pass,
     _precheck_manifest_and_p1_baselines,
@@ -2005,6 +2006,17 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # See _broken_deliverable_anchors for the measurement.
     _anchor_breaks = _broken_deliverable_anchors(project)
     _pre_rc = _precheck_deliverable_anchors(_anchor_breaks, completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # ── Phase 2 exit: a declared constraint must have its checker on ──
+    # Round 105 站1b. Placed with the other cheap, deterministic reads and
+    # ahead of the auditor because the fact is already computed — Round 54's
+    # `unconfigured_blocking_reason` has raised it inside finalize_gate since
+    # it was written, and Phase 2 is the one boundary with no gate behind it.
+    # Phase 3 onward is deliberately NOT asked here: finalize_gate answers it
+    # there with more evidence, and two layers on one source is Round 20.
+    _pre_rc = _precheck_declared_constraints_are_configured(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

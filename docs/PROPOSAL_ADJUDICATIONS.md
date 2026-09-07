@@ -9223,3 +9223,155 @@ Round 67 站0 的測試改成斷言「生產端仍算得出來、阻擋不再列
 * 地板日後若降回 3.10,`testpaths_scope` 的錯答案會無聲回來 ——
   守衛只比對「陳述一致 + CI 跑過」,不會發現「地板降了但 tomllib 還在」。
 * 主張 2、3 今天**零活實例**:站2 修的是「下一個呼叫端會不會再接錯」,不是誰現在壞了。
+
+---
+
+## Round 105 — 文法、單位、預設值,三樣都是框架自己填的 (2026-09-07)
+
+**來源**:一份對 **taskq-sn P1/P2 產出物**的審計報告(9 條)。
+老闆令:重新驗證真實性與根源性,明確根源是 harness bug 還是 workflow JS bug,
+正解不用 workaround,不破壞共通性。老闆退回一次:「方案本身也要先驗證,不能引入其他副作用。」
+
+**判定:4 條 harness bug、3 條同意非缺陷、2 條專案端(其一與 harness bug 同一件事)。
+零 workflow JS bug** —— 三站全部改 Python 與 templates,`.claude/workflows/*.js` 零變更
+(`--check` 10 OK,`git status` 空)。
+
+### §0 逐條複核
+
+| # | 報告主張 | 判定 | 責任 |
+|---|---|---|---|
+| 1 | `\|` 同級模組解析崩潰 | **屬實,逐位元組復現,有活受害者** | harness |
+| 2 | P2 Exit 無 `.importlinter` 落地阻擋 | **屬實**,框架早就算得出那句阻擋 | harness |
+| 3 | 109 處「需求發明」 | **現象屬實,報告的歸因錯誤** | harness |
+| 4 | `min_coverage: 80` 自我放水 | **屬實**,根源是未標記的範例數字 | harness(模板) |
+| 5 | SPEC_TRACKING 49 行 | **同意非缺陷** | — |
+| 6 | TRACEABILITY 179 行 | **同意非缺陷** | — |
+| 7 | TEST_INVENTORY 抄範例 | **屬實,但不是純專案怠惰** | harness(模板)+ project |
+| 8 | P2 未交付 `.importlinter` | 屬實,與 #2 是同一件事的兩面 | project |
+| 9 | ADR 10 篇 / SEC 6 條 | **同意非缺陷** | — |
+
+### §1 主張 1 —— 屬實,而且比報告說的更廣
+
+import-linter 2.5.2 `contracts/layers.py:19-20` 定義**兩個**分隔符(`|` 獨立兄弟、
+`:` 非獨立兄弟),外加 `(m)` optional、`containers` 相對前綴、`ModuleExpressionField` 的 `*`。
+`read_import_contracts` **只切換行**,五種一種都不認。
+
+逐位元組復現(`git show f97e5be^:.importlinter`):
+
+```
+OLD sources -> [..., 'taskq_api.config | taskq_api.exceptions']
+covered?    -> {'taskq_api.config': False, 'taskq_api.exceptions': False}
+```
+
+**活受害者,且專案自己診斷對了。** taskq-sn `f97e5be` 的 commit message 逐字寫著
+框架「splits `layers =` only on newlines」,然後**把 `a | b` 拆成兩行** ——
+那不是等價改寫(`a | b` 是同層獨立兄弟,兩行是 `a` 高於 `b`)。
+**專案改掉自己的架構宣告來遷就框架的解析器**,R42。
+
+`containers` 更嚴重:用了它,`layers` 全是相對 tail,框架會把**整個交付樹**報成未覆蓋。
+
+### §2 主張 3 —— **報告的歸因是錯的**
+
+報告說 taskq-done/redo「輕易突破 ratio >= 0.45」。**實測:done 0.25、redo 0.217、
+final FR-01 0.067 —— 一條都沒突破。它們過關靠的是 `DERIVED:` 標籤。**
+
+13 專案 669 條 clause 全量:`ratio>=0.85` **13(1.9%)**;`ratio>=0.45` **114(17%)**;
+verdict=interpreted **只因為有 DERIVED 標籤 378/479(79%)**。
+taskq-new 124 個標籤 → 0 invention;taskq-sn 全檔 2 個 → 109。
+661 個標籤中 **658(99%)已經有引用**,所以「要求引用可解析」擋不住任何人
+—— 這條修法被我自己的量測否決。
+
+> **taskq-sn 的 109 條不是「它發明了 109 件事」的證據,是「它沒寫那個 token」的證據。**
+
+第二個獨立缺陷:**評分的單位由專案的排版決定**。P1 prompt 授權兩種 AC 寫法,
+`_split_ac_clauses` 只切標題:taskq-sn 95 個 AC 標題 → 117 個單位(逐條);
+taskq-done 0 標題 / 84 項目 → 22 個單位(整節,一個 `DERIVED:` 蓋住 8 條)。
+**兩邊都被讀了**(done 的 FR-01 body 2689 字元含全部 8 條)—— 我原本寫
+「84 條一條都沒被讀過」,**被自己的量測推翻,指控收回**。
+`artifact_consistency.py:369` 自 Round 87 就寫著 canonical_diff「has never seen an AC」,沒有執行者。
+
+### §3 主張 4 / 7 —— 同一個根源:框架把**未標記**的範例值寫進交付樹
+
+| 範例值 | 有標記? | 被原封不動交付 |
+|---|---|---|
+| SAB `layers`(`app.api.routes` …) | **有** | **0 / 13** |
+| SAB `quality_targets.min_coverage: 80` | 無 | **2 / 13**(sn、final) |
+| TEST_INVENTORY 四個 `*_example_*` | 無 | **3 / 13**(sn、wow、forever,各 4 個) |
+
+**標記與否是唯一的變數。** 而且 `min_coverage: 80` 會改判定:
+`advance_checks._check_gate1_live_coverage` 讀 `min_coverage_floor(manifest)`,
+taskq-sn 的 Gate 1 現場覆蓋率跑在 80%,而它自己的 `SPEC.md:358/442` 寫 **TOTAL 100%**。
+
+### §4 修復
+
+* **站1a**:`layer_module_tails` 把文法交還 import-linter(`LayerField` /
+  `ModuleExpressionField`)。**不動 `requirements.txt`** —— 框架早就以
+  `PINS` + `PIP_STEPS["gate-extras"]` 宣告並安裝它,而第一版計畫寫的「加進 requirements.txt」
+  會讓 `test_install_command_ssot` 變紅並抵觸兩步安裝的既有理由(ResolutionImpossible)。
+  不可用時**不回退到換行解析**:沒有文法字元 → 換行解析可證明等價(語料 13/13);
+  有文法字元或萬用字元 → **整個檔案棄權**(`covered` 是聯集,少算一份契約就等於誣告),
+  並寫 `owner="harness"` 的 ledger 列。
+* **站1b**:`_precheck_declared_constraints_are_configured`,**只在 P2**,
+  呼叫既有的 `classify_constraints` + `unconfigured_blocking_reason`,exit **48**。
+  P3+ 不掛(finalize_gate 已在做,兩層同源是 R20)。
+* **站2**:**純新增欄位,零 verdict 改變**。`verdict_basis`(token_overlap / derived_tag)、
+  `unit`(criterion / requirement)、`total_acceptance_criteria`(走
+  `artifact_consistency.acceptance_criteria_from_text`,一份實作兩個入口)。
+* **站3**:`legal_artifacts.TEMPLATE_EXAMPLE_MARKER` / `TEMPLATE_EXAMPLE_VALUES`
+  —— `DELIVERABLE_ANCHORS` 的反面(該保留的 vs 該替換的),
+  加一支守衛斷言每個範例值都帶標記。
+
+### §5 驗證(全部實跑)
+
+* 全套:改前 **8414 passed / 5 skipped / 0 failed** → 改後 **8444 / 5 / 0**(+30 = 新守衛)。
+* `read_import_contracts` / `contract_coverage_gap` / `classify_constraints`
+  13 專案 A/B:**逐項相同,diff = 0**。站1a 今天零行為改變,純結構。
+* `build_diff_report` 14 專案 A/B:**既有欄位逐位元組相同**,只多出三個新欄位。
+* taskq-sn `a6bf87f`(P2 完成)樹重播:站1b 回 **48**,訊息含 config 檔名與 section;
+  phase 3 回 None(finalize_gate 的)。
+* P2 出口阻擋的**代價**:今天 13 個語料專案有 **5 個**會被擋
+  (api / new / plus / renew / super)。這是對外可見的行為改變,寫在這裡。
+* ruff `All checks passed`;mypy(3.11)只剩既有的 yaml stub 兩則。
+* 反證 8 支全部先紅後綠,還原後 sha256 逐檔相同。**CP-8** 值得記:
+  一份**忠實且數字完全相同**的 AC parser 複本(taskq-done 仍算出 84),
+  只有「消費端真的走 SSOT」那支行為測試抓得到 —— R97/R98/R99 同形**第六次**。
+
+### §6 明列不做
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| 把 `DERIVED:` 從「決定判定」降級成純附註 | 實測 669 條裡約 555 條會變 invention,`invention` 就沒有意義,Agent B 的輸入變噪音 | 有了能真正判定「這句是否從 canonical 推得出」的機制 |
+| 用 `srs_acceptance_criteria` 對調 `_split_ac_clauses` | 會讓 Round 42 站0 守衛紅,且製造 done 0→80 / new 0→100 / super 0→101 的新假指控(已實測) | 兩個 parser 的 AC id 形狀先統一 |
+| `_FR_HEADER_RE` 的 label 在點號截斷 | `#### AC-1.1` / `AC-1.2` / `AC-1.3` 全部報成 `AC-1`,讀者分不出哪條;真缺陷,但改它就是改 Round 42 釘住的那個 splitter | 與上一列同一輪 |
+| 把 import-linter 加進 `requirements.txt` | 會讓 `test_install_command_ssot` 紅,並抵觸 `PIP_STEPS` 兩步安裝的理由 | 兩步安裝的 ResolutionImpossible 前提消失 |
+| P2 檢查改讀 `quality_manifest.json`(與 finalize_gate 同源) | 實測 taskq-sn 的 `a6bf87f` **沒有** commit quality_manifest.json,只有 SAB.json —— 讀 manifest 會在最需要的時刻失明。兩份今天 13/13 一致 | 兩份出現不一致,或 manifest 提早落盤 |
+| `min_coverage` 三處手抄改 render-from-SSOT | 本輪判準是「範例值要標記」;全面內插是另一輪的 R33 工程 | 第三處出現,或三處數字漂移 |
+| `DEFAULT_MIN_COVERAGE = 80.0` 改成「沒宣告就拒絕」 | 方向正確(框架不該替專案填),但會擋掉每一個沒寫這個鍵的專案 | 單獨一輪 |
+| 從 SPEC.md 表格抽數字目標對賬 SAB `quality_targets` | 從散文/表格猜數字正是 R101 禁止的猜測 | SPEC 有結構化 targets 區塊 |
+| `arch_constraints.py` 拆檔(950 行,新 god file) | Round 49 的織網-then-cut 是一輪的工作;本輪只登記天花板並寫下理由 | 下一次它再長 |
+| `canonical_diff --mode testspec_vs_srs / verification_vs_srs` | 實測**沒有任何 workflow 傳過 `--mode`**,兩個模式從沒被執行過(R39 領域) | 另一輪的減法 |
+| 行數 / ADR 篇數 / SEC 條數判準 | 新增就是造代理指標(R50) | — |
+
+### §7 我自己被量測改寫的地方
+
+1. **報告第 3 條的歸因**:我一開始接受了「粗體清單輕鬆突破 0.45」。實測 0.25 / 0.217 / 0.067。
+2. **「DERIVED 要求引用可解析」被我自己否決**:661 個標籤裡 658 個已經有引用。
+3. **站1a 第一版會讓現有守衛變紅**(`test_install_command_ssot`)—— 兩步安裝是刻意的、有文件的,
+   我第一版沒查就寫了「加進 requirements.txt」。**老闆退回換來的**。
+4. **站2 第一版的解析器對調是錯的**,Round 42 的守衛就是為此存在
+   (`labels == ["FR-03","AC1","NFR-07"]`)。改成純新增欄位後爆炸半徑為零。**老闆退回換來的**。
+5. **我自己的一條指控被推翻**:「taskq-done 的 84 條 AC 一條都沒被讀過」是錯的。指控收回。
+6. 全套測試又抓到 **6 支配套失敗**(exception ratchet / fault owner / 兩支 size ratchet /
+   split golden / plangen golden)。Round 104 的教訓再次成立:自己說「已驗證無副作用」之後,
+   只要再動一行那句話就作廢。
+
+### 已知缺口(不假裝沒有)
+
+* 站3 的守衛只管**模板端有沒有標記**,不管交付端有沒有換掉。
+  「still equals 80」不能當判準 —— 真的選了 80 的專案不該被指控(R46)。真正的洞沒關上。
+* 站2 是**把問題說出來,不是解決它**。判定仍由自我宣告決定;只是讀者現在看得見。
+* `LayerField` 不是 import-linter 文件化的公開 API;釘樁守衛只保證**大聲失敗**。
+* 站1a 的棄權分支依賴「沒有文法字元 ⇒ 換行解析等價」。守衛釘的是今天這四個字元,
+  未來 import-linter 新增的語法不在其中。
+* 站1a 今天**零行為改變**:它修的是 taskq-sn 被迫拿掉的那個案例,以及還沒有人踩到的
+  `containers` / 萬用字元。價值是結構性的,不是即時的。

@@ -1535,3 +1535,69 @@ entries:
     item: "加 3.10 到 CI matrix / 加 `tomli`"
     reason: "老闆裁定地板拉到 3.11"
     reopen: "出現實際 3.10 消費者"
+  - round: 105
+    line: 9343
+    kind: table_row
+    item: "把 `DERIVED:` 從「決定判定」降級成純附註"
+    reason: "實測 669 條裡約 555 條會變 invention,`invention` 就沒有意義,Agent B 的輸入變噪音"
+    reopen: "有了能真正判定「這句是否從 canonical 推得出」的機制"
+  - round: 105
+    line: 9344
+    kind: table_row
+    item: "用 `srs_acceptance_criteria` 對調 `_split_ac_clauses`"
+    reason: "會讓 Round 42 站0 守衛紅,且製造 done 0→80 / new 0→100 / super 0→101 的新假指控(已實測)"
+    reopen: "兩個 parser 的 AC id 形狀先統一"
+  - round: 105
+    line: 9345
+    kind: table_row
+    item: "`_FR_HEADER_RE` 的 label 在點號截斷"
+    reason: "`#### AC-1.1` / `AC-1.2` / `AC-1.3` 全部報成 `AC-1`,讀者分不出哪條;真缺陷,但改它就是改 Round 42 釘住的那個 splitter"
+    reopen: "與上一列同一輪"
+  - round: 105
+    line: 9346
+    kind: table_row
+    item: "把 import-linter 加進 `requirements.txt`"
+    reason: "會讓 `test_install_command_ssot` 紅,並抵觸 `PIP_STEPS` 兩步安裝的理由"
+    reopen: "兩步安裝的 ResolutionImpossible 前提消失"
+  - round: 105
+    line: 9347
+    kind: table_row
+    item: "P2 檢查改讀 `quality_manifest.json`(與 finalize_gate 同源)"
+    reason: "實測 taskq-sn 的 `a6bf87f` **沒有** commit quality_manifest.json,只有 SAB.json —— 讀 manifest 會在最需要的時刻失明。兩份今天 13/13 一致"
+    reopen: "兩份出現不一致,或 manifest 提早落盤"
+  - round: 105
+    line: 9348
+    kind: table_row
+    item: "`min_coverage` 三處手抄改 render-from-SSOT"
+    reason: "本輪判準是「範例值要標記」;全面內插是另一輪的 R33 工程"
+    reopen: "第三處出現,或三處數字漂移"
+  - round: 105
+    line: 9349
+    kind: table_row
+    item: "`DEFAULT_MIN_COVERAGE = 80.0` 改成「沒宣告就拒絕」"
+    reason: "方向正確(框架不該替專案填),但會擋掉每一個沒寫這個鍵的專案"
+    reopen: "單獨一輪"
+  - round: 105
+    line: 9350
+    kind: table_row
+    item: "從 SPEC.md 表格抽數字目標對賬 SAB `quality_targets`"
+    reason: "從散文/表格猜數字正是 R101 禁止的猜測"
+    reopen: "SPEC 有結構化 targets 區塊"
+  - round: 105
+    line: 9351
+    kind: table_row
+    item: "`arch_constraints.py` 拆檔(950 行,新 god file)"
+    reason: "Round 49 的織網-then-cut 是一輪的工作;本輪只登記天花板並寫下理由"
+    reopen: "下一次它再長"
+  - round: 105
+    line: 9352
+    kind: table_row
+    item: "`canonical_diff --mode testspec_vs_srs / verification_vs_srs`"
+    reason: "實測**沒有任何 workflow 傳過 `--mode`**,兩個模式從沒被執行過(R39 領域)"
+    reopen: "另一輪的減法"
+  - round: 105
+    line: 9353
+    kind: table_row
+    item: "行數 / ADR 篇數 / SEC 條數判準"
+    reason: "新增就是造代理指標(R50)"
+    reopen: "—"

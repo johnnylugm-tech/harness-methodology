@@ -45,7 +45,7 @@ from core.traceability.scanner import extract_nfr_ids_from_srs
 from core.utils.project_layout import ProjectLayout
 
 __all__ = ["ac_deferral_shape", "ac_label_shape", "check_ac_deferral_targets",
-           "srs_acceptance_criteria",
+           "acceptance_criteria_from_text", "srs_acceptance_criteria",
            "check_ac_identifiers",
            "check_ac_test_spec_coverage", "check_forward_refs",
            "check_nfr_adr_coverage", "check_module_fr_coverage",
@@ -597,7 +597,25 @@ def srs_acceptance_criteria(project: Path) -> dict[str, list[str]]:
     srs = ProjectLayout(project).srs_path
     if not srs.exists():
         return {}
-    text = srs.read_text(encoding="utf-8", errors="replace")
+    return acceptance_criteria_from_text(
+        srs.read_text(encoding="utf-8", errors="replace"))
+
+
+def acceptance_criteria_from_text(text: str) -> dict[str, list[str]]:
+    """`srs_acceptance_criteria`'s body, taking the text instead of a project.
+
+    Public since Round 105 站2. `scripts/canonical_diff.py` counts the same
+    population and had no way to ask for it — its CLI takes an arbitrary
+    `--srs` path, not a project root — so it counted its own heading splitter's
+    output and published it as `total_ac`. For a project that writes criteria
+    as bullets that number is the count of REQUIREMENTS: taskq-done has 84
+    acceptance criteria and reported 22. The comment forty lines below has
+    named `canonical_diff` as the reader that cannot see an AC since Round 87;
+    this is the seam that lets it.
+
+    One definition, two entry points — a second faithful copy in canonical_diff
+    would pass every test and put one document back on two parsers.
+    """
     heads = list(_REQ_HEADING.finditer(text))
     out: dict[str, list[str]] = {}
     for i, m in enumerate(heads):

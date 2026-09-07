@@ -166,7 +166,14 @@ _CEILINGS: dict[str, int] = {
     # propagation. The check itself is 65 lines in its own helper in
     # cli/advance_prechecks.py, not here; what this function gained is one
     # more call site, which is what it is for.
-    "cli/phase_cmds.py::_advance_prechecks": 252,
+    # Round 105 站1b: 252 -> 263. Eleven lines — a seven-line comment saying
+    # why the Phase 2 constraint check is Phase 2 ONLY (finalize_gate answers
+    # the same question from Phase 3 on, and two layers over one source is
+    # Round 20), the `_precheck_declared_constraints_are_configured` call, and
+    # its three-line return propagation. The check itself is 59 lines in its
+    # own helper in cli/advance_prechecks.py; what this function gained is one
+    # more call site, which is what it is for.
+    "cli/phase_cmds.py::_advance_prechecks": 263,
     # The one run with NO safe cut point under the extraction rule: every
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line

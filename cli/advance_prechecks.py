@@ -548,6 +548,72 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
     return EX_AGENT_B_APPROVALS_INCOMPLETE
 
 
+def _precheck_declared_constraints_are_configured(
+    completed_phase, project,
+) -> "int | None":
+    """A constraint declared in Phase 2 must have its checker switched on by
+    the time Phase 2 closes.
+
+    Round 105 站1b. `arch_constraints.unconfigured_blocking_reason` has raised
+    this since Round 54 and its only caller is `finalize_gate`. Phase 2 has no
+    gate, and `phase_artifact_enforcer.PHASE_ARTIFACTS[Phase.PLAN]` requires
+    one artifact — SAD.md — so a project that declares a layering constraint
+    and ships no `.importlinter` closes Phase 2 and hears about it in Phase 3.
+
+    taskq-sn did exactly that: its SAB at the Phase 2 completion commit
+    (`a6bf87f`) declares `no_circular_dependencies`, the tree has no contract
+    file, and `.importlinter` first appears in `368f9db` — a Phase 3 "address
+    Gate1 failing dims" commit. Run against that state, the framework's own
+    function already produced the whole answer, remedy included. Nothing
+    called it.
+
+    Phase 2 ONLY. Phase 3 onward is `finalize_gate`'s, and asking the same
+    question of the same source at two layers is Round 20's mother.
+
+    Reads `.methodology/SAB.json`, not `quality_manifest.json`. The manifest
+    is where `finalize_gate` reads the same list, and the two agree on all
+    thirteen corpus projects — but the manifest is not committed at the Phase
+    2 completion commit (measured on taskq-sn's own `a6bf87f`: SAB.json is
+    there, quality_manifest.json is not), so reading it here would be blind at
+    exactly the moment this check exists for. Unifying the two reads is a
+    round of its own, recorded in docs/PROPOSAL_ADJUDICATIONS.md.
+
+    Never raises: an SAB that cannot be read is a worse reason to refuse an
+    advance than the thing it was going to report.
+    """
+    if completed_phase != 2:
+        return None
+    try:
+        from cli.exit_codes import EX_ADVANCE_CONSTRAINT_UNCONFIGURED
+        from core.quality_gate import arch_constraints
+
+        sab_path = Path(project) / ".methodology" / "SAB.json"
+        if not sab_path.exists():
+            return None
+        _sab = json.loads(sab_path.read_text(encoding="utf-8"))
+        _constraints = list(
+            (_sab.get("sab", _sab) or {}).get("architecture_constraints") or [])
+        if not _constraints:
+            return None
+
+        _rows = arch_constraints.classify_constraints(_constraints, Path(project))
+        _reason = arch_constraints.unconfigured_blocking_reason(_rows)
+        if not _reason:
+            return None
+        print("\n[BLOCKED] Phase 2 declares architecture constraints whose "
+              "checker is not configured:")
+        print(f"  {_reason}")
+        print("  → write the configuration named above (or drop the "
+              "declaration from SAD.md §5's SAB block and regenerate with "
+              "`python3 scripts/generate_sab.py --project . --overwrite`), "
+              "then re-run advance-phase.")
+        return EX_ADVANCE_CONSTRAINT_UNCONFIGURED
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] Phase 2 constraint-configuration check skipped: {exc}",
+              file=sys.stderr)
+        return None
+
+
 def _precheck_sab_placements_are_declared(project) -> "int | None":
     """SAB.json may not place a module where SAD.md §5 never put it.
 

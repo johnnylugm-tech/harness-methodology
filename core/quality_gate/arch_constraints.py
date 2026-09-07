@@ -54,9 +54,11 @@ __all__ = [
     "contract_coverage_gap",
     "read_bandit_config",
     "contract_decides",
+    "layer_module_tails",
     "read_import_contracts",
     "record_constraint_status",
     "unconfigured_blocking_reason",
+    "unreadable_contracts",
 ]
 
 STATUS_ENFORCED = "enforced"
@@ -207,6 +209,121 @@ def _config_sources(project: Path) -> list[Path]:
     return [project / ".importlinter", project / "setup.cfg"]
 
 
+#: Characters import-linter's own field grammar gives a meaning to inside a
+#: `layers` line: `|` separates independent sibling layers, `:` non-independent
+#: ones, and `(m)` marks a layer that need not exist. A line containing none of
+#: them names one module under any parser — which is why the newline split
+#: below is still exactly right without import-linter installed, and is the
+#: state of all thirteen corpus configs today.
+_LAYER_GRAMMAR: frozenset[str] = frozenset("|:()")
+
+#: A module EXPRESSION rather than a module name. `sources` are matched in
+#: `contract_coverage_gap` by dotted prefix, which cannot decide `pkg.*`, so a
+#: contract using one is abstained on rather than read as naming a module
+#: literally called "pkg.*".
+_MODULE_WILDCARD = "*"
+
+
+def layer_module_tails(line: str) -> "list[str] | None":
+    """The module tails one `layers = ` line names, per import-linter's grammar.
+
+    `None` means this framework could not read the line — never an empty list
+    and never a guess.
+
+    Round 105. `.importlinter` is import-linter's file and import-linter
+    defines what a line in it means; this module split on newlines and stopped,
+    so `taskq_api.config | taskq_api.exceptions` — one layer holding two
+    independent siblings — was read as one module name nobody wrote. taskq-sn
+    hit it, `contract_coverage_gap` reported both modules outside every
+    contract, Gate 1 blocked, and the project changed its ARCHITECTURE to fit
+    the parser (`f97e5be`, splitting two siblings into two ordered layers).
+    Its commit message diagnoses this framework correctly.
+
+    The grammar has grown before — `:` and the optional bracket are not in
+    every version — so asking the tool is the only arrangement in which a
+    future delimiter does not silently become part of a module name.
+
+    Public because it is a seam:
+    `tests/test_the_contract_grammar_belongs_to_import_linter.py` replaces it
+    to exercise the abstention path, and `tests/test_patch_discipline.py` is
+    right that the answer to "I need to replace this to test it" is a public
+    seam rather than a patched private name.
+
+    import-linter is a dependency this framework already declares and installs
+    — `harness/toolchains/bootstrap.PINS["import-linter"]` via
+    `PIP_STEPS["gate-extras"]`, which `scripts/bootstrap_env.py` runs against
+    the framework's own venv as well as a project's. It is deliberately NOT in
+    requirements.txt: that file resolves as one unit and the gate-extras step
+    exists precisely because the combined resolve is impossible
+    (`PIP_STEPS[1].why`). So it CAN be absent here, and absence answers None.
+    """
+    _log = logging.getLogger(__name__)
+    try:
+        from importlinter.contracts.layers import LayerField
+    except Exception as exc:
+        _log.debug("import-linter not importable, cannot read layer %r: %s",
+                   line, exc)
+        return None
+    try:
+        return sorted(t.name for t in LayerField().parse(line).module_tails)
+    except Exception as exc:
+        # A line import-linter itself rejects. `lint-imports` will refuse the
+        # config too, so this is the project's error to see there — what must
+        # not happen is this framework inventing a module name out of it.
+        _log.debug("import-linter refused layer %r: %s", line, exc)
+        return None
+
+
+def _contract_sources(
+    parser: "configparser.ConfigParser", section: str,
+) -> "tuple[list[str] | None, str]":
+    """`(module names this contract constrains, why they could not be read)`.
+
+    Exactly one of the two is meaningful: sources is None when the reason is
+    non-empty. An empty list would read as "this contract constrains nothing",
+    which both callers turn into modules to charge the project with — the
+    false accusation this parse exists to avoid (Round 46).
+    """
+    def _lines(key: str) -> list[str]:
+        return [ln.strip() for ln
+                in parser.get(section, key, fallback="").splitlines()
+                if ln.strip()]
+
+    containers = _lines("containers")
+    layer_lines = _lines("layers")
+    # `layers` names its modules under `layers`; `forbidden` and `independence`
+    # name theirs under `source_modules` / `modules`. `forbidden_modules` is
+    # the target of the ban, not a module the contract constrains, so it is not
+    # among `sources` — it is read only to answer `decides` below.
+    flat = _lines("source_modules") + _lines("modules")
+
+    if any(_MODULE_WILDCARD in s for s in (*containers, *layer_lines, *flat)):
+        return None, (
+            "the contract names a module expression (`pkg.*`); this framework "
+            "matches contract sources by dotted prefix and cannot decide one")
+
+    tails: list[str] = []
+    for line in layer_lines:
+        if _LAYER_GRAMMAR.isdisjoint(line):
+            tails.append(line)
+            continue
+        parsed = layer_module_tails(line)
+        if parsed is None:
+            return None, (
+                "the contract uses import-linter's sibling/optional layer "
+                "grammar and import-linter is not importable here, so the "
+                "modules it names cannot be read")
+        tails.extend(parsed)
+
+    # `containers` makes every layer a TAIL: the module is the container plus
+    # it. Reading a tail as a full module name leaves every delivered module
+    # outside every contract — the same defect as the pipe, over the whole
+    # tree instead of two modules.
+    if containers:
+        tails = [f"{c}.{t}" for c in containers for t in tails]
+    return tails + flat, ""
+
+
 def contract_decides(kind: str, sources: list, targets: list) -> bool:
     """Can this contract produce a violation, whatever the code does?
 
@@ -299,16 +416,7 @@ def read_import_contracts(project: "str | Path") -> dict:
             if not section.startswith("importlinter:contract:"):
                 continue
             kind = parser.get(section, "type", fallback="").strip()
-            # `layers` names its modules under `layers`; `forbidden` and
-            # `independence` name theirs under `source_modules` /
-            # `modules`. `forbidden_modules` is the target of the ban, not a
-            # module the contract constrains, so it is not among `sources` —
-            # it is read only to answer `decides` below.
-            raw = "\n".join(
-                parser.get(section, key, fallback="")
-                for key in ("layers", "source_modules", "modules")
-            )
-            sources = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            sources, unreadable = _contract_sources(parser, section)
             targets = [
                 ln.strip() for ln in
                 parser.get(section, "forbidden_modules", fallback="").splitlines()
@@ -318,7 +426,14 @@ def read_import_contracts(project: "str | Path") -> dict:
                 "name": parser.get(section, "name", fallback=section).strip(),
                 "type": kind,
                 "sources": sources,
-                "decides": contract_decides(kind, sources, targets),
+                "unreadable": unreadable,
+                # A contract this framework could not read is not one it may
+                # call vacuous. `decides=False` is the claim "this contract
+                # cannot produce a violation whatever the code does", and that
+                # is a judgement about a statement nobody here parsed — the
+                # same reason an unrecognised contract type answers True.
+                "decides": (True if sources is None
+                            else contract_decides(kind, sources, targets)),
             })
         break
 
@@ -416,7 +531,10 @@ def _evaluate(candidate: dict, project: "str | Path | None") -> "tuple[str, str]
         _this: dict = next(
             (c for c in contracts if c["type"] == want and c["name"] == name),
             {})
-        sources: list = _this.get("sources", [])
+        # `or []`, not a default: an unreadable contract answers None, and the
+        # branch below only reads this when `decides` is False, which such a
+        # contract never is.
+        sources: list = _this.get("sources") or []
         if want == "layers" and not _this.get("decides", True):
             return STATUS_UNCONFIGURED, (
                 f"{candidate['executor']} contract {name!r} names "
@@ -712,6 +830,14 @@ def contract_coverage_gap(project: "str | Path") -> list[str]:
     # the one place the question is answered.
     covered: set[str] = set()
     for contract in parsed["contracts"]:
+        # Round 105: `covered` is a UNION over contracts, so dropping one
+        # unreadable contract from it makes exactly that contract's modules
+        # look uncovered — the false accusation this round removes, wearing a
+        # different hat. When any contract in the file cannot be read the gap
+        # is unknown for the whole file. `record_constraint_status` files the
+        # row so the abstention is on record rather than silent (Round 30).
+        if contract.get("sources") is None:
+            return []
         if contract.get("decides", True):
             covered.update(contract["sources"])
 
@@ -721,6 +847,18 @@ def contract_coverage_gap(project: "str | Path") -> list[str]:
             continue
         gap.append(module)
     return gap
+
+
+def unreadable_contracts(project: "str | Path") -> list[dict]:
+    """`[{"name", "reason"}]` for contracts whose sources could not be read.
+
+    Non-empty means `contract_coverage_gap` is abstaining for this project.
+    Public so the caller that writes the ledger row and the caller that reads
+    the gap get the same answer from one parse.
+    """
+    return [{"name": c["name"], "reason": c["unreadable"]}
+            for c in read_import_contracts(project)["contracts"]
+            if c.get("sources") is None]
 
 
 def record_constraint_status(
@@ -784,6 +922,22 @@ def record_constraint_status(
                 "modules import anything they like",
                 data={"uncovered_modules": gap},
                 owner="project",
+            )
+        # Round 105: the third row, and the only one owned by `harness`. An
+        # abstention nobody records is how a check stops working without
+        # anybody finding out (Round 30), and the reason matters because the
+        # two causes have different remedies — one is this framework's missing
+        # parser, the other is a contract shape it cannot decide at all.
+        unreadable = unreadable_contracts(project)
+        if unreadable:
+            record_degradation(
+                project, "gate:arch-constraints",
+                f"{len(unreadable)} import-linter contract(s) could not be "
+                f"read, so which delivered modules sit outside a contract is "
+                f"unknown for this project",
+                "; ".join(f"{u['name']}: {u['reason']}" for u in unreadable),
+                data={"unreadable_contracts": unreadable},
+                owner="harness",
             )
         return rows
     except Exception as exc:  # pragma: no cover — reporting must not stop a gate

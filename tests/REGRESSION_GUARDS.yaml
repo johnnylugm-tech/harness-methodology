@@ -5387,3 +5387,123 @@
 - test: tests/test_a_guessed_layer_is_not_a_declared_one.py::test_the_interpreter_constraint_is_not_a_distribution
   bug: "[tool.poetry.dependencies] carries the interpreter constraint as a key, and the unfixed code counted `python` as a declared distribution"
   fixed_in: "Round 104"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_pipe_separated_siblings_are_two_sources
+  bug: "read_import_contracts split `layers = ` on newlines only, so import-linter's `|` (independent sibling layers) was read as a character inside a module name; taskq-sn's `taskq_api.config | taskq_api.exceptions` made both modules read as outside every contract, Gate 1 blocked, and the project changed its architecture to fit the parser (f97e5be)"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_colon_separated_siblings_are_two_sources
+  bug: "import-linter's second delimiter `:` (non-independent siblings) was unreadable the same way; no corpus project uses it, so this is the only place it is exercised"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_an_optional_layer_is_still_a_named_module
+  bug: "`(mypackage.foo)` is an optional layer; the newline split read the brackets as part of the module name"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_containers_prefix_every_layer
+  bug: "with a `containers` key every layer line is a TAIL, not a full module name; the parser ignored the key entirely, which would report every delivered module as outside every contract"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_a_wildcard_source_is_abstained_on_not_accused
+  bug: "`pkg.*` is a module expression and contract sources are matched by dotted prefix; reading it literally covers nothing, so the contract must be abstained on rather than turned into modules to charge the project with"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_an_unreadable_layer_line_abstains_for_the_whole_file
+  bug: "covered is a union over contracts, so dropping one unreadable contract from it makes exactly that contract's modules look uncovered — the false accusation wearing a different hat"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_an_unreadable_contract_says_so_in_the_ledger
+  bug: "an abstention nobody records is how a check stops working without anybody finding out (Round 30); the row names import-linter and owner=harness because the missing parser is the framework's"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_the_grammar_comes_from_import_linter_not_from_here
+  bug: "LayerField is not a documented public API of import-linter; without this pin an upgrade that changes it would silently turn sibling layers back into one opaque module name instead of failing loudly"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_contract_grammar_belongs_to_import_linter.py::test_a_plain_line_needs_no_parser
+  bug: "reverse control — a layers line with none of import-linter's grammar characters is one module name under any parser, so abstaining there would switch the coverage check off for all thirteen corpus projects to fix a case none of them has"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_a_declared_constraint_with_no_config_blocks_p2_exit
+  bug: "unconfigured_blocking_reason had one caller, inside finalize_gate, and Phase 2 has no gate; taskq-sn closed Phase 2 declaring no_circular_dependencies with no .importlinter and first heard about it in Phase 3 (368f9db)"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_a_configured_constraint_does_not_block
+  bug: "the block must be satisfiable by writing the config the message names, not by deleting the declaration"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_a_constraint_nothing_can_check_does_not_block
+  bug: "Round 54's rule unchanged — declared_only is never blocked, because the only way to satisfy such a block is to delete a true statement from the SAB"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_no_declaration_is_not_a_violation
+  bug: "reverse control — a project that declares no architecture constraint has nothing to configure, and an absent claim is absent rather than failed (Round 46)"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_it_is_asked_only_at_the_phase_that_delivers_the_sab
+  bug: "Phase 3 onward answers the same question inside finalize_gate with more evidence; a second layer over one source is Round 20's mother"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_advance_phase_runs_the_check
+  bug: "a check with no caller is Round 30's half-built mechanism; the AST assertion is on what advance-phase does, not on a helper name a rename could move"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_the_verdict_comes_from_the_gate_s_own_functions
+  bug: "a second copy of Round 51/54's unconfigured rule here would pass every other test and put one question on two definitions; replacing the definition must change what this check says"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_declared_constraint_is_configured_before_p2_closes.py::test_the_exit_code_is_registered_with_a_description
+  bug: "an exit code with no REGISTRY entry is a number the operator meets with no way to look it up"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_a_verdict_says_whether_the_framework_or_the_project_decided_it
+  bug: "378 of 479 `interpreted` verdicts across thirteen corpus projects exist only because a `DERIVED:` token is present — taskq-new 124 tags/0 inventions, taskq-sn 2 tags/109 — and the report gave Agent B one word for both a measured overlap and a self-declaration"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_tag_does_not_change_a_verdict_the_overlap_already_decided
+  bug: "reverse control — verdict_basis reports which branch fired and must not become a new rule that moves a verdict the measured ratio already settled"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_criterion_count_is_criteria_and_not_requirements
+  bug: "summary.total_ac is the count of units the heading splitter produced; for a project that writes criteria as bullets that is the number of REQUIREMENTS — taskq-done reported 22 against 84 real acceptance criteria"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_both_authorised_shapes_report_the_same_criterion_count
+  bug: "the Phase 1 prompt authorises an AC heading or a bulleted criterion; the count of criteria is a property of the document, not of which shape the project picked"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_each_record_says_which_unit_it_covers
+  bug: "a score over one criterion and a score over a whole requirement are not comparable numbers and both appear in per_ac; taskq-sn is scored per criterion (117 units) and taskq-done per requirement (22)"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_criterion_count_comes_from_the_shared_parser
+  bug: "a second faithful AC parser inside canonical_diff would pass every other test and put one document on two parsers — the failure Round 97 CP-5b, Round 98 CP-11 and Round 99 CP-13b each found; replacing artifact_consistency's definition must move this number"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_shared_parser_has_one_definition_and_two_entry_points
+  bug: "canonical_diff needs the text-level half because its CLI takes an arbitrary --srs path; the path-taking half must give the same answer"
+  fixed_in: "Round 105"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_machine_readable_block_is_still_stripped_first
+  bug: "Round 42 站1 strips the machine-readable JSON block before scoring; the new criterion count must not put it back and count a JSON payload as an acceptance criterion"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_template_example_says_it_is_one.py::test_every_example_value_the_framework_ships_is_marked_as_one
+  bug: "cli/project_cmds.py copies templates/TEST_INVENTORY.yaml into every project root with four `*_example_*` test names and no marker; three of thirteen corpus projects shipped all four unchanged, while the marked `layers` example leaked into none"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_template_example_says_it_is_one.py::test_the_rendered_sab_block_marks_its_examples_too
+  bug: "quality_targets.min_coverage: 80 was an unmarked invented number that reaches advance_checks._check_gate1_live_coverage through min_coverage_floor; taskq-sn inherited it and ran Gate 1 coverage at 80% while its own SPEC.md required TOTAL 100%"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_template_example_says_it_is_one.py::test_the_marker_is_the_one_the_layers_block_already_used
+  bug: "reverse control — the marker constant must stay the wording the layers block uses, or the guard checks a marker no reader has seen and the one example with a measured 0/13 leak rate falls out of the rule derived from it"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_template_example_says_it_is_one.py::test_the_registry_names_values_that_are_actually_there
+  bug: "a registry entry for a literal no template contains is a rule that cannot fail — the shape contract_decides refuses for import contracts, applied to this guard's own inputs"
+  fixed_in: "Round 105"
+
+- test: tests/test_a_template_example_says_it_is_one.py::test_the_test_inventory_template_still_parses
+  bug: "the markers are YAML comments and must not change what the file means; project_cmds copies it into every project root and spec_coverage._flatten_test_names reads it"
+  fixed_in: "Round 105"
