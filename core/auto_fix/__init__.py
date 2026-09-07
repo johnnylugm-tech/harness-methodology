@@ -33,6 +33,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.degradation_ledger import record_degradation
+from core.fault_owner import Owner
+
 
 class FixStrategy(Enum):
     AUTO_FIX = "auto_fix"
@@ -393,8 +396,24 @@ class AutoFixEngine:
         if rounds > self.max_rounds:
             return EscalationCondition.HR12_MAX_ROUNDS
 
-        # HR-14: integrity freeze
-        if self._check_integrity() < self.integrity_threshold:
+        # HR-14: integrity freeze. `None` is not a pass — it is nobody having
+        # measured an integrity score (see `_check_integrity`). It cannot
+        # escalate either: escalating on an absence would block every project
+        # in the corpus for a number the framework does not produce. So it is
+        # written down, once per process, and HR-14 stays unanswered in the
+        # open rather than answered wrongly in silence.
+        integrity = self._check_integrity()
+        if integrity is None:
+            record_degradation(
+                self.project_root, "auto_fix",
+                "HR-14 not evaluated — no integrity score exists",
+                why=("state.json carries no `integrity` key and nothing in the "
+                     "framework writes one, so 'Integrity < 40 → FREEZE' "
+                     "(constitution/CONSTITUTION.md:251, SKILL.md:365) has no "
+                     "input; see core/fsm/fsm.py::STATE_PRODUCERS"),
+                owner=Owner.HARNESS,
+            )
+        elif integrity < self.integrity_threshold:
             return EscalationCondition.HR14_INTEGRITY
 
         # HR-13: phase timeout
@@ -478,14 +497,32 @@ class AutoFixEngine:
         elapsed = time.time() - self._phase_start_time
         return elapsed > self._phase_estimate * self.max_phase_time_multiplier
 
-    def _check_integrity(self) -> float:
-        """Read integrity score from .methodology/ state or kill_switch."""
+    def _check_integrity(self) -> Optional[float]:
+        """The project's integrity score, or `None` — nobody measured one.
+
+        Round 108 站A. This used to answer `100.0` when the key was absent or
+        unparseable, and absent is what it is: `state["integrity"]` has exactly
+        one reader in the tree (the HR-14 branch in `check_escalation`) and
+        **no writer at all**. Measured 2026-09-08 over the fifteen corpus
+        projects — every `state.json`, no `integrity` key, so this returned a
+        perfect score every time it was ever called and
+        `constitution/CONSTITUTION.md:251`'s "Integrity < 40 → FREEZE" has
+        never been reachable on any project.
+
+        A could-not-measure reported as full marks is the shape Round 32/35
+        named, and the reason it survived here is that the default made the
+        rule look satisfied rather than unimplemented. `None` separates the
+        two; the caller decides what to do with each, and writes the
+        abstention down rather than passing on it silently.
+        """
         from core.state_io import load_state
         state = load_state(self.project_root, lenient=True)
+        if "integrity" not in state:
+            return None
         try:
-            return float(state.get("integrity", 100.0))
+            return float(state["integrity"])
         except (ValueError, TypeError):
-            return 100.0
+            return None
 
     @staticmethod
     def _files_for_context(context: FixContext) -> List[Path]:

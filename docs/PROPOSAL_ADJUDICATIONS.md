@@ -9524,3 +9524,133 @@ Round 105 把 `arch_constraints.py`(950 行)登記成新 god file,並寫下再�
   既有指紋全部重算並把 golden 綁上尾隨空白;本輪明列不做。
 * `arch_constraints` 仍是所有人的入口:檔案變小了,但「一個模組名對外承擔兩件事」
   沒變。這是 re-export 的代價,不假裝沒有。
+
+---
+
+## Round 107 — 另一個 session 的兩個 commit (2026-09-08)
+
+**這一節不是本 session 的工作,內容也未經本 session 審閱。** 寫在這裡是因為
+`test_ledger_has_no_holes` 的規則:有 commit 的 round 必須有裁決章節,而一個沒有
+章節的 round 是一個會從頭再問一次的問題。缺什麼就說缺什麼,不編造。
+
+2026-09-08 04:14 與 04:20,另一個 session 在 `main` 上推了兩個標記 Round 107 的 commit:
+
+| commit | 內容 |
+|---|---|
+| `13f5d27f` | fix(Round 107): unread_config_key 改採 P3 資訊性 / P4+ blocking 家族政策 —— `cli/checks/specs.py`、`core/phase_hooks.py`、`core/quality_gate/spec_alignment.py`、`tests/test_spec_alignment.py` |
+| `88d73d3c` | test(Round 107): raise file size ratchets for specs.py and phase_hooks.py |
+
+**本 session 對它們唯一做過的事**:`13f5d27f` 改了 `cli/checks/specs.py` 裡的
+`cmd_check_spec_alignment` 而沒有重生成 split golden,所以
+`test_god_file_split_safety::test_every_split_function_moved_without_being_rewritten`
+從 `13f5d27f` 起在 `main` 上就是紅的(在 `883a24f8` stash 後於 HEAD 重現確認,
+與本 session 的改動無關)。依該測試自己訊息裡的規定,用**獨立 commit** 重生成那一行
+指紋(`ef59885be01a3b35` → `f1a79bc5558ac38e`),不碰 `13f5d27f` 的任何程式碼。
+
+**未做**:對那兩個 commit 的判定內容做裁決 —— 本 session 沒有讀過那份改動的推導,
+補一段沒讀過就寫的裁決會比留白更糟。
+**再開條件**:寫那兩個 commit 的 session(或之後任何一輪)補上它們自己的裁決。
+
+## Round 108 — taskq-forever P1/P2 審計五項重驗:現象都在,根因幾乎都不是報告說的那個 (2026-09-08)
+
+**來源**:老闆交來一份對 taskq-forever P1/P2 產出物的審計報告(五項)。令:重新驗證問題的
+真實性與根源性,明確根源是 harness bug 還是 workflow JS bug,套用正解(非 workaround),
+不破壞共通性。老闆退回一次(與 R105/R106 同一句):「再次驗證方案是否是正解並且沒有引入
+其他副作用,任何的問題與解法都要先進行驗證。」
+
+**判定:五項裡兩項已被 Round 106 關閉、一項是偽缺陷、兩項的現象屬實但報告指的機制幾乎
+全錯。重驗挖出三個真根因,全部在 harness,零個在 workflow JS。**
+
+| # | 原報告根因 | 重驗判定 | 真根因 | 歸屬 |
+|---|---|---|---|---|
+| 1 | P2 遭 user interrupt,未回寫 `ABORTED_BY_USER` | 現象真,根因錯,藥方也錯 | FSM 八個狀態七個零生產者;`integrity` 有讀者零寫者且缺席被讀成 100.0 | harness,站A |
+| 2 | 22 標題當 22 AC / 分母失控 / 中文切詞 / 引用只認 `DERIVED:` | 現象真,四條機制敘述三條被推翻 | `_split_sentences` 15/15 專案從沒切出過句子,而四份 shipped 陳述說它比對「一句 canonical」 | harness,站B |
+| 2′ | (報告未提) | 追加發現 | 唯一的公開 AC 讀取器對兩種合法形狀回傳兩種東西 | harness,站C |
+| 3 | TEST_INVENTORY 殘留四個範例名 | **屬實,Round 106 站A 已關閉** | `framework_examples_in(taskq-forever, 1)` 今日 8 hits,四個名字全中;renew 對照 0 | 已修 |
+| 4 | RTM/SPEC_TRACKING 深度不足 | **偽缺陷,報告的判定正確** | `spec_tracking_parser.py:187-222` 明列 `DRAFT` 為合法值,無檢查懲罰它 | 不動 |
+| 5 | P1→P2 無 placeholder 閘門 | **屬實,Round 106 站A 已關閉** | `_precheck_framework_examples_were_replaced`,exit 49 | 已修 |
+
+### §1 對原報告三條機制敘述的更正(全部實測)
+
+1. **「單句比對導致 Token 重疊率必然崩潰」—— 方向相反。** `_SENTENCE_SPLIT_RE` 要
+   `[.!?]` + 空白 + `[A-Z\d]`;markdown 裡句點後面幾乎都是 `#` 或 `-`。實測 **15 個語料
+   專案的 SPEC.md 全部只切出 1–2 段,單段 4,328–8,310 字元**。比對對象是整份文件,
+   那是**抬高**比率不是壓低。0% 中文的 taskq / taskq-redo / taskq-super 一樣是 1–2 段 ——
+   **這不是 CJK 缺陷,是全語料通用的。**
+2. **「忽視全檔 98 個真實 AC」—— Round 105 站2 已揭露。** 今日 HEAD 的報告同時輸出
+   `total_ac: 22` 與 `total_acceptance_criteria: 119`,每筆帶 `unit: "requirement"`。
+   原報告讀的 `srs_vs_spec_diff.json` 落盤於 09-07 01:58,Round 105 於同日 23:37 才進 main。
+3. **「invention_count = 10 是假陽性」—— 它是常態不是異常。** 今日全語料
+   `unmatched_and_uncited` = **241/759 = 32%**(taskq-sn 109/117、taskq-cc-new 22/22),
+   taskq-forever 的 10/22 在中段。8 個專案是 0,全部因為寫滿 `DERIVED:` 標籤 ——
+   **判定由標籤決定不由量測決定**,那正是 Round 106 站B 已經改名講明白的事。
+
+報告唯一命中真機制的是中文切詞:taskq-forever 有 **21% 的 token 是整段未切分中文**
+(`本文件為` / `轉錄自專案根目錄` 各算一個),中位重疊 0.441,字元級切詞是 0.746。
+但它是**放大器**,不是根因。
+
+**本輪不推翻的一件事**:taskq-forever 那 10 條 `unmatched_and_uncited` **不是誤判**。
+該專案沒寫 `DERIVED:` 標籤(它寫的是 `(SPEC.md L83、§8 #4)` 這種自己的形狀),
+而 P1 prompt 明確要求 `DERIVED: <canonical-line> — <rationale>`。放寬去吃專案的方言
+= 框架追著每個專案跑,明列不做。
+
+### §2 兩個被我自己的量測殺掉的機制(都寫在第一版方案裡)
+
+**① AST 生產者掃描 —— 撤。** 第一版要用 AST 掃「誰寫了 `state["state"]`」自動產生註冊表。
+實跑:5 個命中裡 3 個是 `preflight_fsm_check` 的**回傳信封**(`UNKNOWN` / `CORRUPT`,
+兩者都不是 FSM 狀態),同一個鍵名承載兩套詞彙。而且 `core/state_io.py` 自稱的
+single entry point **只涵蓋讀**;寫者散在 `phase_hooks:511,1879`、`push_cmds:100,132`、
+`project_cmds:294`、`advance_commit:262`、`phase_completed_recovery:222`。
+沒有單一寫入點,推論式註冊表就不成立 → 改成**宣告式** `STATE_PRODUCERS`。
+
+**② 文件詞彙 parity 守衛 —— 撤。** 第一版要掃 shipped 文件裡的 FSM 狀態名並要求
+⊆ `VALID_FSM_STATES`。實跑 4 個發現 **3 個是誣告**:`SAD.md:1393` 那行正是在記載
+`ACTIVE → RUNNING` 的棄用對照、`SKILL.md:104` 的「PHASE COMPLETE」與
+`flowchart.md` 的「P1 COMPLETE ✅」都是相位狀態不是 FSM 狀態。唯一真陽性是
+`docs/USER_MANUAL.md:185` **一行**。為它造一支 3/4 誣告的掃描器正是 R46 ——
+改成直接修那一行,守衛只盯 §3.4 那個區塊。
+
+### §3 站 A —— 八個狀態,一個生產者
+
+實測(唯讀):
+
+```
+VALID_FSM_STATES = {INIT, RUNNING, PAUSED, FREEZE, DONE, OPEN, HALF_OPEN, CLOSED}
+寫進 state.json 的字面值:只有 RUNNING(phase_hooks.py:511、project_cmds.py:293)
+15/15 語料專案:state='RUNNING'  integrity=<absent>
+state["integrity"] 的寫者:全樹 0(唯一讀者 core/auto_fix/__init__.py:486)
+```
+
+三個各自可判定的後果:
+
+1. `_check_integrity()` 缺席回 **100.0**,所以 HR-14(`constitution/CONSTITUTION.md:251`、
+   `SKILL.md:365`「Integrity < 40 → FREEZE」)**在這個框架碰過的每一個專案上都不可能觸發**,
+   而且從外面看起來像一條正在被遵守的規則。**量不出來被算成滿分(R32/R35)。**
+2. `phase_hooks.py:530` 的 `if current_state in ("FREEZE","PAUSED")` 是一個沒有任何生產
+   路徑能觸發的阻擋。唯一寫過 FREEZE 的是 5 支測試的 fixture。`USER_MANUAL` 寫
+   「manual pause」,但全文件沒有任何指令能設它。
+3. `USER_MANUAL.md:185` 的 FSM 圖是 `INITIAL → ACTIVE → … → COMPLETE`,五個名字**三個
+   不在** `VALID_FSM_STATES`,而 `ACTIVE` 正是 `fsm.py:39` 明列的棄用值。
+
+**原報告的藥方為什麼不對(兩項皆實測)**
+
+* 「回寫 `ABORTED_BY_USER`」加的是**第九個沒有生產者的狀態**。而且殺掉 taskq-forever 的
+  那次中斷連 `harness_cli.py:414` 的 `KeyboardInterrupt` handler 都沒經過:
+  `sessions_spawn.log` 最後一行是 `19:14:51 P2 · Load Upstream`,`heartbeat.json` 同一瞬間,
+  之後全空,`workflow_blocks.jsonl` 根本不存在。SIGKILL 之下沒有任何寫入是可靠的。
+* 「生命週期可觀測性缺口」**已經有執行者**。今日對 taskq-forever 實跑 doctor:
+  `[WARN] heartbeat: no harness command has completed for 1489 min (threshold 45)`。
+  Round 24 站5a 就接上了。缺的不是證人,是 `state.json` 那份**恆為真的第二陳述**。
+
+**修法**:(a) `_check_integrity()` 缺席與不可解析都回 `None`,呼叫端把「沒量到」與
+「量到 100」分開 —— 不升級(升級會為一個框架不產出的數字擋掉全部 15 個專案),
+但**寫進 degradation ledger**,owner=harness;(b) `core/fsm/fsm.py` 加宣告式
+`STATE_PRODUCERS`,每個狀態要嘛指出生產者、要嘛明寫 `None` 加理由,守衛只要求表與集合
+同形(不做 AST 推論,理由見 §2①);(c) `USER_MANUAL.md` §3.4 改成真實詞彙,並把
+「這次執行還活著嗎」指向 doctor 的 heartbeat 而不是這個欄位。
+
+**明列不做**:實作 HR-14(要決定 integrity 由誰算、算在哪個相位 —— 政策不是 bug);
+改 `SKILL.md` / `constitution/CONSTITUTION.md` 的 HR-14 條文(憲法層)。
+**再開條件**:老闆裁定 integrity 的來源,或裁定該條文存廢。
+`STATE_PRODUCERS` 的已知界限:它是**宣告**,守衛保證表與集合同形,**不保證表裡寫的
+位置是真的** —— 那需要單一寫入點,而今天沒有(§2①)。**再開條件**:狀態寫入收斂成單一函式。

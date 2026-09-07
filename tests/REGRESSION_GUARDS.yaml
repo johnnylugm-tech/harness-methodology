@@ -5587,3 +5587,39 @@
 - test: tests/test_the_over_spec_report_says_what_it_measured.py::test_a_requirement_id_resolves_through_the_readers_that_already_answer_it
   bug: "resolving `NFR-2` with a plain regex instead of the shared normalize_nfr_id / structural_fr_ids readers makes NFR-1 and NFR-01 two different requirements — 25 false 'citation does not resolve' charges against taskq-new alone"
   fixed_in: "Round 106"
+
+- test: tests/test_fsm_states_have_producers.py::test_every_accepted_state_declares_whether_anything_writes_it
+  bug: "core/fsm/fsm.py accepts eight FSM states and one of them — RUNNING — has ever been written by any code path; measured 2026-09-08 across 15 corpus projects, every state.json reads RUNNING. The other seven were accepted, validated, documented and blocked on (preflight_fsm_check refuses to start on FREEZE/PAUSED) with nothing creating them"
+  fixed_in: "Round 108"
+
+- test: tests/test_fsm_states_have_producers.py::test_the_state_the_corpus_actually_carries_has_a_producer
+  bug: "reverse control for the row above — without it the producer table could go all-None and still satisfy 'every state is declared', which would stop describing the tree the moment it was written"
+  fixed_in: "Round 108"
+
+- test: tests/test_fsm_states_have_producers.py::test_a_deprecated_spelling_is_not_smuggled_in_as_a_producer_row
+  bug: "ACTIVE is rewritten to RUNNING by validate_fsm_state; a producer row for it would put a third vocabulary beside the validator's, which is what the table exists to prevent"
+  fixed_in: "Round 108"
+
+- test: tests/test_fsm_states_have_producers.py::test_the_user_manual_no_longer_draws_states_that_do_not_exist
+  bug: "docs/USER_MANUAL.md §3.4 shipped the lifecycle INITIAL -> ACTIVE -> COMPLETE; none of the three is a value fsm.py accepts and ACTIVE is the deprecated spelling it auto-corrects away. Scoped to §3.4 because a whole-tree scan for those words was measured to produce three false accusations out of four findings (Round 46)"
+  fixed_in: "Round 108"
+
+- test: tests/test_hr14_abstains_instead_of_passing.py::test_a_missing_integrity_score_reads_as_unmeasured_not_as_100
+  bug: "AutoFixEngine._check_integrity returned 100.0 when state.json carried no `integrity` key. That key has one reader (the HR-14 branch) and zero writers in the whole tree, and none of the 15 corpus projects carries it — so HR-14 (constitution/CONSTITUTION.md:251 'Integrity < 40 -> FREEZE') was evaluated against a fabricated perfect score on every project this framework has ever touched (Round 32/35: a could-not-measure reported as a result)"
+  fixed_in: "Round 108"
+
+- test: tests/test_hr14_abstains_instead_of_passing.py::test_the_absence_is_written_down_rather_than_stepped_over
+  bug: "not escalating on an unmeasured integrity score is correct — escalating would block all 15 corpus projects over a number the framework does not produce — but stepping over it silently is how the constitution came to carry a rule nobody could see was unreachable (Round 43: computing a verdict and dropping it)"
+  fixed_in: "Round 108"
+
+- test: tests/test_hr14_abstains_instead_of_passing.py::test_a_real_low_score_still_escalates
+  bug: "reverse control: the rule is not being retired. If anything ever writes state['integrity'], HR-14 must fire exactly as the constitution says"
+  fixed_in: "Round 108"
+
+- test: tests/test_hr14_abstains_instead_of_passing.py::test_a_real_high_score_does_not_escalate_and_records_nothing
+  bug: "the other reverse control — a measured, passing score must be silent, or the degradation row is written on every call and stops meaning 'nobody measured'"
+  fixed_in: "Round 108"
+
+- test: tests/test_hr14_abstains_instead_of_passing.py::test_an_unparseable_score_is_also_unmeasured
+  bug: "the old code caught ValueError/TypeError and returned 100.0 — the same substitution of full marks for a reading, one layer down"
+  fixed_in: "Round 108"

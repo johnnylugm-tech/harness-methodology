@@ -268,6 +268,25 @@ sinks:
       key, so that would mean the ADDITION itself, not a later edit, was
       wrong.
 
+  "auto_fix":
+    sink: report-only
+    why: >-
+      Round 108 站A. HR-14 ("Integrity < 40 → FREEZE",
+      constitution/CONSTITUTION.md:251, SKILL.md:365) reads
+      state.json["integrity"]. That key has one reader — the escalation branch
+      that writes this row — and zero writers anywhere in the tree; measured
+      2026-09-08, none of the fifteen corpus projects carries it. The reader
+      used to default to 100.0, so HR-14 was answered against a fabricated
+      perfect score on every project this framework has ever touched and
+      looked, from the constitution, like a rule being honoured.
+      report-only and not verdict on purpose: escalating on the absence would
+      block all fifteen projects over a number the framework does not
+      produce, which is the false accusation Round 46 named. So the row IS
+      the sink — HR-14 stays visibly unanswered instead of invisibly passed
+      (Round 32/35), owner=harness because the missing producer is the
+      framework's debt. Reopen when anything writes an integrity score: then
+      this stops firing and the verdict branch beside it takes over.
+
   # ── unreviewed ─────────────────────────────────────────────────────────
   # Nobody has read these sites and asked whether anything acts on them.
   # Round 67 did not read them either, and says so rather than guessing.

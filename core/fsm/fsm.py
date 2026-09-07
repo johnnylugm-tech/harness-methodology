@@ -39,6 +39,52 @@ _DEPRECATED_STATE_MAP: Final[dict[str, str]] = {
     "ACTIVE": "RUNNING",  # ACTIVE was used before validation was introduced
 }
 
+#: Which code path writes each state into `.methodology/state.json`, or `None`
+#: with the reason nothing does.
+#:
+#: Round 108 站A. The set above has eight members and one of them has ever been
+#: written: `RUNNING`, at the two sites named below. Measured across the fifteen
+#: corpus projects on 2026-09-08, every `state.json` reads `"state": "RUNNING"`.
+#: The consequences are not theoretical — `core/phase_hooks.py`'s
+#: `preflight_fsm_check` blocks a run when the state is `FREEZE` or `PAUSED`,
+#: and the only thing that has ever produced either is a test fixture;
+#: `constitution/CONSTITUTION.md:251` and `SKILL.md:365` carry HR-14
+#: ("Integrity < 40 → FREEZE") as a rule with no writer at either end.
+#:
+#: This table is DECLARED, not inferred. Inferring it was the first plan and
+#: the measurement killed it: an AST scan for a `"state"` key holding a string
+#: constant finds five sites, of which three are `preflight_fsm_check`'s return
+#: envelope using the same key for a different vocabulary (`UNKNOWN`,
+#: `CORRUPT` — neither is an FSM state), and `core/state_io.py` is the single
+#: entry point for READING state.json only: writers sit in `phase_hooks`,
+#: `push_cmds`, `project_cmds`, `advance_commit` and
+#: `phase_completed_recovery`. With no single write path there is nothing
+#: sound to infer from, so the answer is written down by the people who know
+#: it and `tests/test_fsm_states_have_producers.py` pins that the table and
+#: the set stay the same shape.
+#:
+#: Adding a state means adding a row. A row may honestly say `None` — what it
+#: may not do is be absent, which is how seven of these came to be accepted,
+#: validated, documented and blocked on without anyone noticing that nothing
+#: creates them.
+STATE_PRODUCERS: Final[dict[str, str | None]] = {
+    "RUNNING": ("core/phase_hooks.py::preflight_fsm_check (bare `run-phase "
+                "--phase 1` auto-init) and cli/project_cmds.py::init-project"),
+    "INIT": None,       # no writer; `validate_fsm_state`'s default in
+                        # cli/advance_commit.py is the only place the word
+                        # appears at runtime, and it is a read fallback
+    "PAUSED": None,     # docs/USER_MANUAL.md names "manual pause" as the
+                        # cause and the manual gives no command that sets it
+    "FREEZE": None,     # HR-14's stated effect; nothing writes it, and
+                        # core/auto_fix answers integrity escalation with an
+                        # EscalationCondition instead
+    "DONE": None,       # no writer; a finished project keeps RUNNING
+    "OPEN": None,       # circuit-breaker vocabulary; the kill switch keeps
+                        # its circuits in core/phase_hooks.py's own registry
+    "HALF_OPEN": None,  # as OPEN
+    "CLOSED": None,     # as OPEN
+}
+
 
 class FSMError(ValueError):
     """Raised when an FSM state value is invalid or cannot be auto-corrected."""

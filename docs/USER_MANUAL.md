@@ -182,12 +182,33 @@ Each phase works on a list of FRs (e.g. `FR-01`, `FR-02`). Each FR is an atomic 
 The framework tracks project state in `.methodology/state.json`:
 
 ```
-INITIAL → ACTIVE → (phase-by-phase) → COMPLETE
-                ↓
-              PAUSED   ← manual pause or gate block
-                ↓
-              FREEZE   ← kill switch or critical violation
+RUNNING → (phase-by-phase, current_phase advances) → RUNNING
 ```
+
+`RUNNING` is the only value the framework writes. `state.json` records which
+phase you are in (`current_phase`) and which phases closed
+(`phase_completed`); it does **not** record whether a run is alive — a run
+killed mid-phase leaves `RUNNING` behind because nothing can change it.
+
+`core/fsm/fsm.py` accepts seven further values (`INIT`, `PAUSED`, `FREEZE`,
+`DONE`, `OPEN`, `HALF_OPEN`, `CLOSED`) and `STATE_PRODUCERS` in that file
+records, per value, what writes it — today, for all seven, nothing does. Two
+of them are still read: `run-phase`'s pre-flight refuses to start when
+`state.json` says `FREEZE` or `PAUSED`, so hand-editing the file is the only
+way to reach that block. Until Round 108 this diagram drew a three-step
+lifecycle out of names `fsm.py` has never accepted; the old wording and why it
+survived are in `docs/PROPOSAL_ADJUDICATIONS.md` §Round 108.
+
+**To ask whether a run is still alive**, use the heartbeat rather than this
+field:
+
+```bash
+python harness_cli.py doctor --project /project
+```
+
+It reports how long it has been since any harness command completed, and says
+what it cannot see (an agent thinking inside a dispatch looks the same as a
+stall).
 
 ---
 
