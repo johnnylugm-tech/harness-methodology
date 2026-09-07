@@ -987,7 +987,7 @@ async function srsBDocs(round, content, prevB2) {
   return [
     docBlock('DOC 1: canonical spec (SPEC.md) — the ground truth Agent A must transcribe 100%', canonicalSpecContent),
     docBlock('DOC 2: draft 01-requirements/SRS.md (full content)', content),
-    ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 = every AC token is in one canonical sentence .. 1.0 = none are); > 0.7 is framework-flagged. Each clause also carries a verdict: transcribed / overlaps_canonical are MEASURED overlap, cites_canonical is the PROJECT declaring a DERIVED tag (shown verbatim as `citation`, with `citation_resolves` for whether that location is in SPEC.md), unmatched_and_uncited is neither. For cites_canonical, open the cited location in DOC 1 and judge the derivation yourself — the framework did not.', diffDoc],
+    ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 = every AC token appears in one canonical block .. 1.0 = none do); > 0.7 is framework-flagged. Each clause also carries a verdict: transcribed / overlaps_canonical are MEASURED overlap, cites_canonical is the PROJECT declaring a DERIVED tag (shown verbatim as `citation`, with `citation_resolves` for whether that location is in SPEC.md), unmatched_and_uncited is neither. For cites_canonical, open the cited location in DOC 1 and judge the derivation yourself — the framework did not.', diffDoc],
   ]
 }
 
@@ -1001,7 +1001,7 @@ const srsBChecklist =
   + '- Every stakeholder need covered?\n'
   + '- Does every NFR `dimension:` field match a real, currently-listed dimension in harness/harness/ssi/prompts/evaluate_dimension.md (not a deprecated or nonexistent name)? Does every AC match what that dimension section actually checks, with a dimension note / coverage note where it does not?\n'
   + '- Does every NFR `type:` value belong to the legal NFR-type vocabulary (documentation/integration/layering/licensing/maintainability/mutation/performance/reliability/security/testability/verifiability/deployability/scalability/usability)? This is a DIFFERENT, stricter vocabulary than `dimension:` — a value that merely sounds plausible for that NFR\'s category (e.g. `error_handling`, which is legal only as a `dimension:` name per sab_parser, never as a `type:` name) is still illegal as `type:` and will be refused by generate_sab.py --validate in Phase 2. Flag any NFR whose `type:` is outside this list, even if it reads as a reasonable English description.\n'
-  + '- SEVERITY RUBRIC for B gaps (B-1 calibration): high = A added a NEW requirement / AC not derivable from any canonical sentence (real invention); medium = A over-specified an ambiguous canonical clause (canonical interpretation but lacks DERIVED tag / NFR-99 deferral); low = methodology / process artifacts (sha256, PI regex tables, \'Methodology pin\') or minor canonical-citation gaps. Apply this rubric when grading A\'s deliverable — do not let \'over-interpretation\' auto-escalate to high. // @rule R-SEVERITY-RUBRIC-001'
+  + '- SEVERITY RUBRIC for B gaps (B-1 calibration): high = A added a NEW requirement / AC not derivable from the canonical spec (real invention); medium = A over-specified an ambiguous canonical clause (canonical interpretation but lacks DERIVED tag / NFR-99 deferral); low = methodology / process artifacts (sha256, PI regex tables, \'Methodology pin\') or minor canonical-citation gaps. Apply this rubric when grading A\'s deliverable — do not let \'over-interpretation\' auto-escalate to high. // @rule R-SEVERITY-RUBRIC-001'
 
 const srsCfg = {
   idx: 'srs',

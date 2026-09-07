@@ -575,7 +575,7 @@ def _render_phase1_subtask1_srs() -> str:
         "  return [\n"
         "    docBlock('DOC 1: canonical spec (SPEC.md) — the ground truth Agent A must transcribe 100%', canonicalSpecContent),\n"
         "    docBlock('DOC 2: draft 01-requirements/SRS.md (full content)', content),\n"
-        "    ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 = every AC token is in one canonical sentence .. 1.0 = none are); > 0.7 is framework-flagged. Each clause also carries a verdict: transcribed / overlaps_canonical are MEASURED overlap, cites_canonical is the PROJECT declaring a DERIVED tag (shown verbatim as `citation`, with `citation_resolves` for whether that location is in SPEC.md), unmatched_and_uncited is neither. For cites_canonical, open the cited location in DOC 1 and judge the derivation yourself — the framework did not.', diffDoc],\n"
+        "    ['DOC 3: srs_vs_spec_diff.json — per-AC over_spec_score (0.0 = every AC token appears in one canonical block .. 1.0 = none do); > 0.7 is framework-flagged. Each clause also carries a verdict: transcribed / overlaps_canonical are MEASURED overlap, cites_canonical is the PROJECT declaring a DERIVED tag (shown verbatim as `citation`, with `citation_resolves` for whether that location is in SPEC.md), unmatched_and_uncited is neither. For cites_canonical, open the cited location in DOC 1 and judge the derivation yourself — the framework did not.', diffDoc],\n"
         "  ]\n"
         "}\n"
         "\n"

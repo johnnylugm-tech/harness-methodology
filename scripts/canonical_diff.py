@@ -11,9 +11,12 @@ returned "all low gaps". No framework-side diff existed to detect A adding
 content not derivable from SPEC.
 
 This module provides:
-  - `compute_over_spec_score(ac_text, canonical_sentences)` → dict
+  - `compute_over_spec_score(ac_text, canonical_units)` → dict
         over_spec_score 0.0 = every token of the AC is in one canonical
-                              sentence; 1.0 = none of them are
+                              block; 1.0 = none of them are
+        The block is what `_split_canonical_units` produced, and on every
+        specification measured that is the whole document — see that
+        function.
         +0.3 penalty if AC contains interpretive choices without DERIVED tag
         verdict ∈ VERDICTS, plus the project's citation and whether the
                               location it names is in the canonical text
@@ -142,8 +145,39 @@ def _tokenize(text: str) -> list[str]:
     return [t for t in tokens if t not in _STOPWORDS and len(t) >= 3]
 
 
-def _split_sentences(text: str) -> list[str]:
-    """Split canonical text into sentence-like units for AC matching."""
+def _split_canonical_units(text: str) -> list[str]:
+    """The blocks an AC is matched against. On a specification: one block.
+
+    Round 108 站B renamed this from `_split_sentences`. It has never returned
+    a sentence. `_SENTENCE_SPLIT_RE` needs a full stop, whitespace and then an
+    ASCII capital or digit; a specification writes one claim per bullet or
+    table cell, so the character after a full stop is a newline and then `-`,
+    `|` or `#`. Measured 2026-09-08 over every `SPEC.md` on this machine —
+    eighteen projects:
+
+        units == 1 : 3      units == 2 : 15      units > 2 : 0
+        largest unit 8,310 chars; the smallest project, taskq (11,434 chars),
+        yields ONE unit of 4,328
+        regex hits on the RAW text of each: 0
+
+    Where it does fire is not a rescue: on an English-headed document it
+    fires at `## 1.`, `## 2.` — the section NUMBERING — so the unit is a
+    SECTION. Either way the block spans many claims, which is why four
+    shipped statements calling it a sentence were wrong; one of them was the
+    Phase 1 prompt Agent B reads on every round.
+
+    It is left as it is, deliberately. A document-sized unit RAISES overlap
+    ratios — the AC is compared against the whole spec at once — so this is
+    not a leniency that lets inventions through. Tightening it to markdown
+    block units was measured across fifteen projects: thirteen medians fell
+    (taskq-api 0.497 → 0.153, taskq-forever 0.441 → 0.178) and four projects
+    dropped to zero clauses above the 0.45 threshold. That is a corpus-wide
+    false accusation, and it is the second measurement in two rounds to veto
+    the same change (Round 105 measured AC-against-its-own-cited-line at a
+    median of 0.074). `build_diff_report` publishes `canonical_units` and
+    `canonical_unit_max_chars` so the degeneracy is a number in the report
+    rather than a fact only this docstring knows.
+    """
     # Strip code fences first (they're not prose claims)
     text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
     text = re.sub(r"`[^`]+`", " ", text)
@@ -225,20 +259,24 @@ def _split_ac_clauses(srs_text: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _best_match_ratio(ac_text: str, canonical_sentences: list[str]) -> float:
-    """Return best AC-coverage ratio against any canonical sentence.
+def _best_match_ratio(ac_text: str, canonical_units: list[str]) -> float:
+    """Return best AC-coverage ratio against any canonical block.
 
-    Definition: ratio = |AC_tokens ∩ canonical_sentence_tokens| / |AC_tokens|.
+    Definition: ratio = |AC_tokens ∩ canonical_block_tokens| / |AC_tokens|.
     This answers 'what fraction of the AC's claims are backed by canonical
-    sentence X?'. A verbatim transcription of canonical yields ratio = 1.0;
+    block X?'. A verbatim transcription of canonical yields ratio = 1.0;
     a pure invention (zero token overlap) yields 0.0.
+
+    The block is whatever `_split_canonical_units` returned — on every
+    specification measured, one block holding the whole document, which is
+    why this is a coverage reading and not a per-sentence attribution.
 
     We deliberately use |AC| as denominator (not max/|union|) because the
     anti-over-spec goal is to detect A adding content NOT in canonical — a
-    short verbatim AC matching a longer canonical sentence is fine; the
+    short verbatim AC matching a longer canonical block is fine; the
     denominator choice does not penalize that.
     """
-    if not ac_text.strip() or not canonical_sentences:
+    if not ac_text.strip() or not canonical_units:
         return 0.0
 
     ac_tokens = set(_tokenize(ac_text))
@@ -246,11 +284,11 @@ def _best_match_ratio(ac_text: str, canonical_sentences: list[str]) -> float:
         return 0.0
 
     best = 0.0
-    for sent in canonical_sentences:
-        sent_tokens = set(_tokenize(sent))
-        if not sent_tokens:
+    for unit in canonical_units:
+        unit_tokens = set(_tokenize(unit))
+        if not unit_tokens:
             continue
-        intersection = len(ac_tokens & sent_tokens)
+        intersection = len(ac_tokens & unit_tokens)
         r = intersection / len(ac_tokens)
         if r > best:
             best = r
@@ -339,7 +377,7 @@ def citation_resolves_in(citation: str | None, canonical_text: str) -> bool | No
 
 def compute_over_spec_score(
     ac_text: str,
-    canonical_sentences: list[str],
+    canonical_units: list[str],
     derived_present: bool = False,
     canonical_text: str = "",
 ) -> dict:
@@ -366,7 +404,7 @@ def compute_over_spec_score(
     citation would change no verdict, which is the second measurement in two
     rounds to veto that idea.
     """
-    ratio = _best_match_ratio(ac_text, canonical_sentences)
+    ratio = _best_match_ratio(ac_text, canonical_units)
     # score = (1 - ratio) + penalty if interpretive choices without DERIVED
     # Cap at 1.0.
     penalty = 0.0
@@ -428,12 +466,12 @@ def build_diff_report(
     srs_text = srs_path.read_text(encoding="utf-8")
     clauses = _split_ac_clauses(srs_text)
 
-    canonical_sentences: list[str] = []
+    canonical_units: list[str] = []
     spec_text = ""
     spec_present = spec_path is not None and spec_path.exists()
     if spec_present and spec_path is not None:
         spec_text = spec_path.read_text(encoding="utf-8")
-        canonical_sentences = _split_sentences(spec_text)
+        canonical_units = _split_canonical_units(spec_text)
 
     per_ac: list[dict] = []
     high_count = 0
@@ -441,7 +479,7 @@ def build_diff_report(
         if not c["body"]:
             continue
         score = compute_over_spec_score(
-            c["body"], canonical_sentences, c["derived_present"], spec_text,
+            c["body"], canonical_units, c["derived_present"], spec_text,
         )
         record = {
             "label": c["label"],
@@ -474,6 +512,16 @@ def build_diff_report(
             len(v) for v in
             artifact_consistency.acceptance_criteria_from_text(
                 _without_machine_block(srs_text)).values()),
+        # Round 108 站B: the size of the thing every ratio was measured
+        # against. `_split_canonical_units` yields one or two document-sized
+        # blocks on every real specification (eighteen measured, none above
+        # two), so `best_match_ratio` is coverage against the whole canonical
+        # text and not attribution to a sentence. Four shipped statements said
+        # "sentence" and no artifact carried the number that contradicts them;
+        # these two are that number.
+        "canonical_units": len(canonical_units),
+        "canonical_unit_max_chars": max(
+            (len(u) for u in canonical_units), default=0),
         # One count per verdict, derived from the vocabulary rather than
         # written out beside it — four hand-written sums is how a renamed
         # verdict comes to have a count nobody moved.
@@ -662,7 +710,7 @@ def _cli() -> int:
 
     if spec is not None and not spec.exists():
         print(f"[canonical_diff] WARNING: canonical spec missing ({spec}); "
-              f"Elicitation mode — empty canonical_sentences, scores will be high.",
+              f"Elicitation mode — empty canonical_units, scores will be high.",
               file=sys.stderr)
         spec = None  # treat as Elicitation
 

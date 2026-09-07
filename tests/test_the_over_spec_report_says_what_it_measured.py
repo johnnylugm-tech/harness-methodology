@@ -144,9 +144,9 @@ def test_a_verdict_says_whether_the_framework_or_the_project_decided_it() -> Non
     naming one event is the shape this repository keeps paying for. The
     assertions below are the same three cases, asked of the name.
     """
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
-    canonical = _split_sentences(_SPEC)
+    canonical = _split_canonical_units(_SPEC)
     invented = "The scheduler must always prefer the oldest queued job."
 
     declared = compute_over_spec_score(invented, canonical, derived_present=True)
@@ -169,9 +169,9 @@ def test_the_tag_does_not_change_a_verdict_the_overlap_already_decided() -> None
     """Reverse control. The declared verdict is the branch that fires when the
     measurement decided nothing, not a new rule: adding or removing the tag
     must not move a verdict the measured ratio already settled."""
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
-    canonical = _split_sentences(_SPEC)
+    canonical = _split_canonical_units(_SPEC)
     text = "The service accepts a command string and returns an identifier."
     with_tag = compute_over_spec_score(text, canonical, derived_present=True)
     without = compute_over_spec_score(text, canonical, derived_present=False)
@@ -185,10 +185,10 @@ def test_no_field_survives_the_verdict_it_was_a_second_statement_of() -> None:
     two vocabularies, and the next reader has to know which one is current.
     """
     from scripts.canonical_diff import (
-        VERDICTS, _split_sentences, compute_over_spec_score,
+        VERDICTS, _split_canonical_units, compute_over_spec_score,
     )
 
-    canonical = _split_sentences(_SPEC)
+    canonical = _split_canonical_units(_SPEC)
     score = compute_over_spec_score("anything at all", canonical)
     assert "verdict_basis" not in score
     assert score["verdict"] in VERDICTS
@@ -222,23 +222,23 @@ def test_the_citation_reaches_the_reviewer_verbatim() -> None:
     because a tag was present. The tag's own text — the location A says the
     clause comes from — never left `_split_ac_clauses`.
     """
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
     tag = "DERIVED: SPEC.md §1 — the queue is FIFO per that section."
     score = compute_over_spec_score(
         f"{tag}\nThe scheduler prefers the oldest queued job.",
-        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        _split_canonical_units(_SECTIONED_SPEC), derived_present=True,
         canonical_text=_SECTIONED_SPEC)
     assert score["citation"] == tag
     assert score["citation_resolves"] is True
 
 
 def test_a_citation_naming_a_place_that_is_not_there_says_so() -> None:
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
     score = compute_over_spec_score(
         "DERIVED: SPEC.md §97 — nothing is there.\nThe scheduler prefers old jobs.",
-        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        _split_canonical_units(_SECTIONED_SPEC), derived_present=True,
         canonical_text=_SECTIONED_SPEC)
     assert score["citation_resolves"] is False
 
@@ -251,9 +251,9 @@ def test_a_citation_the_framework_cannot_check_is_not_reported_as_broken() -> No
     framework that writes False there accuses the project of a broken
     reference it never opened.
     """
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
-    canonical = _split_sentences(_SPEC)
+    canonical = _split_canonical_units(_SPEC)
     no_locator = compute_over_spec_score(
         "DERIVED: the canonical spec says jobs are queued.\nJobs are queued.",
         canonical, derived_present=True, canonical_text=_SPEC)
@@ -278,12 +278,12 @@ def test_the_rationale_half_of_the_tag_is_not_read_as_a_citation() -> None:
     mentioned an id ("…the rest is deferred to NFR-99") that the citation
     never claimed was in SPEC.md.
     """
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
     score = compute_over_spec_score(
         "DERIVED: SPEC.md §1 — the remainder is deferred to NFR-99.\n"
         "The service accepts a command string.",
-        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        _split_canonical_units(_SECTIONED_SPEC), derived_present=True,
         canonical_text=_SECTIONED_SPEC)
     assert score["citation_resolves"] is True, (
         "NFR-99 appears in the rationale, not the citation, and SPEC.md is "
@@ -321,11 +321,11 @@ def test_a_requirement_id_resolves_through_the_readers_that_already_answer_it(
     Written with a plain regex, the check charged taskq-new with 25
     unresolvable citations pointing at requirements SPEC.md really declares.
     """
-    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+    from scripts.canonical_diff import _split_canonical_units, compute_over_spec_score
 
     score = compute_over_spec_score(
         "DERIVED: SPEC.md NFR-2 — restated as a testable clause.\nLatency is bounded.",
-        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        _split_canonical_units(_SECTIONED_SPEC), derived_present=True,
         canonical_text=_SECTIONED_SPEC)
     assert score["citation_resolves"] is True
 

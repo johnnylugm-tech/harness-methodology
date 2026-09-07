@@ -137,7 +137,7 @@ are not re-opened. This bounds backtracking to a single step.
   - NFRs measurable?
   - No contradictions between FRs?
   - Every stakeholder need covered?
-  - <!-- @rule R-SEVERITY-RUBRIC-001 -->SEVERITY RUBRIC for B gaps (B-1 calibration): high = A added a NEW requirement / AC not derivable from any canonical sentence (real invention); medium = A over-specified an ambiguous canonical clause (canonical interpretation but lacks DERIVED tag / NFR-99 deferral); low = methodology / process artifacts (sha256, PI regex tables, 'Methodology pin') or minor canonical-citation gaps. Apply this rubric when grading A's deliverable — do not let 'over-interpretation' auto-escalate to high.<!-- @end-rule -->
+  - <!-- @rule R-SEVERITY-RUBRIC-001 -->SEVERITY RUBRIC for B gaps (B-1 calibration): high = A added a NEW requirement / AC not derivable from the canonical spec (real invention); medium = A over-specified an ambiguous canonical clause (canonical interpretation but lacks DERIVED tag / NFR-99 deferral); low = methodology / process artifacts (sha256, PI regex tables, 'Methodology pin') or minor canonical-citation gaps. Apply this rubric when grading A's deliverable — do not let 'over-interpretation' auto-escalate to high.<!-- @end-rule -->
 
   Return JSON only:
   {"review_status":"APPROVE"|"REJECT",

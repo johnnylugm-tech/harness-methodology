@@ -9654,3 +9654,73 @@ state["integrity"] 的寫者:全樹 0(唯一讀者 core/auto_fix/__init__.py:486
 **再開條件**:老闆裁定 integrity 的來源,或裁定該條文存廢。
 `STATE_PRODUCERS` 的已知界限:它是**宣告**,守衛保證表與集合同形,**不保證表裡寫的
 位置是真的** —— 那需要單一寫入點,而今天沒有(§2①)。**再開條件**:狀態寫入收斂成單一函式。
+
+### §4 站 B —— 「一句 canonical」是四份 shipped 陳述,而它從沒切出過一句
+
+`scripts/canonical_diff.py` 用「AC 的 token ∩ 最佳匹配 canonical 單位的 token / AC 的
+token」給每一條驗收準則計分。**四份 shipped 陳述**告訴讀者(人,以及 Agent B)那個單位
+是一個句子:
+
+| 位置 | 字面 |
+|---|---|
+| `scripts/canonical_diff.py:15-16` 模組 docstring | `every token of the AC is in one canonical sentence` |
+| `scripts/canonical_diff.py:229` `_best_match_ratio` | `best AC-coverage ratio against any canonical sentence` |
+| `spec_phase1.py:578` → `phase1-requirements.js` / `run-all.js` DOC 3 | `0.0 = every AC token is in one canonical sentence` |
+| `harness/prompts/rules/R-SEVERITY-RUBRIC-001.md` → 上面兩支 JS + plangen phase1.md | `high = … not derivable from any canonical sentence` |
+
+**實測(唯讀,2026-09-08,本機每一份 `SPEC.md`,18 個專案)**
+
+```
+units == 1 : 3      units == 2 : 15      units > 2 : 0
+最大單一單位 8,310 字元;最小專案 taskq(11,434 字元)→ 一個 4,328 字元的單位
+_SENTENCE_SPLIT_RE 對每一份 RAW 文本的命中數:0
+```
+
+`_SENTENCE_SPLIT_RE` 是 `(?<=[.!?])\s+(?=[A-Z\d])`:句點、空白、**ASCII 大寫或數字**。
+規格文件一個 bullet / 表格欄位寫一條主張,句點後面是換行再接 `-`、`|`、`#`。語料 14–17%
+是中文,章節標題寫 `## 0. 文件元資料` —— 句點後是空白再接中文字,所以 18 份沒有一次命中。
+
+**它會命中的地方不是救援**:英文標題的文件上,它命中的是 `## 1.`、`## 2.` 的**章節編號**,
+切出來的是**章節**。本輪測試 fixture 1,291 字元、十條 bullet 主張,切成 5 個單位,切點正好
+是四個編號標題。**不論哪一種文件,那個單位都橫跨許多條主張。**
+
+**這個偏差的方向和直覺相反。** 文件大小的單位**抬高**每一個重疊率(AC 一次對整份規格比對),
+不是放水放過捏造。「把切分器修好」被 15 專案 A/B 否決:改用 markdown 區塊單位後
+13 個專案中位數下墜(taskq-api 0.497 → 0.153、taskq-forever 0.441 → 0.178),4 個專案
+`>= 0.45` 直接歸零 —— **全語料誣告**。這是兩輪內第二次量測否決同一個改動(Round 105 量
+過 AC 對自己引用的 canonical 行,中位 0.074)。**切分器不動。**
+
+**R19 母體**:它的單元測試 `TestSplitSentences` 餵三句 `". " + 大寫` 的英文散文並斷言切出
+3 段 —— **fixture 是照著 regex 寫的**,在 regex 為它而生的輸入上永遠綠,在這支函式實際被
+呼叫的 18 份文件上一次都不成立。
+
+**修法(判定與數字零改變)**
+
+* 四份陳述改成它真的量的事;`_split_sentences` 更名 `_split_canonical_units`,docstring
+  記下 18 份的量測、命中 0、以及**為什麼不收緊**(附 A/B 表)。
+* `summary` 加 `canonical_units` / `canonical_unit_max_chars` 兩個讀數 —— 與計分同一次
+  呼叫的同一份資料,不是第二個答案。18KB 規格塌成一塊從此是報告上的數字。
+  **刻意不進 prompt**(B 不需要它,且省下 relay 位元組)。
+* `TestSplitSentences` 更名並在 docstring 記明它餵的是這支函式不會遇到的形狀;真實形狀
+  的斷言放在新檔 `tests/test_the_canonical_unit_is_not_a_sentence.py`。
+
+**位元組(三個數字都量過)**:DOC 3 +1、rubric −4 → `run-all.js` 417,180 → **417,177**,
+`RUNALL_MAX_BYTES` 417,480 **不動**,headroom 300 → 303;ratchet 註記照規矩加一筆 +0。
+
+**語料 A/B(15 個有 SRS+SPEC 的專案)**:`total_ac`、`total_acceptance_criteria`、
+`over_spec_score`、`best_match_ratio`、`verdict_counts`、`citation_counts`、`fr_coverage`
+**逐欄位相同**,summary 只多那兩個鍵,report 其餘部分逐欄位相同。
+
+**反證**:CP-3 兩份陳述改回 sentence → 來源守衛紅(兩個位置都指名);CP-4 `canonical_units`
+寫死 1 → 報告守衛紅(`assert 1 == 5`);CP-5 把語料形狀 fixture 換成 `". " + 大寫` 的散文
+→ 切分器**真的切出 10 個單句**、守衛轉紅 —— 證明這支守衛量的是**文件形狀**,不是 regex,
+正好是 R19 fixture 的反面。三次還原後 sha256 全部相同。
+
+**明列不做**
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| 收緊 `_split_canonical_units` | 兩輪內第二次被量測否決,13/15 下墜 → 全語料誣告 | 有能驗證新分數為真的東西 |
+| 中文分詞 | 會動到 6 個專案的每一個分數;`over_spec_score` 是讀數不是門檻 | 同上 |
+| `over_spec_score` 逐條計分 | 標題形狀專案今天回傳裸 id,逐條中位重疊率 0.000;**站 C 是它的前提** | 站 C 落地後單獨評估 |
+| `rules/manifest.yaml` 的 `text:` 欄位 | **本輪發現的另一個缺陷,不在本站範圍**:全樹 **零讀者**(`grep manifest.yaml` 於 .py/.js/.sh 無命中),而且**在我到之前就已經與 SSOT 漂移**(它寫 `real_invention` / `over_interpretation`,`harness/prompts/rules/R-SEVERITY-RUBRIC-001.md` 寫 `real invention` / `canonical interpretation but lacks…`)。只改我這一句會讓一個死欄位看起來像活的 —— 那是比留著更糟的陳述 | 決定這份 registry 要接上讀者還是退場 |

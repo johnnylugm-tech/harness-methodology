@@ -5623,3 +5623,15 @@
 - test: tests/test_hr14_abstains_instead_of_passing.py::test_an_unparseable_score_is_also_unmeasured
   bug: "the old code caught ValueError/TypeError and returned 100.0 — the same substitution of full marks for a reading, one layer down"
   fixed_in: "Round 108"
+
+- test: tests/test_the_canonical_unit_is_not_a_sentence.py::test_no_unit_a_specification_yields_is_a_sentence
+  bug: "_split_sentences has never returned a sentence. `_SENTENCE_SPLIT_RE` needs a full stop, whitespace and an ASCII capital/digit; a specification writes one claim per bullet or table cell, so the next character is a newline then `-`/`|`/`#`. Measured over eighteen corpus SPEC.md files: zero regex hits on the raw text, one or two document-sized units each, largest 8,310 characters. Where it does fire (English-headed documents) it fires at `## 1.` — section numbering — so the unit is a SECTION. Its old unit test fed it three `. `-plus-capital prose sentences and asserted three units: a fixture written to the regex (R19), green on input the regex was built for and on none of the documents the function is called with"
+  fixed_in: "Round 108"
+
+- test: tests/test_the_canonical_unit_is_not_a_sentence.py::test_the_report_publishes_how_many_units_the_canonical_became
+  bug: "best_match_ratio was published with no reading of the size of the text it was matched against, so an 18KB spec collapsing into one block was invisible in every artifact the framework produced. summary.canonical_units / canonical_unit_max_chars come from the same call that produced the scores — one measurement, not a second answer"
+  fixed_in: "Round 108"
+
+- test: tests/test_the_canonical_unit_is_not_a_sentence.py::test_no_generator_still_calls_the_comparison_unit_a_sentence
+  bug: "four shipped statements told their reader the AC is matched against one canonical sentence: canonical_diff.py's module docstring, _best_match_ratio's docstring, the Phase 1 DOC 3 line Agent B reads every round, and R-SEVERITY-RUBRIC-001's definition of a `high` gap. Scoped to the three SOURCES rather than the tree because docs/PROPOSAL_ADJUDICATIONS.md quotes the retired wording in order to record it, and the generated JS is already proven to match by generate_workflows.py --check (R33/R56: check the source, not each derived statement)"
+  fixed_in: "Round 108"

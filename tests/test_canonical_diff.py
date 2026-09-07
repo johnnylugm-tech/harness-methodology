@@ -19,7 +19,7 @@ import pytest
 from scripts.canonical_diff import (
     _best_match_ratio,
     _split_ac_clauses,
-    _split_sentences,
+    _split_canonical_units,
     build_diff_report,
     compute_over_spec_score,
     write_report,
@@ -93,27 +93,38 @@ def srs_with_derived_tag(tmp_path: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# _split_sentences / _split_ac_clauses
+# _split_canonical_units / _split_ac_clauses
 # ---------------------------------------------------------------------------
 
 
-class TestSplitSentences:
+class TestSplitCanonicalUnits:
+    """Prose-shaped inputs — which is not the shape the function is called on.
+
+    Round 108 站B. These three cases were written to `_SENTENCE_SPLIT_RE`
+    (a full stop, whitespace, a capital) and pass on input built for it. No
+    canonical document has that shape: measured over eighteen corpus
+    `SPEC.md` files, the function returned one or two document-sized blocks
+    and never a sentence. What it does on a real specification is pinned in
+    `tests/test_the_canonical_unit_is_not_a_sentence.py`; these stay because
+    the code-fence stripping and the 15-character floor are real contracts.
+    """
+
     def test_splits_on_period_space_capital(self):
         s = ("First sentence here is long enough to survive. "
              "Second sentence there is also long enough. "
              "Third one also must be longer than fifteen characters.")
-        out = _split_sentences(s)
+        out = _split_canonical_units(s)
         assert len(out) == 3
 
     def test_strips_code_fences(self):
         s = "Some prose. ```python\nprint('hi')\n``` More prose here."
-        out = _split_sentences(s)
+        out = _split_canonical_units(s)
         # Should drop code fence content
         assert all("print" not in o for o in out)
 
     def test_ignores_very_short_fragments(self):
         s = "A. B. Real sentence here that should be kept."
-        out = _split_sentences(s)
+        out = _split_canonical_units(s)
         # Only the long one survives
         assert len(out) == 1
         assert "kept" in out[0]
@@ -166,8 +177,8 @@ class TestBestMatchRatio:
 
 class TestComputeOverSpecScore:
     def test_verbatim_transcription_low_score(self, spec_with_ambiguous_phrases):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         # Verbatim transcription → high match ratio, low over-spec score
         ac = ("Execute Python modules with timing instrumentation "
               "excluding subprocess execution.")
@@ -176,8 +187,8 @@ class TestComputeOverSpecScore:
         assert s["over_spec_score"] < 0.3
 
     def test_interpretive_choices_no_derived_high_score(self, spec_with_ambiguous_phrases):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         # Interpretation: "MUST include full python -m taskq wall-clock
         # including fork/exec" + "the only valid interpretation is..."
         ac = ("Execute Python modules. Measurement MUST include full python "
@@ -190,8 +201,8 @@ class TestComputeOverSpecScore:
         assert s["verdict"] in ("overlaps_canonical", "unmatched_and_uncited")
 
     def test_interpretive_with_derived_tag_caps_score(self, spec_with_ambiguous_phrases):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         # Same interpretive text but with DERIVED tag → no penalty
         ac = ("DERIVED: SPEC.md:1 — chose X. Execute Python modules. "
               "Measurement MUST include full python -m taskq wall-clock "
@@ -203,8 +214,8 @@ class TestComputeOverSpecScore:
         assert s["derived_present"] is True
 
     def test_pure_invention_high_score(self, spec_with_ambiguous_phrases):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         ac = ("Implement distributed consensus with Raft protocol across "
               "5-node cluster with leader election timeouts.")
         s = compute_over_spec_score(ac, canonical, derived_present=False)
@@ -299,8 +310,8 @@ class TestHR12Regression:
     def test_excluding_subprocess_execution_verbatim(
         self, spec_with_ambiguous_phrases
     ):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         ac = ("Execute Python modules with timing instrumentation excluding "
               "subprocess execution.")
         s = compute_over_spec_score(ac, canonical)
@@ -310,8 +321,8 @@ class TestHR12Regression:
     def test_excluding_subprocess_execution_over_specified(
         self, spec_with_ambiguous_phrases
     ):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         # Original deadlock pattern: prescriptive clause + 'only valid interpretation'
         ac = ("Execute Python modules. The only valid interpretation is that "
               "'excluding subprocess execution' means excluding ALL child "
@@ -325,8 +336,8 @@ class TestHR12Regression:
     def test_retry_on_failed_or_timeout_verbatim(
         self, spec_with_ambiguous_phrases
     ):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         ac = "Retry on failed or timeout responses."
         s = compute_over_spec_score(ac, canonical)
         assert s["verdict"] == "transcribed"
@@ -334,8 +345,8 @@ class TestHR12Regression:
     def test_retry_on_failed_or_timeout_over_specified(
         self, spec_with_ambiguous_phrases
     ):
-        from scripts.canonical_diff import _split_sentences
-        canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
+        from scripts.canonical_diff import _split_canonical_units
+        canonical = _split_canonical_units(spec_with_ambiguous_phrases.read_text())
         # Prescriptive: "only network failures qualify"
         ac = ("Retry on failed or timeout responses — only network failures "
               "qualify; user-initiated cancels MUST NOT trigger retry.")
