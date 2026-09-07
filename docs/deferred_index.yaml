@@ -1602,49 +1602,49 @@ entries:
     reason: "新增就是造代理指標(R50)"
     reopen: "—"
   - round: 106
-    line: 9472
+    line: 9494
     kind: table_row
     item: "用「標記還在」判交付端"
     reason: "taskq-renew 實測反例 → 誣告(R46)"
     reopen: "—"
   - round: 106
-    line: 9473
+    line: 9495
     kind: table_row
     item: "用「值等於 80」判交付端"
     reason: "專案可以合理選 80"
     reopen: "`quality_targets` 有 provenance 欄位"
   - round: 106
-    line: 9474
+    line: 9496
     kind: table_row
     item: "規則 2 放寬成「識別字出現就報」"
     reason: "`app.main` 會誣告一整類 FastAPI 專案"
     reopen: "—"
   - round: 106
-    line: 9475
+    line: 9497
     kind: table_row
     item: "把檢查放進 `_validate_handoff_*`"
     reason: "只由一句 prompt 請 agent 自己跑,是指示不是執行者"
     reopen: "框架自己開始呼叫 validate-handoff"
   - round: 106
-    line: 9476
+    line: 9498
     kind: table_row
     item: "要求 `DERIVED:` 引用可解析才放行"
     reason: "408/412 已經解析得到,擋不住任何人(連兩輪)"
     reopen: "有了能判「可否推得」的機制"
   - round: 106
-    line: 9477
+    line: 9499
     kind: table_row
     item: "刪掉 `over_spec_score` / `best_match_ratio`"
     reason: "它們是讀數,對 B 仍有用"
     reopen: "—"
   - round: 106
-    line: 9478
+    line: 9500
     kind: table_row
     item: "讓框架真的去設 `evidence_type`"
     reason: "那要框架能判「可否推得」,兩個方向都量到它判不了"
     reopen: "同上"
   - round: 106
-    line: 9479
+    line: 9501
     kind: table_row
     item: "站 A 規則 1 擴大到模板的散文/數字目標"
     reason: "刻意的邊界:`example` 是可判定的,散文不是"

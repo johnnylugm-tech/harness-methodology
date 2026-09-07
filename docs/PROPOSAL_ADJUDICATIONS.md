@@ -9465,6 +9465,28 @@ R105 賬本寫「有標記的 SAB `layers` 範例 **0/13** 被原封交付 —�
 `total_acceptance_criteria` / `high_score_count` **逐筆相同**,舊三個計數在改名下
 等於新四個計數(`interpreted` = `overlaps_canonical` + `cites_canonical`),差異 0。
 
+### §4.5 站 C —— 織網 → 切,兩個 commit
+
+Round 105 把 `arch_constraints.py`(950 行)登記成新 god file,並寫下再開條件
+「下一次它再長」。檔案沒有再長 —— 是**能先織網的那一輪到了**,所以提前執行。
+
+* **commit 1(網)**:六個葉子函式登記進 `_TRACKED`,`REGEN_SPLIT_GOLDEN=1` 產指紋。
+  零行為變更,沒有任何一行生產碼被移動。AST 實測的前提:Group A 不讀檔案裡任何其他
+  頂層名字;讀它們的只有 `_evaluate` / `contract_coverage_blocking_reason` /
+  `contract_coverage_gap` / `unreadable_contracts`。單向、無循環。
+* **commit 2(切)**:272 行逐位元組搬到 `core/quality_gate/import_contracts.py`,
+  `arch_constraints` 全部 re-export(外部零 import 變更),`configparser` 孤兒刪除。
+  **六個指紋逐一相同 —— 那就是「這是搬移不是改寫」的證明本身。**
+  A/B 13 專案四個讀取器輸出逐位元組相同。
+
+**網抓到搬移的真後果**:`monkeypatch.setattr(ac, "contract_decides", ...)` 在定義
+搬走之後只是另一個綁定,到不了呼叫端。五處 patch 改打定義處 `import_contracts` ——
+測試證明的事不變,而且比原來誠實。
+
+**CP-9(R97/R99 同形第八次)**:在 `arch_constraints` 留一份**忠實重寫**的
+`read_import_contracts` → split golden **5 passed 完全看不見**,四支路由測試連鎖
+17 紅抓到。**指紋證明搬移,行為證明路由,兩者缺一不可。**
+
 ### §5 明列不做
 
 | 項目 | 理由 | 再開條件 |
@@ -9496,3 +9518,9 @@ R105 賬本寫「有標記的 SAB `layers` 範例 **0/13** 被原封交付 —�
 * `citation_resolves` 在今天的語料上**沒有一個 False**。它不是死規則(構造得出 False,
   單元測試釘著),但沒有活受害者。
 * 站 B 改的是 **shipped prompt**,會改變之後每一次 P1 對 Agent A 說的話。
+* **split golden 的量測邊界(CP-8 實測)**:`_source_of` 走 `ast.get_source_segment`,
+  span 到函式最後一個 statement 為止 —— 寫在**同一行**的尾註不在指紋裡。改碼、改內部
+  註解都會紅(實測),尾註不會。那類文字改不了行為,而把 span 換成行範圍會讓 632 個
+  既有指紋全部重算並把 golden 綁上尾隨空白;本輪明列不做。
+* `arch_constraints` 仍是所有人的入口:檔案變小了,但「一個模組名對外承擔兩件事」
+  沒變。這是 re-export 的代價,不假裝沒有。
