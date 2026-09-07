@@ -197,8 +197,13 @@ def test_the_coverage_gap_reads_that_answer_rather_than_recomputing_it(
     project = _project(tmp_path, _LAYERS)
     assert contract_coverage_gap(project) == ["pkg"], "fixture drifted"
 
-    import core.quality_gate.arch_constraints as ac
-    monkeypatch.setattr(ac, "contract_decides", lambda *a, **k: False)
+    from core.quality_gate import import_contracts
+    # Round 106 站C moved the definition to `import_contracts`; the
+    # patch has to land where the caller resolves the name, or this
+    # test passes while proving nothing (the re-exported alias in
+    # `arch_constraints` is a different binding).
+    monkeypatch.setattr(import_contracts, "contract_decides",
+                        lambda *a, **k: False)
     assert "pkg.api" in contract_coverage_gap(project), (
         "contract_coverage_gap did not follow `contract_decides` — it is "
         "deciding for itself, and the two answers can now drift")
@@ -209,12 +214,18 @@ def test_the_constraint_classifier_reads_that_answer_too(
     """The other consumer, held to the same rule. Round 55's branch lived
     here; moving it out is only a de-duplication if this reads the move."""
     import core.quality_gate.arch_constraints as ac
+    from core.quality_gate import import_contracts
 
     project = _project(tmp_path, _LAYERS)
     rows = ac.classify_constraints(["layering"], project)
     assert rows and rows[0]["status"] == ac.STATUS_ENFORCED, rows
 
-    monkeypatch.setattr(ac, "contract_decides", lambda *a, **k: False)
+    # Round 106 站C moved the definition to `import_contracts`; the
+    # patch has to land where the caller resolves the name, or this
+    # test passes while proving nothing (the re-exported alias in
+    # `arch_constraints` is a different binding).
+    monkeypatch.setattr(import_contracts, "contract_decides",
+                        lambda *a, **k: False)
     rows = ac.classify_constraints(["layering"], project)
     assert rows and rows[0]["status"] == ac.STATUS_UNCONFIGURED, (
         "classify_constraints did not follow `contract_decides` — Round 55's "

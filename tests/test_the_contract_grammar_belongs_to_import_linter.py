@@ -166,8 +166,14 @@ def test_an_unreadable_layer_line_abstains_for_the_whole_file(
     is the false accusation wearing a different hat.
     """
     import core.quality_gate.arch_constraints as ac
+    from core.quality_gate import import_contracts
 
-    monkeypatch.setattr(ac, "layer_module_tails", lambda _line: None)
+    # Round 106 站C moved the definition to `import_contracts`; the
+    # patch has to land where the caller resolves the name, or this
+    # test passes while proving nothing (the re-exported alias in
+    # `arch_constraints` is a different binding).
+    monkeypatch.setattr(import_contracts, "layer_module_tails",
+                        lambda _line: None)
     project = _project(tmp_path, _layers(
         "    taskq_api.app\n"
         "    taskq_api.config | taskq_api.exceptions\n"))
@@ -181,8 +187,14 @@ def test_an_unreadable_contract_says_so_in_the_ledger(tmp_path, monkeypatch) -> 
     anybody finding out. The row names the framework as the owner, because
     the parser is the framework's and so is its absence."""
     import core.quality_gate.arch_constraints as ac
+    from core.quality_gate import import_contracts
 
-    monkeypatch.setattr(ac, "layer_module_tails", lambda _line: None)
+    # Round 106 站C moved the definition to `import_contracts`; the
+    # patch has to land where the caller resolves the name, or this
+    # test passes while proving nothing (the re-exported alias in
+    # `arch_constraints` is a different binding).
+    monkeypatch.setattr(import_contracts, "layer_module_tails",
+                        lambda _line: None)
     project = _project(tmp_path, _layers(
         "    taskq_api.app\n"
         "    taskq_api.config | taskq_api.exceptions\n"))
@@ -225,8 +237,14 @@ def test_a_plain_line_needs_no_parser(tmp_path, monkeypatch) -> None:
     switch the check off for every project to fix a case none of them has.
     """
     import core.quality_gate.arch_constraints as ac
+    from core.quality_gate import import_contracts
 
-    monkeypatch.setattr(ac, "layer_module_tails", lambda _line: None)
+    # Round 106 站C moved the definition to `import_contracts`; the
+    # patch has to land where the caller resolves the name, or this
+    # test passes while proving nothing (the re-exported alias in
+    # `arch_constraints` is a different binding).
+    monkeypatch.setattr(import_contracts, "layer_module_tails",
+                        lambda _line: None)
     project = _project(tmp_path, _layers(
         "    taskq_api.app\n    taskq_api.service\n"))
     gap = ac.contract_coverage_gap(project)
