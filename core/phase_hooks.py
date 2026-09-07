@@ -1053,6 +1053,18 @@ class PhaseHooks:
         Round 84: no mode switch. `check_spec_alignment` decides on the two
         documents' presence alone (see its module docstring) and returns [] when
         neither exists — this hook does not need to ask a second question first.
+
+        Round 107: the checker carries two rule classes with different phase
+        policies — the same "P(N) informational, P(N+1) blocking" family split
+        as drift_detection / config_liveness:
+          * FR-set rules (dropped/invented/srs_missing/canonical_missing) are
+            front-edge P1 work: blocking from P2 entry, fixable in SRS.md.
+          * `unread_config_key` is a delivered-system rule: once src/ has a
+            config loader it demands EVERY canonical-spec-declared key be
+            read, which is only satisfiable when the implementing FRs have
+            landed. Blocking from P4 entry; informational through P3.
+            Blocking it at P2/P3 turned a mid-P3 resume into a deadlock —
+            the fix is the very implementation the preflight gates.
         """
         from core.quality_gate.spec_alignment import check_spec_alignment
         print("\n[PRE-FLIGHT] Spec Alignment (canonical spec ↔ SRS)")
@@ -1066,33 +1078,51 @@ class PhaseHooks:
 
         errors = [v for v in violations if v.severity == "error"]
         reviews = [v for v in violations if v.severity == "info"]
-        blocking = self.phase is not None and self.phase >= 2
-        passed = (len(errors) == 0) or (not blocking)
+        errors_fr = [v for v in errors if v.check_type != "unread_config_key"]
+        errors_cfg = [v for v in errors if v.check_type == "unread_config_key"]
+        blocking_fr = self.phase is not None and self.phase >= 2
+        blocking_cfg = self.phase is None or self.phase >= 4
+        passed = ((len(errors_fr) == 0) or not blocking_fr) and (
+            (len(errors_cfg) == 0) or not blocking_cfg)
 
-        if errors:
-            for v in errors:
+        if errors_fr:
+            for v in errors_fr:
                 print(f"   {v.rule_id} {v.check_type}: {v.message}")
-            if blocking:
-                print(f"   [BLOCKED] Phase {self.phase}: {len(errors)} "
-                      "canonical↔SRS divergence(s) — fix SRS.md before P2")
+            if blocking_fr:
+                print(f"   [BLOCKED] Phase {self.phase}: {len(errors_fr)} "
+                      "canonical↔SRS divergence(s) — fix SRS.md to match "
+                      "canonical_spec")
             else:
-                print(f"   INFO: {len(errors)} divergence(s); not blocking at "
+                print(f"   INFO: {len(errors_fr)} divergence(s); not blocking at "
                       f"phase {self.phase}")
-        elif reviews:
+        if errors_cfg:
+            for v in errors_cfg:
+                print(f"   {v.rule_id} {v.check_type}: {v.message}")
+            if blocking_cfg:
+                print(f"   [BLOCKED] Phase {self.phase}: {len(errors_cfg)} "
+                      "unread config key(s) — implement the reads under src/ "
+                      "so the delivered system can be configured as "
+                      "canonical_spec declares")
+            else:
+                print(f"   INFO: {len(errors_cfg)} unread config key(s) — "
+                      "not blocking until Phase 4 entry (expected "
+                      "mid-implementation)")
+        if not errors and not reviews:
+            if not self._layout.spec_path.exists():
+                # Empty violations has two causes and they are not the same news.
+                # Saying "SRS.md covers the canonical spec" when neither document
+                # exists is the shape this round exists to remove. The verdict is
+                # still the checker's — this only picks the wording.
+                print("   N/A: no canonical spec and no SRS.md — Phase 1 has not "
+                      "produced requirements yet")
+            else:
+                print("   SRS.md covers the canonical spec")
+        elif not errors and reviews:
             print(f"   needs_review: {reviews[0].message}")
-        elif not self._layout.spec_path.exists():
-            # Empty violations has two causes and they are not the same news.
-            # Saying "SRS.md covers the canonical spec" when neither document
-            # exists is the shape this round exists to remove. The verdict is
-            # still the checker's — this only picks the wording.
-            print("   N/A: no canonical spec and no SRS.md — Phase 1 has not "
-                  "produced requirements yet")
-        else:
-            print("   SRS.md covers the canonical spec")
 
         return {
             "passed": passed,
-            "blocking": blocking,
+            "blocking": blocking_fr or blocking_cfg,
             "errors": len(errors),
             "needs_review": len(reviews),
             "divergences": [v.rule_id for v in errors],

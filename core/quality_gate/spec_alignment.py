@@ -348,6 +348,7 @@ def _config_key_violations(canonical_text: str, layout: "ProjectLayout") -> list
             message=(f"canonical_spec declares the configuration key {key} and "
                      f"no file under {src_dir.name}/ reads it — the delivered "
                      f"system cannot be configured the way the spec says it "
-                     f"can. Read it, or record the omission as a deferral."))
+                     f"can. Read it in the implementation, or amend the "
+                     f"canonical_spec declaration."))
         for key in sorted(keys - seen)
     ]

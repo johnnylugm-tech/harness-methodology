@@ -594,9 +594,21 @@ def cmd_check_spec_alignment(args: argparse.Namespace) -> int:
     for v in reviews:
         print(f"[review] {v.rule_id}: {v.message}")
     if errors:
-        print(f"\n[BLOCKED] canonical_spec ↔ SRS: {len(errors)} divergence(s) — "
-              "fix SRS.md (P1) before P2. A dropped/invented requirement means the "
-              "build target no longer matches the PRD.")
+        # Round 107: the two rule classes have different remediations and the
+        # BLOCKED summary must say so — pointing an unread_config_key finding
+        # at SRS.md sends the fixer to the wrong artifact.
+        errors_fr = [v for v in errors if v.check_type != "unread_config_key"]
+        errors_cfg = [v for v in errors if v.check_type == "unread_config_key"]
+        if errors_fr:
+            print(f"\n[BLOCKED] canonical_spec ↔ SRS: {len(errors_fr)} "
+                  "FR divergence(s) — fix SRS.md to match canonical_spec. "
+                  "A dropped/invented requirement means the build target no "
+                  "longer matches the PRD.")
+        if errors_cfg:
+            print(f"\n[BLOCKED] canonical_spec ↔ SRS: {len(errors_cfg)} "
+                  "unread config key(s) — implement the reads under src/ so "
+                  "the delivered system can be configured as canonical_spec "
+                  "declares.")
         return 1
     print("[check-spec-alignment] OK — SRS.md covers canonical_spec"
           + (f"; {len(reviews)} needs-review (Agent B sign-off)" if reviews else "") + ".")

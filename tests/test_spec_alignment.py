@@ -218,7 +218,7 @@ def test_srs_three_level_section_numbered_fr_aligned(tmp_path: Path) -> None:
 # ── preflight wiring (phase-gated blocking + composition guard) ──────────────
 
 
-def _hooks(project: Path, phase: int):
+def _hooks(project: Path, phase: int | None):
     from core.phase_hooks import PhaseHooks
 
     return PhaseHooks(str(project), phase=phase, enable_kill_switch=False)
@@ -260,6 +260,80 @@ def test_preflight_says_na_rather_than_covered_when_nothing_exists(
     out = capsys.readouterr().out
     assert "N/A" in out and "has not produced requirements yet" in out
     assert "covers the canonical spec" not in out
+
+
+# ── Round 107: config-key sub-rule uses the delayed-blocking family policy ──
+#
+# `unread_config_key` is a delivered-system rule (same family as
+# drift_detection / config_liveness): once src/ has a config loader it demands
+# every canonical-spec-declared key be read — only satisfiable when the
+# implementing FRs have landed. Blocking at P2/P3 made a mid-P3 resume a
+# deadlock (the fix is the implementation the preflight gates). These tests pin
+# informational-at-P3 / blocking-at-P4, and that the FR-set class keeps its
+# front-edge policy.
+
+_CFG_SPEC = (
+    "### FR-01: login\n\n## Config\n\n"
+    "| `TASKQ_DB_URL` | url | DB |\n| `TASKQ_PORT` | int | port |\n"
+)
+
+
+def _project_with_loader(tmp_path: Path, canonical: str, srs: str) -> Path:
+    """SPEC + SRS + a src/ config loader that reads none of the declared keys."""
+    proj = _project(tmp_path, canonical=canonical, srs=srs)
+    (proj / "03-development" / "src" / "taskq_api").mkdir(parents=True)
+    _write(proj / "03-development" / "src" / "taskq_api" / "config.py",
+           "import os\nOTHER = os.environ.get('OTHER')\n")
+    return proj
+
+
+def test_config_key_errors_informational_at_p3(tmp_path: Path, capsys) -> None:
+    """Round 107: unread config keys are mid-implementation state, not a P3
+    entry defect — informational until P4 entry."""
+    proj = _project_with_loader(tmp_path, _CFG_SPEC, "### FR-01: login\n")
+    r = _hooks(proj, 3).preflight_spec_alignment()
+    assert r["passed"] is True and r["errors"] == 2 and r["blocking"] is True
+    out = capsys.readouterr().out
+    assert "unread config key" in out and "not blocking until Phase 4" in out
+
+
+def test_config_key_errors_block_at_p4(tmp_path: Path, capsys) -> None:
+    """P4 entry: the delivered system must be configurable as the spec declares."""
+    proj = _project_with_loader(tmp_path, _CFG_SPEC, "### FR-01: login\n")
+    r = _hooks(proj, 4).preflight_spec_alignment()
+    assert r["passed"] is False and r["blocking"] is True and r["errors"] == 2
+    out = capsys.readouterr().out
+    assert "implement the reads" in out
+
+
+def test_config_key_errors_do_not_relax_fr_set_block_at_p2(
+    tmp_path: Path,
+) -> None:
+    """Mixed classes: an FR-set divergence still blocks at P2 even when config
+    keys (which only block from P4) are also unread."""
+    proj = _project_with_loader(
+        tmp_path,
+        "### FR-01: login\n### FR-02: logout\n\n"
+        "| `TASKQ_PORT` | int | port |\n",
+        "### FR-01: login\n",
+    )
+    r = _hooks(proj, 2).preflight_spec_alignment()
+    assert r["passed"] is False and r["blocking"] is True and r["errors"] == 2
+
+
+def test_fr_set_errors_still_block_at_p3(tmp_path: Path) -> None:
+    """Behavior guard: the class split must not relax the front-edge policy."""
+    proj = _project(tmp_path, canonical=_CANON_3, srs="### FR-01: login\n")
+    r = _hooks(proj, 3).preflight_spec_alignment()
+    assert r["passed"] is False and r["blocking"] is True
+
+
+def test_config_key_errors_fail_closed_when_phase_unknown(tmp_path: Path) -> None:
+    """phase None is treated as P4+ (family convention): a broken caller can
+    never silently pass config-key findings."""
+    proj = _project_with_loader(tmp_path, _CFG_SPEC, "### FR-01: login\n")
+    r = _hooks(proj, None).preflight_spec_alignment()
+    assert r["passed"] is False and r["blocking"] is True
 
 
 def test_spec_alignment_is_wired_into_preflight_all() -> None:
