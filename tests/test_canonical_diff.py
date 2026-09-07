@@ -172,7 +172,7 @@ class TestComputeOverSpecScore:
         ac = ("Execute Python modules with timing instrumentation "
               "excluding subprocess execution.")
         s = compute_over_spec_score(ac, canonical, derived_present=False)
-        assert s["verdict"] == "verbatim"
+        assert s["verdict"] == "transcribed"
         assert s["over_spec_score"] < 0.3
 
     def test_interpretive_choices_no_derived_high_score(self, spec_with_ambiguous_phrases):
@@ -187,7 +187,7 @@ class TestComputeOverSpecScore:
         s = compute_over_spec_score(ac, canonical, derived_present=False)
         # No DERIVED tag + interpretive markers (MUST, only) → penalty applied
         assert s["over_spec_score"] > 0.5
-        assert s["verdict"] in ("interpreted", "invention")
+        assert s["verdict"] in ("overlaps_canonical", "unmatched_and_uncited")
 
     def test_interpretive_with_derived_tag_caps_score(self, spec_with_ambiguous_phrases):
         from scripts.canonical_diff import _split_sentences
@@ -197,8 +197,9 @@ class TestComputeOverSpecScore:
               "Measurement MUST include full python -m taskq wall-clock "
               "including fork/exec time.")
         s = compute_over_spec_score(ac, canonical, derived_present=True)
-        # verdict stays 'interpreted' (not 'invention') because derived_present=True
-        assert s["verdict"] != "invention"
+        # the tag is a declaration, so the verdict says so and does not
+        # fall to the unmatched-and-uncited reading
+        assert s["verdict"] != "unmatched_and_uncited"
         assert s["derived_present"] is True
 
     def test_pure_invention_high_score(self, spec_with_ambiguous_phrases):
@@ -207,8 +208,9 @@ class TestComputeOverSpecScore:
         ac = ("Implement distributed consensus with Raft protocol across "
               "5-node cluster with leader election timeouts.")
         s = compute_over_spec_score(ac, canonical, derived_present=False)
-        # No relation to SPEC → invention verdict
-        assert s["verdict"] == "invention"
+        # No overlap and no citation → the report says both, and nothing
+        # about what the author intended
+        assert s["verdict"] == "unmatched_and_uncited"
         assert s["over_spec_score"] > 0.7
 
 
@@ -223,8 +225,8 @@ class TestBuildDiffReport:
     ):
         r = build_diff_report(srs_verbatim_ac, spec_with_ambiguous_phrases)
         assert r["spec_present"] is True
-        assert r["summary"]["invention_count"] == 0
-        assert r["summary"]["verbatim_count"] >= 1
+        assert r["summary"]["verdict_counts"]["unmatched_and_uncited"] == 0
+        assert r["summary"]["verdict_counts"]["transcribed"] >= 1
 
     def test_over_specified_report(
         self, srs_over_specified, spec_with_ambiguous_phrases
@@ -232,15 +234,17 @@ class TestBuildDiffReport:
         r = build_diff_report(srs_over_specified, spec_with_ambiguous_phrases)
         s = r["summary"]
         # At least one AC should be flagged as over-spec
-        assert s["high_score_count"] >= 1 or s["invention_count"] >= 1
+        assert (s["high_score_count"] >= 1
+                or s["verdict_counts"]["unmatched_and_uncited"] >= 1)
 
     def test_derived_tag_lowers_verdict(
         self, srs_with_derived_tag, spec_with_ambiguous_phrases
     ):
         r = build_diff_report(srs_with_derived_tag, spec_with_ambiguous_phrases)
-        # Even with interpretive content, no AC should be flagged as 'invention'
+        # Even with interpretive content, a cited clause is never read as
+        # unmatched AND uncited
         for rec in r["per_ac"]:
-            assert rec["score"]["verdict"] != "invention"
+            assert rec["score"]["verdict"] != "unmatched_and_uncited"
 
     def test_elicitation_mode_no_canonical(self, srs_verbatim_ac):
         """SPEC.md missing → spec_present=False, all ACs score as invention
@@ -300,7 +304,7 @@ class TestHR12Regression:
         ac = ("Execute Python modules with timing instrumentation excluding "
               "subprocess execution.")
         s = compute_over_spec_score(ac, canonical)
-        assert s["verdict"] == "verbatim"
+        assert s["verdict"] == "transcribed"
         assert s["over_spec_score"] < 0.3
 
     def test_excluding_subprocess_execution_over_specified(
@@ -316,7 +320,7 @@ class TestHR12Regression:
         s = compute_over_spec_score(ac, canonical, derived_present=False)
         assert s["over_spec_score"] > 0.3
         # No DERIVED → at least 'interpreted' or worse
-        assert s["verdict"] in ("interpreted", "invention")
+        assert s["verdict"] in ("overlaps_canonical", "unmatched_and_uncited")
 
     def test_retry_on_failed_or_timeout_verbatim(
         self, spec_with_ambiguous_phrases
@@ -325,7 +329,7 @@ class TestHR12Regression:
         canonical = _split_sentences(spec_with_ambiguous_phrases.read_text())
         ac = "Retry on failed or timeout responses."
         s = compute_over_spec_score(ac, canonical)
-        assert s["verdict"] == "verbatim"
+        assert s["verdict"] == "transcribed"
 
     def test_retry_on_failed_or_timeout_over_specified(
         self, spec_with_ambiguous_phrases

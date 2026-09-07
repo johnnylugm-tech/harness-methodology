@@ -42,6 +42,27 @@ to invent fresh false accusations (taskq-done 0 -> 80 inventions, taskq-new
 0 -> 100, taskq-super 0 -> 101). Three additive facts instead: which unit a
 record covers, how many acceptance criteria the SRS actually has, and whether
 the framework measured the verdict or the project declared it.
+
+ROUND 106 站B — the same defect, one layer up
+
+Round 105 answered "the report says one word for two events" by adding a
+SECOND field beside the word. That is this repository's own recurring shape:
+one contract, two statements. Round 106 puts the distinction in the verdict
+and retires `verdict_basis` — `transcribed` / `overlaps_canonical` are what
+the framework measured, `cites_canonical` is what the project declared, and
+`unmatched_and_uncited` replaces `invention`, which was a claim about the
+author's intent that token overlap cannot support.
+
+The declaration is then handed to the reviewer instead of being absorbed:
+`citation` carries the `DERIVED:` tag verbatim and `citation_resolves` says
+whether the location it names is in the canonical text — True / False /
+**None**, where None is "not measured" and not "broken". Measured over 412
+corpus citations: 408 resolve, 0 do not, 4 name no resolvable location. So it
+is a reading for Agent B, never a threshold; requiring a resolvable citation
+would change no verdict, which is the second measurement in two rounds to
+veto that idea. A/B over fifteen corpus projects: `over_spec_score`,
+`best_match_ratio`, `total_ac`, `total_acceptance_criteria` and
+`high_score_count` are unchanged in every record.
 """
 
 from __future__ import annotations
@@ -115,8 +136,13 @@ def test_a_verdict_says_whether_the_framework_or_the_project_decided_it() -> Non
 
     A clause that clears the overlap threshold was measured by this framework.
     A clause that clears nothing and carries `DERIVED:` was declared by the
-    party being judged. Agent B's job is to check the second kind; today the
-    report gives it no way to tell them apart.
+    party being judged. Agent B's job is to check the second kind; before
+    Round 105 the report gave it no way to tell them apart.
+
+    Round 106 站B moved the distinction into the verdict itself and retired
+    the `verdict_basis` field that had carried it for one round: two fields
+    naming one event is the shape this repository keeps paying for. The
+    assertions below are the same three cases, asked of the name.
     """
     from scripts.canonical_diff import _split_sentences, compute_over_spec_score
 
@@ -124,36 +150,184 @@ def test_a_verdict_says_whether_the_framework_or_the_project_decided_it() -> Non
     invented = "The scheduler must always prefer the oldest queued job."
 
     declared = compute_over_spec_score(invented, canonical, derived_present=True)
-    assert declared["verdict"] == "interpreted"
-    assert declared["verdict_basis"] == "derived_tag", (
+    assert declared["verdict"] == "cites_canonical", (
         "an AC with no measurable overlap passed on the project's own tag and "
         "the report did not say so")
 
     measured = compute_over_spec_score(invented, canonical, derived_present=False)
-    assert measured["verdict"] == "invention"
-    assert measured["verdict_basis"] == "token_overlap"
+    assert measured["verdict"] == "unmatched_and_uncited"
 
-    verbatim = compute_over_spec_score(
+    transcribed = compute_over_spec_score(
         "The service accepts a command string and returns an identifier.",
         canonical, derived_present=True)
-    assert verbatim["verdict"] == "verbatim"
-    assert verbatim["verdict_basis"] == "token_overlap", (
+    assert transcribed["verdict"] == "transcribed", (
         "a clause the framework DID measure must not be reported as resting "
         "on the project's tag just because the tag is also present")
 
 
 def test_the_tag_does_not_change_a_verdict_the_overlap_already_decided() -> None:
-    """Reverse control. `verdict_basis` is a report of which branch fired, not
-    a new rule: adding or removing the tag must not move a verdict that the
-    measured ratio already settled in either direction."""
+    """Reverse control. The declared verdict is the branch that fires when the
+    measurement decided nothing, not a new rule: adding or removing the tag
+    must not move a verdict the measured ratio already settled."""
     from scripts.canonical_diff import _split_sentences, compute_over_spec_score
 
     canonical = _split_sentences(_SPEC)
     text = "The service accepts a command string and returns an identifier."
     with_tag = compute_over_spec_score(text, canonical, derived_present=True)
     without = compute_over_spec_score(text, canonical, derived_present=False)
-    assert with_tag["verdict"] == without["verdict"] == "verbatim"
-    assert with_tag["verdict_basis"] == without["verdict_basis"] == "token_overlap"
+    assert with_tag["verdict"] == without["verdict"] == "transcribed"
+
+
+def test_no_field_survives_the_verdict_it_was_a_second_statement_of() -> None:
+    """`verdict_basis` was Round 105's answer and Round 106 is its retirement.
+
+    A rename that leaves the old field in place is how a report comes to have
+    two vocabularies, and the next reader has to know which one is current.
+    """
+    from scripts.canonical_diff import (
+        VERDICTS, _split_sentences, compute_over_spec_score,
+    )
+
+    canonical = _split_sentences(_SPEC)
+    score = compute_over_spec_score("anything at all", canonical)
+    assert "verdict_basis" not in score
+    assert score["verdict"] in VERDICTS
+
+
+# ── the declaration is handed on, not absorbed ──────────────────────────────
+
+#: `_SPEC` above has no numbered sections, so every `§n` would fail to resolve
+#: and a "does not resolve" assertion over it would pass for the wrong reason.
+#: These carry the shapes the corpus actually cites: a numbered section and a
+#: requirement heading.
+_SECTIONED_SPEC = """\
+# Canonical
+
+## 1. Overview
+
+The service accepts a command string and returns an identifier.
+
+## 4. Non-functional
+
+### NFR-02: Latency
+
+The p95 is under 200ms.
+"""
+
+
+def test_the_citation_reaches_the_reviewer_verbatim() -> None:
+    """Agent B is asked to check A's derivation and was shown a boolean.
+
+    Round 105 measured that 378 of 479 `interpreted` verdicts existed only
+    because a tag was present. The tag's own text — the location A says the
+    clause comes from — never left `_split_ac_clauses`.
+    """
+    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+
+    tag = "DERIVED: SPEC.md §1 — the queue is FIFO per that section."
+    score = compute_over_spec_score(
+        f"{tag}\nThe scheduler prefers the oldest queued job.",
+        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        canonical_text=_SECTIONED_SPEC)
+    assert score["citation"] == tag
+    assert score["citation_resolves"] is True
+
+
+def test_a_citation_naming_a_place_that_is_not_there_says_so() -> None:
+    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+
+    score = compute_over_spec_score(
+        "DERIVED: SPEC.md §97 — nothing is there.\nThe scheduler prefers old jobs.",
+        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        canonical_text=_SECTIONED_SPEC)
+    assert score["citation_resolves"] is False
+
+
+def test_a_citation_the_framework_cannot_check_is_not_reported_as_broken() -> None:
+    """Round 32/35 and Round 46 in one field.
+
+    Three states, and the third is the point: no canonical text to look in,
+    and a citation naming no resolvable location, are both *unmeasured*. A
+    framework that writes False there accuses the project of a broken
+    reference it never opened.
+    """
+    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+
+    canonical = _split_sentences(_SPEC)
+    no_locator = compute_over_spec_score(
+        "DERIVED: the canonical spec says jobs are queued.\nJobs are queued.",
+        canonical, derived_present=True, canonical_text=_SPEC)
+    assert no_locator["citation"] is not None
+    assert no_locator["citation_resolves"] is None
+
+    no_canonical = compute_over_spec_score(
+        "DERIVED: SPEC.md §1 — FIFO.\nThe scheduler prefers old jobs.",
+        [], derived_present=True, canonical_text="")
+    assert no_canonical["citation_resolves"] is None
+
+    untagged = compute_over_spec_score("Jobs are queued.", canonical,
+                                       canonical_text=_SPEC)
+    assert untagged["citation"] is None and untagged["citation_resolves"] is None
+
+
+def test_the_rationale_half_of_the_tag_is_not_read_as_a_citation() -> None:
+    """The direct pin on a measurement that was wrong before it was fixed.
+
+    Scanning the whole `DERIVED:` line for ids made 42 of 412 corpus
+    citations unresolvable — every one of them because the RATIONALE half
+    mentioned an id ("…the rest is deferred to NFR-99") that the citation
+    never claimed was in SPEC.md.
+    """
+    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+
+    score = compute_over_spec_score(
+        "DERIVED: SPEC.md §1 — the remainder is deferred to NFR-99.\n"
+        "The service accepts a command string.",
+        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        canonical_text=_SECTIONED_SPEC)
+    assert score["citation_resolves"] is True, (
+        "NFR-99 appears in the rationale, not the citation, and SPEC.md is "
+        "not being asked to contain it")
+
+
+def test_the_prompt_does_not_promise_a_mechanism_the_framework_lacks() -> None:
+    """`spec_phase1.py:518` told Agent A, verbatim, that adding a `DERIVED:`
+    tag makes the "framework downgrade evidence_type to over_interpretation".
+
+    It never did. `derived_present` has no reader outside canonical_diff.py,
+    and `evidence_type` is a field Agent B writes by hand — read by
+    `review_quota` and `review_schema_validator`, written by no framework
+    check. A shipped prompt promising a mechanism that does not exist is
+    Round 30/43, and it is read by every Phase 1 run.
+
+    Asserted on the RENDERED files, both of them: the sentence lives in one
+    generator and inlines into phase1-requirements.js and run-all.js.
+    """
+    from scripts.workflowgen.generate_workflows import generate, generate_composite
+
+    for name, text in (("phase1", generate(1)),
+                       ("run-all", generate_composite("run-all"))):
+        assert "downgrades evidence_type" not in text, (
+            f"{name} still promises a downgrade no framework check performs")
+        assert "cites_canonical" in text, (
+            f"{name} does not tell the agent what the tag actually does")
+
+
+def test_a_requirement_id_resolves_through_the_readers_that_already_answer_it(
+) -> None:
+    """`NFR-1` and `NFR-01` are one requirement, and this file does not get
+    to have its own opinion about that.
+
+    Written with a plain regex, the check charged taskq-new with 25
+    unresolvable citations pointing at requirements SPEC.md really declares.
+    """
+    from scripts.canonical_diff import _split_sentences, compute_over_spec_score
+
+    score = compute_over_spec_score(
+        "DERIVED: SPEC.md NFR-2 — restated as a testable clause.\nLatency is bounded.",
+        _split_sentences(_SECTIONED_SPEC), derived_present=True,
+        canonical_text=_SECTIONED_SPEC)
+    assert score["citation_resolves"] is True
 
 
 # ── the population ──────────────────────────────────────────────────────────

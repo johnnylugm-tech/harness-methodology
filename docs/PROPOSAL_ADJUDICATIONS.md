@@ -9375,3 +9375,124 @@ taskq-sn 的 Gate 1 現場覆蓋率跑在 80%,而它自己的 `SPEC.md:358/442` 
   未來 import-linter 新增的語法不在其中。
 * 站1a 今天**零行為改變**:它修的是 taskq-sn 被迫拿掉的那個案例,以及還沒有人踩到的
   `containers` / 萬用字元。價值是結構性的,不是即時的。
+
+---
+
+## Round 106 — 標記是建議、兩個欄位講同一件事、上一輪的量測是錯的 (2026-09-08)
+
+**來源**:Round 105 賬本自己的「已知缺口」三條。老闆令:處理賬本裡的三個缺口,套用正解,
+並且安全的重構。老闆退回一次:「再次驗證方案是否是正解並且沒有引入其他副作用,
+任何的問題與解法都要先進行驗證。」
+
+**判定:三條缺口全部屬實,而且其中一條的前提(R105 自己的量測)是錯的。**
+
+| 缺口(R105 原文) | 判定 | 正解 |
+|---|---|---|
+| 站3 只管模板端不管交付端 | **屬實**,且比 R105 寫的嚴重 | 站 A:advance 出口兩條可判定規則 |
+| 站2 是把問題說出來不是解決它 | **屬實**,且發現第三件事(prompt 承諾了不存在的機制) | 站 B:判定改名 + 宣告交給 B |
+| `arch_constraints.py` 950 行未拆 | 屬實 | 站 C:織網 → 位元組級搬移 |
+
+### §1 對 Round 105 一個量測的明文更正
+
+R105 賬本寫「有標記的 SAB `layers` 範例 **0/13** 被原封交付 —— 標記與否是唯一的變數」。
+**那個 0 是我 grep 錯字串量出來的。** 我查 `app.api.routes`,模板的預設是
+`render_canonical_sab_template(module_example="app.api.webhooks")`。真值:
+
+| 範例值 | 有標記? | 被原封交付 |
+|---|---|---|
+| SAB `layers` 四個模組路徑 | **有** | **1/13** — taskq-forever,四個全中 |
+| `quality_targets.min_coverage: 80` | 無(R105 補上) | 2/13 |
+| TEST_INVENTORY 四個 `*_example_*` | 無(R105 補上) | 3/13 |
+
+**「標記與否是唯一的變數」作廢。** taskq-forever 的 `SAD.md:155` 逐字留著
+`layers:  # EXAMPLE — replace with your project's layers`,底下就是 `app.api.webhooks`。
+標記降低洩漏,不阻止洩漏。這讓缺口 1 更該補,而不是更不該。
+
+規則的字面值現在**從渲染出來的模板 YAML 解析**(`sab_template_module_paths()`),
+不再手抄 —— 手抄正是這個錯誤的來源。
+
+### §2 站 A —— 兩條採用、三條否決
+
+| 候選判準 | 判定 | 證據 |
+|---|---|---|
+| 標記還在 ⇒ 沒換掉 | **否決** | taskq-renew `SAD.md:551` 留標記卻換成 `taskq_plus.cli.main`(R46) |
+| 值還等於 80 ⇒ 繼承的 | **否決** | 專案可以考慮過之後選 80 |
+| 框架發明的識別字出現就擋 | **否決** | `app.main` 是 FastAPI 最常見的模組路徑,套件叫 `app` 的專案會被誣告 |
+| **規則 1**:含 `example` 的識別字 | **採用** | 沒有專案會把測試取名 `test_security_example` |
+| **規則 2**:模板模組路徑,而根套件不在交付套件裡 | **採用** | 有 `app` 套件的不報;taskq-forever 一個套件都沒交付 |
+
+落點是 `_advance_prechecks`,不是 `_validate_handoff_p1_to_p2` —— 後者唯一的呼叫端
+`cmd_validate_handoff` 是靠 `spec_phase2.py:97` 渲染的一句 prompt 請 agent 自己跑。
+**指示不是執行者**,那正是本輪在修的病。exit 49,owner=project。
+
+語料實測(13 專案,唯讀):forever P1=8/P2=7、sn 8/9、wow 8/5,其餘全 0,**renew 兩階段皆 0**。
+
+### §3 站 B —— 兩個欄位講同一件事,以及一句承諾不存在機制的 prompt
+
+**第三個發現(最嚴重)**:`spec_phase1.py:518` 逐字告訴 Agent A,加 `DERIVED:` 會讓
+「framework downgrades evidence_type to over_interpretation」。**框架不做這件事**——
+`derived_present` 在 `canonical_diff.py` 以外全域沒有讀者;`evidence_type` 是 Agent B
+自己手寫的欄位,由 `review_quota` / `review_schema_validator` 消費。一句 shipped prompt
+承諾了一個不存在的機制(R30/R43)。
+
+判定改名成它實際量到的事,R105 才加的 `verdict_basis` **退場**——
+兩個欄位講同一件事正是本輪在修的病,這是對我自己上一輪的更正:
+
+| 舊 | 新 | 誰決定的 |
+|---|---|---|
+| `verbatim` | `transcribed` | 框架量的 |
+| `interpreted`(ratio ≥ 0.45) | `overlaps_canonical` | 框架量的 |
+| `interpreted`(靠 DERIVED) | `cites_canonical` | **專案宣告的** |
+| `invention` | `unmatched_and_uncited` | 框架量到的**缺席** |
+
+宣告交給 B 而不是被吸收:每筆加 `citation`(標籤全文)與 `citation_resolves`
+(True / False / **None**)。**None 是重點**:沒有 canonical 可查、或引用沒指出任何
+可解析的位置,都是「沒量」,不是「壞掉」。框架在沒查的情況下寫 False 就是誣告(R32/R35/R46)。
+
+### §4 兩個量測改寫了計畫
+
+1. **計畫寫「401 條裡 1 條解析不到」。用框架自己的 id 讀取器重量:412 條、408 True、
+   0 False、4 條沒有可解析定位。** 兩個修正:(a) 只讀 `DERIVED: <引用> — <理由>` 的
+   引用半邊,不然理由裡的「其餘 deferred 到 NFR-99」會被當成引用目標,42/412 全是假的;
+   (b) FR/NFR id 走 `structural_fr_ids` 與 `normalize_nfr_id` —— 自己寫 regex 會讓
+   `NFR-1` 與 `NFR-01` 變成兩個需求,光 taskq-new 就 25 條假指控。
+   **所以 `citation_resolves` 只當讀數,絕不當門檻**(連兩輪否決同一個想法)。
+2. **`RUNALL_MAX_BYTES` 會紅。** 計畫寫「縮小不會紅」,實測 prompt 改動讓 run-all.js
+   **漲** 492 bytes 撞天花板。依該檔自己的規則先縮句子(→ +291),剩下的是機制本身,
+   同 commit 上調並附日期算式。
+
+**A/B(15 專案,唯讀)**:`over_spec_score` / `best_match_ratio` / `total_ac` /
+`total_acceptance_criteria` / `high_score_count` **逐筆相同**,舊三個計數在改名下
+等於新四個計數(`interpreted` = `overlaps_canonical` + `cites_canonical`),差異 0。
+
+### §5 明列不做
+
+| 項目 | 理由 | 再開條件 |
+|---|---|---|
+| 用「標記還在」判交付端 | taskq-renew 實測反例 → 誣告(R46) | — |
+| 用「值等於 80」判交付端 | 專案可以合理選 80 | `quality_targets` 有 provenance 欄位 |
+| 規則 2 放寬成「識別字出現就報」 | `app.main` 會誣告一整類 FastAPI 專案 | — |
+| 把檢查放進 `_validate_handoff_*` | 只由一句 prompt 請 agent 自己跑,是指示不是執行者 | 框架自己開始呼叫 validate-handoff |
+| 要求 `DERIVED:` 引用可解析才放行 | 408/412 已經解析得到,擋不住任何人(連兩輪) | 有了能判「可否推得」的機制 |
+| 刪掉 `over_spec_score` / `best_match_ratio` | 它們是讀數,對 B 仍有用 | — |
+| 讓框架真的去設 `evidence_type` | 那要框架能判「可否推得」,兩個方向都量到它判不了 | 同上 |
+| 站 A 規則 1 擴大到模板的散文/數字目標 | 刻意的邊界:`example` 是可判定的,散文不是 | 出現第二個可判定的形狀 |
+
+### §6 我自己被量測改寫的地方
+
+1. **R105 的 0/13 是我 grep 錯字串**(§1),連帶推翻「標記是唯一變數」。
+2. **第一版識別字清單會誣告 `app` 套件的專案**(`app.main`)。**老闆退回換來的。**
+3. **第一版的落點是指示不是執行者**(`_validate_handoff`)。**老闆退回換來的。**
+4. **CP-4b 揭出我自己的守衛有洞**:把消費端換成**忠實的**字面值,十二支守衛全綠 ——
+   R97/R98/R99/R105 CP-8 同形第七次。補一支「換掉模板的輸出,檢查必須跟著報新的那個」。
+5. **引用解析的第一版 42/412 全是假指控**(§4-1),兩個修正都是改用框架已有的讀取器。
+6. **`RUNALL_MAX_BYTES` 的方向我判反了**(§4-2)。
+
+### 已知缺口(不假裝沒有)
+
+* 站 A 規則 2 依賴「專案交付了自己的套件」。一個還沒寫任何程式碼的專案根套件集合為空,
+  所以任何模板模組路徑都會被報 —— 那正是要抓的形狀,但它意味著規則 2 在 P2 出口
+  對「還沒寫碼」的專案最嚴格。
+* `citation_resolves` 在今天的語料上**沒有一個 False**。它不是死規則(構造得出 False,
+  單元測試釘著),但沒有活受害者。
+* 站 B 改的是 **shipped prompt**,會改變之後每一次 P1 對 Agent A 說的話。

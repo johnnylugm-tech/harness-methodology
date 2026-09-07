@@ -5559,3 +5559,31 @@
 - test: tests/test_a_framework_example_is_not_a_deliverable.py::test_the_check_reads_the_template_and_not_a_copy_of_its_answer
   bug: "CP-4b: replacing `sab_template_module_paths()` inside framework_examples_in with the four CORRECT literals left all twelve other guards green — a faithful re-implementation is invisible to a test that only inspects the SSOT (Round 97 CP-5b / 98 CP-11 / 99 CP-13b / 105 CP-8, same shape); moving the template must move what the check reports"
   fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_no_field_survives_the_verdict_it_was_a_second_statement_of
+  bug: "Round 105 answered 'the report says one word for two events' by adding a SECOND field beside the word; a rename that leaves `verdict_basis` in place gives the report two vocabularies and the next reader has to know which is current"
+  fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_citation_reaches_the_reviewer_verbatim
+  bug: "378 of 479 `interpreted` verdicts existed only because a DERIVED tag was present, and the tag's own text — the location Agent A says the clause comes from — never left `_split_ac_clauses`; Agent B was asked to check the derivation and shown a boolean"
+  fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_a_citation_naming_a_place_that_is_not_there_says_so
+  bug: "a citation field nobody resolves is a declaration reported as a fact — the framework can open SPEC.md and say whether the §/FR-id/line range is there"
+  fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_a_citation_the_framework_cannot_check_is_not_reported_as_broken
+  bug: "Round 32/35 + Round 46 in one field: no canonical text to look in, and a citation naming no resolvable location, are both UNMEASURED — a False there accuses the project of a broken reference the framework never opened"
+  fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_rationale_half_of_the_tag_is_not_read_as_a_citation
+  bug: "scanning the whole `DERIVED:` line for ids made 42 of 412 corpus citations unresolvable, every one because the RATIONALE half mentioned an id ('…the rest is deferred to NFR-99') the citation never claimed was in SPEC.md"
+  fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_the_prompt_does_not_promise_a_mechanism_the_framework_lacks
+  bug: "spec_phase1.py:518 told Agent A verbatim that a DERIVED tag makes the framework downgrade evidence_type to over_interpretation; `derived_present` has no reader outside canonical_diff.py and `evidence_type` is written by Agent B, so no check ever did that — a shipped prompt promising a mechanism that does not exist (Round 30/43)"
+  fixed_in: "Round 106"
+
+- test: tests/test_the_over_spec_report_says_what_it_measured.py::test_a_requirement_id_resolves_through_the_readers_that_already_answer_it
+  bug: "resolving `NFR-2` with a plain regex instead of the shared normalize_nfr_id / structural_fr_ids readers makes NFR-1 and NFR-01 two different requirements — 25 false 'citation does not resolve' charges against taskq-new alone"
+  fixed_in: "Round 106"

@@ -11,10 +11,12 @@ returned "all low gaps". No framework-side diff existed to detect A adding
 content not derivable from SPEC.
 
 This module provides:
-  - `compute_over_spec_score(ac_text, canonical_sentences)` → float [0, 1]
-        0.0 = verbatim canonical (perfect fidelity)
-        1.0 = fully invented (zero overlap)
+  - `compute_over_spec_score(ac_text, canonical_sentences)` → dict
+        over_spec_score 0.0 = every token of the AC is in one canonical
+                              sentence; 1.0 = none of them are
         +0.3 penalty if AC contains interpretive choices without DERIVED tag
+        verdict ∈ VERDICTS, plus the project's citation and whether the
+                              location it names is in the canonical text
   - `build_diff_report(srs_path, spec_path, mode)` → dict
         Parses SRS into AC clauses, SPEC into sentences, scores each AC.
         Returns a structured report with per-AC records.
@@ -45,9 +47,13 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.quality_gate import artifact_consistency  # noqa: E402
+from core.quality_gate.parsers.nfr_id_pattern import (  # noqa: E402
+    normalize_nfr_id,
+)
 from core.quality_gate.spec_alignment import (  # noqa: E402
     spec_config_keys, structural_fr_ids,
 )
+from core.traceability.scanner import NFR_PATTERN  # noqa: E402
 from scripts.plangen.artifact_parsers import srs_machine_block_span  # noqa: E402
 
 
@@ -90,6 +96,37 @@ _DERIVED_TAG_RE = re.compile(
 
 # Pattern for splitting SPEC.md into sentences
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\d])")
+
+#: The four things this report can say about one clause. Each is named after
+#: what was MEASURED or DECLARED, not after an intent (Round 106 站B).
+#:
+#:   transcribed           the framework measured a token overlap ≥ 0.85
+#:   overlaps_canonical    the framework measured a token overlap ≥ 0.45
+#:   cites_canonical       the PROJECT wrote a `DERIVED:` tag; the overlap did
+#:                         not reach either threshold
+#:   unmatched_and_uncited neither happened — an absence, not an invention
+#:
+#: `invention` was the old fourth name. It is a claim about the author's
+#: intent that this file cannot support: 0.45 of token overlap is what it
+#: measures, and Round 105 measured that 378 of 479 `interpreted` verdicts
+#: were the third row above — a self-declaration reported in the same word as
+#: a measurement. The counts in `summary` are derived from this tuple so the
+#: report has one vocabulary and not two.
+VERDICTS: tuple[str, ...] = (
+    "transcribed", "overlaps_canonical", "cites_canonical",
+    "unmatched_and_uncited",
+)
+
+#: The citation half of a `DERIVED: <canonical-line> — <rationale>` tag ends
+#: at the em/en dash the Phase 1 prompt puts between the two. Without the
+#: split, an id named in the RATIONALE ("…deferred to NFR-99") is read as a
+#: citation target and fails to resolve — 42 of 412 corpus citations, every
+#: one of them a false accusation.
+_RATIONALE_SEPARATOR = re.compile(r"\s+[—–]\s+")
+_CITED_SECTION = re.compile(r"§\s*(\d+(?:\.\d+)*)")
+_CITED_REQUIREMENT = re.compile(r"\b(N?FR)-(\d+)\b", re.IGNORECASE)
+_CITED_LINES = re.compile(r"\blines?\s+(\d+)(?:\s*[-–—]\s*(\d+))?", re.IGNORECASE)
+_HEADING_LINE = re.compile(r"^\s*#")
 
 
 # ---------------------------------------------------------------------------
@@ -220,27 +257,114 @@ def _best_match_ratio(ac_text: str, canonical_sentences: list[str]) -> float:
     return best
 
 
+def citation_in(ac_text: str) -> str | None:
+    """The `DERIVED:` tag this clause carries, verbatim, or None.
+
+    Round 106 站B. The tag is what the PROJECT declared about where the
+    clause comes from, and until now the report reduced it to a boolean the
+    verdict then absorbed. Agent B is asked to check A's derivation; it can
+    only do that if it is shown the citation.
+    """
+    m = _DERIVED_TAG_RE.search(ac_text)
+    return m.group(0).strip() if m else None
+
+
+def _cited_locations(
+    citation: str,
+) -> tuple[list[str], list[str], list[tuple[int, int]]]:
+    """`(sections, requirement_ids, line_ranges)` the citation names.
+
+    Only the citation half of `DERIVED: <canonical-line> — <rationale>` is
+    read. The rationale is prose about the clause and names ids that are not
+    citations: "…the rest deferred to NFR-99" made 42 of 412 corpus citations
+    look unresolvable when the whole line was scanned.
+    """
+    head = _RATIONALE_SEPARATOR.split(citation.split(":", 1)[-1], 1)[0]
+    sections = [m.group(1) for m in _CITED_SECTION.finditer(head)]
+    requirements = [
+        f"{m.group(1).upper()}-{int(m.group(2)):02d}"
+        for m in _CITED_REQUIREMENT.finditer(head)
+    ]
+    line_ranges = [
+        (int(m.group(1)), int(m.group(2) or m.group(1)))
+        for m in _CITED_LINES.finditer(head)
+    ]
+    return sections, requirements, line_ranges
+
+
+def citation_resolves_in(citation: str | None, canonical_text: str) -> bool | None:
+    """Does every location the citation names exist in the canonical text?
+
+    True / False / **None**, and the None is the point: no tag, no canonical
+    text to look in, or a citation that names no location this framework can
+    resolve are three ways of not having measured — and a framework that
+    reports an unmeasured citation as False accuses the project of a broken
+    reference it never checked (Round 32/35, Round 46).
+
+    Requirement ids are resolved through the readers that already answer
+    "which requirements does this document declare" — `structural_fr_ids` and
+    the shared `normalize_nfr_id` / `NFR_PATTERN` pair. A second regex here
+    is how `NFR-1` and `NFR-01` come to be different requirements: written
+    naively it charged taskq-new with 25 unresolvable citations, every one of
+    them pointing at a section of SPEC.md that is really there.
+    """
+    if not citation or not canonical_text.strip():
+        return None
+    sections, requirements, line_ranges = _cited_locations(citation)
+    if not (sections or requirements or line_ranges):
+        return None
+
+    lines = canonical_text.splitlines()
+    headings = [ln.strip() for ln in lines if _HEADING_LINE.match(ln)]
+    fr_ids = structural_fr_ids(canonical_text)
+    nfr_ids = {
+        nid for nid in (normalize_nfr_id(f"NFR-{m.group(1)}")
+                        for m in NFR_PATTERN.finditer(canonical_text))
+        if nid
+    }
+
+    for section in sections:
+        pattern = rf"#+\s*§?\s*{re.escape(section)}[.\s:)]"
+        if not any(re.match(pattern, h) for h in headings):
+            return False
+    for requirement in requirements:
+        known = nfr_ids if requirement.startswith("NFR") else fr_ids
+        if requirement not in known:
+            return False
+    for first, last in line_ranges:
+        if not 1 <= first <= len(lines) or not 1 <= last <= len(lines):
+            return False
+    return True
+
+
 def compute_over_spec_score(
     ac_text: str,
     canonical_sentences: list[str],
     derived_present: bool = False,
+    canonical_text: str = "",
 ) -> dict:
     """Score a single AC against the canonical spec.
 
     Returns dict {over_spec_score, best_match_ratio, derived_present, verdict,
-    verdict_basis} where verdict ∈ {'verbatim', 'interpreted', 'invention'}
-    and verdict_basis ∈ {'token_overlap', 'derived_tag'}.
+    citation, citation_resolves} where verdict ∈ `VERDICTS`.
 
-    Round 105 站2 adds `verdict_basis`, and adds nothing else: no threshold
-    moves and no verdict changes. `interpreted` names two different events and
-    the report said one word for both — a clause this framework MEASURED as
-    overlapping the canonical text, and a clause with no measurable overlap
-    that carries a `DERIVED:` tag the project wrote. Across the thirteen
-    corpus projects, 378 of 479 `interpreted` verdicts (79%) are the second
-    kind, only 114 of 669 clauses clear the ratio on their own, and 658 of the
-    661 tags already name a canonical location — so demanding a resolvable
-    citation would change nothing. Agent B's job is to check what A declared;
-    it cannot do that while the declaration is laundered into a measurement.
+    Round 106 站B renames the verdicts to what each one is a reading OF, and
+    retires `verdict_basis` — the field Round 105 added one round ago to say
+    which half of `interpreted` had fired. Two fields naming one event is the
+    defect this round is closing, so the split moves into the vocabulary:
+    `overlaps_canonical` is the framework's measurement and `cites_canonical`
+    is the project's declaration, and neither needs a second field to say so.
+    `invention` retires with it: this file measures token overlap, and a
+    clause with none of it is unmatched and uncited — an absence, not a claim
+    about what the author invented.
+
+    The declaration is handed on rather than absorbed: `citation` carries the
+    tag verbatim and `citation_resolves` says whether the location it names
+    is in the canonical text. Measured across 412 corpus citations, 408
+    resolve, 0 do not and 4 name no resolvable location — so this is a
+    reading for Agent B to act on, NOT a threshold. Requiring a resolvable
+    citation would change no verdict, which is the second measurement in two
+    rounds to veto that idea.
     """
     ratio = _best_match_ratio(ac_text, canonical_sentences)
     # score = (1 - ratio) + penalty if interpretive choices without DERIVED
@@ -260,26 +384,27 @@ def compute_over_spec_score(
 
     score = min(1.0, (1.0 - ratio) + penalty)
 
-    # The `ratio >= 0.45 or derived_present` branch, split so the report can
-    # say which half fired. Order and outcome are unchanged: a clause the
-    # overlap already decides keeps `token_overlap` whether or not a tag is
-    # also present, which `test_the_tag_does_not_change_a_verdict_the_overlap
+    # Thresholds and order are Round 105's, unmoved: a clause the overlap
+    # already decides keeps a measured verdict whether or not a tag is also
+    # present, which `test_the_tag_does_not_change_a_verdict_the_overlap
     # _already_decided` pins.
     if ratio >= 0.85:
-        verdict, basis = "verbatim", "token_overlap"
+        verdict = "transcribed"
     elif ratio >= 0.45:
-        verdict, basis = "interpreted", "token_overlap"
+        verdict = "overlaps_canonical"
     elif derived_present:
-        verdict, basis = "interpreted", "derived_tag"
+        verdict = "cites_canonical"
     else:
-        verdict, basis = "invention", "token_overlap"
+        verdict = "unmatched_and_uncited"
 
+    citation = citation_in(ac_text)
     return {
         "over_spec_score": round(score, 3),
         "best_match_ratio": round(ratio, 3),
         "derived_present": derived_present,
         "verdict": verdict,
-        "verdict_basis": basis,
+        "citation": citation,
+        "citation_resolves": citation_resolves_in(citation, canonical_text),
     }
 
 
@@ -316,7 +441,7 @@ def build_diff_report(
         if not c["body"]:
             continue
         score = compute_over_spec_score(
-            c["body"], canonical_sentences, c["derived_present"],
+            c["body"], canonical_sentences, c["derived_present"], spec_text,
         )
         record = {
             "label": c["label"],
@@ -336,7 +461,7 @@ def build_diff_report(
             "score": score,
         }
         per_ac.append(record)
-        if score["verdict"] == "invention":
+        if score["verdict"] == "unmatched_and_uncited":
             high_count += 1
 
     summary = {
@@ -349,9 +474,23 @@ def build_diff_report(
             len(v) for v in
             artifact_consistency.acceptance_criteria_from_text(
                 _without_machine_block(srs_text)).values()),
-        "verbatim_count": sum(1 for r in per_ac if r["score"]["verdict"] == "verbatim"),
-        "interpreted_count": sum(1 for r in per_ac if r["score"]["verdict"] == "interpreted"),
-        "invention_count": high_count,
+        # One count per verdict, derived from the vocabulary rather than
+        # written out beside it — four hand-written sums is how a renamed
+        # verdict comes to have a count nobody moved.
+        "verdict_counts": {
+            v: sum(1 for r in per_ac if r["score"]["verdict"] == v)
+            for v in VERDICTS
+        },
+        # How many clauses declared a derivation, and how many of those name
+        # a location that is really in the canonical text. `None` — no
+        # locator this framework can resolve — is counted in neither.
+        "citation_counts": {
+            "cited": sum(1 for r in per_ac if r["score"]["citation"]),
+            "resolves": sum(
+                1 for r in per_ac if r["score"]["citation_resolves"] is True),
+            "does_not_resolve": sum(
+                1 for r in per_ac if r["score"]["citation_resolves"] is False),
+        },
         "over_spec_threshold": 0.7,
         "high_score_count": sum(
             1 for r in per_ac if r["score"]["over_spec_score"] > 0.7
@@ -533,8 +672,10 @@ def _cli() -> int:
 
     s = report["summary"]
     print(f"[canonical_diff] {s['total_ac']} AC clauses analyzed")
-    print(f"  verbatim={s['verbatim_count']}  interpreted={s['interpreted_count']}  "
-          f"invention={s['invention_count']}")
+    print("  " + "  ".join(f"{v}={s['verdict_counts'][v]}" for v in VERDICTS))
+    c = s["citation_counts"]
+    print(f"  cited={c['cited']}  citation resolves={c['resolves']}  "
+          f"does not resolve={c['does_not_resolve']}")
     if s["high_score_count"]:
         print(f"  WARNING: {s['high_score_count']} AC(s) have over_spec_score > 0.7 "
               f"— see {out}")
