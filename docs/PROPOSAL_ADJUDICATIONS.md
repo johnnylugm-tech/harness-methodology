@@ -9724,3 +9724,78 @@ _SENTENCE_SPLIT_RE 對每一份 RAW 文本的命中數:0
 | 中文分詞 | 會動到 6 個專案的每一個分數;`over_spec_score` 是讀數不是門檻 | 同上 |
 | `over_spec_score` 逐條計分 | 標題形狀專案今天回傳裸 id,逐條中位重疊率 0.000;**站 C 是它的前提** | 站 C 落地後單獨評估 |
 | `rules/manifest.yaml` 的 `text:` 欄位 | **本輪發現的另一個缺陷,不在本站範圍**:全樹 **零讀者**(`grep manifest.yaml` 於 .py/.js/.sh 無命中),而且**在我到之前就已經與 SSOT 漂移**(它寫 `real_invention` / `over_interpretation`,`harness/prompts/rules/R-SEVERITY-RUBRIC-001.md` 寫 `real invention` / `canonical interpretation but lacks…`)。只改我這一句會讓一個死欄位看起來像活的 —— 那是比留著更糟的陳述 | 決定這份 registry 要接上讀者還是退場 |
+
+### §5 站 C —— 一個讀取器,兩種合法形狀,兩種回傳值
+
+`core/quality_gate/artifact_consistency.acceptance_criteria_from_text` 是這個框架
+**唯一**「什麼算一條驗收準則」的定義。Phase 1 prompt 授權兩種寫法,它兩種都讀 —— 但讀出來
+是兩種東西:
+
+```python
+criteria = [h.group(1) for h in _AC_HEADING.finditer(section)]   # 標題 → 裸 id
+criteria += [b.strip() for b in _BULLET.findall(block.group(1))] # bullet → 準則全文
+```
+
+**實測(唯讀,2026-09-08,五個寫標題形狀的語料專案)**
+
+```
+project        heading 準則  parser 回傳字元  文件裡的字元
+taskq                  28            168           4,739
+taskq-cc               92            610          60,031
+taskq-final            96            640          26,207
+taskq-new             100            662          44,468
+taskq-sn               95            626          30,712
+合計                  411          2,706         166,157   → 丟掉 163,451(98.4%)
+```
+
+**每一支讀準則「內容」的檢查在這五個專案上都是結構性失明。** `check_ac_verifier_is_nameable`
+(Round 87)最清楚:它在準則裡找 "owned by the test harness",而它拿到的是 `AC-1.1`。
+
+**這是 Round 83 站3 換一種形狀的同一個 bug。** 那輪修的是 bullet 分支 —— `(.+)$` 在
+MULTILINE 下停在第一個換行,每個消費端只拿到準則的第一行,`check_ac_verifier_is_nameable`
+因此看不到 taskq-cc-new 95 個對象中的任何一個。那半邊由
+`tests/test_ac_traceability.py::test_a_wrapped_acceptance_criterion_is_read_past_its_first_line`
+釘住。**標題分支留著的是同一個缺陷的極端版:不是第一行,是只剩 id。**
+
+**修法**:標題分支切「這條 AC 標題到下一條 AC 標題」,`####` 標記照 `_BULLET` 丟 `- ` 的方式
+丟掉 —— 識別碼因此仍是字串的第一個東西,三個消費端的 `_AC_ID.search` 與每一則
+`[:80]` 訊息摘錄都不動。
+
+**語料 A/B(15 專案,before/after 跑三支 AC 檢查)**
+
+```
+每個需求的準則數      15/15 完全相同
+declared 識別碼       零遺失;taskq-cc 92 → 94、taskq-sn 94 → 95,其餘不變
+新增違規              0
+移除違規              2 筆 ac_parse_gap,合計指名三個識別碼
+                      taskq-cc ['AC-N1','AC-N2']、taskq-sn ['AC-C4.1']
+```
+
+那兩筆正是**框架自己印的**「`AC-` identifier(s) … are not inside a shape this check can
+read … they are **unchecked, not clean**」—— 它看得見那些 id、attribute 不了,因為它們就躺在
+被丟掉的準則本文裡。所以本站是**移除兩筆框架自己的「我讀不到」,零新增指控**。真正修好的是
+下一個寫標題形狀的專案。
+
+**兩支既有測試逐字釘住這個缺陷,同 commit 更新字面值**
+
+* `tests/test_verification_report_reads_the_real_criteria.py:103`
+  `assert canonical.get("FR-01") == ["AC-1.1", "AC-1.2"]` —— 它要證的性質是上一行的
+  `assert report == canonical`(兩支解析器同一個答案),**那個性質原封不動**。
+* `tests/test_generate_verification_report_m11_m12.py:69` `assert "AC-1.1" in acs["FR-01"]`
+  —— 計畫沒預料到這一支。它要證的是 M11 的性質(FR 標題後面接什麼分隔符都認得),改成
+  子字串比對即可,性質不動。
+
+**反證**(revert → 紅 → 從 `cp` 備份還原 → sha256 相同)
+
+* CP-6 標題分支改回 `h.group(1)` → 失明測試紅(兩條)
+* CP-7(**R97/R99 同形,第九次**)在 `canonical_diff` 放一份**逐行忠實**的 AC 讀取器 →
+  Round 105 那支 monkeypatch 守衛**當場抓到**:「canonical_diff did not go through
+  …acceptance_criteria_from_text — it is counting acceptance criteria with a parser of its
+  own again」。忠實重寫對「SSOT 存在嗎」隱形,對「消費端真的走它嗎」不隱形。
+* CP-8 改成 `section[h.end():stop]`(保留本文、丟掉識別碼)→ 識別碼位置守衛紅;同一個
+  變更在語料上會讓 **640 條準則失去識別碼**,而守衛用 4 行 fixture 就抓到了。
+
+**行數 ratchet**:`artifact_consistency.py` 1012 → 1050。38 行裡**只有 6 行是程式碼**
+(`_HEADING_MARKER` 加五行切片,取代一行 comprehension),其餘 32 行是承載上面那份量測的
+docstring 與註解。**拆檔的決定不因這筆而改變**:仍然要先織一張逐位元組的網(Round 49),
+仍然是獨立一輪。

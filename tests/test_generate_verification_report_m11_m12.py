@@ -66,7 +66,10 @@ class TestM11ExtractAcceptanceCriteria:
         acs = module._extract_acceptance_criteria(
             self._project(tmp_path, "### FR-01 — Description"))
         assert "FR-01" in acs, f"M11: em-dash header skipped, got {list(acs)}"
-        assert "AC-1.1" in acs["FR-01"]
+        # Substring, not equality. Round 108 站C: a heading-shape criterion
+        # carries its text now, so the entry reads `AC-1.1\nmust do X`. What
+        # M11 is about is the SEPARATOR after the FR id, and that is unmoved.
+        assert any("AC-1.1" in c for c in acs["FR-01"]), acs["FR-01"]
 
     def test_space_header_is_accepted(self, module, tmp_path):
         """Bug M11 regression: '### FR-02 ' (space only, no colon/dash)

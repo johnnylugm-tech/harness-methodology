@@ -567,6 +567,10 @@ _BULLET = re.compile(
 # for the heading projects and reports zero findings — an abstention that
 # reads as a clean bill, which is the defect Round 46 站1 named.
 _AC_HEADING = re.compile(r"^#{1,6}\s+(AC-[A-Za-z]?\d[\w.\-]*)\b[^\n]*$", re.MULTILINE)
+# The `####` a criterion's heading opens with, dropped the way `_BULLET` drops
+# its `- `. Round 108 站C: the heading branch returns the criterion's text now,
+# and the identifier has to stay at the front of it.
+_HEADING_MARKER = re.compile(r"^#{1,6}\s+")
 
 
 def ac_label_shape() -> str:
@@ -615,13 +619,47 @@ def acceptance_criteria_from_text(text: str) -> dict[str, list[str]]:
 
     One definition, two entry points — a second faithful copy in canonical_diff
     would pass every test and put one document back on two parsers.
+
+    Round 108 站C: the heading branch carries the criterion's TEXT, not just
+    its identifier. It used to return `h.group(1)` — the id alone — so the two
+    authorised spellings answered this function differently: a bullet gave the
+    criterion, a heading gave a label. Measured over the five corpus projects
+    that write headings (taskq, taskq-cc, taskq-final, taskq-new, taskq-sn):
+    411 criteria, 2,706 characters returned, 166,157 characters those criteria
+    occupy in the documents — 98.4% never reached a consumer, so every check
+    that reads a criterion's content was structurally blind on those projects.
+    `check_ac_verifier_is_nameable` is the plainest case: it looks for "owned
+    by the test harness" inside a criterion and was handed `AC-1.1`.
+
+    This is Round 83 站3 one shape over. That round fixed the bullet branch,
+    where `(.+)$` stopped at the first newline and handed every consumer a
+    criterion's first line; the heading branch kept the same defect in its
+    extreme form. `_BULLET`'s continuation handling and the slice below are
+    now the same rule: a criterion runs to the next criterion.
+
+    Measured before and after on all fifteen projects: identical criteria
+    counts, not one identifier lost, no new violation from any of the three AC
+    checks, and two `ac_parse_gap` rows REMOVED — taskq-cc's naming
+    ['AC-N1', 'AC-N2'] and taskq-sn's naming ['AC-C4.1']. Those three
+    identifiers are ones the framework had itself reported as "unchecked, not
+    clean": it could see them in the file and could not attribute them,
+    because they sit inside criterion bodies it was discarding.
     """
     heads = list(_REQ_HEADING.finditer(text))
     out: dict[str, list[str]] = {}
     for i, m in enumerate(heads):
         end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
         section = text[m.end():end]
-        criteria = [h.group(1) for h in _AC_HEADING.finditer(section)]
+        ac_heads = list(_AC_HEADING.finditer(section))
+        criteria = []
+        for j, h in enumerate(ac_heads):
+            stop = (ac_heads[j + 1].start() if j + 1 < len(ac_heads)
+                    else len(section))
+            # The heading marker goes the way `_BULLET`'s `- ` marker goes:
+            # dropped, so the identifier is the first thing in the string.
+            # Three consumers find it with `_AC_ID.search` and every message
+            # excerpt is a `[:80]` of the front.
+            criteria.append(_HEADING_MARKER.sub("", section[h.start():stop]).strip())
         block = _AC_BLOCK.search(section)
         if block:
             criteria += [b.strip() for b in _BULLET.findall(block.group(1))]

@@ -5635,3 +5635,19 @@
 - test: tests/test_the_canonical_unit_is_not_a_sentence.py::test_no_generator_still_calls_the_comparison_unit_a_sentence
   bug: "four shipped statements told their reader the AC is matched against one canonical sentence: canonical_diff.py's module docstring, _best_match_ratio's docstring, the Phase 1 DOC 3 line Agent B reads every round, and R-SEVERITY-RUBRIC-001's definition of a `high` gap. Scoped to the three SOURCES rather than the tree because docs/PROPOSAL_ADJUDICATIONS.md quotes the retired wording in order to record it, and the generated JS is already proven to match by generate_workflows.py --check (R33/R56: check the source, not each derived statement)"
   fixed_in: "Round 108"
+
+- test: tests/test_the_heading_shape_criterion_carries_its_text.py::test_a_heading_shape_criterion_is_read_past_its_identifier
+  bug: "acceptance_criteria_from_text returned `h.group(1)` for the heading spelling — the identifier and nothing else — while the bullet spelling returned the criterion's text. Measured over the five corpus projects that write headings (taskq, taskq-cc, taskq-final, taskq-new, taskq-sn): 411 criteria, 2,706 characters returned, 166,157 characters those criteria occupy in the documents, so 98.4% of the text reached no consumer. Round 83 站3 fixed exactly this for the bullet branch (`(.+)$` stopped at the first newline); the heading branch kept the same defect in its extreme form"
+  fixed_in: "Round 108"
+
+- test: tests/test_the_heading_shape_criterion_carries_its_text.py::test_the_identifier_still_comes_first
+  bug: "reverse control on the fix. check_ac_identifiers, check_ac_deferral_targets and every TEST_SPEC join pull the id out of the returned string with _AC_ID.search, and every violation message excerpts its first 80 characters. Carrying the body while dropping the heading line would take the identifier off 640 corpus criteria — measured by mutating the branch to `section[h.end():stop]`"
+  fixed_in: "Round 108"
+
+- test: tests/test_the_heading_shape_criterion_carries_its_text.py::test_the_check_that_was_blind_on_this_shape_can_see
+  bug: "check_ac_verifier_is_nameable (Round 87) searches a criterion for 'owned by the test harness'. On a heading-shape SRS it was handed `AC-1.1` and could never find it, so it reported zero on five corpus projects for a structural reason rather than a clean one — Round 46's absent witness, inside a check written to close Round 46"
+  fixed_in: "Round 108"
+
+- test: tests/test_the_heading_shape_criterion_carries_its_text.py::test_the_bullet_shape_is_unchanged
+  bug: "negative control: the branch that already returned criterion text must not be traded away for the one being fixed"
+  fixed_in: "Round 108"

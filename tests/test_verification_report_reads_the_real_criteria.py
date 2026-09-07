@@ -100,7 +100,17 @@ def test_the_report_and_the_framework_agree_on_what_a_criterion_is(tmp_path):
         "the report generator answers a different question than the rest of "
         "the framework about what an acceptance criterion is"
     )
-    assert canonical.get("FR-01") == ["AC-1.1", "AC-1.2"], canonical
+    # Round 108 站C. Until then this line read `== ["AC-1.1", "AC-1.2"]`, and
+    # the bare identifiers it pinned were the defect: the heading branch
+    # returned `h.group(1)` and threw the criterion away, so 98.4% of the text
+    # of 411 corpus criteria reached no consumer and
+    # `check_ac_verifier_is_nameable` was blind on five projects. The property
+    # this test is about is the line above — two parsers, one answer — and it
+    # is untouched; only the value being compared moved.
+    assert canonical.get("FR-01") == [
+        "AC-1.1\nCreating a task returns 201.",
+        "AC-1.2\nA duplicate name returns 409.",
+    ], canonical
 
 
 def test_the_heading_shape_every_corpus_project_uses_is_read(tmp_path):
