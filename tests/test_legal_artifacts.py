@@ -33,6 +33,11 @@ def test_legal_artifacts_exports() -> None:
         # tests/test_a_template_example_says_it_is_one.py.
         "SAB_TEMPLATE_EXAMPLE_VALUES", "TEMPLATE_EXAMPLE_MARKER",
         "TEMPLATE_EXAMPLE_VALUES",
+        # Round 106 站A — the delivered end of the same registry. The marker
+        # above is checked on the template; these answer the narrower question
+        # that is decidable in a project's own tree.
+        "TEMPLATE_EXAMPLE_TEST_NAMES", "framework_examples_in",
+        "sab_template_module_paths",
     }
 
 

@@ -195,6 +195,12 @@ OWNER_BY_EXIT: dict[int, str] = {
     # this framework already installs, and the block names the config file and
     # section to write. Nothing here is the framework's to fix.
     48: Owner.PROJECT,
+    # Round 106 站A. The project's, with one honest caveat recorded rather
+    # than hidden: the framework put those values in the file. What the
+    # project owns is that they are still there at the boundary that closes
+    # the phase which was supposed to replace them, and the block names the
+    # file, the line and the identifier.
+    49: Owner.PROJECT,
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

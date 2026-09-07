@@ -173,7 +173,13 @@ _CEILINGS: dict[str, int] = {
     # its three-line return propagation. The check itself is 59 lines in its
     # own helper in cli/advance_prechecks.py; what this function gained is one
     # more call site, which is what it is for.
-    "cli/phase_cmds.py::_advance_prechecks": 263,
+    # Round 106 站A: 263 -> 271. Eight lines — a four-line comment saying
+    # why the framework-example check runs ahead of the constraint one, the
+    # `_precheck_framework_examples_were_replaced` call, and its three-line
+    # return propagation. The check itself is 48 lines in its own helper in
+    # cli/advance_prechecks.py; what this function gained is one more call
+    # site, which is what it is for.
+    "cli/phase_cmds.py::_advance_prechecks": 271,
     # The one run with NO safe cut point under the extraction rule: every
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line

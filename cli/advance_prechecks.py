@@ -548,6 +548,54 @@ def _precheck_p3_criteria_review(completed_phase, project) -> "int | None":
     return EX_AGENT_B_APPROVALS_INCOMPLETE
 
 
+def _precheck_framework_examples_were_replaced(
+    completed_phase, project,
+) -> "int | None":
+    """The framework's own example values must not still be in the deliverable.
+
+    Round 106 站A. `cli/project_cmds.py` copies `templates/TEST_INVENTORY.yaml`
+    into every project root on day one and `render_canonical_sab_template`
+    fills the SAB block, so both files reach the project carrying values this
+    framework invented. Round 105 marked them and checked only the TEMPLATE
+    end. Marking is advice: taskq-forever's SAD.md keeps
+    `layers:  # EXAMPLE — replace with your project's layers` verbatim with
+    `app.api.webhooks` under it, and three projects shipped all four example
+    test names.
+
+    Two questions only, because they are the two that are decidable — the rule
+    and the measurements behind it are in
+    `core.quality_gate.legal_artifacts.framework_examples_in`. What is NOT
+    asked here is whether the marker is still present (taskq-renew keeps it
+    and replaced the modules) or whether a number still equals the template's
+    (a project may choose 80).
+
+    Asked at the boundary that closes the phase which wrote the artifact —
+    Phase 1 for TEST_INVENTORY.yaml, Phase 2 for SAD.md / TEST_SPEC.md /
+    SAB.json. Every phase asking about every artifact is Round 20.
+
+    Never raises: an artifact that cannot be read is a worse reason to refuse
+    an advance than the thing it was going to report.
+    """
+    try:
+        from cli.exit_codes import EX_ADVANCE_TEMPLATE_EXAMPLE_DELIVERED
+        from core.quality_gate.legal_artifacts import framework_examples_in
+
+        found = framework_examples_in(Path(project), completed_phase)
+        if not found:
+            return None
+        print(f"\n[BLOCKED] {len(found)} value(s) this framework wrote as an "
+              f"example are still in the Phase {completed_phase} deliverable:")
+        for row in found:
+            print(f"  {row}")
+        print("  → replace each one with this project's own name. They came "
+              "from the framework's template, not from your design, and every "
+              "later check reads them as if they were yours.")
+        return EX_ADVANCE_TEMPLATE_EXAMPLE_DELIVERED
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] framework-example check skipped: {exc}", file=sys.stderr)
+        return None
+
+
 def _precheck_declared_constraints_are_configured(
     completed_phase, project,
 ) -> "int | None":

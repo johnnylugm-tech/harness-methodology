@@ -153,6 +153,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         constraint a tool this framework runs decides, and this project has
         not configured that tool to decide it. Write the config the block
         names (or drop the declaration), then re-run.
+    49  advance-phase: a value this framework wrote into the deliverable as
+        an EXAMPLE is still there — a `*_example_*` test name, or a SAB
+        template module path whose root package this project does not
+        deliver. Replace each one the block names, then re-run.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

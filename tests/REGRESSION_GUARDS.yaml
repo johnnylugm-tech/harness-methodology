@@ -5507,3 +5507,55 @@
 - test: tests/test_a_template_example_says_it_is_one.py::test_the_test_inventory_template_still_parses
   bug: "the markers are YAML comments and must not change what the file means; project_cmds copies it into every project root and spec_coverage._flatten_test_names reads it"
   fixed_in: "Round 105"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_a_template_test_name_in_the_inventory_is_reported
+  bug: "templates/TEST_INVENTORY.yaml's four `*_example_*` test names were delivered verbatim by three of thirteen corpus projects (taskq-sn 17 hits, taskq-wow 13, taskq-forever 8); Round 105 marked them as examples and marking is advice, not an executor"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_a_project_that_named_its_own_tests_is_not_reported
+  bug: "reverse control — a project that named its own tests must not be reported, or rule 1 is an accusation every project carries"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_a_template_module_path_with_no_such_package_is_reported
+  bug: "taskq-forever delivered the SAB layers example (app.api.webhooks / app.main / app.service.handlers / app.processing.pipeline) unedited, marker line and all, and every later check read those four names as its architecture"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_a_project_that_delivers_the_package_is_not_accused
+  bug: "the first version of rule 2 matched the identifier alone; `app.main` is the most common module path in any FastAPI project, so every project whose package is `app` would have been charged with copying the template — Round 46's false accusation"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_a_replaced_block_that_kept_the_marker_is_not_accused
+  bug: "'the marker is still there, so the line was not replaced' was the obvious rule and taskq-renew's SAD.md:551 refutes it — same marker, its own `taskq_plus.cli.main` underneath"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_the_module_paths_come_from_the_template_not_from_a_literal
+  bug: "Round 105 hand-wrote `app.api.routes` and measured a 0/13 leak rate with it while the template emits `app.api.webhooks`; a literal written beside the template can disagree with the file the project is actually handed"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_every_example_test_name_is_in_the_shipped_template
+  bug: "a registry entry naming a literal no template contains is a rule that cannot fail — the shape contract_decides refuses for import contracts, applied to this guard's own inputs"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_it_is_asked_at_the_phase_that_produced_the_artifact
+  bug: "asking every phase about every artifact is Round 20's multi-layer check on one source; TEST_INVENTORY.yaml is read once at P1's exit and the P2 artifacts once at P2's"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_advance_phase_runs_the_check
+  bug: "the first version put this in `cli/handoff_validators._validate_handoff_p1_to_p2`, whose only caller is `cmd_validate_handoff` — a line of prompt asks the AGENT to run it. An instruction is not an executor (Round 30/43), which is the defect this station closes, not one to add"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_the_exit_code_is_registered_with_a_description
+  bug: "an exit code with no REGISTRY entry is a number the operator meets with no way to look it up"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_nothing_to_read_is_not_a_violation
+  bug: "reverse control — an absent artifact is the business of the checks that demand it; reporting one here would block every phase that has not written the file yet"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_a_json_sab_is_read_too
+  bug: ".methodology/SAB.json is the rendered form of SAD.md §5 and is what every later check actually reads, so a template module surviving there is the same defect one file further on"
+  fixed_in: "Round 106"
+
+- test: tests/test_a_framework_example_is_not_a_deliverable.py::test_the_check_reads_the_template_and_not_a_copy_of_its_answer
+  bug: "CP-4b: replacing `sab_template_module_paths()` inside framework_examples_in with the four CORRECT literals left all twelve other guards green — a faithful re-implementation is invisible to a test that only inspects the SSOT (Round 97 CP-5b / 98 CP-11 / 99 CP-13b / 105 CP-8, same shape); moving the template must move what the check reports"
+  fixed_in: "Round 106"

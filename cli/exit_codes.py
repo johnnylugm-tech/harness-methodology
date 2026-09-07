@@ -114,6 +114,15 @@ EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL = 47
 # the declaration. finalize_gate has raised the same fact since Round 54, but
 # Phase 2 has no gate, so the first time anyone heard it was Phase 3.
 EX_ADVANCE_CONSTRAINT_UNCONFIGURED = 48
+# Round 106 站A. The framework writes example values into the project's own
+# deliverables (cli/project_cmds.py copies templates/TEST_INVENTORY.yaml into
+# every project root; render_canonical_sab_template fills the SAB block), and
+# Round 105 only checked that the TEMPLATE marks them. Marking is advice:
+# taskq-forever shipped all four SAB module paths with the marker line still
+# above them. This is the delivered end, and only for the two questions that
+# are decidable there — an identifier that says it is an example, and a
+# template module path whose root package the project does not deliver.
+EX_ADVANCE_TEMPLATE_EXAMPLE_DELIVERED = 49
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -164,6 +173,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_SAB_PLACEMENT_UNDECLARED: "advance-phase: .methodology/SAB.json places modules in layers that SAD.md §5 neither declares nor implies from your own layer names — this framework wrote them there, and drift detection charges import violations against whichever layer it chose. Declare the layer in SAD.md §5's SAB block (or drop the module from the baseline), regenerate SAB.json with scripts/generate_sab.py --overwrite, then re-run",
     EX_ADVANCE_MANIFEST_MISSING_DECLARED_TOOL: "advance-phase: .methodology/env_contract.json names tools this project needs that no delivered manifest installs — the environment the gate measured in cannot be rebuilt from what the project ships. Add each named distribution to requirements.txt (or requirements-dev.txt / pyproject.toml), then re-run",
     EX_ADVANCE_CONSTRAINT_UNCONFIGURED: "advance-phase --completed-phase 2: the SAB declares an architecture constraint that a tool this framework runs decides, and this project has not configured that tool to decide it — most often a constraint about layering or a forbidden import with no matching [importlinter:contract:…] section. Write the config the block names (or drop the declaration from SAD.md §5's SAB block), then re-run. Phase 3 onward raises the same fact inside finalize-gate",
+    EX_ADVANCE_TEMPLATE_EXAMPLE_DELIVERED: "advance-phase: a value this framework wrote into the deliverable as an EXAMPLE is still there — one of templates/TEST_INVENTORY.yaml's `*_example_*` test names, or a module path from the SAB template whose root package this project does not deliver. Replace each one named in the block with this project's own name; every later check reads them as if they were yours",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "
                            "(Round 66: the run unwinds and reaps what it started)",

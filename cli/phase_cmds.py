@@ -110,6 +110,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_declared_constraints_are_configured,
     _precheck_deliverable_anchors,
     _precheck_early_stage_pass,
+    _precheck_framework_examples_were_replaced,
     _precheck_manifest_and_p1_baselines,
     _precheck_p3_criteria_review,
     _precheck_p3_security_and_quality,
@@ -2006,6 +2007,14 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # See _broken_deliverable_anchors for the measurement.
     _anchor_breaks = _broken_deliverable_anchors(project)
     _pre_rc = _precheck_deliverable_anchors(_anchor_breaks, completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # ── The framework's own example values must not still be in the ──
+    # deliverable (Round 106 站A). Ahead of the constraint check below because
+    # it is the cheaper read and because a SAB still holding `app.api.webhooks`
+    # makes every finding under it a finding about the template.
+    _pre_rc = _precheck_framework_examples_were_replaced(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 
