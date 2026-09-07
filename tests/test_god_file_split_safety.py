@@ -193,6 +193,22 @@ _TRACKED: dict[str, tuple[str, ...]] = {
         # read by `_frstep_skip_if_already_done` and `_frstep_gate1_paper_trail`
         "_fr_step_already_done", "_fr_step_lineage_boundary", "_fr_tests_say",
     ),
+    # Round 106 站C. Added BEFORE the cut, for the reason the module docstring
+    # gives: a net woven after the fall proves nothing about the fall. 950
+    # lines, registered as a god file by Round 105 with the split deferred to
+    # "next time it grows" — this is that time, and the ledger says so.
+    #
+    # These six are the leaf group: measured with an AST scan, none of them
+    # reads any other module-level name in the file, and exactly four
+    # functions read them (`_evaluate`, `contract_coverage_blocking_reason`,
+    # `contract_coverage_gap`, `unreadable_contracts`). One direction, no
+    # cycle. `_LAYER_GRAMMAR` and `_MODULE_WILDCARD` travel with them and are
+    # NOT fingerprinted here: this mechanism reads `def`s, and an assignment
+    # moved by hand is covered by the ratchets and the import checks.
+    "core.quality_gate.arch_constraints": (
+        "_config_sources", "layer_module_tails", "_contract_sources",
+        "contract_decides", "read_import_contracts", "read_bandit_config",
+    ),
     "core.doctor": (
         "run_doctor", "_check_ci_template_drift",
         "_check_submodule_behind", "_check_enforcer_provenance",
