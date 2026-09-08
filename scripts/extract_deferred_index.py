@@ -30,7 +30,9 @@ The `guard:` mapping is deliberately NOT here. It is a judgement — which test,
 if any, already measures a given re-open condition — and judgements do not
 belong in a generated file: the first hand edit would either be erased by the
 next run or turn the byte-identity assertion red. It lives in
-docs/deferred_guards.yaml, keyed by `round:line`.
+docs/deferred_guards.yaml, keyed by `(round, item)` — NOT by line: line numbers
+shift every time the ledger grows, and that file's header records the first
+draft being withdrawn for exactly that reason.
 
     python3 scripts/extract_deferred_index.py            # write the index
     python3 scripts/extract_deferred_index.py --check    # fail if it is stale

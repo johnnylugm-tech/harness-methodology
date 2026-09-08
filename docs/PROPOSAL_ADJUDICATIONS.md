@@ -9960,3 +9960,85 @@ srs_vs_spec 計算,然後把輸出蓋上 `testspec_vs_srs` 的章。下游只要
 連帶:`tests/test_canonical_diff.py` 檔頭那句「Same engine scores SRS↔SPEC,
 TESTSPEC↔SRS, VERIFICATION↔SRS via --mode flag」改成當下為真的陳述。
 新守衛 4 支(guards 1387 → 1391)。反證 CP-3:把 `mode` 形參加回去 → 立刻轉紅。
+
+### §4 站4 — 最高權威文件同意的,是那份死 registry
+
+`constitution/CONSTITUTION.md` §8.1 引用了 anti-over-specification 的規則原文,並在
+引用上方寫著自己是那條規則的表面:
+
+> - **Canonical rule text** (`rules/manifest.yaml` R-CANONICAL-INTERP-001 —
+>   this doc is a declared surface; keep verbatim):
+
+**一個宣告了「keep verbatim」卻沒有任何執法者的表面,就會漂。** 三方比對(2026-09-08):
+
+| 副本 | 長度 | 誰讀它 |
+|---|---|---|
+| `harness/prompts/rules/R-CANONICAL-INTERP-001.md` | 1,422 字元 | **活 SSOT**:`scripts/plangen/blocks.py::_load_rule` 渲染進每一份 P1 plan;`scripts/workflowgen/js_blocks.py::render_rule_prose` 渲染進每一支生成的 workflow |
+| `rules/manifest.yaml` 的 `text:` | 861 字元 | **零**(`grep` 於 `.py`/`.js`/`.sh`/`.toml` 無命中) |
+| `CONSTITUTION.md:294` 的引用區塊 | 860 字元 | 人 |
+
+憲法那份與 manifest 那份 `.strip()` 後**逐字相同**(實測 `True`),與活 SSOT 的
+`SequenceMatcher` 相似度 **0.700**。(計畫書寫 0.489,那是退回前用不同的正規化跑出來的;
+今天以兩端皆 `.strip()` 重量得 0.700,採今天這個可重跑的數字。相似度本來就不是判準 ——
+見下方為什麼用逐位元組。)
+
+**分岔點在第 419 個字元,而分岔的內容正是這一站的重量所在**:
+
+```
+憲法 :  '<verbatim canonical phrase> — measurement / interpretation boundary
+         is owned by the test harness per <canonical line>.'
+SSOT :  '<verbatim canonical phrase> — decided by <the named test function,
+         tool or downstream phase that measures this>, per <canonical line>.'
+         The verifier MUST be named: nothing in this framework reads an AC and
+         decides it, so 'owned by the test harness' names nobody and ships a
+         false claim about who checked it.
+```
+
+**憲法發給 agent 的模板,是活規則指名禁止的那一句。** 不是「過期」而已 —— 是最高權威
+文件在教一個已經被廢止的寫法,而廢止它的理由(那句話誰也沒指名)寫在同一條規則裡。
+
+**做了三件事:**
+
+1. **`rules/manifest.yaml` 整檔退場**(老闆裁定)。它自己的檔頭三次指向
+   `check_methodology_consistency.py (REMOVED)` —— 那支本來要證明各表面一致的工具。
+   一份沒有讀者、也沒有執法者的 registry,唯一的作用是讓第三份文字存在。它的
+   `R-SEVERITY-RUBRIC-001` 還留著 `any canonical sentence`,正是 Round 108 站B
+   前一天才從四個表面移除的那句假陳述 —— 站B 沒掃到它,因為它不在任何渲染鏈上。
+2. **憲法的引用改成活 SSOT 的現值**(⚠ 憲法層改動,已向老闆標明)。規則的實質沒有被我
+   改動一個字:新文字是 `R-CANONICAL-INTERP-001.md` **逐位元組**的內容,由腳本讀檔寫入
+   而非手打(sha256 兩端相同 `13f69127271e9b1a`),來源指向同時改為那個檔案。
+3. **一支守衛,不是一支掃描器。**
+
+**為什麼不是掃描器 —— 我原本的方案被自己的實跑否決。** 計畫是把
+`tests/test_prompt_rules.py::test_rule_prose_not_forked_into_python` 的掃描面從 `*.py`
+擴到 `*.md`/`*.js`/`*.yaml`。實跑 **26 命中,其中 24 是誣告**:
+`.claude/workflows/{phase1,run-all}.js`、`tests/golden/workflowgen/*.js`、
+`tests/golden/plangen/phase1.md`、`.methodology/phase1_plan.md` —— 全都是**渲染出來的**
+表面,早已被 `generate_workflows.py --check` 與 golden 測試逐位元組釘死。真命中只有 2:
+manifest 與憲法。有用的區分不是副檔名,而是**生成的 vs 手寫的**;manifest 退場後,
+手寫表面只剩一個,於是**一條等式就是全部的檢查**。撤銷該掃描器(§9 明列不做)。
+
+**為什麼是逐位元組而不是相似度門檻。** 「keep verbatim」沒有容差;設一個門檻等於再立
+一條較弱的、關於「多像才算同一份文字」的規則。而且本輪要抓的漂移相似度 0.700,讀起來
+就是同一條規則的散文。
+
+**新守衛** `tests/test_the_constitution_carries_the_live_rule.py`(3 支,guards 1391 → 1394):
+憲法宣告為 verbatim 的副本逐位元組等於活 SSOT、宣告指向的來源檔案存在、退場的 registry
+沒有回來。
+
+**連帶**:`scripts/extract_deferred_index.py:33` 寫「keyed by `round:line`」,而
+`docs/deferred_guards.yaml:32` 檔頭寫「KEYED BY (round, item), NOT BY LINE」並記著
+line-keying 第一版被推翻的理由,`tests/test_deferred_index.py:138` 也寫 (round, item)。
+三份陳述一份錯 —— 同一母體的小號,順手改成當下為真。
+
+**反證**:CP-4 把憲法區塊改回舊(manifest)文字 → parity 守衛紅;**CP-8**(R97/R99 同形,
+第十次)在憲法留一份**逐行忠實的重寫** —— 一個 em dash 改成連字號、一個 `MUST` 改成
+`must`,語意完全相同 —— parity 守衛**仍然紅**。這正是本輪要的性質:一支比對指紋或關鍵字的
+掃描器讀不出差別,而「宣告為 verbatim」這件事只有逐位元組能執法。兩次反證後由 `cp` 備份
+還原,sha256 比對相同(`d7261aa1…`)。
+
+**我自己的擷取器先錯了一次。** `_declared_copy()` 第一版從 `match.end()` 開始逐行掃,而
+那個位置落在宣告行的 `)` 之後、行尾的 `:` 之前 —— 於是「第一行」是 `:`,不以 `>` 開頭,
+迴圈立刻 break,取出空字串。守衛照樣紅,但紅的理由是「憲法區塊 0 字元」而不是真正的漂移。
+**一支因為錯誤理由而紅的守衛,和一支綠的守衛一樣沒有在看那件事**;修掉之後才看到第 419
+字元的分岔。這是先寫紅測試、而且**去讀那個紅的內容**的價值。

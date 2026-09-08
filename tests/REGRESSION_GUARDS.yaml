@@ -5683,3 +5683,15 @@
 - test: tests/test_the_report_mode_is_not_a_promise.py::test_the_module_promises_no_diff_it_cannot_do
   bug: "R39: removing a mechanism and leaving the statement about it standing. The module docstring offered TESTSPEC↔SRS (P4) and VERIFICATION↔SRS (P5) 'via --mode argument'. Scoped to the offer (`same engine applies`) and not to the string `--mode`: the first version of this test scanned for the flag name and went red on the commit that removed it, because the corrected docstring names the flag to record why it is gone — Round 46's false accusation, the second time this round met that shape"
   fixed_in: "Round 109"
+
+- test: tests/test_the_constitution_carries_the_live_rule.py::test_the_constitutions_copy_is_the_rule_agents_receive
+  bug: "constitution/CONSTITUTION.md §8.1 quotes R-CANONICAL-INTERP-001 under the words 'this doc is a declared surface; keep verbatim', and nothing enforced that. Measured 2026-09-08: the live rule harness/prompts/rules/R-CANONICAL-INTERP-001.md was 1,422 chars, rules/manifest.yaml's copy 860, and the constitution's block was byte-for-byte the registry's (measured equal after strip) — SequenceMatcher 0.700 against the text agents actually receive via plangen's _load_rule and workflowgen's render_rule_prose, i.e. it read as the same rule in prose. The highest-authority document still handed out the template 'measurement / interpretation boundary is owned by the test harness', the exact phrase the live rule now forbids as one that 'names nobody and ships a false claim about who checked it'. Byte equality, not similarity: 'keep verbatim' does not have a tolerance"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_constitution_carries_the_live_rule.py::test_the_declaration_names_the_source_that_exists
+  bug: "the drift's other half — the declaration named rules/manifest.yaml as the source, and that file was retired in the same commit. A pointer at a deleted file leaves the next reader with the copy in front of them as the only text they can see. Asserts the named path resolves to a file that exists"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_constitution_carries_the_live_rule.py::test_the_retired_registry_is_gone
+  bug: "rules/manifest.yaml held a third copy of the rule text with zero readers (grep across .py/.js/.sh/.toml: no hits) and no enforcer — its own header named check_methodology_consistency.py (REMOVED) three times as the tool that would have kept the surfaces equal. Its R-SEVERITY-RUBRIC-001 entry still carried 'any canonical sentence', the false statement Round 108 站B removed from four surfaces the day before. Kept as its own assertion: re-adding the file restores a copy nothing renders from and nothing checks"
+  fixed_in: "Round 109"
