@@ -58,6 +58,34 @@ _ROUND_HEADING = re.compile(r"^#{1,3} Round (\d+)")
 _ANY_HEADING = re.compile(r"^#{1,4} ")
 _TABLE_SEP = re.compile(r"^\|[\s\-:|]+\|\s*$")
 _BULLET = re.compile(r"^[-*] ")
+_BULLET_LEAD = re.compile(r"^[-*] \*\*(.+?)\*\*")
+
+
+def _bullet_item(text: str) -> str:
+    """The bullet's own name for itself — a byte-exact slice, like every field.
+
+    Round 110 站3. A bullet carried only `text`, so `(round, item)` — the key
+    docs/deferred_guards.yaml is written against — could not address one, and
+    136 of the ledger's 288 recorded decisions sat outside the reach of the
+    guard that exists to notice an unanswered re-open condition. Not excluded
+    on purpose: structurally invisible, which is worse, because the guard was
+    green over a denominator it had chosen without saying so.
+
+    126 of the 136 open with a bold lead (`- **X**: …`) — the ledger's own way
+    of naming a decision — and the other 10 use their first line. Measured
+    2026-09-09: all 136 are verbatim slices of the ledger, all 136 keys are
+    unique within their round, and none collides with a table row's `item`.
+
+    This does NOT extract a re-open condition. A bullet states its condition in
+    prose ("若它哪天變成受版控的交付面再開"), and a regex fitted to those is
+    the Round 55 shape this file's docstring refuses. Whether a bullet has a
+    condition at all is a judgement, and judgements live in deferred_guards.yaml
+    — `NO_CONDITION` is one of the five verdicts for exactly this.
+    """
+    lead = _BULLET_LEAD.match(text)
+    if lead:
+        return lead.group(1)
+    return text.split("\n")[0].lstrip("-* ").strip()
 
 
 def _cells(row: str) -> "list[str]":
@@ -160,8 +188,9 @@ def _entries_in(lines: "list[str]", start: int, end: int) -> "list[dict]":
             j += 1
         while j > k + 1 and lines[j - 1].strip() == "":
             j -= 1
+        text = "\n".join(lines[k:j])
         entries.append({"line": k + 1, "kind": "bullet",
-                        "text": "\n".join(lines[k:j])})
+                        "item": _bullet_item(text), "text": text})
 
     return entries
 

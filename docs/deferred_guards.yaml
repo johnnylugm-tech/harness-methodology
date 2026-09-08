@@ -14,20 +14,34 @@
 # nothing connected a proposal to either. An index alone would not have fixed
 # that — this mapping is the part that would.
 #
-# DELIBERATELY SPARSE. An entry is added only when someone has actually looked
-# and can name the test. Going through every index entry is a separate repo-wide
-# audit, recorded as not-doing in Round 81 with that as its re-open condition.
-# An absent key here means "nobody has checked", which is different from
-# "nothing measures it" — Round 46, again.
+# NO LONGER SPARSE — Round 110 站3, by 老闆's ruling. It used to say
+# "DELIBERATELY SPARSE: an entry is added only when someone has actually looked",
+# with the repo-wide audit recorded as not-doing in Round 81. That audit is done:
+# every one of the index's 288 recorded decisions now carries a verdict, and
+# tests/test_deferred_index.py::test_every_recorded_decision_has_a_verdict holds
+# the whole index as its denominator rather than the 106 table rows with a
+# non-dash re-open cell that Round 109 站7 could address.
 #
-# AND A THIRD THING AN ABSENT KEY CAN MEAN, which Round 81 shipped and did not
-# notice: "someone checked, wrote the answer in the ledger, and never brought it
-# back here". The mega-function row below was missing from the first version of
-# this file — the round spent four stations on it and answered its re-open
-# condition head-on in prose, and the machine-readable half recorded the two
-# SMALLER things the same round resolved. Written down because the sentence
-# above ("an absent key means nobody has checked") was itself the wrong
-# statement of what absence means.
+# THE COST, STATED IN THE OPEN: every 不做 decision the ledger gains from here —
+# table row or bullet — needs a verdict row in the same commit, or that guard is
+# red. That is the point; it is also work, and pretending otherwise is how the
+# 181-row hole opened.
+#
+# WHAT AN ABSENT KEY MEANT BEFORE, kept because it is the reason this file
+# exists: "nobody has checked" (Round 46), and — the thing Round 81 shipped and
+# did not notice — "someone checked, wrote the answer in the ledger, and never
+# brought it back here". The mega-function row below was missing from the first
+# version of this file for exactly that reason.
+#
+# HOW THE 181 WERE CLASSIFIED. Every entry was read in full. 46 of the 136
+# bullets and 5 of the two-column table rows state a re-open condition in prose
+# (the two-column tables carry it inside the 理由 cell, so `reopen` being absent
+# from the index is not the same as there being no condition); those got a
+# measured verdict. The remaining 119 are scope, discretion, or a decision the
+# ledger itself closes — NO_CONDITION, each one carrying the ledger's own reason
+# as its basis, never blank. A keyword screen was tried first and got it wrong
+# twice (`Re-open：` missed by a case-sensitive pattern, `若…重議` missed
+# entirely), which is why the classification is a reading and not a regex.
 #
 # KEYED BY (round, item), NOT BY LINE. The first draft keyed on the ledger line
 # number, which every subsequent ledger edit invalidates — Round 81's own
@@ -37,7 +51,11 @@
 # Fields:
 #   round        the ledger round the decision belongs to
 #   item         the entry's first cell / first line, verbatim from the index
+#   verdict      MET | NOT_MET | PREMISE_FALSE | ALREADY_DONE | NO_CONDITION
+#   evidence     what was measured, dated, so the verdict can be re-checked
 #   guard        pytest node id that measures the re-open condition, or `manual`
+#                (ALREADY_DONE may not be `manual` — a claim that the work is
+#                done has to name the test that proves it)
 #   resolved_in  set when the condition has since been met and acted on
 #   note         why this mapping is what it is
 # =============================================================================
@@ -460,13 +478,13 @@ entries:
   - round: 82
     item: "賬本每一條的 `guard:` 逐條補齊"
     verdict: MET
-    guard: "tests/test_deferred_index.py::test_every_reopen_condition_has_a_verdict"
+    guard: "tests/test_deferred_index.py::test_every_recorded_decision_has_a_verdict"
     resolved_in: "Round 109 站7"
     evidence: >-
       By reference: "承 R81", and R81's condition — 有人做那次審查 — was met by 老闆's instruction to walk
       every re-open condition. Round 109 站7 is that audit: 91 unguarded conditions, one verdict
       and one piece of evidence each, and a new guard
-      (test_every_reopen_condition_has_a_verdict) that makes the next unanswered one red instead
+      (test_every_recorded_decision_has_a_verdict) that makes the next unanswered one red instead
       of invisible.
   - round: 82
     item: "`test_test_spec_parser_parity` 的 `git ls-files` 時序"
@@ -510,7 +528,7 @@ entries:
   - round: 81
     item: "賬本每一條的 `guard:` 逐條補齊"
     verdict: MET
-    guard: "tests/test_deferred_index.py::test_every_reopen_condition_has_a_verdict"
+    guard: "tests/test_deferred_index.py::test_every_recorded_decision_has_a_verdict"
     resolved_in: "Round 109 站7"
     evidence: >-
       有人做那次審查 — 老闆 ordered it, and Round 109 站7 is it. 91 re-open conditions with no guard row,
@@ -963,3 +981,1096 @@ entries:
       2026-09-08: nothing can verify that a new score is the true one. R108 站B measured the
       tightened splitter twice and both times 13 of 15 projects' scores fell, with no way to
       tell a correction from a regression.
+  - round: 25
+    item: "其餘約 12 個 pytest 站點（`stage_pass_generator`、`cross_artifact`、"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L401 這條的理由是「`confidence_scorer`、`auto_fix/strategies`、`harness/toolchain…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 25
+    item: "gitleaks / ruff / mypy 不刪。它們與 gate 維度重疊但**尺不同**（gate linting 門檻 90"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L404 這條的理由是「≙ 容 5 個違規，advance 要 0；gate 用 pyright，advance 用 mypy）。刪掉是降標。合…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 26
+    item: "per-gate schema 拆分"
+    verdict: PREMISE_FALSE
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 賬本自己寫「修正 1 之後前提消失(不是「四個 gate 形狀不同」,是「required 列了沒人被要求寫的欄位」)」。前提已被同一輪的修正推翻。
+  - round: 26
+    item: "render-from-SSOT 生成 gate-1 prompt 的 JSON 區塊"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L490 這條的理由是「考慮過。prompt 的逐欄指引 散文（`// REQUIRED: count from pytest summary …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 26
+    item: "`tests_*` 三欄位的減法、`gate`→`gate_num` 統一"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L493 這條的理由是「見 R26-DEFER-1/2。動的是全系統 派發最頻繁的 prompt，為純命名一致性不值得，且會churn gold…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 35
+    item: "### 一項計畫偏離（不做，記在此）"
+    verdict: MET
+    guard: "tests/test_the_prompt_and_the_framework_agree_on_zero_mutants.py::test_the_mutation_section_does_not_teach_a_zero_for_an_unmeasured_run"
+    evidence: >-
+      2026-09-09: R35 記「零分母該算 0 還是未量測,這兩條必須放在一起裁決,不能只改一邊」。裁決由 R80 站2 `6e3abf17` 下了 —— `_compute_mutation_score` 零分母回 `(False, None, 'nothing was measured, so there is no score')` —— 而那個 commit 只動了 `mutation_enforcer.py` 一個檔,`harness/ssi/prompts/evaluate_dimension.md` 的 `### mutation_testing` 段仍教 agent `score = 0`。R110 站1 把那段改成與同檔 `### readability` / `### performance` 同語意並立守衛。
+    resolved_in: "Round 110 站1"
+  - round: 35
+    item: "R33 站3 的 `type:` 缺席"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1270 這條的理由是「taskq-renew 的 12 個 NFR，SRS 機讀 block 的 `type:` 全部是 None， `ill…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 35
+    item: "taskq-renew 專案本身不動"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1274 這條的理由是「（全程唯讀，`git status --short` 指紋前後相同）。 它的 Gate 2 會因本輪修復而能真正跑出 m…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 36
+    item: "不新增 pre-commit hook step"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「hook 政策改為可阻擋」。`.git/hooks/pre-commit` 的檔頭仍寫 「Warns (does NOT block) the developer」,硬阻擋仍在 `pre_flight.check_submodule_safety`(advance-phase 呼叫),不在 hook。
+  - round: 36
+    item: "不新增 CI step"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1369 這條的理由是「測試套件本來就在 CI 跑，再加一個 step 就是第二份陳述， 正是本輪在修的東西。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 36
+    item: "`.methodology/phaseN_plan.md` 不納入 shipped-parity"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「`.methodology/phaseN_plan.md` 變成受版控的交付面」。`git ls-files .methodology/` 只列 `constitution_profile.example.json`、`enforcement.json`、`harness_config.json` 三個,plan 檔不在其中。
+  - round: 36
+    item: "`47ec3fd` 那次翻轉本身不重議"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是老闆對「預設該不該關」另下一個決定。賬本 R37–R109 沒有這樣的裁定,`_DEFAULTS` 仍是唯一權威值。
+  - round: 37
+    item: "doctor 不接 CI verdict"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「doctor 長出 `--online` 模式」。`core/doctor.py` 全檔唯一含 `online` 的行是 :282 的註解,而那行寫的就是這條再開條件本身 —— 機制不存在,條件留在它原本要放檢查的位置。
+  - round: 37
+    item: "無 origin remote ⇒ post-push CI gate 回 0"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1474 這條的理由是「（並印出「not applicable」）： 沒有 remote 就沒有 CI 可以紅。這是唯一一種「真的不適用」而非「…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 37
+    item: "`ci_verdict_wait` 不進 harness_config"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「某專案真的需要 per-project 值」。全樹 grep `ci_verdict_wait` 只命中 賬本與 `docs/deferred_index.yaml` 自己 —— 沒有 harness_config 鍵,也沒有專案提出需求。
+  - round: 37
+    item: "非 git repo 路徑保持原行為"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1479 這條的理由是「（退回 SKIP_DIRS），不動與本輪缺陷無關的專案。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 37
+    item: "taskq-renew 的 Gate 4 = 93.6 不重判"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1480 這條的理由是「那是舊判定的效力問題，屬裁決不屬修缺陷。 本輪只保證下一次量的是對的樹。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 38
+    item: "R38-DEFER-1"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「老闆要收緊」`is_dim_disabled` 的 disable 語意。賬本 R39–R109 沒有這樣的裁定。
+  - round: 38
+    item: "R38-DEFER-2"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1579 這條的理由是「prompt 散文仍逐一列舉每個維度的門檻（`15 dims: linting(90) … architecture(8…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 38
+    item: "不重判 taskq-renew 的 Gate 4 = 93.6"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1582 這條的理由是「舊判定的效力屬裁決不屬修缺陷。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 38
+    item: "不移除 `devil_advocate_evidence` 驗證"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1583 這條的理由是「Gate 4 A3 對所有 Tier-3 維度仍用它， 與豁免無關。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 38
+    item: "不對既有專案 grandfather `gate_verify` 記錄"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1585 這條的理由是「第一次會被擋，跑一次 `verify-gate` 即可。允許無記錄通過等於本輪什麼都沒做。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 39
+    item: "不移除 disable 機制"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1709 這條的理由是「老闆已裁定保留。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 39
+    item: "不改任何門檻數值"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1710 這條的理由是「本輪只改「誰說、說得對不對」，不改「是多少」。gate 3 / gate 4 的計畫散文 render 後與手寫字串**…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 39
+    item: "不重判既有專案的歷史 gate 結果"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1712 這條的理由是「。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 39
+    item: "既有專案的殘留欄位不做遷移"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件寫在該 bullet 的散文裡 —— 「四個專案目前都在 phase 9,不會自然重跑 Gate 4;除非 CR 重開,否則不需要老闆做任何事」。語料全程唯讀,賬本 R40–R109 沒有記到那四個專案重跑 Gate 4 的 CR。
+  - round: 39
+    item: "`taskq` / `taskq-plus` 的 `mutation_testing` 是關的"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1727 這條的理由是「（實測）。它們的 Gate 4 判定是在 14 個維度上做的，不是 15——這正是站2 從今以後會落盤的那種事實， 但*…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 40
+    item: "不修 taskq-renew 的架構"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1845 這條的理由是「。它是唯讀專案，且 57.1 的正解是拆 `storage-parser`， 屬於該專案的工作。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 40
+    item: "不降 `crg_cohesion_healthy` 讓 CI 轉綠"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1847 這條的理由是「。把 0.25 降到 0.21 會讓兩個 marginal 社群變健康、分數變 6/7 = 85.7、CI 立刻綠，而 …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 40
+    item: "不回填消費專案的 CI 檔"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1850 這條的理由是「。doctor 現在會報，修復指令一行，何時執行是老闆的決定。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 40
+    item: "不收斂那 6 個倖存 CRG 預設值在兩份文件裡的重複"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「下一次有人改動這 6 個數字中的任何一個」。`core/harness_config.py:21` 的 `crg_cohesion_healthy` 最後一次改動是 `ab99adb5`(2026-07-07),早於 R40(2026-08-06),此後沒有人動過。
+  - round: 41
+    item: "TDD-IMPROVE 在綠 baseline 上「確實沒東西可重構」仍是錯誤。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有 agent 報過 IMPROVE 沒東西可重構」。賬本自己記 taskq / taskq-plus / taskq-renew / taskq-api 每個 FR 都有 `refactor(FR-NN): IMPROVE` commit,R42–R109 沒有記到第一個回報無可重構的實例。
+  - round: 41
+    item: "不碰 taskq-api"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1943 這條的理由是「（量測期間 17:18–17:37 另有 session 在手動修它，`app.py` / `test_fr03.py`…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 41
+    item: "不改任何門檻數值、不重判任何既有 gate 結果、不動 branch protection。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1948 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 41
+    item: "不為 INFRA_ERROR 加自動退避"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L1949 這條的理由是「站3 只把分類建在正確的欄位上。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 42
+    item: "站4a 撤回，紅測試刪除而非改綠。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「量到 SAD 的 architecture-risk trait 解析成 forced 集合」。賬本 R43–R109 沒有任何一輪量過那個輸入;`derive_test_cases.md` 的「Step-1b-forced patterns may NOT be skipped」仍是唯一無條件的那句,而它的 forced 集合仍未被解析出來。
+  - round: 42
+    item: "不改 spec-coverage 的五個門檻"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「缺口清單上線後仍有專案在門檻內漏掉整類 NFR 測試」。賬本 R43–R109 沒有記到這樣的實例;R73 站6 修的是 NFR Layering 兩個互相掩蓋的 bug,不是門檻放過整類測試。
+  - round: 42
+    item: "不改 STRIDE 計分"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2054 這條的理由是「（框架刻意只要求 per-boundary 覆蓋）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 42
+    item: "不給 `crg_cohesion_healthy` 加下限"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2055 這條的理由是「（憑空定 floor 是發明門檻；正解是可見）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 42
+    item: "不改 D6 的分數"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2056 這條的理由是「一個 12.5 KB 的檔內部形成兩個互不相連的叢集是不是架構 問題，本輪沒有立場裁決，憑空排除等於重建 R38 移除的…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 42
+    item: "不重判 taskq-plus / taskq-renew 的既有 gate 結果。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2058 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 45
+    item: "不動 `cli/gate_cmds.py` 的 `--fr-id` 不一致改寫語意"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2401 這條的理由是「`b288c9d` 8/11 剛落地。本輪只讓「證據不見了」被說出來。改寫語意是否應改成整筆拒絕，是下一輪候選」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 45
+    item: "收據本身住在 gitignored 的 `.sessi-work/sentinels/`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2402 這條的理由是「**站3 在 fresh clone 上因此沉默。** 與站1 同一個病（證據住在不持久的地方），本輪不擴大到「把收據也…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 45
+    item: "`cli/fr_prompts/gate.py` 有一段重複死碼"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2403 這條的理由是「`spec_section` 在 21-31 行算一次、41-49 行覆寫一次。與本輪需求無關，**告知不刪**」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 45
+    item: "不改任何 gate 門檻、權重、維度集合的數值"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2404 這條的理由是「站4 只改「誰來說」」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 48
+    item: "不刪 auto_fix 的十二支函式與 30 條 CLASSIFICATION_TABLE 條目。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2658 這條的理由是「`tests/test_no_hardcoded_paths.py` 的 R20 站2 守衛以 `fix_low_cov…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 48
+    item: "`EscalationCondition.LOW_CONFIDENCE` 本輪之後不再可經 `fix()` 到達。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2663 這條的理由是「唯一存活的 strategy 固定回報 90，所有回報低於 70 的都已退役。其單元測試改為直接 驅動 `check_e…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 48
+    item: "不做巢狀 workflow"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2667 這條的理由是「（R23-A 已裁決，本輪不推翻）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 48
+    item: "UNKNOWN 不觸發 harness 修復"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2668 這條的理由是「（老闆裁決）。「證明不了是專案的錯就去改框架」 等於給修復 agent 一個修改判定者的常設動機。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 48
+    item: "CLAUDE.md 不是交接文件的家"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2670 這條的理由是「`**/CLAUDE.md` 全域 gitignore，只寫在那裡的 交接永遠到不了消費專案。內容寫進 `docs/ER…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 48
+    item: "`core/doctor.py` 進入 god-file 清單"
+    verdict: ALREADY_DONE
+    guard: "tests/test_file_size_ratchet.py::test_production_file_line_ratchet"
+    evidence: >-
+      2026-09-09: 條目寫的是「下一個加進來的檢查應該拆檔,而不是再調高數字」。`core/doctor.py` 今天 287 行 —— R49 把它從 923 拆掉了,拆的方向正是這條指名的那個。
+    resolved_in: "Round 49"
+  - round: 50
+    item: "不重判任何既有 gate 結果"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2779 這條的理由是「（老闆裁決 + R38）。taskq-api 全程唯讀。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 50
+    item: "D2 本輪不修"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「站6 落地後,下一次真實 run 再出現 S4 記了 unverifiable 而 gate 仍 PASS」。賬本 R51–R109 沒有記到第二次。
+  - round: 50
+    item: "D6 不讓 workflow 側捕獲 cost"
+    verdict: PREMISE_FALSE
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 賬本自己寫「這條**前提是假的**:Workflow sandbox 沒有 process envelope 也沒有時鐘(R26 站5 自己記過)」,並改為修讀的那一端。
+  - round: 50
+    item: "不做 degradation ledger 與 workflow_blocks 的合併"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有人真的要在一條時間軸上讀 degradation ledger 與 workflow_blocks」。R14 的 run-report 與 R48 的 blocks 帳本各自讀各自的;賬本 R51–R109 沒有出現這個需求。
+  - round: 50
+    item: "D10 只解決「活過階段轉換」"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「某輪需要比較同一個 gate 兩次執行的差異」。賬本 R51–R109 沒有出現這個需求。
+  - round: 50
+    item: "不加 doctor WARN 說「已定案判定裡有未交叉驗證維度」"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2792 這條的理由是「（計畫站2 原本要做）。 它唯一的生產者會抛 `GateBlockedError`，加了就是 R30 花一輪拆掉的半座機…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "不重判任何既有 gate 結果"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2891 這條的理由是「（老闆裁決 + R38）。六個 taskq 專案全程唯讀， 本輪一個位元組都沒動它們。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "不修 taskq-api 的空殼實作"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2893 這條的理由是「。老闆裁決：只出診斷報告。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "站5 攔不到 FR-09 真正斷掉的地方"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「下一次真實 run 再出現同型(SPEC 表格列有、AC 無)」。R99 記的是解析器運算順序害 109 列消失、R105 記的是 12 專案 AC label 為 0 —— 都是**讀不到**,不是 SPEC 列沒生出 AC。賬本 R52–R109 沒有第二個同型實例。
+  - round: 51
+    item: "不對 FIX 家族其餘四支注入 SRS"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2898 這條的理由是「。它們處理工具失敗，與需求無關；注入只會擴大 prompt 而不改變任何判定。由 `test_the_four_tool…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "站3 不做硬 BLOCK"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2901 這條的理由是「。patch 邊界是單元測試的正常做法；要的不是禁止，是讓 「這個分數來自一套把被驗邊界換掉的測試」被寫下來。`scor…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "站3 不標 `mutation_testing`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2904 這條的理由是「。被 patch 掉的模組裡的 mutant 會存活，所以替身 已經讓 mutation 分數**下降**，標記它會描述…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "站4 不用 AST 重數被 omit 的 statements"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2906 這條的理由是「。那會產出一個「看起來能跟 coverage.py 比較、實際上不能」的數字——本輪母體的翻版。`coverage.js…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 51
+    item: "「R45–R48 造成退化」這個因果沒有證明"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L2908 這條的理由是「。已證明的是：兩輪之間框架新增的每一項 檢查都在測試面，產品面的檢查數量維持為零。這是**激勵解釋，不是因果證明**； …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 52
+    item: "不做跨專案離群警訊"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現共用的 run 儲存處」。harness 仍是各專案的 submodule,沒有跨專案的 run 儲存處。
+  - round: 52
+    item: "不讓框架自己知道怎麼啟動一個 FastAPI app"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3044 這條的理由是「。那會綁死技術棧，與 language-agnostic 直接衝突。**代價誠實寫下：啟動方式仍有一部分定義權在被判定方…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 52
+    item: "不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義，不加 waiver。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3047 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 52
+    item: "不把「缺少 verify-system target」做成第二個 block"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3048 這條的理由是「`make verify-system` 會非零 退出，`execute_verification_target` 對 …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 53
+    item: "arch-constraints 維持只記錄"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「P2 產出契約改成『宣告約束時必須指名執法者』」。R105/R106 動的是 `classify_constraints` 的讀法與 `over_spec_score` 的讀數,契約本身沒有加執法者欄位。
+  - round: 53
+    item: "不修改任何 taskq-* 專案"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3168 這條的理由是「（全程唯讀）。taskq-super 的 24 處 neutralised 與 NFR-03/04 的 VERIFIED…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 53
+    item: "不改寫 `git add -A` 的整體行為"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3170 這條的理由是「。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 53
+    item: "不做 D4/D5/D7 的 JS 對等實作"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3171 這條的理由是「（皆為 Python 專屬機制）；D3 做了 JS 對等。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 53
+    item: "一個順帶觀察，本輪不修"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3172 這條的理由是「taskq-super 的 Gate 4 breakdown 記 `test_assertion_quality: 10…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 53
+    item: "不 push。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3177 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 54
+    item: "`declared_only` 不擋。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件與 R53 那條同一句 —— P2 產出契約改成「宣告約束時必須指名執法者」。未改,所以 `declared_only` 第三態仍在。
+  - round: 54
+    item: "不把關鍵字放寬到裸 `layer`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件明寫「同上」,即 R54 前一條的 P2 契約改動。未改。
+  - round: 54
+    item: "不替 JS 專案做 bandit 對等"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現宣告 shell/eval 類約束的 JS 專案」。`/Users/johnny/projects/*/package.json` 零命中 —— 此機器上仍是零個 JS 語料專案。
+  - round: 54
+    item: "不動 `phase_completed` 寫入順序"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3302 這條的理由是「、**不做跨專案語料**（理由同上表 D/E）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 54
+    item: "不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3303 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 54
+    item: "不 push。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3304 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 55
+    item: "不硬編「SBOM.json 必須存在」"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3354 這條的理由是「、**不硬編 verify-system 的四步**：那是專案特定的 宣告，寫進框架就破壞共通性。正解是讓 AC-N7.…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 55
+    item: "`ac_parse_gap` 不升為 error。"
+    verdict: PREMISE_FALSE
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 賬本自己寫「本站自己的紅測試主張要升,**那條紅測試是錯的**」—— 既有的 `test_identifiers_outside_a_readable_shape_are_reported_as_unread` 早就把 `ac_parse_gap` 釘在 `info`。
+  - round: 55
+    item: "不改 `check_coverage_report` 的靜默放行"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「下一輪處理 P4 產物數字時一併裁」。賬本 R56–R109 沒有一輪以 P4 產物數字為題。
+  - round: 55
+    item: "不改 `constitution/runner.py` 的 stub→100"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「constitution 重新進入自動管線」。`core/quality_gate/constitution/runner.py` 今天唯一的非測試消費者是 `cross_artifact.py:31` import 它的 `_STUB_PLACEHOLDER_RE`,以及 `error_class.py:81` 的一條問題類型映射 —— 沒有任何 gate 把它當計分器呼叫。
+  - round: 55
+    item: "~~**`check_cross_artifact` 只在 P3–P4 執行**~~ —— **站6 撤銷這一條並修掉它**，見下。"
+    verdict: ALREADY_DONE
+    guard: "tests/test_delivered_artifact_placeholders.py::test_phase_eight_actually_runs_the_check"
+    evidence: >-
+      2026-09-09: 這條在賬本裡就被刪除線劃掉,後面接「**站6 撤銷這一條並修掉它**,見下」。同一輪關掉的。
+    resolved_in: "Round 55 站6"
+  - round: 55
+    item: "不做 `forbidden` 契約的內容對賬"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「SAB 帶結構化禁令欄位」。`SABSpec` 今天 15 個欄位,沒有結構化禁令欄位;`architecture_constraints` 是散文清單 —— R105/R106 的 `classify_constraints` 正是在對它做關鍵字歸納。
+  - round: 55
+    item: "不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3402 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 55
+    item: "不 push。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3403 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 56
+    item: "不改 `_coverage_for_paths` 的算式"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「任何專案開 branch coverage」。掃過語料的 `.coveragerc` 與 `pyproject.toml`,`branch = True` 零命中;唯一自訂 `.coveragerc` 的 taskq-new 明寫 `branch = false`。
+  - round: 56
+    item: "不改 `ast-*` 的 `check_cmd`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「AST 掃描器取得 harness 以外的依賴」。賬本 R57–R109 沒有任何一輪記到掃描器新增第三方相依。
+  - round: 56
+    item: "不改 `harness_bridge._TOOL_OUTPUT_PATTERNS` 的 `documented`"
+    verdict: PREMISE_FALSE
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 這條的主體不在樹上了 —— 全樹 grep `TOOL_OUTPUT_PATTERNS` 只剩 `core/quality_gate/gate_thresholds.py:174` 的一句散文引用它,`harness_bridge` 裡沒有這個名字。docstring 覆蓋率的判讀今天走 `_score_docstring_coverage`。「OR 清單改成 AND」這個再開條件沒有東西可以落在上面。順帶記下:gate_thresholds.py:174 那句引用因此是一份過期陳述,本輪不改(見 §6)。
+  - round: 56
+    item: "不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3572 這條的理由是「（範圍遠超本次 review）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 56
+    item: "不放寬 `_AC_ID` 去吃 `AC-NFR01.1` / `AC-FR-01.a`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「那兩個專案把編號改成 canonical 之後仍讀不到」。taskq 與 taskq-plus 的 `01-requirements/SRS.md` 與 `SPEC_TRACKING.md` 今天仍寫 `AC-NFR01.1` / `AC-FR-01.a` —— 前半段(改成 canonical)根本沒發生。
+  - round: 57
+    item: "不改 `integration_coverage` 的量測方式"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有專案把 `integration_coverage` 放進 Gate 1 的維度表」。Gate 的維度來自 `harness/gate_configs/`,不是專案;語料裡提到這個名字的三個專案(taskq-advance / taskq-api / taskq-cc-new)都只寫在 `SRS.md` / `SPEC_TRACKING.md`,那不是維度表。
+  - round: 57
+    item: "不把兩條 `03-development/` glob 改對而是刪掉"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「本 repo 出現需要排除、而 name-based 與 path-based 兩層規則都涵蓋不到的 community」。賬本 R58–R109 沒有記到這樣的 community。
+  - round: 57
+    item: "不動 `_effective_threshold` 的三來源取捨"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3664 這條的理由是「（R27-DEFER-1，仍未裁決）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 57
+    item: "不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3665 這條的理由是「（範圍遠超本次 review）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 57
+    item: "`_dim_passes` 不承擔「框架自己量不出來」的路由"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現一個繞過 `SCORE_SOURCE_AGENT_UNVERIFIED` 與 S4 `unverifiable` 清單、只在 `_dim_passes` 現身的案例」。賬本 R58–R109 沒有這樣的案例。
+  - round: 60
+    item: "不加 SHA lint（見 D4）。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3804 這條的理由是「不加 SHA lint（見 D4）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 60
+    item: "不修 doctor 的 dimension-scope drift（隨機制消失，撤回）。"
+    verdict: PREMISE_FALSE
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 賬本自己寫「隨機制消失,撤回」—— doctor 的 dimension-scope drift 檢查的對象已經不在,所以不是「不做」,是沒有東西可做。
+  - round: 60
+    item: "不改 taskq-\\* 任何檔案、不重判既有 gate 結果。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3806 這條的理由是「不改 taskq-\* 任何檔案、不重判既有 gate 結果。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 60
+    item: "不新增自動修復引擎，只接既有 R47/R48 路由。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3807 這條的理由是「不新增自動修復引擎，只接既有 R47/R48 路由。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 60
+    item: "不動 `security_design` / `cross_artifact_live_cov`（不對應維度）。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3808 這條的理由是「不動 `security_design` / `cross_artifact_live_cov`（不對應維度）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 60
+    item: "不改 mutmut 預算機制。**再開條件**：受影響專案移除鍵後實測跑不完。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「受影響專案移除鍵後實測跑不完」。賬本 R61–R109 沒有這樣的實測記錄。
+  - round: 98
+    item: "`checked` 的分母語意不一致"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「站3 的 item 路徑穩定後,分數路徑可獨立重審」。賬本 R99–R109 沒有記到那條路徑已穩定,也沒有一輪重審過 `checked` 的分母語意。
+  - round: 98
+    item: "`_heuristic_layer_choice` 的 fallback 歸屬"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「阻擋訊息累積顯示 fallback 是主要噪音源」。沒有任何一輪做過那個累積統計。
+  - round: 98
+    item: "`classify_constraints` 的 `>`-鏈拼法漏判"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第二個專案同形」。taskq-cc 的 `'api > service > repository > models'` 仍是唯一實例;R105 動的是 import-linter 文法,不是 `>`-鏈的關鍵字歸納。
+  - round: 98
+    item: "`corpus_verdict_baseline.json` 隨語料根目錄變動而紅"
+    verdict: MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第三次因語料目錄變動而紅」。R98 記的兩次是 taskq-wow 出現、taskq-done 消失(`bec4f96a`,2026-09-05);第三次是 `ca99aa82`(2026-09-08)「語料 baseline 補上本機新出現的 taskq-opus / taskq-sol」。條件已滿足。**MET 不等於本輪該做**:R88 是刻意把 baseline 建成隨語料變動的,改它是換掉一個機制而不是修一個缺陷 —— 那是一輪的裁決,不是一列判定的。
+  - round: 98
+    item: "不改 STRIDE 計分 / 不定 boundary 下限 / 不代寫 ADR 內容 / 不動 `taskq*` / 不動任何 JS。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L3981 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 97
+    item: "攔截 C1–C5 程式缺陷(400 行函式、`except Exception: pass`、409/500、seed 汙染、ORM↔migration 型別分裂)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第二個專案出現同形 schema 分裂」。賬本 R98–R109 十二節裡沒有第二個 ORM↔migration 型別分裂的記錄。
+  - round: 97
+    item: "D2 測試白名單"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第二個語料專案出現硬編碼豁免清單」。賬本 R98–R109 沒有第二例。
+  - round: 97
+    item: "H2 空白發布清單"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第二個專案交付全空清單」。賬本 R98–R109 沒有第二例。
+  - round: 97
+    item: "A3 `invention_count: 34`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4085 這條的理由是「需要先決定「多少算過度」——那是新門檻,不是修壞掉的機制」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 97
+    item: "A1 NFR-99 / A2 SPEC_TRACKING↔TRACEABILITY"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4086 這條的理由是「**未查證**(NFR-99 可能是框架注入的 placeholder),不憑報告寫進本輪」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 97
+    item: "`get_crg_settings` 的型別驗證"
+    verdict: ALREADY_DONE
+    guard: "tests/test_harness_config.py::TestGetCrgSettings::test_out_of_range_cohesion_ignored"
+    evidence: >-
+      2026-09-09: 賬本自己寫「**已經建好**,taskq-mm 的 `True` 已被拒接退回預設 —— 我原本要修,量測後撤回」。這條是量測撤回的紀錄,不是待辦。
+    resolved_in: "Round 97 量測撤回"
+  - round: 97
+    item: "動 `taskq*` 任何檔案"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4088 這條的理由是「唯讀」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 96
+    item: "不改 doctor 的收據 glob"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4142 這條的理由是「(見 R96-C:那會消音一個說真話的檢查)。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 96
+    item: "不把 `gate_results/gate1/` 改成 per-phase 儲存"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現需要回頭稽核歷史 phase Gate-1 證據的實例」。賬本 R97–R109 沒有這樣的實例。
+  - round: 96
+    item: "不為 `verification-docs` halt 增加 owner 歸因規則"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4145 這條的理由是「。R92 已裁決那個 halt 真的不知道 owner; 站4 處理的是「未歸屬要被看見」,不是猜。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 96
+    item: "不讓 gate 改用單檔 run 判定"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4147 這條的理由是「。那 5 支紅測試是 FR-07 自己的,整套跑紅就是紅(R52)。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 96
+    item: "不為 153 筆重複 ledger row 去重"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4148 這條的理由是「。append-only 是刻意的;站3 讓它有讀者之後,重複不是缺陷。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 96
+    item: "不註冊 `doctor:gate1-evidence` 到 MEASUREMENT_SINKS"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4149 這條的理由是「。第一版這麼做並被守衛擋下: 該登記表的規約是 f-string 組出的 component 以字面前綴加 `*` 為 …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 95
+    item: "不改 `spec_phase8.py:198` 用本機 `git tag -l` 判斷 tag 是否已推上 origin。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現 tag 停在本機且 P8 也沒補推的實例」。賬本 R96–R109 沒有這樣的實例。
+  - round: 95
+    item: "不把 P6 折進 `render_advance_loop`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4233 這條的理由是「(見 R95-I)。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 95
+    item: "不補 `PYTHONPATH` 前綴"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4234 這條的理由是「(見 R95-H)。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 95
+    item: "不修 `_coverage_record_for_paths` 寫死讀 `project/.coverage`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「任一專案設了非預設 `data_file`」。今天語料裡唯一有 `.coveragerc` 的 taskq-new 寫 `data_file = .coverage` —— 那正是預設值,所以仍然零受害者。
+  - round: 95
+    item: "不重判既有 gate 結果、不動 `taskq*`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4238 這條的理由是「(唯讀)。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 92
+    item: "### 明列不做"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 這一節列四件事 —— pyright 診斷(賬本自己寫「不可復現」)、`.gitleaks.toml` 的 drift 檢查(理由是本輪只確立交付/驗活/指紋三件,drift 是第四個機制)、`05-verification/*.md` 與 `TEST_SPEC.md` 的排除(理由是 churn 1–2 commit)、taskq-plus / taskq-renew 兩專案本身的修復(唯讀,需各自 repo 補 commit,賬本寫明「老闆決定時機」)。四件都是範圍或裁量,沒有一件寫下可觀測的觸發條件。
+  - round: 91
+    item: "四個專案「記錄不在 git」/ 三個潛伏 pin / R89-R90 未經真實專案驗證"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4589 這條的理由是「**語料唯讀**。R90 已修根因,恢復要在各專案 repo 補 commit —— 老闆的決定。三個潛伏的(advan…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 91
+    item: "NFR-04 縮小 `TASKQ_DB_URL`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4590 這條的理由是「需先量 NFR 側誤判率,那是獨立一輪」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 91
+    item: "taskq-super P5 根因"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4591 這條的理由是「執行環境已不存在 —— 誠實狀態,不是待補的空格」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 91
+    item: "CRG architecture 75.0 / 57.1"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4592 這條的理由是「R87 已裁決:該維度量模組聚合度,看不見 SAD/SPEC」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 91
+    item: "另外六條 prompt 的 `2>&1` / mutmut 的出處判準"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4593 這條的理由是「見站1 —— 分數不從那些 artifact 讀」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 91
+    item: "`_TOOL_OUTPUT_MIN_BYTES = 5` 調高"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4594 這條的理由是「全域常數會波及所有工具(R27 站1 已考慮過並否決);45 bytes 那份已被出處判準擋下」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 89
+    item: "改 `phase_completed[N].sha` 的 ordering"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4790 這條的理由是「`tests/test_phase_completed_authority.py:130` 明確斷言 `sha == p…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 89
+    item: "給 `postflight_update_state` 加鎖"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4791 這條的理由是「B-3:它不寫,且不並行」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 89
+    item: "建 `locked_state_update()`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4792 這條的理由是「9/11 已經是對的;11 處重構是廚房水槽」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 89
+    item: "追 taskq-super P5 根因到底"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4793 這條的理由是「已排除四條路徑,剩下的需要當時的執行環境,**已不存在**」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 88
+    item: "P1/P2/P4+ 的判定漂移"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L4929 這條的理由是「本輪只量 P3 出口一個時點」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 87
+    item: "生產碼 5 處 `assert`(bandit LOW)"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L5384 這條的理由是「框架已量到並計入 security 95.0 —— 是專案沒修,不是框架缺陷」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 81
+    item: "branch protection"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L6729 這條的理由是「老闆全域禁止。站4 修的是**另一個**洞」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 79
+    item: "`git push --no-verify`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7073 這條的理由是「git 根本不叫 hook,機制關不掉。branch protection 是唯一能關的,老闆禁止我動」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 79
+    item: "`spec_shared.py:156` `_render_meta` 的 pyright「未使用」警告"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7077 這條的理由是「HEAD 就有,與本輪無關」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 76
+    item: "JS/TS 沒有 per-FR scope。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件寫在 `tests/MEASUREMENT_SINKS.yaml:170` 的 `reopen_when` —— 「these rows keep appearing for Python FRs after a few rounds with the Round 77 站3 prompt in place」。沒有任何一輪做過那個累積統計,所以條件未被量過,更未滿足。
+  - round: 76
+    item: "`cov_utils` / `gate_cmds` / `red_assertion_check` / `property_check` 的"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7282 這條的理由是「四種數字推導不合併。** 實測:對框架自己產得出來的每一個 FR id 全部一致, 唯一分歧是 `FR-008`,而 `…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 76
+    item: "站5 情形 (a) 不擋。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「站3 的 prompt 用過幾輪之後這種 row 還在出現」,與 R76 前一條同一個 `reopen_when`。同樣沒有累積統計。
+  - round: 73
+    item: "~~`TEST_INVENTORY.yaml` 的欄位名與 NFR Layering Hard Rule 不符~~"
+    verdict: ALREADY_DONE
+    guard: "tests/test_empty_population_says_why.py::test_the_top_level_tests_list_is_read"
+    evidence: >-
+      2026-09-09: 賬本該列的項目文字本身被刪除線劃掉,理由欄寫「**已於本輪站6 修復**(老闆追加指令)」。re-open 欄是 `—`,因為它已經關了。
+    resolved_in: "Round 73 站6"
+  - round: 70
+    item: "不拆 `RUNALL_MAX_BYTES` 的註解"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「下一次有人需要在那行裡找一筆舊條目而找不到」。`RUNALL_MAX_BYTES` 今天仍住在 `scripts/workflowgen/artifact_limits.py`,由 `tests/test_workflow_js_conventions.py:116` 讀;賬本 R71–R109 沒有記到找不到條目的實例。
+  - round: 70
+    item: "不統一 D4 門檻的兩份表"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7841 這條的理由是「`spec_shared.D4_THRESHOLDS`（以 phase 索引）與 `plangen._SPEC_COVE…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 70
+    item: "Sync 站保留文字判定，且理由寫進碼裡"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7845 這條的理由是「`render_sync_verified` 跑的是前景 `git push`，crash 發生在 pre-push h…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 70
+    item: "不改 `taskq-*` 任何檔案"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7848 這條的理由是「全程唯讀，只讀不寫。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 69
+    item: "不驗證 `Deferred:` 行指名的工具是否真的跑過。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「`gate:ac-deferred` 累積到能看出哪些工具名是真的被執行的」。`tests/MEASUREMENT_SINKS.yaml:91` 的 `reopen_when` 寫著同一句 —— 「Nothing does that today」。沒有累積,條件未滿足。
+  - round: 69
+    item: "不 revert 那 8 個 commit。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7984 這條的理由是「它們已 push 且各自解了真問題（taskq-new 59 筆假指控、taskq-api P2 的 50 分鐘空轉、S…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 69
+    item: "AC 三態今天爆炸半徑為零"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7986 這條的理由是「，且照實記：沒有語料專案寫過 `Deferred:` 行 （Step 1d 才 shipped 幾小時），所以八個專案的…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 69
+    item: "#1/E1 的後果強度是 Medium 不是 High。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L7990 這條的理由是「語料顯示 agent 在 taskq-cc 的 P6 上確實自己重跑了 verify-gate（同一 commit 4 …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 69
+    item: "站 1 的 re-verify 成本沒量。"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「若過貴」。exit-gate 相位多一次 verify-gate 的成本,賬本 R70–R109 沒有任何一輪量過,也沒有人回報過貴。條件未被量,不是未滿足 —— 兩者的差別本身就是這條的狀態。
+  - round: 66
+    item: "### D 的前情：R25 曾明確「不做」，本輪以不同理由重開"
+    verdict: ALREADY_DONE
+    guard: "tests/test_test_suite_run_ssot.py::test_executing_the_project_tree_goes_through_one_primitive"
+    evidence: >-
+      2026-09-09: 這一節不是一個不做決定 —— extractor 是因為標題含「不做」二字才匹配到它。它記的正好相反:R25 曾以**效能**理由裁定不動那些 pytest 站點,R66 以**正確性**理由(mutmut 持有 `source_tree_lock` 時那些 pytest 量到的不是交付碼的覆蓋率)重開並做掉了。賬本原文:「新證據,重開,不是推翻」。
+    resolved_in: "Round 66 D"
+  - round: 65
+    item: "不加 Windows 的 job object / taskkill /T"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現 Windows CI 或 Windows 上的實測工單」。`.github/workflows/harness_ci.yml` 四個 job 全部 `runs-on: ubuntu-latest`。
+  - round: 65
+    item: "不動 `phase5-verification.js` 的 `tests/integration/` 硬編路徑"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有專案的 integration 測試不在 `tests/integration/`」。`.claude/workflows/phase5-verification.js:570` 那行今天仍帶著 「skip gracefully if dir absent」;賬本 R66–R109 沒有記到這樣的專案。
+  - round: 65
+    item: "不動 `--cov` 之外的 prompt 路徑陳述"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8564 這條的理由是「（bug-hunt 的 "write a repro test under 03-development/tests/"…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 65
+    item: "不改 `suite_timeout` 的 30 秒下限"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8566 這條的理由是「站0 的逾時測試改 patch 這個旋鈕， 其餘全是真的 pytest 執行。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 64
+    item: "不改 SAB prompt 的 14/18 硬寫數字"
+    verdict: MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「詞彙表變動」,已經變了兩次。`core/quality_gate/sab_parser.py:10` 寫 「14 fields, mirroring the SABSpec dataclass」而 `SABSpec` 今天是 **15** 個欄位;同檔 :119 寫「must exist in the gate config 14-dimension set」而 gate2/3/4 的 dimensions 今天是 **12 / 17 / 16**。兩句都已是假陳述。(:244 那句提到的 14-name literal 是**已經拿掉**的東西的歷史記述,不動 —— R44。)
+    resolved_in: "Round 110 站3b"
+  - round: 64
+    item: "不改「最後一次回空判 session block」的語意"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8713 這條的理由是「（見 D2）。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 64
+    item: "不追認 Round 62/63 兩個沒有賬本節的號碼"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8714 這條的理由是「。」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 64
+    item: "不改 taskq-\\* 任何檔案、不重判既有 gate 結果。"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8715 這條的理由是「」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 99
+    item: "判 `forbidden` 合約的外部目標存不存在"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第二個專案寫出『目標在整棵交付樹的 import 裡一次都沒出現』的 forbidden 合約」。賬本 R100–R109 沒有第二例;taskq-wow 的 `nonexistent_module_for_coverage` 仍是唯一實例。
+  - round: 99
+    item: "`spec_tracking_checker.py:410` 的 `# noqa: F841` 丟棄 exit code"
+    verdict: MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「站2 落地後單獨評估 4b 的 could-not-measure 表示法」,R99 站2 已落地。`core/quality_gate/spec_tracking_checker.py:410` 的 `# noqa: F841` 今天仍在,四條返回路徑仍在該站點塌成 `4b = 0.0`。**MET 不等於本輪該做**:賬本自己寫的理由 —— 動它要改 `4b_test_spec_pct` 的欄位語意,影響 3 條既有返回路徑與所有 4b 消費者 —— 整條都還成立,那是一輪的工作量,不是一列判定的。
+  - round: 99
+    item: "讀 SAD §2.1 的合約表做三方對賬"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8869 這條的理由是「§2.1 不是框架規定的結構」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 99
+    item: "在 TEST_SPEC 模板加 AC 欄位"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8870 這條的理由是「站1 之後兩種寫法都讀得懂;加欄位會讓 13 個既有專案的表格全部不合模板」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 99
+    item: "「宣告 PostgreSQL 就必須有 DBAPI driver」"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8871 這條的理由是「見 §C」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 99
+    item: "Top 1 的「補回 core 層 / 補 forbidden-sqlalchemy 合約」"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8872 這條的理由是「`core/` 在交付樹裡不存在;要不要有那些合約是專案決定」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 99
+    item: "`taskq-mm` 納入語料"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8873 這條的理由是「沒有 `.methodology/state.json`,`corpus_projects()` 正確地不收它」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 99
+    item: "拆分 `spec_coverage.py`(943 行,新 god file)"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8874 這條的理由是「本輪加的每一行都是「解析」或「對解析的判定」,是這個檔的本業;而在同一個 commit 裡既改行為又拆檔,正是 `tes…」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 101
+    item: "缺陷 2 / 4 / 6 / 7 / 8"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L8994 這條的理由是「見 §0」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 103
+    item: "把「目前沒有任何 import 的模組」排除出 gap"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L9109 這條的理由是「實測會移除 68 個裡的 **19 個**,而且與 `contract_coverage_gap` 自己寫的理由相牴觸 …」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 104
+    item: "`env_verify.py` 其餘 venv 重複(`_bin_dir` 等)"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L9206 這條的理由是「本輪判準是「直譯器路徑」;擴到所有 venv 重複是失控重構」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 105
+    item: "行數 / ADR 篇數 / SEC 條數判準"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L9353 這條的理由是「新增就是造代理指標(R50)」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 106
+    item: "用「標記還在」判交付端"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L9494 這條的理由是「taskq-renew 實測反例 → 誣告(R46)」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 106
+    item: "規則 2 放寬成「識別字出現就報」"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L9496 這條的理由是「`app.main` 會誣告一整類 FastAPI 專案」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 106
+    item: "刪掉 `over_spec_score` / `best_match_ratio`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09 逐條讀過:賬本 L9499 這條的理由是「它們是讀數,對 B 仍有用」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。

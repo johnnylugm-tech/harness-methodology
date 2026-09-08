@@ -55,6 +55,28 @@ def _guards() -> "list[dict]":
     return yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["entries"]
 
 
+def _key(entry: dict) -> "tuple[int, str]":
+    """The `(round, item)` pair docs/deferred_guards.yaml addresses an entry by.
+
+    ONE function, because there are two readers — guards → index and index →
+    guards — and a key computed in two places is a key that can disagree with
+    itself. Round 110 站3 added the second reader; giving it its own copy of
+    `item or text-first-line` would have been this repository's most-repaired
+    shape in the file whose whole job is to notice that shape elsewhere.
+
+    Three sources, in order:
+      * `item`      — table rows, and (since 站3) bullets
+      * `heading`   — unstructured sections, which carry no `item` BY DESIGN:
+                      `test_the_extractor_admits_the_sections_it_cannot_read`
+                      forbids it, because an extractor that names a section it
+                      could not parse has guessed at it (Round 46)
+      * first line  — the pre-站3 fallback, kept so this stays total
+    """
+    return (entry["round"],
+            entry.get("item") or entry.get("heading")
+            or entry.get("text", "").split("\n")[0])
+
+
 def test_every_field_is_a_byte_exact_slice_of_the_ledger():
     """The property that makes the extraction safe rather than careful."""
     ledger = LEDGER.read_text(encoding="utf-8")
@@ -91,11 +113,16 @@ def test_the_index_is_regenerable_and_current():
 def test_the_extractor_admits_the_sections_it_cannot_read():
     """Round 46: an absent witness is not a failed testimony.
 
-    Two of the ledger's 36 不做 sections are running prose with no table and no
-    bullets. The extractor emits them as `unstructured` with their line range
+    Three of the ledger's 57 不做 sections are running prose with no table and
+    no bullets. The extractor emits them as `unstructured` with their line range
     and no fields. A parser reshaped until every section yields something is
     Round 55's shape, and this assertion is what makes that reshaping visible:
-    dropping the unstructured branch would silently lose two rounds' decisions.
+    dropping the unstructured branch would silently lose three rounds' decisions.
+
+    The two numbers were 36 and two when this was written and were 57 and three
+    when Round 110 站3 measured them. Nothing asserts them, which is why they
+    drifted; they are here because the shape of the hole is the point, and a
+    stale count is still better than a sentence that does not say how big it is.
     """
     entries = _index()
     unstructured = [e for e in entries if e["kind"] == "unstructured"]
@@ -200,9 +227,7 @@ def test_every_guard_entry_names_a_decision_the_ledger_actually_records():
     its rows. `item` is verbatim ledger text, so it is stable for as long as the
     decision is.
     """
-    index = _index()
-    known = {(e["round"], e.get("item") or e.get("text", "").split("\n")[0])
-             for e in index}
+    known = {_key(e) for e in _index()}
 
     orphans = [
         f"round {g['round']}: {g['item'][:70]!r}"
@@ -225,7 +250,13 @@ def test_every_named_guard_resolves_to_a_test_that_exists():
     assert named, "every entry is `manual`; this assertion is then vacuous"
 
     for item, node in named:
-        path, _, test_name = node.partition("::")
+        # `file::test_x` and `file::Class::test_x` are both node ids pytest
+        # accepts; the function name is the last segment either way. Reading
+        # `partition` gave `Class::test_x` and looked for `def Class::test_x(`,
+        # which no file can contain — so a class-scoped guard was unnameable
+        # rather than unresolvable, and Round 110 站3 hit it naming a real one.
+        path, _, rest = node.partition("::")
+        test_name = rest.rpartition("::")[2]
         source = REPO / path
         assert source.is_file(), f"{item[:50]!r} names a missing file: {path}"
         assert f"def {test_name}(" in source.read_text(encoding="utf-8"), (
@@ -245,41 +276,46 @@ def test_every_named_guard_resolves_to_a_test_that_exists():
 
 _VERDICTS = {"MET", "NOT_MET", "PREMISE_FALSE", "ALREADY_DONE", "NO_CONDITION"}
 
-_NO_CONDITION_CELLS = {"", "—", "-", "–"}
 
+def test_every_recorded_decision_has_a_verdict():
+    """Round 110 站3 — the denominator the guard had picked without saying so.
 
-def _has_reopen_condition(entry: dict) -> bool:
-    """A dash in the re-open column is the ledger saying "there is no condition".
+    Round 109 站7 built this in the direction nothing had measured for 28
+    rounds: an index entry saying "re-open this when X" with no row at all. It
+    scoped itself to table rows carrying a non-dash `re-open` cell — 106 of the
+    288 entries — and was green over that. The other 182 were not excluded on
+    a judgement; they were unreachable:
 
-    43 of the 139 table rows are in that shape (29 with no column at all, 14
-    with a dash). They are excluded on purpose: requiring a verdict for a
-    decision with nothing to verdict ON manufactures 43 rows of noise, and
-    noise is what makes the other 96 stop being read.
-    """
-    return (entry.get("reopen") or "").strip() not in _NO_CONDITION_CELLS
+        bullet        136   carried only `text`, so `(round, item)` — the key
+                            deferred_guards.yaml is written against — could not
+                            address one
+        unstructured    3   no `item` by design
+        table rows     43   dash or no re-open column, excluded deliberately as
+                            "the ledger says there is no condition"
 
+    That last exclusion was the defensible one and it is what makes the shape
+    visible: a guard whose denominator is its own choice reports full marks on
+    the part it chose. Round 57's question — who declares the scope — asked of
+    the file built to answer Round 45's.
 
-def test_every_reopen_condition_has_a_verdict():
-    """Round 109 站7 — the hole the guard file could not see.
-
-    `docs/deferred_guards.yaml`'s own header says an absent key means "nobody
-    has checked", and then nothing anywhere measured how many absent keys there
-    were. 91 of 96, when 老闆 asked. This assertion is what makes the answer
-    stay answered: a new 不做 row with a re-open condition now lands red until
-    someone writes down what they decided about it.
+    老闆 ruled full coverage. The rule is now one sentence with no carve-out:
+    **every decision the ledger records carries a verdict.** A bullet with no
+    re-open condition is not exempt from being read; it is `NO_CONDITION`, and
+    that is a judgement someone made rather than a row a regex skipped.
     """
     verdicted = {(g["round"], g["item"]) for g in _guards()}
     missing = [
-        f"R{e['round']} {e['item'][:60]!r} — reopen: {e['reopen'][:60]!r}"
+        f"R{rnd} [{e['kind']}] {item[:70]!r}"
         for e in _index()
-        if e.get("kind") == "table_row" and _has_reopen_condition(e)
-        and (e["round"], e["item"]) not in verdicted
+        for rnd, item in [_key(e)]
+        if (rnd, item) not in verdicted
     ]
     assert not missing, (
-        f"{len(missing)} deferred decisions state a condition under which they "
-        f"should be re-opened, and nobody has recorded whether that condition "
-        f"holds. Each needs a row in docs/deferred_guards.yaml with a verdict "
-        f"and the evidence for it:\n  " + "\n  ".join(missing)
+        f"{len(missing)} of the ledger's recorded decisions have no verdict. "
+        f"Every entry needs a row in docs/deferred_guards.yaml carrying a "
+        f"verdict and the evidence for it — `NO_CONDITION` when the decision "
+        f"states no condition to re-open under, which is a judgement and not "
+        f"a reason to leave it out of the count:\n  " + "\n  ".join(missing)
     )
 
 

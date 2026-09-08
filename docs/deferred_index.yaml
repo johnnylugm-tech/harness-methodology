@@ -41,6 +41,7 @@ entries:
   - round: 25
     line: 401
     kind: bullet
+    item: "其餘約 12 個 pytest 站點（`stage_pass_generator`、`cross_artifact`、"
     text: |-
       - 其餘約 12 個 pytest 站點（`stage_pass_generator`、`cross_artifact`、
         `confidence_scorer`、`auto_fix/strategies`、`harness/toolchains/registry`）不動 ——
@@ -48,18 +49,21 @@ entries:
   - round: 25
     line: 404
     kind: bullet
+    item: "gitleaks / ruff / mypy 不刪。它們與 gate 維度重疊但**尺不同**（gate linting 門檻 90"
     text: |-
       - gitleaks / ruff / mypy 不刪。它們與 gate 維度重疊但**尺不同**（gate linting 門檻 90
         ≙ 容 5 個違規，advance 要 0；gate 用 pyright，advance 用 mypy）。刪掉是降標。合計 0.35s。
   - round: 26
     line: 488
     kind: bullet
+    item: "per-gate schema 拆分"
     text: |-
       - **per-gate schema 拆分**：修正 1 之後前提消失（不是「四個 gate 形狀不同」，是
         「required 列了沒人被要求寫的欄位」）。
   - round: 26
     line: 490
     kind: bullet
+    item: "render-from-SSOT 生成 gate-1 prompt 的 JSON 區塊"
     text: |-
       - **render-from-SSOT 生成 gate-1 prompt 的 JSON 區塊**：考慮過。prompt 的逐欄指引
         散文（`// REQUIRED: count from pytest summary line`）在 schema 裡沒有家，而 R17 站1
@@ -67,6 +71,7 @@ entries:
   - round: 26
     line: 493
     kind: bullet
+    item: "`tests_*` 三欄位的減法、`gate`→`gate_num` 統一"
     text: |-
       - **`tests_*` 三欄位的減法、`gate`→`gate_num` 統一**：見 R26-DEFER-1/2。動的是全系統
         派發最頻繁的 prompt，為純命名一致性不值得，且會churn golden。
@@ -78,6 +83,7 @@ entries:
   - round: 35
     line: 1270
     kind: bullet
+    item: "R33 站3 的 `type:` 缺席"
     text: |-
       - **R33 站3 的 `type:` 缺席**：taskq-renew 的 12 個 NFR，SRS 機讀 block 的 `type:` 全部是 None，
         `illegal_nfr_vocabulary` 的 `if raw_type is not None` 跳過必填欄位（`templates/SRS.md:107`
@@ -86,24 +92,28 @@ entries:
   - round: 35
     line: 1274
     kind: bullet
+    item: "taskq-renew 專案本身不動"
     text: |-
       - **taskq-renew 專案本身不動**（全程唯讀，`git status --short` 指紋前後相同）。
         它的 Gate 2 會因本輪修復而能真正跑出 mutation 分數，何時重跑由老闆決定。
   - round: 36
     line: 1367
     kind: bullet
+    item: "不新增 pre-commit hook step"
     text: |-
       - **不新增 pre-commit hook step**：現行 hook 全部 non-blocking，加一個會擋的
         step 是政策變更。測試已在 CI 擋住。若哪天 hook 政策改為可阻擋，一併重議。
   - round: 36
     line: 1369
     kind: bullet
+    item: "不新增 CI step"
     text: |-
       - **不新增 CI step**：測試套件本來就在 CI 跑，再加一個 step 就是第二份陳述，
         正是本輪在修的東西。
   - round: 36
     line: 1371
     kind: bullet
+    item: "`.methodology/phaseN_plan.md` 不納入 shipped-parity"
     text: |-
       - **`.methodology/phaseN_plan.md` 不納入 shipped-parity**：那是 per-project
         執行期狀態，`plan-all` 每次重生，與受版控的 build artifact 不同類。
@@ -111,6 +121,7 @@ entries:
   - round: 36
     line: 1374
     kind: bullet
+    item: "`47ec3fd` 那次翻轉本身不重議"
     text: |-
       - **`47ec3fd` 那次翻轉本身不重議**：本輪認定 `_DEFAULTS` 為權威、其餘五份為錯。
         若老闆的意思是預設該關，那是**另一個決定**（改 `_DEFAULTS` 一處），
@@ -118,6 +129,7 @@ entries:
   - round: 37
     line: 1470
     kind: bullet
+    item: "doctor 不接 CI verdict"
     text: |-
       - **doctor 不接 CI verdict**（雖然核准的計畫寫了）：每次 doctor 都發一次
         `gh run list` 會讓這個離線的、at-rest 的跨檔一致性檢查變成網路相依。
@@ -126,6 +138,7 @@ entries:
   - round: 37
     line: 1474
     kind: bullet
+    item: "無 origin remote ⇒ post-push CI gate 回 0"
     text: |-
       - **無 origin remote ⇒ post-push CI gate 回 0**（並印出「not applicable」）：
         沒有 remote 就沒有 CI 可以紅。這是唯一一種「真的不適用」而非「不知道」的
@@ -133,22 +146,26 @@ entries:
   - round: 37
     line: 1477
     kind: bullet
+    item: "`ci_verdict_wait` 不進 harness_config"
     text: |-
       - **`ci_verdict_wait` 不進 harness_config**：一個常數 + `--wait` 覆寫已足夠
         （taskq-renew 的 run 15s–2m）。若某專案真的需要 per-project 值再開。
   - round: 37
     line: 1479
     kind: bullet
+    item: "非 git repo 路徑保持原行為"
     text: "- **非 git repo 路徑保持原行為**（退回 SKIP_DIRS），不動與本輪缺陷無關的專案。"
   - round: 37
     line: 1480
     kind: bullet
+    item: "taskq-renew 的 Gate 4 = 93.6 不重判"
     text: |-
       - **taskq-renew 的 Gate 4 = 93.6 不重判**：那是舊判定的效力問題，屬裁決不屬修缺陷。
         本輪只保證下一次量的是對的樹。
   - round: 38
     line: 1576
     kind: bullet
+    item: "R38-DEFER-1"
     text: |-
       - **R38-DEFER-1**：`harness_config` 的 `is_dim_disabled("architecture")` 能讓
         `crg-arch-check` 直接 `return 0`，且沒有審計軌跡。這是第四個執法者。本輪不動
@@ -156,6 +173,7 @@ entries:
   - round: 38
     line: 1579
     kind: bullet
+    item: "R38-DEFER-2"
     text: |-
       - **R38-DEFER-2**：prompt 散文仍逐一列舉每個維度的門檻（`15 dims: linting(90)
         … architecture(80) …`），`pass_line_desc` 也重述「CRG architecture ≥80」。
@@ -163,36 +181,43 @@ entries:
   - round: 38
     line: 1582
     kind: bullet
+    item: "不重判 taskq-renew 的 Gate 4 = 93.6"
     text: "- **不重判 taskq-renew 的 Gate 4 = 93.6**：舊判定的效力屬裁決不屬修缺陷。"
   - round: 38
     line: 1583
     kind: bullet
+    item: "不移除 `devil_advocate_evidence` 驗證"
     text: |-
       - **不移除 `devil_advocate_evidence` 驗證**：Gate 4 A3 對所有 Tier-3 維度仍用它，
         與豁免無關。
   - round: 38
     line: 1585
     kind: bullet
+    item: "不對既有專案 grandfather `gate_verify` 記錄"
     text: |-
       - **不對既有專案 grandfather `gate_verify` 記錄**：第一次會被擋，跑一次
         `verify-gate` 即可。允許無記錄通過等於本輪什麼都沒做。
   - round: 39
     line: 1709
     kind: bullet
+    item: "不移除 disable 機制"
     text: "- **不移除 disable 機制**：老闆已裁定保留。"
   - round: 39
     line: 1710
     kind: bullet
+    item: "不改任何門檻數值"
     text: |-
       - **不改任何門檻數值**：本輪只改「誰說、說得對不對」，不改「是多少」。gate 3 /
         gate 4 的計畫散文 render 後與手寫字串**位元組相同**。
   - round: 39
     line: 1712
     kind: bullet
+    item: "不重判既有專案的歷史 gate 結果"
     text: "- **不重判既有專案的歷史 gate 結果**。"
   - round: 39
     line: 1713
     kind: bullet
+    item: "既有專案的殘留欄位不做遷移"
     text: |-
       - **既有專案的殘留欄位不做遷移**。唯讀量過四個消費專案，實測結果：
 
@@ -210,6 +235,7 @@ entries:
   - round: 39
     line: 1727
     kind: bullet
+    item: "`taskq` / `taskq-plus` 的 `mutation_testing` 是關的"
     text: |-
       - **`taskq` / `taskq-plus` 的 `mutation_testing` 是關的**（實測）。它們的 Gate 4
         判定是在 14 個維度上做的，不是 15——這正是站2 從今以後會落盤的那種事實，
@@ -217,12 +243,14 @@ entries:
   - round: 40
     line: 1845
     kind: bullet
+    item: "不修 taskq-renew 的架構"
     text: |-
       - **不修 taskq-renew 的架構**。它是唯讀專案，且 57.1 的正解是拆 `storage-parser`，
         屬於該專案的工作。
   - round: 40
     line: 1847
     kind: bullet
+    item: "不降 `crg_cohesion_healthy` 讓 CI 轉綠"
     text: |-
       - **不降 `crg_cohesion_healthy` 讓 CI 轉綠**。把 0.25 降到 0.21 會讓兩個
         marginal 社群變健康、分數變 6/7 = 85.7、CI 立刻綠，而 97 人社群原封不動。
@@ -230,10 +258,12 @@ entries:
   - round: 40
     line: 1850
     kind: bullet
+    item: "不回填消費專案的 CI 檔"
     text: "- **不回填消費專案的 CI 檔**。doctor 現在會報，修復指令一行，何時執行是老闆的決定。"
   - round: 40
     line: 1851
     kind: bullet
+    item: "不收斂那 6 個倖存 CRG 預設值在兩份文件裡的重複"
     text: |-
       - **不收斂那 6 個倖存 CRG 預設值在兩份文件裡的重複**。那是本輪之前就有的重述債，
         不是本輪造成的，且收斂它要改一份 agent 會讀的 prompt。**再開條件**：下一次
@@ -241,6 +271,7 @@ entries:
   - round: 41
     line: 1937
     kind: bullet
+    item: "TDD-IMPROVE 在綠 baseline 上「確實沒東西可重構」仍是錯誤。"
     text: |-
       - **TDD-IMPROVE 在綠 baseline 上「確實沒東西可重構」仍是錯誤。** 修完站2 後，
         它是唯一剩下的無 commit 合法結局而沒有表示法。屬**潛在**而非活傷口：taskq /
@@ -251,6 +282,7 @@ entries:
   - round: 41
     line: 1943
     kind: bullet
+    item: "不碰 taskq-api"
     text: |-
       - **不碰 taskq-api**（量測期間 17:18–17:37 另有 session 在手動修它，`app.py` /
         `test_fr03.py` / `test_fr04.py` 陸續變動、`tests/conftest.py` 新建，而
@@ -260,14 +292,17 @@ entries:
   - round: 41
     line: 1948
     kind: bullet
+    item: "不改任何門檻數值、不重判任何既有 gate 結果、不動 branch protection。"
     text: "- **不改任何門檻數值、不重判任何既有 gate 結果、不動 branch protection。**"
   - round: 41
     line: 1949
     kind: bullet
+    item: "不為 INFRA_ERROR 加自動退避"
     text: "- **不為 INFRA_ERROR 加自動退避**：站3 只把分類建在正確的欄位上。"
   - round: 42
     line: 2042
     kind: bullet
+    item: "站4a 撤回，紅測試刪除而非改綠。"
     text: |-
       - **站4a 撤回，紅測試刪除而非改綠。** 計畫主張七型每個 FR 都要，而
         `derive_test_cases.md` 兩處說相反：「Classification drives which questions
@@ -282,26 +317,31 @@ entries:
   - round: 42
     line: 2052
     kind: bullet
+    item: "不改 spec-coverage 的五個門檻"
     text: |-
       - **不改 spec-coverage 的五個門檻**（前提3：宣告值）。再開條件：缺口清單上線後
         仍有專案在門檻內漏掉整類 NFR 測試。
   - round: 42
     line: 2054
     kind: bullet
+    item: "不改 STRIDE 計分"
     text: "- **不改 STRIDE 計分**（框架刻意只要求 per-boundary 覆蓋）。"
   - round: 42
     line: 2055
     kind: bullet
+    item: "不給 `crg_cohesion_healthy` 加下限"
     text: "- **不給 `crg_cohesion_healthy` 加下限**（憑空定 floor 是發明門檻；正解是可見）。"
   - round: 42
     line: 2056
     kind: bullet
+    item: "不改 D6 的分數"
     text: |-
       - **不改 D6 的分數**：一個 12.5 KB 的檔內部形成兩個互不相連的叢集是不是架構
         問題，本輪沒有立場裁決，憑空排除等於重建 R38 移除的豁免。
   - round: 42
     line: 2058
     kind: bullet
+    item: "不重判 taskq-plus / taskq-renew 的既有 gate 結果。"
     text: "- **不重判 taskq-plus / taskq-renew 的既有 gate 結果。**"
   - round: 43
     line: 2133
@@ -350,6 +390,7 @@ entries:
   - round: 48
     line: 2658
     kind: bullet
+    item: "不刪 auto_fix 的十二支函式與 30 條 CLASSIFICATION_TABLE 條目。"
     text: |-
       - **不刪 auto_fix 的十二支函式與 30 條 CLASSIFICATION_TABLE 條目。**
         `tests/test_no_hardcoded_paths.py` 的 R20 站2 守衛以 `fix_low_coverage` 為**主體**，
@@ -359,6 +400,7 @@ entries:
   - round: 48
     line: 2663
     kind: bullet
+    item: "`EscalationCondition.LOW_CONFIDENCE` 本輪之後不再可經 `fix()` 到達。"
     text: |-
       - **`EscalationCondition.LOW_CONFIDENCE` 本輪之後不再可經 `fix()` 到達。**
         唯一存活的 strategy 固定回報 90，所有回報低於 70 的都已退役。其單元測試改為直接
@@ -367,22 +409,26 @@ entries:
   - round: 48
     line: 2667
     kind: bullet
+    item: "不做巢狀 workflow"
     text: "- **不做巢狀 workflow**（R23-A 已裁決，本輪不推翻）。"
   - round: 48
     line: 2668
     kind: bullet
+    item: "UNKNOWN 不觸發 harness 修復"
     text: |-
       - **UNKNOWN 不觸發 harness 修復**（老闆裁決）。「證明不了是專案的錯就去改框架」
         等於給修復 agent 一個修改判定者的常設動機。
   - round: 48
     line: 2670
     kind: bullet
+    item: "CLAUDE.md 不是交接文件的家"
     text: |-
       - **CLAUDE.md 不是交接文件的家**：`**/CLAUDE.md` 全域 gitignore，只寫在那裡的
         交接永遠到不了消費專案。內容寫進 `docs/ERROR_HANDLING.md`。
   - round: 48
     line: 2672
     kind: bullet
+    item: "`core/doctor.py` 進入 god-file 清單"
     text: |-
       - **`core/doctor.py` 進入 god-file 清單**（882 → 923）。本輪開始前就在 882，
         任何新檢查都會越過 900 預設。散文縮過一次就停手——為閃過門檻而削註解不是門檻的用途。
@@ -390,10 +436,12 @@ entries:
   - round: 50
     line: 2779
     kind: bullet
+    item: "不重判任何既有 gate 結果"
     text: "- **不重判任何既有 gate 結果**（老闆裁決 + R38）。taskq-api 全程唯讀。"
   - round: 50
     line: 2780
     kind: bullet
+    item: "D2 本輪不修"
     text: |-
       - **D2 本輪不修**。它的成因分兩半：計分面（agent 值算進分母）已由 D5 修掉；
         控制流面（`unverifiable` 為何沒讓 `finalize_gate` 抛 `GateBlockedError`）需要
@@ -403,6 +451,7 @@ entries:
   - round: 50
     line: 2785
     kind: bullet
+    item: "D6 不讓 workflow 側捕獲 cost"
     text: |-
       - **D6 不讓 workflow 側捕獲 cost**。計畫寫「cost 捕獲隨之涵蓋 workflow 側」，
         這條**前提是假的**：Workflow sandbox 沒有 process envelope 也沒有時鐘
@@ -410,34 +459,40 @@ entries:
   - round: 50
     line: 2788
     kind: bullet
+    item: "不做 degradation ledger 與 workflow_blocks 的合併"
     text: |-
       - **不做 degradation ledger 與 workflow_blocks 的合併**。站3 先讓兩邊都帶座標，
         合併與否留待有人真的要在一條時間軸上讀它們時再議。
   - round: 50
     line: 2790
     kind: bullet
+    item: "D10 只解決「活過階段轉換」"
     text: |-
       - **D10 只解決「活過階段轉換」**。同一個 gate 重跑仍會覆寫前一次的 audit 檔。
         **再開條件**：當某輪需要比較同一個 gate 兩次執行的差異時，才做 per-run 保存。
   - round: 50
     line: 2792
     kind: bullet
+    item: "不加 doctor WARN 說「已定案判定裡有未交叉驗證維度」"
     text: |-
       - **不加 doctor WARN 說「已定案判定裡有未交叉驗證維度」**（計畫站2 原本要做）。
         它唯一的生產者會抛 `GateBlockedError`，加了就是 R30 花一輪拆掉的半座機制。
   - round: 51
     line: 2891
     kind: bullet
+    item: "不重判任何既有 gate 結果"
     text: |-
       - **不重判任何既有 gate 結果**（老闆裁決 + R38）。六個 taskq 專案全程唯讀，
         本輪一個位元組都沒動它們。
   - round: 51
     line: 2893
     kind: bullet
+    item: "不修 taskq-api 的空殼實作"
     text: "- **不修 taskq-api 的空殼實作**。老闆裁決：只出診斷報告。"
   - round: 51
     line: 2894
     kind: bullet
+    item: "站5 攔不到 FR-09 真正斷掉的地方"
     text: |-
       - **站5 攔不到 FR-09 真正斷掉的地方**——「SPEC 表格列沒有生出 AC」。把它機械化需要
         SPEC 結構化，或一個「AC 數 vs 規範性行數」的比例啟發式；**後者就是本輪母體本身**
@@ -446,6 +501,7 @@ entries:
   - round: 51
     line: 2898
     kind: bullet
+    item: "不對 FIX 家族其餘四支注入 SRS"
     text: |-
       - **不對 FIX 家族其餘四支注入 SRS**。它們處理工具失敗，與需求無關；注入只會擴大
         prompt 而不改變任何判定。由
@@ -453,6 +509,7 @@ entries:
   - round: 51
     line: 2901
     kind: bullet
+    item: "站3 不做硬 BLOCK"
     text: |-
       - **站3 不做硬 BLOCK**。patch 邊界是單元測試的正常做法；要的不是禁止，是讓
         「這個分數來自一套把被驗邊界換掉的測試」被寫下來。`score_source` 把它排出
@@ -460,18 +517,21 @@ entries:
   - round: 51
     line: 2904
     kind: bullet
+    item: "站3 不標 `mutation_testing`"
     text: |-
       - **站3 不標 `mutation_testing`**。被 patch 掉的模組裡的 mutant 會存活，所以替身
         已經讓 mutation 分數**下降**，標記它會描述反方向。
   - round: 51
     line: 2906
     kind: bullet
+    item: "站4 不用 AST 重數被 omit 的 statements"
     text: |-
       - **站4 不用 AST 重數被 omit 的 statements**。那會產出一個「看起來能跟 coverage.py
         比較、實際上不能」的數字——本輪母體的翻版。`coverage.json` 沒有的就報「size unknown」。
   - round: 51
     line: 2908
     kind: bullet
+    item: "「R45–R48 造成退化」這個因果沒有證明"
     text: |-
       - **「R45–R48 造成退化」這個因果沒有證明**。已證明的是：兩輪之間框架新增的每一項
         檢查都在測試面，產品面的檢查數量維持為零。這是**激勵解釋，不是因果證明**；
@@ -479,6 +539,7 @@ entries:
   - round: 52
     line: 3041
     kind: bullet
+    item: "不做跨專案離群警訊"
     text: |-
       - **不做跨專案離群警訊**。harness 是各專案的 submodule，看不到彼此的 run；做一份需
         人工維護的 checked-in 參考語料，就是又一個「宣告了沒有執行者」（R43 母體）。
@@ -486,6 +547,7 @@ entries:
   - round: 52
     line: 3044
     kind: bullet
+    item: "不讓框架自己知道怎麼啟動一個 FastAPI app"
     text: |-
       - **不讓框架自己知道怎麼啟動一個 FastAPI app**。那會綁死技術棧，與 language-agnostic
         直接衝突。**代價誠實寫下：啟動方式仍有一部分定義權在被判定方手上**，本輪只是把
@@ -493,10 +555,12 @@ entries:
   - round: 52
     line: 3047
     kind: bullet
+    item: "不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義，不加 waiver。"
     text: "- **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義，不加 waiver。**"
   - round: 52
     line: 3048
     kind: bullet
+    item: "不把「缺少 verify-system target」做成第二個 block"
     text: |-
       - **不把「缺少 verify-system target」做成第二個 block**：`make verify-system` 會非零
         退出，`execute_verification_target` 對 100 的門檻已經擋了；一個事實兩個執法者是
@@ -504,26 +568,31 @@ entries:
   - round: 53
     line: 3166
     kind: bullet
+    item: "arch-constraints 維持只記錄"
     text: |-
       - **arch-constraints 維持只記錄**（老闆本輪裁決）。162 筆 ledger 保留。
         再開條件：P2 產出契約改成「宣告約束時必須指名執法者」。
   - round: 53
     line: 3168
     kind: bullet
+    item: "不修改任何 taskq-* 專案"
     text: |-
       - **不修改任何 taskq-* 專案**（全程唯讀）。taskq-super 的 24 處 neutralised 與
         NFR-03/04 的 VERIFIED 宣稱是專案自己的債；本輪修完後它下一次 gate 會被逐條指名。
   - round: 53
     line: 3170
     kind: bullet
+    item: "不改寫 `git add -A` 的整體行為"
     text: "- **不改寫 `git add -A` 的整體行為**。"
   - round: 53
     line: 3171
     kind: bullet
+    item: "不做 D4/D5/D7 的 JS 對等實作"
     text: "- **不做 D4/D5/D7 的 JS 對等實作**（皆為 Python 專屬機制）；D3 做了 JS 對等。"
   - round: 53
     line: 3172
     kind: bullet
+    item: "一個順帶觀察，本輪不修"
     text: |-
       - **一個順帶觀察，本輪不修**：taskq-super 的 Gate 4 breakdown 記
         `test_assertion_quality: 100.0`，而同一列的 `tool_evidence` 是
@@ -533,38 +602,46 @@ entries:
   - round: 53
     line: 3177
     kind: bullet
+    item: "不 push。"
     text: "- **不 push。**"
   - round: 54
     line: 3297
     kind: bullet
+    item: "`declared_only` 不擋。"
     text: |-
       - **`declared_only` 不擋。** 再開條件：P2 產出契約改成「宣告約束時必須指名
         執法者」，那時第三態才會消失。
   - round: 54
     line: 3299
     kind: bullet
+    item: "不把關鍵字放寬到裸 `layer`"
     text: "- **不把關鍵字放寬到裸 `layer`**（見 P6）。再開條件：同上。"
   - round: 54
     line: 3300
     kind: bullet
+    item: "不替 JS 專案做 bandit 對等"
     text: |-
       - **不替 JS 專案做 bandit 對等**（semgrep-js 規則 ID 是另一套詞彙，此機器上零個
         JS 專案）。再開條件：出現宣告 shell/eval 類約束的 JS 專案。
   - round: 54
     line: 3302
     kind: bullet
+    item: "不動 `phase_completed` 寫入順序"
     text: "- **不動 `phase_completed` 寫入順序**、**不做跨專案語料**（理由同上表 D/E）。"
   - round: 54
     line: 3303
     kind: bullet
+    item: "不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。"
     text: "- **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。**"
   - round: 54
     line: 3304
     kind: bullet
+    item: "不 push。"
     text: "- **不 push。**"
   - round: 55
     line: 3354
     kind: bullet
+    item: "不硬編「SBOM.json 必須存在」"
     text: |-
       - **不硬編「SBOM.json 必須存在」**、**不硬編 verify-system 的四步**：那是專案特定的
         宣告，寫進框架就破壞共通性。正解是讓 AC-N7.2 / AC-N12.x 自己走完
@@ -572,6 +649,7 @@ entries:
   - round: 55
     line: 3357
     kind: bullet
+    item: "`ac_parse_gap` 不升為 error。"
     text: |-
       - **`ac_parse_gap` 不升為 error。** 本站自己的紅測試主張要升，**那條紅測試是錯的**：
         既有的 `test_identifiers_outside_a_readable_shape_are_reported_as_unread` 早就把它
@@ -580,42 +658,51 @@ entries:
   - round: 55
     line: 3396
     kind: bullet
+    item: "不改 `check_coverage_report` 的靜默放行"
     text: |-
       - **不改 `check_coverage_report` 的靜默放行**（同檔、同形狀、不同一條）。
         再開條件：下一輪處理 P4 產物數字時一併裁。
   - round: 55
     line: 3398
     kind: bullet
+    item: "不改 `constitution/runner.py` 的 stub→100"
     text: |-
       - **不改 `constitution/runner.py` 的 stub→100**。再開條件：constitution 重新進入
         自動管線的那一天。
   - round: 55
     line: 3400
     kind: bullet
+    item: "~~**`check_cross_artifact` 只在 P3–P4 執行**~~ —— **站6 撤銷這一條並修掉它**，見下。"
     text: "- ~~**`check_cross_artifact` 只在 P3–P4 執行**~~ —— **站6 撤銷這一條並修掉它**，見下。"
   - round: 55
     line: 3401
     kind: bullet
+    item: "不做 `forbidden` 契約的內容對賬"
     text: "- **不做 `forbidden` 契約的內容對賬**。再開條件：SAB 帶結構化禁令欄位。"
   - round: 55
     line: 3402
     kind: bullet
+    item: "不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。"
     text: "- **不修改任何 taskq-* 專案，不重判既有 gate 結果，不動門檻/權重/維度定義。**"
   - round: 55
     line: 3403
     kind: bullet
+    item: "不 push。"
     text: "- **不 push。**"
   - round: 56
     line: 3566
     kind: bullet
+    item: "不改 `_coverage_for_paths` 的算式"
     text: "- **不改 `_coverage_for_paths` 的算式**（R56-6 被推翻）。Re-open：任何專案開 branch coverage。"
   - round: 56
     line: 3567
     kind: bullet
+    item: "不改 `ast-*` 的 `check_cmd`"
     text: "- **不改 `ast-*` 的 `check_cmd`**。Re-open：AST 掃描器取得 harness 以外的依賴。"
   - round: 56
     line: 3568
     kind: bullet
+    item: "不改 `harness_bridge._TOOL_OUTPUT_PATTERNS` 的 `documented`"
     text: |-
       - **不改 `harness_bridge._TOOL_OUTPUT_PATTERNS` 的 `documented`**——它對
         `ast-docstrings` 與 `js-doc-coverage` 都寫 `"documented"`，而兩個掃描器都發 `with_doc`。
@@ -624,22 +711,26 @@ entries:
   - round: 56
     line: 3572
     kind: bullet
+    item: "不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族"
     text: "- **不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族**（範圍遠超本次 review）。"
   - round: 56
     line: 3573
     kind: bullet
+    item: "不放寬 `_AC_ID` 去吃 `AC-NFR01.1` / `AC-FR-01.a`"
     text: |-
       - **不放寬 `_AC_ID` 去吃 `AC-NFR01.1` / `AC-FR-01.a`**（貼合語料）。
         Re-open：那兩個專案把編號改成 canonical 之後仍讀不到。
   - round: 57
     line: 3659
     kind: bullet
+    item: "不改 `integration_coverage` 的量測方式"
     text: |-
       * **不改 `integration_coverage` 的量測方式**——本輪只把它移出 per-FR 分支。
         再開：有專案把 `integration_coverage` 放進 Gate 1 的維度表。
   - round: 57
     line: 3661
     kind: bullet
+    item: "不把兩條 `03-development/` glob 改對而是刪掉"
     text: |-
       * **不把兩條 `03-development/` glob 改對而是刪掉**——`compute_community_cohesion_score`
         已有 name-based 與 path-based 兩層排除涵蓋 `tests/`，補一條同義的是第二份陳述。
@@ -647,14 +738,17 @@ entries:
   - round: 57
     line: 3664
     kind: bullet
+    item: "不動 `_effective_threshold` 的三來源取捨"
     text: "* **不動 `_effective_threshold` 的三來源取捨**（R27-DEFER-1，仍未裁決）。"
   - round: 57
     line: 3665
     kind: bullet
+    item: "不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族"
     text: "* **不合併 `lang_scanners` 與 `toolchains` 兩個掃描器家族**（範圍遠超本次 review）。"
   - round: 57
     line: 3666
     kind: bullet
+    item: "`_dim_passes` 不承擔「框架自己量不出來」的路由"
     text: |-
       * **`_dim_passes` 不承擔「框架自己量不出來」的路由**——那是
         `SCORE_SOURCE_AGENT_UNVERIFIED` 與 S4 `unverifiable` 清單的職責，兩者都已用正確的
@@ -662,30 +756,37 @@ entries:
   - round: 60
     line: 3804
     kind: bullet
+    item: "不加 SHA lint（見 D4）。"
     text: "- 不加 SHA lint（見 D4）。"
   - round: 60
     line: 3805
     kind: bullet
+    item: "不修 doctor 的 dimension-scope drift（隨機制消失，撤回）。"
     text: "- 不修 doctor 的 dimension-scope drift（隨機制消失，撤回）。"
   - round: 60
     line: 3806
     kind: bullet
+    item: "不改 taskq-\\* 任何檔案、不重判既有 gate 結果。"
     text: "- 不改 taskq-\\* 任何檔案、不重判既有 gate 結果。"
   - round: 60
     line: 3807
     kind: bullet
+    item: "不新增自動修復引擎，只接既有 R47/R48 路由。"
     text: "- 不新增自動修復引擎，只接既有 R47/R48 路由。"
   - round: 60
     line: 3808
     kind: bullet
+    item: "不動 `security_design` / `cross_artifact_live_cov`（不對應維度）。"
     text: "- 不動 `security_design` / `cross_artifact_live_cov`（不對應維度）。"
   - round: 60
     line: 3809
     kind: bullet
+    item: "不改 mutmut 預算機制。**再開條件**：受影響專案移除鍵後實測跑不完。"
     text: "- 不改 mutmut 預算機制。**再開條件**：受影響專案移除鍵後實測跑不完。"
   - round: 98
     line: 3969
     kind: bullet
+    item: "`checked` 的分母語意不一致"
     text: |-
       - **`checked` 的分母語意不一致**:Check 3 只把「違規」計入分母,Check 1/2 計入的是
         「檢查過的東西」。實測若改成計入每一條 import 邊,taskq-wow 會從 83.3 升到 93.8,
@@ -693,6 +794,7 @@ entries:
   - round: 98
     line: 3972
     kind: bullet
+    item: "`_heuristic_layer_choice` 的 fallback 歸屬"
     text: |-
       - **`_heuristic_layer_choice` 的 fallback 歸屬**:R26 已裁決 print-only,老闆本輪裁定
         57 筆照樣計分,所以只加 provenance 訊息不改放置演算法。**再開**:阻擋訊息累積顯示
@@ -700,6 +802,7 @@ entries:
   - round: 98
     line: 3975
     kind: bullet
+    item: "`classify_constraints` 的 `>`-鏈拼法漏判"
     text: |-
       - **`classify_constraints` 的 `>`-鏈拼法漏判**:taskq-cc 的
         `'api > service > repository > models'` 被判 `declared_only`,而它**有** layers 契約 ——
@@ -707,6 +810,7 @@ entries:
   - round: 98
     line: 3978
     kind: bullet
+    item: "`corpus_verdict_baseline.json` 隨語料根目錄變動而紅"
     text: |-
       - **`corpus_verdict_baseline.json` 隨語料根目錄變動而紅**:本 session 內紅了兩次
         (taskq-wow 出現、taskq-done 消失),而 CI 沒有語料所以只會在本機發生。
@@ -714,6 +818,7 @@ entries:
   - round: 98
     line: 3981
     kind: bullet
+    item: "不改 STRIDE 計分 / 不定 boundary 下限 / 不代寫 ADR 內容 / 不動 `taskq*` / 不動任何 JS。"
     text: "- **不改 STRIDE 計分 / 不定 boundary 下限 / 不代寫 ADR 內容 / 不動 `taskq*` / 不動任何 JS。**"
   - round: 97
     line: 4082
@@ -753,30 +858,36 @@ entries:
   - round: 96
     line: 4142
     kind: bullet
+    item: "不改 doctor 的收據 glob"
     text: "- **不改 doctor 的收據 glob**(見 R96-C:那會消音一個說真話的檢查)。"
   - round: 96
     line: 4143
     kind: bullet
+    item: "不把 `gate_results/gate1/` 改成 per-phase 儲存"
     text: |-
       - **不把 `gate_results/gate1/` 改成 per-phase 儲存**。站2 讓現行判定重新受檢;
         「歷史 phase 的證明不保留」是另一件事。**再開條件**:出現需要回頭稽核歷史 phase Gate-1 證據的實例。
   - round: 96
     line: 4145
     kind: bullet
+    item: "不為 `verification-docs` halt 增加 owner 歸因規則"
     text: |-
       - **不為 `verification-docs` halt 增加 owner 歸因規則**。R92 已裁決那個 halt 真的不知道 owner;
         站4 處理的是「未歸屬要被看見」,不是猜。
   - round: 96
     line: 4147
     kind: bullet
+    item: "不讓 gate 改用單檔 run 判定"
     text: "- **不讓 gate 改用單檔 run 判定**。那 5 支紅測試是 FR-07 自己的,整套跑紅就是紅(R52)。"
   - round: 96
     line: 4148
     kind: bullet
+    item: "不為 153 筆重複 ledger row 去重"
     text: "- **不為 153 筆重複 ledger row 去重**。append-only 是刻意的;站3 讓它有讀者之後,重複不是缺陷。"
   - round: 96
     line: 4149
     kind: bullet
+    item: "不註冊 `doctor:gate1-evidence` 到 MEASUREMENT_SINKS"
     text: |-
       - **不註冊 `doctor:gate1-evidence` 到 MEASUREMENT_SINKS**。第一版這麼做並被守衛擋下:
         該登記表的規約是 f-string 組出的 component 以字面前綴加 `*` 為 key,`doctor:*` 已經涵蓋它。
@@ -784,6 +895,7 @@ entries:
   - round: 95
     line: 4230
     kind: bullet
+    item: "不改 `spec_phase8.py:198` 用本機 `git tag -l` 判斷 tag 是否已推上 origin。"
     text: |-
       - **不改 `spec_phase8.py:198` 用本機 `git tag -l` 判斷 tag 是否已推上 origin。**
         同一類缺陷(量錯的樹,R90 形狀),但不是本輪 review 找到的,且正解要動 P8 的生成輸出。
@@ -791,14 +903,17 @@ entries:
   - round: 95
     line: 4233
     kind: bullet
+    item: "不把 P6 折進 `render_advance_loop`"
     text: "- **不把 P6 折進 `render_advance_loop`**(見 R95-I)。"
   - round: 95
     line: 4234
     kind: bullet
+    item: "不補 `PYTHONPATH` 前綴"
     text: "- **不補 `PYTHONPATH` 前綴**(見 R95-H)。"
   - round: 95
     line: 4235
     kind: bullet
+    item: "不修 `_coverage_record_for_paths` 寫死讀 `project/.coverage`"
     text: |-
       - **不修 `_coverage_record_for_paths` 寫死讀 `project/.coverage`**(不理 `.coveragerc`
         的 `data_file`)。讀碼確認為真,但量測 9 個語料專案**無人**自訂 → 沒有活受害者。
@@ -806,6 +921,7 @@ entries:
   - round: 95
     line: 4238
     kind: bullet
+    item: "不重判既有 gate 結果、不動 `taskq*`"
     text: "- **不重判既有 gate 結果、不動 `taskq*`**(唯讀)。"
   - round: 92
     line: 4454
@@ -1219,6 +1335,7 @@ entries:
   - round: 76
     line: 7278
     kind: bullet
+    item: "JS/TS 沒有 per-FR scope。"
     text: |-
       - **JS/TS 沒有 per-FR scope。** `PER_TEST_OUTCOME_TOOLS` 逐名列出可讀的 runner,
         vitest/jest 刻意不在其中:框架自己的 JS run 是整套的,拿它去擋等於把本輪
@@ -1227,6 +1344,7 @@ entries:
   - round: 76
     line: 7282
     kind: bullet
+    item: "`cov_utils` / `gate_cmds` / `red_assertion_check` / `property_check` 的"
     text: |-
       - **`cov_utils` / `gate_cmds` / `red_assertion_check` / `property_check` 的
         四種數字推導不合併。** 實測:對框架自己產得出來的每一個 FR id 全部一致,
@@ -1236,6 +1354,7 @@ entries:
   - round: 76
     line: 7287
     kind: bullet
+    item: "站5 情形 (a) 不擋。"
     text: |-
       - **站5 情形 (a) 不擋。** 「少報 + 真的有紅」全部已被站1 的判定擋掉,(a) 若也擋
         只會擋到「多報」—— 而多報正是站3 之前的 prompt 教它寫的。同一輪剛拿掉歧義
@@ -1321,6 +1440,7 @@ entries:
   - round: 70
     line: 7838
     kind: bullet
+    item: "不拆 `RUNALL_MAX_BYTES` 的註解"
     text: |-
       - **不拆 `RUNALL_MAX_BYTES` 的註解**：單行 13,374 字元、14 筆歷史條目、
         有一支測試在 parse 它——用註解當資料庫是真問題，但拆檔要一併改那支測試，
@@ -1328,6 +1448,7 @@ entries:
   - round: 70
     line: 7841
     kind: bullet
+    item: "不統一 D4 門檻的兩份表"
     text: |-
       - **不統一 D4 門檻的兩份表**：`spec_shared.D4_THRESHOLDS`（以 phase 索引）與
         `plangen._SPEC_COVERAGE_THRESHOLDS`（以 gate 索引）帶著同樣三個數字，
@@ -1336,6 +1457,7 @@ entries:
   - round: 70
     line: 7845
     kind: bullet
+    item: "Sync 站保留文字判定，且理由寫進碼裡"
     text: |-
       - **Sync 站保留文字判定，且理由寫進碼裡**：`render_sync_verified` 跑的是前景
         `git push`，crash 發生在 pre-push hook 的子程序，`git push` 只會回 1——RC
@@ -1343,10 +1465,12 @@ entries:
   - round: 70
     line: 7848
     kind: bullet
+    item: "不改 `taskq-*` 任何檔案"
     text: "- **不改 `taskq-*` 任何檔案**：全程唯讀，只讀不寫。"
   - round: 69
     line: 7981
     kind: bullet
+    item: "不驗證 `Deferred:` 行指名的工具是否真的跑過。"
     text: |-
       - **不驗證 `Deferred:` 行指名的工具是否真的跑過。** 本輪只擋「沒指名」。
         再開條件＝`gate:ac-deferred` 累積到能看出哪些工具名是真的被執行的。
@@ -1354,12 +1478,14 @@ entries:
   - round: 69
     line: 7984
     kind: bullet
+    item: "不 revert 那 8 個 commit。"
     text: |-
       - **不 revert 那 8 個 commit。** 它們已 push 且各自解了真問題（taskq-new 59
         筆假指控、taskq-api P2 的 50 分鐘空轉、SRS prose 誤計）；正解是修在來源。
   - round: 69
     line: 7986
     kind: bullet
+    item: "AC 三態今天爆炸半徑為零"
     text: |-
       - **AC 三態今天爆炸半徑為零**，且照實記：沒有語料專案寫過 `Deferred:` 行
         （Step 1d 才 shipped 幾小時），所以八個專案的違規數與站 3 逐筆相同，
@@ -1368,6 +1494,7 @@ entries:
   - round: 69
     line: 7990
     kind: bullet
+    item: "#1/E1 的後果強度是 Medium 不是 High。"
     text: |-
       - **#1/E1 的後果強度是 Medium 不是 High。** 語料顯示 agent 在 taskq-cc 的 P6
         上確實自己重跑了 verify-gate（同一 commit 4 筆 verdict），所以現場行為
@@ -1376,6 +1503,7 @@ entries:
   - round: 69
     line: 7994
     kind: bullet
+    item: "站 1 的 re-verify 成本沒量。"
     text: |-
       - **站 1 的 re-verify 成本沒量。** 每個 exit-gate 相位多一次 verify-gate，
         含 `pip install code-review-graph` + CRG 圖建置。若過貴，替代方案是把
@@ -1388,6 +1516,7 @@ entries:
   - round: 65
     line: 8558
     kind: bullet
+    item: "不加 Windows 的 job object / taskkill /T"
     text: |-
       - **不加 Windows 的 job object / taskkill /T**：無法在此驗證，且 CI 只有 ubuntu。
         `run_isolated` 在沒有 process group 的平台退回 `subprocess.run` 的行為並寫明。
@@ -1395,6 +1524,7 @@ entries:
   - round: 65
     line: 8561
     kind: bullet
+    item: "不動 `phase5-verification.js` 的 `tests/integration/` 硬編路徑"
     text: |-
       - **不動 `phase5-verification.js` 的 `tests/integration/` 硬編路徑**：
         同一類但屬先前既有，且該行自帶 "skip gracefully if dir absent"。
@@ -1402,32 +1532,38 @@ entries:
   - round: 65
     line: 8564
     kind: bullet
+    item: "不動 `--cov` 之外的 prompt 路徑陳述"
     text: |-
       - **不動 `--cov` 之外的 prompt 路徑陳述**（bug-hunt 的 "write a repro test under
         03-development/tests/"）：那是寫入位置的建議，不是被 Gate 3 重量的判準。
   - round: 65
     line: 8566
     kind: bullet
+    item: "不改 `suite_timeout` 的 30 秒下限"
     text: |-
       - **不改 `suite_timeout` 的 30 秒下限**：站0 的逾時測試改 patch 這個旋鈕，
         其餘全是真的 pytest 執行。
   - round: 64
     line: 8711
     kind: bullet
+    item: "不改 SAB prompt 的 14/18 硬寫數字"
     text: |-
       - **不改 SAB prompt 的 14/18 硬寫數字**（發現 8）：今天實測正確，
         且該句真正的指令不依賴這兩個數。**再開條件**：詞彙表變動。
   - round: 64
     line: 8713
     kind: bullet
+    item: "不改「最後一次回空判 session block」的語意"
     text: "- **不改「最後一次回空判 session block」的語意**（見 D2）。"
   - round: 64
     line: 8714
     kind: bullet
+    item: "不追認 Round 62/63 兩個沒有賬本節的號碼"
     text: "- **不追認 Round 62/63 兩個沒有賬本節的號碼**。"
   - round: 64
     line: 8715
     kind: bullet
+    item: "不改 taskq-\\* 任何檔案、不重判既有 gate 結果。"
     text: "- **不改 taskq-\\* 任何檔案、不重判既有 gate 結果。**"
   - round: 99
     line: 8867

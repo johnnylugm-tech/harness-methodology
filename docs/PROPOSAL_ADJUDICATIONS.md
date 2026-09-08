@@ -10458,3 +10458,83 @@ CP-4 是刻意做的:**2b 那四處沒有守衛,而我在計畫裡就先聲明�
 `STATE_PRODUCERS` 是一張現成的、機器可讀的表。這個界限記在這裡,不假裝守衛比實際大。
 
 三份還原後 sha256 全部相同。
+
+### §3 站3 — 全覆蓋:守衛自己挑的分母,和它挑掉的 181 條
+
+老闆裁定:**全覆蓋**。
+
+Round 109 站7 建的 `test_every_reopen_condition_has_a_verdict` 綠了一輪,分母是
+「有 `reopen` 欄且非破折號的 table_row」= **106**。索引有 **288** 條:
+
+```
+table_row     149    有條件 106 / 破折號 13 / 完全沒有 reopen 欄 29 (+1 已有判定)
+bullet        136    沒有 item → (round, item) 這把鑰匙對不上 → 守衛結構上看不見
+unstructured    3    R35(=站1 的來源)、R92、R66
+```
+
+那 182 條不是被判斷後排除的,是**構造上搆不到**。這是 R57 的形狀:判定的範圍由
+被判定的那一方宣告,而它沒說自己宣告了什麼。
+
+#### 3a 機制
+
+1. extractor 只給 bullet 加 `item`:粗體 lead(`- **X**`)126 條,其餘 10 條用第一行。
+   實測 136/136 是賬本的位元組切片、136 個 key 在同輪內唯一、與 table_row 的 item 零重疊。
+2. **不抽 `reopen`**。bullet 的條件寫在散文裡,regex 抽它是 R55 形狀,extractor 的
+   docstring 明文不做分類。有沒有條件是判定,寫在 `deferred_guards.yaml`。
+3. `unstructured` **不加 `item`** —— `test_the_extractor_admits_the_sections_it_cannot_read`
+   斷言它不得帶任何 `_VERBATIM_FIELDS`,加了就紅。它已經有 `heading`,3 條都是切片且唯一。
+4. key 的算法抽成一個共用函式,三支斷言共用。守衛更名為
+   `test_every_recorded_decision_has_a_verdict`,分母 = 索引全部。
+
+#### 3b 逐條走 181 條
+
+**兩欄表格的再開條件寫在「理由」格裡。** 29 條沒有 `reopen` 欄的 table_row,若一律
+判 `NO_CONDITION` 就是把 5 個真條件寫成不存在 —— R97/R99 的 5 條在理由格裡寫著
+`**再開**:第二個專案出現…`。索引把 `reopen` 留白是忠實的(那個欄位不存在),
+**判定不能照抄那份留白**。
+
+關鍵字篩選被自己抓到兩次錯:`Re-open：` 被大小寫敏感的 pattern 漏掉、`若…重議`
+根本不在詞表裡。所以分類是**逐條讀**,不是 regex:136 個 bullet 讀完,46 條帶條件、
+90 條沒有。
+
+```
+NOT_MET       138    條件是可觀測的事件,而它沒發生
+NO_CONDITION  121    範圍/裁量/賬本自己已關 —— 每一條都帶賬本原文當依據,不留白
+MET            18    含本輪新量出的兩條
+ALREADY_DONE    6    每一條都指名證明它的測試(既有守衛強制)
+PREMISE_FALSE   5
+```
+
+#### 3c 走完之後量出來的兩條 MET(沒有人知道它們已經滿足)
+
+| 條 | 條件 | 實測 |
+|---|---|---|
+| R98 `corpus_verdict_baseline.json` 隨語料根目錄變動而紅 | 「第三次因目錄變動而紅」 | R98 記的兩次是 `bec4f96a`(09-05);第三次是 `ca99aa82`(09-08)「補上本機新出現的 taskq-opus / taskq-sol」。**已滿足** |
+| R64 SAB prompt 硬寫 14/18 | 「詞彙表變動」 | `sab_parser.py:10` 寫「14 fields, mirroring the SABSpec dataclass」而 `SABSpec` 今天 **15** 欄;:119 寫「the gate config 14-dimension set」而 gate2/3/4 是 **12/17/16**。兩句都已是假陳述 |
+
+R64 那條由站3b 修掉(改法是**拿掉數字**而不是換成 15/16 —— 換數字就是把同一個漂移
+再種一次)。R98 那條記 MET 不做,理由寫在 §6:改它是換掉 R88 刻意建的機制。
+
+#### 3d 走的過程中撞到的既有守衛(它是對的,我讓路)
+
+- `test_already_done_names_the_test_that_proves_it`:我寫的 5 條 `ALREADY_DONE` 全部
+  `guard: manual` → **紅**。它要求「說做完了」必須指名證明。五條都找到了真的測試。
+- `test_every_named_guard_resolves_to_a_test_that_exists`:指名
+  `tests/test_harness_config.py::TestGetCrgSettings::test_out_of_range_cohesion_ignored`
+  → **紅**。查出它做 `node.partition('::')` 後找 `def Class::test_x(` —— 一個沒有檔案
+  能有的字串。**class 內的守衛在這裡是叫不出名字的**,唯一的滿足方式是改引一個較弱
+  但剛好在模組層的證明。這是站3 順帶修掉的第二個 bug,不是為了讓自己綠。
+
+#### 3e 反證
+
+- **CP-5** 刪掉 R64 那列判定 → 守衛紅並指名 `R64 [bullet] '不改 SAB prompt 的 14/18 硬寫數字'`
+- **CP-6** 還原 extractor 的 bullet `item` 抽取 → 守衛紅且訊息是
+  **「136 of the ledger's recorded decisions have no verdict」** —— 分母沒有靜默縮小,
+  這正是這一站要證明的性質
+
+兩次還原後 sha256 全部相同。
+
+#### 3f 新成本,寫在明處
+
+賬本此後每加一條不做決定 —— 表格或 bullet —— 都要在**同一個 commit** 裡加一列判定,
+否則守衛紅。這是全覆蓋的代價,不是副作用。
