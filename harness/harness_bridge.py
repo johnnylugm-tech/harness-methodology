@@ -2986,6 +2986,10 @@ class HarnessBridge(_FinalizeStages):
         if _gate_passes and not result.quality_complete:
             result = dataclasses.replace(result, quality_complete=True)
 
+        # Round 109 站5: HR-14's input. Here, ahead of the stage that raises
+        # on a blocked gate, so the score is recorded on both outcomes.
+        self._record_integrity(ctx)
+
         _stage_rc = self._stage_record_verdict(_gate_passes, ctx, result, t0, time)
         if _stage_rc is not None:
             return _stage_rc
@@ -2995,6 +2999,70 @@ class HarnessBridge(_FinalizeStages):
         # returns — but `-> GateResult` has to be true of the annotation, not
         # only of today's implementation.
         raise GateBlockedError(ctx.gate_num, result)
+
+    def _record_integrity(self, ctx: GateContext) -> None:
+        """Write HR-14's input into state.json, or leave it absent — honestly.
+
+        WHAT THE NUMBER IS, AND WHY IT IS NOT INVENTED HERE
+
+        老闆 ruled where the producer goes; nobody ruled what integrity means,
+        and this method deliberately does not decide. It projects the one
+        judgement this framework already owns under that name —
+        `PhaseHooks.manifest_integrity` (registered in PREFLIGHT_CHECKS, also
+        exposed as `harness_cli.py check-manifest-integrity` for the per-phase
+        workflows) — onto the scale HR-14 reads. That verdict is two-valued,
+        so the score is two-valued: **100.0 or 0.0**, and the rule's threshold
+        of 40 is bracketed by them. A graded scale (ten points an issue, say)
+        would be a number invented in this file, with no measurement behind it
+        — which is what Round 32/35 keep being about.
+
+        WHEN NOTHING IS WRITTEN
+
+        Three cases leave the key absent, and all three are the same
+        statement: nobody measured an integrity score here.
+
+          * `skipped` — no quality_manifest.json yet, so the check read
+            nothing. Writing 100.0 would rebuild, at the producing end, the
+            substitution Round 108 站A removed at the reading end.
+          * no state.json — this is a gate finalize, not the FSM initialiser;
+            `postflight_update_state` makes the same choice for the same
+            reason.
+          * unreadable state.json — a lenient load answers `{}`, and writing
+            that back would destroy the state file to record one number.
+
+        None of the three drops a verdict a reader could have used:
+        `AutoFixEngine._check_integrity` reads the same file leniently, gets
+        `None` from all three, and records the abstention on the degradation
+        ledger (Round 108 站A).
+
+        Locked with `state_lock_path`, the same lock `cli/gate_cmds.py`'s
+        `_update_state_checkpoint` takes — SG-12 exists because two finalizes
+        can run in parallel, and an unlocked read-modify-write here would
+        reopen exactly that race against it.
+        """
+        from core.atomic_io import atomic_write_json, file_lock, state_lock_path
+        from core.harness_config import get_value
+        from core.phase_hooks import PhaseHooks
+        from core.state_io import load_state
+
+        project = Path(ctx.project_root)
+        state_path = project / ".methodology" / "state.json"
+        if not state_path.exists():
+            return
+
+        report = PhaseHooks(
+            str(project), phase=ctx.phase, enable_kill_switch=False,
+            drift_threshold=get_value(project, "drift_threshold"),
+        ).manifest_integrity()
+        if report.get("skipped"):
+            return
+
+        with file_lock(state_lock_path(project)):
+            state = load_state(project, lenient=True)
+            if not state:
+                return
+            state["integrity"] = 100.0 if report["passed"] else 0.0
+            atomic_write_json(state_path, state)
 
     def check_pre_fix_safety(self, project_root: str, ref: str = "HEAD") -> dict:
         """

@@ -1530,7 +1530,34 @@ class PhaseHooks:
                 "declaration_files": decl_files}
 
     def preflight_manifest_integrity(self) -> Dict[str, Any]:
-        """Fix IV — validate quality_manifest.json structure before any phase preflight.
+        """Announce and run `manifest_integrity()` — the pre-flight surface.
+
+        This method is the ONE caller allowed to say `[PRE-FLIGHT]`. Round 109
+        站5 gave the judgement its own method because `finalize_gate` now needs
+        the same verdict to produce `state["integrity"]` for HR-14, and a gate
+        finalize printing a pre-flight banner is a false statement about when
+        the check ran.
+
+        Every line below is the line this method printed before the split; the
+        printer derives them from the report instead of holding the locals, and
+        `tests/test_hr14_has_a_producer.py` pins the output exactly rather than
+        by substring — a derivation is where a count quietly becomes the wrong
+        count.
+        """
+        print("\n[PRE-FLIGHT] Manifest Integrity Check")
+        report = self.manifest_integrity()
+        for issue in report.get("issues", ()):
+            print(f"  [BLOCKED] {issue}")
+        if report.get("recovery"):
+            print(f"  Recovery: {report['recovery']}")
+        if report["passed"] and not report.get("skipped"):
+            print(f"  OK: {report['fr_count']} FRs, "
+                  f"{report['trace_count']} traceability entries, "
+                  f"{report['gate1_count']} gate1 entries")
+        return report
+
+    def manifest_integrity(self) -> Dict[str, Any]:
+        """Fix IV — validate quality_manifest.json structure. Prints nothing.
 
         Corrupted manifests (truncated fr_ids, empty gate1 dict, missing
         fr_module_traceability) cause workflows to stall in infinite retry
@@ -1538,8 +1565,16 @@ class PhaseHooks:
         TDD agents that also cannot complete.  This hook detects the three
         known corruption patterns and blocks phase entry with a clear
         recovery command.
+
+        The report carries the counts it measured, not just the verdict: they
+        are what the pre-flight prints, and `passed: True, skipped: True` is
+        NOT a pass — it is "there was no manifest to read", which
+        `harness/harness_bridge.py::finalize_gate` must not turn into a score.
+
+        NOT named `preflight_*`: that prefix obliges an entry in
+        PREFLIGHT_CHECKS (see `tests/test_preflight_registry.py`), and the
+        pipeline runs the announcing wrapper above, not this.
         """
-        print("\n[PRE-FLIGHT] Manifest Integrity Check")
         manifest_path = self.project_path / ".methodology" / "quality_manifest.json"
         if not manifest_path.exists():
             return {"passed": True, "skipped": True,
@@ -1548,9 +1583,8 @@ class PhaseHooks:
         try:
             mf = load_quality_manifest(self.project_path)
         except StateCorruptError as exc:
-            print(f"  [BLOCKED] quality_manifest.json is unreadable: {exc}")
-            print("  Recovery: git checkout HEAD -- .methodology/quality_manifest.json")
             return {"passed": False, "blocked": True,
+                    "issues": [f"quality_manifest.json is unreadable: {exc}"],
                     "reason": f"Manifest unreadable: {exc}",
                     "recovery": "git checkout HEAD -- .methodology/quality_manifest.json"}
 
@@ -1636,17 +1670,12 @@ class PhaseHooks:
                 "manifest likely truncated")
 
         if issues:
-            for issue in issues:
-                print(f"  [BLOCKED] {issue}")
-            print("  Recovery: git checkout HEAD -- .methodology/quality_manifest.json")
-            return {"passed": False, "blocked": True,
+            return {"passed": False, "blocked": True, "issues": issues,
                     "reason": "; ".join(issues),
                     "recovery": "git checkout HEAD -- .methodology/quality_manifest.json"}
 
-        print(f"  OK: {len(fr_ids)} FRs, "
-              f"{len(fr_trace)} traceability entries, "
-              f"{len(gate1)} gate1 entries")
-        return {"passed": True, "fr_count": len(fr_ids)}
+        return {"passed": True, "fr_count": len(fr_ids),
+                "trace_count": len(fr_trace), "gate1_count": len(gate1)}
 
     def preflight_previous_phase_artifacts(self) -> Dict[str, Any]:
         """Check that previous phase's required deliverables exist (ASPICE traceability).

@@ -5695,3 +5695,27 @@
 - test: tests/test_the_constitution_carries_the_live_rule.py::test_the_retired_registry_is_gone
   bug: "rules/manifest.yaml held a third copy of the rule text with zero readers (grep across .py/.js/.sh/.toml: no hits) and no enforcer — its own header named check_methodology_consistency.py (REMOVED) three times as the tool that would have kept the surfaces equal. Its R-SEVERITY-RUBRIC-001 entry still carried 'any canonical sentence', the false statement Round 108 站B removed from four surfaces the day before. Kept as its own assertion: re-adding the file restores a copy nothing renders from and nothing checks"
   fixed_in: "Round 109"
+
+- test: tests/test_hr14_has_a_producer.py::test_a_finalized_gate_writes_an_integrity_score
+  bug: "HR-14 ('Integrity < 40 -> FREEZE', constitution/CONSTITUTION.md:251, SKILL.md:365) reads state['integrity']. Measured 2026-09-08: one reader, zero writers, and the key absent from all fifteen corpus projects — a gate could finalize a thousand times and the number the rule needs would still not exist. Round 108 站A fixed the reading end (an absent key stopped answering 100.0); this is the producing end, at finalize_gate per 老闆's ruling"
+  fixed_in: "Round 109"
+
+- test: tests/test_hr14_has_a_producer.py::test_a_corrupt_manifest_scores_zero_and_hr14_fires
+  bug: "end-to-end, deliberately: asserting only the write would leave the producer and the rule as two independent statements, which is the shape (R33/R56) this station closes. A manifest whose fr_ids were truncated below its fr_module_traceability scores 0.0 and the escalation branch that has been abstaining since Round 108 returns HR14_INTEGRITY"
+  fixed_in: "Round 109"
+
+- test: tests/test_hr14_has_a_producer.py::test_an_unmeasurable_manifest_writes_no_score
+  bug: "the case no ruling covered and the one most easily got wrong. With no quality_manifest.json the check returns `skipped` — it measured nothing — and writing 100.0 there would rebuild at the PRODUCING end exactly the could-not-measure-as-full-marks substitution (Round 32/35) that Round 108 站A had just removed from the reading end. Proven non-vacuous: deleting the `skipped` guard turns this test red"
+  fixed_in: "Round 109"
+
+- test: tests/test_hr14_has_a_producer.py::test_the_judgement_makes_no_claim_about_when_it_ran
+  bug: "PhaseHooks.preflight_manifest_integrity opened with `[PRE-FLIGHT] Manifest Integrity Check` and interleaved five more prints with its returns, so the only way for finalize_gate to reuse the verdict was to publish a false claim about when the check ran. Split: `manifest_integrity()` judges and is silent, the preflight wrapper announces. Not named preflight_* on purpose — that prefix obliges a PREFLIGHT_CHECKS entry (tests/test_preflight_registry.py) and the pipeline runs the wrapper"
+  fixed_in: "Round 109"
+
+- test: tests/test_hr14_has_a_producer.py::test_the_preflight_still_says_everything_it_used_to
+  bug: "the other half of the split: separating judgement from presentation must not silence the operator's view. Pinned as the exact stdout rather than a substring, because the printer now DERIVES its counts from the report instead of holding the locals, and a derivation is precisely where `len(fr_trace)` quietly becomes `len(fr_ids)`"
+  fixed_in: "Round 109"
+
+- test: tests/test_hr14_has_a_producer.py::test_a_blocked_preflight_still_names_the_issue_and_the_recovery
+  bug: "the failure path's output, pinned for the same reason. The blocked returns now carry `issues:` as a list so the wrapper can print one `[BLOCKED]` line per issue; reconstructing them by splitting the joined `reason` string would have been a parser over the framework's own prose"
+  fixed_in: "Round 109"

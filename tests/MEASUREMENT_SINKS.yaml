@@ -287,6 +287,20 @@ sinks:
       framework's debt. Reopen when anything writes an integrity score: then
       this stops firing and the verdict branch beside it takes over.
 
+      Round 109 站5 met that re-open condition and this row is now the
+      NARROWER of two paths, not the only one.
+      `harness/harness_bridge.py::_record_integrity` writes
+      state["integrity"] at every gate finalize — 100.0 or 0.0, projected
+      from `PhaseHooks.manifest_integrity`, the one judgement this framework
+      already owned under that name — so on a project whose gates have run,
+      HR-14 is answered and the verdict branch beside this one fires. The row
+      stays because the abstention is still reachable and still correct: no
+      quality_manifest.json yet (the check measured nothing), no state.json,
+      or an unreadable one. Those are could-not-measure, not a pass, which is
+      the distinction this entry was written for. Reopen if a project that
+      HAS finalized a gate still records this row — that would mean the
+      producer did not reach the file the reader opens.
+
   # ── unreviewed ─────────────────────────────────────────────────────────
   # Nobody has read these sites and asked whether anything acts on them.
   # Round 67 did not read them either, and says so rather than guessing.

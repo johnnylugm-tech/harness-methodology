@@ -226,7 +226,7 @@ This section uses normative language per **RFC 2119**:
 | HR-11: Phase Truth ≥90% | **MUST** | `core/quality_gate/phase_truth_verifier.py` | `PhaseTruthVerifier.verify()` |
 | HR-12: A/B review ≤5 rounds | **MUST** | `steering/steering_loop.py` | Round counter in iteration loop |
 | HR-13: Auto-fix timeout enforcement | **MUST** | `core/auto_fix/__init__.py` | `check_escalation()` HR-13 condition |
-| HR-14: No integrity violations after auto-fix | **MUST** | `core/auto_fix/guardrails.py` | `post_fix_drift_check()` |
+| HR-14: No integrity violations after auto-fix | **MUST** | `harness/harness_bridge.py` (producer) + `core/auto_fix/__init__.py` (rule) | `_record_integrity()` writes `state["integrity"]` at every gate finalize; `check_escalation()`'s HR-14 branch reads it. Round 109 站5: this row named `core/auto_fix/guardrails.py::post_fix_drift_check()`, which is neither — that function runs only under `AUTO_FIX_WITH_VERIFICATION` (a strategy `classify()` never returns) and its output goes to `result.post_fix_drift`, not to any integrity score. Nothing wrote the key at all until the producer above. |
 | HR-15: Citations must include line numbers | **MUST** | `detection/ensemble_scorer.py` / `pattern_matcher.py` / `steering` | Grep confirmation in review |
 | HR-16: `gate_score_overrides` acts as a Threshold Floor | **MUST** | `core/quality_gate/sab_parser.py` | No automated override; fix code, re-architect, or escalate |
 

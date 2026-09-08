@@ -75,9 +75,14 @@ STATE_PRODUCERS: Final[dict[str, str | None]] = {
                         # appears at runtime, and it is a read fallback
     "PAUSED": None,     # docs/USER_MANUAL.md names "manual pause" as the
                         # cause and the manual gives no command that sets it
-    "FREEZE": None,     # HR-14's stated effect; nothing writes it, and
-                        # core/auto_fix answers integrity escalation with an
-                        # EscalationCondition instead
+    "FREEZE": None,     # HR-14's stated effect; nothing writes it. Round 109
+                        # 站5 gave HR-14 an input — harness_bridge's
+                        # `_record_integrity` writes state["integrity"] at
+                        # every gate finalize — so the rule can now fire, but
+                        # what it produces is still an EscalationCondition
+                        # (HR14_INTEGRITY) and not this state. Who may move a
+                        # project into FREEZE is undecided; see
+                        # docs/PROPOSAL_ADJUDICATIONS.md Round 109 §5
     "DONE": None,       # no writer; a finished project keeps RUNNING
     "OPEN": None,       # circuit-breaker vocabulary; the kill switch keeps
                         # its circuits in core/phase_hooks.py's own registry

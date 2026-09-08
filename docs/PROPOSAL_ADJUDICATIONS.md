@@ -10042,3 +10042,101 @@ line-keying 第一版被推翻的理由,`tests/test_deferred_index.py:138` 也�
 迴圈立刻 break,取出空字串。守衛照樣紅,但紅的理由是「憲法區塊 0 字元」而不是真正的漂移。
 **一支因為錯誤理由而紅的守衛,和一支綠的守衛一樣沒有在看那件事**;修掉之後才看到第 419
 字元的分岔。這是先寫紅測試、而且**去讀那個紅的內容**的價值。
+
+### §5 站5 — HR-14:五份陳述,零個生產者
+
+「Integrity < 40 → FREEZE」寫在五個地方,而讓它可以被回答的那個數字,**沒有任何東西產生**。
+
+| 陳述 | 位置 | 實測 |
+|---|---|---|
+| 規則 | `constitution/CONSTITUTION.md:251` | — |
+| 規則(第二份) | `SKILL.md:365` | — |
+| 實作宣告 | `SAD.md:229` 指向 `core/auto_fix/guardrails.py::post_fix_drift_check()` | **指錯**:該函式只在 `AUTO_FIX_WITH_VERIFICATION` 分支下跑,而 `classify()` 從不回傳該策略(R49-C 刪掉了那個 prefix fallback default),`CLASSIFICATION_TABLE` 裡 0 筆;它的輸出進 `result.post_fix_drift`,與 integrity 無關 |
+| 讀者 | `core/auto_fix/__init__.py:405` | 1 個 |
+| 狀態生產者表 | `core/fsm/fsm.py:78` `STATE_PRODUCERS["FREEZE"] = None` | — |
+| **寫者** | — | **0**,且 15 個語料專案的 `state.json` 沒有一個帶這個鍵 |
+
+Round 108 站A 修好了讀的那一端(缺鍵不再回 100.0,改回 `None` 並記一筆棄權)。這一站是產的那端。
+
+**數字不是我發明的。** 老闆裁定位置在 `finalize_gate`,但沒有人裁定 integrity 量什麼,
+所以這一站**不決定**它的語意 —— 它把框架**已經擁有、而且名字就叫 integrity** 的那個判定
+(`PhaseHooks.manifest_integrity`,在 `PREFLIGHT_CHECKS` 裡註冊,也以
+`harness_cli.py check-manifest-integrity` 給每支 phase workflow 呼叫)投影到 HR-14 讀的刻度上。
+那個判定是兩值的,所以分數是兩值的:**100.0 或 0.0**,HR-14 的門檻 40 被這兩個數字夾住。
+**這件事寫在明處而不是包裝掉**:一個分級刻度(比如每個 issue 扣十分)會是我在這個檔案裡
+發明的刻度,背後沒有任何量測 —— 那正是 R32/R35 一再在講的事。
+
+**三種情況不寫,而且它們是同一句話:沒有人在這裡量到 integrity。**
+
+1. `skipped` —— 還沒有 `quality_manifest.json`,檢查什麼都沒讀。在這裡寫 100.0,就是把
+   Round 108 站A 剛從讀的那端拿掉的替換,原封不動裝回產的那端。
+2. 沒有 `state.json` —— 這是 gate finalize,不是 FSM 初始化器;`postflight_update_state`
+   為同樣的理由做同樣的選擇。
+3. `state.json` 讀不出來 —— lenient 讀回 `{}`,把它寫回去等於為了記一個數字毀掉狀態檔。
+
+三者都不算「算出判定卻丟掉」(R43):`AutoFixEngine._check_integrity` 用同一個 lenient 讀法
+讀同一個檔,三種情況都拿到 `None`,並照 Round 108 站A 把棄權寫進 degradation 賬本。
+
+**加鎖。** 寫在 `state_lock_path` 之下 —— 與 `cli/gate_cmds.py::_update_state_checkpoint`
+同一把鎖。SG-12 之所以存在,就是因為兩個 finalize 可能並行;在這裡做無鎖的
+read-modify-write 等於把那個競態重新打開。
+
+**判斷與呈現分家。** `preflight_manifest_integrity` 開頭就印
+`[PRE-FLIGHT] Manifest Integrity Check`,而且六個 print 與 return 交錯,`finalize_gate`
+要重用這個判定的唯一辦法就是印出一句關於自己什麼時候跑的假話。拆成:`manifest_integrity()`
+只判斷、不出聲;wrapper 負責宣告。**新方法刻意不叫 `preflight_*`** —— 那個前綴會觸發
+`PREFLIGHT_CHECKS` 的完備性 meta-test(`tests/test_preflight_registry.py`),而 pipeline
+跑的是 wrapper。輸出逐行不變,而且守衛釘的是**整段 stdout 的逐字內容**而非子字串:
+printer 現在是從 report **推導**那三個數字,而推導正是 `len(fr_trace)` 悄悄變成 `len(fr_ids)`
+的地方。
+
+**計畫書的兩處被實作修正。**
+- 計畫寫「9 個 return,大改是重構風險,若需動到就停手」。實際數:**外層 4 個 return**,
+  另外 5 個在巢狀 helper `_has_real_gate1_content` 裡。停手條件因此沒有觸發,而我把這個
+  數字記下來,因為「我以為的風險」與「量出來的風險」差了一倍以上。
+- 計畫寫「6/6 語料 passed=True」。今天對 18 個 `taskq*` 專案唯讀實跑:
+
+```
+14 個  → integrity = 100.0     (manifest 完好)
+ 4 個  → 不寫任何分數           (taskq-forever / taskq-mm / taskq-opus / taskq-sol:
+                                還沒有 quality_manifest.json)
+ 0 個  → integrity = 0.0
+```
+
+**所以 HR-14 落地後,在今天的語料上仍然不會觸發。** 這不是失敗,而是理由換了:
+從「這個鍵沒有寫者,規則不可能被回答」變成「沒有任何一份 manifest 是壞的」。
+**這是進步,但不戲劇性,不誇大。**
+
+**連帶的三份陳述同步改成當下為真**(不改就是造出第六份):
+- `SAD.md:229` 指向真正的生產者與讀者,並記下它原本指錯的是什麼、為什麼那不是 HR-14。
+- `core/fsm/fsm.py::STATE_PRODUCERS["FREEZE"]` 仍是 `None` —— HR-14 產出的是
+  `EscalationCondition.HR14_INTEGRITY`,不是這個狀態;誰有權把專案推進 FREEZE 未定
+  (見下方明列不做)。註解改成說明「規則現在可以觸發了,但觸發的結果不是這個狀態」。
+- `tests/MEASUREMENT_SINKS.yaml` 的 `auto_fix` 條目,它自己的再開條件寫著
+  「Reopen when anything writes an integrity score」—— 本站達成了。該條目改成記載
+  它現在是**兩條路徑中較窄的那條**(棄權仍然可達、而且仍然正確),新的再開條件是
+  「一個已經 finalize 過 gate 的專案仍記到這一列」——那代表生產者沒有寫到讀者打開的那個檔。
+
+**反證**:CP-5a 拿掉 `self._record_integrity(ctx)` → 兩支生產者測試紅。
+CP-5b 刪掉 `skipped` 那道 guard(即在沒讀到 manifest 時照寫 100.0)→
+`test_an_unmeasurable_manifest_writes_no_score` 紅 —— **證明那支控制組不是空的**,
+它真的會抓到 R32/R35 的替換。兩次由 `cp` 備份還原,sha256 相同(`78ca7907…`)。
+
+**全套 8491 支跑完後,兩支守衛抓到我這一站自己的問題,兩件都成立。**
+
+1. `test_every_production_phasehooks_construction_passes_drift_threshold`(Round 9 的設定 SSOT)
+   —— 我第一版的 `PhaseHooks(...)` 沒帶 `drift_threshold=`,於是吃到寫死的預設 85.0。
+   `manifest_integrity` 根本不用那個值,但守衛管的是**生產側的建構不得靜默吃預設**,
+   而那正是 Round 9 那一輪的病灶。照 `cli/checks/approvals.py:38` 的既有寫法改成
+   `get_value(project, "drift_threshold")`。
+2. `test_private_patch_ratchet` —— 我的測試 fixture 抄了
+   `tests/test_required_artifacts_reach_the_verdict.py` 的三個私有 seam patch
+   (`_update_quality_manifest` / `_log` / `_effort`)。那個檔在 ratchet 表裡有 ceiling 3
+   的先例,我大可比照加一列 —— **但先量了「到底需不需要」:三個都不需要。**
+   它們寫進 tmp_path 專案,而我的斷言全在 `state.json`,`_record_integrity` 比它們三個
+   都早跑到。三個 patch 全部拿掉,ratchet 不必上調,測試從私有 seam 回到公開行為。
+   **抄一份先例比量一次便宜,而這一輪的整個主題就是這個。**
+
+新守衛 6 支(guards 1394 → 1400)。行數 ratchet 三項同 commit 上調:
+`core/phase_hooks.py` 2102→2131、`harness/harness_bridge.py` 3538→3606、
+`finalize_gate` 1020→1024。
