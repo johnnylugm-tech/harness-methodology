@@ -797,7 +797,16 @@ class TestGate1LiveCoverageCheck:
         import json
         m = tmp_path / ".methodology" / "quality_manifest.json"
         m.parent.mkdir(parents=True, exist_ok=True)
-        m.write_text(json.dumps({"fr_ids": fr_ids}), encoding="utf-8")
+        # Round 109 站6: `quality_targets.min_coverage` is the floor these
+        # tests' own docstrings already say the coverage is compared against
+        # ("real pytest coverage >= min"). It used to be absent and the
+        # framework substituted its own 80.0; now an undeclared floor means
+        # there is no comparison to make and the check blocks, so the fixture
+        # states the number it was always assuming.
+        m.write_text(json.dumps({
+            "fr_ids": fr_ids,
+            "quality_targets": {"min_coverage": 80},
+        }), encoding="utf-8")
 
     def _run_check(self, tmp_path: Path, completed_phase: int) -> int:
         return _check_gate1_live_coverage(tmp_path, completed_phase)

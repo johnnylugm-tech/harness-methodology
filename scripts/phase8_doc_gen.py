@@ -85,8 +85,32 @@ def _collect(project: Path) -> dict:
         "phase_truth_passed": state.get("phase_truth_passed", False),
         "frs": frs,
         "fr_summary": ", ".join(f["id"] for f in frs) or "(none)",
-        "min_coverage": min_coverage_floor(manifest),
+        "min_coverage": _declared_min_coverage(project, manifest),
     }
+
+
+def _declared_min_coverage(project: Path, manifest: dict) -> "float | str":
+    """The project's coverage target for the release document, or a phrase.
+
+    Round 109 站6. This field lands in a SHIPPED document, and it used to
+    print the framework's `DEFAULT_MIN_COVERAGE` for a project that had
+    declared no target — a reader takes a number in a release doc for the
+    project's own. `None` would render as the literal "None", which is worse
+    than either, so the absence is written in words.
+    """
+    floor = min_coverage_floor(manifest)
+    if floor is not None:
+        return floor
+    from core.degradation_ledger import record_degradation
+    from core.fault_owner import Owner
+    record_degradation(
+        project, "phase8-doc-gen", "no declared coverage target to publish",
+        why=("quality_manifest.json declares no "
+             "`quality_targets.min_coverage`, so the release document has no "
+             "project target to state. Declare it under quality_targets in "
+             "the SAB block of SAD.md"),
+        owner=Owner.PROJECT)
+    return "(not declared)"
 
 
 def _render_template(template_path: Path, context: dict) -> str:

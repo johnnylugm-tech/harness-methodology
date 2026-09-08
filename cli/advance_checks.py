@@ -103,6 +103,27 @@ def _check_gate1_live_coverage(project: Path, completed_phase: int) -> int:
     # transitions get. P3 is excluded from it deliberately — at P3 the
     # whole-project number necessarily carries modules later FRs have not
     # written yet, which is the measurement Round 56 站6 rests on.
+    # Round 109 站6: the floor is first USED here, and this is where its
+    # absence has to stop the run. An earlier placement was wrong and an
+    # existing test said so: the DELTA auto-skip above returns before any
+    # comparison happens, so blocking there accused a project over a number
+    # nothing was about to read (Round 46).
+    if _min_cov is None:
+        from core.degradation_ledger import record_degradation
+        from core.fault_owner import Owner
+        record_degradation(
+            project, "advance:gate1-coverage",
+            "no coverage floor to check against",
+            why=("quality_manifest.json declares no "
+                 "`quality_targets.min_coverage`, so this project's live "
+                 "Gate 1 coverage has no number to be compared with. Declare "
+                 "it under quality_targets in the SAB block of SAD.md"),
+            owner=Owner.PROJECT)
+        print("  [Gate 1 coverage] BLOCKED: the project declares no "
+              "quality_targets.min_coverage — nothing to check against.",
+              file=sys.stderr)
+        return 14
+
     return _gate1_per_fr_coverage_verdict(
         project, fr_ids_manifest, _min_cov,
         whole_project=cov, phase=completed_phase,

@@ -10140,3 +10140,87 @@ CP-5b 刪掉 `skipped` 那道 guard(即在沒讀到 manifest 時照寫 100.0)→
 新守衛 6 支(guards 1394 → 1400)。行數 ratchet 三項同 commit 上調:
 `core/phase_hooks.py` 2102→2131、`harness/harness_bridge.py` 3538→3606、
 `finalize_gate` 1020→1024。
+
+### §6 站6 — 框架替專案填的那個數字,又被讀回來當成專案的答案
+
+`min_coverage_floor` 在專案沒有宣告 `quality_targets.min_coverage` 時回
+`DEFAULT_MIN_COVERAGE = 80.0`。那是**框架回答了一個只有專案能回答的問題**,然後下游
+每一個檢查再拿框架自己的答案去判定專案 —— 與 Round 108 站A 的 `state["integrity"]`
+同一個形狀,往前走一層。
+
+賬本原本的不做理由(`PROPOSAL_ADJUDICATIONS.md:9349`)是「回 `None` 會擋掉每一個沒寫
+這個鍵的專案」。**實測 2026-09-08:**
+
+```
+宣告      14 / 14      (80 ×3、100 ×11)
+缺席       0
+畸形       0
+```
+
+**代價為零。** 那個預設值一直在代替一份從沒有人被要求做出的宣告。
+
+**刻意不對稱,而且釘住它。** 缺席與畸形是兩件不同的事實:沒有人宣告 → `None`;
+有人宣告了但讀不出來 → 維持原本的回退,理由是函式自己的 docstring 早就寫著的那個
+(`quality_targets` 打錯字不該讓 gate 崩潰),而且語料裡畸形 0 例 —— 把它一併改掉會是
+一個沒有任何量測支撐的決定。**這條寫進賬本並附再開條件,而不是靜靜地把它弄成一致。**
+
+**四個呼叫點,各自處理,一個都沒有當成通過:**
+
+| 呼叫點 | 原本 | 現在 |
+|---|---|---|
+| `cli/advance_checks.py` | 拿框架的 80 比對後回 0(全部 FR 通過) | 記一筆 owner=project 的 degradation,回 14 |
+| `cli/fr_cmds.py` COVERAGE-FIX | `_live_cov >= _cov_min` 用框架的數字推翻 agent 的 LOW_COVERAGE | 比較加 `is not None` 護欄,落到 operator break,並記一筆 |
+| `cli/gate_cmds.py` | `int(min_coverage_floor(...))` | `None` 時不 `int()`,改走新 helper(見下) |
+| `scripts/phase8_doc_gen.py` | 把 80 印進**出貨的**發布文件 | 印 `(not declared)` 並記一筆 |
+
+**`cli/gate_cmds.py` 是這個缺陷最尖銳的形式。** run-gate 的 non-code FR 分支用**散文**
+告訴 agent:「Score this dimension as {cov_threshold} (= threshold).」而 `cov_threshold`
+來自 `min_coverage_floor`。所以在一個什麼都沒宣告的專案上,**框架發明一個數字,交給
+agent 寫回去當成量測到的分數**。沒有宣告時,新的
+`_non_code_coverage_instruction(None)` 改成要 agent 把該維度留成 UNSCORED 並說明原因 ——
+那是框架**已經會處理**的狀態(`_stage_absent_dimensions` 會擋,Round 60),而不是再發明
+一個門檻或悄悄把維度丟掉。順帶,`int(None)` 本來就是一顆等著第一個沒宣告的專案踩的
+TypeError。
+
+**放置的位置被既有測試改正了一次。** 我第一版把 advance-phase 的阻擋放在讀完 manifest
+之後 —— 也就是 **DELTA auto-skip 之前**。`test_check_gate1_live_coverage_delta_auto_skip`
+當場轉紅:那條路徑在**任何比較發生之前**就 return 0(所有 FR 自上次 Gate 1 以來沒改過,
+信任先前的 finalize-gate 記錄),所以在那裡擋,是為了一個**沒有人正要去讀**的數字而指控
+一個專案 —— R46 的誣告形狀。阻擋移到那個 floor 唯一被使用的地方之前。
+**這一輪第三次撞上 R46,而這次是既有守衛抓到的,不是我。**
+
+**我自己的守衛第一版是空的,而且我把它記下來而不是修掉就算。**
+`test_the_checker_class_does_not_keep_a_second_copy` 的第一版是
+`CoverageChecker.DEFAULT_MIN_COVERAGE is DEFAULT_MIN_COVERAGE` —— 它**在修改前就是綠的**。
+CPython 會把同一個模組裡相同的 float 常數摺疊成同一個物件,所以兩個各自打出來的 `80.0`
+本來就是同一個物件,那個斷言分不出「副本」和「引用」。守衛改成:保留執行期的相等斷言
+(它抓的是兩者**日後數值分岔**),再加一條**逐字**的原始碼斷言(一個名字、一個檔案、
+一行精確比對)——後者才是真正在看「類別主體有沒有再打一次那個數字」。
+
+**明確不做**:刪 `AutoQualityGate`(`CoverageChecker` 的唯一使用者,零生產呼叫者 ——
+只有 `feedback_hook.AutoQualityGateWithFeedback` 子類與其測試)。CLAUDE.md:無關 dead code
+告知不刪。這是本站順帶量到的獨立發現,附再開條件。
+
+**反證**:CP-6 把 `min_coverage_floor` 改回缺席時回 `DEFAULT_MIN_COVERAGE` → 3 支紅
+(reader、advance 檢查、發布文件)。CP-7 把類別屬性改回 `= 80.0` → SSOT 守衛紅,
+**證明是那條原始碼斷言在承重**。`cp` 還原後 sha256 相同(`fb2c1621…`)。
+
+**全套跑完後,另外六支既有測試轉紅,全部是我的,而且六支都在說同一件事。**
+`tests/test_measurement_sinks.py::test_every_producer_names_a_sink` 要求每一個新的
+`record_degradation` 生產點都必須在 `MEASUREMENT_SINKS.yaml` 裡指名去向 —— 四個新生產點
+補上(`advance:gate1-coverage` / `gate:coverage-floor` 是 verdict,
+`fr-step-coverage-fix` / `phase8-doc-gen` 是 report-only 並各附再開條件)。另外五支
+(`tests/cli/test_phase_cmds_cli.py` 三支、`tests/test_handover_generator.py` 兩支)
+的 fixture 寫的是 `{"fr_ids": [...]}` —— **沒有 `quality_targets`**,而它們自己的
+docstring 寫著「real pytest coverage ≥ **min**」。在新規則下那個 manifest 的意思正是
+「這個專案沒有宣告 floor」,所以它們斷言的 `== 0` 就是本站要禁止的那個判定。
+fixture 補上 `quality_targets: {"min_coverage": 80}` —— **那是它們一直在假設、卻從來
+沒有寫出來的那個數字**,補上之後每支測試的原意都成立。這不是把測試改成配合我的改動,
+差別在於:改的是 fixture 缺的那份宣告,不是斷言。
+
+新守衛 9 支(guards 1400 → 1409)。ratchet 三項同 commit:`cli/fr_cmds.py` 2225→2242、
+`cli/gate_cmds.py` 3336→3371、`cmd_run_fr_step` 856→872。
+`tests/golden/god_file_split/surface.json` 同 commit 重生成 —— `_check_gate1_live_coverage`
+是**刻意改動**,那正是該檔頭寫的唯一允許重生成的情況(「Regenerate ONLY when a function
+is deliberately changed, in the same commit as the change, and say so in the commit
+message」),而本 commit 沒有任何搬移,兩者不會互相掩蓋。

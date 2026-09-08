@@ -301,6 +301,51 @@ sinks:
       HAS finalized a gate still records this row — that would mean the
       producer did not reach the file the reader opens.
 
+  # ── Round 109 站6: the four readers of quality_targets.min_coverage ────
+  # `min_coverage_floor` used to answer the framework's own 80.0 when a
+  # project declared no floor, so all four of these judged a project against
+  # a number nobody in that project had written. Each now says so instead.
+  # owner=project on all four: declaring a coverage target is the project's.
+
+  "advance:gate1-coverage":
+    sink: verdict
+    where: >-
+      cli/advance_checks.py::_check_gate1_live_coverage returns 14
+      (EX_GATE1_LIVE_COVERAGE_FAIL) — advance-phase blocks. Placed
+      immediately before the floor's only use, NOT after the manifest read:
+      the DELTA auto-skip above returns before any comparison happens, and
+      an earlier placement blocked projects over a number nothing was about
+      to read (Round 46; tests/test_gate1_live_coverage.py caught it).
+  "gate:coverage-floor":
+    sink: verdict
+    where: >-
+      cli/gate_cmds.py's run-gate: `_non_code_coverage_instruction(None)`
+      tells the agent to leave test_coverage UNSCORED and say why, and an
+      unscored dimension is blocked by harness_bridge's
+      _stage_absent_dimensions (Round 60). The alternative was the previous
+      behaviour — handing the agent the framework's 80 to write back as a
+      measured score.
+  "fr-step-coverage-fix":
+    sink: report-only
+    why: >-
+      cli/fr_cmds.py's COVERAGE-FIX branch. The row records that the agent's
+      LOW_COVERAGE could not be overturned, and the run then takes the
+      operator break it would have taken anyway — the guarded comparison
+      cannot conclude "false positive" without a floor, so the fail-closed
+      outcome is already the verdict. report-only because escalating here
+      would double-report the break the branch already produces. Reopen if a
+      project reaches this row and the run does NOT stop.
+  "phase8-doc-gen":
+    sink: report-only
+    why: >-
+      scripts/phase8_doc_gen.py renders a release document; it judges
+      nothing and blocks nothing, by design (the Phase 8 reviewer reads its
+      output). The row exists because the field it fills is SHIPPED: it used
+      to print the framework's 80 as the project's coverage target, and a
+      reader takes a number in a release document for the project's own. The
+      document now says "(not declared)". Reopen if a released document is
+      ever taken as evidence by a check rather than by a person.
+
   # ── unreviewed ─────────────────────────────────────────────────────────
   # Nobody has read these sites and asked whether anything acts on them.
   # Round 67 did not read them either, and says so rather than guessing.

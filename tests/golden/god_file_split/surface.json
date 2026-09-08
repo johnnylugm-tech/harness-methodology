@@ -565,7 +565,7 @@
     "cli.phase_cmds::_attestation_content_still_current": "7a052041cb199055",
     "cli.phase_cmds::_broken_deliverable_anchors": "c99ad3eddb58971b",
     "cli.phase_cmds::_check_deferred_fixes_resolved": "b9016a80306acb4b",
-    "cli.phase_cmds::_check_gate1_live_coverage": "4e6d6001bb1b9c97",
+    "cli.phase_cmds::_check_gate1_live_coverage": "470ea0b57665c609",
     "cli.phase_cmds::_check_gate_score_variance": "7ff9a2c5e0e38211",
     "cli.phase_cmds::_check_ghost_paper_trail": "c3b827ff2917d175",
     "cli.phase_cmds::_cmd_run_phase_impl": "a046b642372e78ab",

@@ -30,6 +30,7 @@ from core.agent_spawner import (
 )
 from core.canonical_form import fr_num_str
 from core.degradation_ledger import record_degradation
+from core.fault_owner import Owner
 from core.harness_config import get_timeout, get_value
 from core.pre_flight import check_cli_tools
 from core.quality_gate import gate1_evidence
@@ -919,6 +920,21 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                         from core.quality_gate import min_coverage_floor
                         _mfst = load_quality_manifest(Path(str(project)), lenient=True)
                         _cov_min = min_coverage_floor(_mfst)
+                        if _cov_min is None:
+                            # Round 109 站6: with no declared floor there is no
+                            # threshold the live number could clear, so the
+                            # agent's LOW_COVERAGE cannot be called a false
+                            # positive. The comparison below is guarded and
+                            # this falls through to the operator break.
+                            record_degradation(
+                                Path(str(project)), "fr-step-coverage-fix",
+                                "no declared coverage floor to overturn "
+                                "LOW_COVERAGE with",
+                                why=("quality_manifest.json declares no "
+                                     "`quality_targets.min_coverage`. Declare "
+                                     "it under quality_targets in the SAB "
+                                     "block of SAD.md"),
+                                owner=Owner.PROJECT)
                         try:
                             _live_cov = gate1_evidence.validate_fr_coverage_immediate(
                                 Path(str(project)), fr_id=fr_id)
@@ -926,7 +942,8 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
                             _live_cov = None
                             print("  [run-fr-step] COVERAGE-FIX inline "
                                   f"measurement failed: {_exc}")
-                        if _live_cov is not None and _live_cov >= _cov_min:
+                        if (_live_cov is not None and _cov_min is not None
+                                and _live_cov >= _cov_min):
                             # [manifest update] sub-agent's LOW_COVERAGE
                             # classification was a false positive. The
                             # authoritative Gate 1 verdict (phase4-testing.js

@@ -797,6 +797,29 @@ def _check_red_phase_ordering(project: Path, fr_id: str) -> tuple[bool, str]:
         return True, ""   # ancestry check timed out → fail-open (non-fatal)
     return True, ""
 
+def _non_code_coverage_instruction(cov_threshold: "int | None") -> str:
+    """What to tell the agent to do with a non-code FR's `test_coverage`.
+
+    Round 109 站6. This sentence used to read "Score this dimension as
+    {cov_threshold} (= threshold)" unconditionally, and `cov_threshold` came
+    from `min_coverage_floor`, which answered the framework's own 80.0 for a
+    project that had declared nothing. So the framework handed the agent a
+    number it had invented, in prose, to be written back as a measured score
+    — the sharpest form of the defect that station is about.
+
+    With no declared floor there is no number to give. An unscored dimension
+    is a state this framework already handles (`_stage_absent_dimensions`
+    blocks on it, Round 60), which is why the instruction routes there rather
+    than inventing a threshold or silently dropping the dimension.
+    """
+    if cov_threshold is None:
+        return ("Leave this dimension UNSCORED and say why: this project "
+                "declares no `quality_targets.min_coverage`, so there is no "
+                "threshold to score a non-code FR against.\n")
+    return (f"Score this dimension as {cov_threshold} (= threshold). "
+            f"Infrastructure/config FRs are exempt from coverage measurement.\n")
+
+
 def _print_fr_scoped_overrides_py(
     project: str,
     fr_id: str,
@@ -805,7 +828,7 @@ def _print_fr_scoped_overrides_py(
     manifest_data: dict,
     *,
     non_code_frs: set[str],
-    cov_threshold: int,
+    cov_threshold: "int | None",
 ) -> None:
     """Print Gate-1 FR-scoped tool commands for a Python project."""
     # Resolution logic (fr_module_traceability → owned path, package-dir glob
@@ -822,8 +845,7 @@ def _print_fr_scoped_overrides_py(
             f"test_coverage — {fr_id} is declared as a non-code FR "
             f"(no scoreable source to measure):\n"
             f"  echo 'NON_CODE_FR: coverage not applicable'\n"
-            f"  Score this dimension as {cov_threshold} (= threshold). "
-            f"Infrastructure/config FRs are exempt from coverage measurement.\n"
+            f"  {_non_code_coverage_instruction(cov_threshold)}"
             f"  Set tool_evidence = 'non-code FR: {fr_id} declared in fr_non_code'\n\n"
             f"linting — lint only the FR source directory:\n"
             f"  python3 -m ruff check {src_dir}/ --extend-ignore RUF001,RUF002,RUF003 2>&1 | head -200\n\n"
@@ -928,7 +950,7 @@ def _print_fr_scoped_overrides_js(
     test_dir_str: str,
     *,
     non_code: bool,
-    cov_threshold: int,
+    cov_threshold: "int | None",
 ) -> None:
     """Print Gate-1 FR-scoped tool commands for a JS/TS project.
 
@@ -949,8 +971,7 @@ def _print_fr_scoped_overrides_js(
             f"test_coverage — {fr_id} is declared as a non-code FR "
             f"(no scoreable source to measure):\n"
             f"  echo 'NON_CODE_FR: coverage not applicable'\n"
-            f"  Score this dimension as {cov_threshold} (= threshold). "
-            f"Infrastructure/config FRs are exempt from coverage measurement.\n"
+            f"  {_non_code_coverage_instruction(cov_threshold)}"
             f"  Set tool_evidence = 'non-code FR: {fr_id} declared in fr_non_code'\n\n"
             f"linting — lint the project (eslint scope comes from eslint.config.mjs):\n"
             f"  npx --no-install eslint . -f json 2>&1 | head -200\n\n"
@@ -1371,7 +1392,21 @@ def _cmd_run_gate_impl(args: argparse.Namespace) -> int:
             | set(_manifest_data.get("fr_non_python", []))
         )
         from core.quality_gate import min_coverage_floor
-        _cov_threshold = int(min_coverage_floor(_manifest_data))
+        _cov_floor = min_coverage_floor(_manifest_data)
+        _cov_threshold = None if _cov_floor is None else int(_cov_floor)
+        if _cov_threshold is None:
+            # Round 109 站6. `int(None)` used to be a TypeError waiting for the
+            # first project that declared nothing; the number itself was worse
+            # than the crash — see `_non_code_coverage_instruction`.
+            from core.degradation_ledger import record_degradation
+            from core.fault_owner import Owner
+            record_degradation(
+                project, "gate:coverage-floor",
+                "no declared coverage floor for the FR-scoped overrides",
+                why=("quality_manifest.json declares no "
+                     "`quality_targets.min_coverage`. Declare it under "
+                     "quality_targets in the SAB block of SAD.md"),
+                owner=Owner.PROJECT)
 
         from core.utils.lang_patterns import project_language as _proj_lang
         _language = _proj_lang(Path(project))

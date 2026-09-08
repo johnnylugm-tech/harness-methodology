@@ -1879,6 +1879,10 @@ class TestCmdAdvancePhase:
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            # Round 109 站6: an undeclared coverage floor now blocks the
+            # advance instead of being substituted with the framework's 80.0.
+            # These fixtures are about gate-score variance, not coverage.
+            "quality_targets": {"min_coverage": 80},
             "gate_results": {"gate1": {"FR-01": True, "FR-02": True, "FR-03": True}},
         }))
 
@@ -1927,6 +1931,10 @@ class TestCmdAdvancePhase:
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            # Round 109 站6: an undeclared coverage floor now blocks the
+            # advance instead of being substituted with the framework's 80.0.
+            # These fixtures are about gate-score variance, not coverage.
+            "quality_targets": {"min_coverage": 80},
             "gate_results": {"gate1": {"FR-01": True, "FR-02": True, "FR-03": True}},
         }))
 
@@ -1991,6 +1999,10 @@ class TestCmdAdvancePhase:
         }))
         (method_dir / "quality_manifest.json").write_text(_json.dumps({
             "fr_ids": ["FR-01", "FR-02", "FR-03"],
+            # Round 109 站6: an undeclared coverage floor now blocks the
+            # advance instead of being substituted with the framework's 80.0.
+            # These fixtures are about gate-score variance, not coverage.
+            "quality_targets": {"min_coverage": 80},
             "gate_results": {"gate1": {"FR-01": True, "FR-02": True, "FR-03": True}},
         }))
 

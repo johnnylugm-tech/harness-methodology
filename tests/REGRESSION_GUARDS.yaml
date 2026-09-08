@@ -5719,3 +5719,39 @@
 - test: tests/test_hr14_has_a_producer.py::test_a_blocked_preflight_still_names_the_issue_and_the_recovery
   bug: "the failure path's output, pinned for the same reason. The blocked returns now carry `issues:` as a list so the wrapper can print one `[BLOCKED]` line per issue; reconstructing them by splitting the joined `reason` string would have been a parser over the framework's own prose"
   fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_an_undeclared_floor_is_not_a_number
+  bug: "min_coverage_floor answered DEFAULT_MIN_COVERAGE = 80.0 for a project that declared no quality_targets.min_coverage — the framework filling in an answer only the project can give, which every check downstream then judged the project against as if the project had given it. The ledger's reason for leaving it (PROPOSAL_ADJUDICATIONS.md:9349, 'would block every project that does not write this key') has zero instances: measured 2026-09-08, 14/14 corpus projects declare it (80 x3, 100 x11), none absent, none malformed"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_a_declared_floor_is_returned_unchanged
+  bug: "control: the fourteen projects that DO declare a floor must be untouched, including the string form ('80' -> 80.0) that the original float() coercion accepted"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_a_malformed_floor_still_falls_back
+  bug: "the deliberate asymmetry, pinned so it stays a decision rather than becoming a leftover. Nobody declaring a floor and somebody declaring an unreadable one are different facts: the first is None, the second keeps the fallback for the reason the function always had (a typo in quality_targets must not crash a gate) and because the corpus has zero malformed instances, so making it uniform would be a change with no measurement behind it"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_checker_class_does_not_keep_a_second_copy
+  bug: "CoverageChecker.DEFAULT_MIN_COVERAGE was a second 80.0 literal in the same file whose leading comment block exists because this key already had four readings. NOTE: the runtime `is`/`==` assertion is VACUOUS on its own — CPython folds equal float constants within a module, so two separately typed 80.0s were already the same object and the first version of this test passed against the unfixed code. What carries it is the exact-line source assertion beside it; the runtime check is kept for the case where the two later diverge in value"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_advance_check_refuses_to_pass_on_a_floor_it_does_not_have
+  bug: "advance-phase's live Gate 1 coverage check returned 0 (all FRs pass) after comparing against the framework's own 80.0. With no declared floor there is no comparison, and returning 0 reports an unmade judgement as a made one (Round 32/35). Placement matters and an existing test proved it: the first version blocked immediately after loading the manifest, ahead of the DELTA auto-skip that returns before any comparison happens — a project accused over a number nothing was about to read (Round 46). The block now sits immediately before the floor's only use"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_advance_check_does_not_block_a_project_that_declared_one
+  bug: "control: without it, returning 14 unconditionally would satisfy the test above while stopping all fourteen corpus projects from advancing"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_release_doc_does_not_print_a_floor_nobody_declared
+  bug: "scripts/phase8_doc_gen.py puts min_coverage into a SHIPPED release document. It printed the framework's 80 for a project that had declared no target, and a reader takes a number in a release doc for the project's own; returning None would have rendered the literal string 'None', which is worse than either. The absence is now stated in words and recorded on the ledger with owner=project"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_release_doc_still_prints_a_declared_floor
+  bug: "control for the above: a declared 100 still reaches the document"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_gate_does_not_hand_an_agent_a_threshold_nobody_set
+  bug: "the sharpest form of this defect. run-gate's non-code-FR branch told the agent in prose 'Score this dimension as {cov_threshold} (= threshold)', and cov_threshold came from min_coverage_floor — so on a project that declared nothing the framework invented a number and handed it to an agent to write back as a measured score. With no floor the instruction now routes to an UNSCORED dimension, a state the framework already blocks on (_stage_absent_dimensions, Round 60), instead of naming a threshold"
+  fixed_in: "Round 109"

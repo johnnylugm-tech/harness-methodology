@@ -31,19 +31,34 @@ from typing import Any  # noqa: F401 — may be used by derived classes
 DEFAULT_MIN_COVERAGE: float = 80.0
 
 
-def min_coverage_floor(manifest: "dict | None") -> float:
-    """The project's declared line-coverage floor, or the framework default.
+def min_coverage_floor(manifest: "dict | None") -> "float | None":
+    """The project's declared line-coverage floor, or `None` — it declared none.
 
-    A malformed value falls back rather than raising: this feeds a threshold
-    comparison, and a typo in quality_targets should not crash a gate. It is a
-    FLOOR — callers compare `measured >= floor`.
+    It is a FLOOR — callers compare `measured >= floor`.
+
+    Round 109 站6. This used to answer `DEFAULT_MIN_COVERAGE` for a project
+    that declared nothing, which is the framework filling in an answer only
+    the project can give and every check downstream then judging the project
+    against it. `None` is not a threshold, and a caller that cannot compare
+    must say so rather than pass (Round 32/35).
+
+    The ledger's reason for leaving this alone was that `None` "would block
+    every project that does not write this key". Measured 2026-09-08: 14 of
+    14 corpus projects declare it (80 ×3, 100 ×11), none is absent, none is
+    malformed. The stated cost has no instances.
+
+    ABSENT AND MALFORMED ARE NOT THE SAME FACT. Nobody declared a floor ->
+    `None`. Somebody declared one that cannot be read -> the fallback stands,
+    for the reason it always had (a typo in quality_targets must not crash a
+    gate) and because the corpus has zero instances, so changing it would be
+    a decision with no measurement behind it.
     """
+    targets = manifest.get("quality_targets") if isinstance(manifest, dict) else None
+    if not isinstance(targets, dict) or "min_coverage" not in targets:
+        return None
     try:
-        raw = (manifest or {}).get("quality_targets", {}).get(
-            "min_coverage", DEFAULT_MIN_COVERAGE
-        )
-        return float(raw)
-    except (AttributeError, TypeError, ValueError):
+        return float(targets["min_coverage"])
+    except (TypeError, ValueError):
         return DEFAULT_MIN_COVERAGE
 
 
@@ -94,7 +109,10 @@ class ComplexityChecker(BaseChecker):
 
 class CoverageChecker(BaseChecker):
     name = "coverage"
-    DEFAULT_MIN_COVERAGE = 80.0
+    # The module constant, not a second copy of it. The comment block above
+    # `DEFAULT_MIN_COVERAGE` exists because this key had four readings; a
+    # re-typed literal here would have made five (Round 109 站6).
+    DEFAULT_MIN_COVERAGE = DEFAULT_MIN_COVERAGE
     def run(self, artifacts: dict, min_coverage: float | None = None) -> list:
         min_coverage = min_coverage or self.DEFAULT_MIN_COVERAGE
         report = artifacts.get("coverage_report", {})
