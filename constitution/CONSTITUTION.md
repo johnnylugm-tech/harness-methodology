@@ -246,12 +246,19 @@ drift 檢查乾淨。`cr-close` fail-closed 強制執行上述全部；工單狀
 | HR-09 | ~~Claims Verifier 驗證需通過~~ **不再強制**——BVS log-based claims invariant 已移除（由 agent-writable sessions_spawn.log 重檢，不可獨立驗證）；claims_verifier 子系統未接入 FSM | — |
 | HR-10 | ~~sessions_spawn.log 需有 A/B 記錄~~ **已移除**——log 由代理自寫、非防竄改；A/B 品質改由 deliverable review + 工具計分 gate 把關 | — |
 | HR-11 | Phase Truth < 90% 禁進入下一 Phase | 終止 |
-| HR-12 | A/B 審查 > 5 輪 → PAUSE（Phase 1-2） | — |
-| HR-13 | Phase 執行 > 預估 ×3 → PAUSE | — |
-| HR-14 | Integrity < 40 → FREEZE 全面審計 | — |
+| HR-12 | A/B 審查 > 5 輪 → 升級 `HR12_MAX_ROUNDS`（Phase 1-2） | — |
+| HR-13 | Phase 執行 > 預估 ×3 → 升級 `HR13_TIMEOUT` | — |
+| HR-14 | Integrity < 40 → 升級 `HR14_INTEGRITY`，交人全面審計 | — |
 | HR-15 | citations 格式：`檔案#L行號` | -15 |
 | HR-16 | trace dimension（4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4）必須通過，無自動 override | 終止 |
 | HR-17 | **嚴禁從專案端修改 `harness/`（methodology submodule）內的任何檔案**。發現 bug 必須回報上游；submodule 內的 hotfix 會造成 diverged fork 且上游不可見。唯一允許的 submodule 操作為 `git submodule update --remote` | 終止 |
+
+> **升級（escalation）不是 FSM 狀態轉換。** HR-12/13/14 觸發時，`core/auto_fix` 回一個
+> `EscalationCondition` 放進 `result.escalation`，`state.json` 的 FSM 狀態不變。這三條
+> 規則到 Round 110 之前寫的是「→ PAUSE / → FREEZE」，而 `PAUSED` 與 `FREEZE` 在
+> `core/fsm/fsm.py::STATE_PRODUCERS` 裡都記著沒有寫者 —— §6.1 對這兩個狀態的 preflight
+> 阻擋是真的檢查，只是沒有任何東西會讓專案進入它們。誰有權把專案移入 `FREEZE`
+> 尚未裁定，見 `docs/PROPOSAL_ADJUDICATIONS.md` Round 109 §9。
 
 ---
 

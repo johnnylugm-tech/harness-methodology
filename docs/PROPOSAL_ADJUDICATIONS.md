@@ -10386,3 +10386,75 @@ L316-324 **已經跟上了** —— 它正確描述 `score: null` + `could_not_m
 **反證**:CP-1 改回 `score = 0` → 兩支紅並指名;還原後 sha256 相同。
 CP-7(計畫寫的「忠實改寫必須被抓到」)**在這一站不成立並撤回** —— prompt 不是
 render-from-SSOT 的副本,忠實改寫通過是正確行為,不是漏洞。換成 CP-7b 量界限。
+
+### §2 站2 — 三條規則承諾的狀態沒有人寫,而其中四份陳述是我上一輪弄假的
+
+#### 2a 規範文件面(實測 12 處,零誤判)
+
+`core/fsm/fsm.py::STATE_PRODUCERS` 誠實記著八個 FSM 狀態**七個沒有寫者**。
+規範文件沒有:
+
+```
+CONSTITUTION.md 249/250/251   HR-12/13/14 → PAUSE / PAUSE / FREEZE
+SKILL.md        363/364/365   同三條
+SKILL.md        494-498       FSM 圖 5 條轉換,-> RUNNING 之外全部無生產者
+```
+
+三條規則實際產出 `EscalationCondition.HR12_MAX_ROUNDS / HR13_TIMEOUT /
+HR14_INTEGRITY`,進 `result.escalation`,**沒有任何 FSM 轉換**。
+`preflight_fsm_check` 對 `FREEZE`/`PAUSED` 的阻擋是真的檢查 —— 只是沒有東西
+會讓專案進入那兩個狀態。`OPEN/HALF_OPEN/CLOSED` 是 kill-switch 詞彙,那張圖把
+兩套詞彙畫成一張。
+
+**Round 108 站A 知道這件事**:它的守衛 docstring 逐字寫著「`CONSTITUTION.md:251`
+and `SKILL.md:365` carry HR-14 … as a rule with no writer at either end」。
+它修了表與 USER_MANUAL,沒修這兩份,而 **Round 108 沒有明列不做 section** ——
+所以那個觀察活在一支測試的 docstring 裡,沒有任何再開條件掛得上去。這正是站3
+要補的那種缺口的實例。
+
+**做法**:規則列改成它實際 raise 的 escalation 名;FSM 圖**不再是圖**,改成
+`STATE_PRODUCERS` 的同源表。理由很直接:**畫不出來的箭頭就不要畫**。
+
+**守衛範圍是量出來的,不是選的**。R108 站A 的第一版全樹掃描以 3/4 誣告被撤。
+我這一支問的是更窄的問題(宣稱一個沒有寫者的狀態),全樹掃 10 命中 **2 個誤判**
+(`REGRESSION_GUARDS.yaml` 的 `bug:` 欄引用憲法舊文、`docs/superpowers/` 下 2026-05
+的計畫文件)—— 兩者都是「當時為真」的記錄,改它們是 R44。**限定到兩份規範文件後
+8 命中 8 真**。守衛加在 `test_fsm_states_have_producers.py`,那是這個性質的家。
+
+`PAUSED` 的動詞形 `PAUSE` 進映射,因為 HR-12/13 **實際這樣寫**(第一次掃描漏了
+這六列中的四列,就是因為我只找狀態名)。映射只收有實例的形,不預先枚舉。
+
+#### 2b 我上一輪弄假的四處
+
+Round 109 站5 讓 `_record_integrity` 在每次 gate finalize 寫 `state["integrity"]`。
+**寫者從 0 變 1。** 上一輪我只改了 `fsm.py:78`,這四處留在原地:
+
+| 位置 | 站5 前為真、站5 後為假 |
+|---|---|
+| `core/auto_fix/__init__.py` degradation `why=` | 「nothing in the framework writes one」——**執行期訊息,會落盤給人看** |
+| `core/auto_fix/__init__.py::_check_integrity` docstring | 「`state["integrity"]` … **no writer at all**」 |
+| `core/fsm/fsm.py:52` | 「a rule with **no writer at either end**」 |
+| `tests/test_fsm_states_have_producers.py` docstring | 「nothing writes `state["integrity"]` either」 |
+
+R39 母體,在我自己身上。**第一版盤點沒看到它 —— 是老闆退回要求再驗證時才挖出來的。**
+
+改法帶著判準:**宣稱當下為真的句子改**(規則列、圖、註解、執行期訊息);
+**記載當時發現了什麼的歷史不改**(`REGRESSION_GUARDS.yaml` 的 `bug:`、
+`MEASUREMENT_SINKS.yaml` 通篇過去式的那段、ratchet 算式、舊計畫文件);
+**標了日期的量測用補記而不是改寫**(`test_hr14_abstains_instead_of_passing.py`
+的「Measured 2026-09-08: writers 0」那天為真,同一天站5 給了它寫者)。
+
+順帶,「缺席」的意思因此變了,而且變好了:以前是「沒有東西產生這個數」,現在是
+**「這個專案還沒 finalize 過任何 gate」**。答案仍是 `None`。
+
+#### 2c 反證與界限
+
+- **CP-2** 憲法 HR-14 改回 `→ FREEZE` → 守衛紅並指名 `CONSTITUTION.md:251`
+- **CP-3** 在 SKILL.md 加回一條 `RUNNING -> DONE` 箭頭 → 守衛紅並指名該行
+- **CP-4** `auto_fix` 的 docstring 改回「no writer at all」→ **55 支全綠,守衛抓不到**
+
+CP-4 是刻意做的:**2b 那四處沒有守衛,而我在計畫裡就先聲明了這件事**。為它造一支
+掃描器要對自然語言判真假,那是 R46 誣告器的形狀;2a 之所以能零誤判,是因為
+`STATE_PRODUCERS` 是一張現成的、機器可讀的表。這個界限記在這裡,不假裝守衛比實際大。
+
+三份還原後 sha256 全部相同。

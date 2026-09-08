@@ -1,9 +1,11 @@
 """Round 109 站5 — the rule with five statements and no producer.
 
-HR-14 ("Integrity < 40 → FREEZE") is written down in five places:
+HR-14 (then worded "Integrity < 40 → FREEZE"; Round 110 站2 rewrote both
+documents to say `HR14_INTEGRITY`, the escalation it actually raises, because
+`FREEZE` has no writer) is written down in five places:
 
-    constitution/CONSTITUTION.md:251   the rule
-    SKILL.md:365                       the rule, again
+    constitution/CONSTITUTION.md      the rule
+    SKILL.md                          the rule, again
     SAD.md:229                         names `core/auto_fix/guardrails.py`
                                        `post_fix_drift_check()` as its impl
     core/auto_fix/__init__.py:405      the reader
@@ -210,7 +212,8 @@ def test_a_corrupt_manifest_scores_zero_and_hr14_fires(monkeypatch, tmp_path):
     )
     assert escalation is EscalationCondition.HR14_INTEGRITY, (
         f"the framework wrote 0.0 and HR-14 did not fire: {escalation}. "
-        f"constitution/CONSTITUTION.md:251 says Integrity < 40 → FREEZE")
+        f"constitution/CONSTITUTION.md's HR-14 row says Integrity < 40 raises "
+        f"HR14_INTEGRITY")
 
 
 def test_an_unmeasurable_manifest_writes_no_score(monkeypatch, tmp_path):

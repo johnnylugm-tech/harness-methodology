@@ -48,8 +48,11 @@ _DEPRECATED_STATE_MAP: Final[dict[str, str]] = {
 #: The consequences are not theoretical — `core/phase_hooks.py`'s
 #: `preflight_fsm_check` blocks a run when the state is `FREEZE` or `PAUSED`,
 #: and the only thing that has ever produced either is a test fixture;
-#: `constitution/CONSTITUTION.md:251` and `SKILL.md:365` carry HR-14
-#: ("Integrity < 40 → FREEZE") as a rule with no writer at either end.
+#: `constitution/CONSTITUTION.md` and `SKILL.md` carried HR-14 as
+#: "Integrity < 40 → FREEZE" — a rule with no writer at either end. Round 109
+#: 站5 gave it the input; Round 110 站2 made both documents say what it
+#: actually raises (`HR14_INTEGRITY`), because a rule whose stated effect
+#: cannot happen is worse than a rule with no stated effect at all.
 #:
 #: This table is DECLARED, not inferred. Inferring it was the first plan and
 #: the measurement killed it: an AST scan for a `"state"` key holding a string

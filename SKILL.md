@@ -360,9 +360,9 @@ drift clean. Closed CRs append to `09-maintenance/MAINTENANCE_LOG.md`.
 | HR-09 | Claims Verifier citations must pass | -20 / Terminate |
 | HR-10 | ~~sessions_spawn.log must have A/B entries~~ **REMOVED** — log is agent-writable, not tamper-evident; A/B quality enforced by the deliverable review + tool-scored gates | — |
 | HR-11 | Phase Truth < 90% blocks phase advance (P3–P8) | Terminate |
-| HR-12 | A/B review > 5 rounds triggers PAUSE | — |
-| HR-13 | Phase execution > 3× estimate triggers PAUSE | — |
-| HR-14 | Integrity < 40 triggers FREEZE | — |
+| HR-12 | A/B review > 5 rounds raises `HR12_MAX_ROUNDS` | — |
+| HR-13 | Phase execution > 3× estimate raises `HR13_TIMEOUT` | — |
+| HR-14 | Integrity < 40 raises `HR14_INTEGRITY` | — |
 | HR-15 | citations must include line numbers + artifact_verification | -15 |
 | HR-16 | trace dimension (4a=100% over IN_PROGRESS+VERIFIED FRs at G2/G3/G4) must pass. `gate_score_overrides` is a **threshold floor** (raises, not lowers) per `sab_parser.derive_gate_score_overrides` — it cannot bypass a failing trace dim. The only remediation paths are: (a) fix the underlying code/FRs to reach 100%, (b) accept the gate block and re-architect, or (c) escalate to human. There is no automated override. | Terminate |
 | HR-17 | **NEVER modify files inside `harness/` (methodology submodule) from the project side.** Bugs found in harness-methodology must be reported upstream; hotfixes in the submodule create divergence invisible to the upstream repo. The only permitted submodule change is `git submodule update --remote`. | Terminate |
@@ -490,13 +490,21 @@ Per-phase patterns are additive with global patterns. See
 
 ## 5. State Machine (FSM)
 
-```
-INIT -> RUNNING -> PAUSED -> RUNNING
-                -> FREEZE  (Integrity < 40)
-                -> DONE    (all phases complete)
-RUNNING -> OPEN   (KillSwitch triggered)
-OPEN    -> HALF_OPEN -> CLOSED  (recovery)
-```
+`validate_fsm_state` accepts eight values. **One of them is ever written.** The
+table below is `core/fsm/fsm.py::STATE_PRODUCERS`; a transition diagram was here
+until Round 110 and drew five arrows, four of which nothing can perform.
+
+| State | Written by |
+|-------|-----------|
+| `RUNNING` | `core/phase_hooks.py::preflight_fsm_check` (bare `run-phase --phase 1` auto-init) and `cli/project_cmds.py::init-project` |
+| `INIT` / `PAUSED` / `FREEZE` / `DONE` | nothing. Editing `state.json` by hand is the only way a project reaches one |
+| `OPEN` / `HALF_OPEN` / `CLOSED` | nothing — circuit-breaker vocabulary; the kill switch keeps its circuits in `phase_hooks`' own registry, not in this field |
+
+`preflight_fsm_check` refuses to start a phase when the state is `FREEZE` or
+`PAUSED`. **That check is real and nothing produces either value** — HR-12/13/14
+raise an `EscalationCondition` (`result.escalation`), they do not move the FSM.
+Who may move a project into `FREEZE` is undecided; see
+`docs/PROPOSAL_ADJUDICATIONS.md` Round 109 §9.
 
 State stored in `.methodology/state.json`:
 ```json

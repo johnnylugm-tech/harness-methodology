@@ -25,6 +25,13 @@ The two directions are both real here. Escalating on the absence would be as
 wrong as passing on it — it would block all fifteen corpus projects over a
 number the framework does not produce — so the absence must escalate to
 nothing AND be recorded, and both halves are asserted below.
+
+ADDED Round 110 站2, not a correction: the measurement above is what that day
+showed, and later the same day Round 109 站5 gave `state["integrity"]` a
+writer (`harness_bridge._record_integrity`, at every gate finalize). This test
+is unchanged and still about the absent key — which now means "no gate has
+finalized here yet" rather than "nothing produces this". The behaviour it
+pins, `None` rather than 100.0, is the same answer to both.
 """
 
 from __future__ import annotations

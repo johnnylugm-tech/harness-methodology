@@ -5783,3 +5783,11 @@
 - test: tests/test_the_prompt_and_the_framework_agree_on_zero_mutants.py::test_the_framework_still_answers_none_for_a_run_that_mutated_nothing
   bug: "sanity check on the mechanism the prose describes, kept in the same file for the reason test_hr16_text_matches_mechanism.py keeps test_sab_parser_mechanism_is_threshold_floor: if the framework ever goes back to scoring 0 for an unmeasured run, the prompt has to be re-read against it rather than staying green while the two drift apart again"
   fixed_in: "Round 110"
+
+- test: tests/test_fsm_states_have_producers.py::test_no_rule_promises_a_state_transition_nothing_can_perform
+  bug: "HR-12/13/14 stated their effect as `→ PAUSE` / `→ PAUSE` / `→ FREEZE` in constitution/CONSTITUTION.md and SKILL.md, and SKILL.md drew a five-arrow FSM diagram. core/fsm/fsm.py::STATE_PRODUCERS records PAUSED, FREEZE, DONE, OPEN, HALF_OPEN and CLOSED as having no writer; what the three rules produce is an EscalationCondition on result.escalation, which moves no FSM state. Measured 2026-09-09: 12 such lines. Round 108 站A's own docstring named two of them and Round 108 has no 明列不做 section, so the observation had nowhere to attach a re-open condition. Scoped to the two normative documents because the same scan tree-wide is 2/10 false (REGRESSION_GUARDS bug: fields and a 2026-05 planning doc quoting the old text — records of what was once true)"
+  fixed_in: "Round 110"
+
+- test: tests/test_fsm_states_have_producers.py::test_the_scan_can_still_see_a_state_name
+  bug: "reverse control for the above: the scan passes trivially if its regexes stop matching — a renamed rule table, a diagram rewritten to prose, a moved file. Without this, converting the FSM diagram to a producer table (which is what the fix did) would have looked identical to fixing the rules"
+  fixed_in: "Round 110"

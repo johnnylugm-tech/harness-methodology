@@ -407,10 +407,12 @@ class AutoFixEngine:
             record_degradation(
                 self.project_root, "auto_fix",
                 "HR-14 not evaluated — no integrity score exists",
-                why=("state.json carries no `integrity` key and nothing in the "
-                     "framework writes one, so 'Integrity < 40 → FREEZE' "
-                     "(constitution/CONSTITUTION.md:251, SKILL.md:365) has no "
-                     "input; see core/fsm/fsm.py::STATE_PRODUCERS"),
+                why=("state.json carries no `integrity` key. Round 109 站5 gave "
+                     "HR-14 its producer — harness_bridge's `_record_integrity`, "
+                     "at every gate finalize — so an absent key now means no "
+                     "gate has finalized in this project yet, or the manifest "
+                     "was unreadable when one did. Either way nobody measured "
+                     "it, and an unmeasured score is not a passing one"),
                 owner=Owner.HARNESS,
             )
         elif integrity < self.integrity_threshold:
@@ -501,13 +503,16 @@ class AutoFixEngine:
         """The project's integrity score, or `None` — nobody measured one.
 
         Round 108 站A. This used to answer `100.0` when the key was absent or
-        unparseable, and absent is what it is: `state["integrity"]` has exactly
-        one reader in the tree (the HR-14 branch in `check_escalation`) and
-        **no writer at all**. Measured 2026-09-08 over the fifteen corpus
-        projects — every `state.json`, no `integrity` key, so this returned a
-        perfect score every time it was ever called and
-        `constitution/CONSTITUTION.md:251`'s "Integrity < 40 → FREEZE" has
-        never been reachable on any project.
+        unparseable, and absent is what it was: measured 2026-09-08 over the
+        fifteen corpus projects, `state["integrity"]` had exactly one reader in
+        the tree (the HR-14 branch in `check_escalation`) and **no writer at
+        all** — so this returned a perfect score every time it was ever called,
+        and HR-14 was not reachable on any project.
+
+        Round 109 站5 gave it a writer: `harness_bridge._record_integrity`, at
+        every gate finalize. An absent key therefore no longer means "nothing
+        produces this" — it means no gate has finalized here yet. The answer is
+        the same either way, and that is the point: `None`, not a number.
 
         A could-not-measure reported as full marks is the shape Round 32/35
         named, and the reason it survived here is that the default made the
