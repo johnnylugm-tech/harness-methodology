@@ -27,6 +27,7 @@ import pytest
 from scripts.b_gap_validator import (
     DEFAULT_TECHNICAL_VOCAB,
     _build_vocab_regex,
+    doc_is_template_stub,
     extract_terms,
     load_vocabulary,
     recommend_severity,
@@ -212,6 +213,30 @@ class TestRecommendSeverity:
                "message": "x"}
         assert recommend_severity(gap, ["python"], []) == "medium"
 
+    def test_methodology_artifact_high_kept_when_doc_is_stub(self):
+        """On a stub document the methodology_artifact hard cap is disabled:
+        terms absent because A never transcribed are not methodology noise.
+        The review layer synthesizes its own high gap; B-stated severities
+        about the missing content must survive to drive the fix."""
+        gap = {"severity": "high", "evidence_type": "methodology_artifact",
+               "message": "x"}
+        assert recommend_severity(gap, ["python"], [], doc_is_stub=True) == "high"
+
+    def test_unverified_claims_not_downgraded_when_doc_is_stub(self):
+        """The hallucination downgrade assumes claim terms should be findable;
+        a stub document contains no real content, so absence is expected
+        state, not hallucination evidence."""
+        gap = {"severity": "high", "evidence_type": "real_invention",
+               "message": "x"}
+        assert recommend_severity(gap, [], ["FR-09"], doc_is_stub=True) == "high"
+
+    def test_stub_flag_keeps_non_stub_behaviour_when_false(self):
+        """doc_is_stub=False (the default) must reproduce the pre-fix rules —
+        the methodology cap and hallucination downgrade stay active."""
+        gap = {"severity": "high", "evidence_type": "methodology_artifact",
+               "message": "x"}
+        assert recommend_severity(gap, ["python"], [], doc_is_stub=False) == "low"
+
 
 # ---------------------------------------------------------------------------
 # validate_gaps — end-to-end
@@ -296,6 +321,70 @@ class TestValidateGaps:
         assert s["by_original_severity"]["high"] == 3
         assert s["by_recommended_severity"]["high"] == 1
         assert s["by_recommended_severity"]["low"] == 2
+
+    def test_stub_doc_keeps_stated_high_severity_end_to_end(self):
+        """validate_gaps on a sentinel-carrying stub doc must keep a
+        high methodology_artifact gap high (terms are absent because the
+        deliverable was never authored, not because B hallucinated)."""
+        gaps = [{
+            "severity": "high",
+            "evidence_type": "methodology_artifact",
+            "canonical_ref": "",
+            "fr_id": None,
+            "message": "SRS remains the unfilled harness template: FR-01 through "
+                       "FR-10 and NFR-01 through NFR-12 are not transcribed.",
+        }]
+        doc = "# Software Requirements Specification (SRS) — {Project Name}\n\n" \
+              "<!-- harness:template-stub -->\n\n## 1. Requirements Overview\n" \
+              "{Brief description of project goals}\n"
+        report = validate_gaps(gaps, doc)
+        assert report["gaps"][0]["severity_recommendation"] == "high"
+
+    def test_non_stub_doc_still_caps_methodology_to_low_end_to_end(self):
+        """Control: the same gap against a real document is still capped low."""
+        gaps = [{
+            "severity": "high",
+            "evidence_type": "methodology_artifact",
+            "canonical_ref": "",
+            "fr_id": None,
+            "message": "SRS remains the unfilled harness template.",
+        }]
+        doc = "# Software Requirements Specification (SRS) — taskq-api\n\n" \
+              "## FR-01: Create tasks\nAcceptance: works.\n"
+        report = validate_gaps(gaps, doc)
+        assert report["gaps"][0]["severity_recommendation"] == "low"
+
+
+# ---------------------------------------------------------------------------
+# doc_is_template_stub — deterministic stub detection
+# ---------------------------------------------------------------------------
+
+
+class TestDocIsTemplateStub:
+    def test_sentinel_literal_is_stub(self):
+        assert doc_is_template_stub(
+            "# SRS — {Project Name}\n\n<!-- harness:template-stub -->\n"
+        ) is True
+
+    def test_eight_plus_placeholders_is_stub(self):
+        placeholders = "\n".join(f"| FR-{i:02d} | {{requirement {i}}} |" for i in range(8))
+        assert doc_is_template_stub(f"# Doc\n{placeholders}\n") is True
+
+    def test_yaml_comment_wrapped_sentinel_is_stub(self):
+        assert doc_is_template_stub(
+            "# TEST_INVENTORY.yaml — P1 Naming Authority\n"
+            "# <!-- harness:template-stub --> — remove once filled.\n"
+        ) is True
+
+    def test_seven_placeholders_is_not_stub(self):
+        content = "\n".join(f"{{field {i}}}" for i in range(7))
+        assert doc_is_template_stub(f"# Doc\n{content}\n") is False
+
+    def test_clean_content_is_not_stub(self):
+        assert doc_is_template_stub(
+            "# Software Requirements Specification (SRS) — taskq-api\n\n"
+            "## FR-01: Create tasks\nAcceptance: works.\n"
+        ) is False
 
 
 # ---------------------------------------------------------------------------

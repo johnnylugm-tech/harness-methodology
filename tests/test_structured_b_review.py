@@ -469,6 +469,111 @@ class TestDocContentVerification:
 
 
 # ---------------------------------------------------------------------------
+# Stub-document synthesis — a verdict on an unfilled template cannot stand
+# ---------------------------------------------------------------------------
+
+
+class TestStubDocSynthesis:
+    """A REJECT or APPROVE on a template-stub document gains a synthesized
+    high gap: content is absent (blocking), and an APPROVE of a stub must
+    never be persisted as if B had reviewed real content."""
+
+    _STUB_DOC = (
+        "# Software Requirements Specification (SRS) — {Project Name}\n\n"
+        "<!-- harness:template-stub -->\n\n"
+        "## 1. Requirements Overview\n{Brief description of project goals}\n"
+    )
+
+    def test_reject_on_stub_doc_gains_synthesized_high_gap(self):
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "SRS.md is still the untouched harness template with no "
+                      "transcribed requirements anywhere in the file",
+            "gaps": [{
+                "severity": "high", "evidence_type": "real_invention",
+                "canonical_ref": "SPEC.md L1",
+                "message": "FR-01 through FR-10 are absent",
+            }],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5, doc_content=self._STUB_DOC,
+        )
+        synthesized = [g for g in result["gaps"] if g.get("_synthesized")]
+        assert len(synthesized) == 1
+        assert synthesized[0]["severity"] == "high"
+        assert "template stub" in synthesized[0]["message"]
+        assert result["escalation_action"] == "retry"
+
+    def test_reject_on_stub_doc_escalates_human_at_round_5(self):
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "the deliverable remains an unfilled stub and cannot be "
+                      "reviewed for content quality at this stage at all",
+            "gaps": [],
+        })
+        result = structured_b_review(
+            text, round_num=5, max_rounds=5, doc_content=self._STUB_DOC,
+        )
+        assert result["escalation_action"] == "escalate_human"
+
+    def test_approve_on_stub_doc_not_approved(self):
+        """APPROVE + all-low gaps on a stub doc must NOT escalate to approve —
+        the synthesized high gap flips escalation to retry, so a stub is never
+        persisted as an approved deliverable."""
+        text = json.dumps({
+            "review_status": "APPROVE",
+            "reason": "the document satisfies all requirements with no remaining "
+                      "gaps of any severity whatsoever in this review pass",
+            "gaps": [{
+                "severity": "low", "evidence_type": "methodology_artifact",
+                "canonical_ref": "",
+                "message": "minor wording nit only, nothing blocking",
+            }],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5, doc_content=self._STUB_DOC,
+        )
+        assert result["escalation_action"] == "retry"
+        assert any(g.get("_synthesized") for g in result["gaps"])
+
+    def test_methodology_gap_on_stub_doc_keeps_stated_severity(self):
+        """B's own methodology_artifact gap about the stub keeps its stated
+        high severity (the validator's hard cap is disabled on stub docs)."""
+        text = json.dumps({
+            "review_status": "REJECT",
+            "reason": "the deliverable is an unfilled template that requires full "
+                      "authoring before any content-level review can take place",
+            "gaps": [{
+                "severity": "high", "evidence_type": "methodology_artifact",
+                "canonical_ref": "",
+                "fr_id": None,
+                "message": "replace all stub placeholders and populate the 10 FRs",
+            }],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5, doc_content=self._STUB_DOC,
+        )
+        b_gap = next(g for g in result["gaps"] if not g.get("_synthesized"))
+        assert b_gap["severity"] == "high"
+
+    def test_non_stub_doc_no_synthesis(self):
+        """Control: real content never gains the synthesized stub gap, and the
+        pre-fix escalation behaviour is unchanged."""
+        text = json.dumps({
+            "review_status": "APPROVE",
+            "reason": "the document correctly covers all requirements with clear "
+                      "acceptance criteria and no ambiguity remains after this pass",
+            "gaps": [],
+        })
+        result = structured_b_review(
+            text, round_num=1, max_rounds=5,
+            doc_content="# SRS — taskq-api\n\n## FR-01: Create tasks\nAcceptance: works.\n",
+        )
+        assert result["escalation_action"] == "approve"
+        assert not any(g.get("_synthesized") for g in result["gaps"])
+
+
+# ---------------------------------------------------------------------------
 # Determinism
 # ---------------------------------------------------------------------------
 

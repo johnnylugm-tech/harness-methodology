@@ -62,7 +62,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR.parent))
 
 from core.review_schema_validator import EscalationAction, enforce_escalation, validate_b_output  # noqa: E402
-from scripts.b_gap_validator import validate_b2_response  # noqa: E402
+from scripts.b_gap_validator import doc_is_template_stub, validate_b2_response  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +284,35 @@ def structured_b_review(raw_text: str, phase: int = 0,
             # categorized on the pre-verification severity — recompute so
             # category and severity never disagree in the returned gap.
             gap["category"] = categorize_finding(gap)
+
+    if doc_content is not None and doc_is_template_stub(doc_content) \
+            and result.normalized.get("review_status") in ("REJECT", "APPROVE"):
+        # A verdict on an unfilled template stub cannot stand: content is
+        # absent, which is blocking, not a methodology nit. Synthesize one
+        # high gap (pattern mirrors review_schema_validator._synthesize_cancelled)
+        # so that (a) severity-driven Agent A fix rounds have a high gap to act
+        # on and (b) an APPROVE of a stub is never persisted (escalation below
+        # sees the high gap and returns RETRY). CANCELLED is exempt — it
+        # already carries its own synthesized high gap.
+        from core.review_quota import categorize_finding
+
+        stub_gap = {
+            "severity": "high",
+            "evidence_type": "methodology_artifact",
+            "canonical_ref": "",
+            "fr_id": None,
+            "message": (
+                "Framework verification: the reviewed document is still an unfilled "
+                "template stub (the literal `<!-- harness:template-stub -->` is present, "
+                "or the content holds >=8 placeholder patterns). Content is absent, so "
+                "this verdict cannot stand as-is — Agent A must author the deliverable "
+                "in full (overwrite the stub, removing the sentinel) and B must "
+                "re-review the real content."
+            ),
+            "_synthesized": True,
+        }
+        stub_gap["category"] = categorize_finding(stub_gap)
+        gaps.append(stub_gap)
 
     out = {
         "status": "OK",

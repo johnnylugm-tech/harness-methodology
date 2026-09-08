@@ -47,6 +47,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+# Core imports (doc_is_template_stub → core.quality_gate.constitution.runner)
+# need the harness root on sys.path when this module runs as a standalone CLI
+# (`python3 scripts/b_gap_validator.py` puts scripts/ on path, not the root).
+# Same bootstrap structured_b_review.py uses; harmless when imported as a
+# library from the harness root.
+sys.path.insert(0, str(_SCRIPT_DIR.parent))
+
 
 # ---------------------------------------------------------------------------
 # Default technical vocabulary — distinctive terms commonly mis-hallucinated
@@ -216,10 +224,30 @@ def verify_gap_against_doc(gap_message: str, doc_content: str,
 # ---------------------------------------------------------------------------
 
 
+def doc_is_template_stub(content: str) -> bool:
+    """True iff *content* is an unfilled framework template (deterministic).
+
+    Mirrors the two co-equal heuristics of SKILL.md §0.3.1: the literal
+    `<!-- harness:template-stub -->` sentinel (substring match, so YAML
+    templates that wrap it in a `#` comment still hit) or >=8 {placeholder}
+    patterns. Imported from the constitution runner rather than
+    re-implemented — a second spelling of "what a stub looks like" is how
+    this class of defect recurs.
+    """
+    from core.quality_gate.constitution.runner import (
+        _TEMPLATE_STUB_SENTINEL,
+        _is_stub_template,
+    )
+
+    return _TEMPLATE_STUB_SENTINEL in content or _is_stub_template(content)
+
+
 def recommend_severity(
     gap: dict[str, Any],
     matched_terms: list[str],
     unverified_claims: list[str],
+    *,
+    doc_is_stub: bool = False,
 ) -> str:
     """Return the severity that workflow JS should apply for this gap.
 
@@ -236,6 +264,12 @@ def recommend_severity(
     - evidence_type='over_interpretation' → cap at 'medium' regardless
       (consistent with Bug B fix)
 
+    doc_is_stub=True disables the two downgrade paths above that assume
+    claim terms should be findable in the document: on an unfilled template
+    stub every real omission claim verifies as absent, which is expected
+    state, not hallucination evidence — so B's stated severity is kept
+    (the review layer separately synthesizes a high gap on stub documents).
+
     Workflow JS calls this with the validated gap dict and uses the returned
     string to override gap.severity before the hasHighGap() check.
     """
@@ -243,20 +277,21 @@ def recommend_severity(
     evidence_type = (gap.get("evidence_type") or "").lower()
 
     # Hard caps by evidence_type
-    if evidence_type == "methodology_artifact":
-        return "low"
     if evidence_type == "over_interpretation" and original == "high":
         return "medium"
+    if not doc_is_stub:
+        if evidence_type == "methodology_artifact":
+            return "low"
 
-    # If we extracted any terms, check whether they match
-    # If gap has no extractable terms at all, treat as auto-verified (e.g.,
-    # very short gap like "see canonical_ref") — workflow should not penalize
-    if not matched_terms and not unverified_claims:
-        return original  # unchanged
+        # If we extracted any terms, check whether they match
+        # If gap has no extractable terms at all, treat as auto-verified (e.g.,
+        # very short gap like "see canonical_ref") — workflow should not penalize
+        if not matched_terms and not unverified_claims:
+            return original  # unchanged
 
-    # If unverified_claims is non-empty AND matched_terms is empty: pure hallucination
-    if unverified_claims and not matched_terms:
-        return "low"
+        # If unverified_claims is non-empty AND matched_terms is empty: pure hallucination
+        if unverified_claims and not matched_terms:
+            return "low"
 
     # Otherwise: at least one term verified → keep original
     return original
@@ -280,6 +315,7 @@ def validate_gaps(
     if vocabulary is None:
         vocabulary = DEFAULT_TECHNICAL_VOCAB
     vocab_re = _build_vocab_regex(vocabulary)
+    stub_doc = doc_is_template_stub(doc_content)
 
     rows: list[dict[str, Any]] = []
     severity_counter: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
@@ -307,7 +343,9 @@ def validate_gaps(
             continue
 
         matched, unverified = verify_gap_against_doc(message, doc_content, vocab_re)
-        recommendation = recommend_severity(gap, matched, unverified)
+        recommendation = recommend_severity(
+            gap, matched, unverified, doc_is_stub=stub_doc
+        )
 
         original = (gap.get("severity") or "low").lower()
         stats["by_original_severity"][original] = stats["by_original_severity"].get(original, 0) + 1
