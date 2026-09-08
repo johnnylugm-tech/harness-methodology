@@ -5667,3 +5667,19 @@
 - test: tests/test_the_ac_label_carries_its_whole_number.py::test_both_parsers_name_the_same_criteria
   bug: "the property the truncation actually broke. canonical_diff and core.quality_gate.artifact_consistency both answer 'which acceptance criteria does this SRS declare'; measured across the fourteen corpus projects that produce both, the intersection of their AC identifiers was ZERO — `AC-1` against `AC-1.1` — so any cross-check between them compared two disjoint sets and found nothing, forever, without ever failing. 0 -> 410 after the fix"
   fixed_in: "Round 109"
+
+- test: tests/test_the_report_mode_is_not_a_promise.py::test_the_caller_cannot_choose_the_label
+  bug: "canonical_diff.build_diff_report took a `mode` parameter that appeared in exactly two places — the signature and the report's `mode` field — and selected nothing. A caller naming the comparison, beside code that never branches on the name, means the label and the computation are two independent statements"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_report_mode_is_not_a_promise.py::test_the_report_names_the_comparison_it_actually_performed
+  bug: "the positive half: the report publishes the one comparison this module performs, as a constant rather than as whatever the caller passed"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_report_mode_is_not_a_promise.py::test_the_cli_offers_no_mode_it_does_not_implement
+  bug: "the CLI advertised `--mode` with `choices=[srs_vs_spec, testspec_vs_srs, verification_vs_srs]`. `choices` is a stronger promise than a bare string — it enumerates three comparisons the module could perform, and it could perform one. Measured: zero callers passed the flag (the Phase 1 workflow's invocation is --srs/--spec/--out) and zero readers read the field. Dead is not why it went: `--mode testspec_vs_srs --srs TEST_SPEC.md` runs the srs_vs_spec computation and stamps the output `testspec_vs_srs`, so a reader keying on the field attributes a Phase 1 measurement to Phase 4"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_report_mode_is_not_a_promise.py::test_the_module_promises_no_diff_it_cannot_do
+  bug: "R39: removing a mechanism and leaving the statement about it standing. The module docstring offered TESTSPEC↔SRS (P4) and VERIFICATION↔SRS (P5) 'via --mode argument'. Scoped to the offer (`same engine applies`) and not to the string `--mode`: the first version of this test scanned for the flag name and went red on the commit that removed it, because the corrected docstring names the flag to record why it is gone — Round 46's false accusation, the second time this round met that shape"
+  fixed_in: "Round 109"

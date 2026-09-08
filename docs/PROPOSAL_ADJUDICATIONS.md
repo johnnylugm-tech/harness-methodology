@@ -9919,3 +9919,44 @@ keyed,註解改成當下為真的陳述。
 
 刪除後全樹零殘留引用,`verify_regression_guards.py` 仍 OK(1387,該檔本來就沒登記過),
 測試收集數 8479。賬本保留這兩次歷史提及,那是紀錄不是引用。
+
+### §3 站3 — 一個只蓋章、不改變任何計算的旗標
+
+`canonical_diff.py` 有一個 `mode` 參數,CLI 上以 `--mode` 提供,並帶 `choices`:
+
+```python
+parser.add_argument("--mode", default="srs_vs_spec",
+    choices=["srs_vs_spec", "testspec_vs_srs", "verification_vs_srs"])
+...
+return {"deliverable": ..., "mode": mode, ...}
+```
+
+`mode` 在整個模組裡只出現兩次:形參,與那個 dict 欄位。**它不選擇任何東西。**
+而模組 docstring 告訴讀者這個引擎「applies to TESTSPEC↔SRS (P4),
+VERIFICATION↔SRS (P5), etc. via `--mode` argument」。
+
+**實測 2026-09-08**:傳 `--mode` 的呼叫者 **0**(唯一呼叫是 P1 workflow 的
+`--srs / --spec / --out`);讀報告 `mode` 欄位的消費者 **0**(全樹另一個 `"mode"`
+命中是 `harness/crg_bridge.py:305` 的無關 CRG kwarg)。
+
+**但「死」不是它必須走的理由 —— 它會說謊。** 傳
+`--mode testspec_vs_srs --srs TEST_SPEC.md --spec SRS.md` 會跑**原封不動的**
+srs_vs_spec 計算,然後把輸出蓋上 `testspec_vs_srs` 的章。下游只要有人用這個欄位做 key,
+就會把一次 Phase 1 的量測歸給 Phase 4。R30/R43 的半座機制,帶著 R24 的邊:
+欄位存在,所以讀起來像是被回答過了。
+
+取代它的不是更好的旗標。**只有一種比對,所以報告只寫一個名字,而且是常數。**
+`choices` 那兩個沒有實作的名字消失;要做 TESTSPEC↔SRS 或 VERIFICATION↔SRS 的 diff,
+得先有為它寫的比對,那時它可以自己命名。
+
+**我自己的守衛在這一站紅了一次,而且紅得有價值。** 第一版
+`test_the_module_promises_no_diff_it_cannot_do` 斷言 `"--mode" not in docstring`,
+結果在**移除旗標的那個 commit 上**轉紅 —— 因為修正後的 docstring 為了記載「為什麼它
+不見了」而提到了它。**一支分不出「提供」與「記載其移除」的子字串掃描,就是 R46 的
+誣告形狀**,而本輪已經第二次撞上它(另一次是站4 那支被實測打成 24/26 誣告的規則副本
+掃描器)。守衛改成盯那句承諾本身(`same engine applies`),並加一條正向斷言
+(docstring 必須寫著 performs ONE comparison)—— 一份歷史註記沒有理由重複那句承諾。
+
+連帶:`tests/test_canonical_diff.py` 檔頭那句「Same engine scores SRS↔SPEC,
+TESTSPEC↔SRS, VERIFICATION↔SRS via --mode flag」改成當下為真的陳述。
+新守衛 4 支(guards 1387 → 1391)。反證 CP-3:把 `mode` 形參加回去 → 立刻轉紅。

@@ -20,7 +20,7 @@ This module provides:
         +0.3 penalty if AC contains interpretive choices without DERIVED tag
         verdict ∈ VERDICTS, plus the project's citation and whether the
                               location it names is in the canonical text
-  - `build_diff_report(srs_path, spec_path, mode)` → dict
+  - `build_diff_report(srs_path, spec_path)` → dict
         Parses SRS into AC clauses, SPEC into sentences, scores each AC.
         Returns a structured report with per-AC records.
   - `write_report(report, out_path)` → Path
@@ -34,8 +34,16 @@ If SPEC.md is missing (Elicitation mode), the script prints a warning and
 exits 0 — generate_full_plan.py §B-2 attach uses try/except so absence is
 non-blocking.
 
-Commonality: phase-agnostic. Designed for SRS↔SPEC but the same engine applies
-to TESTSPEC↔SRS (P4), VERIFICATION↔SRS (P5), etc. via `--mode` argument.
+This module performs ONE comparison: the SRS's acceptance clauses against the
+canonical spec. Round 109 站3 removed a `mode` parameter (CLI `--mode`, with
+`choices=[srs_vs_spec, testspec_vs_srs, verification_vs_srs]`) that appeared
+in exactly two places — the signature and the report's `mode` field — and
+selected nothing. Zero callers passed it and zero readers read the field, but
+that is not why it went: `--mode testspec_vs_srs` ran the srs_vs_spec
+computation and stamped the output `testspec_vs_srs`, so a downstream reader
+keying on the field would attribute a Phase 1 measurement to Phase 4. A
+TESTSPEC↔SRS or VERIFICATION↔SRS diff needs a comparison written for it; when
+one exists it can name itself.
 """
 
 from __future__ import annotations
@@ -464,7 +472,6 @@ def compute_over_spec_score(
 def build_diff_report(
     srs_path: Path,
     spec_path: Path | None,
-    mode: str = "srs_vs_spec",
 ) -> dict:
     """Build the full diff report for a deliverable vs canonical.
 
@@ -593,7 +600,9 @@ def build_diff_report(
     return {
         "deliverable": str(srs_path),
         "canonical": str(spec_path) if spec_present else None,
-        "mode": mode,
+        # One comparison, so one name, as a constant. It was a parameter
+        # until Round 109 站3 and nothing ever branched on it.
+        "mode": "srs_vs_spec",
         "spec_present": spec_present,
         "summary": summary,
         "fr_coverage": fr_coverage,
@@ -701,11 +710,6 @@ def _cli() -> int:
         help="Path to canonical spec (SPEC.md). Optional — Elicitation mode if absent.",
     )
     parser.add_argument(
-        "--mode", default="srs_vs_spec",
-        choices=["srs_vs_spec", "testspec_vs_srs", "verification_vs_srs"],
-        help="Diff mode (phase-agnostic naming). Default: srs_vs_spec.",
-    )
-    parser.add_argument(
         "--out", default=None,
         help="Output JSON path. Default: <deliverable-stem>_diff.json alongside deliverable.",
     )
@@ -724,7 +728,7 @@ def _cli() -> int:
               file=sys.stderr)
         spec = None  # treat as Elicitation
 
-    report = build_diff_report(srs, spec, mode=args.mode)
+    report = build_diff_report(srs, spec)
     out = Path(args.out) if args.out else srs.with_name(srs.stem + "_diff.json")
     write_report(report, out)
 

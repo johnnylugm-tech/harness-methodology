@@ -7,8 +7,12 @@ diff tool to detect over-specification. These tests cover the regression
 targets — the two ambiguous phrases that caused HR-12 deadlock during P1
 ('excluding subprocess execution', 'retry on failed/timeout').
 
-Commonality: phase-agnostic. Same engine scores SRS↔SPEC, TESTSPEC↔SRS,
-VERIFICATION↔SRS via --mode flag.
+Scope: one comparison, SRS↔SPEC. Until Round 109 站3 this paragraph said the
+same engine also scored TESTSPEC↔SRS and VERIFICATION↔SRS "via --mode flag".
+It did not: `mode` appeared in the signature and in the report's `mode` field
+and nothing branched on it, so selecting `testspec_vs_srs` ran the SRS↔SPEC
+computation and relabelled the result. See
+tests/test_the_report_mode_is_not_a_promise.py.
 """
 
 import json
