@@ -700,3 +700,46 @@ class TestRelayReceipt:
                 f"phase {phase}'s read-file call no longer passes the ceiling "
                 f"it checks against, so the two halves could disagree"
             )
+
+
+class TestPhase1StubAuthoringInstruction:
+    """Agent A's file-existence self-check must author over a template stub.
+
+    Regression for the P1 deadlock: the EXISTS branch skipped authoring
+    entirely, so an init-project-seeded stub (which EXISTS from day one)
+    was never written — Agent B rejected it, the gap was capped low, and
+    the A/B loop spun to round-5 escalation with no progress. The branch
+    must distinguish "real content" (resume: never re-author) from
+    "unfilled template" (treat as MISSING: author in full).
+    """
+
+    _MARKER = "Stub test: is it still the unfilled"
+
+    def test_each_a_prompt_authors_over_a_stub(self):
+        """All four Phase-1 Agent A prompts carry the stub rule."""
+        text = generate(1)
+        assert text.count(self._MARKER) == 4, (
+            f"expected the stub-authoring rule in all 4 P1 A prompts, "
+            f"found {text.count(self._MARKER)}"
+        )
+
+    def test_resume_semantics_preserved(self):
+        """Real content must never be re-authored: the rule still routes
+        non-stub EXISTS files to step 4 and forbids rewriting."""
+        text = generate(1)
+        stub_rule = text[text.index(self._MARKER):]
+        assert "continue to step 4" in stub_rule, (
+            "stub rule no longer routes real content to step 4 — resume "
+            "semantics (crash-recovery, run-all header) broken"
+        )
+        assert "do NOT re-author" in stub_rule, (
+            "stub rule no longer forbids re-authoring real content"
+        )
+
+    def test_peer_fixer_may_rewrite_a_stub(self):
+        """The peer-review fixer may full-rewrite a stub deliverable —
+        surgical Edit cannot fill a template."""
+        text = generate(1)
+        assert "rewrite it in full with Write" in text, (
+            "peer fixer prompt lost the stub full-rewrite exception"
+        )

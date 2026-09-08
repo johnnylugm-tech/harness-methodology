@@ -116,6 +116,20 @@ _PHASE1_DOCS_EMBEDDED_NOTE = 'looks for PURE basenames like "SRS.md", "TEST_INVE
 _PHASE1_CRITICAL_DOCS_NOTE = 'for Phase 1, `docs_embedded` MUST include "SRS.md" regardless of which deliverable you are reviewing. The harness verifier (_REQUIRED_EMBEDDED_DOCS[1]) rejects any P1 approval missing it.'
 _PHASE1_EVIDENCE_TYPE_NOTE = "real_invention=truly new requirement (escalates to high); over_interpretation=ambiguous canonical phrase, missing DERIVED tag (caps at medium); methodology_artifact=framework-side gap, sha256/regex tables etc. (always low)."
 
+# Shared EXISTS-branch rule for the four Phase-1 Agent A prompts. The
+# file-existence self-check doubles as crash-recovery resume: real content
+# must never be re-authored. But init-project seeds template stubs into the
+# deliverable paths, and a stub existing is NOT work having landed — Agent A
+# must author over it. The stub test is intentionally broader than the
+# deterministic sentinel/placeholder heuristic so legacy stubs copied before
+# the sentinel existed are also caught by judgment.
+_STUB_EXISTS_RULE = (
+    "    + '   - If EXISTS: Read it. Stub test: is it still the unfilled init-project template\\n'\n"
+    "    + '     (the literal `<!-- harness:template-stub -->` or placeholder/example scaffolding)?\\n'\n"
+    "    + '     If YES — treat as MISSING: continue to step 2 and author in full with Write, removing\\n'\n"
+    "    + '     the sentinel. If NO (real content) — resume: continue to step 4, do NOT re-author.\\n'\n"
+)
+
 
 def _render_phase1_run_sub_task() -> str:
     return (
@@ -351,6 +365,9 @@ def _render_phase1_run_peer_review() -> str:
         "      + '1. Read each high/medium gap.message + gap.citations to identify which deliverable(s) to edit.\\n'\n"
         "      + '2. For each affected deliverable: use Read tool to read current state.\\n'\n"
         "      + '3. Apply Edit tool with surgical changes (do NOT rewrite whole files).\\n'\n"
+        "      + '      Stub exception: a deliverable still carrying the template-stub sentinel or placeholder\\n'\n"
+        "      + '      scaffolding is NOT real content — rewrite it in full with Write (surgical Edit cannot\\n'\n"
+        "      + '      fill a template).\\n'\n"
         "      + '4. After all edits, verify each file still passes the diskPrefix check.\\n'\n"
         "      + '5. Return compact JSON only:\\n'\n"
         "      + '{\"status\":\"OK\",\"modified_files\":[\"<relative-path-1>\",\"<relative-path-2>\"],\"confidence\":\"high|medium|low\",\"summary\":\"<1-2 lines>\"}\\n'\n"
@@ -515,10 +532,10 @@ def _render_phase1_subtask1_srs() -> str:
         "    + '**REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_SRS + "` — e.g. `" + _A_SRS + " (SRS) — \\`<project-name>\\``. The orchestrator\\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n\\n'\n"
         "    + 'Steps:\\n'\n"
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SRS.md && echo EXISTS || echo MISSING`.\\n'\n"
-        "    + '   - If EXISTS: Read it (current state). Continue to step 4.\\n'\n"
-        "    + '   - If MISSING: Continue to step 2 (first-time authoring).\\n'\n"
+        + _STUB_EXISTS_RULE
+        + "    + '   - If MISSING: Continue to step 2 (first-time authoring).\\n'\n"
         "    + '2. The canonical spec is ' + REPO + '/SPEC.md — the project-root file, always, with no declaration to resolve and no other candidate. It is DOC 1 below: the file itself, or its heading index when too large to relay — an index names the line range of every section and how to read them.\\n'\n"
-        "    + '3. Author SRS.md (only if MISSING in step 1):\\n'\n"
+        "    + '3. Author SRS.md (only if MISSING in step 1 or a template stub per step 1):\\n'\n"
         "    + '   - **ANTI-OVER-SPEC FRAMEWORK EVIDENCE (Bug D fix)**: BEFORE writing, run\\n'\n"
         "    + '     `python3 ' + REPO + '/harness/scripts/canonical_diff.py --srs ' + REPO + '/01-requirements/SRS.md --spec ' + REPO + '/SPEC.md --out ' + REPO + '/srs_vs_spec_diff.json`\\n'\n"
         "    + '     to produce `srs_vs_spec_diff.json` (per-AC over_spec_score). For ANY AC with over_spec_score > 0.7:\\n'\n"
@@ -634,8 +651,8 @@ def _render_phase1_subtask2_spec_tracking() -> str:
         "    + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/SPEC_TRACKING.md\\n\\n'\n"
         "    + 'Steps:\\n'\n"
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/SPEC_TRACKING.md && echo EXISTS || echo MISSING`.\\n'\n"
-        "    + '   - If EXISTS: Read it (current state). Continue to step 4.\\n'\n"
-        "    + '   - If MISSING: Continue to step 2 (first-time authoring).\\n'\n"
+        + _STUB_EXISTS_RULE
+        + "    + '   - If MISSING: Continue to step 2 (first-time authoring).\\n'\n"
         "    + '2. Build spec tracking matrix from SRS.md FRs → assign status/owner per FR → validate completeness. **STANDARD template columns only** (do NOT invent a Gate-score column as authority — Status is machine-refreshed from `build_traceability` at `advance-phase`, and score authority is `quality_manifest.json`; SPEC_TRACKING.md is a human-readable view, NOT the SSOT).\\n'\n"
         "    + '   **REQUIRED H1**: the file\\'s FIRST line MUST START WITH `" + _A_SPEC_TRACKING + "` — e.g. `" + _A_SPEC_TRACKING + " — \\`<project-name>\\``. The orchestrator\\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\\n'\n"
         "    + LEGAL_ARTIFACTS_HINT + '\\n'\n"
@@ -704,8 +721,8 @@ def _render_phase1_subtask3_traceability() -> str:
         "    + LEGAL_ARTIFACTS_HINT + '\\n'\n"
         "    + 'Steps:\\n'\n"
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && echo EXISTS || echo MISSING`.\\n'\n"
-        "    + '   - If EXISTS: Read it. Continue to step 4.\\n'\n"
-        "    + '   - If MISSING: Continue to step 2.\\n'\n"
+        + _STUB_EXISTS_RULE
+        + "    + '   - If MISSING: Continue to step 2.\\n'\n"
         "    + '2. Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage.\\n'\n"
         "    + '3. (Re-)read file via Read for final state.\\n'\n"
         "    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\\n'\n"
@@ -772,8 +789,8 @@ def _render_phase1_subtask4_test_inventory() -> str:
         "    + '**REQUIRED TOP-LEVEL KEY (must include \"test_inventory:\")**: YAML has no H1; the orchestrator\\'s loader validates by matching the conventional header comment `# TEST_INVENTORY.yaml — <subtitle>` as the first line, plus `test_inventory:` as a top-level key elsewhere. Non-conforming schema fails the load step.\\n\\n'\n"
         "    + 'Steps:\\n'\n"
         "    + '1. Self-check (Bash): `test -f ' + REPO + '/TEST_INVENTORY.yaml && echo EXISTS || echo MISSING`.\\n'\n"
-        "    + '   - If EXISTS: Read it. Continue to step 4.\\n'\n"
-        "    + '   - If MISSING: Continue to step 2.\\n'\n"
+        + _STUB_EXISTS_RULE
+        + "    + '   - If MISSING: Continue to step 2.\\n'\n"
         "    + '2. Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention.\\n'\n"
         "    + '   ⮡ MANDATORY 1:1 mapping with TRACEABILITY_MATRIX.md:\\n'\n"
         "    + '     - Every tc_id in matrix §1 forward trace (e.g. TC-FR01-05a..g) MUST appear as an independent entry in YAML `tests:` block.\\n'\n"
