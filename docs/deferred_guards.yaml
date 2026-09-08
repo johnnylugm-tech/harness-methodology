@@ -43,6 +43,23 @@
 # twice (`Re-open：` missed by a case-sensitive pattern, `若…重議` missed
 # entirely), which is why the classification is a reading and not a regex.
 #
+# WHAT `MET` MEANS, AND WHAT IT DOES NOT (Round 110 站4). A re-open condition
+# answers "has the obstacle gone?", NOT "should this be done?". Those are two
+# questions, and the ledger only ever wrote the first one down. Seven rows now
+# carry MET with nothing resolved: two are work a later round should schedule
+# (R98, R99), and four are met-and-still-should-not-be-done — a project-side
+# scope call (R86), a spelling SSOT that would be chosen from a sample of one
+# and is therefore Round 87 (R83), a parser swap that changes the population
+# rather than refining it (R105), and a check whose candidate fix would point it
+# at a file the framework writes itself (R105).
+#
+# No field was added for this. A "should it still be done?" column would be a
+# second declaration nobody executes — the shape this repo keeps closing (Round
+# 30) — so it lives in each row's `note`, where it has to be argued rather than
+# ticked. Round 105's own defer had two halves and the re-open condition
+# recorded only the first; that is how a MET verdict comes to read like an
+# instruction.
+#
 # KEYED BY (round, item), NOT BY LINE. The first draft keyed on the ledger line
 # number, which every subsequent ledger edit invalidates — Round 81's own
 # section, inserted above Round 80's, moved all eight of its rows. `item` is
@@ -348,6 +365,8 @@ entries:
       "2" and sits at `current_phase: 3`, so P1 has been run for the first time — the condition
       exactly. The milestone-split question is now answerable with that run's data and is a
       project-side scope decision, so it is raised here rather than acted on.
+    note: >-
+      Round 110 站4 — 終局:條件滿足,而這件事仍然不該由框架做。再開條件回答的是「阻礙消失了嗎」(P1 跑過了,問題可以用那次 run 的資料回答),不是「這件事本來就該做嗎」。milestone 怎麼切是專案端的範圍決定,且 omnibot-new 全程唯讀。MET 的正確終局狀態是「已提出,等專案端決定」,不是待辦。
   - round: 86
     item: "`cli/project_cmds.py:706` 的 `^###\\s+FR-(\\d+)\\s*:` 與 `structural_fr_ids` 是兩份實作"
     verdict: NOT_MET
@@ -428,6 +447,8 @@ entries:
       `p95_latency_ms`; harness_bridge.py:3413 handles that one, excluding it from seeding
       performance's floor because it is milliseconds, not a score). So a source exists and
       nothing reads it under the name the project used.
+    note: >-
+      Round 110 站4 — 終局:條件滿足,做它會犯 R87。18 個語料專案裡只有 tts-new 宣告,而它用的是第三種拼法(schema 寫 `p95_latency_ms`,harness_bridge.py:3413 認那個)。用樣本量 1 決定 SSOT 的拼法,正是 R87「規則形狀由量測選出」。順帶:R110 站4 重驗 `_qt_map` 只 seed `min_coverage` / `min_security_score`,所以毫秒值不會被誤讀成分數 —— 我原本懷疑的那個 bug 被自己的量測否決。
   - round: 83
     item: "補上 `.github/workflows/harness_quality_gate.yml`(doctor 的第二個 WARN)"
     verdict: NOT_MET
@@ -779,6 +800,8 @@ entries:
       intersection of the two parsers' AC ids went from 0 to 410 across the corpus. The swap
       this row defers is now unblocked — it is a change of what `canonical_diff` counts, so it
       is raised for 老闆 to schedule rather than folded into this round (R22).
+    note: >-
+      Round 110 站4 — 終局:條件滿足,而對調不是精修,是換一個母體。2026-09-09 逐專案量兩個解析器在同一份 SRS.md 上的 AC 數(21 個專案):taskq-advance 93 vs 23、taskq-cc-new 95 vs 22、taskq-renew 134 vs 20、taskq-cc 92 vs 114、taskq-sol 110 vs 132,而 run-all-by-workflow 是 0 vs 15 —— 對調在那個專案上是純粹的損失。兩邊在**兩個方向**都差很多,所以這是換掉 canonical_diff 數的是什麼,要先有人決定哪一份才是 AC 的定義。(修正:R110 計畫書寫的「12 專案 AC label 0 而 bullets 62–134」不是這個量測,站4 實測後不成立,以這一列為準。)
   - round: 105
     item: "`_FR_HEADER_RE` 的 label 在點號截斷"
     verdict: MET
@@ -810,6 +833,8 @@ entries:
       R105's evidence was a different, earlier commit (a6bf87f), so both statements can be true;
       what is measured here is that at the P2 EXIT the manifest exists, which is what the P2
       check would read. Raised for scheduling, not done here.
+    note: >-
+      Round 110 站4 — 終局:條件滿足,而候選改法的方向是錯的。那個「P2 檢查」是 `_precheck_framework_examples_delivered`,它掃 `_EXAMPLE_SCOPE[2]` 的三個**交付物**逐行找沒換掉的範例值。manifest 是框架自己生成的衍生檔 —— 框架的值出現在裡面是必然而不是缺陷,而且改讀它會失去 `file:line`。檢查對象必須是交付物。
   - round: 105
     item: "`min_coverage` 三處手抄改 render-from-SSOT"
     verdict: NOT_MET
@@ -2074,3 +2099,75 @@ entries:
     guard: "manual"
     evidence: >-
       2026-09-09 逐條讀過:賬本 L9499 這條的理由是「它們是讀數,對 B 仍有用」—— 是範圍、裁量或已完成的陳述,沒有寫下可觀測的觸發條件。
+  - round: 110
+    item: "讓 FSM 真的寫 `FREEZE` / `PAUSED`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是老闆裁定 FSM 狀態的寫入權責。本輪未裁定;`STATE_PRODUCERS` 八個狀態仍有七個記 `None`。
+  - round: 110
+    item: "用 `srs_acceptance_criteria` 對調 `_split_ac_clauses`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有人決定哪一份才是 AC 的定義」。站4 只量出兩個解析器的差距(21 專案,兩個方向都差,`run-all-by-workflow` 15 → 0),沒有人做那個決定。
+  - round: 110
+    item: "P2 檢查改讀 `quality_manifest.json`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現一個讀交付物讀不到、只有 manifest 看得到的殘留範例值」。`_precheck_framework_examples_delivered` 掃 `_EXAMPLE_SCOPE[2]` 的三個交付物,至今沒有這樣的實例。
+  - round: 110
+    item: "統一 p95 拼法的 SSOT"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「第二個專案宣告 p95,或老闆裁定拼法」。18 個語料專案裡仍只有 tts-new 宣告,老闆未裁定。
+  - round: 110
+    item: "讓 extractor 從 bullet 散文抽 `reopen`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「賬本改為結構化寫入」。賬本仍是散文加表格;站3 正是因此只抽 `item` 不抽 `reopen`。
+  - round: 110
+    item: "給站2 那四處假陳述造一支「陳述 vs 寫者」掃描器"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現第二批同形的假陳述」。站2 修的那四處是 R109 站5 一次造成的,至今是唯一一批。
+  - round: 110
+    item: "omnibot-new 的 milestone 拆分"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「老闆在 omnibot 端決定」。未決定;omnibot-new 全程唯讀。
+  - round: 110
+    item: "給 MET 判定加「是否仍應做」欄位"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現第三條『MET 但不該做』而 `note` 沒攔住」。本輪是四條,四條都由 `note` 說清楚了 —— 條件的重點是 `note` 攔不住,不是條數。
+  - round: 110
+    item: "改 `corpus_verdict_baseline` 隨語料變動的機制"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「老闆裁定,或語料根目錄不再是本機路徑」。兩者都沒發生;`corpus_verdict_baseline.json` 仍隨 `/Users/johnny/projects` 下的目錄變動。
+  - round: 110
+    item: "4b 的 could-not-measure 表示法(R99 的 `# noqa: F841`)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「單獨一輪處理 4b 的表示法」。本輪不是那一輪;`spec_tracking_checker.py:410` 的 `# noqa: F841` 原封不動。
+  - round: 110
+    item: "修 `gate_thresholds.py:174` 引用已不存在的 `_TOOL_OUTPUT_PATTERNS`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有人要動那段 docstring 時一併」。`core/quality_gate/gate_thresholds.py:174` 本輪一個位元組都沒動。
+  - round: 110
+    item: "改 `MEASUREMENT_SINKS.yaml` / `REGRESSION_GUARDS.yaml` / 舊 flowchart 裡的引用"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09: re-open 欄是 `—`。那些欄位記的是「當時發現了什麼」,改它是 R44 —— 沒有任何未來狀態會讓改寫歷史記錄變成對的。

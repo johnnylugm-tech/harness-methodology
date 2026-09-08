@@ -1845,3 +1845,75 @@ entries:
     item: "中文分詞 / 收緊 canonical 切分器"
     reason: "R108 站B 已兩次實測否決(13/15 專案下墜)"
     reopen: "有能驗證新分數為真的東西"
+  - round: 110
+    line: 10626
+    kind: table_row
+    item: "讓 FSM 真的寫 `FREEZE` / `PAUSED`"
+    reason: "會停掉專案的下一次執行,是行為變更不是文字修正"
+    reopen: "老闆裁定 FSM 狀態的寫入權責"
+  - round: 110
+    line: 10627
+    kind: table_row
+    item: "用 `srs_acceptance_criteria` 對調 `_split_ac_clauses`"
+    reason: "兩個解析器在兩個方向都差很多,`run-all-by-workflow` 上是 15 → 0 的純損失"
+    reopen: "有人決定哪一份才是 AC 的定義"
+  - round: 110
+    line: 10628
+    kind: table_row
+    item: "P2 檢查改讀 `quality_manifest.json`"
+    reason: "檢查對象必須是交付物;manifest 是框架自己生成的衍生檔,框架的值在裡面是必然"
+    reopen: "出現一個讀交付物讀不到、只有 manifest 看得到的殘留範例值"
+  - round: 110
+    line: 10629
+    kind: table_row
+    item: "統一 p95 拼法的 SSOT"
+    reason: "樣本量 1,用一個專案決定拼法是 R87"
+    reopen: "第二個專案宣告 p95,或老闆裁定拼法"
+  - round: 110
+    line: 10630
+    kind: table_row
+    item: "讓 extractor 從 bullet 散文抽 `reopen`"
+    reason: "R55 形狀;extractor 的 docstring 明文不做分類"
+    reopen: "賬本改為結構化寫入"
+  - round: 110
+    line: 10631
+    kind: table_row
+    item: "給站2 那四處假陳述造一支「陳述 vs 寫者」掃描器"
+    reason: "要對自然語言判真假,是 R46 誣告器的形狀;站2 的守衛零誤判靠的是 `STATE_PRODUCERS` 這張現成的機讀表"
+    reopen: "出現第二批同形的假陳述"
+  - round: 110
+    line: 10632
+    kind: table_row
+    item: "omnibot-new 的 milestone 拆分"
+    reason: "專案端的範圍決定,且該專案唯讀"
+    reopen: "老闆在 omnibot 端決定"
+  - round: 110
+    line: 10633
+    kind: table_row
+    item: "給 MET 判定加「是否仍應做」欄位"
+    reason: "加欄位是第二份宣告而沒有執行者(R30)"
+    reopen: "出現第三條「MET 但不該做」而 `note` 沒攔住"
+  - round: 110
+    line: 10634
+    kind: table_row
+    item: "改 `corpus_verdict_baseline` 隨語料變動的機制"
+    reason: "R88 刻意建成這樣;換掉它是換一個機制,不是修一個缺陷"
+    reopen: "老闆裁定,或語料根目錄不再是本機路徑"
+  - round: 110
+    line: 10635
+    kind: table_row
+    item: "4b 的 could-not-measure 表示法(R99 的 `# noqa: F841`)"
+    reason: "改 `4b_test_spec_pct` 的欄位語意會影響 3 條既有返回路徑與所有 4b 消費者"
+    reopen: "單獨一輪處理 4b 的表示法"
+  - round: 110
+    line: 10636
+    kind: table_row
+    item: "修 `gate_thresholds.py:174` 引用已不存在的 `_TOOL_OUTPUT_PATTERNS`"
+    reason: "站3 走 R56 那條時順帶發現的過期陳述,與本輪需求無關 —— 告知不改"
+    reopen: "有人要動那段 docstring 時一併"
+  - round: 110
+    line: 10637
+    kind: table_row
+    item: "改 `MEASUREMENT_SINKS.yaml` / `REGRESSION_GUARDS.yaml` / 舊 flowchart 裡的引用"
+    reason: "那些是「當時發現了什麼」的歷史記錄,改它是 R44"
+    reopen: "—"

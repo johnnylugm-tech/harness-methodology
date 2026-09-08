@@ -10567,3 +10567,71 @@ changed in Round 27 and every hand-copy of it then disagreed with the table」�
 還原後 sha256 相同。
 
 `:244` 提到的「14-name literal」不動 —— 那句講的是**已經被拿掉**的東西,是歷史記述(R44)。
+
+### §4 站4 — 再開條件回答的是「阻礙消失了嗎」,不是「這件事本來就該做嗎」
+
+站3 走完之後,`deferred_guards.yaml` 有 **7 條 MET 而 `resolved_in` 空著**。它們讀起來
+像待辦清單,而其中四條**不該做**:
+
+| 條 | 條件為何滿足 | 為何仍然不做 |
+|---|---|---|
+| R86 omnibot-new milestone 拆分 | `state.json` 記 `phase_completed` 有 "1"/"2",P1 首次跑過 | milestone 怎麼切是**專案端**的範圍決定,且 omnibot-new 唯讀 |
+| R83 `performance` 讀 p95 預算 | tts-new 的 `quality_manifest.json` 真的有機讀 p95 通道 | 18 個語料專案只有它宣告,而且是**第三種拼法**。樣本量 1 決定 SSOT = R87 |
+| R105 AC 解析器對調 | R109 站1 讓兩邊 id 形狀一致,交集 0 → 410 | **對調不是精修,是換一個母體**(見下) |
+| R105 P2 檢查改讀 manifest | manifest 在 P2 出口確實已進 git | 檢查對象必須是**交付物**;manifest 是框架自己生成的衍生檔 |
+
+另外三條:R79 的守衛自己吸收了第三個合法提及(賬本原文「Nothing to do」),
+R98 與 R99 是**該做但屬於另一輪**的工作,理由寫在各自的 evidence。
+
+#### 4a AC 解析器對調:實測推翻我自己在計畫書寫的理由
+
+計畫 §4 寫「12 專案 AC label 0 而 bullets 62–134」。站4 實測(21 個有 `SRS.md` 的專案,
+同一份檔案餵給兩個解析器):
+
+```
+project              srs_acceptance_criteria   _split_ac_clauses
+taskq-renew                      134                      20
+taskq-forever                    119                      22
+taskq-super                      111                      22
+taskq-cc                          92                     114
+taskq-sol                        110                     132
+run-all-by-workflow                0                      15
+```
+
+**兩個方向都差很多**,而 `run-all-by-workflow` 上對調是**純粹的損失**(15 → 0)。
+所以理由不是「會產生假指控」,是**對調會換掉 `canonical_diff` 數的是什麼** ——
+那要先有人決定哪一份才是 AC 的定義。計畫書那句以這一段為準。
+
+#### 4b Round 109 §9 那十條 `NOT_MET` 是正確的終局狀態
+
+它們不是漏做。條件沒到就做,正是站7 自己判為 R22(把與需求無關的工作放進迴圈)的那件事。
+
+#### 4c 不加欄位
+
+「是否仍應做」做成一個欄位,就是第二份宣告而沒有執行者(R30)。它寫在四條的 `note` 裡,
+在那裡必須被論證,不能被打勾。R105 那條的 defer 理由本來就有兩半,而再開條件只寫了
+前半 —— 這就是一個 MET 判定怎麼讀起來變成一道指令的。
+
+### §5 驗證
+
+- `bash scripts/self_check.sh` 全綠;`generate_workflows.py --check` 乾淨
+- 反證 CP-1 / CP-2 / CP-3 / CP-5 / CP-6 / CP-8 各自看到紅並指名,還原後 sha256 相同
+- CP-4 刻意做成**抓不到**,用來標出站2 守衛的真實邊界;CP-7 在實作中被自己證偽並撤回
+- 五個 commit 全部留在本地
+
+### §6 明列不做
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| 讓 FSM 真的寫 `FREEZE` / `PAUSED` | 會停掉專案的下一次執行,是行為變更不是文字修正 | 老闆裁定 FSM 狀態的寫入權責 |
+| 用 `srs_acceptance_criteria` 對調 `_split_ac_clauses` | 兩個解析器在兩個方向都差很多,`run-all-by-workflow` 上是 15 → 0 的純損失 | 有人決定哪一份才是 AC 的定義 |
+| P2 檢查改讀 `quality_manifest.json` | 檢查對象必須是交付物;manifest 是框架自己生成的衍生檔,框架的值在裡面是必然 | 出現一個讀交付物讀不到、只有 manifest 看得到的殘留範例值 |
+| 統一 p95 拼法的 SSOT | 樣本量 1,用一個專案決定拼法是 R87 | 第二個專案宣告 p95,或老闆裁定拼法 |
+| 讓 extractor 從 bullet 散文抽 `reopen` | R55 形狀;extractor 的 docstring 明文不做分類 | 賬本改為結構化寫入 |
+| 給站2 那四處假陳述造一支「陳述 vs 寫者」掃描器 | 要對自然語言判真假,是 R46 誣告器的形狀;站2 的守衛零誤判靠的是 `STATE_PRODUCERS` 這張現成的機讀表 | 出現第二批同形的假陳述 |
+| omnibot-new 的 milestone 拆分 | 專案端的範圍決定,且該專案唯讀 | 老闆在 omnibot 端決定 |
+| 給 MET 判定加「是否仍應做」欄位 | 加欄位是第二份宣告而沒有執行者(R30) | 出現第三條「MET 但不該做」而 `note` 沒攔住 |
+| 改 `corpus_verdict_baseline` 隨語料變動的機制 | R88 刻意建成這樣;換掉它是換一個機制,不是修一個缺陷 | 老闆裁定,或語料根目錄不再是本機路徑 |
+| 4b 的 could-not-measure 表示法(R99 的 `# noqa: F841`) | 改 `4b_test_spec_pct` 的欄位語意會影響 3 條既有返回路徑與所有 4b 消費者 | 單獨一輪處理 4b 的表示法 |
+| 修 `gate_thresholds.py:174` 引用已不存在的 `_TOOL_OUTPUT_PATTERNS` | 站3 走 R56 那條時順帶發現的過期陳述,與本輪需求無關 —— 告知不改 | 有人要動那段 docstring 時一併 |
+| 改 `MEASUREMENT_SINKS.yaml` / `REGRESSION_GUARDS.yaml` / 舊 flowchart 裡的引用 | 那些是「當時發現了什麼」的歷史記錄,改它是 R44 | — |
