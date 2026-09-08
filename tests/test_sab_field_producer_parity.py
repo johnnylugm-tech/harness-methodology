@@ -104,3 +104,41 @@ def test_registry_is_not_empty_and_names_its_consumers():
             f"find who depends on the field"
         )
         assert c.why.strip(), f"{c.field}: state what degrades, not just that it is used"
+
+
+# ── Round 110 站3b: the other reader of the field list ───────────────────────
+#
+# Round 64 finding 8 recorded `sab_parser.py`'s module docstring as hard-coding
+# "14 fields" and the dimension comment as hard-coding a "14-dimension set",
+# judged them correct that day, and deferred with `再開條件:詞彙表變動`. Round
+# 110 站3 walked that condition and measured it MET: SABSpec is 15 fields, the
+# gate configs are 12 / 17 / 16 dimensions, and the docstring's enumeration had
+# been missing `required_artifacts` since Round 68 站1 added it.
+#
+# Both counts are gone rather than corrected — replacing 14 with 15 plants the
+# same drift again, one round later. What is left is a list, and this is what
+# keeps the list complete. The same docstring already carries the precedent:
+# the NFR type vocabulary is NOT restated there, because "the list changed in
+# Round 27 and every hand-copy of it then disagreed with the table".
+
+def test_the_parser_docstring_names_every_field_it_parses() -> None:
+    """A field absent from the docstring is a field the next reader does not
+    know to write into the SAB.
+
+    Both sides are machine-readable — dataclass attributes and one docstring —
+    so this cannot misfire the way a natural-language scan would (Round 46).
+    """
+    import dataclasses
+
+    from core.quality_gate import sab_parser
+    from core.quality_gate.sab_parser import SABSpec
+
+    doc = sab_parser.__doc__ or ""
+    missing = [f.name for f in dataclasses.fields(SABSpec) if f.name not in doc]
+    assert not missing, (
+        f"core/quality_gate/sab_parser.py's module docstring enumerates the SAB "
+        f"fields and is missing {missing}. That list is what a reader consults "
+        f"before writing a SAB block; a field it omits is a field nobody is told "
+        f"to write. Add it there, and do not restore a count in front of it — "
+        f"Round 64 deferred exactly that count and Round 110 站3 found it wrong."
+    )

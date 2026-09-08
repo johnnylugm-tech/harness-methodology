@@ -7,7 +7,7 @@ CONTRACT (single source of truth — do not duplicate in templates/docs):
              A ```yaml code fence is STRONGLY RECOMMENDED.
   Root key:  `sab:` (recommended) — if absent, parser treats the whole body
              as the SAB block. Including `sab:` is the canonical form.
-  Fields:    14 fields, mirroring the SABSpec dataclass:
+  Fields:    one per SABSpec attribute, in the dataclass's own order:
                version (str, default "1.0")
                created_at (str, ISO date)
                phase (int — STRINGS RAISE RuntimeError)
@@ -22,6 +22,8 @@ CONTRACT (single source of truth — do not duplicate in templates/docs):
                fr_module_traceability (dict)
                architecture_constraints (list)
                high_risk_modules (list)
+               required_artifacts (list of repo-relative paths, checked against
+                 the delivered tree at every finalize)
   NFR types: see nfr_type_vocabulary() — enforceable values map to a gate
              dimension, advisory ones have no scoring tool and are auto-added to
              advisory_only. Not restated here: the list changed in Round 27 and
@@ -116,7 +118,7 @@ class SABSpec:
 
 
 # Canonical map from SAD.md nfr_traceability `type` values to ACTUAL harness gate
-# dimension names (must exist in the gate config 14-dimension set — otherwise the NFR
+# dimension names (must exist in the gate config's dimension set — otherwise the NFR
 # maps to a non-existent dimension and is silently un-enforced).
 #
 # Round 27 站2b: this table had five entries, so five of sixteen dimensions were

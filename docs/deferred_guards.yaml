@@ -1962,7 +1962,7 @@ entries:
   - round: 64
     item: "不改 SAB prompt 的 14/18 硬寫數字"
     verdict: MET
-    guard: "manual"
+    guard: "tests/test_sab_field_producer_parity.py::test_the_parser_docstring_names_every_field_it_parses"
     evidence: >-
       2026-09-09: 條件是「詞彙表變動」,已經變了兩次。`core/quality_gate/sab_parser.py:10` 寫 「14 fields, mirroring the SABSpec dataclass」而 `SABSpec` 今天是 **15** 個欄位;同檔 :119 寫「must exist in the gate config 14-dimension set」而 gate2/3/4 的 dimensions 今天是 **12 / 17 / 16**。兩句都已是假陳述。(:244 那句提到的 14-name literal 是**已經拿掉**的東西的歷史記述,不動 —— R44。)
     resolved_in: "Round 110 站3b"

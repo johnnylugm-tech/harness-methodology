@@ -10538,3 +10538,32 @@ R64 那條由站3b 修掉(改法是**拿掉數字**而不是換成 15/16 —— 
 
 賬本此後每加一條不做決定 —— 表格或 bullet —— 都要在**同一個 commit** 裡加一列判定,
 否則守衛紅。這是全覆蓋的代價,不是副作用。
+
+### §3b 站3b — 站3 量出來的那條 MET,兩句已經是假的
+
+R64 發現 8:`sab_parser.py` 的模組 docstring 硬寫「14 fields, mirroring the SABSpec
+dataclass」,同檔的維度註解硬寫「the gate config 14-dimension set」。R64 判**不做**,
+理由是「今天實測正確,且該句真正的指令不依賴這兩個數」,再開條件 `詞彙表變動`。
+
+站3 走到這條時量:
+
+```
+SABSpec 欄位          15   (docstring 說 14)
+gate2/3/4 dimensions  12 / 17 / 16   (註解說 14)
+docstring 列舉的欄位  14 —— 缺 required_artifacts,自 R68 站1 加進去就沒補上
+```
+
+第三行是量的時候才看到的:**數字錯,而列表也漏了一個**。一個讀這份 docstring 才知道
+SAB 該寫什麼的人,從 R68 起就沒被告知那個欄位存在。
+
+**改法是拿掉數字,不是換成 15/16。** 換數字就是把同一個漂移再種一次,一輪之後再錯。
+同一份 docstring 自己就有先例:NFR type 詞彙表**不在那裡重述**,理由寫著「the list
+changed in Round 27 and every hand-copy of it then disagreed with the table」。
+
+剩下的是一份列表,由 `test_the_parser_docstring_names_every_field_it_parses` 釘住 ——
+兩邊都是機器可讀的(dataclass 欄位 vs 一份 docstring),所以不會有 R46 那種誣告。
+
+**反證 CP-8**:把 `required_artifacts` 那兩行拿掉 → 守衛紅並指名該欄位;
+還原後 sha256 相同。
+
+`:244` 提到的「14-name literal」不動 —— 那句講的是**已經被拿掉**的東西,是歷史記述(R44)。
