@@ -359,8 +359,12 @@ _PROJECT_ROOT=$(pwd)
 > scoring. score.py R8b deviation warning was removed when LLM scoring was abolished.
 >
 > **Score formula**: `round(killed / (killed + survived) × 100, 1)`, with ⏰ (timeout) and
-> 🤔 (suspicious) counted as survived — they were not killed by tests — and score = 0 (not
-> 100) when no mutants were produced. **You do not compute this**: the framework reads the
+> 🤔 (suspicious) counted as survived — they were not killed by tests. When **no mutants
+> were produced** there is *no score* — not a 0 and not a free 100: nothing was measured,
+> `_compute_mutation_score` returns `None`, and the remedy is the mutate scope or the tool
+> (the `could_not_measure` paragraph above is what the gate then reads). A 0 means the
+> suite killed none of the mutants it was given, and its remedy — write assertions — points
+> the other way. **You do not compute this**: the framework reads the
 > counts out of mutmut's sqlite cache and writes the result to
 > `.methodology/mutation_score.json`. The formula is here so the number is explicable, not
 > so it gets re-derived. (Do not try to parse 🎉 out of `mutmut results` — mutmut 2.x never

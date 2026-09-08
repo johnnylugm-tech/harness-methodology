@@ -5771,3 +5771,15 @@
 - test: tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_the_gate_does_not_hand_an_agent_a_threshold_nobody_set
   bug: "the sharpest form of this defect. run-gate's non-code-FR branch told the agent in prose 'Score this dimension as {cov_threshold} (= threshold)', and cov_threshold came from min_coverage_floor — so on a project that declared nothing the framework invented a number and handed it to an agent to write back as a measured score. With no floor the instruction now routes to an UNSCORED dimension, a state the framework already blocks on (_stage_absent_dimensions, Round 60), instead of naming a threshold"
   fixed_in: "Round 109"
+
+- test: tests/test_the_prompt_and_the_framework_agree_on_zero_mutants.py::test_the_mutation_section_does_not_teach_a_zero_for_an_unmeasured_run
+  bug: "Round 80 站2 (6e3abf17) made a mutmut/Stryker run that produced no mutants return (False, None, 'nothing was measured, so there is no score') instead of scoring 0.0 — 0% means the tests killed nothing and the remedy is assertions, zero mutants means nothing was mutated and the remedy is the mutate scope. That commit touched exactly one file. evaluate_dimension.md, the document the agent reads, kept teaching `score = 0 (not 100) when no mutants were produced` for thirty rounds. Round 35's own ledger entry is about this pairing and says the two must be adjudicated together, 不能只改一邊"
+  fixed_in: "Round 110"
+
+- test: tests/test_the_prompt_and_the_framework_agree_on_zero_mutants.py::test_each_tool_dimension_says_an_unmeasured_run_has_no_score
+  bug: "the same question asked of all three dimensions whose tool can come back with nothing to score. readability and performance had answered it correctly since they were written ('no score (not 100)' / 'score is *None* … not a free 100'); mutation_testing was the one that drifted, which is what makes the correct wording this document's own rather than something invented in the fix"
+  fixed_in: "Round 110"
+
+- test: tests/test_the_prompt_and_the_framework_agree_on_zero_mutants.py::test_the_framework_still_answers_none_for_a_run_that_mutated_nothing
+  bug: "sanity check on the mechanism the prose describes, kept in the same file for the reason test_hr16_text_matches_mechanism.py keeps test_sab_parser_mechanism_is_threshold_floor: if the framework ever goes back to scoring 0 for an unmeasured run, the prompt has to be re-read against it rather than staying green while the two drift apart again"
+  fixed_in: "Round 110"

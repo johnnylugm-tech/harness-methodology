@@ -10327,3 +10327,62 @@ message」),而本 commit 沒有任何搬移,兩者不會互相掩蓋。
 | 把 `min_coverage_floor` 的畸形值也改成 `None` | 缺席與畸形是兩件事;語料零實例,改它是沒有量測撐著的決定 | 出現第一個畸形宣告 |
 | 讓框架讀 `latency_p95_ms`(§7 那條 MET) | 一個專案、第三種拼法;先要決定哪個拼法是 SSOT | 老闆排程,或第二個專案宣告 p95 |
 | 中文分詞 / 收緊 canonical 切分器 | R108 站B 已兩次實測否決(13/15 專案下墜) | 有能驗證新分數為真的東西 |
+
+---
+
+## Round 110 — 上一輪之後仍有的遺留:四類,而其中一類是我自己造的 (2026-09-09)
+
+老闆令兩步:「經由上一輪的修改後是否仍有遺留項目」→ 盤出四類 → 「完成上面所有遺留
+事項」。方案被退回一次(「**再次驗證方案是否是正解並且沒有引入其他副作用。任何的問題與
+解法都要先進行驗證**」),重驗後核准。**再驗證改寫了三站,並挖出第一版盤點沒看到的
+一類遺留:Round 109 站5 自己造的四處假陳述。**
+
+老闆兩項裁定:索引**全覆蓋**;HR 規則**改陳述說真話 + 守衛**(憲法可動)。
+
+基準 HEAD `95710999`(Round 109 六 commit 已在 `origin/main`,CI 五 job 全綠)。
+
+### §1 站1 — 零分母:框架改了答案,教 agent 的那句沒改
+
+Round 80 站2(`6e3abf17`)讓「mutmut 產出 0 個 mutant」停止計 0 分:
+
+```
+total == 0 (mutmut)    return True, 0.0, msg      →  return False, None, "…no score"
+total == 0 (Stryker)   return True, 0.0, "…"      →  同上
+```
+
+理由寫在那個 commit 的 message 裡:**0% 是測試一個都沒殺掉,解法是補斷言;
+零 mutant 是根本沒變異到東西,解法是 mutate 範圍或工具。兩個解法方向相反。**
+
+**該 commit 只動了一個檔**(`core/quality_gate/mutation_enforcer.py`)。
+`harness/ssi/prompts/evaluate_dimension.md` —— agent 讀的那份 —— 之後三十輪繼續教
+`score = 0 (not 100) when no mutants were produced`。
+
+Round 35 的賬本條目(本檔 1246-1253,`kind: unstructured`)寫的正是這對:
+
+> 零分母該不該算「未量測」…與這句寫下的規則直接衝突…
+> **再開條件**:下一輪若處理分母保護,這兩條必須放在一起裁決,**不能只改一邊**。
+
+裁決 R80 站2 下了。只有一邊動了。
+
+**診斷在實作中被自己的量測修正**:第一版說「prompt 沒跟上」。實際上同一段的
+L316-324 **已經跟上了** —— 它正確描述 `score: null` + `could_not_measure`,並解釋
+`tool_score=0` 只是 score.py R8 不收 null 的 placeholder。所以這不是一份沒更新的文件,
+是**同一份檔案裡兩段講同一件事,只有公式那段沒動**。守衛的 regex 因此必須排除
+`tool_score=0`,而那個排除有實例與理由,不是為了讓測試綠。
+
+**措辭不是我發明的**,是這份檔案自己在另外兩處的寫法:
+
+```
+:535  ### readability   the harness returns *no score* (not 100)     ✅
+:600  ### performance   score is *None* … not a free 100             ✅
+:362  ### mutation_testing                                            ← 唯一說 0 的
+```
+
+**守衛的已知界限(反證量到的,不藏)**:它讀字不讀意。把那段換成
+「there is no score problem — record 100 and move on」,五支斷言全綠。這與
+`test_hr16_text_matches_mechanism.py` 的界限相同 —— 它讓**已經發生過的**那種漂移
+(公式教了三十輪的 0)無法再靜默重演,它不保證那一段是真的。
+
+**反證**:CP-1 改回 `score = 0` → 兩支紅並指名;還原後 sha256 相同。
+CP-7(計畫寫的「忠實改寫必須被抓到」)**在這一站不成立並撤回** —— prompt 不是
+render-from-SSOT 的副本,忠實改寫通過是正確行為,不是漏洞。換成 CP-7b 量界限。
