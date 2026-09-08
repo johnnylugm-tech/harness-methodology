@@ -9889,3 +9889,33 @@ keyed,註解改成當下為真的陳述。
 **不要求數字**(會丟 match 的方向)→ `test_canonical_diff_phantom_ac.py` 當場轉紅
 (`clauses found: ['FR-01', 'NFR-12', 'FR']`),證明 Round 42 的守衛確實在看這個模組物件、
 而本輪的新守衛沒有把那條性質弄丟。
+
+### §2 站2 — `core/audit/` 退場:宣告的消費者從未存在,而它要防的事早有執法者
+
+`core/audit/`(`__init__.py` 20 行 + `grep_docstring_aware.py` 199 行)提供
+`audit_grep()` —— 一支會先剝掉 docstring 再做 regex 搜尋的掃描器,存在的理由寫在它
+自己的 `__init__.py` 裡:
+
+> When `scripts/shell_audit.py` lands (NFR-02 enforcement), it should use this
+> helper so all audits share the same docstring/comment exclusion logic.
+> Until then the helper is exposed for tests and future audits.
+
+**`scripts/shell_audit.py` 從未存在。** 而它要防的那件事 —— NFR-02「no shell=True」——
+**早就有真執法者**:bandit 的 B602 `no_shell_true`。`tests/test_arch_constraint_executors.py`
+的 docstring 逐字記著這件事(「bandit is already deciding five of them」),Round 54
+就量過。
+
+**實測引用面**(掃 `.py` / `.yaml` / `.md` / `.json` / `.toml` / `.cfg` / `.ini`):
+除了模組自身與 `tests/test_audit_grep.py`,**全樹零引用**;不在
+`test_file_size_ratchet` / `test_function_size_ratchet` / `REGRESSION_GUARDS.yaml` /
+`MEASUREMENT_SINKS.yaml` / `test_god_file_split_safety` 任何一份登記裡。repo 內另外兩支
+「string-aware」掃描器(`scripts/structured_b_review.py:95`、
+`scripts/workflow_audit/js_lint.py:152`)掃的是 JavaScript,用不上 Python AST 剝離器。
+
+**為什麼是退場而不是接上讀者。** 接上它等於為一條**已經有執法者**的約束再造一個較弱的
+第二執法者 —— 那正是 R33/R56(一份合約,兩份陳述)以提案形式出現。R30/R43 的母體
+(偵測到了卻沒有執行者)在這裡是反過來的:執行者早就有,這 219 行是替它預備卻沒接上的
+另一條路。老闆裁定退場。
+
+刪除後全樹零殘留引用,`verify_regression_guards.py` 仍 OK(1387,該檔本來就沒登記過),
+測試收集數 8479。賬本保留這兩次歷史提及,那是紀錄不是引用。
