@@ -10224,3 +10224,106 @@ fixture 補上 `quality_targets: {"min_coverage": 80}` —— **那是它們一�
 是**刻意改動**,那正是該檔頭寫的唯一允許重生成的情況(「Regenerate ONLY when a function
 is deliberately changed, in the same commit as the change, and say so in the commit
 message」),而本 commit 沒有任何搬移,兩者不會互相掩蓋。
+
+### §7 站7 — 91 條再開條件逐條走完(老闆裁定)
+
+**規模先被自己的量測改寫兩次。** 我在站7 開頭先報 104 條,那是把 `reopen` 欄位是破折號的
+14 列也算進去了 —— 破折號是賬本在說「這條沒有條件」,不是條件未填。實際:139 個 table row,
+**96 條有真的再開條件**,5 條已有守衛列,**91 條無人回檢**,與方案的數字一致。
+
+#### 走完的定義
+
+**每條給出可追溯的判定 + 證據,不是把每條都實作。** 判定為 MET 的升級成登記項由老闆決定
+何時做 —— 把 91 條的實作塞進本輪就是 R22 的「與目標無關的工作放進迴圈」。
+
+| 判定 | 數 | 意思 |
+|---|---|---|
+| `NOT_MET` | 80 | 條件今天不成立,證據欄記下量到的數字或查過的地方 |
+| `MET` | 10 | 條件成立。其中 5 條由本輪自己滿足,5 條由別的事滿足 |
+| `ALREADY_DONE` | 1 | 事情早做了,賬本那列是過期陳述 —— **必須指名證明它的測試**(R45) |
+| `PREMISE_FALSE` | 0 | 沒有用到。站6 那條的前提確實為假,但條件本身(「單獨一輪」)是 MET |
+| `NO_CONDITION` | 1 | 給既有的 branch protection 那列,它的 reopen 欄本來就是破折號 |
+
+#### 十一條非 NOT_MET 的判定
+
+| 輪 | 條目 | 判定 | 憑什麼 |
+|---|---|---|---|
+| R81 | 賬本每一條的 `guard:` 逐條補齊 | MET | 條件是「有人做那次審查」,老闆令即是。本站是它 |
+| R82 | 同上(承 R81) | MET | 同上 |
+| R101 | `required_artifacts` 擋 per-FR Gate 1 | ALREADY_DONE | R102 站1 已關(`ctx.gate_num >= 2`),兩支守衛在跑 |
+| R105 | `_FR_HEADER_RE` label 點號截斷 | MET | 本輪站1 修完 |
+| R105 | `srs_acceptance_criteria` 對調 | MET | 條件「兩個 parser 的 AC id 形狀先統一」由站1 達成,交集 0 → 410 |
+| R105 | `DEFAULT_MIN_COVERAGE` | MET | 本輪站6 做完,而該列的理由前提被實測推翻 |
+| R105 | `canonical_diff --mode` | MET | 本輪站3 做完,條件正是「另一輪的減法」 |
+| R105 | P2 檢查改讀 `quality_manifest.json` | MET | **新量測**:三個專案在自己 `phase_completed["2"].sha` 那個 commit 上,`quality_manifest.json` 都已 tracked(taskq-sn `d06f41fa`、taskq-done `dbe2620f`、taskq-new `94ee34d1`)。R105 看的 `a6bf87f` 是更早的 commit,兩句話可以同時為真 |
+| R83 | `performance` 讀專案宣告的 p95 | MET | **新量測**:tts-new 的 `quality_targets` 有 `latency_p95_ms` / `latency_p50_ms` —— R83 說不存在的那條機器可讀通道。附帶:那是**第三種拼法**(schema 寫 `p95_latency_ms`),所以來源有了而沒有人讀得到 |
+| R86 | omnibot-new 是否該拆 milestone | MET | omnibot-new 已跑完 P1/P2,`current_phase: 3`。條件是「第一次真跑 P1 之後」 |
+| R79 | `test_amend_sab_appears_once…` | MET | 第三個正當 mention 出現了:R100 站1 的 `phantom_abort`。守衛用 R79 指定的方式吸收(靠那行自己帶的旗標排除,不放寬計數),無事可做 |
+
+#### 走的過程挖出一個活的提取缺陷
+
+**賬本 24 張不做表裡,23 張是 `| 項目 | 理由 | re-open |`,R72 那張是 `| # | 事項 | 理由 | re-open |`。**
+`extract_deferred_index.py` 按**位置**讀 `cells[0..2]`,所以 R72 的四列進到索引時:`item` 是
+"A"/"B"/"C"/"D",真正的 item 被存成 reason,真正的 reason 被存成再開條件,而**真正的再開條件
+在第四格,整個掉了**。
+
+每一格仍然是賬本的位元組切片,所以 `test_every_field_is_a_byte_exact_slice_of_the_ledger`
+一路全綠 —— **欄位存在,內容不是它名字說的那件事**(R24 母體)。若照舊索引寫判定,那四條
+會是**對著錯的句子下的判定**。
+
+修法是問表頭而不是數位置(`_columns()`);重生成後 diff **正好 32 行,全部是 R72 那四列**,
+其餘 23 張表逐位元組不動。守衛 `test_the_reopen_column_is_the_one_the_table_says_it_is`
+拿每張表自己的表頭去對每一列的 `reopen`。
+
+#### 新守衛:反向完備性
+
+`docs/deferred_guards.yaml` 原有三支斷言全部是 guards → index 方向(不許指向不存在的決定、
+不許指名不存在的測試)。**沒有一支看得見這個檔存在的理由本身:一條寫著「X 發生時再開」而
+連一列都沒有的索引條目。** 那個方向 28 輪沒人量過,量出來是 91/96。
+
+| 守衛 | 擋什麼 |
+|---|---|
+| `test_every_reopen_condition_has_a_verdict` | 新的不做列若帶再開條件而沒判定 → 紅 |
+| `test_every_verdict_carries_evidence` | 沒有證據的判定是有 schema 的意見(R45) |
+| `test_already_done_names_the_test_that_proves_it` | ALREADY_DONE 最容易錯也最難回查,必須指名那支測試 |
+| `test_the_reopen_column_is_the_one_the_table_says_it_is` | 上面那個提取缺陷 |
+
+反證(2026-09-08,`cp` 備份還原,sha256 比對相同):刪掉 `P3 dispatch 發散` 那一列 →
+完備性守衛紅並指名該列;把唯一那條 ALREADY_DONE 的 `guard` 改成 `manual` → R45 守衛紅並
+指名 R101 那列。破折號的 14 列**刻意排除**:對一件沒有條件的事要求判定,是製造 43 列噪音,
+而噪音正是讓其他 96 條沒人讀的原因。
+
+#### 兩條誠實邊界
+
+1. **80 條 NOT_MET 裡,多數的條件形如「某個真實專案撞到 X 時」。我證不了 X 從未發生過**,
+   只能記下我查了哪裡(賬本沒有那筆、語料沒有那個檔、那個數字今天是多少)。證據欄寫的是
+   查過的東西,不是「我看了覺得沒達成」。
+2. **有三條的數字往壞的方向動了,條件卻仍然不成立**,一併記下而不假裝它是 MET:
+   `artifact_consistency.py` 977 → 1050 行、`cmd_run_fr_step` 588 → 872 行、
+   `RUNALL_MAX_BYTES` headroom 153 → 300 bytes(這條是往好的方向)。
+   `arch_constraints.py` 950 → 686、`cli/gate_cmds.py` 4000+ → 3371 則是縮了。
+
+### §8 本輪自己的量測推翻了什麼
+
+| 方案寫的 | 實測 | 處置 |
+|---|---|---|
+| 憲法段與活 SSOT 相似度 0.489 | 0.700(兩邊都 `.strip()` 後) | 站4 賬本與守衛登記都改成 0.700 |
+| `preflight_manifest_integrity` 有 9 個 return | 外層 4 個,另 5 個在巢狀函式裡 | 方案的停手條件因此從未觸發 |
+| 6/6 語料專案 `passed=True` | 18 個 taskq* 專案:14 → 100.0、4 → 沒寫分數、0 → 0.0 | 站5 賬本記實際分佈 |
+| 站7 有 104 條要走 | 96 條有真條件,91 條無守衛 | 破折號 14 列不是條件未填 |
+| R88 的「97 個 `relative_to` 呼叫點」 | 今天生產碼 101、測試 62 | 沒說是否含測試,不可直接比較,兩個數字都記下 |
+
+### §9 明列不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| 擴大 fork 掃描面到 `*.md`/`*.js`/`*.yaml` | 實跑 26 命中 **24 是生成表面**,已被 `generate_workflows.py --check` 與 golden 釘死;造這支掃描器就是 R46 誣告 | 出現第二個手寫的宣告表面 |
+| HR-14 真的寫 `FREEZE` 進 `state.json` | 會停掉專案下一次執行,是行為變更不是接生產者 | 老闆裁定 FREEZE 的寫入權責 |
+| 修 `CLASSIFICATION_TABLE` 讓 auto_fix 鏈活起來 | R49-C 刻意收緊過(prefix fallback 造成誤分類) | auto_fix 需要真正自動修復時 |
+| `integrity` 改成多值刻度 | 每 issue 扣 10 分是我發明的刻度,框架算不出這個數 | 有框架自己算得出的多值 integrity |
+| 刪 `AutoQualityGate`(零生產呼叫者) | 無關 dead code,CLAUDE.md:告知不刪 | 老闆裁定 |
+| 重構 `preflight_manifest_integrity` 的 return 結構 | 失控重構的起點;站5 只把兩個 banner print 移到 preflight 包裝層 | 該函式進入拆分清單 |
+| 站7 的 91 條全部實作 | 「走完」是給判定;塞進本輪是 R22 母體 | 逐條由老闆決定,MET 的 10 條是候選 |
+| 把 `min_coverage_floor` 的畸形值也改成 `None` | 缺席與畸形是兩件事;語料零實例,改它是沒有量測撐著的決定 | 出現第一個畸形宣告 |
+| 讓框架讀 `latency_p95_ms`(§7 那條 MET) | 一個專案、第三種拼法;先要決定哪個拼法是 SSOT | 老闆排程,或第二個專案宣告 p95 |
+| 中文分詞 / 收緊 canonical 切分器 | R108 站B 已兩次實測否決(13/15 專案下墜) | 有能驗證新分數為真的東西 |

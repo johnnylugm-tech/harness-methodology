@@ -69,6 +69,42 @@ def _cells(row: str) -> "list[str]":
     return [c.strip() for c in row.strip().strip("|").split("|")]
 
 
+def _columns(header: "list[str] | None") -> "dict[str, int]":
+    """Which cell holds the item, the reason and the re-open condition.
+
+    Round 109 站7. This used to be positional — cells 0/1/2 — and 23 of the
+    ledger's 24 tables are `| 項目 | 理由 | re-open |`, so it was right 23
+    times. Round 72's is `| # | 事項 | 理由 | re-open |`, and those four rows
+    came out with an `item` of "A".."D", the real item filed as the reason, the
+    real reason filed as the re-open condition, and the actual re-open
+    condition — one column further right — dropped.
+
+    Every one of those cells was still a byte-exact slice of the ledger, which
+    is why the guard that exists to stop this file inventing text was green the
+    whole time. Round 24's shape: the field is present, and its content is not
+    what its name says.
+
+    The header is what a markdown table has for saying which column is which,
+    so it is what gets asked. With no header row (a table with no separator)
+    there is nothing to ask and the positional reading stands.
+    """
+    if not header:
+        return {"item": 0, "reason": 1, "reopen": 2}
+
+    reopen = next((i for i, h in enumerate(header)
+                   if "re-open" in h or "再開" in h), None)
+    item = next((i for i, h in enumerate(header)
+                 if h not in ("#", "＃") and i != reopen), 0)
+    reason = next((i for i in range(item + 1, len(header)) if i != reopen), None)
+
+    cols = {"item": item}
+    if reason is not None:
+        cols["reason"] = reason
+    if reopen is not None:
+        cols["reopen"] = reopen
+    return cols
+
+
 def _sections(lines: "list[str]") -> "list[tuple[int, int, int]]":
     """(round, start line index, end line index) for each 不做 section."""
     out: list[tuple[int, int, int]] = []
@@ -100,14 +136,16 @@ def _entries_in(lines: "list[str]", start: int, end: int) -> "list[dict]":
     if rows:
         first_idx = rows[0][0]
         has_sep = (first_idx + 1 < end and _TABLE_SEP.match(lines[first_idx + 1]))
+        cols = _columns(_cells(rows[0][1]) if has_sep else None)
         for k, row in (rows[1:] if has_sep else rows):
             cells = _cells(row)
             if len(cells) < 2:
                 continue
-            entry = {"line": k + 1, "kind": "table_row", "item": cells[0],
-                     "reason": cells[1]}
-            if len(cells) >= 3:
-                entry["reopen"] = cells[2]
+            entry = {"line": k + 1, "kind": "table_row"}
+            for key in ("item", "reason", "reopen"):
+                col = cols.get(key)
+                if col is not None and col < len(cells):
+                    entry[key] = cells[col]
             entries.append(entry)
 
     for k in range(start + 1, end):

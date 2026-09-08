@@ -45,6 +45,10 @@
 entries:
   - round: 81
     item: "把抽出的 36 個 helper 搬去新模組"
+    verdict: MET
+    evidence: >-
+      抽取全部在 main 上綠過一輪, met at 57dcc2c1 and acted on the same round.
+      See `note` below for what the named guard proves and what it does not.
     guard: "tests/test_god_file_split_safety.py::test_every_split_function_moved_without_being_rewritten"
     resolved_in: "Round 82 站2-站6"
     note: >-
@@ -61,6 +65,12 @@ entries:
 
   - round: 80
     item: "`finalize_gate`(1150)/`cmd_run_fr_step`(940)/`cmd_advance_phase`(845)/`_advance_prechecks`(818) 的**分解**"
+    verdict: MET
+    evidence: >-
+      Met in part, and the `note` below records exactly which part: 3753 ->
+      2326 lines, with the three unmet remainders carried as their own rows in
+      Round 81's table (Tier C/D, the two blocks with no safe cut point, and
+      `cmd_run_fr_step`'s other 588 lines — 872 as of 2026-09-08).
     guard: "tests/test_extraction_moved_not_rewrote.py::test_undoing_the_extraction_gives_back_the_original_function"
     resolved_in: "Round 81 站6-站9(部分:3753 → 2326 行)"
     note: >-
@@ -79,6 +89,11 @@ entries:
 
   - round: 80
     item: "`_crg_enrich_gate_findings` 搬出 harness_bridge"
+    verdict: MET
+    evidence: >-
+      共用寫入器先被移到中立模組 — done by Round 81 站2 (harness/gate_io.py),
+      which unblocked 站3. Both moves are proved to be moves by AST
+      source-segment sha256 in the named guard.
     guard: "tests/test_god_file_split_safety.py::test_every_split_function_moved_without_being_rewritten"
     resolved_in: "Round 81 站2/站3"
     note: >-
@@ -89,6 +104,10 @@ entries:
 
   - round: 80
     item: "「明列不做」抽成機讀索引"
+    verdict: MET
+    evidence: >-
+      有人願意逐條與原文對照地做一次提取 — Round 81 站5 did it, and the named
+      guard is what makes the comparison a property instead of an intention.
     guard: "tests/test_deferred_index.py::test_every_field_is_a_byte_exact_slice_of_the_ledger"
     resolved_in: "Round 81 站5"
     note: >-
@@ -99,6 +118,11 @@ entries:
 
   - round: 80
     item: "branch protection"
+    verdict: NO_CONDITION
+    evidence: >-
+      The ledger states no re-open condition for this row (the cell is a dash),
+      which is consistent with it being forbidden outright rather than deferred.
+      2026-09-08: unchanged, and nothing in Round 109 touches it.
     guard: manual
     note: >-
       Forbidden by the operator, globally. Round 81 站4 closed a DIFFERENT hole
@@ -108,9 +132,834 @@ entries:
 
   - round: 80
     item: "`overlay_used` 仍是別台機器的絕對路徑"
+    verdict: NOT_MET
+    evidence: >-
+      2026-09-08: 出現一個讀者 — still no consumer. Recorded as genuinely
+      manual for the reason in `note`: the absence of a future reader is not
+      something a test can assert without enumerating them all.
     guard: manual
     note: >-
       Re-open condition is 出現一個讀者 — the appearance of a consumer, which no
       test can assert the absence of without enumerating every future reader.
       Genuinely manual, recorded as such so the next reader does not go looking
       for a guard that was never possible.
+
+  - round: 24
+    item: "resume 粒度 phase→task"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the workflow runtime still exposes only `agent()` and `bash()`. Grep for a
+      checkpoint API across .claude/workflows/*.js and docs/ returns only this framework's OWN
+      `push-checkpoint` CLI command (a git push), which is not the runtime-level task checkpoint
+      this entry needs.
+  - round: 24
+    item: "workflow dispatch 進 run-report 的帳"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: same channel as the row above. No dispatch export exists; the only dispatch
+      record this repo can read is the project-side `.methodology/sessions_spawn.log`, written
+      by the harness spawner, which by construction misses the `agent()` calls made inside a
+      hermetic workflow.
+  - round: 24
+    item: "P3 dispatch 發散"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the distribution CANNOT be re-checked with today's records, which is the
+      finding. Across 15 corpus projects' `.methodology/sessions_spawn.log` there are 449
+      TIMEOUT/ERROR spawns, and 440 of them carry an EMPTY `phase_label` (7 say P1, 2 say P2,
+      none says P3). The condition asks whether the same phase distribution recurs, and the
+      field that would answer it is blank in 98% of the rows.
+  - round: 24
+    item: "Agent B reason 的語意驗證"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no mechanical decision procedure for "does this sentence follow from the
+      canonical text" exists. Three later rounds measured the same wall from other directions —
+      R105's `DERIVED:` downgrade, R106's `DERIVED:` resolvability gate and its `evidence_type`
+      row, all three deferred with the identical condition.
+  - round: 43
+    item: "擴充 auto-fix strategy 覆蓋率"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no strategy has produced a verifiable receipt, and Round 109 站5 measured why
+      it cannot — AUTO_FIX_WITH_VERIFICATION is never returned by `classify()` (0 rows in
+      CLASSIFICATION_TABLE, only two test fixtures construct it), so the strategy layer does not
+      execute on any project.
+  - round: 43
+    item: "移除 `scripts/hooks/pre-push:47-52` 用 HEAD subject 猜 phase 的啟發式"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `scripts/hooks/pre-push` still carries the HEAD-subject phase heuristic. No
+      measurement showing handover commits can no longer carry an unresolved obligation has been
+      recorded in the ledger since R43.
+  - round: 43
+    item: "preview 仍會 append degradation ledger"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no measurement of preview rows distorting `run-report`'s degradation
+      statistics has been recorded. The largest corpus ledger is taskq-cc at 1,040 rows / 640KB,
+      and no consumer has reported a skew.
+  - round: 43
+    item: "改 spec-coverage / gate 門檻數字、改 STRIDE 計分、加任何 waiver"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      By reference: "同 R42". R42's not-doing section is not one of the 24 tables the index
+      extracts, so this row inherits a condition the index does not carry — recorded rather than
+      guessed at. On the substance: no threshold, STRIDE weight or waiver has been changed on
+      the grounds this row names.
+  - round: 88
+    item: "回溯 bisect(哪一輪移動了哪個專案)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nobody has needed the retrospective bisect. `scripts/corpus_replay.py` (the
+      mechanism the row says is already in place) is wired into scripts/self_check.sh and runs
+      on every local check.
+  - round: 88
+    item: "`relative_to` 的 AST lint"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no entry point outside the registry's reach has been reported. The registry
+      (`_SCANNERS` in tests/test_project_scanners_resolve_their_root.py) holds 11 entry points.
+      Raw `.relative_to(` call sites today: 101 in production, 62 in tests. R88's "97" cannot be
+      compared directly — it did not state whether tests were included.
+  - round: 88
+    item: "**新入口自動入 registry**"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: same condition, same answer. The registry still cannot see a scanner added
+      without an entry; no such scanner has been found.
+  - round: 88
+    item: "語料重播進 CI"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the corpus is still 18 sibling repositories on this machine, not a fixture.
+      scripts/self_check.sh:70 runs the replay and its own comment records that it degrades to a
+      skip wherever the corpus is absent, "which is every CI runner — this gate is local by
+      design".
+  - round: 88
+    item: "需要**執行**的維度進基準"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no way to freeze an execution environment alongside a frozen tree has
+      appeared. `run_suite` on a frozen tree still measures the environment.
+  - round: 87
+    item: "無門檻 AC 的恆真斷言(`assert skip_count >= 0`)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no decidable tautology criterion has been proposed. `assert x >= 0` remains
+      indistinguishable from a threshold assertion whose floor is 0.
+  - round: 87
+    item: "遞迴測試 + timeout fallback 到 `make -n`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no criterion separating "the subject under test was swapped out" from "a
+      defensive default" has appeared. R87's own measurement (15 hits, 14 false positives) is
+      the last one on record.
+  - round: 87
+    item: "FR 表的 Inputs 門檻對帳"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no new project has written its FR table under the new rule. The corpus gained
+      no project after taskq-cc-new; the newest trees (omnibot-new at P3) predate the rule.
+  - round: 87
+    item: "站6 規則的過擬合"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: still one AST shape. No second shape has been found, and the row's own
+      instruction is to absorb a second one rather than generalise ahead of it.
+  - round: 87
+    item: "`machine_block_parity` 不阻擋"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no decidable link from "block and prose disagree" to "the delivery is wrong"
+      has been proposed. `machine_block_parity` still records only.
+  - round: 87
+    item: "`architecture` 維度 = community cohesion"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nobody has proposed a decidable SAD-to-delivered-code criterion. The
+      `architecture` dimension still scores community cohesion; Round 109 proposed nothing here
+      either.
+  - round: 86
+    item: "5 處 `startsWith('FILE_MISSING')` 是死檢查"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nobody has reorganised the loader's failure vocabulary. The dead check is now
+      FOUR occurrences, not R86's five — one source (scripts/workflowgen/spec_phase1.py)
+      rendered into .claude/workflows/phase1-requirements.js and run-all.js.
+  - round: 86
+    item: "造假 agent 的信封偽造"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no forgery incident has been demonstrated. The envelope still bounds
+      truncation only, which is what R86 claimed for it.
+  - round: 86
+    item: "`RELAY_MAX_BYTES` 量的是本機 Bash 工具,不是 sub-agent 的"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the sub-agent's real relay ceiling is still unobserved from inside this repo;
+      RELAY_MAX_BYTES remains calibrated against the local Bash tool.
+  - round: 86
+    item: "omnibot-new 的 341KB / 28 FR 是否該拆成多個 milestone"
+    verdict: MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: omnibot-new's `.methodology/state.json` records `phase_completed` for "1" and
+      "2" and sits at `current_phase: 3`, so P1 has been run for the first time — the condition
+      exactly. The milestone-split question is now answerable with that run's data and is a
+      project-side scope decision, so it is raised here rather than acted on.
+  - round: 86
+    item: "`cli/project_cmds.py:706` 的 `^###\\s+FR-(\\d+)\\s*:` 與 `structural_fr_ids` 是兩份實作"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      By reference: "同 Round 84". Round 84's condition on the same two FR parsers is unmet —
+      `cli/project_cmds.py`'s `^###\s+FR-(\d+)\s*:` and `structural_fr_ids` are still two
+      implementations. Round 109 站1 changed the THIRD parser (`scripts/canonical_diff.py`), not
+      either of these.
+  - round: 85
+    item: "env-check halt 把 `rc` 當 `--exit-code` 送進 `record-block`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no measurement of `rc` semantics on the halt path exists, so the proof that 0
+      never reaches it is still missing and the mapping stays UNKNOWN.
+  - round: 85
+    item: "輪詢子代理的 turn budget 撐不撐得住 cap 次呼叫"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the runtime's turn budget is still unreadable from this repo, and no real
+      run's dispatch record has been obtained to compare against.
+  - round: 85
+    item: "`render_env_check` 的 `Cap 22 polls` 仍是字面量"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `Cap 22 polls` is still a literal, at scripts/workflowgen/js_blocks.py:540. No
+      measurement showing the cap is insufficient has been recorded.
+  - round: 85
+    item: "`recordBlock` 在 fail-closed 分支硬寫 `'phase-incomplete'`，不讀 `outcome.halt_step`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nothing aggregates the ledger by `halt_step`, so the asymmetry the row
+      describes still has no consumer.
+  - round: 83
+    item: "把 `_check_git_sync` 的裸 `subprocess.run(timeout=)` 轉成 `run_isolated`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `core/doctor_checks/git_state.py` has not entered a split list, and the R66
+      ratchet is unchanged at 92 (`_UNREAPED_TIMEOUT_SITES`,
+      tests/test_subprocess_group.py:242). The file's own comment at line 233 still names
+      `_check_git_sync` as the remaining bare form.
+  - round: 83
+    item: "SRS `C-xx` → SAB `architecture_constraints` 的 join"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the framework still does not define `C-xx`'s structure, and the SAB still does
+      not take SRS constraint ids. No id mapping exists to join on.
+  - round: 83
+    item: "拆分 `core/quality_gate/artifact_consistency.py`(977 行,越過 900 門檻)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the file has not entered a split list — and it GREW, 977 -> 1050 lines (R97
+      +5, R105 +18, R108 +38). The ratchet entry carries each increment's reason; the split
+      still needs a byte-equal net first (R49).
+  - round: 83
+    item: "給 `crash-triage` 一個「這不是 bug」的處置"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no second batch of non-bug bundles has appeared, and the framework's own tests
+      have not written a bundle into a real repo since.
+  - round: 83
+    item: "讓 `performance` 讀專案宣告的 p95 預算"
+    verdict: MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the first disjunct holds. tts-new declares `latency_p50_ms` and
+      `latency_p95_ms` in `.methodology/quality_manifest.json`'s `quality_targets` — the
+      machine-readable p95 channel R83 said did not exist. Two things travel with this verdict:
+      it is 1 of 18 corpus projects, and the key is a THIRD spelling (the schema documents
+      `p95_latency_ms`; harness_bridge.py:3413 handles that one, excluding it from seeding
+      performance's floor because it is milliseconds, not a score). So a source exists and
+      nothing reads it under the name the project used.
+  - round: 83
+    item: "補上 `.github/workflows/harness_quality_gate.yml`(doctor 的第二個 WARN)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no missed check has been attributed to that WARN. The framework repo's own
+      .github/workflows/ holds harness_ci.yml and release.yml; the quality gate workflow is a
+      template it deploys to consumer projects (core/ci_template.py names it), not one it runs
+      on itself.
+  - round: 83
+    item: "關掉 `git push --no-verify`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the branch-protection restriction stands. Nothing in this round touches it —
+      modifying or deleting branch protection rules is forbidden.
+  - round: 82
+    item: "`GateContext`(170 行)搬進 `gate_result`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no second module needs `GateContext`. Outside tests it appears only in
+      harness_bridge.py (its definition) and in two docstrings that mention
+      `GateContext.project_root` without importing it.
+  - round: 82
+    item: "把 `_FinalizeStages` 變成真正的型別(Protocol / ABC)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `class HarnessBridge(_FinalizeStages)` at harness/harness_bridge.py:1589 is
+      still the only host. No second one has appeared, so a Protocol or ABC would still be a
+      type with one implementer.
+  - round: 82
+    item: "`cli/gate_cmds.py`(4000+ 行)與其他巨型檔"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `cli/gate_cmds.py` has not entered a split list — and it is 3371 lines today,
+      down from the 4000+ this row recorded, so the pressure decreased rather than increased.
+  - round: 82
+    item: "`monkeypatch` 雙命名空間的 helper 推廣到其他測試檔"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the repo-wide audit of patch targets that can no longer reach their call site
+      has not been done. `tests/test_patch_discipline.py` ratchets private-seam patches, which
+      is a ceiling on new debt, not that audit.
+  - round: 82
+    item: "賬本每一條的 `guard:` 逐條補齊"
+    verdict: MET
+    guard: "tests/test_deferred_index.py::test_every_reopen_condition_has_a_verdict"
+    resolved_in: "Round 109 站7"
+    evidence: >-
+      By reference: "承 R81", and R81's condition — 有人做那次審查 — was met by 老闆's instruction to walk
+      every re-open condition. Round 109 站7 is that audit: 91 unguarded conditions, one verdict
+      and one piece of evidence each, and a new guard
+      (test_every_reopen_condition_has_a_verdict) that makes the next unanswered one red instead
+      of invisible.
+  - round: 82
+    item: "`test_test_spec_parser_parity` 的 `git ls-files` 時序"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      By reference: "承 R81" — see R81's own row on the same guard. That family has not been
+      systematically reviewed and no real defect has been traced to the `git ls-files` timing.
+  - round: 82
+    item: "branch protection / `overlay_used` / mutmut 3.x / `RUNALL_MAX_BYTES`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      By reference: "承 R80、R81" — four conditions, all four unmet today. branch protection (老闆's
+      restriction stands), `overlay_used` (no reader), mutmut 3.x (no instruction to upgrade),
+      RUNALL_MAX_BYTES (ratchet not reviewed; headroom is 300 bytes, 418,164 of 418,464).
+  - round: 81
+    item: "Tier C/D 抽取(放寬到允許 1-3 個 live-out,實測可達 52-97%)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no method for mechanically verifying a single live-out's propagation has
+      appeared. Tier C/D extraction still rests on a human reading names.
+  - round: 81
+    item: "`_precheck_p3_security_and_quality`(279)/ `_advance_step_commit_and_push`(257) 再拆"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: neither block's internal data flow has changed and no behavioural golden
+      exists for them. tests/test_god_file_split_safety.py holds an AST source fingerprint,
+      which proves a move was a move — not what either function does.
+  - round: 81
+    item: "`cmd_run_fr_step` 剩下的 588 行"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `cmd_run_fr_step` still threads state through the dispatch loop, and it is 872
+      lines today against the 588 this row recorded — it grew by 284. The re-open condition is
+      about the code's nature, not its size, and that has not changed; the number is recorded
+      because it moved the wrong way.
+  - round: 81
+    item: "賬本每一條的 `guard:` 逐條補齊"
+    verdict: MET
+    guard: "tests/test_deferred_index.py::test_every_reopen_condition_has_a_verdict"
+    resolved_in: "Round 109 站7"
+    evidence: >-
+      有人做那次審查 — 老闆 ordered it, and Round 109 站7 is it. 91 re-open conditions with no guard row,
+      each now carrying a verdict and its evidence. What makes this stay done is the
+      reverse-completeness guard: an index entry with a re-open condition and no row is now a
+      red test, which is the direction nothing measured for 28 rounds.
+  - round: 81
+    item: "`test_test_spec_parser_parity` 的掃描讀 `git ls-files`,看不到未 commit 的新檔"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the guard family has not been systematically reviewed, and no missed defect
+      has been attributed to `git ls-files` not seeing uncommitted files.
+  - round: 81
+    item: "`overlay_used` 絕對路徑 / 支援 mutmut 3.x"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      By reference: "承 R80" — `overlay_used` still has no reader and no instruction to support
+      mutmut 3.x has been given.
+  - round: 80
+    item: "`RUNALL_MAX_BYTES` 的 153 bytes headroom(Round 58 留下)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the ratchet family has not been systematically reviewed. The headroom is no
+      longer 153 — run-all.js is 418,164 bytes against RUNALL_MAX_BYTES of 418,464, so 300 bytes
+      remain.
+  - round: 80
+    item: "支援 mutmut 3.x"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no instruction to upgrade the toolchain has been given. The mutmut readers
+      (core/quality_gate/mutation_enforcer.py) still target 2.x and say so.
+  - round: 80
+    item: "為框架建立真實 `.methodology/state.json`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the ruling stands — the framework declares itself not-applicable rather than
+      keeping a real `.methodology/state.json`.
+  - round: 79
+    item: "重新診斷 runtime cache 跨 fresh launch 到底存不存在"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nobody has measured the runtime cache's scope from the runtime side. The row
+      records that R79's own actions are correct under both readings, so nothing depends on
+      resolving it.
+  - round: 79
+    item: "`4c24cf37` 為什麼沒被 hook 擋"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: 老闆 has not been asked whether `--no-verify` was used for 4c24cf37, and no
+      answer is recorded. The four silent paths R79 站5 could prove are fixed; this one stays
+      open.
+  - round: 79
+    item: "`test_amend_sab_appears_once_per_generated_workflow` 數字串不數 dispatch"
+    verdict: MET
+    guard: "tests/test_workflowgen.py::test_amend_sab_appears_once_per_generated_workflow"
+    evidence: >-
+      2026-09-08: a third legitimate mention appeared. tests/test_workflowgen.py's
+      `test_amend_sab_appears_once_per_generated_workflow` now excludes TWO return payloads —
+      `infra_abort` (R70 站3) and `phantom_abort` (R100 站1) — beside the one real dispatch. The
+      guard absorbed it the way R79 said it should: by the flag the line carries, not by
+      loosening the count. Nothing to do; the verdict is recorded so the next reader does not
+      re-derive it.
+  - round: 79
+    item: "`'B Review'` / `'Persist Approval'` 兩個未宣告的 phase label"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nobody has decided which progress box 'B Review' and 'Persist Approval' belong
+      in. The lint's exemption list still holds them as shrink-only.
+  - round: 79
+    item: "`core/ci_verdict.py` 的 `repo_slug(project) if runner is None else \"o/r\"`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the overall shape of the runner-injection seam has not been taken up.
+  - round: 74
+    item: "站4 擋下 `[not checked]`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no NEW project has been started since the template shipped — the newest corpus
+      tree (omnibot-new) is at P3 and predates it — so the condition has had no opportunity to
+      be tested.
+  - round: 74
+    item: "對既有九專案強制新 schema"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no project's old spelling has been shown to produce a WRONG verdict as opposed
+      to reading less. `_entry_test_fn` still locates by content across the four spellings.
+  - round: 74
+    item: "合併兩個 parser 的 section 語意"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no project's per-FR cap has been shown to be miscounted because the two
+      parsers disagree about section semantics.
+  - round: 74
+    item: "`_flatten_test_names` 與 `tests:` 的雙向對賬"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no project has been found with an `fr_tests` name absent from `tests:` AND
+      absent from the delivery. The template still defines the inventory as a permitted subset.
+  - round: 73
+    item: "反造假旗標偵測(`--ignore` / `-k` / `--deselect` / `collect_ignore` / `testpaths` 移除)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no project has been found excluding tests through those five shapes and
+      passing a gate, with an explanation other than a legitimately excluded vendored directory.
+  - round: 73
+    item: "站3 加入單數 `layer` 作為 keyword"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no constraint has been found that is genuinely decided by a layers contract,
+      is worded with the singular `layer`, and is separable from the
+      `single_auth_dependency_at_api_layer` family.
+  - round: 73
+    item: "站5 擋下 `dimensions_declared_absent`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no dimension has been found where the gate config and the manifest disagree
+      and NO other mechanism judges it. `_stage_absent_dimensions` (R60) blocks on a
+      declared-but-undelivered dimension, which is the second mechanism this condition asks
+      about.
+  - round: 73
+    item: "NFR-12 四步是否真的被串接"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no project has declared an NFR-12 AC test, delivered it, and been found
+      inconsistent with the recipe.
+  - round: 72
+    item: "`file:does-not-exist.db` 這類「檔名像 URI」的垃圾"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no second project, and no criterion that avoids guessing from a filename's
+      appearance. NOTE: this row's condition reached the index only today — Round 109 站7 found
+      the extractor reading Round 72's five-column table by position, which filed the reason as
+      the condition.
+  - round: 72
+    item: "`core.hooksPath=scripts/hooks` 沒有任何東西驗證它有設"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no mechanism that works without local git config exists.
+      .github/workflows/harness_ci.yml runs the suite AFTER a push and reports; it does not
+      refuse one. Refusing would be branch protection, which 老闆's restriction puts out of reach
+      (see R83's row on the same subject).
+  - round: 72
+    item: "`gate:arch-constraints` 每次 gate 都寫一筆(taskq-new 191 筆)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: ledger volume has not affected readability or write cost. Largest corpus
+      ledger today: taskq-cc at 1,040 rows / 640KB, append-only.
+  - round: 72
+    item: "`_scope_violation_scripts` 本身仍只看 untracked + top-level"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no tracked debug-named script has been found in a delivery tree.
+  - round: 101
+    item: "SAB `allowed_dependencies` ↔ `.importlinter` `layers` 對賬"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no second project has oscillated between blocks because the two binding
+      statements contradict each other.
+  - round: 101
+    item: "`arch_contract_coverage` 認可**當下就是壞的**合約"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no second project has zeroed its gap the same way, and the gate path still has
+      no lint-imports result available without paying to run it.
+  - round: 101
+    item: "`required_artifacts`(全專案宣告)在 per-FR Gate 1 阻擋"
+    verdict: ALREADY_DONE
+    guard: "tests/test_required_artifacts_reach_the_verdict.py::test_gate1_finalize_records_a_missing_deliverable_without_blocking"
+    resolved_in: "Round 102 站1"
+    evidence: >-
+      Closed by Round 102 站1, one round after this was written: a per-FR Gate 1 finalize RECORDS
+      a missing declared artifact and does not block; the hard block stays at gate >= 2
+      (`ctx.gate_num >= 2`). The named guard is the pair that proves both halves — remove the
+      scope test and the per-FR case blocks again; remove the other and the phase-exit case
+      stops blocking.
+  - round: 101
+    item: "5 個專案完全沒有依賴 manifest"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no live project has hit this at a P3 exit. All five named projects
+      (run-all-by-workflow, taskq, taskq-advance, taskq-plus, taskq-renew) are at P9.
+  - round: 103
+    item: "拒絕由 `lint-imports` 判 BROKEN 的合約所給的覆蓋"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no lint-imports verdict is available on the gate path without the extra
+      execution cost. `architecture_constraints` still runs the tool itself.
+  - round: 104
+    item: "requirements `-r`/`-c` include 展開"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no `-r` in the corpus points outside `_MANIFEST_FILES`; both known instances
+      still resolve to files already read directly.
+  - round: 104
+    item: "`agent_spawner.py:466` 折進 `venv_scoped_env`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no sub-agent failure attributable to a missing `VIRTUAL_ENV` has been
+      measured.
+  - round: 104
+    item: "加 3.10 到 CI matrix / 加 `tomli`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no actual 3.10 consumer has appeared. All four jobs in
+      .github/workflows/harness_ci.yml pin python-version 3.11.
+  - round: 105
+    item: "把 `DERIVED:` 從「決定判定」降級成純附註"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no mechanism for deciding "is this sentence derivable from the canonical text"
+      exists — the same wall R106 hit twice more and R24 hit first.
+  - round: 105
+    item: "用 `srs_acceptance_criteria` 對調 `_split_ac_clauses`"
+    verdict: MET
+    guard: "tests/test_the_ac_label_carries_its_whole_number.py::test_both_parsers_name_the_same_criteria"
+    evidence: >-
+      Met by Round 109 站1, this round. The two parsers' AC id shapes are now the same:
+      `scripts/canonical_diff.py`'s `_FR_HEADER_RE` keeps the dotted segment, and the
+      intersection of the two parsers' AC ids went from 0 to 410 across the corpus. The swap
+      this row defers is now unblocked — it is a change of what `canonical_diff` counts, so it
+      is raised for 老闆 to schedule rather than folded into this round (R22).
+  - round: 105
+    item: "`_FR_HEADER_RE` 的 label 在點號截斷"
+    verdict: MET
+    guard: "tests/test_the_ac_label_carries_its_whole_number.py::test_no_body_swallowed_its_neighbour"
+    resolved_in: "Round 109 站1"
+    evidence: >-
+      Fixed in Round 109 站1. The label character class now keeps `.1` etc., so `#### AC-1.1` no
+      longer reports as `AC-1`. Verified byte-for-byte over 17 corpus projects: identical match
+      positions and identical clause bodies (643,955 characters), one `fr_id` changed, per-AC
+      scores unchanged — the Round 42 splitter property this row was afraid of breaking is
+      intact.
+  - round: 105
+    item: "把 import-linter 加進 `requirements.txt`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the two-step install still has its reason. import-linter is absent from
+      requirements.txt and installed by `PIP_STEPS["gate-extras"]`;
+      core/quality_gate/import_contracts.py:84-88 records that it CAN be absent and that absence
+      answers None.
+  - round: 105
+    item: "P2 檢查改讀 `quality_manifest.json`(與 finalize_gate 同源)"
+    verdict: MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the second disjunct holds — the manifest DOES land early. At the commit each
+      project's own `phase_completed["2"].sha` names, `.methodology/quality_manifest.json` is
+      tracked in all three checked: taskq-sn d06f41fa, taskq-done dbe2620f, taskq-new 94ee34d1.
+      R105's evidence was a different, earlier commit (a6bf87f), so both statements can be true;
+      what is measured here is that at the P2 EXIT the manifest exists, which is what the P2
+      check would read. Raised for scheduling, not done here.
+  - round: 105
+    item: "`min_coverage` 三處手抄改 render-from-SSOT"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: still exactly three hand-written copies and no drift — all three read 80:
+      templates/SAD.md:171 and docs/P2_SOP.md:67 (both now carrying `# EXAMPLE — replace` from
+      R105) and SAD.md:2089, the framework's own declaration. No fourth site.
+  - round: 105
+    item: "`DEFAULT_MIN_COVERAGE = 80.0` 改成「沒宣告就拒絕」"
+    verdict: MET
+    guard: "tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_an_undeclared_floor_is_not_a_number"
+    resolved_in: "Round 109 站6"
+    evidence: >-
+      Done in Round 109 站6, as its own station. `min_coverage_floor` now answers `None` for a
+      project that declared nothing, and each of the four call sites records a degradation with
+      owner=project instead of judging against the framework's 80. The reason this row gave for
+      deferring — it "would block every project that does not write this key" — was measured
+      false: 14 of 14 corpus projects declare it (80 x3, 100 x11), none absent, none malformed.
+  - round: 105
+    item: "從 SPEC.md 表格抽數字目標對賬 SAB `quality_targets`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no SPEC.md carries a structured targets block. tts-new's numeric targets live
+      in its `quality_targets`, not in SPEC prose (see R83's p95 row, which that same finding
+      turns MET).
+  - round: 105
+    item: "`arch_constraints.py` 拆檔(950 行,新 god file)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: it has not grown again — `core/quality_gate/arch_constraints.py` is 686 lines
+      today against the 950 this row recorded (Round 106 站C cut 264 lines out to
+      core/quality_gate/import_contracts.py). The condition is "next time it grows"; it shrank.
+  - round: 105
+    item: "`canonical_diff --mode testspec_vs_srs / verification_vs_srs`"
+    verdict: MET
+    guard: "tests/test_the_report_mode_is_not_a_promise.py::test_the_caller_cannot_choose_the_label"
+    resolved_in: "Round 109 站3"
+    evidence: >-
+      Done in Round 109 站3, and by subtraction as this row anticipated. `--mode` is gone from
+      the CLI and from the function signature; the output field is the constant "srs_vs_spec".
+      Measured first: no workflow ever passed `--mode`, and the emitted `mode` field had zero
+      readers in the tree, so the two extra modes had never executed — a flag that could only
+      ever mislabel an srs_vs_spec computation.
+  - round: 106
+    item: "用「值等於 80」判交付端"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: `quality_targets` has no `provenance` field anywhere — not in
+      schemas/quality_manifest.schema.json, not in any corpus manifest. The only `provenance` in
+      this repo is core/harness_provenance.py's enforcer SHA, which is a different subject.
+  - round: 106
+    item: "把檢查放進 `_validate_handoff_*`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the framework still does not call validate-handoff. The only non-test
+      reference is the CLI registration at harness_cli.py:238; no workflow JS and no phase hook
+      invokes it.
+  - round: 106
+    item: "要求 `DERIVED:` 引用可解析才放行"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no mechanism for deciding derivability — same condition as R105's `DERIVED:`
+      row and R24's Agent B row, unmet for the same reason.
+  - round: 106
+    item: "讓框架真的去設 `evidence_type`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: "同上" — the row above. No derivability mechanism, so the framework still cannot
+      set `evidence_type` on anything but its own knowledge.
+  - round: 106
+    item: "站 A 規則 1 擴大到模板的散文/數字目標"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no second decidable shape has appeared. Rule 1 still applies only to
+      `example`-marked values, which is where the boundary was drawn on purpose.
+
+  # ── Round 109's own deferrals ──────────────────────────────────────────
+  # Written the same day as the ledger table above. A condition stated today
+  # HAS been examined today, and the row says so — the alternative was to
+  # exempt the newest round, which is a carve-out that inverts the point:
+  # the newest decisions would be the least tracked ones.
+
+  - round: 109
+    item: "擴大 fork 掃描面到 `*.md`/`*.js`/`*.yaml`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08, the day it was written: one hand-written declared surface exists
+      (constitution/CONSTITUTION.md), and 站4 gave it a byte-parity guard rather than a scanner.
+      The other 24 hits of the trial scan were generated files already pinned by
+      `generate_workflows.py --check` and the goldens.
+  - round: 109
+    item: "HR-14 真的寫 `FREEZE` 進 `state.json`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: 老闆 has not ruled on who may write FREEZE. 站5 wired the producer for
+      `state["integrity"]` and stopped there, because writing FREEZE halts the project's next
+      run — a behaviour change, not the missing producer.
+  - round: 109
+    item: "修 `CLASSIFICATION_TABLE` 讓 auto_fix 鏈活起來"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nothing needs真正自動修復. 站5 measured the chain is dead at its head —
+      AUTO_FIX_WITH_VERIFICATION has 0 rows in CLASSIFICATION_TABLE and `classify()` never
+      returns it — and R49-C tightened that deliberately.
+  - round: 109
+    item: "`integrity` 改成多值刻度"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the framework computes no multi-valued integrity. 站5's producer projects the
+      only existing judgement (`manifest_integrity().passed`) onto 100.0/0.0, which is recorded
+      in the code comment and the ledger rather than dressed up as a scale.
+  - round: 109
+    item: "刪 `AutoQualityGate`(零生產呼叫者)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: no ruling from 老闆. 站6 measured the zero production callers and changed only
+      the one line that was a second copy of DEFAULT_MIN_COVERAGE, per CLAUDE.md's rule on
+      unrelated dead code (report, do not delete).
+  - round: 109
+    item: "重構 `preflight_manifest_integrity` 的 return 結構"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: the function is not on any split list. 站5 moved the two banner prints out to
+      the preflight wrapper and left all four outer returns untouched, which was the plan's own
+      stop condition.
+  - round: 109
+    item: "站7 的 91 條全部實作"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: 老闆 has scheduled none of them. The ten MET rows in §7 are the candidates;
+      implementing 91 deferred decisions inside the round that adjudicated them is R22's shape
+      (unrelated work inside the loop).
+  - round: 109
+    item: "把 `min_coverage_floor` 的畸形值也改成 `None`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: zero malformed declarations in the corpus — 14 of 14 projects declare
+      `quality_targets.min_coverage` and every value parses (80 x3, 100 x11). Changing the
+      malformed path would be a decision with no measurement behind it.
+  - round: 109
+    item: "讓框架讀 `latency_p95_ms`(§7 那條 MET)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: one project declares it (tts-new) and it uses a third spelling — the schema
+      documents `p95_latency_ms`, harness_bridge.py:3413 handles that one. Which spelling is the
+      SSOT is a decision to take before anything reads it.
+  - round: 109
+    item: "中文分詞 / 收緊 canonical 切分器"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-08: nothing can verify that a new score is the true one. R108 站B measured the
+      tightened splitter twice and both times 13 of 15 projects' scores fell, with no way to
+      tell a correction from a regression.

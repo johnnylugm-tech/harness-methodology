@@ -3887,6 +3887,22 @@
   bug: "two of the ledger's 36 不做 sections are running prose with no table and no bullets. They are emitted as `unstructured` with a line range and NO fields — a hole the file admits to rather than hides. A parser reshaped until every section yields something is Round 55's shape (fitting the parser to the corpus), and dropping the unstructured branch would silently lose two rounds' decisions"
   fixed_in: "Round 81 站5"
 
+- test: tests/test_deferred_index.py::test_the_reopen_column_is_the_one_the_table_says_it_is
+  bug: "the extractor read its table cells by POSITION — 0/1/2 — and 23 of the ledger's 24 不做 tables are `| 項目 | 理由 | re-open |`, so it was right 23 times. Round 72's is `| # | 事項 | 理由 | re-open |`: those four rows reached the index with an `item` of A/B/C/D, the real item filed as the reason, the real reason filed as the re-open condition, and the ACTUAL re-open condition — one column further right — dropped entirely. Every cell was still a byte-exact slice of the ledger, so test_every_field_is_a_byte_exact_slice_of_the_ledger was green throughout: Round 24's shape, the field is present and its content is not what its name says. Found by Round 109 站7 while writing a verdict for each condition — four of the ninety-one would have been verdicts about the wrong sentence"
+  fixed_in: "Round 109 站7"
+
+- test: tests/test_deferred_index.py::test_every_reopen_condition_has_a_verdict
+  bug: "docs/deferred_guards.yaml's three assertions all read guards -> index (no row may name a decision that is not there, no row may name a test that is not there). None could see the hole the file exists over: an index entry that says 'reopen this when X' and has NO row at all. Measured when 老闆 asked, 28 rounds after the file was built: 96 table rows state a re-open condition, 5 had a row, 91 had nothing — including R81's and R82's own '賬本每一條的 guard: 逐條補齊', whose re-open condition was 有人做那次審查"
+  fixed_in: "Round 109 站7"
+
+- test: tests/test_deferred_index.py::test_every_verdict_carries_evidence
+  bug: "a verdict with no evidence is an opinion with a schema. Round 45's shape — the verdict outlives its proof — applied to the one place where the whole point of the exercise was that 'I looked and it seemed fine' is not re-checkable next round"
+  fixed_in: "Round 109 站7"
+
+- test: tests/test_deferred_index.py::test_already_done_names_the_test_that_proves_it
+  bug: "ALREADY_DONE claims the ledger is stale — the thing was built rounds ago — which is the easiest of the five verdicts to be wrong about and the hardest to re-check, because there is no diff to point at. Round 45 again: it has to name the test that would go red if the claim were false. Counter-proof run 2026-09-08: flipping the one ALREADY_DONE row (R101's required_artifacts, closed by R102 站1) to `manual` turns this red"
+  fixed_in: "Round 109 站7"
+
 - test: tests/test_deferred_index.py::test_the_index_covers_every_round_that_recorded_a_decision
   bug: "the 不做 headings are spelled at least eight ways across 80 rounds, at four heading depths. tests/test_ledger_has_no_holes.py learned this the hard way — its first pass grepped `^## Round` and manufactured three false holes — so this extractor matches on heading TEXT rather than enumerating spellings, and this pins that it keeps working"
   fixed_in: "Round 81 站5"

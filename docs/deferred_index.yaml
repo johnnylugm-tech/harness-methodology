@@ -1297,27 +1297,27 @@ entries:
   - round: 72
     line: 7719
     kind: table_row
-    item: "A"
-    reason: "`file:does-not-exist.db` 這類「檔名像 URI」的垃圾"
-    reopen: "要發明一條關於檔名長相的規則,是發明判準不是套用正解。站7 已用一條測試把這個省略釘成「決定」而非疏漏"
+    item: "`file:does-not-exist.db` 這類「檔名像 URI」的垃圾"
+    reason: "要發明一條關於檔名長相的規則,是發明判準不是套用正解。站7 已用一條測試把這個省略釘成「決定」而非疏漏"
+    reopen: "出現第二個專案、且有一條不靠外觀猜測的判準"
   - round: 72
     line: 7720
     kind: table_row
-    item: "B"
-    reason: "`core.hooksPath=scripts/hooks` 沒有任何東西驗證它有設"
-    reopen: "本輪兩次 CI 紅的直接原因是「push 前沒跑 self_check」,但那是流程紀律;hook 安裝與否是 clone 端的本地 git config,框架無法從 repo 內強制"
+    item: "`core.hooksPath=scripts/hooks` 沒有任何東西驗證它有設"
+    reason: "本輪兩次 CI 紅的直接原因是「push 前沒跑 self_check」,但那是流程紀律;hook 安裝與否是 clone 端的本地 git config,框架無法從 repo 內強制"
+    reopen: "出現一個不需要本地 config 也能生效的機制(例如 CI 端拒絕未經 self_check 的 push)"
   - round: 72
     line: 7721
     kind: table_row
-    item: "C"
-    reason: "`gate:arch-constraints` 每次 gate 都寫一筆(taskq-new 191 筆)"
-    reopen: "R54 已裁決 \"Recorded, never blocked\",理由成立;191 筆是 ledger 噪音而非判定缺陷"
+    item: "`gate:arch-constraints` 每次 gate 都寫一筆(taskq-new 191 筆)"
+    reason: "R54 已裁決 \"Recorded, never blocked\",理由成立;191 筆是 ledger 噪音而非判定缺陷"
+    reopen: "ledger 體積影響到可讀性或寫入成本時,做去重而非改判定"
   - round: 72
     line: 7722
     kind: table_row
-    item: "D"
-    reason: "`_scope_violation_scripts` 本身仍只看 untracked + top-level"
-    reopen: "Surgical:站7 加的是**另一類**判準(工具備份後綴,全樹),既有那條的 top-level 限制有它自己的理由(遞迴會誤殺 mid-phase 的新模組)"
+    item: "`_scope_violation_scripts` 本身仍只看 untracked + top-level"
+    reason: "Surgical:站7 加的是**另一類**判準(工具備份後綴,全樹),既有那條的 top-level 限制有它自己的理由(遞迴會誤殺 mid-phase 的新模組)"
+    reopen: "出現一個 tracked 的 debug-name 腳本進入交付樹"
   - round: 70
     line: 7838
     kind: bullet
@@ -1649,3 +1649,63 @@ entries:
     item: "站 A 規則 1 擴大到模板的散文/數字目標"
     reason: "刻意的邊界:`example` 是可判定的,散文不是"
     reopen: "出現第二個可判定的形狀"
+  - round: 109
+    line: 10320
+    kind: table_row
+    item: "擴大 fork 掃描面到 `*.md`/`*.js`/`*.yaml`"
+    reason: "實跑 26 命中 **24 是生成表面**,已被 `generate_workflows.py --check` 與 golden 釘死;造這支掃描器就是 R46 誣告"
+    reopen: "出現第二個手寫的宣告表面"
+  - round: 109
+    line: 10321
+    kind: table_row
+    item: "HR-14 真的寫 `FREEZE` 進 `state.json`"
+    reason: "會停掉專案下一次執行,是行為變更不是接生產者"
+    reopen: "老闆裁定 FREEZE 的寫入權責"
+  - round: 109
+    line: 10322
+    kind: table_row
+    item: "修 `CLASSIFICATION_TABLE` 讓 auto_fix 鏈活起來"
+    reason: "R49-C 刻意收緊過(prefix fallback 造成誤分類)"
+    reopen: "auto_fix 需要真正自動修復時"
+  - round: 109
+    line: 10323
+    kind: table_row
+    item: "`integrity` 改成多值刻度"
+    reason: "每 issue 扣 10 分是我發明的刻度,框架算不出這個數"
+    reopen: "有框架自己算得出的多值 integrity"
+  - round: 109
+    line: 10324
+    kind: table_row
+    item: "刪 `AutoQualityGate`(零生產呼叫者)"
+    reason: "無關 dead code,CLAUDE.md:告知不刪"
+    reopen: "老闆裁定"
+  - round: 109
+    line: 10325
+    kind: table_row
+    item: "重構 `preflight_manifest_integrity` 的 return 結構"
+    reason: "失控重構的起點;站5 只把兩個 banner print 移到 preflight 包裝層"
+    reopen: "該函式進入拆分清單"
+  - round: 109
+    line: 10326
+    kind: table_row
+    item: "站7 的 91 條全部實作"
+    reason: "「走完」是給判定;塞進本輪是 R22 母體"
+    reopen: "逐條由老闆決定,MET 的 10 條是候選"
+  - round: 109
+    line: 10327
+    kind: table_row
+    item: "把 `min_coverage_floor` 的畸形值也改成 `None`"
+    reason: "缺席與畸形是兩件事;語料零實例,改它是沒有量測撐著的決定"
+    reopen: "出現第一個畸形宣告"
+  - round: 109
+    line: 10328
+    kind: table_row
+    item: "讓框架讀 `latency_p95_ms`(§7 那條 MET)"
+    reason: "一個專案、第三種拼法;先要決定哪個拼法是 SSOT"
+    reopen: "老闆排程,或第二個專案宣告 p95"
+  - round: 109
+    line: 10329
+    kind: table_row
+    item: "中文分詞 / 收緊 canonical 切分器"
+    reason: "R108 站B 已兩次實測否決(13/15 專案下墜)"
+    reopen: "有能驗證新分數為真的東西"
