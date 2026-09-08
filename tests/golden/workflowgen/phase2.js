@@ -391,6 +391,10 @@ async function abLoop(cfg) {
       if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
+    if (aResult == null || aResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ': A no result (terminal API failure)' })
+      continue
+    }
     let a
     try { a = parseAgentJson(aResult, 'A-' + cfg.key + '-r' + round) }
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
@@ -414,6 +418,10 @@ async function abLoop(cfg) {
     }) } catch (e) {
       if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
+    }
+    if (bResult == null || bResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ': B no result (terminal API failure)' })
+      continue
     }
 
     // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
@@ -1021,6 +1029,10 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
       return halt('peer-review', { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null })
     }
     log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue
+  }
+  if (bResult == null || bResult === '') {
+    if (round === MAX_PEER_ROUNDS) return halt('peer-review', { error: 'HR-12: Peer B no result (terminal API failure)', b2: null })
+    continue
   }
   // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
   // Peer review spans 3 files — no single --doc-content. Pass null.

@@ -636,6 +636,10 @@ async function runSubTask(cfg) {
       if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
+    if (aResult == null || aResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A: no result (terminal API failure)', sub_task: cfg.name })
+      continue
+    }
     let a = null
     try { a = parseAgentJson(aResult, 'A-' + cfg.idx + '-r' + round) }
     catch (e) { log('  A JSON parse fail: ' + e.message.slice(0, 80)) }
@@ -658,6 +662,10 @@ async function runSubTask(cfg) {
     }) } catch (e) {
       if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
+    }
+    if (bResult == null || bResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B: no result (terminal API failure)', sub_task: cfg.name })
+      continue
     }
     const sbrResult = await structuredBReview(
       bResult,  // raw text from B agent — the CLI extracts JSON from it
@@ -1542,6 +1550,10 @@ async function abLoop(cfg) {
       if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ' A agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
+    if (aResult == null || aResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ': A no result (terminal API failure)' })
+      continue
+    }
     let a
     try { a = parseAgentJson(aResult, 'A-' + cfg.key + '-r' + round) }
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
@@ -1561,6 +1573,10 @@ async function abLoop(cfg) {
     }) } catch (e) {
       if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ' B agent failed at max rounds', detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
+    }
+    if (bResult == null || bResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('sbr-b-review', { error: cfg.deliverable + ': B no result (terminal API failure)' })
+      continue
     }
 
     const sbrResult = await structuredBReview(
@@ -2065,6 +2081,10 @@ for (let round = 1; round <= MAX_PEER_ROUNDS; round++) {
       return halt('peer-review', { error: 'HR-12: Peer Review B agent failed at round ' + round + '/' + MAX_PEER_ROUNDS + ' (Phase 2 exit gate)', last: String(e.message ?? e).slice(0, 200), b2: null })
     }
     log('  Peer B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' — retrying'); continue
+  }
+  if (bResult == null || bResult === '') {
+    if (round === MAX_PEER_ROUNDS) return halt('peer-review', { error: 'HR-12: Peer B no result (terminal API failure)', b2: null })
+    continue
   }
   const sbrResult = await structuredBReview(
     bResult, round, MAX_PEER_ROUNDS, null, 2,

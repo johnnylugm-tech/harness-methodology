@@ -549,6 +549,10 @@ async function runSubTask(cfg) {
       if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  A agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
     }
+    if (aResult == null || aResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A: no result (terminal API failure)', sub_task: cfg.name })
+      continue
+    }
     let a = null
     try { a = parseAgentJson(aResult, 'A-' + cfg.idx + '-r' + round) }
     catch (e) { log('  A JSON parse fail: ' + e.message.slice(0, 80)) }
@@ -576,6 +580,10 @@ async function runSubTask(cfg) {
     }) } catch (e) {
       if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B agent failed at max rounds', sub_task: cfg.name, detail: String(e.message ?? e).slice(0, 200) })
       log('  B agent failed: ' + String(e.message ?? e).slice(0, 80) + ' -- retrying'); continue
+    }
+    if (bResult == null || bResult === '') {
+      if (round === MAX_B_ROUNDS) return halt('agent-b-review', { error: 'B: no result (terminal API failure)', sub_task: cfg.name })
+      continue
     }
     // --- structured_b_review (T1-B: harness-owned B-2 validation + escalation) ---
     // Replaces hasHighGap/runBSelfVerify/VETO guard — one agent dispatch.
