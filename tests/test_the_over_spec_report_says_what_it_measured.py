@@ -364,13 +364,19 @@ def test_each_record_says_which_unit_it_covers(tmp_path) -> None:
     bullets = _report(tmp_path / "b", _SRS_BULLETS)
     assert [r["unit"] for r in bullets["per_ac"]] == ["requirement"]
 
-    # Three records, one per criterion. Asserted as a list, not keyed by
-    # label: `_FR_HEADER_RE`'s label class stops at the dot, so `AC-1.1`,
-    # `AC-1.2` and `AC-1.3` all report as `AC-1`. That is a separate defect in
-    # the same splitter — a reader cannot tell which criterion a score belongs
-    # to — and it is recorded rather than fixed here, because Round 42 站0's
-    # guard pins this splitter and changing it is a round of its own.
+    # Three records, one per criterion, and now keyed by label. Until Round 109
+    # 站1 this was asserted as a bare list with a comment recording why it could
+    # not be keyed: `_FR_HEADER_RE`'s label class had no dot, so `AC-1.1`,
+    # `AC-1.2` and `AC-1.3` all reported as `AC-1` and a reader could not tell
+    # which criterion a score belonged to. The comment also said fixing it was
+    # a round of its own because Round 42 站0's guard pins this splitter — that
+    # guard forbids DROPPING a match (which merges bodies); widening the
+    # capture drops none, and seventeen corpus documents came out byte-identical
+    # in every field but `label`. See
+    # tests/test_the_ac_label_carries_its_whole_number.py.
     headings = _report(tmp_path / "h", _SRS_HEADINGS)
+    assert sorted(r["label"] for r in headings["per_ac"]) == [
+        "AC-1.1", "AC-1.2", "AC-1.3"], headings["per_ac"]
     assert [r["unit"] for r in headings["per_ac"]] == ["criterion"] * 3, (
         headings["per_ac"])
 

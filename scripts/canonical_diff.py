@@ -86,8 +86,18 @@ _STOPWORDS: frozenset[str] = frozenset(
 # taskq-plus never wrote the block and scored 0 inventions. Across every SRS
 # on disk (taskq 69 matched headings, taskq-plus 20, taskq-renew 21,
 # taskq-api 22) that is the only match with no digit in its label.
+# Round 109 站1: the label class is `[-\w]`, which has no dot, so `#### AC-1.1`
+# — the shape the Phase 1 prompt produces and every corpus SRS writes — used to
+# report as `AC-1` and every criterion under one requirement collapsed onto the
+# same name (taskq-cc 114 clauses -> 44 distinct labels). `(?:\.\d[-\w]*)*`
+# extends the capture and drops nothing: measured over seventeen corpus SRS
+# documents, match positions, match counts and every clause body were identical,
+# and so were all of over_spec_score / verdict / unit / summary. It is the
+# opposite direction from the change Round 42 站0 forbade, which REMOVED matches
+# and thereby merged bodies. The digit after each dot is required so a trailing
+# full stop is not swallowed into the id.
 _FR_HEADER_RE = re.compile(
-    r"^(#{1,6})\s+(?P<label>(?:FR|NFR|AC)[-\w]*\d[-\w]*)\b[^\n]*$",
+    r"^(#{1,6})\s+(?P<label>(?:FR|NFR|AC)[-\w]*\d[-\w]*(?:\.\d[-\w]*)*)\b[^\n]*$",
     re.MULTILINE,
 )
 

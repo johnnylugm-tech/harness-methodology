@@ -5651,3 +5651,19 @@
 - test: tests/test_the_heading_shape_criterion_carries_its_text.py::test_the_bullet_shape_is_unchanged
   bug: "negative control: the branch that already returned criterion text must not be traded away for the one being fixed"
   fixed_in: "Round 108"
+
+- test: tests/test_the_ac_label_carries_its_whole_number.py::test_a_dotted_criterion_reports_its_whole_number
+  bug: "_FR_HEADER_RE captured its label with `[-\\w]`, which has no dot, so `#### AC-1.1` — the shape the Phase 1 prompt produces and every corpus SRS writes — reported as `AC-1` and every criterion under one requirement collapsed onto the same name. Measured: taskq-cc 114 clauses into 44 distinct labels, taskq-new 124 into 46, taskq-sn 117 into 45. A reader of srs_vs_spec_diff.json saw six rows named `AC-1` carrying six different scores"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_ac_label_carries_its_whole_number.py::test_no_body_swallowed_its_neighbour
+  bug: "Round 42 站0's property, pinned as a measurement instead of an argument. That round recorded that the splitter slices each clause's body from one match to the next, so DROPPING a match merges its body into the clause before — taskq-renew's NFR-12 grew 9,773 to 13,960 characters when a digit-requiring regex was tried alone. Widening the capture drops nothing (17/17 corpus documents: identical match positions, identical bodies, 643,955 characters), and this test is what would notice if a future edit lost a match"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_ac_label_carries_its_whole_number.py::test_the_widening_did_not_invent_a_clause
+  bug: "negative control in the direction this change could go wrong. Adding characters to a capture cannot drop a match but a careless addition can create one; `(?:\\.\\d[-\\w]*)*` requires a digit after each dot so a trailing full stop (`#### AC-1.`) is not read into the identifier, and a heading with no digit at all is still not a requirement — the rule test_canonical_diff_phantom_ac.py exists for"
+  fixed_in: "Round 109"
+
+- test: tests/test_the_ac_label_carries_its_whole_number.py::test_both_parsers_name_the_same_criteria
+  bug: "the property the truncation actually broke. canonical_diff and core.quality_gate.artifact_consistency both answer 'which acceptance criteria does this SRS declare'; measured across the fourteen corpus projects that produce both, the intersection of their AC identifiers was ZERO — `AC-1` against `AC-1.1` — so any cross-check between them compared two disjoint sets and found nothing, forever, without ever failing. 0 -> 410 after the fix"
+  fixed_in: "Round 109"

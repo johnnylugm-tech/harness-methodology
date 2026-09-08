@@ -9799,3 +9799,93 @@ read … they are **unchecked, not clean**」—— 它看得見那些 id、attr
 (`_HEADING_MARKER` 加五行切片,取代一行 comprehension),其餘 32 行是承載上面那份量測的
 docstring 與註解。**拆檔的決定不因這筆而改變**:仍然要先織一張逐位元組的網(Round 49),
 仍然是獨立一輪。
+
+---
+
+## Round 109 — 近幾輪待辦八項全部結清 (2026-09-08)
+
+**來源**:老闆令兩步。第一步「檢查近幾輪的改善與優化是否仍有待辦或是未解決的任務」,
+稽核列出八項;第二步「進 plan mode,完成上面所有待辦事項」。方案提出後老闆退回一次
+(與 R105/R106/R108 同一句):「再次驗證方案是否是正解並且沒有引入其他副作用,任何的問題
+與解法都要先進行驗證。」
+
+**退回後跑掉四個未驗證假設,其中三個改寫了方案本身,一個站被實測整個否決重寫。**
+
+### §0 八項的實測判定
+
+| # | 稽核列出的項目 | 實測判定 | 處置 |
+|---|---|---|---|
+| 1 | `_FR_HEADER_RE` 的 label 在點號截斷 | **活缺陷** | 站1 修 |
+| 2 | `core/audit/` 219 行零消費者 | **半座機制**;它要防的 NFR-02 已由 bandit B602 執法 | 站2 退場 |
+| 3 | `canonical_diff --mode` | **零呼叫者、零行為、輸出欄位零讀者**,而 docstring 宣稱可擴充到 P4/P5 | 站3 |
+| 4 | `required_artifacts` 擋 per-FR Gate 1 | **已由 R102 站1 關閉**(`ctx.gate_num >= 2`),兩支行為守衛在跑;賬本那列是過期陳述 | 站7 結賬 |
+| 5 | `DEFAULT_MIN_COVERAGE = 80.0` 改成沒宣告就拒絕 | 賬本理由「會擋掉每個沒寫這個鍵的專案」**前提為假**:14/14 語料都宣告 | 站6 |
+| 6 | HR-14 實作 | **五份陳述零個生產者**,輸入/實作/路徑/輸出/維度五層全斷 | 站5 |
+| 7 | `rules/manifest.yaml` 的死 `text:` 欄位 | **不只是死檔:憲法帶著它那份過期文字** | 站4 |
+| 8 | 91 條再開條件無人回檢 | R81 那條的 reopen 正是「有人做那次審查」 | 站7 |
+
+**老闆裁定四項**:`core/audit/` 退場;`rules/manifest.yaml` 整檔退場;91 條逐條走完;
+HR-14 接上生產者 —— 第一次裁定的前提被我的量測推翻(見 §5),二次裁定改放 `finalize_gate`。
+
+### §1 站1 — 一個 label,兩個 parser,交集為零
+
+`scripts/canonical_diff.py::_FR_HEADER_RE` 的 label 字元類是 `[-\w]`,即
+`[-A-Za-z0-9_]`,**不含點號**。而每一份語料 SRS 都把準則寫成 `#### AC-<fr>.<n>`
+—— 那正是 P1 prompt 產出的形狀 —— 所以 label 在點號處停住,同一條需求底下的每一個準則
+都塌到同一個名字上。實測 2026-09-08:
+
+```
+project        clauses   唯一 label 修前 → 修後
+taskq               69          30 → 69
+taskq-cc           114          44 → 114
+taskq-final        118          44 → 118
+taskq-new          124          46 → 124
+taskq-sn           117          45 → 117
+```
+
+**兩個後果,第二個才是重點。** 一是 `srs_vs_spec_diff.json` 的讀者分不出一個分數屬於
+哪一條準則(六列都寫 `AC-1`,六個不同的數字)。二是框架**另一支** AC 解析器
+`core.quality_gate.artifact_consistency` 把同樣的準則叫做 `AC-1.1` ——
+**十四個同時產出兩邊的語料專案上,兩支解析器的 AC 識別碼交集是 0**。一份文件,兩支
+解析器,沒有一個 id 相同。R33/R56 的形狀,藏在「兩邊各自看起來都合理」後面。
+
+**這不是 Round 42 站0 禁的那個改動。** `tests/test_canonical_diff_phantom_ac.py` 釘的是
+「requirement label 帶數字」,而它之所以那樣釘,是因為切分器把每個 clause 的 body 從
+一個 match 切到**下一個** match:**丟掉一個 match 會把它的 body 併進前一個 clause**,
+該檔逐字記著 taskq-renew 的 NFR-12 body 從 9,773 漲到 13,960 字元。那是**移除** match
+的改動。本輪是替既有 match **多捕獲幾個字元**,一個都沒移除。
+
+```diff
+-    r"^(#{1,6})\s+(?P<label>(?:FR|NFR|AC)[-\w]*\d[-\w]*)\b[^\n]*$",
++    r"^(#{1,6})\s+(?P<label>(?:FR|NFR|AC)[-\w]*\d[-\w]*(?:\.\d[-\w]*)*)\b[^\n]*$",
+```
+
+**六層驗證,全部實跑**(對照組是 `git show HEAD:scripts/canonical_diff.py` 動態載入):
+
+| 驗證 | 結果 |
+|---|---|
+| 17 語料 SRS 的 match 位置與數量 | 17/17 完全相同 |
+| clause body 逐位元組 | 17/17 相同(合計 643,955 字元) |
+| `per_ac` 每筆 score / summary / unit | 17/17 零改變 |
+| `fr_id` | 全樹只變 1 筆:taskq-sn 的 `AC-C4` 排在所有 FR 之前,沒有 parent 可解析,走的是既有的「回退用自己的 label」分支 |
+| 兩支解析器的 AC id 交集 | **0 → 410** |
+| 11 個邊界形狀 | match 數逐例相同;`FR-1.a` 仍讀成 `FR-1`(不變,非回歸);`AC-1.` / `AC-1.1.` 的行尾句點不被吞進 id;`# FR`(無數字)仍不匹配 |
+
+點號後**強制接數字**(`(?:\.\d[-\w]*)*`),所以行尾句點、`v1.2` 這種版本樣、以及句子的
+句點都不會被讀進識別碼 —— 這是 `test_the_widening_did_not_invent_a_clause` 釘住的方向:
+擴大捕獲不可能丟掉 match,但寫壞了可以**多造**一個。
+
+**連帶更正的一句話**:`tests/test_the_over_spec_report_says_what_it_measured.py`
+`test_each_record_says_which_unit_it_covers` 原本用不帶 key 的 list 斷言,並附註解說明
+「這是同一支切分器的另一個缺陷,記錄而不修,因為 Round 42 站0 的守衛釘住這支切分器,
+改它是獨立一輪」。那句話的後半在本輪被證明是誤讀:Round 42 禁的是丟 match。斷言改成
+keyed,註解改成當下為真的陳述。
+
+**新守衛** `tests/test_the_ac_label_carries_its_whole_number.py`(4 支):
+帶點號的準則報出完整編號、**沒有任何 body 吞掉鄰居**(直接釘 Round 42 的性質而不是
+用論證代替)、擴大捕獲沒有多造 clause(負對照)、兩支解析器叫出同一組準則。
+
+**反證**:把 label 字元類改回不含點號 → 交集測試與 keyed 斷言紅;把 regex 改成
+**不要求數字**(會丟 match 的方向)→ `test_canonical_diff_phantom_ac.py` 當場轉紅
+(`clauses found: ['FR-01', 'NFR-12', 'FR']`),證明 Round 42 的守衛確實在看這個模組物件、
+而本輪的新守衛沒有把那條性質弄丟。
