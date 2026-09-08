@@ -1,5 +1,9 @@
 # Traceability Matrix — {Project Name}
 
+<!-- harness:template-stub -->
+<!-- Remove the sentinel line above once you start filling this TRACEABILITY_MATRIX.
+     While present, harness load-context emits a stub warning. -->
+
 > Requirements Traceability Matrix
 > Framework: harness-methodology
 > Version: v1.0

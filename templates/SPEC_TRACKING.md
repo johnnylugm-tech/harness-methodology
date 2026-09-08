@@ -1,5 +1,9 @@
 # Specification Tracking Matrix — {Project Name}
 
+<!-- harness:template-stub -->
+<!-- Remove the sentinel line above once you start filling this SPEC_TRACKING.
+     While present, harness load-context emits a stub warning. -->
+
 > On-demand Lazy Load template.
 
 ## Project Info

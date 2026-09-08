@@ -60,6 +60,23 @@ def _write_gitleaks_config(project: Path) -> bool:
     return True
 
 
+# Single source of truth for the artifact templates `init-project` seeds into a
+# fresh project. Both `_init_copy_templates` (copies them) and `cmd_load_context`
+# (scans them for the template-stub sentinel) read this — two hand-written
+# lists of "where the templates live" drifted once (d6dec02c) and left three
+# Phase-1 stubs (SPEC_TRACKING/TRACEABILITY/TEST_INVENTORY) undetectable.
+_TEMPLATE_ARTIFACT_MAP = (
+    ("01-requirements", "SRS.md"),
+    ("01-requirements", "SPEC_TRACKING.md"),
+    ("01-requirements", "TRACEABILITY_MATRIX.md"),
+    ("", "TEST_INVENTORY.yaml"),       # project root — D4 reads from here
+    ("02-architecture", "SAD.md"),
+    ("02-architecture/adr", "ADR.md"),
+    ("02-architecture", "TEST_SPEC.md"),
+    ("09-maintenance", "MAINTENANCE_LOG.md"),  # P9 CR index (cr-close appends) — append-log, not a fill-in template
+)
+
+
 def cmd_init_project(args: argparse.Namespace) -> int:
     """
     Initialize harness CI wiring in a target project (Context B setup).
@@ -842,15 +859,15 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     # left by `init-project`". Without this check, Agent A might assume P1 is
     # complete because SRS.md exists — but the file is still a stub.
     # Per SKILL.md §0.3.1, stub = sentinel literal OR ≥8 {placeholder} patterns
-    # (co-equal heuristic `_is_stub_template`). Paths match
-    # `_init_copy_templates` artifact_map (the locations init-project writes).
+    # (co-equal heuristic `_is_stub_template`). Paths derive from
+    # `_TEMPLATE_ARTIFACT_MAP` (the single source `_init_copy_templates` also
+    # reads), minus the append-log MAINTENANCE_LOG.md.
     from core.quality_gate.constitution.runner import _is_stub_template
     _sentinel = "<!-- harness:template-stub -->"
-    _template_artifacts = (
-        "01-requirements/SRS.md",
-        "02-architecture/SAD.md",
-        "02-architecture/TEST_SPEC.md",
-        "02-architecture/adr/ADR.md",
+    _template_artifacts = tuple(
+        f"{_subdir}/{_filename}" if _subdir else _filename
+        for _subdir, _filename in _TEMPLATE_ARTIFACT_MAP
+        if _filename != "MAINTENANCE_LOG.md"
     )
     _warnings: list = []
     for _rel in _template_artifacts:
@@ -1610,16 +1627,7 @@ def _init_phase_dirs(project: Path) -> None:
 def _init_copy_templates(project: Path, harness_root: Path, *, overwrite: bool = False) -> None:
     """Copy artifact templates from harness templates/ into the target project."""
     templates_dir = harness_root / "templates"
-    artifact_map = [
-        ("01-requirements", "SRS.md"),
-        ("01-requirements", "SPEC_TRACKING.md"),
-        ("01-requirements", "TRACEABILITY_MATRIX.md"),
-        ("", "TEST_INVENTORY.yaml"),       # project root — D4 reads from here
-        ("02-architecture", "SAD.md"),
-        ("02-architecture/adr", "ADR.md"),
-        ("02-architecture", "TEST_SPEC.md"),
-        ("09-maintenance", "MAINTENANCE_LOG.md"),  # P9 CR index (cr-close appends)
-    ]
+    artifact_map = _TEMPLATE_ARTIFACT_MAP
     copied = 0
     skipped = 0
     missing = 0

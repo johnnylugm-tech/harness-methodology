@@ -1,4 +1,6 @@
 # TEST_INVENTORY.yaml — P1 Naming Authority
+# <!-- harness:template-stub --> — remove this line once you start filling this inventory.
+# While present, harness load-context emits a stub warning.
 # Maps every FR to expected test function names. These are the AUTHORITATIVE names
 # that derive_test_cases.md preserves in TEST_SPEC.md (P2 single source of truth).
 # Specified per FR and per test category (unit/integration/cross_cutting).

@@ -1027,6 +1027,121 @@ class TestLoadContextTemplateWarnings:
         assert "02-architecture/TEST_SPEC.md" in warned
         assert "02-architecture/adr/ADR.md" in warned
 
+    def test_spec_tracking_stub_triggers_warning(self, tmp_path, capsys):
+        """SPEC_TRACKING.md with sentinel literal → 1 warning.
+
+        Guards the scan-list extension to all four Phase-1 deliverables
+        (SPEC_TRACKING previously sat outside _template_artifacts, so its
+        stub was invisible to load-context).
+        """
+        self._write_artifact(
+            tmp_path,
+            "01-requirements/SPEC_TRACKING.md",
+            f"# Specification Tracking Matrix — {{Project Name}}\n\n{self._SENTINEL}\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert any("01-requirements/SPEC_TRACKING.md" in w for w in result["warnings"])
+
+    def test_traceability_stub_triggers_warning(self, tmp_path, capsys):
+        """TRACEABILITY_MATRIX.md with sentinel literal → 1 warning."""
+        self._write_artifact(
+            tmp_path,
+            "01-requirements/TRACEABILITY_MATRIX.md",
+            f"# Traceability Matrix — {{Project Name}}\n\n{self._SENTINEL}\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert any("01-requirements/TRACEABILITY_MATRIX.md" in w for w in result["warnings"])
+
+    def test_test_inventory_yaml_sentinel_comment_triggers_warning(self, tmp_path, capsys):
+        """TEST_INVENTORY.yaml with the YAML `#`-wrapped sentinel → 1 warning.
+
+        The template wraps the sentinel in a `#` comment (a bare HTML
+        comment would break YAML parsing); detection is substring-based, so
+        the wrapped form must still hit. TEST_INVENTORY lives at the project
+        root, not under 01-requirements/.
+        """
+        self._write_artifact(
+            tmp_path,
+            "TEST_INVENTORY.yaml",
+            "# TEST_INVENTORY.yaml — P1 Naming Authority\n"
+            f"# {self._SENTINEL} — remove once you start filling this inventory.\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert any("TEST_INVENTORY.yaml" in w for w in result["warnings"])
+
+    def test_test_inventory_clean_no_warning(self, tmp_path, capsys):
+        """TEST_INVENTORY.yaml without sentinel → no warning."""
+        self._write_artifact(
+            tmp_path,
+            "TEST_INVENTORY.yaml",
+            "# TEST_INVENTORY.yaml — P1 Naming Authority\n"
+            "test_inventory:\n  tests: []\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert "warnings" not in result or not any(
+            "TEST_INVENTORY.yaml" in w for w in result["warnings"]
+        )
+
+    def test_seven_stubs_seven_warnings(self, tmp_path, capsys):
+        """All seven scanned artifacts are stubs → 7 warnings, one per file.
+
+        The scan list now covers every fill-in template _TEMPLATE_ARTIFACT_MAP
+        seeds (all four P1 deliverables + SAD/ADR/TEST_SPEC), so a fresh
+        init-project run reports each stub, not just the SRS one.
+        """
+        for rel in [
+            "01-requirements/SRS.md",
+            "01-requirements/SPEC_TRACKING.md",
+            "01-requirements/TRACEABILITY_MATRIX.md",
+            "TEST_INVENTORY.yaml",
+            "02-architecture/SAD.md",
+            "02-architecture/TEST_SPEC.md",
+            "02-architecture/adr/ADR.md",
+        ]:
+            content = f"# {rel}\n\n{self._SENTINEL}\n"
+            if rel.endswith(".yaml"):
+                content = f"# {rel}\n# {self._SENTINEL}\n"
+            self._write_artifact(tmp_path, rel, content)
+        result = self._call(tmp_path, capsys)
+        assert "warnings" in result
+        assert len(result["warnings"]) == 7
+        warned = {w.split(" is a template stub")[0] for w in result["warnings"]}
+        assert "01-requirements/SRS.md" in warned
+        assert "01-requirements/SPEC_TRACKING.md" in warned
+        assert "01-requirements/TRACEABILITY_MATRIX.md" in warned
+        assert "TEST_INVENTORY.yaml" in warned
+        assert "02-architecture/SAD.md" in warned
+        assert "02-architecture/TEST_SPEC.md" in warned
+        assert "02-architecture/adr/ADR.md" in warned
+
+
+class TestTemplateSentinelCoverage:
+    """Every fill-in template shipped in templates/ carries the stub sentinel.
+
+    d6dec02c added the sentinel to SRS/SAD/TEST_SPEC but missed the other
+    three Phase-1 templates (SPEC_TRACKING/TRACEABILITY/TEST_INVENTORY) —
+    those stubs were then undetectable by the ≥8-placeholder heuristic
+    (they hold 7/1/0 placeholders). This pin fails the next time a template
+    is added without its sentinel.
+    """
+
+    def test_every_fill_in_template_carries_the_stub_sentinel(self):
+        from cli.project_cmds import _TEMPLATE_ARTIFACT_MAP
+
+        templates_dir = Path(__file__).resolve().parents[2] / "templates"
+        sentinel = "<!-- harness:template-stub -->"
+        for subdir, filename in _TEMPLATE_ARTIFACT_MAP:
+            if filename == "MAINTENANCE_LOG.md":
+                continue  # append-log, seeded per-project but not a fill-in template
+            content = (templates_dir / filename).read_text(encoding="utf-8")
+            assert sentinel in content, (
+                f"templates/{filename} has no stub sentinel — stubs of this "
+                f"artifact would be undetectable by load-context"
+            )
+
 
 class TestCmdReadFile:
     def test_read_file_ok(self, tmp_path):
