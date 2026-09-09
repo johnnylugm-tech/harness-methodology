@@ -41,8 +41,15 @@ REGISTRY = Path(__file__).resolve().parent / "MEASUREMENT_SINKS.yaml"
 # `statements_omitted` is None rather than 0, and the denominator travels into
 # breakdown.test_coverage beside the percentage it qualifies.
 #
-# 29 -> 28, Round 112: `crg:baseline` reviewed as report-only telemetry for
-# metrics capture eligibility.
+# 29 -> 28, Round 112: `crg:baseline` reviewed. `snapshot_baseline` files it when
+# crg_metrics.json exists but is unreadable, or when `should_write_baseline`
+# refuses an architecture_score that is non-numeric or below `architecture_floor()`
+# — measured, omnibot p3=22.2 and taskq-renew p6=77.8 are refused today. An ABSENT
+# crg_metrics.json returns False and writes no row at all, so that case is not in
+# this population. Report-only rather than verdict because the return value is
+# discarded by its single caller (finalize-gate, cli/gate_cmds.py:2977): nothing
+# refuses to proceed on it, and the cost of the refusal is that the next phase's
+# drift check has no reference, which is what the row exists to make visible.
 _UNREVIEWED_CEILING = 28
 
 _SKIP_DIRS = {".venv", "tests", ".git", "node_modules", "__pycache__"}

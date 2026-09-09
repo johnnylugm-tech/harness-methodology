@@ -2281,16 +2281,48 @@ entries:
       `reconstructible: False` 帶完整理由(R87 站5),空集是誠實的,不是死守衛。
   - round: 111
     item: "`parse_srs_fr_sections` 的兩種 dict 形狀(table fallback 少三個欄位)"
-    verdict: MET
+    verdict: ALREADY_DONE
     guard: "tests/test_generate_full_plan.py::TestParseSrsFrSectionsMergesJson::test_table_fallback_preserves_contract_fields"
     resolved_in: "Round 112 站1"
     evidence: >-
-      2026-09-09 Round 112 站1: 統一形狀,table fallback 補齊 `implementation_modules` ([]),
-      `acceptance_criteria` ([]), `verification_method` (json_meta 或 ""),
-      且嚴格保留 markdown 表格單元格之原始 prose 需求,絕不被 narrow JSON description 覆蓋。
+      2026-09-09(R111 站F5):條件是「那三個欄位出現第一個讀者」。站F5 當場搜過全樹
+      (`scripts/ core/ cli/ harness/`),`implementation_modules` / `acceptance_criteria` /
+      `verification_method` 在 `artifact_parsers.py` 以外零次出現 —— 沒有讀者。
+      2026-09-09(R112 站5)重驗:**條件仍未滿足**。AST 掃過 `parse_srs_fr_sections` 的
+      兩個真實消費者(`scripts/plangen/phase_tasks.py`、`cli/project_cmds.py`),它們讀的鍵是
+      `fr` / `title` / `desc` / `raw_details` / `requirements` / `test_cases`,動態鍵存取為零;
+      三個欄位今天仍無讀者。Round 112 站1 是在條件未滿足下逕行統一形狀:table fallback 補齊
+      `implementation_modules` ([])、`acceptance_criteria` ([])、`verification_method`
+      (json_meta 或 ""),並嚴格保留表格單元格原文的 `title` / `desc` / `raw_details`,
+      不讓較窄的 JSON description 覆蓋。所以判定是 ALREADY_DONE(工作已完成)而不是
+      MET(再開條件成立)—— 條件沒有成立過。
   - round: 111
     item: "移除 `implementation_modules` / `acceptance_criteria` / `verification_method`"
     verdict: NOT_MET
     guard: "manual"
     evidence: >-
       2026-09-09: 條件是「老闆裁定」。本輪沒有這個裁定;三個欄位原封不動。
+  - round: 112
+    item: "4b 的 could-not-measure 表示法(站4 退回 GAP-4)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「單獨一輪處理 4b 表示法」。本輪不是那一輪 ——
+      GAP-4 已整段退回,`core/quality_gate/spec_tracking_checker.py:410` 的
+      `# noqa: F841` 與被壓縮的相鄰兩行都已還原,四條非零返回路徑仍在該站點
+      塌成 `4b = 0.0`。同一決定的前兩次記錄在 R99(`:2019`, MET)與
+      R110(`:2157`, NOT_MET),兩列今天都仍然成立。
+  - round: 112
+    item: "`implementation_modules` / `acceptance_criteria` 的鍵名與框架自己的模板不符,不改名"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「那兩個欄位出現第一個讀者」。AST 掃過 `scripts/ core/ cli/
+      harness/` 的所有 .py:兩個鍵在 `scripts/plangen/artifact_parsers.py` 以外的
+      唯一出現是 `core/quality_gate/delivery_fingerprint.py:130`,那是 fingerprint
+      自己的 key(該檔 `:31` 自述來源為 `artifact_consistency`,Round 51 站5),
+      不是這個 dict 的讀者。`parse_srs_fr_sections` 的兩個真實消費者
+      (`scripts/plangen/phase_tasks.py`、`cli/project_cmds.py`)讀的鍵是
+      `fr` / `title` / `desc` / `raw_details` / `requirements` / `test_cases`,
+      動態鍵存取為零。實測 21 專案 300 個 FR dict:兩鍵非空 0 個
+      (`verification_method` 276,但它同樣沒有讀者)。

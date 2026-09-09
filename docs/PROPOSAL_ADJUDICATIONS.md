@@ -10873,6 +10873,7 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **缺陷**: `scripts/plangen/artifact_parsers.py::parse_srs_fr_sections` 在 Table fallback 路徑缺少 `implementation_modules`、`acceptance_criteria`、`verification_method` 鍵,且首版修復曾錯誤將 `desc` 覆蓋為 JSON 的短句英文,破壞了 `omnibot` 等專案的中文詳細需求。
 - **正解**: Table fallback 路徑補齊 `implementation_modules: []`、`acceptance_criteria: []`、`verification_method: json_meta.get(...) or ""`。嚴格保留表格單元格原始 `desc` 與 `title`,杜絕需求被 narrow JSON 覆蓋。全語料 21 專案實測 9 鍵合約 100% 齊備。
 - **守衛**: `tests/test_generate_full_plan.py::TestParseSrsFrSectionsMergesJson::test_table_fallback_preserves_contract_fields`。
+- **取代**: 本站取代 R111 §9 的「`parse_srs_fr_sections` 的兩種 dict 形狀(table fallback 少三個欄位)」一列 —— 該列寫「告知不改」,再開條件是「那三個欄位出現第一個讀者」。R112 站5 用 AST 重驗:兩個真實消費者(`phase_tasks.py` / `project_cmds.py`)讀的鍵不含那三個,動態鍵存取為零,**條件至今未滿足**。本站是在條件未滿足下逕行統一形狀,所以 `docs/deferred_guards.yaml` 的判定記為 `ALREADY_DONE`(工作已完成)而非 `MET`(條件成立)。R111 §9 那一列本身不改 —— 它是有日期的歷史陳述(R44)。
 
 ### 站2 (GAP-2): 未測量套件不被超額計罰守衛解耦
 - **缺陷**: `tests/test_unmeasured_suite_is_not_zero.py` 曾引入 `monkeypatch` stub,違反同檔「asks pytest itself for the shape」鐵律與 R19。
@@ -10888,3 +10889,10 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
   1. 依據 Round 99 (`deferred_guards.yaml:2019`, MET) 與 Round 110 (`deferred_guards.yaml:2157`, NOT_MET) 賬本,該處 `# noqa: F841` 是「工作還沒做」的檢索錨點。4b could-not-measure 表示法需讓 4 條非零路徑在 `4b_test_spec_pct` 上與「真正的 0%」可區分,改動該欄位語意涉及 3 條既有返回路徑與全樹 4b 消費者,屬單獨一輪之工作量,非本輪範圍。
   2. 首版在 `passed` 判定加上 `sc_code == 0` 在現行 gate 門檻下(4b 塌為 0.0 即已因小於門檻而判 False)為死條件,配套測試在拿掉條件時亦不會變紅(不鑑別);且透過壓縮相鄰無關行數規避 201 行天花板亦違反 ratchet 規範。
   3. 拿掉標記卻未做工作即為 R56 母體。正式退回 GAP-4 之代碼修改,還原相鄰行數與 `# noqa: F841` 錨點,留待單獨一輪專題評估 4b 表示法。
+
+### §9 明列不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| 4b 的 could-not-measure 表示法(站4 退回 GAP-4) | 首版在 `passed` 加 `sc_code == 0` 是死條件:`_run_spec_coverage_check` 四條非零返回路徑的 pct 都是 0.0,而 `SPEC_COV_THRESHOLDS` 最低 60.0,`passed` 早已為 False;反證把該條件拿掉,配套測試 8 支全綠(不鑑別)。且為塞進 201 行天花板壓縮了相鄰無關的兩行。拿掉 `# noqa: F841` 標記卻沒做工作是 R56 | 單獨一輪處理 4b 表示法:讓 `4b_test_spec_pct` 能區分四條返回路徑與真正的 0%,並同步改所有 4b 消費者 |
+| `implementation_modules` / `acceptance_criteria` 的鍵名與框架自己的模板不符,不改名 | `_parse_srs_fr_block_json` 原封讀這兩個鍵,而 `templates/SRS.md:91` 與 `R-SRS-FR-BLOCK-001.md` 教 agent 寫的是 `implementation_functions`,`acceptance_criteria` 兩處都沒有。實測 21 專案 300 個 FR dict:兩鍵非空 0 個,`verification_method` 276 個。AST 掃過兩個真實消費者(`phase_tasks.py` / `project_cmds.py`),三個欄位都零讀者、動態鍵存取為零 —— 接上別名只會填滿沒有消費者的欄位(R30) | 那兩個欄位出現第一個讀者 |
