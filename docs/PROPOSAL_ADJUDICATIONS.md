@@ -10862,3 +10862,29 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 | 動 `test_undoing_the_extraction...` 的空參數集 | 查證後不是缺陷 | — |
 | `parse_srs_fr_sections` 的兩種 dict 形狀(table fallback 少三個欄位) | 站F5 接上語料才看到;統一形狀是改解析器的回傳合約,與本輪需求無關 —— 告知不改 | 那三個欄位出現第一個讀者 |
 | 移除 `implementation_modules` / `acceptance_criteria` / `verification_method` | 全樹零讀者,但無關 dead code:CLAUDE.md 告知不刪 | 老闆裁定 |
+
+---
+
+## Round 112 — 流程斷鍊與品質退化修復 (2026-09-09)
+
+基於近幾輪修復工程,全面盤點與修復流程斷鍊及品質退化狀況,包含四項核心修正:
+
+### 站1 (GAP-1): SRS FR 表格解析合約統一
+- **缺陷**: `scripts/plangen/artifact_parsers.py::parse_srs_fr_sections` 在 Table fallback 路徑缺少 `implementation_modules`、`acceptance_criteria`、`verification_method` 鍵,且首版修復曾錯誤將 `desc` 覆蓋為 JSON 的短句英文,破壞了 `omnibot` 等專案的中文詳細需求。
+- **正解**: Table fallback 路徑補齊 `implementation_modules: []`、`acceptance_criteria: []`、`verification_method: json_meta.get(...) or ""`。嚴格保留表格單元格原始 `desc` 與 `title`,杜絕需求被 narrow JSON 覆蓋。全語料 21 專案實測 9 鍵合約 100% 齊備。
+- **守衛**: `tests/test_generate_full_plan.py::TestParseSrsFrSectionsMergesJson::test_table_fallback_preserves_contract_fields`。
+
+### 站2 (GAP-2): 未測量套件不被超額計罰守衛解耦
+- **缺陷**: `tests/test_unmeasured_suite_is_not_zero.py` 曾引入 `monkeypatch` stub,違反同檔「asks pytest itself for the shape」鐵律與 R19。
+- **正解**: 撤除所有 stub,恢復真實呼叫 `check_ac_deferral_targets(tree)` 與 `run_suite`。依據 R35,若外部宿主環境污染產生了非空測試結果,帶明確理由 skip,在標準 canonical `.venv` 下真實執行並斷言 2 個 absent 違規。
+
+### 站3 (GAP-3): CRG Baseline 遙測記錄定性與棘輪收斂
+- **缺陷**: `tests/MEASUREMENT_SINKS.yaml` 中 `crg:baseline` 懸空為 `unreviewed`。
+- **正解**: 審定為 `sink: report-only`。依據真實代碼邏輯撰寫 `why`: `snapshot_baseline` 僅在 `crg_metrics.json` 不可讀或 `architecture_score` 低於樓地板時記錄(Round 111 §9; 實測 `omnibot` p3=22.2、`taskq-renew` p6=77.8 觸發);呼叫端 `gate_cmds.py:2977` 丟棄返回值,故為 report-only。同步將 `_UNREVIEWED_CEILING` 棘輪由 29 調降至 28。
+
+### 站4 (GAP-4): 裁定退回 (Adjudicated as DEFERRED / WITHDRAWN)
+- **爭議**: 是否移除 `core/quality_gate/spec_tracking_checker.py:410` 的 `# noqa: F841` 並在 `result["passed"]` 加入 `sc_code == 0`。
+- **裁決理由 (退回)**:
+  1. 依據 Round 99 (`deferred_guards.yaml:2019`, MET) 與 Round 110 (`deferred_guards.yaml:2157`, NOT_MET) 賬本,該處 `# noqa: F841` 是「工作還沒做」的檢索錨點。4b could-not-measure 表示法需讓 4 條非零路徑在 `4b_test_spec_pct` 上與「真正的 0%」可區分,改動該欄位語意涉及 3 條既有返回路徑與全樹 4b 消費者,屬單獨一輪之工作量,非本輪範圍。
+  2. 首版在 `passed` 判定加上 `sc_code == 0` 在現行 gate 門檻下(4b 塌為 0.0 即已因小於門檻而判 False)為死條件,配套測試在拿掉條件時亦不會變紅(不鑑別);且透過壓縮相鄰無關行數規避 201 行天花板亦違反 ratchet 規範。
+  3. 拿掉標記卻未做工作即為 R56 母體。正式退回 GAP-4 之代碼修改,還原相鄰行數與 `# noqa: F841` 錨點,留待單獨一輪專題評估 4b 表示法。

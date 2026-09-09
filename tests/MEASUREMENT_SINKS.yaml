@@ -381,7 +381,17 @@ sinks:
   "auto_fix.guardrails.rollback_if_unsafe": {sink: unreviewed}
   "ci:verdict": {sink: unreviewed}
   "crash-triage": {sink: unreviewed}
-  "crg:baseline": {sink: unreviewed}
+  "crg:baseline":
+    sink: report-only
+    why: >-
+      snapshot_baseline (core/quality_gate/crg_baseline.py) records this
+      degradation when crg_metrics.json exists but is unreadable, or when
+      should_write_baseline refuses because architecture_score is non-numeric
+      or falls below architecture_floor() (Round 111 §9; measured on omnibot
+      p3=22.2 and taskq-renew p6=77.8). Note that when crg_metrics.json is
+      absent it returns False without writing a row. Its return value is ignored
+      by the single caller cmd_finalize_gate (cli/gate_cmds.py:2977), so it
+      never blocks gate advancement.
   "crg:graph-scope": {sink: unreviewed}
   "doctor:*": {sink: unreviewed}
   "doctor:unavailable": {sink: unreviewed}

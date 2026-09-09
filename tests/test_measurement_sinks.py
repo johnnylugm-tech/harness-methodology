@@ -40,7 +40,10 @@ REGISTRY = Path(__file__).resolve().parent / "MEASUREMENT_SINKS.yaml"
 # was discarded at the call site; it is now report-only, its unmeasurable
 # `statements_omitted` is None rather than 0, and the denominator travels into
 # breakdown.test_coverage beside the percentage it qualifies.
-_UNREVIEWED_CEILING = 29
+#
+# 29 -> 28, Round 112: `crg:baseline` reviewed as report-only telemetry for
+# metrics capture eligibility.
+_UNREVIEWED_CEILING = 28
 
 _SKIP_DIRS = {".venv", "tests", ".git", "node_modules", "__pycache__"}
 
