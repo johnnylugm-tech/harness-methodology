@@ -192,11 +192,21 @@ def test_the_frozen_corpus_tree_is_not_charged_for_a_suite_that_never_started() 
         pytest.skip(f"git archive could not reach {sha[:12]} — could not measure")
 
     from core.quality_gate.artifact_consistency import check_ac_deferral_targets
+    from core.quality_gate.test_suite_run import run_suite
 
     with tempfile.TemporaryDirectory() as td:
         tree = Path(td).resolve()
         with tarfile.open(fileobj=io.BytesIO(archived.stdout)) as tf:
             tf.extractall(tree)
+        # R35: Verify measurement basis without stubbing run_suite.
+        # An un-venved archive must fail collection. If host site-packages
+        # leak and let tests run, skip with clear rationale rather than fabricating.
+        suite = run_suite(tree)
+        if suite.test_outcomes:
+            pytest.skip(
+                f"host Python environment executed {len(suite.test_outcomes)} tests "
+                f"in un-venved archive; measurement requires clean collection failure"
+            )
         violations = check_ac_deferral_targets(tree)
     reasons = [str(getattr(v, "message", v)) for v in violations]
     uncollected = [r for r in reasons if "not_collected" in r]
