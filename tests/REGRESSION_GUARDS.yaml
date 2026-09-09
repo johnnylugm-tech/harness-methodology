@@ -5839,3 +5839,11 @@
 - test: tests/test_structural_drift_denominator.py::test_both_gates_print_the_weight_they_covered
   bug: "a hard block on 0.22 means something different when 40% of the weight was measurable than when all of it was, and the number alone cannot say which. The shape is harness/gate_result.py's existing weight_covered, not a new invention"
   fixed_in: "Round 111"
+
+- test: tests/test_baseline_comparisons.py::test_every_baseline_comparison_points_at_a_written_phase
+  bug: "cmd_finalize_gate snapshots a CRG baseline at every exit gate (p3, p4, p6) and the reader was a local dict inside harness_bridge.prepare_gate with no shared source, while cli/checks/gates.py names crg_baseline_p4.json as a literal. This map is keyed by PHASE, and `{4: 3}` reads naturally as 'gate 4 versus gate 3' — a value that is really a gate number aims the reader at a file no exit gate produces, and an absent baseline is a legitimate 'no reference' state, so nothing complains. Counter-proved with `{6: 5}`. NOTE the first version of this guard claimed to catch the historical `{4: 3}` entry removed by 236a187b; it does not, and the counter-proof said so — phase 3 IS an exit-gate phase and that entry was dangling for a runtime reason (the belief that no CRG metrics exist at the P3 exit, which nine corpus projects with a crg_baseline_p3.json on disk disprove)"
+  fixed_in: "Round 111"
+
+- test: tests/test_baseline_comparisons.py::test_the_bridge_does_not_keep_its_own_copy_of_the_map
+  bug: "two declarations of one mapping is how the writer set and the reader set drifted apart, and the comment above the local copy asserted 'there is no p3 baseline (Gate 2 has no architecture dim)' while nine corpus projects had one. The owner is core.quality_gate.crg_baseline, the module that writes baselines"
+  fixed_in: "Round 111"

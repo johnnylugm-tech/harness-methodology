@@ -1848,13 +1848,13 @@ class HarnessBridge(_FinalizeStages):
         # CRG cross-phase drift: compare current structure against previous exit gate baseline.
         # Only meaningful for Gate 3 (P4, baseline=P3) and Gate 4 (P6, baseline=P4).
         # Gate 2 may lack metrics (no full recon), so baseline may be absent.
-        # The architecture dimension first appears at Gate 3 (P4), so the earliest
-        # architecture baseline is crg_baseline_p4; there is no p3 baseline (Gate 2
-        # has no architecture dim). Drift is therefore only valid at Gate 4 (P6 vs P4) —
-        # the old {4: 3} entry pointed at a baseline that is never generated.
+        # Which baseline this phase is compared against belongs to the module
+        # that writes baselines, not to a second dict here — Round 111 站F4.
+        # The comment this replaces said "there is no p3 baseline"; nine corpus
+        # projects have one, written by cmd_finalize_gate at every exit gate.
         _cross_phase_drift = None
-        _baseline_phase_map = {6: 4}  # gate phase → previous exit gate phase (P6 vs P4)
-        _prev_phase = _baseline_phase_map.get(phase)
+        from core.quality_gate.crg_baseline import BASELINE_COMPARISONS
+        _prev_phase = BASELINE_COMPARISONS.get(phase)
         if _prev_phase is not None:
             _baseline_path = (
                 Path(project_root) / ".methodology"

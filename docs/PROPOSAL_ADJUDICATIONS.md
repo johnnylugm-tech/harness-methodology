@@ -10355,6 +10355,36 @@ taskq-cc-new                         0.0028 → 0.0070
 - CP-5 拿掉正規化 → `test_absent_drift_components_...` 紅,訊息裡出現 0.0888
 - CP-6 把一個呼叫端 alias 回舊名 → 守衛紅並指名 `cli/checks/gates.py`
 
+### §4 站F4 — 寫出的 baseline 集合與讀取的 baseline 集合各自宣告
+
+`cli/gate_cmds.py` 在 `args.gate in EXIT_GATE_MAP.values()`(gate 2/3/4)都寫
+baseline,也就是 p3 / p4 / p6;讀者是 `harness_bridge.prepare_gate` 裡的一個
+**區域 dict** `{6: 4}`,而 `cli/checks/gates.py` 又把 `crg_baseline_p4.json`
+寫成字面值。兩個集合沒有共同來源。
+
+那個區域 dict 上面的註解寫著「there is no p3 baseline (Gate 2 has no
+architecture dim)」—— **語料 9 個專案的磁碟上有**(R39:機制變了陳述沒變)。
+
+`BASELINE_COMPARISONS` 移到 baseline 的擁有者 `core/quality_gate/crg_baseline.py`,
+docstring 寫明 p4 是唯一的比較來源,而 p3/p6 的副本刻意還在寫 ——
+`snapshot_baseline` 每次都跑 `should_write_baseline`,低於樓地板時留下 R37 的
+拒絕紀錄(實測 omnibot p3=22.2、taskq-renew p6=77.8 今天都會被拒絕)。
+停寫等於少一個證人,不是接回斷鍊;列在 §9。
+
+**守衛的第一版宣稱了它做不到的事,而反證當場拆穿。** 我寫的是
+「這正是 236a187b 移掉的 `{4: 3}` 的形狀」,CP-7 把 `{4: 3}` 加回去 → **綠的**。
+查 236a187b 才知道:phase 3 **是** exit-gate phase,`cmd_finalize_gate` 一直都在
+寫 p3 —— 那筆 entry 之所以是死的,是因為當時相信「P3 出口不會有 CRG metrics」,
+而 9 個專案的 `crg_baseline_p3.json` 說那個相信是錯的。所以守衛能靜態檢查的是
+**另一種同樣安靜的死法**:`{4: 3}` 讀起來像「gate 4 對 gate 3」,而這張表用
+**phase** 當 key —— 值若其實是 gate 編號(`{6: 5}`、`{4: 2}`),讀者就指向一個
+沒有任何 exit gate 會產出的檔,而缺席的 baseline 是合法的「無參考點」狀態,
+沒有人會抱怨。docstring 與斷言訊息都改成說這件事,CP-7 改用 `{6: 5}` → 紅。
+
+(反證過程順帶踩到一個陷阱:`{6: 4}` 與 `{6: 5}` **位元組長度相同**,`cp` 還原後
+mtime+size 都沒變,Python 認為 `.pyc` 仍然有效 —— 還原完測試還是紅的。
+清掉 `__pycache__` 才看到真相。)
+
 ### §9 明列不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |

@@ -36,8 +36,28 @@ from core.degradation_ledger import record_degradation
 from core.phase_topology import EXIT_GATE_MAP
 from core.quality_gate.gate_thresholds import load_gate_thresholds
 
-__all__ = ["architecture_floor", "floor_for_phase", "should_write_baseline",
-           "snapshot_baseline"]
+__all__ = ["BASELINE_COMPARISONS", "architecture_floor", "floor_for_phase",
+           "should_write_baseline", "snapshot_baseline"]
+
+#: gate phase -> the phase whose baseline it is compared against.
+#:
+#: Round 111 站F4. `cmd_finalize_gate` writes a baseline at every exit gate
+#: (`args.gate in EXIT_GATE_MAP.values()` — p3, p4 and p6), and the reader was
+#: a local dict inside `harness_bridge.prepare_gate` with no shared source.
+#: Two declarations of one mapping is how they drift; the comment above that
+#: local copy asserted "there is no p3 baseline" while nine corpus projects
+#: had one on disk, and recorded what the previous drift cost — "the old
+#: {4: 3} entry pointed at a baseline that is never generated", a reader
+#: aimed at a file nothing writes, which is silent because an absent baseline
+#: is a legitimate "no reference" state.
+#:
+#: p4 is the only comparison SOURCE. The p3 and p6 copies exist for two other
+#: reasons and are deliberately still written: `snapshot_baseline` runs
+#: `should_write_baseline` on each of them, so a score below the gate-4 floor
+#: leaves a Round 37 refusal on the degradation ledger (measured 2026-09-09:
+#: omnibot's p3 at 22.2 and taskq-renew's p6 at 77.8 are both refused today),
+#: and a written copy is what after-the-fact review reads.
+BASELINE_COMPARISONS: dict[int, int] = {6: 4}
 
 # Gate 4 is the full-quality gate and the strictest of the three that score
 # architecture. It is both the baseline floor and the answer when a project's
