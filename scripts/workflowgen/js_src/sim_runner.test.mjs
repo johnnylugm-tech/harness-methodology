@@ -308,8 +308,9 @@ test('phase3 TDD loop: rc 25 with the state still broken halts as gate1-parked, 
   assert.notEqual(result.harness_bug_detected, true)
   assert.match(String(result.error || ''), /still state-blocked/,
     'the halt must say the FRs are still state-blocked, not code-failed')
-  assert.match(String(result.error || ''), /resume-fr-step/,
-    'the halt must carry the resume command for a human')
+  assert.match(String(result.error || ''), /run-fr-step --phase 3 --fr-id/,
+    'the halt must carry a resume command a human can actually run — '
+    + 'harness_cli.py registers no resume-fr-step (Round 111 站F2)')
 })
 
 test('phase3 TDD loop: an ordinary Gate 1 failure (rc 1) is not an abort', async () => {

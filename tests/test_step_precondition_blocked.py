@@ -172,7 +172,7 @@ def test_a_verified_precondition_block_aborts_with_remediation(tmp_path, capsys)
         f"exit {rc} — a precondition block is indistinguishable from any other "
         f"failure, so the caller's only move is to run the same command again"
     )
-    assert "resume-fr-step" in err or "revert" in err, (
+    assert "run-fr-step" in err or "revert" in err, (
         "the block must tell the operator what to do; a stop with no way out is "
         "the loop this round exists to end"
     )

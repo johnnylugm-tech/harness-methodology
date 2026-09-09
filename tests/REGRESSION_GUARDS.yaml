@@ -5811,3 +5811,11 @@
 - test: tests/test_p1_naming_authority.py::test_the_movement_reaches_the_ledger
   bug: "a report printed inside _run_spec_coverage_check and nowhere else would be a mechanism with no record: that function runs several times per phase (the CLI check, spec_tracking_checker, each per-FR pass), so the row is filed once per advance at the site that already owns the P1 baseline. owner=project because the tree that has to change is the project's TEST_INVENTORY.yaml, not the framework's"
   fixed_in: "Round 111"
+
+- test: tests/test_cli_command_names_exist.py::test_every_named_subcommand_is_registered
+  bug: "harness_cli.py registers 68 subcommands and 12 sites in the tree told somebody to run one of three that do not exist. `resume-fr-step` (a misspelling of run-fr-step) appeared in five production print sites, the workflowgen generator, two SHIPPED workflow JS files and two goldens; `sync-trace` was the traceability dimension's remedy text; `stage-pass` was a Usage line fifteen lines above a DeprecationWarning that already said the command does not exist. Every one is printed at the moment a run has stopped and is being told what to do next — three of the resume-fr-step sites route an agent out of an infra failure or a repeated-failure abort, which is exactly when nobody has spare attempts to spend discovering the instruction is not real. Four tests asserted the wrong name (Round 64: the guard endorsing the defect), including scripts/workflowgen/js_src/sim_runner.test.mjs"
+  fixed_in: "Round 111"
+
+- test: tests/test_cli_command_names_exist.py::test_the_scan_can_still_see_a_command_name
+  bug: "reverse control: a rule narrowed until it matches nothing looks exactly like a tree with no wrong names in it. The first version of the scan (token followed by `\\b`) reported 30-odd prose false positives — 'harness_cli.py does not …', 'harness_cli.py remains …' — and the qualifier that fixes it (hyphen in the token, or a following `--[a-z]`) is one narrowing away from matching nothing"
+  fixed_in: "Round 111"

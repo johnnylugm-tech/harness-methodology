@@ -146,9 +146,13 @@ def test_abort_message_includes_resume_command(capsys):
         "FR-02", "GATE1", 5, Path("/tmp/project"), "HARNESS_BUG", "[HARNESS-BUG] y"
     )
     err = capsys.readouterr().err
-    assert "resume-fr-step" in err
+    assert "run-fr-step" in err, (
+        "harness_cli.py registers no resume-fr-step, which this assertion "
+        "pinned for eight versions (Round 111 站F2)"
+    )
     assert "--phase 5" in err
     assert "--fr-id FR-02" in err
+    assert "--step GATE1" in err
 
 
 # Round 100 站1: PHANTOM direction is its own code (45) and its own

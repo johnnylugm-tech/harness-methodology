@@ -64,8 +64,9 @@ def test_phase3_continues_after_a_park_and_reattempts():
     assert "halt('gate1-parked'" in out, (
         "the final state-blocked halt must name the still-parked FRs"
     )
-    assert "resume-fr-step" in out, (
-        "the halt must carry the resume command for a human"
+    assert "run-fr-step --phase 3 --fr-id" in out, (
+        "the halt must carry a resume command a human can actually run — "
+        "harness_cli.py registers no resume-fr-step (Round 111 站F2)"
     )
 
 

@@ -1364,8 +1364,8 @@ def _abort_repeated_failure(
         f"  The failures are recorded in .methodology/degradations.jsonl "
         f"(component run-fr-step:{step}).\n"
         f"  Fix the cause; any change to the tree re-opens this step. Then:\n"
-        f"    python harness_cli.py resume-fr-step --phase {phase} "
-        f"--fr-id {fr_id} --project {project}",
+        f"    python harness_cli.py run-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --step {step} --project {project}",
         file=sys.stderr,
     )
     record_degradation(
@@ -1420,8 +1420,8 @@ def _abort_dispatch_infra_or_harness_bug(
         f"{repair}"
         "  Escalate to a human operator; re-run after the underlying issue "
         "is fixed:\n"
-        f"    python harness_cli.py resume-fr-step --phase {phase} "
-        f"--fr-id {fr_id} --project {project}",
+        f"    python harness_cli.py run-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --step {step} --project {project}",
         file=sys.stderr,
     )
     if cls == "HARNESS_BUG":

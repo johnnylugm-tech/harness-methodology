@@ -29,9 +29,6 @@ Score Role:
 
 Usage:
     python quality_gate/stage_pass_generator.py --phase 3 --project-dir /path/to/project
-
-Or via harness CLI:
-    python harness_cli.py stage-pass --phase 3 --project /path/to/project
 """
 
 import os

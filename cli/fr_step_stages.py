@@ -97,8 +97,8 @@ def _abort_dispatch_structurally_broken(fr_id: str, step: str, phase: int, proje
         "further rounds.\n"
         "  Fix: unset the auth-override env var in the shell that launches "
         "this process, then re-run:\n"
-        f"    python harness_cli.py resume-fr-step --phase {phase} "
-        f"--fr-id {fr_id} --project {project}",
+        f"    python harness_cli.py run-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --step {step} --project {project}",
         file=sys.stderr,
     )
     return DISPATCH_STRUCTURALLY_BROKEN_EXIT_CODE
@@ -162,8 +162,8 @@ def _resolve_precondition_block(
         f"nothing — the next attempt meets the same baseline.\n"
         f"  Sub-agent report: {output[:300]}\n"
         f"  Fix the baseline, or revert the step that broke it, then re-run:\n"
-        f"    python harness_cli.py resume-fr-step --phase {phase} "
-        f"--fr-id {fr_id} --project {project}",
+        f"    python harness_cli.py run-fr-step --phase {phase} "
+        f"--fr-id {fr_id} --step {step} --project {project}",
         file=sys.stderr,
     )
     return EX_STEP_PRECONDITION_BLOCKED
@@ -592,8 +592,8 @@ def _frstep_gate1_paper_trail(_pre_step_dirty, _pre_step_sha, fr_id, phase, proj
                 f"  Likely cause: prepare-commit-msg hook rejection "
                 f"(stale trace attestation, FSM check, etc.).\n"
                 f"  Fix the hook-reported error, then re-run:\n"
-                f"    python harness_cli.py resume-fr-step --phase {phase} "
-                f"--fr-id {fr_id} --project {project}\n"
+                f"    python harness_cli.py run-fr-step --phase {phase} "
+                f"--fr-id {fr_id} --step {step} --project {project}\n"
                 f"  New dirty files (introduced during this step):\n{dirty[:2000]}",
                 file=sys.stderr,
             )

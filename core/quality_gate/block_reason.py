@@ -112,9 +112,12 @@ DIMENSION_HINTS: dict[str, str] = {
     "traceability": (
         "Framework-computed from the trace attestation: every FR reaches code and "
         "a test that RAN. A shortfall names specific FRs — a requirement whose "
-        "witness was skipped is not verified (Round 46 站1). Regenerate the "
-        "matrix with `harness_cli.py sync-trace` after adding the missing link, "
-        "and check the FR id appears in a test title (`test_frNN_*`)."
+        "witness was skipped is not verified (Round 46 站1). What is missing is "
+        "the link, not the view: TRACEABILITY_MATRIX.md is re-rendered from that "
+        "scan by advance-phase and hand-editing it changes nothing. Add the code "
+        "or the test, check the FR id appears in a test title (`test_frNN_*`), "
+        "and put any link the scan cannot see in "
+        "`TRACEABILITY_MATRIX.overlay.yaml`."
     ),
     "architecture_constraints": (
         "The SAB's declared layer boundaries versus the imports actually present. "

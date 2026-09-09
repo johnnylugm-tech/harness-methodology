@@ -2594,7 +2594,7 @@ if (gate1Fail.length) {
       }
     }
     if (stillParked.length) {
-      return halt('gate1-parked', { error: 'Phase 3: Gate 1 still state-blocked for FR(s): ' + stillParked.map(p => p.fr + ' (rc ' + p.rc + ')').join(', ') + ' — not a code-quality failure; deliver the SAB-declared paths / repair the state, then resume (python harness_cli.py resume-fr-step --phase 3 --fr-id <id> --step GATE1 --project ' + REPO + ')', owner: 'project', gate1Pass, gate1Parked: stillParked })
+      return halt('gate1-parked', { error: 'Phase 3: Gate 1 still state-blocked for FR(s): ' + stillParked.map(p => p.fr + ' (rc ' + p.rc + ')').join(', ') + ' — not a code-quality failure; deliver the SAB-declared paths / repair the state, then resume (python harness_cli.py run-fr-step --phase 3 --fr-id <id> --step GATE1 --project ' + REPO + ')', owner: 'project', gate1Pass, gate1Parked: stillParked })
     }
   }
 

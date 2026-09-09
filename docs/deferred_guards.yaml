@@ -2171,3 +2171,107 @@ entries:
     guard: "manual"
     evidence: >-
       2026-09-09: re-open 欄是 `—`。那些欄位記的是「當時發現了什麼」,改它是 R44 —— 沒有任何未來狀態會讓改寫歷史記錄變成對的。
+
+  # ── Round 111 ────────────────────────────────────────────────────────────
+  - round: 111
+    item: "讓 advance-phase 因 doctor ERROR 而中止"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是兩件事都成立 ——「doctor ERROR 在全語料一次掃描的誤判率量到 0」
+      且「老闆裁定舊紀錄可以擋」。本輪只跑了唯讀的 `run_doctor`,沒有逐條判真偽,
+      誤判率沒有量;老闆也沒有下這個裁定。`_run_doctor_after_advance` 的三重弱接線
+      一個位元組都沒動。
+  - round: 111
+    item: "停止寫 `crg_baseline_p3/p6.json`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「R37 的拒絕紀錄改由別的機制產生」。沒有新機制 ——
+      `should_write_baseline` 仍是唯一在分數低於樓地板時記 degradation 的地方,
+      而 omnibot p3=22.2、taskq-renew p6=77.8 今天都還會觸發它。
+  - round: 111
+    item: "把 `BASELINE_COMPARISONS` 擴成 `{6:4, 4:3}`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「站F3 落地後,語料上量到 P3→P4 的正規化 drift 至少在一個
+      專案有意義地非零」。後半沒有量 —— 要量它得先有 p3 與 p4 兩份 baseline 同時
+      存在的專案樣本,而本輪驗的是 p4→p6 那 13 個。沒量就是沒量。
+  - round: 111
+    item: "調整 `drift_threshold`(0.4)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有 ≥2 個『已知架構退化』樣本可以校準」。語料裡有讀數的
+      13 個專案沒有任何一個被獨立確認為真的架構退化 —— taskq-renew 的 cohesion
+      100→77.8 是本輪拿來驗算的樣本,不是被誰判定過的退化。0.4 一個位元組沒動。
+  - round: 111
+    item: "讓 `crg_metrics.json` 補出 flow/dead_code/hub"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「有消費者需要 cohesion 以外的成分」。沒有 ——
+      `harness/crg_independent.py` 這條生產路徑根本不算它們,而站F3 的藥方是
+      把缺席成分的權重移出分母並印出 `weight_covered/weight_total`,
+      要的是誠實的分母,不是那三個數字。
+  - round: 111
+    item: "把 dispatch/halt/wrapper 那些 conventions 也套到兩支手寫 workflow"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「手寫 workflow 開始 dispatch agent」。
+      `bug-hunt-crg.js` / `standalone-mutmut.js` 本輪掃過:兩支都沒有任何
+      dispatch 呼叫,站F6 納入的是 4 條執行期合法性 case,不是這些管線合約。
+  - round: 111
+    item: "補回 `phase_completed` 的洞(omnibot/tts-new/taskq/run-all-by-workflow 全缺,taskq-super 缺 P5)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現一個當下掉紀錄的專案(那是 writer 的 bug)」。
+      本輪掃到的全是既有的洞,沒有任何一個是這輪的 advance 造成的;
+      Round 89 的讀回機制(`_record_was_writable`)仍在,沒有新的漏寫。
+  - round: 111
+    item: "`plan_status.md` 無框架 reader"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現框架消費者,或老闆說從不看它」。全樹搜尋
+      `plan_status` 仍只有 `cli/phase_cmds.py` 的寫者與印路徑那行,零讀者;
+      老闆本輪沒有表示。
+  - round: 111
+    item: "清掉舊專案殘留的 state 鍵(`last_milestone_at` / `last_push_checkpoint*` / `pipeline_complete`)"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09: re-open 欄是 `—`。殘留在語料專案的樹裡,而語料唯讀;框架端的
+      writer 早在 R24/R45 就移除了,沒有任何未來狀態會讓「去別人的樹裡刪鍵」變成
+      框架該做的事。
+  - round: 111
+    item: "`tts-new` 的 FSM state `COMPLETE`"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09: re-open 欄是 `—`。2026-06-08 的遺留值,現行程式碼無任何寫者,
+      而該專案唯讀。
+  - round: 111
+    item: "合併 `structural_fr_ids` 與 `parse_srs_fr_sections`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「出現第三個 FR 讀法,或某次不一致改變了判定」。本輪實測
+      21 專案只有 2 個不一致,差異全部是 `FR-NN-deferred` 與散文提及,沒有一個
+      改變過判定;沒有第三個讀法出現。
+  - round: 111
+    item: "ci-template 漂移自動執行 `init-project --ci-only --overwrite`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「老闆裁定框架可以覆寫已交付專案的 CI」。本輪沒有這個裁定。
+  - round: 111
+    item: "動 `test_undoing_the_extraction...` 的空參數集"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-09-09: re-open 欄是 `—`。查證後不是缺陷 —— `_EXTRACTED` 唯一那筆的
+      `reconstructible: False` 帶完整理由(R87 站5),空集是誠實的,不是死守衛。

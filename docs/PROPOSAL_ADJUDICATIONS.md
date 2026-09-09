@@ -10635,3 +10635,108 @@ run-all-by-workflow                0                      15
 | 4b 的 could-not-measure 表示法(R99 的 `# noqa: F841`) | 改 `4b_test_spec_pct` 的欄位語意會影響 3 條既有返回路徑與所有 4b 消費者 | 單獨一輪處理 4b 的表示法 |
 | 修 `gate_thresholds.py:174` 引用已不存在的 `_TOOL_OUTPUT_PATTERNS` | 站3 走 R56 那條時順帶發現的過期陳述,與本輪需求無關 —— 告知不改 | 有人要動那段 docstring 時一併 |
 | 改 `MEASUREMENT_SINKS.yaml` / `REGRESSION_GUARDS.yaml` / 舊 flowchart 裡的引用 | 那些是「當時發現了什麼」的歷史記錄,改它是 R44 | — |
+
+---
+
+## Round 111 — 流程斷鍊與品質退化盤點:六站 (2026-09-09)
+
+老闆令:「基於近幾輪的修復工程,完整盤點 harness-methodology 是否仍有流程斷鍊?
+或是軟體品質退化的狀況?並把所有發現問題展開成可執行的修復方案(確認根源,並用正解,
+**任何的問題與解法都要先在既有專案中進行驗證**)」。方案被退回一次
+(「**再次驗證方案是否是正解並且沒有引入其他副作用**」),重驗後核准。
+**再驗證改寫了四站的藥方,其中兩個第一版是錯的建議。**
+
+基準 HEAD `6c37f945`(Round 110 五 commit 已在 `origin/main`,CI 五 job 全綠)。
+語料 21 個專案(`/Users/johnny/projects/*`)全程唯讀 —— 只 `git show` / 讀檔。
+
+盤點用六種機械式探針:`.methodology/` 產物 ↔ 框架 reader、state.json 鍵 ↔ reader、
+所有字串裡的 `harness_cli.py <cmd>` ↔ `build_parser()`、量測函式的輸入欄位 ↔
+生產者實際輸出、21 專案跑 `run_doctor`(唯讀)、跳過/空參數的測試。
+
+**查證後排除(有現象、非缺陷)**:`weight: 0.0` 的維度(`_all_dims_pass` 用個別
+threshold 判定,與 weight 無關)、taskq-renew Gate 4 `failing_dimensions` 卻 PASS
+(同檔有 `da_waiver` 與完整 `devil_advocate_evidence`,R21 機制)、兩支手寫 workflow
+不經 workflowgen(`_HAND_MAINTAINED` 已明列並釘住)、doctor 104 個 ERROR 不擋 advance
+(`_run_doctor_after_advance` docstring 明文寫著三重弱接線與理由,R45)、
+`structural_fr_ids` vs `parse_srs_fr_sections` 兩個 FR 讀法(21 專案只有 2 個不一致,
+差異全是 `FR-NN-deferred` 與散文提及)、`test_undoing_the_extraction_...` 的空參數集
+(`reconstructible: False` 帶完整理由,R87 站5 —— 誠實的空集)。
+
+### §1 站F1 — P1 記下的宣告沒有讀者,而檢查讀的是可以被改寫的那份
+
+`cli/advance_prechecks.py` 從 v2.6.1 起在 P1 出口把 TEST_INVENTORY.yaml 的 sha256
+寫進 `state.json.test_inventory_checksum`。**一個寫者,零個讀者** —— 另兩處出現是
+一支斷言「有寫進去」的測試和兩份 golden 快照。
+
+它要守的是 `spec_coverage` 的 P1 Naming Authority:TEST_INVENTORY.yaml 的每個名字
+都必須出現在 TEST_SPEC.md,否則 `return (1, 0.0)`。那個檢查讀**工作樹當下的檔**,
+所以把宣告縮小就能通過。基線寫下了,比對從未發生(R43)。
+
+語料實測:15/21 的 digest 與今天的檔案不符;taskq-new P1 宣告 100 個名字、今天 50 個
+(用 P1 的宣告重播 → BLOCKED 0.0;用今天的 → pass)。
+
+**藥方被自己的反例否決。** 第一版是「P1 ∪ 現況,縮小即擋」。拿到唯一會變動的那個
+專案上查證:taskq-new 那 50 個「被撤回」的名字裡,
+`test_fr10_ac5_status_mapping_422_401_403_404_409_429_503_500` 在它的 TEST_SPEC.md
+是 **8 個獨立的列**,`..._done_failed_timeout` 拆成 2 個。拆分是正當精修,擋它就是
+R46 誣告,而且只會打在唯一一個精修過宣告的專案身上。→ 記錄不阻擋(R103)。
+
+**觸發條件只有「撤回」,理由是機制不是語料**:今天檔案裡的每個名字都已經被 live
+check 拿去跟 TEST_SPEC.md 比,凍結的副本唯一能多告訴你的就是「哪個名字離開了」。
+實測 11 個專案動過,10 個純新增(P2 推導測試案例、inventory 變長,正常路徑),
+只有 taskq-new 撤回 → 兩個方向都報會在十個沒做錯事的專案上各記一列。
+
+`_precheck_manifest_and_p1_baselines` 因此離開 `_EXTRACTED`(R89/R92 同一條規則)。
+把新程式碼放進一個新的兄弟函式來保住那個 claim,考慮過並否決:P1 baseline 正是這個
+helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在要抓的東西。
+
+### §2 站F2 — 補救指令指向不存在的子命令
+
+`harness_cli.py` 註冊 68 個子命令。掃全樹字串裡命令位置的 `harness_cli.py <token>`
+比對 `build_parser()`:
+
+| token | 真實情況 | 站點 |
+|---|---|---|
+| `resume-fr-step` | **不存在** | 12 處(含 2 個已交付 workflow JS、生成器、5 處生產碼、2 個 golden) |
+| `sync-trace` | **不存在** | `core/quality_gate/block_reason.py` 的 traceability 補救文字 |
+| `stage-pass` | 不存在;同檔 15 行下的 DeprecationWarning 自己寫著 "does not exist" | `stage_pass_generator.py:34` 的 Usage 行 |
+
+每一條都印在「執行已經停下、正在告訴人下一步」的時刻。`resume-fr-step` 那幾處最尖銳:
+其中三處是把 agent 從 infra 失敗或 repeated-failure 中止裡導出去,而那正是沒有多餘
+嘗試次數可以拿來發現「這個指令不存在」的時候。
+
+**第一版的兩條替換指令都是錯的建議,查證後改正**:
+
+- `resume-fr-phase` **存在**,但讀 `cli/fr_cmds.py::cmd_resume_fr_phase` 之後發現它
+  只是**印出**呼叫端本來就該直接給的 `run-fr-step` 指令。正解是
+  `run-fr-step --phase N --fr-id X --step S --project P`,而五個生產站點的 `step`
+  全都在 scope 裡(每一處都已經在同一句訊息裡內插 `{step}`)。
+- `sync-trace` 不是換一個指令。SKILL.md:402 明文:`advance-phase` 會從 live scan
+  重繪 TRACEABILITY_MATRIX.md,**手改沒有用**,要補的手工列放在
+  `TRACEABILITY_MATRIX.overlay.yaml`。所以「Regenerate the matrix with …」整句
+  都是錯的建議,改的是那段文字。
+
+**四支測試 assert 錯的名字**(R64:守衛替缺陷背書),一併改成正確名字;
+`.mjs` 那支順帶把斷言收緊成 `run-fr-step --phase 3 --fr-id`,不只是指令名。
+
+守衛的規則排除 `docs/superpowers/plans/` —— 那是歸檔的歷史計畫,改它是 R44。
+反證:拿掉排除,2026-05-05 那份計畫立刻多出 4 個誤判(`run-pipeline` ×3、
+`prepare-gate` ×1 —— 提過但從未實作的指令)。
+
+### §9 明列不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| 讓 advance-phase 因 doctor ERROR 而中止 | R45 明文的三重弱接線設計;語料 4 個專案會當場被擋 | doctor ERROR 在全語料一次掃描的誤判率量到 0,且老闆裁定舊紀錄可以擋 |
+| 停止寫 `crg_baseline_p3/p6.json` | 那兩次 snapshot 會跑 `should_write_baseline`,低於樓地板時留下 R37 的拒絕紀錄(omnibot p3=22.2、taskq-renew p6=77.8 實測會觸發);停寫是少一個證人 | R37 的拒絕紀錄改由別的機制產生 |
+| 把 `BASELINE_COMPARISONS` 擴成 `{6:4, 4:3}` | 那是新增一個會擋人的比較,不是接回斷鍊 | 站F3 落地後,語料上量到 P3→P4 的正規化 drift 至少在一個專案有意義地非零 |
+| 調整 `drift_threshold`(0.4) | 挑一個剛好讓 taskq-renew 紅的數字就是 R87 | 有 ≥2 個「已知架構退化」樣本可以校準正規化後的讀數 |
+| 讓 `crg_metrics.json` 補出 flow/dead_code/hub | 那是新增量測,不是接回斷鍊;independent CRG 路徑根本沒算它們 | 有消費者需要 cohesion 以外的成分 |
+| 把 dispatch/halt/wrapper 那些 conventions 也套到兩支手寫 workflow | 那些是生成管線的合約(每個 dispatch 走 wrapper、每個 halt 走 helper),獨立工具沒有那個管線 | 手寫 workflow 開始 dispatch agent |
+| 補回 `phase_completed` 的洞(omnibot/tts-new/taskq/run-all-by-workflow 全缺,taskq-super 缺 P5) | doctor 自己的 WARN 就寫著 "cannot be reconstructed after the fact";語料唯讀 | 出現一個當下掉紀錄的專案(那是 writer 的 bug) |
+| `plan_status.md` 無框架 reader | 寫給人看的(`cli/phase_cmds.py:239` 印路徑) | 出現框架消費者,或老闆說從不看它 |
+| 清掉舊專案殘留的 state 鍵(`last_milestone_at` / `last_push_checkpoint*` / `pipeline_complete`) | writer 早在 R24/R45 移除;殘留在唯讀的專案樹裡 | — |
+| `tts-new` 的 FSM state `COMPLETE` | 現行程式碼無任何寫者,2026-06-08 遺留;專案唯讀 | — |
+| 合併 `structural_fr_ids` 與 `parse_srs_fr_sections` | 實測 21 專案只差 `-deferred` 與散文;兩者各自對自己的問題正確 | 出現第三個 FR 讀法,或某次不一致改變了判定 |
+| ci-template 漂移自動執行 `init-project --ci-only --overwrite` | 覆寫專案的 CI 檔是專案端決定 | 老闆裁定框架可以覆寫已交付專案的 CI |
+| 動 `test_undoing_the_extraction...` 的空參數集 | 查證後不是缺陷 | — |

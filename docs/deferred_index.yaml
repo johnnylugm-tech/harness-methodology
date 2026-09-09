@@ -1917,3 +1917,81 @@ entries:
     item: "改 `MEASUREMENT_SINKS.yaml` / `REGRESSION_GUARDS.yaml` / 舊 flowchart 裡的引用"
     reason: "那些是「當時發現了什麼」的歷史記錄,改它是 R44"
     reopen: "—"
+  - round: 111
+    line: 10730
+    kind: table_row
+    item: "讓 advance-phase 因 doctor ERROR 而中止"
+    reason: "R45 明文的三重弱接線設計;語料 4 個專案會當場被擋"
+    reopen: "doctor ERROR 在全語料一次掃描的誤判率量到 0,且老闆裁定舊紀錄可以擋"
+  - round: 111
+    line: 10731
+    kind: table_row
+    item: "停止寫 `crg_baseline_p3/p6.json`"
+    reason: "那兩次 snapshot 會跑 `should_write_baseline`,低於樓地板時留下 R37 的拒絕紀錄(omnibot p3=22.2、taskq-renew p6=77.8 實測會觸發);停寫是少一個證人"
+    reopen: "R37 的拒絕紀錄改由別的機制產生"
+  - round: 111
+    line: 10732
+    kind: table_row
+    item: "把 `BASELINE_COMPARISONS` 擴成 `{6:4, 4:3}`"
+    reason: "那是新增一個會擋人的比較,不是接回斷鍊"
+    reopen: "站F3 落地後,語料上量到 P3→P4 的正規化 drift 至少在一個專案有意義地非零"
+  - round: 111
+    line: 10733
+    kind: table_row
+    item: "調整 `drift_threshold`(0.4)"
+    reason: "挑一個剛好讓 taskq-renew 紅的數字就是 R87"
+    reopen: "有 ≥2 個「已知架構退化」樣本可以校準正規化後的讀數"
+  - round: 111
+    line: 10734
+    kind: table_row
+    item: "讓 `crg_metrics.json` 補出 flow/dead_code/hub"
+    reason: "那是新增量測,不是接回斷鍊;independent CRG 路徑根本沒算它們"
+    reopen: "有消費者需要 cohesion 以外的成分"
+  - round: 111
+    line: 10735
+    kind: table_row
+    item: "把 dispatch/halt/wrapper 那些 conventions 也套到兩支手寫 workflow"
+    reason: "那些是生成管線的合約(每個 dispatch 走 wrapper、每個 halt 走 helper),獨立工具沒有那個管線"
+    reopen: "手寫 workflow 開始 dispatch agent"
+  - round: 111
+    line: 10736
+    kind: table_row
+    item: "補回 `phase_completed` 的洞(omnibot/tts-new/taskq/run-all-by-workflow 全缺,taskq-super 缺 P5)"
+    reason: "doctor 自己的 WARN 就寫著 \"cannot be reconstructed after the fact\";語料唯讀"
+    reopen: "出現一個當下掉紀錄的專案(那是 writer 的 bug)"
+  - round: 111
+    line: 10737
+    kind: table_row
+    item: "`plan_status.md` 無框架 reader"
+    reason: "寫給人看的(`cli/phase_cmds.py:239` 印路徑)"
+    reopen: "出現框架消費者,或老闆說從不看它"
+  - round: 111
+    line: 10738
+    kind: table_row
+    item: "清掉舊專案殘留的 state 鍵(`last_milestone_at` / `last_push_checkpoint*` / `pipeline_complete`)"
+    reason: "writer 早在 R24/R45 移除;殘留在唯讀的專案樹裡"
+    reopen: "—"
+  - round: 111
+    line: 10739
+    kind: table_row
+    item: "`tts-new` 的 FSM state `COMPLETE`"
+    reason: "現行程式碼無任何寫者,2026-06-08 遺留;專案唯讀"
+    reopen: "—"
+  - round: 111
+    line: 10740
+    kind: table_row
+    item: "合併 `structural_fr_ids` 與 `parse_srs_fr_sections`"
+    reason: "實測 21 專案只差 `-deferred` 與散文;兩者各自對自己的問題正確"
+    reopen: "出現第三個 FR 讀法,或某次不一致改變了判定"
+  - round: 111
+    line: 10741
+    kind: table_row
+    item: "ci-template 漂移自動執行 `init-project --ci-only --overwrite`"
+    reason: "覆寫專案的 CI 檔是專案端決定"
+    reopen: "老闆裁定框架可以覆寫已交付專案的 CI"
+  - round: 111
+    line: 10742
+    kind: table_row
+    item: "動 `test_undoing_the_extraction...` 的空參數集"
+    reason: "查證後不是缺陷"
+    reopen: "—"
