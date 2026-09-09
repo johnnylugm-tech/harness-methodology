@@ -5871,3 +5871,19 @@
 - test: tests/test_generate_full_plan.py::TestParseSrsFrSectionsMergesJson::test_table_fallback_preserves_contract_fields
   bug: "parse_srs_fr_sections table fallback dropped implementation_modules, acceptance_criteria, and verification_method keys, creating dict shape divergence across corpus SRS formats. Fixed by populating all three while preserving original table cell prose descriptions (preventing narrower JSON descriptions from overwriting rich markdown requirements)"
   fixed_in: "Round 112"
+
+- test: tests/test_p2_decision_issue_gate.py::test_deferred_requirement_cannot_disappear_between_p1_and_p3
+  bug: "A deferred SRS requirement could disappear before implementation because Phase 2 did not require a machine-readable decision-issue lifecycle entry. Deferred FR/NFR identifiers must remain traceable in the SAB until they are durably resolved."
+  fixed_in: "91fd4ba9"
+
+- test: tests/test_p2_decision_issue_gate.py::test_open_issue_blocks_at_declared_boundary_but_not_before
+  bug: "Open architecture issues were either never blocking or would have to block every phase indiscriminately. The gate must honor each issue's declared blocking phase so later obligations do not destroy phase commonality while due decisions cannot leak forward."
+  fixed_in: "91fd4ba9"
+
+- test: tests/test_p2_decision_issue_gate.py::test_resolved_issue_requires_durable_evidence
+  bug: "An issue could be marked resolved as a paper-only assertion without a real ADR or canonical artifact. Resolution must reference durable evidence that exists on disk."
+  fixed_in: "91fd4ba9"
+
+- test: tests/test_p2_decision_issue_gate.py::test_required_artifact_deadline_prevents_early_or_late_enforcement
+  bug: "Required artifacts had no enforceable delivery deadline: checking all of them at P2 demanded later-phase outputs, while checking none allowed due P2 artifacts to leak. Typed required_by_phase entries must be enforced only when due while legacy strings retain gate-time semantics."
+  fixed_in: "91fd4ba9"
