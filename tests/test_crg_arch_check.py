@@ -12,6 +12,16 @@ import harness_cli
 from harness.crg_independent import CrgIndependentError
 
 
+def _measured(drift: float) -> dict:
+    """What structural_drift returns when only cohesion is present.
+
+    Round 111 站F3: the three other components are absent from every
+    crg_metrics.json this tree produces and used to be read as unchanged.
+    """
+    return {"drift": drift, "weight_covered": 0.4, "weight_total": 1.0,
+            "absent": ["flow_coverage", "dead_code", "hub_risk_map"]}
+
+
 def _args(**kw):
     base = {"project": ".", "threshold": 80.0, "baseline": None, "drift_threshold": 0.4}
     base.update(kw)
@@ -45,8 +55,8 @@ class TestCrgArchCheck:
         baseline.write_text(json.dumps({"architecture_score": 100}), encoding="utf-8")
         with patch("harness.crg_independent.run_independent_crg",
                    return_value={"architecture_score": 90.0}), \
-             patch("harness.ssi.scripts.crg_analysis.compute_structural_drift",
-                   return_value=0.8):
+             patch("harness.ssi.scripts.crg_analysis.structural_drift",
+                   return_value=_measured(0.8)):
             rc = harness_cli.cmd_crg_arch_check(
                 _args(project=str(tmp_path), baseline=str(baseline))
             )
@@ -57,8 +67,8 @@ class TestCrgArchCheck:
         baseline.write_text(json.dumps({"architecture_score": 100}), encoding="utf-8")
         with patch("harness.crg_independent.run_independent_crg",
                    return_value={"architecture_score": 100.0}), \
-             patch("harness.ssi.scripts.crg_analysis.compute_structural_drift",
-                   return_value=0.1):
+             patch("harness.ssi.scripts.crg_analysis.structural_drift",
+                   return_value=_measured(0.1)):
             rc = harness_cli.cmd_crg_arch_check(
                 _args(project=str(tmp_path), baseline=str(baseline))
             )

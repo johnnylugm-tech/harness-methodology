@@ -305,7 +305,13 @@ _CEILINGS: dict[str, int] = {
     "cli/gate_cmds.py::_check_gate4_prerequisites": 232,
     "cli/phase_cmds.py::_verify_entry_gate": 230,
     "cli/project_cmds.py::cmd_audit_structure": 216,
-    "harness/harness_bridge.py::HarnessBridge.prepare_gate": 215,
+    # 221 at Round 111 站F3, from 215: the cross-phase drift block stopped
+    # reading three absent components as unchanged ones. Six of the lines are
+    # the dict `structural_drift` now returns (drift, weight_covered,
+    # weight_total, absent) reaching `_cross_phase_drift` and the regression
+    # banner; the rest is the `drift is None` branch — two snapshots sharing no
+    # component is not a comparison that found no movement (Round 35).
+    "harness/harness_bridge.py::HarnessBridge.prepare_gate": 221,
     "harness/gate_checks.py::_check_tool_evidence": 206,
     "harness/ssi/scripts/crg_analysis.py::compute_community_cohesion_score": 206,
     "scripts/plangen/blocks.py::_gate_exit_checkpoint": 204,

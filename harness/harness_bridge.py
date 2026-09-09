@@ -392,11 +392,16 @@ def _architecture_regression_reason(
     """Return a hard-block reason if architecture regressed vs the prior baseline.
 
     At Gate 4 (P6 exit) the current CRG metrics are compared against
-    crg_baseline_p4.json via compute_structural_drift; drift ≥
+    crg_baseline_p4.json via structural_drift; drift ≥
     config.crg.drift_threshold (default 0.4) is a hard regression even when the
     absolute architecture score still clears its threshold. Returns None when not
-    applicable (other gates, missing baseline, or within threshold). Mirrors the
-    CI crg-arch-check drift gate so local and CI agree.
+    applicable (other gates, missing baseline, no shared component to compare,
+    or within threshold). Mirrors the CI crg-arch-check drift gate so local and
+    CI agree.
+
+    The reason names `weight_covered/weight_total` because a block on 0.22
+    means something different when 40% of the weight was measurable than when
+    all of it was, and the number alone cannot say which (Round 111 站F3).
     """
     if gate_num != 4:
         return None
@@ -407,15 +412,23 @@ def _architecture_regression_reason(
                else getattr(config, "crg", {})) or {}
     dthr = float(crg_cfg.get("drift_threshold", 0.4))
     try:
-        from harness.ssi.scripts.crg_analysis import compute_structural_drift
+        from harness.ssi.scripts.crg_analysis import structural_drift
         bl = json.loads(bl_path.read_text(encoding="utf-8"))
-        drift = compute_structural_drift(bl, crg_metrics)
+        measured = structural_drift(bl, crg_metrics)
     except Exception as exc:
         print(f"[WARN] structural-drift check failed, skipping: {exc}")
         return None
+    drift = measured["drift"]
+    if drift is None:
+        print("[WARN] structural-drift check skipped: the baseline and the "
+              "current metrics share no component to compare "
+              f"(absent: {', '.join(measured['absent'])})")
+        return None
     if drift >= dthr:
         return (f"structural drift {drift:.2f} ≥ {dthr:.2f} vs P4 baseline "
-                f"({bl.get('_baseline_sha', '?')[:8]})")
+                f"({bl.get('_baseline_sha', '?')[:8]}), measured over "
+                f"{measured['weight_covered']:.1f} of "
+                f"{measured['weight_total']:.1f} weight")
     return None
 
 
@@ -1856,16 +1869,20 @@ class HarnessBridge(_FinalizeStages):
                     )
                     if _current_metrics_path.is_file():
                         _current = _json.loads(_current_metrics_path.read_text(encoding="utf-8"))
-                        from harness.ssi.scripts.crg_analysis import compute_structural_drift
-                        _drift = compute_structural_drift(_baseline, _current)
+                        from harness.ssi.scripts.crg_analysis import structural_drift
+                        _measured = structural_drift(_baseline, _current)
+                        _drift = _measured["drift"]
                         _drift_threshold = config.crg.get("drift_threshold", 0.4)
-                        _regressed = _drift >= _drift_threshold
+                        _regressed = _drift is not None and _drift >= _drift_threshold
                         _cross_phase_drift = {
                             "drift": _drift,
                             "baseline_phase": _prev_phase,
                             "baseline_sha": _baseline.get("_baseline_sha", "unknown"),
                             "drift_threshold": _drift_threshold,
                             "regression": _regressed,
+                            "weight_covered": _measured["weight_covered"],
+                            "weight_total": _measured["weight_total"],
+                            "absent_components": _measured["absent"],
                         }
                         if _regressed:
                             # Soft block: surface the regression loudly (was silently
@@ -1874,7 +1891,9 @@ class HarnessBridge(_FinalizeStages):
                                 f"[CRG] ⚠ architecture regression vs P{_prev_phase} "
                                 f"baseline: drift={_drift:.2f} ≥ threshold "
                                 f"{_drift_threshold:.2f} "
-                                f"(baseline_sha={_baseline.get('_baseline_sha', '?')[:8]})",
+                                f"(baseline_sha={_baseline.get('_baseline_sha', '?')[:8]}, "
+                                f"measured over {_measured['weight_covered']:.1f} of "
+                                f"{_measured['weight_total']:.1f} weight)",
                                 flush=True,
                             )
                 except Exception as _xp_exc:

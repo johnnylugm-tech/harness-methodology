@@ -5819,3 +5819,23 @@
 - test: tests/test_cli_command_names_exist.py::test_the_scan_can_still_see_a_command_name
   bug: "reverse control: a rule narrowed until it matches nothing looks exactly like a tree with no wrong names in it. The first version of the scan (token followed by `\\b`) reported 30-odd prose false positives — 'harness_cli.py does not …', 'harness_cli.py remains …' — and the qualifier that fixes it (hyphen in the token, or a following `--[a-z]`) is one narrowing away from matching nothing"
   fixed_in: "Round 111"
+
+- test: tests/test_structural_drift_denominator.py::test_absent_drift_components_are_not_read_as_no_change
+  bug: "compute_structural_drift weighted four components (cohesion 0.4, flow_coverage 0.3, dead_code 0.2, hub_risk 0.1) and was written against compute_metrics' own snapshot, which supplies all four. The two GATE consumers read .sessi-work/crg_metrics.json from harness/crg_independent.py, a producer that emits community_cohesion, large_functions_* and architecture_score and nothing else. Scanned all 39 baseline/metrics files in the corpus: flow_coverage, dead_code and hub_risk_map appear zero times, and `default=100` / `.get('ratio', 0)` read all three absences as 'identical to the baseline' — 60% of the weight permanently zero, drift confined to [0, 0.4] against a 0.4 threshold, reachable only by cohesion falling from 100 to 0 (Round 35). Blood: harness_bridge._architecture_regression_reason turns it into a Gate 4 hard block and cli/checks/gates.py into a CI hard FAIL. Measured over the 13 corpus projects holding both baselines: taskq-renew's 100.0 → 77.8 read as 0.0888 and is 0.2220 here, and no project crosses 0.4 either way"
+  fixed_in: "Round 111"
+
+- test: tests/test_structural_drift_denominator.py::test_a_snapshot_carrying_all_four_is_unchanged
+  bug: "control: without it a fix that scales every reading up — including compute_metrics' own path, whose denominator was never wrong — is indistinguishable from one that only removes absent components from the denominator"
+  fixed_in: "Round 111"
+
+- test: tests/test_structural_drift_denominator.py::test_nothing_measurable_is_not_zero_drift
+  bug: "two snapshots sharing no component at all is not a comparison that found no movement. Returning 0.0 there is the same Round 35 error one level up, and both gate consumers now say 'not measurable' rather than passing a zero"
+  fixed_in: "Round 111"
+
+- test: tests/test_structural_drift_denominator.py::test_no_caller_uses_the_float_only_drift
+  bug: "the four call sites are patched by six mocks across two test files. A caller left pointing at the old float-only function would keep returning the diluted number while every mock and every other guard here passed — which is how the old function stayed correct-looking for as long as it did. Counter-proved by aliasing one import back: the guard names cli/checks/gates.py"
+  fixed_in: "Round 111"
+
+- test: tests/test_structural_drift_denominator.py::test_both_gates_print_the_weight_they_covered
+  bug: "a hard block on 0.22 means something different when 40% of the weight was measurable than when all of it was, and the number alone cannot say which. The shape is harness/gate_result.py's existing weight_covered, not a new invention"
+  fixed_in: "Round 111"

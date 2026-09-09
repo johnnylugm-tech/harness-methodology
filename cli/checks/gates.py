@@ -172,14 +172,26 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
         bp = Path(baseline)
         if bp.is_file():
             try:
-                from harness.ssi.scripts.crg_analysis import compute_structural_drift
+                from harness.ssi.scripts.crg_analysis import structural_drift
                 _bl = json.loads(bp.read_text(encoding="utf-8"))
-                drift = compute_structural_drift(_bl, metrics)
+                _measured = structural_drift(_bl, metrics)
+                drift = _measured["drift"]
                 dthr = getattr(args, "drift_threshold", 0.4)
-                print(f"[crg-arch-check] drift vs {bp.name}: {drift:.2f} (threshold {dthr:.2f})")
-                if drift >= dthr:
-                    print(f"[crg-arch-check] FAIL: architecture regression drift {drift:.2f} >= {dthr:.2f}")
-                    return 1
+                if drift is None:
+                    print(f"[crg-arch-check] drift vs {bp.name}: not measurable — "
+                          f"the two share no component "
+                          f"(absent: {', '.join(_measured['absent'])})")
+                else:
+                    # Round 111 站F3: the weight is printed beside the number
+                    # because a FAIL at 0.22 means something different when 40%
+                    # of the weight was measurable than when all of it was.
+                    print(f"[crg-arch-check] drift vs {bp.name}: {drift:.2f} "
+                          f"(threshold {dthr:.2f}, measured over "
+                          f"{_measured['weight_covered']:.1f} of "
+                          f"{_measured['weight_total']:.1f} weight)")
+                    if drift >= dthr:
+                        print(f"[crg-arch-check] FAIL: architecture regression drift {drift:.2f} >= {dthr:.2f}")
+                        return 1
             except Exception as exc:
                 print(f"[crg-arch-check] WARN: drift check skipped — {exc}")
         else:

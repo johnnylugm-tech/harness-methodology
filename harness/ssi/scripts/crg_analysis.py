@@ -518,7 +518,7 @@ def compute_metrics(recon: dict, prev_metrics: Optional[dict] = None) -> dict:
         "hub_risk_map": hub_result,
     }
     drift = (
-        compute_structural_drift(prev_metrics, current_snapshot)
+        structural_drift(prev_metrics, current_snapshot)["drift"]
         if prev_metrics is not None
         else 0.0
     )
@@ -550,56 +550,88 @@ def compute_metrics(recon: dict, prev_metrics: Optional[dict] = None) -> dict:
 # ============== Cross-Phase Structural Drift ==============
 
 
-def compute_structural_drift(
-    baseline: dict, current: dict,
-) -> float:
-    """
-    Compute weighted structural drift between a baseline and current metrics.
+#: What structural drift is made of, and how much each part is worth.
+#: Weights reflect the relative impact of each dimension on overall
+#: architecture quality: cohesion > flow coverage > dead code > hub risk.
+_DRIFT_WEIGHTS = {
+    "community_cohesion": 0.4,
+    "flow_coverage": 0.3,
+    "dead_code": 0.2,
+    "hub_risk_map": 0.1,
+}
 
-    Weights reflect the relative impact of each dimension on overall architecture
-    quality: cohesion (0.4) > flow coverage (0.3) > dead code (0.2) > hub risk (0.1).
 
-    Returns a float 0.0–1.0 where:
+def _cohesion_delta(bl: dict, cur: dict) -> float:
+    return abs(float(bl.get("score", 0)) - float(cur.get("score", 0))) / 100.0
+
+
+def _ratio_delta(bl: dict, cur: dict) -> float:
+    # dead_code.ratio is already 0.0–1.0 (count / total_nodes from
+    # compute_dead_code_ratio), so no /100 normalisation is needed.
+    return abs(float(bl.get("ratio", 0)) - float(cur.get("ratio", 0)))
+
+
+def _hub_delta(bl: dict, cur: dict) -> float:
+    def _share(d: dict) -> float:
+        return int(d.get("critical_count", 0)) / max(int(d.get("total_hubs", 1)) or 1, 1)
+    return abs(_share(bl) - _share(cur))
+
+
+_DRIFT_DELTAS = {
+    "community_cohesion": _cohesion_delta,
+    "flow_coverage": _cohesion_delta,
+    "dead_code": _ratio_delta,
+    "hub_risk_map": _hub_delta,
+}
+
+
+def structural_drift(baseline: dict, current: dict) -> dict:
+    """Weighted structural drift over the components both sides actually carry.
+
+    Returns `{"drift", "weight_covered", "weight_total", "absent"}`. `drift` is
+    0.0–1.0, renormalised over `weight_covered`, and is None when the two
+    snapshots share no component at all — nothing was compared, and 0.0 would
+    say the architecture did not move (Round 35).
+
       - 0.0 = no structural change
       - 0.3 = moderate drift (WARNING threshold)
       - 0.5 = significant drift (CRITICAL threshold)
+
+    Round 111 站F3. The previous version returned the float alone and read a
+    missing component as an unchanged one — `default=100` for the two score
+    dicts, `.get("ratio", 0)` for dead code, `critical_count`/`total_hubs`
+    defaults for hubs. That is correct for `compute_metrics`' own snapshot,
+    which builds all four. It is wrong for the two GATE consumers, which read
+    `.sessi-work/crg_metrics.json` from `harness/crg_independent.py` — a
+    producer that emits `community_cohesion`, `large_functions_*` and
+    `architecture_score` and nothing else. Scanned all 39 baseline/metrics
+    files in the corpus: `flow_coverage`, `dead_code` and `hub_risk_map`
+    appear zero times, so 60% of the weight was permanently zero and drift
+    lived in [0, 0.4] against a 0.4 threshold — reachable only by cohesion
+    falling from 100 to 0.
+
+    Measured over the 13 corpus projects holding both a p4 and a p6 baseline:
+    the largest movement, taskq-renew's cohesion 100.0 → 77.8, read as 0.0888
+    and is 0.2220 here. No project crosses 0.4 either way.
     """
-    def _score(d: dict) -> float:
-        return float((d or {}).get("score", 100)) / 100.0
+    absent: list[str] = []
+    covered = 0.0
+    weighted = 0.0
+    for name, weight in _DRIFT_WEIGHTS.items():
+        bl, cur = baseline.get(name), current.get(name)
+        if not isinstance(bl, dict) or not isinstance(cur, dict):
+            absent.append(name)
+            continue
+        covered += weight
+        weighted += weight * _DRIFT_DELTAS[name](bl, cur)
 
-    bl_cohesion = _score(baseline.get("community_cohesion", {}))
-    cur_cohesion = _score(current.get("community_cohesion", {}))
-    cohesion_delta = abs(bl_cohesion - cur_cohesion)
-
-    bl_flow = _score(baseline.get("flow_coverage", {}))
-    cur_flow = _score(current.get("flow_coverage", {}))
-    flow_delta = abs(bl_flow - cur_flow)
-
-    # dead_code.ratio is already 0.0–1.0 (count / total_nodes from
-    # compute_dead_code_ratio), so no /100 normalisation is needed.
-    bl_dead = baseline.get("dead_code", {}) or {}
-    cur_dead = current.get("dead_code", {}) or {}
-    bl_dead_ratio = float(bl_dead.get("ratio", 0))
-    cur_dead_ratio = float(cur_dead.get("ratio", 0))
-    dead_delta = abs(bl_dead_ratio - cur_dead_ratio)
-
-    bl_hubs = baseline.get("hub_risk_map", {}) or {}
-    cur_hubs = current.get("hub_risk_map", {}) or {}
-    bl_crit = int(bl_hubs.get("critical_count", 0))
-    cur_crit = int(cur_hubs.get("critical_count", 0))
-    bl_total = int(bl_hubs.get("total_hubs", 1)) or 1
-    cur_total = int(cur_hubs.get("total_hubs", 1)) or 1
-    hub_delta = abs(
-        (bl_crit / max(bl_total, 1)) - (cur_crit / max(cur_total, 1))
-    )
-
-    drift = (
-        0.4 * cohesion_delta
-        + 0.3 * flow_delta
-        + 0.2 * dead_delta
-        + 0.1 * hub_delta
-    )
-    return round(min(drift, 1.0), 4)
+    total = sum(_DRIFT_WEIGHTS.values())
+    return {
+        "drift": round(min(weighted / covered, 1.0), 4) if covered else None,
+        "weight_covered": round(covered, 4),
+        "weight_total": total,
+        "absent": absent,
+    }
 
 
 # =============== Issue Seeding ===============

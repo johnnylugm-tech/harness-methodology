@@ -1786,211 +1786,211 @@ entries:
     reason: "刻意的邊界:`example` 是可判定的,散文不是"
     reopen: "出現第二個可判定的形狀"
   - round: 109
-    line: 10320
+    line: 10362
     kind: table_row
     item: "擴大 fork 掃描面到 `*.md`/`*.js`/`*.yaml`"
     reason: "實跑 26 命中 **24 是生成表面**,已被 `generate_workflows.py --check` 與 golden 釘死;造這支掃描器就是 R46 誣告"
     reopen: "出現第二個手寫的宣告表面"
   - round: 109
-    line: 10321
+    line: 10363
     kind: table_row
     item: "HR-14 真的寫 `FREEZE` 進 `state.json`"
     reason: "會停掉專案下一次執行,是行為變更不是接生產者"
     reopen: "老闆裁定 FREEZE 的寫入權責"
   - round: 109
-    line: 10322
+    line: 10364
     kind: table_row
     item: "修 `CLASSIFICATION_TABLE` 讓 auto_fix 鏈活起來"
     reason: "R49-C 刻意收緊過(prefix fallback 造成誤分類)"
     reopen: "auto_fix 需要真正自動修復時"
   - round: 109
-    line: 10323
+    line: 10365
     kind: table_row
     item: "`integrity` 改成多值刻度"
     reason: "每 issue 扣 10 分是我發明的刻度,框架算不出這個數"
     reopen: "有框架自己算得出的多值 integrity"
   - round: 109
-    line: 10324
+    line: 10366
     kind: table_row
     item: "刪 `AutoQualityGate`(零生產呼叫者)"
     reason: "無關 dead code,CLAUDE.md:告知不刪"
     reopen: "老闆裁定"
   - round: 109
-    line: 10325
+    line: 10367
     kind: table_row
     item: "重構 `preflight_manifest_integrity` 的 return 結構"
     reason: "失控重構的起點;站5 只把兩個 banner print 移到 preflight 包裝層"
     reopen: "該函式進入拆分清單"
   - round: 109
-    line: 10326
+    line: 10368
     kind: table_row
     item: "站7 的 91 條全部實作"
     reason: "「走完」是給判定;塞進本輪是 R22 母體"
     reopen: "逐條由老闆決定,MET 的 10 條是候選"
   - round: 109
-    line: 10327
+    line: 10369
     kind: table_row
     item: "把 `min_coverage_floor` 的畸形值也改成 `None`"
     reason: "缺席與畸形是兩件事;語料零實例,改它是沒有量測撐著的決定"
     reopen: "出現第一個畸形宣告"
   - round: 109
-    line: 10328
+    line: 10370
     kind: table_row
     item: "讓框架讀 `latency_p95_ms`(§7 那條 MET)"
     reason: "一個專案、第三種拼法;先要決定哪個拼法是 SSOT"
     reopen: "老闆排程,或第二個專案宣告 p95"
   - round: 109
-    line: 10329
+    line: 10371
     kind: table_row
     item: "中文分詞 / 收緊 canonical 切分器"
     reason: "R108 站B 已兩次實測否決(13/15 專案下墜)"
     reopen: "有能驗證新分數為真的東西"
   - round: 110
-    line: 10626
+    line: 10668
     kind: table_row
     item: "讓 FSM 真的寫 `FREEZE` / `PAUSED`"
     reason: "會停掉專案的下一次執行,是行為變更不是文字修正"
     reopen: "老闆裁定 FSM 狀態的寫入權責"
   - round: 110
-    line: 10627
+    line: 10669
     kind: table_row
     item: "用 `srs_acceptance_criteria` 對調 `_split_ac_clauses`"
     reason: "兩個解析器在兩個方向都差很多,`run-all-by-workflow` 上是 15 → 0 的純損失"
     reopen: "有人決定哪一份才是 AC 的定義"
   - round: 110
-    line: 10628
+    line: 10670
     kind: table_row
     item: "P2 檢查改讀 `quality_manifest.json`"
     reason: "檢查對象必須是交付物;manifest 是框架自己生成的衍生檔,框架的值在裡面是必然"
     reopen: "出現一個讀交付物讀不到、只有 manifest 看得到的殘留範例值"
   - round: 110
-    line: 10629
+    line: 10671
     kind: table_row
     item: "統一 p95 拼法的 SSOT"
     reason: "樣本量 1,用一個專案決定拼法是 R87"
     reopen: "第二個專案宣告 p95,或老闆裁定拼法"
   - round: 110
-    line: 10630
+    line: 10672
     kind: table_row
     item: "讓 extractor 從 bullet 散文抽 `reopen`"
     reason: "R55 形狀;extractor 的 docstring 明文不做分類"
     reopen: "賬本改為結構化寫入"
   - round: 110
-    line: 10631
+    line: 10673
     kind: table_row
     item: "給站2 那四處假陳述造一支「陳述 vs 寫者」掃描器"
     reason: "要對自然語言判真假,是 R46 誣告器的形狀;站2 的守衛零誤判靠的是 `STATE_PRODUCERS` 這張現成的機讀表"
     reopen: "出現第二批同形的假陳述"
   - round: 110
-    line: 10632
+    line: 10674
     kind: table_row
     item: "omnibot-new 的 milestone 拆分"
     reason: "專案端的範圍決定,且該專案唯讀"
     reopen: "老闆在 omnibot 端決定"
   - round: 110
-    line: 10633
+    line: 10675
     kind: table_row
     item: "給 MET 判定加「是否仍應做」欄位"
     reason: "加欄位是第二份宣告而沒有執行者(R30)"
     reopen: "出現第三條「MET 但不該做」而 `note` 沒攔住"
   - round: 110
-    line: 10634
+    line: 10676
     kind: table_row
     item: "改 `corpus_verdict_baseline` 隨語料變動的機制"
     reason: "R88 刻意建成這樣;換掉它是換一個機制,不是修一個缺陷"
     reopen: "老闆裁定,或語料根目錄不再是本機路徑"
   - round: 110
-    line: 10635
+    line: 10677
     kind: table_row
     item: "4b 的 could-not-measure 表示法(R99 的 `# noqa: F841`)"
     reason: "改 `4b_test_spec_pct` 的欄位語意會影響 3 條既有返回路徑與所有 4b 消費者"
     reopen: "單獨一輪處理 4b 的表示法"
   - round: 110
-    line: 10636
+    line: 10678
     kind: table_row
     item: "修 `gate_thresholds.py:174` 引用已不存在的 `_TOOL_OUTPUT_PATTERNS`"
     reason: "站3 走 R56 那條時順帶發現的過期陳述,與本輪需求無關 —— 告知不改"
     reopen: "有人要動那段 docstring 時一併"
   - round: 110
-    line: 10637
+    line: 10679
     kind: table_row
     item: "改 `MEASUREMENT_SINKS.yaml` / `REGRESSION_GUARDS.yaml` / 舊 flowchart 裡的引用"
     reason: "那些是「當時發現了什麼」的歷史記錄,改它是 R44"
     reopen: "—"
   - round: 111
-    line: 10730
+    line: 10772
     kind: table_row
     item: "讓 advance-phase 因 doctor ERROR 而中止"
     reason: "R45 明文的三重弱接線設計;語料 4 個專案會當場被擋"
     reopen: "doctor ERROR 在全語料一次掃描的誤判率量到 0,且老闆裁定舊紀錄可以擋"
   - round: 111
-    line: 10731
+    line: 10773
     kind: table_row
     item: "停止寫 `crg_baseline_p3/p6.json`"
     reason: "那兩次 snapshot 會跑 `should_write_baseline`,低於樓地板時留下 R37 的拒絕紀錄(omnibot p3=22.2、taskq-renew p6=77.8 實測會觸發);停寫是少一個證人"
     reopen: "R37 的拒絕紀錄改由別的機制產生"
   - round: 111
-    line: 10732
+    line: 10774
     kind: table_row
     item: "把 `BASELINE_COMPARISONS` 擴成 `{6:4, 4:3}`"
     reason: "那是新增一個會擋人的比較,不是接回斷鍊"
     reopen: "站F3 落地後,語料上量到 P3→P4 的正規化 drift 至少在一個專案有意義地非零"
   - round: 111
-    line: 10733
+    line: 10775
     kind: table_row
     item: "調整 `drift_threshold`(0.4)"
     reason: "挑一個剛好讓 taskq-renew 紅的數字就是 R87"
     reopen: "有 ≥2 個「已知架構退化」樣本可以校準正規化後的讀數"
   - round: 111
-    line: 10734
+    line: 10776
     kind: table_row
     item: "讓 `crg_metrics.json` 補出 flow/dead_code/hub"
     reason: "那是新增量測,不是接回斷鍊;independent CRG 路徑根本沒算它們"
     reopen: "有消費者需要 cohesion 以外的成分"
   - round: 111
-    line: 10735
+    line: 10777
     kind: table_row
     item: "把 dispatch/halt/wrapper 那些 conventions 也套到兩支手寫 workflow"
     reason: "那些是生成管線的合約(每個 dispatch 走 wrapper、每個 halt 走 helper),獨立工具沒有那個管線"
     reopen: "手寫 workflow 開始 dispatch agent"
   - round: 111
-    line: 10736
+    line: 10778
     kind: table_row
     item: "補回 `phase_completed` 的洞(omnibot/tts-new/taskq/run-all-by-workflow 全缺,taskq-super 缺 P5)"
     reason: "doctor 自己的 WARN 就寫著 \"cannot be reconstructed after the fact\";語料唯讀"
     reopen: "出現一個當下掉紀錄的專案(那是 writer 的 bug)"
   - round: 111
-    line: 10737
+    line: 10779
     kind: table_row
     item: "`plan_status.md` 無框架 reader"
     reason: "寫給人看的(`cli/phase_cmds.py:239` 印路徑)"
     reopen: "出現框架消費者,或老闆說從不看它"
   - round: 111
-    line: 10738
+    line: 10780
     kind: table_row
     item: "清掉舊專案殘留的 state 鍵(`last_milestone_at` / `last_push_checkpoint*` / `pipeline_complete`)"
     reason: "writer 早在 R24/R45 移除;殘留在唯讀的專案樹裡"
     reopen: "—"
   - round: 111
-    line: 10739
+    line: 10781
     kind: table_row
     item: "`tts-new` 的 FSM state `COMPLETE`"
     reason: "現行程式碼無任何寫者,2026-06-08 遺留;專案唯讀"
     reopen: "—"
   - round: 111
-    line: 10740
+    line: 10782
     kind: table_row
     item: "合併 `structural_fr_ids` 與 `parse_srs_fr_sections`"
     reason: "實測 21 專案只差 `-deferred` 與散文;兩者各自對自己的問題正確"
     reopen: "出現第三個 FR 讀法,或某次不一致改變了判定"
   - round: 111
-    line: 10741
+    line: 10783
     kind: table_row
     item: "ci-template 漂移自動執行 `init-project --ci-only --overwrite`"
     reason: "覆寫專案的 CI 檔是專案端決定"
     reopen: "老闆裁定框架可以覆寫已交付專案的 CI"
   - round: 111
-    line: 10742
+    line: 10784
     kind: table_row
     item: "動 `test_undoing_the_extraction...` 的空參數集"
     reason: "查證後不是缺陷"

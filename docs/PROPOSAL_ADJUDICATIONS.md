@@ -10313,6 +10313,48 @@ message」),而本 commit 沒有任何搬移,兩者不會互相掩蓋。
 | 站7 有 104 條要走 | 96 條有真條件,91 條無守衛 | 破折號 14 列不是條件未填 |
 | R88 的「97 個 `relative_to` 呼叫點」 | 今天生產碼 101、測試 62 | 沒說是否含測試,不可直接比較,兩個數字都記下 |
 
+### §3 站F3 — 結構漂移的四個成分,只有一個存在
+
+`harness/ssi/scripts/crg_analysis.py` 的
+`drift = 0.4*cohesion + 0.3*flow_coverage + 0.2*dead_code + 0.1*hub_risk`
+是照**同檔 `compute_metrics()`** 的 schema 寫的 —— 那條路徑確實四個成分都給。
+但兩個 gate 消費端餵進去的是 `harness/crg_independent.py` 寫的
+`.sessi-work/crg_metrics.json`,它只輸出 `community_cohesion` /
+`large_functions_*` / `architecture_score`。
+
+三個缺席成分被 `_score()` 的 `default=100` 與 `.get("ratio", 0)` 讀成
+「完全沒變」—— **60% 的權重恆為零**(R35)。**39 個 baseline / metrics 檔全掃過:
+`flow_coverage` / `dead_code` / `hub_risk_map` 出現次數 0。**
+`drift ∈ [0, 0.4]`,`>= 0.4` 只在 cohesion 由 100 掉到 0 時成立。
+
+血量:`harness/harness_bridge.py::_architecture_regression_reason` 用它做
+**Gate 4 硬阻擋**,`cli/checks/gates.py` 用同一個數做 **CI 硬 FAIL**。
+
+語料實測(13 個同時有 p4/p6 baseline 的專案,唯讀):
+
+```
+taskq-renew  cohesion 100.0 → 77.8   0.0888 → 0.2220
+taskq-api    cohesion 100.0 → 90.0   0.0400 → 0.1000
+taskq-cc-new                         0.0028 → 0.0070
+其餘 10 個                            0.0    → 0.0
+跨過 0.4 門檻的:改前 0 個,改後 0 個 —— 零翻轉,只是數字變誠實
+```
+
+`structural_drift` 回傳 `{drift, weight_covered, weight_total, absent}`,
+兩個 gate 端把 `weight_covered/weight_total` 印在數字旁 —— 與
+`harness/gate_result.py` 已在用的 `weight_covered` 同一個形狀,不是新發明。
+兩邊都沒有共同成分時回 `None` 而不是 0.0:沒有比較過,不能說「架構沒動」。
+
+**6 支測試 mock 了舊函式**,換名字後 mock 會靜靜掉出執行路徑 —— 這正是舊函式
+能維持「看起來正確」這麼久的原因。同一個 commit 一起改
+`tests/test_architecture_regression.py`(3 處)與 `tests/test_crg_arch_check.py`
+(2 處),斷言內容不變;第 4 條守衛
+(`test_no_caller_uses_the_float_only_drift`)就是防它再掉出去。
+
+反證:
+- CP-5 拿掉正規化 → `test_absent_drift_components_...` 紅,訊息裡出現 0.0888
+- CP-6 把一個呼叫端 alias 回舊名 → 守衛紅並指名 `cli/checks/gates.py`
+
 ### §9 明列不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
