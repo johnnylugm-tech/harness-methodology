@@ -2839,6 +2839,33 @@ class TestParseSrsFrSectionsMergesJson:
         assert fr["acceptance_criteria"] == []
         assert fr["verification_method"] == ""
 
+    def test_table_fallback_preserves_contract_fields(self, tmp_path):
+        """Table-fallback SRS (no ### FR headings) must emit the same dict shape
+        WITHOUT letting an Appendix A JSON block overwrite the table cell's
+        rich prose description with a narrower JSON description."""
+        body = (
+            "# SRS\n\n"
+            "| FR ID | Description |\n"
+            "|---|---|\n"
+            "| FR-01 | Telegram Webhook Adapter: 接收 POST 驗證 HMAC-SHA256 |\n"
+            "\n```json\n"
+            "{\n"
+            '  "functional_requirements": [\n'
+            '    {"id": "FR-01", "description": "Webhook Adapter", "verification_method": "Unit test"}\n'
+            "  ]\n"
+            "}\n"
+            "```\n"
+        )
+        _write_minimal_srs(tmp_path, body)
+        frs = parse_srs_fr_sections(tmp_path / "01-requirements" / "SRS.md")
+        assert len(frs) == 1
+        fr = frs[0]
+        assert "implementation_modules" in fr and fr["implementation_modules"] == []
+        assert "acceptance_criteria" in fr and fr["acceptance_criteria"] == []
+        assert "verification_method" in fr and fr["verification_method"] == "Unit test"
+        assert fr["desc"] == "Telegram Webhook Adapter: 接收 POST 驗證 HMAC-SHA256"
+        assert fr["title"] == "FR-01: Telegram Webhook Adapter: 接收 POST 驗證 HMAC-SHA256"
+
     def test_real_srs_md_extracts_all_frs(self):
         """Regression against the actual INGESTION MODE SRS.md files delivered
         by the corpus projects. Nothing an SRS declares as an FR section may be
@@ -2923,6 +2950,17 @@ class TestParseSrsFrSectionsMergesJson:
                 problems.append(f"{name}: {lost}")
             for fr in frs:
                 assert fr["fr"].startswith("FR-"), f"{name}: bad FR id: {fr}"
+                assert "implementation_modules" in fr, f"{name}: {fr['fr']} missing implementation_modules"
+                assert isinstance(fr["implementation_modules"], list)
+                assert "acceptance_criteria" in fr, f"{name}: {fr['fr']} missing acceptance_criteria"
+                assert isinstance(fr["acceptance_criteria"], list)
+                assert "verification_method" in fr, f"{name}: {fr['fr']} missing verification_method"
+                assert isinstance(fr["verification_method"], str)
+            if name == "omnibot":
+                fr1 = next((f for f in frs if f["fr"] == "FR-01"), None)
+                assert fr1 and "接收 POST /api/v1/webhook/telegram" in fr1["desc"], (
+                    "omnibot FR-01 desc was overwritten by JSON description"
+                )
 
         assert not problems, (
             "these SRS.md files declare an FR section the parser did not "

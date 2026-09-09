@@ -348,12 +348,16 @@ def parse_srs_fr_sections(srs_path) -> List[Dict]:
             # Truncate overly long table-cell descriptions
             if len(desc) > 200:
                 desc = desc[:197] + "..."
+            json_meta = fr_json_meta.get(fr_num, {})
             frs.append({
                 'fr': fr_num,
                 'title': f"{fr_num}: {desc[:80]}",
                 'desc': desc,
                 'test_cases': [],
                 'requirements': [],
+                'implementation_modules': json_meta.get('implementation_modules', []),
+                'acceptance_criteria': json_meta.get('acceptance_criteria', []),
+                'verification_method': json_meta.get('verification_method', ''),
                 'raw_details': desc,
             })
 

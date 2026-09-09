@@ -2281,13 +2281,13 @@ entries:
       `reconstructible: False` 帶完整理由(R87 站5),空集是誠實的,不是死守衛。
   - round: 111
     item: "`parse_srs_fr_sections` 的兩種 dict 形狀(table fallback 少三個欄位)"
-    verdict: NOT_MET
-    guard: "manual"
+    verdict: MET
+    guard: "tests/test_generate_full_plan.py::TestParseSrsFrSectionsMergesJson::test_table_fallback_preserves_contract_fields"
+    resolved_in: "Round 112 站1"
     evidence: >-
-      2026-09-09: 條件是「那三個欄位出現第一個讀者」。站F5 當場搜過全樹
-      (`scripts/ core/ cli/ harness/`),`implementation_modules` /
-      `acceptance_criteria` / `verification_method` 在 `artifact_parsers.py`
-      以外零次出現 —— 沒有讀者,所以兩種形狀今天沒有消費者能被它咬到。
+      2026-09-09 Round 112 站1: 統一形狀,table fallback 補齊 `implementation_modules` ([]),
+      `acceptance_criteria` ([]), `verification_method` (json_meta 或 ""),
+      且嚴格保留 markdown 表格單元格之原始 prose 需求,絕不被 narrow JSON description 覆蓋。
   - round: 111
     item: "移除 `implementation_modules` / `acceptance_criteria` / `verification_method`"
     verdict: NOT_MET
